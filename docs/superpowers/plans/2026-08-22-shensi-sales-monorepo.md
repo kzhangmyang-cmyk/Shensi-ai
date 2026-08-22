@@ -36,7 +36,7 @@
 - Consumes: Git trees `d21bbac...` and `daaf468...`
 - Produces: 一个同时包含两边祖先、且目录符合设计的 merge tree
 
-- [ ] **Step 1: 固定并验证来源对象**
+- [x] **Step 1: 固定并验证来源对象**
 
 ```bash
 git fetch https://github.com/kzhangmyang-cmyk/GoodJob.git \
@@ -49,7 +49,7 @@ test "$(git rev-parse main)" = \
 
 Expected: 两个 `test` 均 exit 0。
 
-- [ ] **Step 2: 运行普通 merge 并确认预期结构冲突**
+- [x] **Step 2: 运行普通 merge 并确认预期结构冲突**
 
 ```bash
 git merge --no-ff --no-commit refs/remotes/goodjob/main
@@ -57,7 +57,7 @@ git merge --no-ff --no-commit refs/remotes/goodjob/main
 
 Expected: merge 进入未提交状态并报告前端根目录与 GoodJob Monorepo 的结构冲突；不得提交自动合并结果。
 
-- [ ] **Step 3: 按批准设计机械重建 tree**
+- [x] **Step 3: 按批准设计机械重建 tree**
 
 ```bash
 FRONTEND_TREE_DIR="$(mktemp -d)"
@@ -76,7 +76,7 @@ git add -A
 
 Expected: `backend/src/server.ts`、`frontend/src/main.tsx` 和 `contracts/package.json` 同时存在；`frontend/debug-agents.mts` 不存在。
 
-- [ ] **Step 4: 验证 merge 索引和双历史**
+- [x] **Step 4: 验证 merge 索引和双历史**
 
 ```bash
 test -f backend/src/server.ts
@@ -103,7 +103,7 @@ Expected: 全部 exit 0。保持 merge 状态进入 Task 2，根工程配置完�
 - Consumes: `backend/package.json`, `frontend/package.json`, `contracts/package.json`
 - Produces: 根命令 `dev`, `build`, `test`, `test:financial-council`, `test:e2e`, `test:e2e:financial-council:real`, `test:layout`
 
-- [ ] **Step 1: 写结构门禁测试**
+- [x] **Step 1: 写结构门禁测试**
 
 Create `tools/shensi-monorepo-layout.test.mjs`:
 
@@ -128,13 +128,13 @@ test("repository exposes the approved monorepo layout", async () => {
 });
 ```
 
-- [ ] **Step 2: 运行结构门禁并确认 RED**
+- [x] **Step 2: 运行结构门禁并确认 RED**
 
 Run: `node --test tools/shensi-monorepo-layout.test.mjs`
 
 Expected: FAIL，因为正式 workspace 尚未建立或 `package-lock.json` 仍存在。
 
-- [ ] **Step 3: 写根 workspace 配置与命令**
+- [x] **Step 3: 写根 workspace 配置与命令**
 
 Create `pnpm-workspace.yaml`:
 
@@ -170,7 +170,7 @@ Set root `package.json` to private package `shensi-sales`, preserve Node engine 
 }
 ```
 
-- [ ] **Step 4: 删除旧锁并生成唯一 pnpm 锁**
+- [x] **Step 4: 删除旧锁并生成唯一 pnpm 锁**
 
 ```bash
 git rm package-lock.json
@@ -181,7 +181,7 @@ pnpm install --frozen-lockfile
 
 Expected: 根 `pnpm-lock.yaml` 同时列出三个 workspace importer，安装 exit 0。
 
-- [ ] **Step 5: 运行结构门禁并确认 GREEN**
+- [x] **Step 5: 运行结构门禁并确认 GREEN**
 
 Run: `pnpm test:layout`
 
@@ -201,7 +201,7 @@ Expected: 1 test PASS。
 - Consumes: root release `contracts/releases/growth-advisor-quote-roi/1.0.10`
 - Produces: 默认定位当前 Monorepo 根的真实 E2E；校验 pinned 消费快照与根 release 同源
 
-- [ ] **Step 1: 为默认后端根路径写失败断言**
+- [x] **Step 1: 为默认后端根路径写失败断言**
 
 Append to `tools/shensi-monorepo-layout.test.mjs`:
 
@@ -216,13 +216,13 @@ test("real council E2E resolves the backend from this monorepo", async () => {
 });
 ```
 
-- [ ] **Step 2: 运行路径测试并确认 RED**
+- [x] **Step 2: 运行路径测试并确认 RED**
 
 Run: `pnpm test:layout`
 
 Expected: FAIL，因为配置仍含旧绝对路径 `/GoodJob-growth`。
 
-- [ ] **Step 3: 改为相对当前仓库的默认路径**
+- [x] **Step 3: 改为相对当前仓库的默认路径**
 
 In `frontend/playwright.financial-council-real.config.ts`:
 
@@ -237,7 +237,7 @@ const backendRoot = process.env.GOODJOB_BACKEND_ROOT ?? repositoryRoot;
 
 Keep the environment override and existing no-route-interception behavior.
 
-- [ ] **Step 4: 校验 pinned 合同与根 release 一致**
+- [x] **Step 4: 校验 pinned 合同与根 release 一致**
 
 Extend `frontend/scripts/check-growth-contract.mjs` so `verifyPinnedGrowthContract()` also reads `../../contracts/releases/growth-advisor-quote-roi/1.0.10`, verifies both releases, then rejects unless `contractVersion` and `contractHash` match. Add a temporary-directory test whose valid pinned release identifies a different canonical root release and expects `Pinned growth contract identity mismatch`.
 
@@ -250,7 +250,7 @@ node --test frontend/scripts/check-growth-contract.test.mjs
 
 Expected: all checks PASS and generated TypeScript remains unchanged.
 
-- [ ] **Step 5: 运行路径门禁并确认 GREEN**
+- [x] **Step 5: 运行路径门禁并确认 GREEN**
 
 ```bash
 pnpm test:layout
@@ -273,7 +273,7 @@ Expected: all PASS。
 - Consumes: Task 2 根命令和 Task 3 路径规则
 - Produces: 当前开发者唯一入口和可复制命令
 
-- [ ] **Step 1: 写根 README**
+- [x] **Step 1: 写根 README**
 
 Document exact commands:
 
@@ -289,7 +289,7 @@ MYSQL_TEST_ADMIN_URL=... pnpm test:e2e:financial-council:real
 
 Include directory responsibilities, memory/MySQL modes, contract ownership, environment-file policy, and links to backend/current documentation plus `frontend/README.md`.
 
-- [ ] **Step 2: 修正前端 README 的路径和命令**
+- [x] **Step 2: 修正前端 README 的路径和命令**
 
 Replace the absolute `GOODJOB_BACKEND_ROOT=/Users/.../GoodJob-growth` example with:
 
@@ -300,7 +300,7 @@ pnpm test:e2e:financial-council:real
 
 Explain that `frontend/contracts/pinned/` is a verified consumption snapshot, while authored contracts live at root `contracts/`.
 
-- [ ] **Step 3: 检查文档无旧工作区入口**
+- [x] **Step 3: 检查文档无旧工作区入口**
 
 ```bash
 rg -n '/Users/mac/Documents/新项目/GoodJob-growth' \
@@ -321,7 +321,7 @@ Expected: no matches。
 - Consumes: Tasks 1–4 complete target tree
 - Produces: reviewable GitHub integration branch and PR
 
-- [ ] **Step 1: 提交原子历史 merge**
+- [x] **Step 1: 提交原子历史 merge**
 
 ```bash
 git add -A
@@ -331,7 +331,7 @@ git commit -m "feat: unify shensi sales frontend and backend"
 
 Expected: commit has two parents; `git rev-list --parents -n 1 HEAD` contains pre-merge shensi branch and `d21bbac...` ancestry。
 
-- [ ] **Step 2: 运行安装与快速工程门禁**
+- [x] **Step 2: 运行安装与快速工程门禁**
 
 ```bash
 pnpm install --frozen-lockfile
@@ -347,7 +347,7 @@ git diff --check
 
 Expected: all exit 0；Vite 既有 chunk warning 可记录但不是失败。
 
-- [ ] **Step 3: 运行金融委员会与浏览器回归**
+- [x] **Step 3: 运行金融委员会与浏览器回归**
 
 ```bash
 pnpm test:financial-council
@@ -357,7 +357,7 @@ pnpm --filter ./frontend exec playwright test \
 
 Expected: backend aggregate 0 fail；指定 Playwright suites 0 fail。
 
-- [ ] **Step 4: 有真实 MySQL 时运行最终验收**
+- [x] **Step 4: 有真实 MySQL 时运行最终验收**
 
 ```bash
 MYSQL_TEST_ADMIN_URL="$MYSQL_TEST_ADMIN_URL" \
@@ -366,7 +366,7 @@ pnpm test:e2e:financial-council:real
 
 Expected: Chromium 1/1 PASS；变量或 MySQL 不可用时明确标记 BLOCKED，不用 fake 替代。
 
-- [ ] **Step 5: 做安全和来源核对**
+- [x] **Step 5: 做安全和来源核对**
 
 ```bash
 test ! -e debug-agents.mts
@@ -390,3 +390,16 @@ gh pr create \
 ```
 
 PR body lists source commits, directory layout, pnpm decision, exact test counts, any MySQL/E2E blocker, and confirms the two local user files were excluded.
+
+## Implementation Record
+
+- 历史合并提交：`5657a2b4282c02ee7d5f1481168daad737faa44a`，父历史为 `01a88db286698effe39b8368c8c64630b7658cc4` 与 `d21bbac7a751d853216bfe0a63461121396f5ab1`。
+- 重建时目标 `frontend/` subtree 与来源 `daaf468f8efd8dde5d85ea9715794bf96a3bce26` 的 tree hash 均为 `321756959c857b120fb0633db9c65815c9e050de`；随后只加入 Monorepo 路径、合同校验、生成类型和 README 变更。
+- `pnpm install --frozen-lockfile`：PASS，4 个 workspace importer。
+- 结构门禁：2/2 PASS。
+- 合同门禁：88/88 PASS；生成类型 freshness PASS。
+- 前端：types PASS，自测试 125/125 PASS，build PASS。
+- 后端：TypeScript build PASS；金融委员会 325 pass / 0 fail / 2 conditional live-MySQL skips。
+- Chromium 关键回归：20/20 PASS（visual reader + financial council fixture suites）。
+- 真实 MySQL + no-intercept Chromium：BLOCKED，当前环境 `MYSQL_TEST_ADMIN_URL` 未配置，且本机无 `mysql`/Docker；未用 fake 结果替代。
+- `debug-agents.mts` 和原前端未提交的 `pnpm-workspace.yaml` 均未复制；原工作区保持原状。
