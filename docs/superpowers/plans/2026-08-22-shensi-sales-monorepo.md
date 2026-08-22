@@ -67,7 +67,7 @@ git checkout refs/remotes/goodjob/main -- .
 git rm -r --ignore-unmatch frontend
 mkdir frontend
 cp -R "$FRONTEND_TREE_DIR"/. frontend/
-git checkout 92010c4 -- \
+git checkout 0fd63fa -- \
   docs/superpowers/specs/2026-08-22-shensi-sales-monorepo-design.md
 git checkout codex/shensi-sales-monorepo -- \
   docs/superpowers/plans/2026-08-22-shensi-sales-monorepo.md
@@ -393,7 +393,7 @@ PR body lists source commits, directory layout, pnpm decision, exact test counts
 
 ## Implementation Record
 
-- 历史合并提交：`5657a2b4282c02ee7d5f1481168daad737faa44a`，父历史为 `01a88db286698effe39b8368c8c64630b7658cc4` 与 `d21bbac7a751d853216bfe0a63461121396f5ab1`。
+- 历史合并提交：`4d2185018f93333a2606d77f306ff3e14f25eea3`，父历史为 `14aab16d91f9393d96fdc9509077203454799e68` 与 `d21bbac7a751d853216bfe0a63461121396f5ab1`。
 - 重建时目标 `frontend/` subtree 与来源 `daaf468f8efd8dde5d85ea9715794bf96a3bce26` 的 tree hash 均为 `321756959c857b120fb0633db9c65815c9e050de`；随后只加入 Monorepo 路径、合同校验、生成类型和 README 变更。
 - `pnpm install --frozen-lockfile`：PASS，4 个 workspace importer。
 - 结构门禁：2/2 PASS。
