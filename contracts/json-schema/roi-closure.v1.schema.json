@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://goodjob.example/contracts/json-schema/roi-closure.v1.schema.json", "title": "RoiClosureVersion",
+  "type": "object", "additionalProperties": false,
+  "required": ["id", "workspaceId", "cohortId", "currency", "version", "asOf", "status", "previousClosureVersionId", "sliceKey", "formulaVersion", "membershipSnapshotHash", "attestationSetHash", "factSetHash", "costSetHash", "allocationSetHash", "settlementSetHash", "calculationHash", "closedBy", "closedAt"],
+  "properties": {
+    "id": { "$ref": "#/$defs/nonempty" }, "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } }, "cohortId": { "$ref": "#/$defs/nonempty" }, "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "version": { "type": "integer", "minimum": 1 }, "asOf": { "type": "string", "format": "date-time" }, "status": { "enum": ["closed", "superseded"] }, "previousClosureVersionId": { "type": ["string", "null"], "minLength": 1 },
+    "sliceKey": { "$ref": "#/$defs/GrowthRoiSliceKey" }, "formulaVersion": { "const": "actual-roi.v1" },
+    "membershipSnapshotHash": { "$ref": "#/$defs/hash" }, "attestationSetHash": { "$ref": "#/$defs/hash" }, "factSetHash": { "$ref": "#/$defs/hash" }, "costSetHash": { "$ref": "#/$defs/hash" },
+    "allocationSetHash": { "$ref": "#/$defs/hash" }, "settlementSetHash": { "$ref": "#/$defs/hash" }, "calculationHash": { "$ref": "#/$defs/hash" }, "closedBy": { "$ref": "#/$defs/nonempty" }, "closedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "nonempty": { "type": "string", "minLength": 1 }, "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }, "GrowthRoiSliceKey": { "type": "string", "pattern": "^(?:all|plan:.+)$" },
+    "RoiClosureSeries": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "workspaceId", "cohortId", "currency", "status", "currentClosureVersionId", "revision", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonempty" }, "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } }, "cohortId": { "$ref": "#/$defs/nonempty" },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }, "status": { "const": "open" }, "currentClosureVersionId": { "type": ["string", "null"], "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 }, "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

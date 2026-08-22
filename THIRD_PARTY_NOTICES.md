@@ -1,46 +1,63 @@
 # Third-party notices
 
-## linkedom 0.18.13
+## Douyin public comment sample provider
 
-- Repository: <https://github.com/WebReflection/linkedom>
-- License: ISC
-- Usage: development and test only, for parsing fixed HTML fixtures used by the Douyin visible-comment extractor self-tests
-- Distribution: not included in the production browser-extension bundle
-- Modifications: none
+The narrow public-response field normalization in
+`backend/src/douyin-public-comment-provider.ts` was informed by these source
+files only:
 
-## tesseract.js 7.0.0
+- `JNHFlow21/social-media-toolkit@ed2f3cbdc47e6761736e915cfeb1ce1fbb364d96`,
+  `social_media_toolkit/platforms/core.py` and
+  `tests/test_social_extractor.py` — Apache-2.0.
+- `jiji262/douyin-downloader@ad7338fdc474c14e2063370540a362cd8a953b43`,
+  `core/comments_collector.py` and `tests/test_comments_collector.py` — MIT.
 
-- Repository: <https://github.com/naptha/tesseract.js>
+No Cookie, login, request-signing, proxy, browser-simulation, or access-bypass
+code from either project is included or adapted here.
+
+## Sharp
+
+- Package: `sharp@0.35.3`
+- Repository: <https://github.com/lovell/sharp>
 - License: Apache-2.0
-- Usage: local OCR controller and dedicated extension worker for redacted comment-card WebP bytes
-- Distribution: the worker is built from the pinned package source and shipped as `ocr/worker.min.js`; no CDN artifact is used
-- Modifications: the extension build removes the upstream regenerator-runtime import because the target is native ES2022, removes the browser worker and language-data CDN fallbacks, requires a `chrome-extension://` or `moz-extension://` language path, and restricts the browser image loader and worker decoder to caller-supplied redacted WebP `Uint8Array` bytes. BMP support and its `bmp-js`/Node `Buffer` branch are omitted. The integration supplies a local core loader, rejects compressed runtime language data, and uses a no-op cache adapter, so OCR does not use IndexedDB or another persistent cache.
+- Use: server-side, request-memory-only decoding of submitted WebP comment-card
+  crops so dimensions, frame count, metadata absence, bounded pixel count, and
+  opaque redaction pixels can be validated before persistence.
 
-## tesseract.js-core 7.0.0
+- Optional platform package family: `@img/sharp-libvips-*@1.3.2`
+- Repository: <https://github.com/lovell/sharp-libvips>
+- License: LGPL-3.0-or-later
+- Use: unmodified, prebuilt platform-specific libvips shared libraries selected
+  by Sharp at install/runtime. The installed macOS ARM package contains libvips
+  8.18.3; the lockfile also records the other optional platform variants.
 
-- Repository: <https://github.com/naptha/tesseract.js-core>
-- License: Apache-2.0
-- Usage: local LSTM-only Tesseract WASM runtime selected according to relaxed-SIMD, SIMD, or baseline browser support
-- Distribution: the three LSTM JavaScript loaders and their matching WASM binaries are copied from the pinned package into `ocr/core/`
-- Modifications: none; copied core JavaScript and WASM assets are byte-for-byte package files and are recorded in `ocr-assets.json`
+GoodJob does not modify Sharp or the prebuilt libvips packages and never gives
+Sharp a client URL, filesystem path, or stream. Apache-2.0 describes the Sharp
+package; the optional prebuilt libvips distribution retains its separate
+LGPL-3.0-or-later terms.
 
-## @tesseract.js-data/chi_sim 1.0.0
+## Authorized visual reader frontend distribution
 
-- Repository: <https://github.com/naptha/tessdata>
-- License: MIT
-- Usage: Simplified Chinese OCR language data
-- Distribution: the pinned `4.0.0_best_int/chi_sim.traineddata.gz` is decompressed at build time and shipped as `ocr/lang/chi_sim.traineddata`
-- Modifications: compression is removed without changing the traineddata payload; the shipped bytes are recorded in `ocr-assets.json`. Runtime decompression is deliberately disabled so the browser worker does not include a Node `Buffer` compatibility path.
+The separately versioned GoodJob frontend and its unpacked read-only browser
+extension use these pinned packages:
 
-The unpacked extension includes this notice plus full Apache-2.0 texts for
-`tesseract.js` and `tesseract.js-core`, and the MIT text declared by both pinned
-language-data packages, under `ocr/licenses/`. Those license files are also
-covered by the byte-length and SHA-256 inventory in `ocr-assets.json`.
+- `tesseract.js@7.0.0` — Apache-2.0; a locally built OCR worker restricted to
+  caller-supplied, redacted comment-card WebP bytes. CDN and persistent-cache
+  paths are removed by the frontend build.
+- `tesseract.js-core@7.0.0` — Apache-2.0; unmodified LSTM JavaScript loaders and
+  WASM binaries for baseline, SIMD, and relaxed-SIMD browsers.
+- `@tesseract.js-data/chi_sim@1.0.0` and
+  `@tesseract.js-data/eng@1.0.0` — MIT; pinned `best_int` language payloads are
+  decompressed at build time without changing the traineddata bytes.
+- `linkedom@0.18.13` — ISC; development/test-only parsing of fixed visible-
+  comment HTML fixtures, not included in the extension production bundle.
 
-## @tesseract.js-data/eng 1.0.0
+Repositories: <https://github.com/naptha/tesseract.js>,
+<https://github.com/naptha/tesseract.js-core>,
+<https://github.com/naptha/tessdata>, and
+<https://github.com/WebReflection/linkedom>.
 
-- Repository: <https://github.com/naptha/tessdata>
-- License: MIT
-- Usage: English, Latin-letter, and numeric OCR language data used alongside Simplified Chinese
-- Distribution: the pinned `4.0.0_best_int/eng.traineddata.gz` is decompressed at build time and shipped as `ocr/lang/eng.traineddata`
-- Modifications: compression is removed without changing the traineddata payload; the shipped bytes are recorded in `ocr-assets.json`. Runtime decompression is deliberately disabled so the browser worker does not include a Node `Buffer` compatibility path.
+The frontend repository's `THIRD_PARTY_NOTICES.md` is the authoritative shipped
+inventory. The unpacked extension includes the full Apache-2.0 and MIT license
+texts and a byte-length/SHA-256 inventory for its OCR assets. None of these
+frontend packages is linked into or distributed by the backend runtime.

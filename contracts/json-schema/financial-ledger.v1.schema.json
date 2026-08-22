@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/financial-ledger.v1.schema.json",
+  "title": "FinancialFact",
+  "type": "object", "additionalProperties": false,
+  "required": ["id", "workspaceId", "candidateId", "customerId", "dealId", "quoteVersionId", "factType", "amountMinor", "currency", "businessOccurredAt", "recordedAt", "provenance", "sourceRef", "evidenceHash", "externalId", "sourceIdentityRoot", "sourceVersion", "attributionSnapshot", "commercialBindingSnapshot", "commercialAmountHash", "dealAuthorityRevision", "correctsFactId", "correctionGroupId", "status", "revision", "createdBy"],
+  "properties": {
+    "id": { "$ref": "#/$defs/nonempty" }, "workspaceId": { "$ref": "#/$defs/workspace" }, "candidateId": { "$ref": "#/$defs/nullableId" },
+    "customerId": { "$ref": "#/$defs/nullableId" }, "dealId": { "$ref": "#/$defs/nullableId" }, "quoteVersionId": { "$ref": "#/$defs/nullableId" },
+    "factType": { "$ref": "#/$defs/factType" }, "amountMinor": { "$ref": "#/$defs/positiveMoney" }, "currency": { "$ref": "#/$defs/currency" },
+    "businessOccurredAt": { "$ref": "#/$defs/dateTime" }, "recordedAt": { "$ref": "#/$defs/dateTime" }, "provenance": { "$ref": "#/$defs/nonempty" },
+    "sourceRef": { "$ref": "#/$defs/nullableId" }, "evidenceHash": { "$ref": "#/$defs/hash" }, "externalId": { "$ref": "#/$defs/nullableId" },
+    "sourceIdentityRoot": { "$ref": "#/$defs/nonempty" }, "sourceVersion": { "type": "integer", "minimum": 1 },
+    "attributionSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "outcome-feedback.v1.schema.json#/$defs/liveAttribution" }] },
+    "commercialBindingSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "quote-case.v1.schema.json#/$defs/CommercialBindingSnapshot" }] },
+    "commercialAmountHash": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/hash" }] }, "dealAuthorityRevision": { "type": ["integer", "null"], "minimum": 0 },
+    "correctsFactId": { "$ref": "#/$defs/nullableId" }, "correctionGroupId": { "$ref": "#/$defs/nullableId" },
+    "status": { "enum": ["pending", "verified", "rejected", "reversed"] }, "revision": { "type": "integer", "minimum": 1 }, "createdBy": { "$ref": "#/$defs/nonempty" }
+  },
+  "$defs": {
+    "nonempty": { "type": "string", "minLength": 1 }, "nullableId": { "type": ["string", "null"], "minLength": 1 },
+    "workspace": { "type": "string", "minLength": 1, "not": { "const": "all" } }, "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "dateTime": { "type": "string", "format": "date-time" }, "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "positiveMoney": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "factType": { "enum": ["contract_won", "payment_received", "revenue_recognized", "cogs_recognized", "refund", "bad_debt_written_off"] },
+    "FinancialFactCreateInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidateId", "customerId", "dealId", "factType", "amountMinor", "currency", "businessOccurredAt", "provenance", "sourceRef", "evidenceHash", "externalId", "sourceIdentityRoot"],
+      "properties": {
+        "candidateId": { "$ref": "#/$defs/nullableId" }, "customerId": { "$ref": "#/$defs/nullableId" }, "dealId": { "$ref": "#/$defs/nullableId" },
+        "factType": { "$ref": "#/$defs/factType" }, "amountMinor": { "$ref": "#/$defs/positiveMoney" }, "currency": { "$ref": "#/$defs/currency" },
+        "businessOccurredAt": { "$ref": "#/$defs/dateTime" }, "provenance": { "$ref": "#/$defs/nonempty" }, "sourceRef": { "$ref": "#/$defs/nullableId" },
+        "evidenceHash": { "$ref": "#/$defs/hash" }, "externalId": { "$ref": "#/$defs/nullableId" }, "sourceIdentityRoot": { "$ref": "#/$defs/nonempty" }
+      }
+    },
+    "FinancialFactDecisionInput": {
+      "type": "object", "additionalProperties": false, "required": ["reason"],
+      "properties": { "reason": { "type": "string", "minLength": 1 } }
+    },
+    "FinancialFactCorrectionInput": {
+      "type": "object", "additionalProperties": false, "required": ["reason", "replacement"],
+      "properties": { "reason": { "type": "string", "minLength": 1 }, "replacement": { "$ref": "#/$defs/FinancialFactCreateInput" } }
+    },
+    "FinancialFactCorrectionResult": {
+      "type": "object", "additionalProperties": false, "required": ["reversedFactId", "replacementFact", "correctionGroupId"],
+      "properties": { "reversedFactId": { "$ref": "#/$defs/nonempty" }, "replacementFact": { "$ref": "#" }, "correctionGroupId": { "$ref": "#/$defs/nonempty" } }
+    },
+    "LedgerVerificationEvent": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "workspaceId", "ledgerType", "ledgerEntryId", "eventType", "reversesEventId", "correctionGroupId", "reason", "decidedBy", "recordedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonempty" }, "workspaceId": { "$ref": "#/$defs/workspace" }, "ledgerType": { "enum": ["cost", "financial"] }, "ledgerEntryId": { "$ref": "#/$defs/nonempty" },
+        "eventType": { "enum": ["verified", "rejected", "reversed"] }, "reversesEventId": { "$ref": "#/$defs/nullableId" }, "correctionGroupId": { "$ref": "#/$defs/nullableId" },
+        "reason": { "type": "string", "minLength": 1 }, "decidedBy": { "$ref": "#/$defs/nonempty" }, "recordedAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "FinancialSourceReport": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "workspaceId", "currency", "sourceSystem", "sourceCursor", "reportHash", "declaredTotalMinor", "periodFrom", "periodTo", "createdBy", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonempty" }, "workspaceId": { "$ref": "#/$defs/workspace" }, "currency": { "$ref": "#/$defs/currency" }, "sourceSystem": { "$ref": "#/$defs/nonempty" },
+        "sourceCursor": { "$ref": "#/$defs/nullableId" }, "reportHash": { "$ref": "#/$defs/hash" }, "declaredTotalMinor": { "$ref": "#/$defs/positiveMoney" },
+        "periodFrom": { "$ref": "#/$defs/dateTime" }, "periodTo": { "$ref": "#/$defs/dateTime" }, "createdBy": { "$ref": "#/$defs/nonempty" }, "createdAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "FinancialSourceReportCreateInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["currency", "sourceSystem", "sourceCursor", "reportHash", "declaredTotalMinor", "periodFrom", "periodTo"],
+      "properties": {
+        "currency": { "$ref": "#/$defs/currency" }, "sourceSystem": { "$ref": "#/$defs/nonempty" }, "sourceCursor": { "$ref": "#/$defs/nullableId" },
+        "reportHash": { "$ref": "#/$defs/hash" }, "declaredTotalMinor": { "$ref": "#/$defs/positiveMoney" },
+        "periodFrom": { "$ref": "#/$defs/dateTime" }, "periodTo": { "$ref": "#/$defs/dateTime" }
+      }
+    }
+  }
+}

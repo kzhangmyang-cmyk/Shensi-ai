@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/acquisition-cost-ledger.v1.schema.json",
+  "title": "AcquisitionCostEntry",
+  "type": "object", "additionalProperties": false,
+  "required": ["id", "workspaceId", "platform", "planId", "runId", "providerId", "category", "amountMinor", "currency", "occurredAt", "provenance", "sourceRef", "evidenceHash", "externalId", "sourceIdentityRoot", "sourceVersion", "businessOccurredAt", "recordedAt", "correctsCostEntryId", "correctionGroupId", "status", "revision", "createdBy"],
+  "properties": {
+    "id": { "$ref": "#/$defs/nonempty" }, "workspaceId": { "$ref": "#/$defs/workspace" }, "platform": { "$ref": "#/$defs/nonempty" },
+    "planId": { "$ref": "#/$defs/nullableId" }, "runId": { "$ref": "#/$defs/nullableId" }, "providerId": { "$ref": "#/$defs/nullableId" },
+    "category": { "enum": ["api", "media", "content", "agency", "operation"] },
+    "amountMinor": { "$ref": "#/$defs/positiveMoney" }, "currency": { "$ref": "#/$defs/currency" },
+    "occurredAt": { "$ref": "#/$defs/dateTime" }, "provenance": { "enum": ["provider_reported", "portal_export", "invoice_confirmed", "manual_verified"] },
+    "sourceRef": { "$ref": "#/$defs/nullableId" }, "evidenceHash": { "$ref": "#/$defs/hash" }, "externalId": { "$ref": "#/$defs/nullableId" },
+    "sourceIdentityRoot": { "$ref": "#/$defs/nonempty" }, "sourceVersion": { "type": "integer", "minimum": 1 },
+    "businessOccurredAt": { "$ref": "#/$defs/dateTime" }, "recordedAt": { "$ref": "#/$defs/dateTime" },
+    "correctsCostEntryId": { "$ref": "#/$defs/nullableId" }, "correctionGroupId": { "$ref": "#/$defs/nullableId" },
+    "status": { "enum": ["pending", "verified", "rejected", "reversed"] }, "revision": { "type": "integer", "minimum": 1 }, "createdBy": { "$ref": "#/$defs/nonempty" }
+  },
+  "$defs": {
+    "nonempty": { "type": "string", "minLength": 1 }, "nullableId": { "type": ["string", "null"], "minLength": 1 },
+    "workspace": { "type": "string", "minLength": 1, "not": { "const": "all" } }, "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "dateTime": { "type": "string", "format": "date-time" }, "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "positiveMoney": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "AcquisitionCostEntryCreateInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["platform", "planId", "runId", "providerId", "category", "amountMinor", "currency", "businessOccurredAt", "provenance", "sourceRef", "evidenceHash", "externalId", "sourceIdentityRoot", "estimateReconciliationId"],
+      "properties": {
+        "platform": { "$ref": "#/$defs/nonempty" }, "planId": { "$ref": "#/$defs/nullableId" }, "runId": { "$ref": "#/$defs/nullableId" }, "providerId": { "$ref": "#/$defs/nullableId" },
+        "category": { "enum": ["api", "media", "content", "agency", "operation"] }, "amountMinor": { "$ref": "#/$defs/positiveMoney" }, "currency": { "$ref": "#/$defs/currency" },
+        "businessOccurredAt": { "$ref": "#/$defs/dateTime" }, "provenance": { "enum": ["provider_reported", "portal_export", "invoice_confirmed", "manual_verified"] },
+        "sourceRef": { "$ref": "#/$defs/nullableId" }, "evidenceHash": { "$ref": "#/$defs/hash" }, "externalId": { "$ref": "#/$defs/nullableId" },
+        "sourceIdentityRoot": { "$ref": "#/$defs/nonempty" }, "estimateReconciliationId": { "$ref": "#/$defs/nullableId" }
+      }
+    },
+    "AcquisitionCostDecisionInput": {
+      "type": "object", "additionalProperties": false, "required": ["reason"],
+      "properties": { "reason": { "type": "string", "minLength": 1 } }
+    },
+    "AcquisitionCostCorrectionInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["amountMinor", "businessOccurredAt", "evidenceHash", "sourceRef", "reason"],
+      "properties": {
+        "amountMinor": { "$ref": "#/$defs/positiveMoney" }, "businessOccurredAt": { "$ref": "#/$defs/dateTime" },
+        "evidenceHash": { "$ref": "#/$defs/hash" }, "sourceRef": { "$ref": "#/$defs/nullableId" }, "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "AcquisitionCostEstimateDraftInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cohortId", "planId", "runId", "amountMinor", "currency", "source", "sourceStableKey", "sourceVersion", "inputSnapshotHash", "validFrom", "validTo"],
+      "properties": {
+        "cohortId": { "$ref": "#/$defs/nullableId" }, "planId": { "$ref": "#/$defs/nullableId" }, "runId": { "$ref": "#/$defs/nullableId" },
+        "amountMinor": { "$ref": "#/$defs/positiveMoney" }, "currency": { "$ref": "#/$defs/currency" },
+        "source": { "enum": ["approved_budget", "plan_budget", "provider_estimate", "manual_estimate"] }, "sourceStableKey": { "$ref": "#/$defs/nonempty" },
+        "sourceVersion": { "type": "integer", "minimum": 1 }, "inputSnapshotHash": { "$ref": "#/$defs/hash" }, "validFrom": { "$ref": "#/$defs/dateTime" },
+        "validTo": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "AcquisitionCostEstimate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "workspaceId", "cohortId", "planId", "runId", "amountMinor", "currency", "source", "sourceStableKey", "version", "status", "sourceVersion", "inputSnapshotHash", "revision", "validFrom", "validTo", "createdBy", "createdAt", "activatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonempty" }, "workspaceId": { "$ref": "#/$defs/workspace" },
+        "cohortId": { "$ref": "#/$defs/nullableId" }, "planId": { "$ref": "#/$defs/nullableId" }, "runId": { "$ref": "#/$defs/nullableId" },
+        "amountMinor": { "$ref": "#/$defs/positiveMoney" }, "currency": { "$ref": "#/$defs/currency" },
+        "source": { "enum": ["approved_budget", "plan_budget", "provider_estimate", "manual_estimate"] }, "sourceStableKey": { "$ref": "#/$defs/nonempty" },
+        "version": { "type": "integer", "minimum": 1 }, "status": { "enum": ["draft", "active", "superseded"] }, "sourceVersion": { "type": "integer", "minimum": 1 },
+        "inputSnapshotHash": { "$ref": "#/$defs/hash" }, "revision": { "type": "integer", "minimum": 1 }, "validFrom": { "$ref": "#/$defs/dateTime" },
+        "validTo": { "type": ["string", "null"], "format": "date-time" }, "createdBy": { "$ref": "#/$defs/nonempty" }, "createdAt": { "$ref": "#/$defs/dateTime" },
+        "activatedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    }
+  }
+}

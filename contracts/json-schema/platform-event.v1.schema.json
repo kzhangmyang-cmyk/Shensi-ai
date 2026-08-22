@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/platform-event.v1.schema.json",
+  "title": "PlatformEvent",
+  "$defs": {
+    "boundedString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Canonical immutable SHA-256 digest: sha256: followed by exactly 64 lowercase hexadecimal characters."
+    },
+    "snapshotRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "hash"],
+      "properties": {
+        "id": { "$ref": "#/$defs/boundedString" },
+        "hash": { "$ref": "#/$defs/digest" }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tenantId",
+    "teamId",
+    "platform",
+    "platformAccountRef",
+    "platformContentRef",
+    "platformEventRef",
+    "platformSubjectRef",
+    "eventType",
+    "rawPayloadHash",
+    "normalizedEventHash",
+    "occurredAt",
+    "capturedAt",
+    "authorizationSnapshot",
+    "dedupeKey",
+    "accessStatus",
+    "capturedBy"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/boundedString" },
+    "tenantId": { "$ref": "#/$defs/boundedString" },
+    "teamId": {
+      "oneOf": [
+        { "$ref": "#/$defs/boundedString" },
+        { "type": "null" }
+      ]
+    },
+    "platform": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "platformAccountRef": { "$ref": "#/$defs/boundedString" },
+    "platformContentRef": { "$ref": "#/$defs/boundedString" },
+    "platformEventRef": { "$ref": "#/$defs/boundedString" },
+    "platformSubjectRef": { "$ref": "#/$defs/boundedString" },
+    "eventType": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "rawPayloadHash": { "$ref": "#/$defs/digest" },
+    "normalizedEventHash": { "$ref": "#/$defs/digest" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "authorizationSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["connectionId", "credentialVersion", "scopeHash", "capabilitySnapshotRef"],
+      "properties": {
+        "connectionId": { "$ref": "#/$defs/boundedString" },
+        "credentialVersion": { "type": "integer", "minimum": 1 },
+        "scopeHash": { "$ref": "#/$defs/digest" },
+        "capabilitySnapshotRef": { "$ref": "#/$defs/snapshotRef" }
+      }
+    },
+    "dedupeKey": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "accessStatus": { "enum": ["available", "restricted", "deleted", "authorization_revoked"] },
+    "capturedBy": { "$ref": "#/$defs/boundedString" }
+  }
+}

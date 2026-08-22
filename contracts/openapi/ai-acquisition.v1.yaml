@@ -1,0 +1,1259 @@
+openapi: 3.1.0
+info:
+  title: AI Acquisition API
+  version: ai-acquisition.v1
+  description: Versioned contract for authenticated AI acquisition operations.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: gj_session
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100 }
+    candidateId:
+      name: candidateId
+      in: query
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 255 }
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
+    planIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 租户作用域内的写入幂等键；原文不会持久化。
+      schema: { type: string, minLength: 8, maxLength: 200 }
+    ifMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema: { type: string, minLength: 1 }
+    acquisitionId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 255 }
+    acquisitionCursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string, minLength: 1, maxLength: 8192 }
+    acquisitionLimit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    candidateIfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema: { type: string, pattern: '^"candidate-v[1-9]\d*"$' }
+    presentationAfter:
+      name: after
+      in: query
+      required: false
+      schema: { type: string, minLength: 1, maxLength: 8192 }
+    presentationLimit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+  schemas:
+    AsyncOperation: { $ref: ../json-schema/async-operation.v1.schema.json }
+    ApiError:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [code, message, details, requestId, retryable]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}
+            requestId: { type: string }
+            retryable: { type: boolean }
+        - type: object
+          additionalProperties: false
+          required: [error]
+          properties:
+            error:
+              type: object
+              additionalProperties: false
+              required: [code, message]
+              properties:
+                code: { type: string }
+                message: { type: string }
+                details: {}
+                requestId: { type: string }
+    PagedResult:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { type: object } }
+        nextCursor: { type: [string, 'null'] }
+    ModelProvider: { $ref: ../json-schema/model-provider.v1.schema.json }
+    ModelConnection: { $ref: ../json-schema/model-connection.v1.schema.json }
+    ModelCallRecord: { $ref: ../json-schema/model-call-record.v1.schema.json }
+    DiscoveryProvider: { $ref: ../json-schema/discovery-provider.v1.schema.json }
+    ProviderConnection: { $ref: ../json-schema/provider-connection.v1.schema.json }
+    ContentFetchOperation: { $ref: ../json-schema/content-fetch-operation.v1.schema.json }
+    ContentFetchOperationList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ContentFetchOperation' }
+    ImportOperation: { $ref: ../json-schema/import-operation.v1.schema.json }
+    ImportOperationList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ImportOperation' }
+    CandidateIntelligenceOperation: { $ref: ../json-schema/candidate-intelligence-operation.v1.schema.json }
+    DouyinIdentityResolutionOperation: { $ref: ../json-schema/douyin-identity-resolution-operation.v1.schema.json }
+    AcquisitionPlan: { $ref: ../json-schema/acquisition-plan.v1.schema.json }
+    AcquisitionRun: { $ref: ../json-schema/acquisition-run.v1.schema.json }
+    AcquisitionOperationShard: { $ref: ../json-schema/acquisition-operation-shard.v1.schema.json }
+    AcquisitionRunPresentation: { $ref: ../json-schema/acquisition-run-presentation.v1.schema.json }
+    OrganizationCandidate: { $ref: ../json-schema/organization-candidate.v1.schema.json }
+    IndividualDemandSignal: { $ref: ../json-schema/individual-demand-signal.v1.schema.json }
+    Candidate:
+      oneOf:
+        - { $ref: '#/components/schemas/OrganizationCandidate' }
+        - { $ref: '#/components/schemas/IndividualDemandSignal' }
+    CandidatePagedResult:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Candidate' } }
+        nextCursor: { type: [string, 'null'] }
+    DiscoveryEvidence: { $ref: ../json-schema/discovery-evidence.v1.schema.json }
+    QualificationDecision: { $ref: ../json-schema/qualification-decision.v1.schema.json }
+    BattleCardV1: { $ref: ../json-schema/battle-card.v1.schema.json }
+    BattleCardV2: { $ref: ../json-schema/battle-card.v2.schema.json }
+    BattleCard:
+      oneOf:
+        - { $ref: '#/components/schemas/BattleCardV1' }
+        - { $ref: '#/components/schemas/BattleCardV2' }
+    ReviewEvent: { $ref: ../json-schema/review-event.v1.schema.json }
+    OutcomeFeedback: { $ref: ../json-schema/outcome-feedback.v1.schema.json }
+    FinancialValueDecision: { $ref: ../json-schema/financial-value-decision.v1.schema.json }
+    PartyRef: { $ref: ../json-schema/party-ref.v1.schema.json }
+    CopilotSession: { $ref: ../json-schema/copilot-session.v1.schema.json }
+    CopilotMessage: { $ref: ../json-schema/copilot-message.v1.schema.json }
+    CopilotTask: { $ref: ../json-schema/copilot-task.v1.schema.json }
+    PlatformConnection: { $ref: ../json-schema/platform-connection.v1.schema.json }
+    PlatformCapabilitySnapshot: { $ref: ../json-schema/platform-capability-snapshot.v1.schema.json }
+    PlatformEvent: { $ref: ../json-schema/platform-event.v1.schema.json }
+    DouyinCommentEvent: { $ref: ../json-schema/douyin-comment-event.v1.schema.json }
+    ActionPolicy: { $ref: ../json-schema/action-policy.v1.schema.json }
+    ActionReceipt: { $ref: ../json-schema/action-receipt.v1.schema.json }
+    DouyinVisualCommentObservation: { $ref: '../json-schema/douyin-visual-comment-observation.v1.schema.json#/$defs/douyinVisualCommentObservation' }
+    OpaqueRectRedactionProof: { $ref: '../json-schema/acquisition-visual-reader-session.v1.schema.json#/$defs/visualReaderOpaqueRectRedactionProof' }
+    VisualObservationSubmission: { $ref: '../json-schema/acquisition-visual-reader-session.v1.schema.json#/$defs/visualReaderObservationSubmission' }
+    VisualReaderLimits: { $ref: '../json-schema/acquisition-visual-reader-session.v1.schema.json#/$defs/visualReaderLimits' }
+    VisualReaderUsage: { $ref: '../json-schema/acquisition-visual-reader-session.v1.schema.json#/$defs/visualReaderUsage' }
+    VisualReaderOutcome: { $ref: '../json-schema/acquisition-visual-reader-session.v1.schema.json#/$defs/visualReaderOutcome' }
+    VisualReaderSession: { $ref: '../json-schema/acquisition-visual-reader-session.v1.schema.json#/$defs/visualReaderSession' }
+    VisualReaderCreateRequest: { $ref: '../json-schema/acquisition-visual-reader-session.v1.schema.json#/$defs/visualReaderCreateRequest' }
+    VisualObservationBatchRequest: { $ref: '../json-schema/acquisition-visual-reader-session.v1.schema.json#/$defs/visualReaderObservationBatchRequest' }
+    VisualObservationBatchResponse: { $ref: '../json-schema/acquisition-visual-reader-session.v1.schema.json#/$defs/visualReaderObservationBatchResponse' }
+    VisualReaderCompleteRequest: { $ref: '../json-schema/acquisition-visual-reader-session.v1.schema.json#/$defs/visualReaderCompleteRequest' }
+    VisualReaderAbortRequest: { $ref: '../json-schema/acquisition-visual-reader-session.v1.schema.json#/$defs/visualReaderAbortRequest' }
+    DiscoveryEvidencePagedResult:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/DiscoveryEvidence' } }
+        nextCursor: { type: [string, 'null'] }
+    ReviewEventPagedResult:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ReviewEvent' } }
+        nextCursor: { type: [string, 'null'] }
+    OutcomeFeedbackPagedResult:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/OutcomeFeedback' } }
+        nextCursor: { type: [string, 'null'] }
+    AcquisitionPerformance:
+      type: object
+      additionalProperties: false
+      required: [counts, rates, valuesByCurrency, cost, roi, dataQuality, briefingFacts]
+      properties:
+        counts:
+          type: object
+          additionalProperties: false
+          required: [discovered, highIntent, approved, converted, contacted, quoted, won, lost]
+          properties:
+            discovered: { type: integer, minimum: 0 }
+            highIntent: { type: integer, minimum: 0 }
+            approved: { type: integer, minimum: 0 }
+            converted: { type: integer, minimum: 0 }
+            contacted: { type: integer, minimum: 0 }
+            quoted: { type: integer, minimum: 0 }
+            won: { type: integer, minimum: 0 }
+            lost: { type: integer, minimum: 0 }
+        rates:
+          type: object
+          additionalProperties: false
+          required: [highIntentRate, approvalRate, crmConversionRate, contactRate, quoteRate, winRate]
+          properties:
+            highIntentRate: { type: [number, 'null'], minimum: 0 }
+            approvalRate: { type: [number, 'null'], minimum: 0 }
+            crmConversionRate: { type: [number, 'null'], minimum: 0 }
+            contactRate: { type: [number, 'null'], minimum: 0 }
+            quoteRate: { type: [number, 'null'], minimum: 0 }
+            winRate: { type: [number, 'null'], minimum: 0 }
+        valuesByCurrency:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [currency, estimatedPipelineMinor, quotedMinor, wonContractMinor]
+            properties:
+              currency: { type: string, pattern: '^[A-Z]{3}$' }
+              estimatedPipelineMinor: { type: integer, minimum: 0 }
+              quotedMinor: { type: integer, minimum: 0 }
+              wonContractMinor: { type: integer, minimum: 0 }
+        cost:
+          type: object
+          additionalProperties: false
+          required: [status, executionCostMinor, currency, coverage]
+          properties:
+            status: { type: string, enum: [available, not_aggregatable] }
+            executionCostMinor: { type: [integer, 'null'], minimum: 0 }
+            currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
+            coverage: { type: string, enum: [recorded_api_execution_only] }
+        roi:
+          type: object
+          additionalProperties: false
+          required: [status, reason]
+          properties:
+            status: { type: string, enum: [not_computable] }
+            reason: { type: string, enum: [channel_cost_or_verified_margin_unavailable] }
+        dataQuality:
+          type: object
+          additionalProperties: false
+          required: [missingAttribution, missingFinancial, truncated, lastReconciledAt]
+          properties:
+            missingAttribution: { type: integer, minimum: 0 }
+            missingFinancial: { type: integer, minimum: 0 }
+            truncated: { type: boolean }
+            lastReconciledAt: { type: [string, 'null'], format: date-time }
+        briefingFacts:
+          type: object
+          additionalProperties: false
+          required: [headlines, risks, actions, metricIds]
+          properties:
+            headlines: { type: array, items: { $ref: '#/components/schemas/AcquisitionPerformanceFact' } }
+            risks: { type: array, items: { $ref: '#/components/schemas/AcquisitionPerformanceFact' } }
+            actions: { type: array, items: { $ref: '#/components/schemas/AcquisitionPerformanceFact' } }
+            metricIds: { type: array, items: { type: string } }
+    AcquisitionPerformanceFact:
+      type: object
+      additionalProperties: false
+      required: [metricId, text, evidenceRefs]
+      properties:
+        metricId: { type: string, minLength: 1 }
+        text: { type: string }
+        evidenceRefs: { type: array, items: { type: string } }
+    CopilotMessagePagedResult:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/CopilotMessage' } }
+        nextCursor: { type: [string, 'null'] }
+    IdentityResolution:
+      type: object
+      additionalProperties: false
+      required: [status, basis, resolverVersion, evidenceIds, resolvedAt, resolvedBy]
+      properties:
+        status: { const: resolved }
+        basis: { enum: [organization_domain, organization_credit_code, provider_public_actor] }
+        resolverVersion: { type: string, minLength: 1 }
+        evidenceIds: { type: array, items: { type: string, minLength: 1 } }
+        resolvedAt: { type: string, format: date-time }
+        resolvedBy: { type: string, minLength: 1 }
+    IdentityConfirmationResult:
+      type: object
+      additionalProperties: false
+      required: [candidate, resolution]
+      properties:
+        candidate: { $ref: '#/components/schemas/Candidate' }
+        resolution: { $ref: '#/components/schemas/IdentityResolution' }
+    ResearchAttempt:
+      type: object
+      additionalProperties: false
+      required: [id, candidateId, requestReason, budgetVersion, status, newEvidenceIds, terminationReason, createdAt, startedAt, completedAt]
+      properties:
+        id: { type: string }
+        candidateId: { type: string }
+        requestReason: { type: string }
+        budgetVersion: { type: string }
+        status: { enum: [pending, running, completed, no_new_evidence, access_restricted, failed] }
+        newEvidenceIds: { type: array, items: { type: string } }
+        terminationReason: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+    CandidateReviewResult:
+      type: object
+      additionalProperties: false
+      required: [candidate, review, research]
+      properties:
+        candidate: { $ref: '#/components/schemas/Candidate' }
+        review: { $ref: '#/components/schemas/ReviewEvent' }
+        research:
+          oneOf:
+            - { $ref: '#/components/schemas/ResearchAttempt' }
+            - { type: 'null' }
+    LeadConversion:
+      type: object
+      additionalProperties: false
+      required: [id, candidateId, decisionVersion, partyRef, leadId, reviewerId, evidenceSnapshotHash, createdAt]
+      properties:
+        id: { type: string }
+        candidateId: { type: string }
+        decisionVersion: { type: string }
+        partyRef: { $ref: '#/components/schemas/PartyRef' }
+        leadId: { type: string }
+        reviewerId: { type: string }
+        evidenceSnapshotHash: { type: string }
+        createdAt: { type: string, format: date-time }
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required: [id, candidateId, actorId, eventType, fromStatus, toStatus, resourceId, createdAt]
+      properties:
+        id: { type: string }
+        candidateId: { type: [string, 'null'] }
+        actorId: { type: string }
+        eventType: { type: string }
+        fromStatus: { enum: [discovered, unresolvable, normalized, qualified, pending_review, approved, rejected, do_not_contact, needs_research, converted_to_lead, null] }
+        toStatus: { enum: [discovered, unresolvable, normalized, qualified, pending_review, approved, rejected, do_not_contact, needs_research, converted_to_lead, null] }
+        resourceId: { type: string }
+        createdAt: { type: string, format: date-time }
+    AuditEventPagedResult:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AuditEvent' } }
+        nextCursor: { type: [string, 'null'] }
+x-error-response: &apiError
+  description: Unified API error
+  content:
+    application/json:
+      schema: { $ref: '#/components/schemas/ApiError' }
+x-paged-response: &pagedResponse
+  description: Cursor-paginated result
+  content:
+    application/json:
+      schema: { $ref: '#/components/schemas/PagedResult' }
+x-async-response: &asyncResponse
+  description: Accepted asynchronous operation
+  content:
+    application/json:
+      schema: { $ref: '#/components/schemas/AsyncOperation' }
+x-read: &read
+  security: [{ bearerAuth: [] }]
+  responses:
+    '200': *pagedResponse
+    '401': *apiError
+x-list: &list
+  security: [{ bearerAuth: [] }]
+  parameters: [{ $ref: '#/components/parameters/cursor' }, { $ref: '#/components/parameters/limit' }]
+  responses:
+    '200': *pagedResponse
+    '401': *apiError
+x-write: &write
+  security: [{ bearerAuth: [] }]
+  parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+  responses:
+    '200': { description: Successful response, content: { application/json: { schema: { type: object, additionalProperties: false } } } }
+    '400': *apiError
+    '401': *apiError
+x-async-write: &asyncWrite
+  security: [{ bearerAuth: [] }]
+  parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+  responses:
+    '202': *asyncResponse
+    '400': *apiError
+    '401': *apiError
+x-plan-create-schema: &planCreateSchema
+  { type: object, required: [name, objective, icp, subjectChannels, providerConnections, operations, budgetSnapshot, stopConditions], properties: { targetPlatform: { type: string, enum: [douyin, web] }, douyinPublicCommentSample: { type: object, required: [enabled, maxVideosPerRun, maxCommentsPerVideo, maxPagesPerVideo], properties: { enabled: { type: boolean }, maxVideosPerRun: { type: integer, minimum: 1, maximum: 20 }, maxCommentsPerVideo: { type: integer, minimum: 1, maximum: 100 }, maxPagesPerVideo: { type: integer, minimum: 1, maximum: 5 } }, additionalProperties: false }, name: { type: string, minLength: 1, maxLength: 200 }, objective: { type: string, minLength: 1, maxLength: 2000 }, icp: { type: object, required: [industries, regions, organizationCriteria, individualCriteria, exclusionRules], properties: { industries: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 120 } }, regions: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 120 } }, organizationCriteria: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 500 } }, individualCriteria: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 500 } }, exclusionRules: { type: array, maxItems: 200, items: { type: string, minLength: 1, maxLength: 500 } } }, additionalProperties: false }, subjectChannels: { type: object, required: [organization, individual], properties: { organization: { type: boolean }, individual: { type: boolean } }, additionalProperties: false }, providerConnections: { type: array, minItems: 1, maxItems: 100, items: { type: object, required: [connectionId, providerId, kind, status, credentialVersion], properties: { connectionId: { type: string, minLength: 1, maxLength: 255 }, providerId: { type: string, minLength: 1, maxLength: 100 }, kind: { type: string, enum: [search, content_fetch, import] }, status: { type: string, enum: [active, inactive, disabled] }, credentialVersion: { type: integer, minimum: 1 } }, additionalProperties: false } }, operations: { type: array, minItems: 1, maxItems: 500, items: { type: object, required: [operationId, subjectChannel, kind, connectionId, allocatedBudget], properties: { operationId: { type: string, minLength: 1, maxLength: 255 }, subjectChannel: { type: string, enum: [organization, individual] }, kind: { type: string, enum: [search, content_fetch, import_rows] }, connectionId: { type: string, minLength: 1, maxLength: 255 }, query: { type: string, minLength: 1, maxLength: 4000 }, sourceRef: { type: string, minLength: 1, maxLength: 4000 }, allocatedBudget: { type: object, required: [requests, results, amountMinor, durationSeconds], properties: { requests: { type: integer, minimum: 0 }, results: { type: integer, minimum: 0 }, amountMinor: { type: integer, minimum: 0 }, durationSeconds: { type: integer, minimum: 0 } }, additionalProperties: false } }, additionalProperties: false } }, budgetSnapshot: { type: object, required: [billingCurrency, maxRequests, maxResults, maxAmountMinor, maxDurationSeconds], properties: { billingCurrency: { type: string, minLength: 3, maxLength: 3 }, maxRequests: { type: integer, minimum: 0 }, maxResults: { type: integer, minimum: 0 }, maxAmountMinor: { type: integer, minimum: 0 }, maxDurationSeconds: { type: integer, minimum: 0 } }, additionalProperties: false }, modelConnectionId: { type: string, nullable: true, minLength: 1, maxLength: 255, description: 可选 BYOK 模型连接；服务端据此绑定不可伪造的模型快照。 }, stopConditions: { type: object, required: [stopWhenBudgetExhausted, stopWhenNoMoreResults], properties: { stopWhenBudgetExhausted: { type: boolean }, stopWhenNoMoreResults: { type: boolean } }, additionalProperties: false } }, allOf: [{ if: { type: object, required: [douyinPublicCommentSample], properties: { douyinPublicCommentSample: { type: object, required: [enabled], properties: { enabled: { enum: [true] } } } } }, then: { type: object, required: [targetPlatform, providerConnections], properties: { targetPlatform: { enum: [douyin] }, providerConnections: { type: array, not: { items: { not: { type: object, required: [providerId, kind, status], properties: { providerId: { enum: [experimental_public_sample] }, kind: { enum: [content_fetch] }, status: { enum: [active] } } } } } } } } }], additionalProperties: false }
+x-plan-mutation-schema: &planMutationSchema
+  { type: object, minProperties: 1, properties: { targetPlatform: { type: string, enum: [douyin, web] }, douyinPublicCommentSample: { type: object, required: [enabled, maxVideosPerRun, maxCommentsPerVideo, maxPagesPerVideo], properties: { enabled: { type: boolean }, maxVideosPerRun: { type: integer, minimum: 1, maximum: 20 }, maxCommentsPerVideo: { type: integer, minimum: 1, maximum: 100 }, maxPagesPerVideo: { type: integer, minimum: 1, maximum: 5 } }, additionalProperties: false }, name: { type: string, minLength: 1, maxLength: 200 }, objective: { type: string, minLength: 1, maxLength: 2000 }, icp: { type: object, required: [industries, regions, organizationCriteria, individualCriteria, exclusionRules], properties: { industries: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 120 } }, regions: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 120 } }, organizationCriteria: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 500 } }, individualCriteria: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 500 } }, exclusionRules: { type: array, maxItems: 200, items: { type: string, minLength: 1, maxLength: 500 } } }, additionalProperties: false }, subjectChannels: { type: object, required: [organization, individual], properties: { organization: { type: boolean }, individual: { type: boolean } }, additionalProperties: false }, providerConnections: { type: array, minItems: 1, maxItems: 100, items: { type: object, required: [connectionId, providerId, kind, status, credentialVersion], properties: { connectionId: { type: string, minLength: 1, maxLength: 255 }, providerId: { type: string, minLength: 1, maxLength: 100 }, kind: { type: string, enum: [search, content_fetch, import] }, status: { type: string, enum: [active, inactive, disabled] }, credentialVersion: { type: integer, minimum: 1 } }, additionalProperties: false } }, operations: { type: array, minItems: 1, maxItems: 500, items: { type: object, required: [operationId, subjectChannel, kind, connectionId, allocatedBudget], properties: { operationId: { type: string, minLength: 1, maxLength: 255 }, subjectChannel: { type: string, enum: [organization, individual] }, kind: { type: string, enum: [search, content_fetch, import_rows] }, connectionId: { type: string, minLength: 1, maxLength: 255 }, query: { type: string, minLength: 1, maxLength: 4000 }, sourceRef: { type: string, minLength: 1, maxLength: 4000 }, allocatedBudget: { type: object, required: [requests, results, amountMinor, durationSeconds], properties: { requests: { type: integer, minimum: 0 }, results: { type: integer, minimum: 0 }, amountMinor: { type: integer, minimum: 0 }, durationSeconds: { type: integer, minimum: 0 } }, additionalProperties: false } }, additionalProperties: false } }, budgetSnapshot: { type: object, required: [billingCurrency, maxRequests, maxResults, maxAmountMinor, maxDurationSeconds], properties: { billingCurrency: { type: string, minLength: 3, maxLength: 3 }, maxRequests: { type: integer, minimum: 0 }, maxResults: { type: integer, minimum: 0 }, maxAmountMinor: { type: integer, minimum: 0 }, maxDurationSeconds: { type: integer, minimum: 0 } }, additionalProperties: false }, modelSnapshotRef: { type: object, required: [jobSnapshotId, connectionId, credentialVersion, provider, model, capabilitySnapshotHash, promptVersion, schemaVersion, promptHash, schemaHash], properties: { jobSnapshotId: { type: string, minLength: 1, maxLength: 255 }, connectionId: { type: string, minLength: 1, maxLength: 255 }, credentialVersion: { type: integer, minimum: 1 }, provider: { type: string, minLength: 1, maxLength: 100 }, model: { type: string, minLength: 1, maxLength: 200 }, capabilitySnapshotHash: { type: string, minLength: 1, maxLength: 200 }, promptVersion: { type: string, minLength: 1, maxLength: 100 }, schemaVersion: { type: string, minLength: 1, maxLength: 100 }, promptHash: { type: string, minLength: 1, maxLength: 200 }, schemaHash: { type: string, minLength: 1, maxLength: 200 } }, additionalProperties: false }, stopConditions: { type: object, required: [stopWhenBudgetExhausted, stopWhenNoMoreResults], properties: { stopWhenBudgetExhausted: { type: boolean }, stopWhenNoMoreResults: { type: boolean } }, additionalProperties: false } }, additionalProperties: false }
+x-plan-approval-schema: &planApprovalSchema
+  { type: object, required: [decision, reason], properties: { decision: { type: string, enum: [approve] }, reason: { type: string, minLength: 1, maxLength: 2000 } }, additionalProperties: false }
+x-plan-run-schema: &planRunSchema
+  { type: object, properties: { parentRunId: { type: string, minLength: 1, maxLength: 255 }, reason: { type: string, maxLength: 2000 } }, additionalProperties: false }
+x-plan-control-schema: &planControlSchema
+  { type: object, required: [reason], properties: { reason: { type: string, minLength: 1, maxLength: 2000 } }, additionalProperties: false }
+x-identity-confirmation-schema: &identityConfirmationSchema
+  oneOf:
+    - type: object
+      additionalProperties: false
+      required: [subjectKind, domain, creditCode, evidenceIds, rationale]
+      properties:
+        subjectKind: { type: string, enum: [organization] }
+        domain: { type: string, nullable: true, maxLength: 255 }
+        creditCode: { type: string, nullable: true, maxLength: 50 }
+        evidenceIds: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 255 } }
+        rationale: { type: string, minLength: 1, maxLength: 2000 }
+    - type: object
+      additionalProperties: false
+      required: [subjectKind, publicProfileUrl, sourcePlatform, evidenceIds, rationale]
+      properties:
+        subjectKind: { type: string, enum: [individual] }
+        publicProfileUrl: { type: string, format: uri, maxLength: 2000 }
+        sourcePlatform: { type: string, minLength: 1, maxLength: 100 }
+        evidenceIds: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 255 } }
+        rationale: { type: string, minLength: 1, maxLength: 2000 }
+  discriminator: { propertyName: subjectKind }
+x-review-schema: &reviewSchema
+  oneOf:
+    - type: object
+      additionalProperties: false
+      required: [action, decisionVersion, reason]
+      properties:
+        action: { type: string, enum: [approved, do_not_contact] }
+        decisionVersion: { type: string, minLength: 1, maxLength: 100 }
+        reason: { type: string, nullable: true, maxLength: 2000 }
+    - type: object
+      additionalProperties: false
+      required: [action, decisionVersion, reason]
+      properties:
+        action: { type: string, enum: [rejected, needs_research, reopen] }
+        decisionVersion: { type: string, minLength: 1, maxLength: 100 }
+        reason: { type: string, minLength: 1, maxLength: 2000 }
+x-convert-schema: &convertSchema
+  { type: object, additionalProperties: false, required: [decisionVersion], properties: { decisionVersion: { type: string, minLength: 1, maxLength: 100 } } }
+x-copilot-session-schema: &copilotSessionSchema
+  { type: object, additionalProperties: false, properties: { connectionId: { type: string, nullable: true, minLength: 1, maxLength: 255 } } }
+x-copilot-message-schema: &copilotMessageSchema
+  { type: object, additionalProperties: false, required: [message], properties: { message: { type: string, minLength: 1, maxLength: 20000 }, responseMode: { type: string, enum: [assistant, plan_draft], default: assistant }, targetPlatform: { type: string, enum: [douyin, web], default: web } } }
+x-acquisition-standard-responses: &acquisitionStandardResponses
+  '400': *apiError
+  '401': *apiError
+  '404': *apiError
+  '409': *apiError
+  '500': *apiError
+x-acquisition-resource-schema: &acquisitionResourceSchema
+  { type: object, additionalProperties: true }
+x-discovery-provider-schema: &discoveryProviderSchema
+  { type: object, required: [id, kind, displayName, capabilities], properties: { id: { type: string }, kind: { type: string, enum: [search, content_fetch, import] }, displayName: { type: string }, officialDocsUrl: { type: string, format: uri }, defaultBaseUrl: { type: string, format: uri }, requiresKey: { type: boolean }, keyHint: { type: string }, costNote: { type: string }, capabilities: { type: array, items: { type: string } } }, additionalProperties: false }
+x-provider-connection-schema: &providerConnectionSchema
+  { $ref: '#/components/schemas/ProviderConnection' }
+x-provider-connection-health-schema: &providerConnectionHealthSchema
+  { type: object, additionalProperties: false, required: [ok, message, errorCode, retryable, retryAfterAt, usage], properties: { ok: { type: boolean }, message: { type: string, minLength: 1, maxLength: 2000 }, errorCode: { type: string, nullable: true, maxLength: 120 }, retryable: { type: boolean }, retryAfterAt: { type: string, nullable: true, format: date-time }, usage: { type: string, maxLength: 2000 } } }
+x-provider-connection-write-schema: &providerConnectionWriteSchema
+  { type: object, required: [providerId, apiKey], properties: { providerId: { type: string, minLength: 1, maxLength: 64, pattern: '^[a-z0-9_]+$' }, apiKey: { type: string, minLength: 1, maxLength: 4000, writeOnly: true, description: 客户自己的官方 API Key，仅加密保存且永不回显。 }, baseUrl: { type: string, format: uri, maxLength: 2000 }, status: { type: string, enum: [active, disabled], default: active } }, additionalProperties: false }
+x-provider-connection-patch-schema: &providerConnectionPatchSchema
+  { oneOf: [{ type: object, required: [apiKey], properties: { apiKey: { type: string, minLength: 1, maxLength: 4000, writeOnly: true, description: 客户自己的官方 API Key，仅加密保存且永不回显。 }, baseUrl: { type: string, format: uri, maxLength: 2000 }, status: { type: string, enum: [active, disabled] } }, additionalProperties: false }, { type: object, required: [status], properties: { status: { type: string, enum: [active, disabled] } }, additionalProperties: false }] }
+x-discovery-operation-list-schema: &discoveryOperationListSchema
+  { type: object, required: [items], properties: { items: { type: array, items: *acquisitionResourceSchema } }, additionalProperties: false }
+x-content-fetch-write-schema: &contentFetchWriteSchema
+  { type: object, required: [sourceUrl, subjectChannel], properties: { sourceUrl: { type: string, format: uri, pattern: '^[Hh][Tt][Tt][Pp][Ss]://', minLength: 1, maxLength: 4096, description: 仅允许公开 HTTPS URL。 运行时还会拒绝凭据、非默认端口、内网地址和敏感查询参数。 }, subjectChannel: { type: string, enum: [organization, individual] } }, additionalProperties: false }
+x-import-binary-schema: &importBinarySchema
+  { type: string, format: binary, maxLength: 5242880 }
+paths:
+  /api/v1/ai/providers:
+    get: { <<: *list, summary: List model providers }
+  /api/v1/ai/connections:
+    get: { <<: *list, summary: List model connections }
+    post: { <<: *write, summary: Create model connection, responses: { '200': { description: Model connection, content: { application/json: { schema: { $ref: '#/components/schemas/ModelConnection' } } } }, '400': *apiError, '401': *apiError } }
+  /api/v1/ai/connections/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { <<: *read, summary: Get model connection, responses: { '200': { description: Model connection, content: { application/json: { schema: { $ref: '#/components/schemas/ModelConnection' } } } }, '401': *apiError } }
+    patch: { <<: *write, summary: Update model connection, responses: { '200': { description: Model connection, content: { application/json: { schema: { $ref: '#/components/schemas/ModelConnection' } } } }, '400': *apiError, '401': *apiError } }
+    delete: { <<: *write, summary: Delete model connection, responses: { '200': { description: Successful response, content: { application/json: { schema: { type: object, additionalProperties: false } } } }, '400': *apiError, '401': *apiError, '409': { description: Connection is retained by active tasks or audit policy, headers: { X-Error-Code: { required: true, schema: { type: string, enum: [connection_in_use] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } } } }
+  /api/v1/ai/connections/{id}/models:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { <<: *list, summary: List supported models }
+  /api/v1/ai/connections/{id}/test:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post: { <<: *asyncWrite, summary: Test model connection }
+  /api/v1/ai/connections/{id}/activate:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post: { <<: *write, summary: Activate model connection, responses: { '200': { description: Model connection, content: { application/json: { schema: { $ref: '#/components/schemas/ModelConnection' } } } }, '400': *apiError, '401': *apiError } }
+  /api/v1/ai/calls:
+    get: { <<: *list, summary: List model call records }
+  /api/v1/ai/calls/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { <<: *read, summary: Get model call record, responses: { '200': { description: Model call record, content: { application/json: { schema: { $ref: '#/components/schemas/ModelCallRecord' } } } }, '401': *apiError } }
+  /api/v1/acquisition/providers:
+    get:
+      operationId: listAcquisitionProviders
+      summary: List discovery providers
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Discovery provider catalog, content: { application/json: { schema: { type: object, required: [items, nextCursor], properties: { items: { type: array, items: *discoveryProviderSchema }, nextCursor: { type: string, nullable: true } }, additionalProperties: false } } } }
+  /api/v1/acquisition/provider-connections:
+    get:
+      operationId: listAcquisitionProviderConnections
+      summary: List provider connections
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Provider connections, content: { application/json: { schema: { type: object, required: [items, nextCursor], properties: { items: { type: array, items: *providerConnectionSchema }, nextCursor: { type: string, nullable: true } }, additionalProperties: false } } } }
+    post:
+      operationId: createAcquisitionProviderConnection
+      summary: Create provider connection
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: *providerConnectionWriteSchema } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '201': { description: Provider connection created, content: { application/json: { schema: *providerConnectionSchema } } }
+        '200': { description: Idempotent replay, headers: { Idempotency-Replayed: { schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: *providerConnectionSchema } } }
+  /api/v1/acquisition/provider-connections/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    get:
+      operationId: getAcquisitionProviderConnection
+      summary: Get provider connection
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Provider connection, content: { application/json: { schema: *providerConnectionSchema } } }
+    patch:
+      operationId: updateAcquisitionProviderConnection
+      summary: Update provider connection
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: *providerConnectionPatchSchema } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Provider connection updated, content: { application/json: { schema: *providerConnectionSchema } } }
+    delete:
+      operationId: deleteAcquisitionProviderConnection
+      summary: Delete provider connection
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      responses:
+        '204': { description: Provider connection deleted }
+        '400': *apiError
+        '401': *apiError
+        '403': *apiError
+        '404': *apiError
+        '500': *apiError
+  /api/v1/acquisition/provider-connections/{id}/test:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post:
+      operationId: testAcquisitionProviderConnection
+      summary: Test provider connection
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Provider connection health check, content: { application/json: { schema: *providerConnectionHealthSchema } } }
+  /api/v1/acquisition/content-fetch-operations:
+    get:
+      operationId: listAcquisitionContentFetchOperations
+      summary: List content fetch operations
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters: [{ name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100 } }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Content fetch operations, content: { application/json: { schema: { $ref: '#/components/schemas/ContentFetchOperationList' } } } }
+    post:
+      operationId: createAcquisitionContentFetchOperation
+      summary: Create content fetch operation
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: *contentFetchWriteSchema } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '202': { description: Content fetch operation accepted, content: { application/json: { schema: { $ref: '#/components/schemas/ContentFetchOperation' } } } }
+  /api/v1/acquisition/content-fetch-operations/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }]
+    get:
+      operationId: getAcquisitionContentFetchOperation
+      summary: Get content fetch operation
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Content fetch operation, content: { application/json: { schema: { $ref: '#/components/schemas/ContentFetchOperation' } } } }
+  /api/v1/acquisition/import-operations:
+    get:
+      operationId: listAcquisitionImportOperations
+      summary: List import operations
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters: [{ name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100 } }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Import operations, content: { application/json: { schema: { $ref: '#/components/schemas/ImportOperationList' } } } }
+    post:
+      operationId: createAcquisitionImportOperation
+      summary: Create import operation
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/idempotencyKey' }
+        - { name: fileName, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+        - { name: subjectChannel, in: query, required: true, schema: { type: string, enum: [organization, individual] } }
+        - { name: mapping, in: query, required: true, schema: { type: string, minLength: 2, maxLength: 4096 } }
+      requestBody:
+        required: true
+        description: Raw CSV/XLSX only; application/json returns 415 unsupported_media_type.
+        content:
+          text/csv: { schema: *importBinarySchema }
+          application/vnd.openxmlformats-officedocument.spreadsheetml.sheet: { schema: *importBinarySchema }
+          application/octet-stream: { schema: *importBinarySchema }
+      responses:
+        <<: *acquisitionStandardResponses
+        '202': { description: Import operation accepted, content: { application/json: { schema: { $ref: '#/components/schemas/ImportOperation' } } } }
+        '413': *apiError
+        '415': *apiError
+  /api/v1/acquisition/import-operations/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }]
+    get:
+      operationId: getAcquisitionImportOperation
+      summary: Get import operation
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Import operation, content: { application/json: { schema: { $ref: '#/components/schemas/ImportOperation' } } } }
+  /api/v1/acquisition/evidence/{id}:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    get:
+      operationId: getAcquisitionEvidence
+      summary: Get discovery evidence
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200':
+          description: Discovery evidence
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryEvidence' }
+  /api/v1/acquisition/plans:
+    post:
+      operationId: createAcquisitionPlan
+      summary: Create acquisition plan
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: *planCreateSchema } } }
+      responses:
+        '201': { description: Acquisition plan created, headers: { ETag: { required: true, schema: { type: string, minLength: 1 } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionPlan' } } } }
+        '400': *apiError
+        '401': *apiError
+        '404': *apiError
+        '409': *apiError
+        '500': *apiError
+  /api/v1/acquisition/plans/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+    get:
+      operationId: getAcquisitionPlan
+      summary: Get acquisition plan
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        '200': { description: Acquisition plan, headers: { ETag: { required: true, schema: { type: string, minLength: 1 } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionPlan' } } } }
+        '400': *apiError
+        '401': *apiError
+        '404': *apiError
+        '409': *apiError
+        '500': *apiError
+    patch:
+      operationId: updateAcquisitionPlan
+      summary: Update acquisition plan
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/ifMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: *planMutationSchema } } }
+      responses:
+        '200': { description: Acquisition plan updated, headers: { ETag: { required: true, schema: { type: string, minLength: 1 } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionPlan' } } } }
+        '400': *apiError
+        '401': *apiError
+        '404': *apiError
+        '409': *apiError
+        '412': *apiError
+        '428': *apiError
+        '500': *apiError
+  /api/v1/acquisition/plans/{id}/revisions:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+    post:
+      operationId: createAcquisitionPlanRevision
+      summary: Create acquisition plan revision
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/ifMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: *planMutationSchema } } }
+      responses:
+        '201': { description: Acquisition plan revision created, headers: { ETag: { required: true, schema: { type: string, minLength: 1 } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionPlan' } } } }
+        '400': *apiError
+        '401': *apiError
+        '404': *apiError
+        '409': *apiError
+        '412': *apiError
+        '428': *apiError
+        '500': *apiError
+  /api/v1/acquisition/plans/{id}/approval:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 255 }
+    post:
+      operationId: approveAcquisitionPlan
+      summary: Approve acquisition plan
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: string, minLength: 1 }
+      requestBody: { required: true, content: { application/json: { schema: *planApprovalSchema } } }
+      responses:
+        '200':
+          description: Acquisition plan approved
+          headers:
+            ETag:
+              required: true
+              schema: { type: string, minLength: 1 }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AcquisitionPlan' }
+        '400': *apiError
+        '401': *apiError
+        '404': *apiError
+        '409': *apiError
+        '412': *apiError
+        '428': *apiError
+        '500': *apiError
+  /api/v1/acquisition/plans/{id}/runs:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+    post:
+      operationId: createAcquisitionRun
+      summary: Create acquisition run
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
+      requestBody: { required: false, content: { application/json: { schema: *planRunSchema } } }
+      responses:
+        '202': { description: Acquisition run accepted, headers: { ETag: { required: true, schema: { type: string, minLength: 1 } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionRun' } } } }
+        '400': *apiError
+        '401': *apiError
+        '404': *apiError
+        '409': *apiError
+        '500': *apiError
+  /api/v1/acquisition/runs/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+    get:
+      operationId: getAcquisitionRun
+      summary: Get acquisition run
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        '200': { description: Acquisition run, headers: { ETag: { required: true, schema: { type: string, minLength: 1 } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionRun' } } } }
+        '400': *apiError
+        '401': *apiError
+        '404': *apiError
+        '409': *apiError
+        '500': *apiError
+  /api/v1/acquisition/runs/{id}/shards:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+    get:
+      operationId: listAcquisitionRunShards
+      summary: List acquisition run shards
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        '200': { description: Acquisition run shards, content: { application/json: { schema: { $ref: '#/components/schemas/PagedResult' } } } }
+        '400': *apiError
+        '401': *apiError
+        '404': *apiError
+        '409': *apiError
+        '500': *apiError
+  /api/v1/acquisition/runs/{id}/presentation:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+    get:
+      operationId: getAcquisitionRunPresentation
+      summary: Get acquisition run presentation
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/presentationAfter' }, { $ref: '#/components/parameters/presentationLimit' }]
+      responses:
+        '200': { description: Acquisition run presentation, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionRunPresentation' } } } }
+        '400': *apiError
+        '401': *apiError
+        '404': *apiError
+        '409': *apiError
+        '500': *apiError
+  /api/v1/acquisition/runs/{id}/pause:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+    post: &runControl
+      operationId: pauseAcquisitionRun
+      summary: Pause acquisition run
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/ifMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: *planControlSchema } } }
+      responses:
+        '200': { description: Acquisition run updated, headers: { ETag: { required: true, schema: { type: string, minLength: 1 } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionRun' } } } }
+        '400': *apiError
+        '401': *apiError
+        '404': *apiError
+        '409': *apiError
+        '412': *apiError
+        '428': *apiError
+        '500': *apiError
+  /api/v1/acquisition/runs/{id}/resume:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+    post: { <<: *runControl, operationId: resumeAcquisitionRun, summary: Resume acquisition run }
+  /api/v1/acquisition/runs/{id}/cancel:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+    post: { <<: *runControl, operationId: cancelAcquisitionRun, summary: Cancel acquisition run }
+  /api/v1/acquisition/visual-reader-sessions:
+    post:
+      operationId: createAcquisitionVisualReaderSession
+      summary: Create an explicitly authorized visual reader session
+      description: The server derives the Plan, PlanVersion, Douyin platform, authorized visible top-level sample coverage, authorization clock, expiry, and final hard-capped limits from the referenced Run.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VisualReaderCreateRequest' }
+      responses:
+        <<: *acquisitionStandardResponses
+        '403': *apiError
+        '413': *apiError
+        '201': { description: Visual reader session created, content: { application/json: { schema: { $ref: '#/components/schemas/VisualReaderSession' } } } }
+        '200':
+          description: Idempotent replay of an existing visual reader session
+          headers:
+            Idempotency-Replayed: { required: true, schema: { type: string, enum: ['true'] } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VisualReaderSession' }
+  /api/v1/acquisition/visual-reader-sessions/{sessionId}:
+    parameters:
+      - { name: sessionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }
+    get:
+      operationId: getAcquisitionVisualReaderSession
+      summary: Get an authorized visual reader session
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Visual reader session, content: { application/json: { schema: { $ref: '#/components/schemas/VisualReaderSession' } } } }
+  /api/v1/acquisition/visual-reader-sessions/{sessionId}/observations:batch:
+    parameters:
+      - { name: sessionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }
+    post:
+      operationId: appendAcquisitionVisualReaderObservationBatch
+      summary: Persist a bounded batch of visible comment observations
+      description: Standard schemas validate each identifier independently; the Task 3 service must require every sourceUrl video segment to equal its videoId and the route, response session, and normalized observation sessionId values to agree before persistence or response.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VisualObservationBatchRequest' }
+      responses:
+        <<: *acquisitionStandardResponses
+        '403': *apiError
+        '413': *apiError
+        '200':
+          description: Accepted and duplicate visual observations
+          headers:
+            Idempotency-Replayed: { schema: { type: string, enum: ['true'] } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/VisualObservationBatchResponse' } } }
+  /api/v1/acquisition/visual-reader-sessions/{sessionId}:complete:
+    parameters:
+      - { name: sessionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }
+    post:
+      operationId: completeAcquisitionVisualReaderSession
+      summary: Complete an authorized visual reader session
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VisualReaderCompleteRequest' }
+      responses:
+        <<: *acquisitionStandardResponses
+        '403': *apiError
+        '413': *apiError
+        '200':
+          description: Completed visual reader session
+          content: { application/json: { schema: { $ref: '#/components/schemas/VisualReaderSession' } } }
+  /api/v1/acquisition/visual-reader-sessions/{sessionId}:abort:
+    parameters:
+      - { name: sessionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }
+    post:
+      operationId: abortAcquisitionVisualReaderSession
+      summary: Abort an authorized visual reader session
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VisualReaderAbortRequest' }
+      responses:
+        <<: *acquisitionStandardResponses
+        '403': *apiError
+        '413': *apiError
+        '200':
+          description: Aborted visual reader session
+          content: { application/json: { schema: { $ref: '#/components/schemas/VisualReaderSession' } } }
+  /api/v1/acquisition/visual-reader-artifacts/{artifactId}:
+    parameters:
+      - { name: artifactId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }
+    get:
+      operationId: getAcquisitionVisualReaderArtifact
+      summary: Read an authorized redacted comment-card crop
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200':
+          description: Redacted WebP comment-card crop
+          headers:
+            Cache-Control: { required: true, schema: { type: string, enum: ['private, no-store'] } }
+            X-Content-Type-Options: { required: true, schema: { type: string, enum: [nosniff] } }
+            Content-Security-Policy: { required: true, schema: { type: string, enum: ["default-src 'none'; frame-ancestors 'none'; sandbox"] } }
+          content:
+            image/webp:
+              schema: { type: string, format: binary }
+  /api/v1/acquisition/candidates:
+    get:
+      operationId: listAcquisitionCandidates
+      summary: List candidates
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/acquisitionCursor' }
+        - { $ref: '#/components/parameters/acquisitionLimit' }
+        - { name: subjectKind, in: query, required: false, schema: { type: string, enum: [organization, individual] } }
+        - { name: status, in: query, required: false, schema: { type: string, enum: [discovered, unresolvable, normalized, qualified, pending_review, approved, rejected, do_not_contact, needs_research, converted_to_lead] } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200':
+          description: Cursor-paginated candidates
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CandidatePagedResult' }
+  /api/v1/acquisition/candidates/{id}:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    get:
+      operationId: getAcquisitionCandidate
+      summary: Get candidate
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200':
+          description: Candidate
+          headers:
+            ETag: { required: true, schema: { type: string, pattern: '^"candidate-v[1-9]\d*"$' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Candidate' }
+  /api/v1/acquisition/candidates/{id}/evidence:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    get:
+      operationId: listAcquisitionCandidateEvidence
+      summary: List candidate evidence
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/acquisitionCursor' }, { $ref: '#/components/parameters/acquisitionLimit' }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Candidate evidence, content: { application/json: { schema: { $ref: '#/components/schemas/DiscoveryEvidencePagedResult' } } } }
+  /api/v1/acquisition/candidates/{id}/identity-confirmation:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    post:
+      operationId: confirmAcquisitionCandidateIdentity
+      summary: Confirm candidate identity
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }, { $ref: '#/components/parameters/candidateIfMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: *identityConfirmationSchema } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200':
+          description: Candidate identity confirmed
+          headers:
+            ETag: { required: true, schema: { type: string, pattern: '^"candidate-v[1-9]\d*"$' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentityConfirmationResult' }
+        '428': *apiError
+  /api/v1/acquisition/candidates/{candidateId}/intelligence-operations:
+    parameters:
+      - { name: candidateId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }
+    post:
+      operationId: createAcquisitionCandidateIntelligenceOperation
+      summary: Create candidate intelligence operation
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, maxProperties: 0 }
+      responses:
+        <<: *acquisitionStandardResponses
+        '202': { description: Candidate intelligence operation accepted, content: { application/json: { schema: { $ref: '#/components/schemas/CandidateIntelligenceOperation' } } } }
+  /api/v1/acquisition/candidate-intelligence-operations/{operationId}:
+    parameters:
+      - { name: operationId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }
+    get:
+      operationId: getAcquisitionCandidateIntelligenceOperation
+      summary: Get candidate intelligence operation
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Candidate intelligence operation, content: { application/json: { schema: { $ref: '#/components/schemas/CandidateIntelligenceOperation' } } } }
+  /api/v1/acquisition/candidates/{candidateId}/intelligence-operation:
+    parameters:
+      - { name: candidateId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }
+    get:
+      operationId: getLatestAcquisitionCandidateIntelligenceOperation
+      summary: Get latest candidate intelligence operation
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Latest candidate intelligence operation, content: { application/json: { schema: { $ref: '#/components/schemas/CandidateIntelligenceOperation' } } } }
+  /api/v1/acquisition/candidate-intelligence-operations/{operationId}/retry:
+    parameters:
+      - { name: operationId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }
+    post:
+      operationId: retryAcquisitionCandidateIntelligenceOperation
+      summary: Retry candidate intelligence operation
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, maxProperties: 0 }
+      responses:
+        <<: *acquisitionStandardResponses
+        '202': { description: Candidate intelligence operation retry accepted, content: { application/json: { schema: { $ref: '#/components/schemas/CandidateIntelligenceOperation' } } } }
+  /api/v1/acquisition/candidates/{candidateId}/douyin-identity-resolution-operation:
+    parameters:
+      - { name: candidateId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 120 } }
+    get:
+      operationId: getLatestAcquisitionDouyinIdentityResolutionOperation
+      summary: Get latest Douyin identity resolution operation
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        '200': { description: Latest Douyin identity resolution operation, content: { application/json: { schema: { $ref: '#/components/schemas/DouyinIdentityResolutionOperation' } } } }
+        '401': *apiError
+        '404': *apiError
+  /api/v1/acquisition/candidates/{candidateId}/douyin-identity-resolution-operations:
+    parameters:
+      - { name: candidateId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 120 } }
+    post:
+      operationId: createAcquisitionDouyinIdentityResolutionOperation
+      summary: Create or retry Douyin identity resolution operation
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, maxProperties: 0 }
+      responses:
+        '202':
+          description: Douyin identity resolution operation accepted
+          headers:
+            Idempotency-Replayed: { description: Present with value true for an idempotent replay, schema: { type: string, enum: ["true"] } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/DouyinIdentityResolutionOperation' } } }
+        '400': *apiError
+        '401': *apiError
+        '403': *apiError
+        '404': *apiError
+        '409': *apiError
+        '422': *apiError
+        '429': *apiError
+  /api/v1/acquisition/candidates/{id}/qualification:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    get:
+      operationId: getAcquisitionCandidateQualification
+      summary: Get qualification decision
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Qualification decision, content: { application/json: { schema: { $ref: '#/components/schemas/QualificationDecision' } } } }
+  /api/v1/acquisition/candidates/{id}/financial-value:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    get:
+      operationId: getAcquisitionCandidateFinancialValue
+      summary: Get financial value decision
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Financial value decision, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialValueDecision' } } } }
+  /api/v1/acquisition/candidates/{id}/battle-card:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    get:
+      operationId: getAcquisitionCandidateBattleCard
+      summary: Get battle card
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Battle card, content: { application/json: { schema: { $ref: '#/components/schemas/BattleCard' } } } }
+  /api/v1/acquisition/candidates/{id}/reviews:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    get:
+      operationId: listAcquisitionCandidateReviews
+      summary: List review events
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/acquisitionCursor' }, { $ref: '#/components/parameters/acquisitionLimit' }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Review events, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewEventPagedResult' } } } }
+  /api/v1/acquisition/candidates/{id}/review:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    post:
+      operationId: reviewAcquisitionCandidate
+      summary: Review candidate
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: *reviewSchema } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Candidate reviewed, content: { application/json: { schema: { $ref: '#/components/schemas/CandidateReviewResult' } } } }
+  /api/v1/acquisition/candidates/{id}/convert:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    post:
+      operationId: convertAcquisitionCandidate
+      summary: Convert candidate
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: *convertSchema } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Candidate converted, content: { application/json: { schema: { $ref: '#/components/schemas/LeadConversion' } } } }
+  /api/v1/acquisition/outcomes:
+    get:
+      operationId: listAcquisitionOutcomes
+      summary: List outcome feedback
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/acquisitionCursor' }
+        - { $ref: '#/components/parameters/acquisitionLimit' }
+        - { $ref: '#/components/parameters/candidateId' }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Outcome feedback, content: { application/json: { schema: { $ref: '#/components/schemas/OutcomeFeedbackPagedResult' } } } }
+  /api/v1/acquisition/performance:
+    get:
+      operationId: getAcquisitionPerformance
+      summary: Read acquisition funnel, currency-separated contract values, and owner briefing facts
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - { name: platform, in: query, required: false, schema: { type: string, enum: [douyin, web] } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Acquisition performance, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionPerformance' } } } }
+  /api/v1/acquisition/copilot/sessions:
+    post:
+      operationId: createAcquisitionCopilotSession
+      summary: Create copilot session
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: *copilotSessionSchema } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '202': { description: Copilot session creation accepted, content: { application/json: { schema: { $ref: '#/components/schemas/AsyncOperation' } } } }
+  /api/v1/acquisition/copilot/sessions/{id}:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    get:
+      operationId: getAcquisitionCopilotSession
+      summary: Get copilot session
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Copilot session, content: { application/json: { schema: { $ref: '#/components/schemas/CopilotSession' } } } }
+  /api/v1/acquisition/copilot/sessions/{id}/messages:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    get:
+      operationId: listAcquisitionCopilotMessages
+      summary: List copilot messages
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/acquisitionCursor' }, { $ref: '#/components/parameters/acquisitionLimit' }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Copilot messages, content: { application/json: { schema: { $ref: '#/components/schemas/CopilotMessagePagedResult' } } } }
+    post:
+      operationId: sendAcquisitionCopilotMessage
+      summary: Send copilot message
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: *copilotMessageSchema } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '202':
+          description: Queued copilot task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CopilotTask' }
+  /api/v1/acquisition/copilot/tasks/{id}:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    get:
+      operationId: getAcquisitionCopilotTask
+      summary: Get copilot task
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Copilot task, content: { application/json: { schema: { $ref: '#/components/schemas/CopilotTask' } } } }
+  /api/v1/acquisition/audit-events:
+    get:
+      operationId: listAcquisitionAuditEvents
+      summary: List audit events
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/acquisitionCursor' }
+        - { $ref: '#/components/parameters/acquisitionLimit' }
+        - { name: candidateId, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 255 } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Audit events, content: { application/json: { schema: { $ref: '#/components/schemas/AuditEventPagedResult' } } } }

@@ -1,0 +1,487 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/acquisition-visual-reader-session.v1.schema.json",
+  "title": "VisualReaderSession",
+  "description": "Server-owned public projection for one explicitly authorized, bounded, read-only visual reader session.",
+  "$defs": {
+    "visualReaderIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "not": { "pattern": "[\\u0000-\\u001F\\u007F]" }
+    },
+    "visualReaderStableErrorCode": {
+      "type": "string",
+      "enum": [
+        "visual_reader_not_enabled",
+        "visual_reader_session_expired",
+        "visual_reader_budget_exhausted",
+        "visual_source_invalid",
+        "visual_observation_invalid",
+        "visual_artifact_invalid",
+        "visual_extraction_method_disabled",
+        "visual_extraction_low_confidence",
+        "visual_reader_user_takeover"
+      ]
+    },
+    "visualReaderLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxVideos",
+        "maxCommentsPerVideo",
+        "maxScrolls",
+        "maxOcrCalls",
+        "maxDurationMs"
+      ],
+      "properties": {
+        "maxVideos": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "maxCommentsPerVideo": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "maxScrolls": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "maxOcrCalls": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "maxDurationMs": { "type": "integer", "minimum": 1, "maximum": 120000 }
+      }
+    },
+    "visualReaderUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "videoCount",
+        "observationCount",
+        "scrollCount",
+        "ocrCallCount",
+        "domObservationCount",
+        "accessibilityObservationCount",
+        "ocrObservationCount",
+        "lowConfidenceObservationCount",
+        "artifactCount"
+      ],
+      "properties": {
+        "videoCount": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "observationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+        "scrollCount": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "ocrCallCount": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "domObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+        "accessibilityObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+        "ocrObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+        "lowConfidenceObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+        "artifactCount": { "type": "integer", "minimum": 0, "maximum": 300 }
+      }
+    },
+    "visualReaderOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "videoCount",
+        "observationCount",
+        "domObservationCount",
+        "accessibilityObservationCount",
+        "ocrObservationCount",
+        "lowConfidenceObservationCount",
+        "artifactCount",
+        "errorCodes"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["completed", "partial_success", "aborted", "expired"]
+        },
+        "videoCount": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "observationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+        "domObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+        "accessibilityObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+        "ocrObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+        "lowConfidenceObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+        "artifactCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+        "errorCodes": {
+          "type": "array",
+          "maxItems": 9,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/visualReaderStableErrorCode" }
+        }
+      }
+    },
+    "visualReaderPixelRect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "integer", "minimum": 0, "maximum": 8192 },
+        "y": { "type": "integer", "minimum": 0, "maximum": 8192 },
+        "width": { "type": "integer", "minimum": 1, "maximum": 8192 },
+        "height": { "type": "integer", "minimum": 1, "maximum": 8192 }
+      }
+    },
+    "visualReaderOpaqueRectRedactionProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "maskColorRgba",
+        "avatarBounds",
+        "visibleRegions",
+        "maskedRegions"
+      ],
+      "properties": {
+        "version": { "const": "opaque-rect-v1" },
+        "maskColorRgba": {
+          "type": "array",
+          "const": [17, 61, 51, 255]
+        },
+        "avatarBounds": {
+          "oneOf": [
+            { "$ref": "#/$defs/visualReaderPixelRect" },
+            { "type": "null" }
+          ]
+        },
+        "visibleRegions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/visualReaderPixelRect" }
+        },
+        "maskedRegions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/visualReaderPixelRect" }
+        }
+      }
+    },
+    "visualReaderBoundedWebpBase64": {
+      "description": "Canonical base64 whose decoded length is at most 262144 bytes. Actual WebP decoding and pixel proof validation are Task 3 service responsibilities.",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 349524,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$"
+        },
+        {
+          "type": "string",
+          "minLength": 349528,
+          "maxLength": 349528,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*[A-Za-z0-9+/][AQgw]==$"
+        }
+      ]
+    },
+    "visualReaderObservationSubmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientObservationKey",
+        "sourceUrl",
+        "videoId",
+        "visibleText",
+        "domTextHash",
+        "ocrTextHash",
+        "displayName",
+        "visibleTimeText",
+        "likeCount",
+        "replyCount",
+        "platformCommentId",
+        "publicProfileUrl",
+        "secUid",
+        "extractionMethod",
+        "fieldConfidences",
+        "viewport",
+        "cardBounds",
+        "readerVersion",
+        "capturedAt",
+        "redactedCrop"
+      ],
+      "properties": {
+        "clientObservationKey": { "$ref": "#/$defs/visualReaderIdentifier" },
+        "sourceUrl": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/visualObservationSourceUrl"
+        },
+        "videoId": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/visualObservationVideoId"
+        },
+        "visibleText": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/visualObservationVisibleText"
+        },
+        "domTextHash": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/visualObservationNullableDigest"
+        },
+        "ocrTextHash": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/visualObservationNullableDigest"
+        },
+        "displayName": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/douyinVisualCommentObservation/properties/displayName"
+        },
+        "visibleTimeText": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/douyinVisualCommentObservation/properties/visibleTimeText"
+        },
+        "likeCount": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/douyinVisualCommentObservation/properties/likeCount"
+        },
+        "replyCount": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/douyinVisualCommentObservation/properties/replyCount"
+        },
+        "platformCommentId": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/douyinVisualCommentObservation/properties/platformCommentId"
+        },
+        "publicProfileUrl": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/douyinVisualCommentObservation/properties/publicProfileUrl"
+        },
+        "secUid": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/douyinVisualCommentObservation/properties/secUid"
+        },
+        "extractionMethod": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/visualObservationExtractionMethod"
+        },
+        "fieldConfidences": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/douyinVisualCommentObservation/properties/fieldConfidences"
+        },
+        "viewport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width", "height", "deviceScaleFactor"],
+          "properties": {
+            "width": { "type": "integer", "minimum": 1, "maximum": 8192 },
+            "height": { "type": "integer", "minimum": 1, "maximum": 8192 },
+            "deviceScaleFactor": { "type": "number", "minimum": 0.5, "maximum": 8 }
+          }
+        },
+        "cardBounds": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/douyinVisualCommentObservation/properties/cardBounds"
+        },
+        "readerVersion": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/visualObservationReaderVersion"
+        },
+        "capturedAt": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/visualObservationCapturedAt"
+        },
+        "redactedCrop": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mediaType", "contentBase64", "redactionProof"],
+              "properties": {
+                "mediaType": { "const": "image/webp" },
+                "contentBase64": { "$ref": "#/$defs/visualReaderBoundedWebpBase64" },
+                "redactionProof": { "$ref": "#/$defs/visualReaderOpaqueRectRedactionProof" }
+              }
+            },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "visualReaderCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "artifactUploadEnabled"],
+      "properties": {
+        "runId": { "$ref": "#/$defs/visualReaderIdentifier" },
+        "artifactUploadEnabled": { "type": "boolean" }
+      }
+    },
+    "visualReaderObservationBatchRequest": {
+      "description": "At most 20 client observations, with no more than five redacted crops.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observations"],
+      "properties": {
+        "observations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/visualReaderObservationSubmission" },
+          "contains": {
+            "type": "object",
+            "required": ["redactedCrop"],
+            "properties": { "redactedCrop": { "type": "object" } }
+          },
+          "minContains": 0,
+          "maxContains": 5
+        }
+      }
+    },
+    "visualReaderAcceptedObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientObservationKey", "observation"],
+      "properties": {
+        "clientObservationKey": { "$ref": "#/$defs/visualReaderIdentifier" },
+        "observation": {
+          "$ref": "douyin-visual-comment-observation.v1.schema.json#/$defs/douyinVisualCommentObservation"
+        }
+      }
+    },
+    "visualReaderObservationBatchResponse": {
+      "description": "Accepted observations are server-normalized facts. Standard JSON Schema validates each sessionId independently; the Task 3 service must require the route, session, and every observation sessionId to agree before returning the response.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session", "accepted", "duplicates"],
+      "properties": {
+        "session": { "$ref": "#/$defs/visualReaderSession" },
+        "accepted": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/visualReaderAcceptedObservation" }
+        },
+        "duplicates": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/visualReaderIdentifier" }
+        }
+      }
+    },
+    "visualReaderCompleteRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "errorCodes"],
+      "properties": {
+        "status": { "type": "string", "enum": ["completed", "partial_success"] },
+        "errorCodes": {
+          "type": "array",
+          "maxItems": 9,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/visualReaderStableErrorCode" }
+        }
+      }
+    },
+    "visualReaderAbortRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reasonCode"],
+      "properties": {
+        "reasonCode": {
+          "type": "string",
+          "enum": ["user_requested", "visual_reader_user_takeover"]
+        }
+      }
+    },
+    "visualReaderSession": {
+      "title": "VisualReaderSession",
+      "description": "Server-owned public projection for one explicitly authorized, bounded, read-only visual reader session.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId",
+        "runId",
+        "planId",
+        "planVersionId",
+        "platform",
+        "coverage",
+        "status",
+        "artifactUploadEnabled",
+        "limits",
+        "usage",
+        "outcome",
+        "lastErrorCode",
+        "createdAt",
+        "authorizedAt",
+        "updatedAt",
+        "expiresAt",
+        "completedAt"
+      ],
+      "properties": {
+        "sessionId": { "$ref": "#/$defs/visualReaderIdentifier" },
+        "runId": { "$ref": "#/$defs/visualReaderIdentifier" },
+        "planId": { "$ref": "#/$defs/visualReaderIdentifier" },
+        "planVersionId": { "$ref": "#/$defs/visualReaderIdentifier" },
+        "platform": { "const": "douyin" },
+        "coverage": { "const": "authorized_visible_top_level_sample" },
+        "status": {
+          "type": "string",
+          "enum": ["created", "collecting", "completed", "partial_success", "aborted", "expired"]
+        },
+        "artifactUploadEnabled": { "type": "boolean" },
+        "limits": { "$ref": "#/$defs/visualReaderLimits" },
+        "usage": { "$ref": "#/$defs/visualReaderUsage" },
+        "outcome": {
+          "oneOf": [
+            { "$ref": "#/$defs/visualReaderOutcome" },
+            { "type": "null" }
+          ]
+        },
+        "lastErrorCode": {
+          "oneOf": [
+            { "$ref": "#/$defs/visualReaderStableErrorCode" },
+            { "type": "null" }
+          ]
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "authorizedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "completedAt": {
+          "oneOf": [
+            { "type": "string", "format": "date-time" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "enum": ["created", "collecting"] },
+            "outcome": { "type": "null" },
+            "completedAt": { "type": "null" }
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "completed" },
+            "outcome": {
+              "allOf": [
+                { "$ref": "#/$defs/visualReaderOutcome" },
+                { "type": "object", "properties": { "status": { "const": "completed" } } }
+              ]
+            },
+            "completedAt": { "type": "string", "format": "date-time" }
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "partial_success" },
+            "outcome": {
+              "allOf": [
+                { "$ref": "#/$defs/visualReaderOutcome" },
+                { "type": "object", "properties": { "status": { "const": "partial_success" } } }
+              ]
+            },
+            "completedAt": { "type": "string", "format": "date-time" }
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "aborted" },
+            "outcome": {
+              "allOf": [
+                { "$ref": "#/$defs/visualReaderOutcome" },
+                { "type": "object", "properties": { "status": { "const": "aborted" } } }
+              ]
+            },
+            "completedAt": { "type": "string", "format": "date-time" }
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "expired" },
+            "outcome": {
+              "allOf": [
+                { "$ref": "#/$defs/visualReaderOutcome" },
+                { "type": "object", "properties": { "status": { "const": "expired" } } }
+              ]
+            },
+            "completedAt": { "type": "string", "format": "date-time" }
+          }
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/visualReaderSession"
+}

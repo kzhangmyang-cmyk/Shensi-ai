@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://goodjob.example/contracts/json-schema/paged-result.v1.schema.json","title":"PagedResult","type":"object","additionalProperties":false,"required":["items","nextCursor"],"properties":{"items":{"type":"array"},"nextCursor":{"type":["string","null"]}}}

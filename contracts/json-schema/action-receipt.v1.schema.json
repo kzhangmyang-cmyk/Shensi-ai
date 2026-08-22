@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/action-receipt.v1.schema.json",
+  "title": "ActionReceipt",
+  "$defs": {
+    "boundedString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Canonical immutable SHA-256 digest: sha256: followed by exactly 64 lowercase hexadecimal characters."
+    },
+    "immutableRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "hash"],
+      "properties": {
+        "id": { "$ref": "#/$defs/boundedString" },
+        "hash": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "normalizedError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "code", "message", "retryable"],
+      "properties": {
+        "category": {
+          "enum": [
+            "capability_unavailable",
+            "authorization_insufficient",
+            "quota_exhausted",
+            "rate_limited",
+            "temporary_error",
+            "permanent_error",
+            "result_unknown"
+          ]
+        },
+        "code": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "retryable": { "type": "boolean" }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tenantId",
+    "teamId",
+    "intentRef",
+    "decisionRef",
+    "jobRef",
+    "connectionRef",
+    "capabilitySnapshotRef",
+    "idempotencyKey",
+    "externalId",
+    "outcome",
+    "error",
+    "requestHash",
+    "resultHash",
+    "requestedAt",
+    "completedAt",
+    "recordedAt",
+    "recordedBy"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/boundedString" },
+    "tenantId": { "$ref": "#/$defs/boundedString" },
+    "teamId": {
+      "oneOf": [
+        { "$ref": "#/$defs/boundedString" },
+        { "type": "null" }
+      ]
+    },
+    "intentRef": { "$ref": "#/$defs/immutableRef" },
+    "decisionRef": { "$ref": "#/$defs/immutableRef" },
+    "jobRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "attempt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/boundedString" },
+        "attempt": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "connectionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "credentialVersion"],
+      "properties": {
+        "id": { "$ref": "#/$defs/boundedString" },
+        "credentialVersion": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "capabilitySnapshotRef": { "$ref": "#/$defs/immutableRef" },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 200,
+      "pattern": "\\S",
+      "description": "Bounded idempotency key containing at least one non-whitespace character."
+    },
+    "externalId": {
+      "oneOf": [
+        { "$ref": "#/$defs/boundedString" },
+        { "type": "null" }
+      ]
+    },
+    "outcome": { "enum": ["succeeded", "failed", "unknown"] },
+    "error": {
+      "oneOf": [
+        { "$ref": "#/$defs/normalizedError" },
+        { "type": "null" }
+      ]
+    },
+    "requestHash": { "$ref": "#/$defs/digest" },
+    "resultHash": { "$ref": "#/$defs/digest" },
+    "requestedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "recordedAt": { "type": "string", "format": "date-time" },
+    "recordedBy": { "$ref": "#/$defs/boundedString" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "outcome": { "const": "succeeded" } },
+        "required": ["outcome"]
+      },
+      "then": { "properties": { "error": { "type": "null" } } },
+      "else": { "properties": { "error": { "$ref": "#/$defs/normalizedError" } } }
+    }
+  ]
+}

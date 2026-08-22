@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/quote-version.v1.schema.json",
+  "title": "QuoteVersion",
+  "oneOf": [
+    { "$ref": "#/$defs/FullProjection" },
+    { "$ref": "#/$defs/RedactedProjection" }
+  ],
+  "$defs": {
+    "nonempty": { "type": "string", "minLength": 1 },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "money": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "signed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+    "bps": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "FullQuoteLineItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalogItemId", "pricingPolicyVersionId", "packageVersionId", "quantityMicros", "offeredUnitPriceMinor", "lineAmountMinor", "standardCostMinor"],
+      "properties": {
+        "catalogItemId": { "$ref": "#/$defs/nonempty" },
+        "pricingPolicyVersionId": { "$ref": "#/$defs/nonempty" },
+        "packageVersionId": { "type": ["string", "null"], "minLength": 1 },
+        "quantityMicros": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "offeredUnitPriceMinor": { "$ref": "#/$defs/money" },
+        "lineAmountMinor": { "$ref": "#/$defs/money" },
+        "standardCostMinor": { "$ref": "#/$defs/money" }
+      }
+    },
+    "RedactedQuoteLineItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalogItemId", "pricingPolicyVersionId", "packageVersionId", "quantityMicros", "offeredUnitPriceMinor", "lineAmountMinor"],
+      "properties": {
+        "catalogItemId": { "$ref": "#/$defs/nonempty" },
+        "pricingPolicyVersionId": { "$ref": "#/$defs/nonempty" },
+        "packageVersionId": { "type": ["string", "null"], "minLength": 1 },
+        "quantityMicros": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "offeredUnitPriceMinor": { "$ref": "#/$defs/money" },
+        "lineAmountMinor": { "$ref": "#/$defs/money" }
+      }
+    },
+    "PaymentTerms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["days"],
+      "properties": { "days": { "type": "integer", "minimum": 0 } }
+    },
+    "FullGiftItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalogItemId", "quantityMicros", "standardCostMinor"],
+      "properties": {
+        "catalogItemId": { "$ref": "#/$defs/nonempty" },
+        "quantityMicros": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "standardCostMinor": { "$ref": "#/$defs/money" }
+      }
+    },
+    "RedactedGiftItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalogItemId", "quantityMicros"],
+      "properties": {
+        "catalogItemId": { "$ref": "#/$defs/nonempty" },
+        "quantityMicros": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    },
+    "ProbabilityAssessmentSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "candidateId", "dealId", "closeProbabilityBps", "qualificationDecisionId", "qualificationDecisionVersion", "evidenceRefs", "ruleVersion", "modelSnapshotRef", "inputSnapshotHash", "assessedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonempty" },
+        "candidateId": { "$ref": "#/$defs/nonempty" },
+        "dealId": { "type": ["string", "null"], "minLength": 1 },
+        "closeProbabilityBps": { "$ref": "#/$defs/bps" },
+        "qualificationDecisionId": { "$ref": "#/$defs/nonempty" },
+        "qualificationDecisionVersion": { "$ref": "#/$defs/nonempty" },
+        "evidenceRefs": { "type": "array", "items": { "$ref": "#/$defs/nonempty" } },
+        "ruleVersion": { "$ref": "#/$defs/nonempty" },
+        "modelSnapshotRef": { "type": ["string", "null"], "minLength": 1 },
+        "inputSnapshotHash": { "$ref": "#/$defs/hash" },
+        "assessedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "FullProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["status"],
+            "properties": { "status": { "const": "draft" } }
+          },
+          "then": {
+            "properties": { "probabilityAssessmentSnapshot": { "type": "null" } }
+          },
+          "else": {
+            "properties": { "probabilityAssessmentSnapshot": { "$ref": "#/$defs/ProbabilityAssessmentSnapshot" } }
+          }
+        }
+      ],
+      "required": ["amountVisibility", "id", "workspaceId", "quoteCaseId", "version", "lifecycleRevision", "currency", "lineItems", "customerTargetPriceMinor", "discountMinor", "surchargeMinor", "requiredSurchargeMinor", "paymentTerms", "giftItems", "listAmountMinor", "netProductAmountMinor", "quotedAmountMinor", "estimatedFulfillmentCostMinor", "estimatedSalesCostMinor", "estimatedServiceCostMinor", "estimatedGrossProfitMinor", "estimatedContributionMinor", "discountBps", "grossMarginBps", "approvalReasons", "pricingPolicySnapshot", "probabilityAssessmentSnapshot", "previewIdentity", "commercialAmountHash", "status", "createdBy", "createdAt"],
+      "properties": {
+        "amountVisibility": { "const": "full" },
+        "id": { "$ref": "#/$defs/nonempty" },
+        "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } },
+        "quoteCaseId": { "$ref": "#/$defs/nonempty" },
+        "version": { "type": "integer", "minimum": 1 },
+        "lifecycleRevision": { "type": "integer", "minimum": 1 },
+        "currency": { "$ref": "#/$defs/currency" },
+        "lineItems": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/FullQuoteLineItem" } },
+        "customerTargetPriceMinor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/money" }] },
+        "discountMinor": { "$ref": "#/$defs/money" },
+        "surchargeMinor": { "$ref": "#/$defs/money" },
+        "requiredSurchargeMinor": { "$ref": "#/$defs/money" },
+        "paymentTerms": { "$ref": "#/$defs/PaymentTerms" },
+        "giftItems": { "type": "array", "items": { "$ref": "#/$defs/FullGiftItem" } },
+        "listAmountMinor": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "netProductAmountMinor": { "$ref": "#/$defs/money" },
+        "quotedAmountMinor": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "estimatedFulfillmentCostMinor": { "$ref": "#/$defs/money" },
+        "estimatedSalesCostMinor": { "$ref": "#/$defs/money" },
+        "estimatedServiceCostMinor": { "$ref": "#/$defs/money" },
+        "estimatedGrossProfitMinor": { "$ref": "#/$defs/signed" },
+        "estimatedContributionMinor": { "$ref": "#/$defs/signed" },
+        "discountBps": { "$ref": "#/$defs/bps" },
+        "grossMarginBps": { "$ref": "#/$defs/signed" },
+        "approvalReasons": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "pricingPolicySnapshot": { "$ref": "pricing-policy-version.v1.schema.json#/$defs/FullProjection" },
+        "probabilityAssessmentSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ProbabilityAssessmentSnapshot" }] },
+        "previewIdentity": { "$ref": "quote-case.v1.schema.json#/$defs/QuotePreviewIdentity" },
+        "commercialAmountHash": { "$ref": "#/$defs/hash" },
+        "status": { "enum": ["draft", "submitted", "approved", "rejected", "superseded", "expired"] },
+        "createdBy": { "$ref": "#/$defs/nonempty" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "RedactedProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["status"],
+            "properties": { "status": { "const": "draft" } }
+          },
+          "then": {
+            "properties": { "probabilityAssessmentSnapshot": { "type": "null" } }
+          },
+          "else": {
+            "properties": { "probabilityAssessmentSnapshot": { "$ref": "#/$defs/ProbabilityAssessmentSnapshot" } }
+          }
+        }
+      ],
+      "required": ["amountVisibility", "id", "workspaceId", "quoteCaseId", "version", "lifecycleRevision", "currency", "lineItems", "customerTargetPriceMinor", "discountMinor", "surchargeMinor", "requiredSurchargeMinor", "paymentTerms", "giftItems", "listAmountMinor", "netProductAmountMinor", "quotedAmountMinor", "discountBps", "approvalReasons", "probabilityAssessmentSnapshot", "previewIdentity", "commercialAmountHash", "status", "createdBy", "createdAt"],
+      "properties": {
+        "amountVisibility": { "const": "redacted" },
+        "id": { "$ref": "#/$defs/nonempty" },
+        "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } },
+        "quoteCaseId": { "$ref": "#/$defs/nonempty" },
+        "version": { "type": "integer", "minimum": 1 },
+        "lifecycleRevision": { "type": "integer", "minimum": 1 },
+        "currency": { "$ref": "#/$defs/currency" },
+        "lineItems": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/RedactedQuoteLineItem" } },
+        "customerTargetPriceMinor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/money" }] },
+        "discountMinor": { "$ref": "#/$defs/money" },
+        "surchargeMinor": { "$ref": "#/$defs/money" },
+        "requiredSurchargeMinor": { "$ref": "#/$defs/money" },
+        "paymentTerms": { "$ref": "#/$defs/PaymentTerms" },
+        "giftItems": { "type": "array", "items": { "$ref": "#/$defs/RedactedGiftItem" } },
+        "listAmountMinor": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "netProductAmountMinor": { "$ref": "#/$defs/money" },
+        "quotedAmountMinor": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "discountBps": { "$ref": "#/$defs/bps" },
+        "approvalReasons": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "probabilityAssessmentSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ProbabilityAssessmentSnapshot" }] },
+        "previewIdentity": { "$ref": "quote-case.v1.schema.json#/$defs/QuotePreviewIdentity" },
+        "commercialAmountHash": { "$ref": "#/$defs/hash" },
+        "status": { "enum": ["draft", "submitted", "approved", "rejected", "superseded", "expired"] },
+        "createdBy": { "$ref": "#/$defs/nonempty" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

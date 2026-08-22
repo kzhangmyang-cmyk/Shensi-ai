@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/acquisition-plan.v1.schema.json",
+  "title": "AcquisitionPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "ownerId",
+    "teamId",
+    "status",
+    "version",
+    "revision",
+    "etag",
+    "currentVersionId",
+    "approvedVersionId",
+    "approvedSnapshotHash",
+    "approvedBy",
+    "approvedAt",
+    "budgetSnapshot",
+    "payload",
+    "createdBy",
+    "createdAt",
+    "updatedBy",
+    "updatedAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "ownerId": { "type": "string", "minLength": 1 },
+    "teamId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["draft", "approved", "archived"] },
+    "version": { "type": "integer", "minimum": 1 },
+    "revision": { "type": "integer", "minimum": 1 },
+    "etag": { "type": "string", "minLength": 1 },
+    "currentVersionId": { "type": "string", "minLength": 1 },
+    "approvedVersionId": { "type": ["string", "null"], "minLength": 1 },
+    "approvedSnapshotHash": { "type": ["string", "null"], "minLength": 1 },
+    "approvedBy": { "type": ["string", "null"], "minLength": 1 },
+    "approvedAt": { "type": ["string", "null"], "format": "date-time" },
+    "budgetSnapshot": { "$ref": "#/$defs/budgetSnapshot" },
+    "payload": { "$ref": "#/$defs/payload" },
+    "createdBy": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedBy": { "type": "string", "minLength": 1 },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "budgetUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "results", "amountMinor", "durationSeconds"],
+      "properties": {
+        "requests": { "type": "integer", "minimum": 0 },
+        "results": { "type": "integer", "minimum": 0 },
+        "amountMinor": { "type": "integer", "minimum": 0 },
+        "durationSeconds": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "budgetSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "billingCurrency",
+        "maxRequests",
+        "maxResults",
+        "maxAmountMinor",
+        "maxDurationSeconds"
+      ],
+      "properties": {
+        "billingCurrency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3
+        },
+        "maxRequests": { "type": "integer", "minimum": 0 },
+        "maxResults": { "type": "integer", "minimum": 0 },
+        "maxAmountMinor": { "type": "integer", "minimum": 0 },
+        "maxDurationSeconds": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "modelSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobSnapshotId",
+        "connectionId",
+        "credentialVersion",
+        "provider",
+        "model",
+        "capabilitySnapshotHash",
+        "promptVersion",
+        "schemaVersion",
+        "promptHash",
+        "schemaHash"
+      ],
+      "properties": {
+        "jobSnapshotId": { "type": "string", "minLength": 1 },
+        "connectionId": { "type": "string", "minLength": 1 },
+        "credentialVersion": { "type": "integer", "minimum": 1 },
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "capabilitySnapshotHash": { "type": "string", "minLength": 1 },
+        "promptVersion": { "type": "string", "minLength": 1 },
+        "schemaVersion": { "type": "string", "minLength": 1 },
+        "promptHash": { "type": "string", "minLength": 1 },
+        "schemaHash": { "type": "string", "minLength": 1 }
+      }
+    },
+    "providerConnection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connectionId",
+        "providerId",
+        "kind",
+        "status",
+        "credentialVersion"
+      ],
+      "properties": {
+        "connectionId": { "type": "string", "minLength": 1 },
+        "providerId": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["search", "content_fetch", "import"] },
+        "status": { "enum": ["active", "inactive", "disabled"] },
+        "credentialVersion": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationId",
+        "subjectChannel",
+        "kind",
+        "connectionId",
+        "allocatedBudget"
+      ],
+      "properties": {
+        "operationId": { "type": "string", "minLength": 1 },
+        "subjectChannel": { "enum": ["organization", "individual"] },
+        "kind": { "enum": ["search", "content_fetch", "import_rows"] },
+        "connectionId": { "type": "string", "minLength": 1 },
+        "query": { "type": "string", "minLength": 1 },
+        "sourceRef": { "type": "string", "minLength": 1 },
+        "allocatedBudget": { "$ref": "#/$defs/budgetUsage" }
+      }
+    },
+    "douyinPublicCommentSamplePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "maxVideosPerRun",
+        "maxCommentsPerVideo",
+        "maxPagesPerVideo"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "maxVideosPerRun": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "maxCommentsPerVideo": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "maxPagesPerVideo": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "objective",
+        "icp",
+        "subjectChannels",
+        "providerConnections",
+        "operations",
+        "budgetSnapshot",
+        "modelSnapshotRef",
+        "stopConditions"
+      ],
+      "properties": {
+        "targetPlatform": { "enum": ["douyin", "web"] },
+        "douyinPublicCommentSample": {
+          "$ref": "#/$defs/douyinPublicCommentSamplePolicy"
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "objective": { "type": "string", "minLength": 1 },
+        "icp": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "industries",
+            "regions",
+            "organizationCriteria",
+            "individualCriteria",
+            "exclusionRules"
+          ],
+          "properties": {
+            "industries": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "regions": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "organizationCriteria": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "individualCriteria": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "exclusionRules": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "subjectChannels": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["organization", "individual"],
+          "properties": {
+            "organization": { "type": "boolean" },
+            "individual": { "type": "boolean" }
+          }
+        },
+        "providerConnections": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/providerConnection" }
+        },
+        "operations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/operation" }
+        },
+        "budgetSnapshot": { "$ref": "#/$defs/budgetSnapshot" },
+        "modelSnapshotRef": { "$ref": "#/$defs/modelSnapshot" },
+        "stopConditions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stopWhenBudgetExhausted", "stopWhenNoMoreResults"],
+          "properties": {
+            "stopWhenBudgetExhausted": { "type": "boolean" },
+            "stopWhenNoMoreResults": { "type": "boolean" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "required": ["douyinPublicCommentSample"],
+            "properties": {
+              "douyinPublicCommentSample": {
+                "type": "object",
+                "required": ["enabled"],
+                "properties": {
+                  "enabled": { "const": true }
+                }
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "required": ["targetPlatform", "providerConnections"],
+            "properties": {
+              "targetPlatform": { "const": "douyin" },
+              "providerConnections": {
+                "type": "array",
+                "not": {
+                  "items": {
+                    "not": {
+                      "type": "object",
+                      "required": ["providerId", "kind", "status"],
+                      "properties": {
+                        "providerId": {
+                          "const": "experimental_public_sample"
+                        },
+                        "kind": { "const": "content_fetch" },
+                        "status": { "const": "active" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

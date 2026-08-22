@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/douyin-comment-event.v1.schema.json",
+  "title": "DouyinCommentEvent",
+  "description": "Immutable concrete payload for a publicly accessible top-level Douyin comment sample. Its platformEventId, videoId, and actor identifier populate the generic platform event envelope references.",
+  "$defs": {
+    "boundedString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "nullableBoundedString": {
+      "oneOf": [
+        { "$ref": "#/$defs/boundedString" },
+        { "type": "null" }
+      ]
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "platform",
+    "eventType",
+    "platformEventId",
+    "videoId",
+    "parentCommentId",
+    "text",
+    "textHash",
+    "occurredAt",
+    "capturedAt",
+    "likeCount",
+    "replyCount",
+    "ipLabel",
+    "actor",
+    "sourceUrl",
+    "coverage",
+    "accessStatus",
+    "providerVersion",
+    "rawArtifactHash"
+  ],
+  "properties": {
+    "eventId": { "$ref": "#/$defs/boundedString" },
+    "platform": { "const": "douyin" },
+    "eventType": { "const": "comment" },
+    "platformEventId": { "$ref": "#/$defs/boundedString" },
+    "videoId": { "$ref": "#/$defs/boundedString" },
+    "parentCommentId": { "type": "null" },
+    "text": { "type": "string", "minLength": 1, "maxLength": 10000 },
+    "textHash": { "$ref": "#/$defs/digest" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "likeCount": { "type": "integer", "minimum": 0 },
+    "replyCount": { "type": "integer", "minimum": 0 },
+    "ipLabel": { "$ref": "#/$defs/nullableBoundedString" },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["displayName", "handle", "secUid"],
+      "properties": {
+        "displayName": { "$ref": "#/$defs/boundedString" },
+        "handle": { "$ref": "#/$defs/nullableBoundedString" },
+        "secUid": { "$ref": "#/$defs/nullableBoundedString" }
+      }
+    },
+    "sourceUrl": { "type": "string", "format": "uri", "maxLength": 4000 },
+    "coverage": { "const": "public_top_level_sample" },
+    "accessStatus": { "const": "public_content" },
+    "providerVersion": { "$ref": "#/$defs/boundedString" },
+    "rawArtifactHash": { "$ref": "#/$defs/digest" }
+  }
+}

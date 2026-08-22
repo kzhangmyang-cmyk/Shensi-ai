@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/pricing-policy-version.v1.schema.json",
+  "title": "PricingPolicyVersion",
+  "oneOf": [
+    { "$ref": "#/$defs/FullProjection" },
+    { "$ref": "#/$defs/RedactedProjection" }
+  ],
+  "$defs": {
+    "bps": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "nonnegativeMoney": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "approvalCapability": { "enum": ["quote.confirm", "quote.exception.discount.approve", "quote.exception.margin.approve", "quote.exception.payment_terms.approve", "quote.exception.gift.approve", "quote.exception.credit.approve", "quote.exception.manual.approve"] },
+    "ApprovalThresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discountCapability", "marginCapability", "paymentTermsCapability", "giftCapability", "creditCapability", "manualCapability", "creditRiskThresholdBps", "manualEscalationEnabled"],
+      "properties": {
+        "discountCapability": { "$ref": "#/$defs/approvalCapability" },
+        "marginCapability": { "$ref": "#/$defs/approvalCapability" },
+        "paymentTermsCapability": { "$ref": "#/$defs/approvalCapability" },
+        "giftCapability": { "$ref": "#/$defs/approvalCapability" },
+        "creditCapability": { "$ref": "#/$defs/approvalCapability" },
+        "manualCapability": { "$ref": "#/$defs/approvalCapability" },
+        "creditRiskThresholdBps": { "$ref": "#/$defs/bps" },
+        "manualEscalationEnabled": { "type": "boolean" }
+      }
+    },
+    "SurchargePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "condition", "fixedAmountMinor", "unitAmountMinor"],
+      "properties": {
+        "kind": { "enum": ["region", "delivery", "payment_term"] },
+        "condition": { "type": "string", "minLength": 1 },
+        "fixedAmountMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "unitAmountMinor": { "$ref": "#/$defs/nonnegativeMoney" }
+      }
+    },
+    "GiftPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalogItemId", "unitStandardCostMinor", "standardQuantityMicros", "absoluteQuantityMicros", "standardCostLimitMinor", "absoluteCostLimitMinor"],
+      "properties": {
+        "catalogItemId": { "type": "string", "minLength": 1 },
+        "unitStandardCostMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "standardQuantityMicros": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "absoluteQuantityMicros": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "standardCostLimitMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "absoluteCostLimitMinor": { "$ref": "#/$defs/nonnegativeMoney" }
+      }
+    },
+    "FullProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amountVisibility", "id", "workspaceId", "catalogItemId", "version", "revision", "packageVersionId", "currency", "listUnitPriceMinor", "unitStandardCostMinor", "defaultOrderDeliveryCostMinor", "defaultOrderSalesCostMinor", "defaultOrderServiceCostMinor", "absoluteFloorUnitPriceMinor", "standardDiscountLimitBps", "absoluteDiscountLimitBps", "targetGrossMarginBps", "absoluteMinimumGrossMarginBps", "standardPaymentTermDays", "absolutePaymentTermDays", "approvalThresholds", "surchargePolicies", "giftPolicies", "validFrom", "validTo", "status", "source", "createdBy", "createdAt"],
+      "properties": {
+        "amountVisibility": { "const": "full" },
+        "id": { "type": "string", "minLength": 1 },
+        "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } },
+        "catalogItemId": { "type": "string", "minLength": 1 },
+        "version": { "type": "integer", "minimum": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "packageVersionId": { "type": ["string", "null"], "minLength": 1 },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "listUnitPriceMinor": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "unitStandardCostMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "defaultOrderDeliveryCostMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "defaultOrderSalesCostMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "defaultOrderServiceCostMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "absoluteFloorUnitPriceMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "standardDiscountLimitBps": { "$ref": "#/$defs/bps" },
+        "absoluteDiscountLimitBps": { "$ref": "#/$defs/bps" },
+        "targetGrossMarginBps": { "$ref": "#/$defs/bps" },
+        "absoluteMinimumGrossMarginBps": { "type": "integer", "minimum": 0, "maximum": 9999 },
+        "standardPaymentTermDays": { "type": "integer", "minimum": 0 },
+        "absolutePaymentTermDays": { "type": "integer", "minimum": 0 },
+        "approvalThresholds": { "$ref": "#/$defs/ApprovalThresholds" },
+        "surchargePolicies": { "type": "array", "items": { "$ref": "#/$defs/SurchargePolicy" } },
+        "giftPolicies": { "type": "array", "items": { "$ref": "#/$defs/GiftPolicy" } },
+        "validFrom": { "type": "string", "format": "date-time" },
+        "validTo": { "type": ["string", "null"], "format": "date-time" },
+        "status": { "enum": ["draft", "active", "retired"] },
+        "source": { "enum": ["native", "legacy_commission_product"] },
+        "createdBy": { "type": "string", "minLength": 1 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "RedactedProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amountVisibility", "id", "workspaceId", "catalogItemId", "version", "revision", "packageVersionId", "currency", "listUnitPriceMinor", "standardDiscountLimitBps", "absoluteDiscountLimitBps", "standardPaymentTermDays", "absolutePaymentTermDays", "surchargePolicies", "validFrom", "validTo", "status", "source", "createdBy", "createdAt"],
+      "properties": {
+        "amountVisibility": { "const": "redacted" },
+        "id": { "type": "string", "minLength": 1 },
+        "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } },
+        "catalogItemId": { "type": "string", "minLength": 1 },
+        "version": { "type": "integer", "minimum": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "packageVersionId": { "type": ["string", "null"], "minLength": 1 },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "listUnitPriceMinor": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "standardDiscountLimitBps": { "$ref": "#/$defs/bps" },
+        "absoluteDiscountLimitBps": { "$ref": "#/$defs/bps" },
+        "standardPaymentTermDays": { "type": "integer", "minimum": 0 },
+        "absolutePaymentTermDays": { "type": "integer", "minimum": 0 },
+        "surchargePolicies": { "type": "array", "items": { "$ref": "#/$defs/SurchargePolicy" } },
+        "validFrom": { "type": "string", "format": "date-time" },
+        "validTo": { "type": ["string", "null"], "format": "date-time" },
+        "status": { "enum": ["draft", "active", "retired"] },
+        "source": { "enum": ["native", "legacy_commission_product"] },
+        "createdBy": { "type": "string", "minLength": 1 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "PricingPolicyDraftInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["catalogItemId", "packageVersionId", "currency", "listUnitPriceMinor", "unitStandardCostMinor", "defaultOrderDeliveryCostMinor", "defaultOrderSalesCostMinor", "defaultOrderServiceCostMinor", "absoluteFloorUnitPriceMinor", "standardDiscountLimitBps", "absoluteDiscountLimitBps", "targetGrossMarginBps", "absoluteMinimumGrossMarginBps", "standardPaymentTermDays", "absolutePaymentTermDays", "approvalThresholds", "surchargePolicies", "giftPolicies", "validFrom", "validTo"],
+      "properties": {
+        "catalogItemId": { "type": "string", "minLength": 1 },
+        "packageVersionId": { "type": ["string", "null"], "minLength": 1 },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "listUnitPriceMinor": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "unitStandardCostMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "defaultOrderDeliveryCostMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "defaultOrderSalesCostMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "defaultOrderServiceCostMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "absoluteFloorUnitPriceMinor": { "$ref": "#/$defs/nonnegativeMoney" },
+        "standardDiscountLimitBps": { "$ref": "#/$defs/bps" },
+        "absoluteDiscountLimitBps": { "$ref": "#/$defs/bps" },
+        "targetGrossMarginBps": { "$ref": "#/$defs/bps" },
+        "absoluteMinimumGrossMarginBps": { "type": "integer", "minimum": 0, "maximum": 9999 },
+        "standardPaymentTermDays": { "type": "integer", "minimum": 0 },
+        "absolutePaymentTermDays": { "type": "integer", "minimum": 0 },
+        "approvalThresholds": { "$ref": "#/$defs/ApprovalThresholds" },
+        "surchargePolicies": { "type": "array", "items": { "$ref": "#/$defs/SurchargePolicy" } },
+        "giftPolicies": { "type": "array", "items": { "$ref": "#/$defs/GiftPolicy" } },
+        "validFrom": { "type": "string", "format": "date-time" },
+        "validTo": { "type": ["string", "null"], "format": "date-time" }
+      }
+    }
+  }
+}

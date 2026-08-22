@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/discovery-evidence.v1.schema.json",
+  "title": "DiscoveryEvidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "targetType",
+    "sourcePlatform",
+    "sourceTitle",
+    "sourceSnippet",
+    "publishedAt",
+    "fetchedAt",
+    "locale",
+    "rawArtifactHash",
+    "contentHash",
+    "provenance",
+    "accessStatus"
+  ],
+  "properties": {
+    "id": { "type": "string" },
+    "targetType": { "enum": ["organization", "individual_signal"] },
+    "sourcePlatform": { "type": "string", "minLength": 1 },
+    "sourceTitle": { "type": "string" },
+    "sourceSnippet": { "type": "string" },
+    "publishedAt": { "type": ["string", "null"], "format": "date-time" },
+    "fetchedAt": { "type": "string", "format": "date-time" },
+    "locale": { "type": "string", "minLength": 1 },
+    "rawArtifactHash": { "type": "string", "minLength": 1 },
+    "contentHash": { "type": "string", "minLength": 1 },
+    "provenance": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "provider",
+            "queryText",
+            "sourceUrl",
+            "resultRank"
+          ],
+          "properties": {
+            "kind": { "const": "search_result" },
+            "provider": { "type": "string", "minLength": 1 },
+            "providerConnectionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "requestId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "providerRecordId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "queryText": { "type": "string", "minLength": 1 },
+            "sourceUrl": { "type": "string", "format": "uri" },
+            "resultRank": { "type": ["integer", "null"], "minimum": 1 },
+            "sourceType": { "type": "string", "minLength": 1, "maxLength": 100 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "sourceUrl", "submittedBy"],
+          "properties": {
+            "kind": { "const": "user_submitted_url" },
+            "sourceUrl": { "type": "string", "format": "uri" },
+            "submittedBy": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "sourceUrl",
+            "discoveredFromEvidenceId",
+            "redirectChain",
+            "extractorVersion"
+          ],
+          "properties": {
+            "kind": { "const": "controlled_public_page" },
+            "sourceUrl": {
+              "type": "string",
+              "format": "uri",
+              "maxLength": 2000,
+              "pattern": "^https://(?:[A-Za-z0-9-]+\\.)*(?:douyin\\.com|iesdouyin\\.com)/user/[^/?#]+/?(?:[?#].*)?$"
+            },
+            "discoveredFromEvidenceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "redirectChain": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 4,
+              "items": {
+                "type": "string",
+                "format": "uri",
+                "maxLength": 2000,
+                "pattern": "^https://"
+              }
+            },
+            "extractorVersion": { "const": "douyin-public-profile-v1" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "sourceUrl",
+            "platformEventId",
+            "providerVersion",
+            "coverage"
+          ],
+          "properties": {
+            "kind": { "const": "platform_public_event" },
+            "sourceUrl": { "type": "string", "format": "uri" },
+            "platformEventId": { "type": "string", "minLength": 1, "maxLength": 255 },
+            "providerVersion": { "type": "string", "minLength": 1, "maxLength": 255 },
+            "coverage": { "const": "public_top_level_sample" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "sourceUrl",
+            "observationId",
+            "sessionId",
+            "extractionMethod",
+            "visibleTextConfidence",
+            "coverage",
+            "artifactId",
+            "domTextHash",
+            "ocrTextHash"
+          ],
+          "properties": {
+            "kind": { "const": "authorized_visual_observation" },
+            "sourceUrl": {
+              "type": "string",
+              "format": "uri",
+              "maxLength": 80,
+              "pattern": "^https://www\\.douyin\\.com/video/[1-9][0-9]{0,31}/?$"
+            },
+            "observationId": {
+              "type": "string",
+              "pattern": "^visual-observation:[a-f0-9]{64}$"
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+            },
+            "extractionMethod": {
+              "enum": ["dom", "accessibility", "ocr"]
+            },
+            "visibleTextConfidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "coverage": {
+              "const": "authorized_visible_top_level_sample"
+            },
+            "artifactId": {
+              "type": ["string", "null"],
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+            },
+            "domTextHash": {
+              "type": ["string", "null"],
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "ocrTextHash": {
+              "type": ["string", "null"],
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "importBatchId",
+            "artifactHash",
+            "sheetName",
+            "rowNumber"
+          ],
+          "properties": {
+            "kind": { "const": "import_artifact_row" },
+            "importBatchId": { "type": "string", "minLength": 1 },
+            "artifactHash": { "type": "string", "minLength": 1 },
+            "sheetName": { "type": "string", "minLength": 1 },
+            "rowNumber": { "type": "integer", "minimum": 1 },
+            "sourceUrl": { "type": "string", "format": "uri" }
+          }
+        }
+      ]
+    },
+    "accessStatus": {
+      "enum": [
+        "indexed_summary",
+        "public_content",
+        "user_supplied",
+        "access_restricted"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "provenance": {
+            "type": "object",
+            "properties": { "kind": { "const": "platform_public_event" } },
+            "required": ["kind"]
+          }
+        },
+        "required": ["provenance"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "targetType": { "const": "individual_signal" },
+          "accessStatus": { "const": "public_content" }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "provenance": {
+            "type": "object",
+            "properties": {
+              "kind": { "const": "authorized_visual_observation" }
+            },
+            "required": ["kind"]
+          }
+        },
+        "required": ["provenance"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^visual:visual-observation:[a-f0-9]{64}:evidence:sha256:[a-f0-9]{64}$"
+          },
+          "sourcePlatform": { "const": "douyin" },
+          "targetType": { "const": "individual_signal" },
+          "accessStatus": { "const": "access_restricted" },
+          "contentHash": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "rawArtifactHash": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        }
+      }
+    }
+  ]
+}

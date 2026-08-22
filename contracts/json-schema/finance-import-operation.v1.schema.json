@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://goodjob.example/contracts/json-schema/finance-import-operation.v1.schema.json", "title": "FinanceImportOperation",
+  "type": "object", "additionalProperties": false,
+  "required": ["id", "workspaceId", "kind", "status", "totalRows", "acceptedRows", "rejectedRows", "createdAt", "completedAt"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 }, "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } }, "kind": { "enum": ["acquisition_cost", "financial_fact"] },
+    "status": { "enum": ["previewed", "queued", "running", "succeeded", "failed", "requires_review"] }, "totalRows": { "type": "integer", "minimum": 0 }, "acceptedRows": { "type": "integer", "minimum": 0 }, "rejectedRows": { "type": "integer", "minimum": 0 },
+    "createdAt": { "type": "string", "format": "date-time" }, "completedAt": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "$defs": {
+    "FinanceImportRowErrorCode": { "enum": ["spreadsheet_formula_forbidden", "verified_import_forbidden", "required_field_missing", "money_invalid", "currency_invalid", "business_time_invalid", "commercial_binding_invalid", "row_identity_conflict", "financial_fact_conflict", "financial_fact_amount_invalid", "amount_out_of_range"] },
+    "FinanceImportRowError": {
+      "type": "object", "additionalProperties": false, "required": ["rowNumber", "code", "field", "message"],
+      "properties": { "rowNumber": { "type": "integer", "minimum": 1 }, "code": { "$ref": "#/$defs/FinanceImportRowErrorCode" }, "field": { "type": ["string", "null"] }, "message": { "type": "string", "minLength": 1 } }
+    },
+    "FinanceImportPreview": {
+      "type": "object", "additionalProperties": false, "required": ["previewId", "kind", "totalRows", "acceptedRows", "rejectedRows", "errors", "expiresAt"],
+      "properties": { "previewId": { "type": "string", "minLength": 1 }, "kind": { "enum": ["acquisition_cost", "financial_fact"] }, "totalRows": { "type": "integer", "minimum": 0 }, "acceptedRows": { "type": "integer", "minimum": 0 }, "rejectedRows": { "type": "integer", "minimum": 0 }, "errors": { "type": "array", "items": { "$ref": "#/$defs/FinanceImportRowError" } }, "expiresAt": { "type": "string", "format": "date-time" } }
+    }
+  }
+}

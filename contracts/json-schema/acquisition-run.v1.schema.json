@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/acquisition-run.v1.schema.json",
+  "title": "AcquisitionRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "ownerId",
+    "teamId",
+    "planId",
+    "planVersionId",
+    "planVersion",
+    "planSnapshotHash",
+    "parentRunId",
+    "status",
+    "terminationIntent",
+    "revision",
+    "etag",
+    "budgetSnapshotId",
+    "budgetSnapshot",
+    "budgetSnapshotHash",
+    "billingCurrency",
+    "modelSnapshotRef",
+    "consumedBudget",
+    "evidenceCount",
+    "reason",
+    "createdBy",
+    "createdAt",
+    "updatedBy",
+    "updatedAt",
+    "completedAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "ownerId": { "type": "string", "minLength": 1 },
+    "teamId": { "type": "string", "minLength": 1 },
+    "planId": { "type": "string", "minLength": 1 },
+    "planVersionId": { "type": "string", "minLength": 1 },
+    "planVersion": { "type": "integer", "minimum": 1 },
+    "planSnapshotHash": { "type": "string", "minLength": 1 },
+    "parentRunId": { "type": ["string", "null"], "minLength": 1 },
+    "status": {
+      "enum": [
+        "queued",
+        "running",
+        "pause_requested",
+        "paused",
+        "cancel_requested",
+        "cancelled",
+        "succeeded",
+        "succeeded_empty",
+        "partial_success",
+        "failed",
+        "budget_exhausted"
+      ]
+    },
+    "terminationIntent": {
+      "enum": ["cancelled", "budget_exhausted", null]
+    },
+    "revision": { "type": "integer", "minimum": 1 },
+    "etag": { "type": "string", "minLength": 1 },
+    "budgetSnapshotId": { "type": "string", "minLength": 1 },
+    "budgetSnapshot": { "$ref": "#/$defs/budgetSnapshot" },
+    "budgetSnapshotHash": { "type": "string", "minLength": 1 },
+    "billingCurrency": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 3
+    },
+    "modelSnapshotRef": { "$ref": "#/$defs/modelSnapshot" },
+    "consumedBudget": { "$ref": "#/$defs/budgetUsage" },
+    "evidenceCount": { "type": "integer", "minimum": 0 },
+    "reason": { "type": ["string", "null"] },
+    "createdBy": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedBy": { "type": "string", "minLength": 1 },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "$defs": {
+    "budgetUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "results", "amountMinor", "durationSeconds"],
+      "properties": {
+        "requests": { "type": "integer", "minimum": 0 },
+        "results": { "type": "integer", "minimum": 0 },
+        "amountMinor": { "type": "integer", "minimum": 0 },
+        "durationSeconds": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "budgetSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "billingCurrency",
+        "maxRequests",
+        "maxResults",
+        "maxAmountMinor",
+        "maxDurationSeconds"
+      ],
+      "properties": {
+        "billingCurrency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3
+        },
+        "maxRequests": { "type": "integer", "minimum": 0 },
+        "maxResults": { "type": "integer", "minimum": 0 },
+        "maxAmountMinor": { "type": "integer", "minimum": 0 },
+        "maxDurationSeconds": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "modelSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobSnapshotId",
+        "connectionId",
+        "credentialVersion",
+        "provider",
+        "model",
+        "capabilitySnapshotHash",
+        "promptVersion",
+        "schemaVersion",
+        "promptHash",
+        "schemaHash"
+      ],
+      "properties": {
+        "jobSnapshotId": { "type": "string", "minLength": 1 },
+        "connectionId": { "type": "string", "minLength": 1 },
+        "credentialVersion": { "type": "integer", "minimum": 1 },
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "capabilitySnapshotHash": { "type": "string", "minLength": 1 },
+        "promptVersion": { "type": "string", "minLength": 1 },
+        "schemaVersion": { "type": "string", "minLength": 1 },
+        "promptHash": { "type": "string", "minLength": 1 },
+        "schemaHash": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

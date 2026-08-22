@@ -1,0 +1,54 @@
+{
+  "records": [
+    {
+      "schema": "discovery-evidence",
+      "value": {
+        "id": "ev_org_001",
+        "targetType": "organization",
+        "sourcePlatform": "official-site",
+        "sourceTitle": "Example Trading Co procurement notice",
+        "sourceSnippet": "We are evaluating a new CRM supplier.",
+        "publishedAt": "2026-07-20T09:00:00.000Z",
+        "fetchedAt": "2026-07-23T09:00:00.000Z",
+        "locale": "en-US",
+        "rawArtifactHash": "sha256:orgraw",
+        "contentHash": "sha256:orgcontent",
+        "provenance": {
+          "kind": "search_result",
+          "provider": "brave",
+          "queryText": "CRM procurement Example Trading",
+          "sourceUrl": "https://example.com/procurement",
+          "resultRank": 1
+        },
+        "accessStatus": "public_content"
+      }
+    },
+    {
+      "schema": "organization-candidate",
+      "value": {
+        "id": "candidate_org_001",
+        "name": "Example Trading Co",
+        "domain": "example.com",
+        "region": "Shanghai",
+        "creditCode": null,
+        "evidenceIds": ["ev_org_001"],
+        "subjectKind": "organization",
+        "status": "pending_review",
+        "version": 1,
+        "identityResolved": true,
+        "latestDecisionVersion": null,
+        "approvedDecisionVersion": null,
+        "updatedAt": "2026-07-23T09:00:00.000Z",
+        "createdAt": "2026-07-23T09:00:00.000Z"
+      }
+    },
+    {
+      "schema": "party-ref",
+      "value": {
+        "partyType": "organization",
+        "organizationId": "org_001",
+        "tenantProspectId": "prospect_001"
+      }
+    }
+  ]
+}

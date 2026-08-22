@@ -1,52 +1,50 @@
-# Task 5 report: bounded Douyin visual reader extension
+# Task 5 report — bounded MV3 Douyin visual reader
 
-## Delivered
+## Outcome
 
-- Manifest V3 extension with exact `activeTab`, `scripting`, `storage`, and `offscreen` permissions
-- Exact Douyin host permission and generated, allowlisted GoodJob content-script origins; the read-only audit deep-compares the complete manifest to its template plus build origins
-- Task 4 bridge protocol parity for `probe`, `start`, `acknowledge_batch`, `abort`, `ready`, `observation_batch`, and `terminal`
-- Explicit popup selection and confirmation of one canonical Douyin video tab
-- Visible, top-level comment extraction using DOM text, ARIA names, public time/count text, literal comment IDs, and literal in-card public profile links
-- Fail-closed handling for selector drift, ambiguous read-only buttons, login, captcha, security verification, ads, and nested replies
-- Bounded batching, ACK retention, deduplication, at most five programmatic scrolls, two-cycle no-progress stop, duration stop, and user-takeover stop; work stops before a reserved finalization window, empty or expired work queues terminal before content setup, and terminal attempts remain within the same total session deadline
-- Per-start lifecycle ownership uses a monotonic generation plus a unique owner object, so a settled, rejected, or timed-out fallback from an older start cannot clear a replacement reader, session, or transport; this also protects restarts that deliberately reuse the same `sessionId`
-- Strict `chrome.storage.session` projection containing only session/tab IDs, limits, usage, artifact flag, nonce hash, and state
-- Same-canonical-URL reloads, URL-less `loading` lifecycle updates, and bound-tab replacements fail closed without affecting other tabs or windows
-- MV3 restart reports `partial_success` with `visual_reader_session_expired`, so the GoodJob controller uses server completion rather than a user-takeover abort
-- Local fixture tests using pinned `linkedom@0.18.13`; production bundle audit rejects linkedom leakage, remote network APIs, source maps, dynamic code, broad origins, and forbidden permissions
-- Preserved popup visual language with deep green, warm white, cool gray, native controls, visible focus states, and polite live status
+The external GoodJob frontend now builds an unpacked Manifest V3 extension that reads only visible top-level Douyin comment cards after an explicit GoodJob authorization and an explicit popup tab choice. It preserves the existing deep-green, warm-white, cool-gray popup style and uses native controls without a new UI library or image asset.
 
-## Safety boundary
+Frontend commits:
 
-The Task 5 extension does not capture screenshots, run OCR, read cookies, inspect images or internal framework state, access browser storage from the Douyin page, call remote APIs, or perform private messages, likes, comments, follows, captcha handling, or other write interactions. Every observation has `redactedCrop: null`. Screenshot cropping and OCR remain Task 6 work.
+- `fc378c3` — `feat: add bounded douyin visual reader extension`
+- `1732163` — `fix: harden douyin visual reader lifecycle`
+- `cdbb176` — `fix: stabilize visual reader comment digests`
+- `c52a2d9` — `fix: close visual reader lifecycle gaps`
+- `7ae7945` — `fix: reserve visual reader finalization time`
+- `8c1ba35` — `fix: queue visual reader budget terminal on time`
+- `1c00cbf` — `fix: guard visual reader lifecycle ownership`
 
-## Verification
+The frontend worktree remains clean except for the user's pre-existing untracked `package-lock.json`, which was not read, modified, staged, deleted, or committed.
 
-```text
-npm exec -- tsx browser-extension/douyin-visual-reader/src/content-start.self-test.ts
-  RED: maxDurationMs=1 content setup advanced the clock and the real transport attempted 0 sends instead of 1
-  GREEN: PASS
-  USER-AUTHORIZED EXTRA REPAIR RED: an older deferred fallback settled after a replacement reader reached batch-2, then the replacement ACK returned no response (`null`) instead of `{ accepted: true }`
-  GREEN: PASS for stale fallback success, rejection/retry, and timeout/retry; both different-session and same-sessionId restarts retain ACK/abort routing, the replacement transport emits its aborted terminal, and all tracked timers/unhandled rejections are clear
-npm exec -- tsx browser-extension/douyin-visual-reader/src/service-reliability.self-test.ts
-  RED: an eligible send that consumed its last millisecond scheduled 1 timeout beyond the deadline instead of 0
-  GREEN: PASS
-npm run test:visual-reader       PASS
-npm run test:types               PASS
-npm run verify:visual-reader-build-order PASS
-npm run check:visual-reader-bundle PASS
-npm run test                     PASS (125 checks)
-git diff --check                 PASS
-```
+## Implemented safety boundary
 
-This user-authorized extra repair wave is implemented and locally verified; independent review of the repair is pending. It does not change the public protocol, permissions, storage/logging boundary, or Task 6 scope.
+- Exact permissions: `activeTab`, `scripting`, `storage`, and `offscreen`; exact host permission: `https://www.douyin.com/*`.
+- Development GoodJob match defaults only to `http://127.0.0.1:5191/*`; unset/blank input resolves to that fixed local origin, an explicit identical local value is accepted, and every other development `GOODJOB_APP_ORIGINS` value is rejected. Release builds require explicit HTTPS origins and reject wildcard or broad origins. The read-only audit deep-compares the full manifest to the template plus build origin, including CSP, optional permissions, content-script attributes, background/action, and web-accessible resources.
+- Popup candidates are never auto-selected. Confirmation binds tab ID, window ID, and canonical video URL, focuses and activates the target, then revalidates it before script injection.
+- Closing the popup does not abort. Explicit stop, user input, bound-tab close/navigation, same-window tab replacement, same-canonical-URL reload, URL-less target `loading` update, or real focus departure causes safe takeover; background activation in another window does not.
+- Extraction reads only owned visible `innerText`, exact ARIA labels, public time/count text, explicit public comment IDs, and literal card-owned public profile links. It does not read images, styles, scripts, framework internals, cache/storage, nested reply bodies, cookies, or network responses.
+- Login, captcha, security verification, selector drift, advertising cards, ambiguous exact-name buttons, and non-canonical source URLs fail closed.
+- Missing public comment IDs use a full SHA-256 of canonical visible facts. Card index, geometry, relative time, and public counters are excluded, so movement or counter updates stay stable while replacement text changes the key.
+- The extension protocol matches the Task 4 2000-character visible-text limit and its identity, count, viewport, bounds, confidence, timestamp, and reader-version constraints. Task 5 emits only DOM/ARIA observations with `redactedCrop: null`.
+- The total session deadline remains the server-authorized `maxDurationMs`. A finalization reserve of 20% (capped at 1 second and floored at 1ms) derives an earlier work deadline for extract, DOM stability, batch send, ACK wait, retry delay, and programmatic scroll. Budget exhaustion queues terminal exactly once at the expired-budget check or timer callback, before rejection and abort settlement. This lets the allowed `maxDurationMs = 1` boundary start one transport send while still before the total deadline; hung/rejected sends and retries still stop at that unchanged deadline. ACK loss and transport rejection replay the exact retained batch and batch ID; the service worker clears pending state only after content confirms the matching ACK.
+- Terminal delivery has bounded per-attempt timeouts and exact-event retries before the shared deadline. User takeover stops new page actions immediately and does not deadlock terminal delivery behind a pending batch.
+- Every accepted content-script start owns a monotonic generation and unique owner object. Empty-window, source-fallback, normal-reader, and unavailable cleanup clears shared reader/session/transport state only when the exact owner and exact local object still match. A newer start invalidates the old owner synchronously even when it reuses the same `sessionId`; superseded transports still close their own timers and cannot clear or terminalize the replacement lifecycle.
+- `chrome.storage.session` stores only the closed session/tab/window/source/budget/usage/artifact-mode/nonce-hash/status state. Raw nonce, body text, profile data, batch payloads, images, cookies, and authentication material are absent from storage and logs.
+- A service-worker restart clears residual authority before notifying surviving GoodJob and Douyin content scripts. GoodJob reports `partial_success` with `visual_reader_session_expired` using only its existing in-memory nonce, so the server completion path preserves the non-user failure instead of writing a user-takeover abort. Douyin stops any retained reader or pending batch. There is no silent orphan continuation.
+- Manifest generation and bundle audit are separate commands. The audit is read-only and rejects a tampered manifest without repairing it. Extension output lives in `dist-visual-reader/douyin-visual-reader`, so the main Vite build cannot erase it.
 
-The development manifest contains only `http://127.0.0.1:5191/*` for the GoodJob content script; unset or blank development origin input resolves to that fixed local origin, and every other supplied value is rejected. Release rendering fails closed unless `VISUAL_READER_RELEASE=1` is accompanied by explicit HTTPS `GOODJOB_APP_ORIGINS`. The read-only audit rejects any full-manifest drift from the template and rendered origins, including CSP, optional permissions, content-script attributes, background/action, and web-accessible resources.
+## TDD and verification evidence
 
-The finalization reserve is 20% of `maxDurationMs`, capped at 1 second and floored at 1ms. Extract, send, ACK, DOM-stability, and scroll operations stop at the derived work deadline. A legal start whose work window is empty or already reached synchronously queues the budget terminal before constructing the DOM adapter, resolving the source URL, creating the reader, or installing takeover listeners. The first terminal eligibility check and send initiation share one synchronous decision: `maxDurationMs = 1` starts one attempt before setup can consume the session, while a queue decision at or after the absolute session deadline starts none. If the eligible send itself consumes the remaining time, no attempt timeout is scheduled beyond the deadline. Hung and rejected attempts remain bounded by that unchanged total deadline; normal sessions retain the reader completion path, work expiry emits once, takeover and explicit stop retain their aborted terminals, and setup fallback emits no duplicate terminal. Content-session and fallback cleanup now await the transport's bounded idle lifecycle instead of leaving terminal delivery unowned.
+Review RED cases reproduced a permanently blocked extractor, a lost ACK with only one send, a bounds-dependent missing-ID key, a 2001-character protocol mismatch, missing tab/window revalidation, absent restart recovery, a check command that regenerated tampered evidence, and the main build deleting extension output. Later REDs reproduced a permanently hung terminal runtime send and the exact `derive(0, 1)` real-reader/real-transport boundary where asynchronous budget handling reached the session deadline with zero terminal attempts (`0 !== 1`). The latter is GREEN with synchronous, idempotent deadline-trigger queuing plus exactly-once, no-early-completion, takeover/stop, timer-cleanup, and no-post-session coverage. The user-authorized extra repair RED held an old source-failure fallback send pending, started a real replacement DOM reader, ACKed its first batch, then settled the old fallback; the replacement batch-2 ACK returned no response instead of `{ accepted: true }`. GREEN repeats this lifecycle for fallback success, rejection/retry, and timeout/retry, covers both different-session and same-`sessionId` replacement, preserves replacement ACK/abort and terminal delivery, and leaves no tracked timer or unhandled rejection.
 
-The final unpacked extension contains seven files and is approximately 64 KB. It has only been validated with fixed fixtures and local extension builds; real Douyin compatibility and Chrome Web Store publication are not claimed.
+Fresh final verification in the frontend worktree:
 
-## Dependency and workspace note
+- `npm run test:visual-reader`: PASS, ten focused groups plus the aggregate extension self-test;
+- `npm run test`: PASS, 125 checks;
+- `npm run test:types`: PASS;
+- `npm run verify:visual-reader-build-order`: PASS for extension build/audit, main build, and final read-only extension audit;
+- `git diff --check`: PASS.
 
-`linkedom 0.18.13` is recorded in `THIRD_PARTY_NOTICES.md` as an unmodified ISC-licensed test-only dependency. The pre-existing untracked `package-lock.json` was not read, modified, staged, deleted, or committed; its size and modification timestamp remained unchanged before and after the no-lock install and all verification commands.
+The only build message was the existing Vite chunk-size warning. Tests used fixed local HTML fixtures and fake runtime/state transports. No real Douyin request was made, no Chrome Web Store publication was claimed, and Task 6 screenshot, crop, OCR, and vision work was not started.
+
+The user-authorized extra repair is implemented at frontend commit `1c00cbf` and independently approved. The reviewer replayed fallback success, rejection/retry, timeout/retry, and same-session-ID replacement paths; new-session ACK/abort routing survived every stale completion, while old local transports and timers still closed. No new Critical or Important finding remained. The earlier deadline-snapshot adjudication remains unchanged.

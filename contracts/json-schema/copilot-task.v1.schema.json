@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/copilot-task.v1.schema.json",
+  "title": "CopilotTask",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "sessionId",
+    "kind",
+    "status",
+    "responseMode",
+    "result",
+    "errorCode",
+    "createdAt",
+    "completedAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "kind": { "const": "message" },
+    "status": {
+      "enum": ["queued", "running", "succeeded", "failed", "cancelled"]
+    },
+    "responseMode": { "enum": ["assistant", "plan_draft"] },
+    "targetPlatform": { "enum": ["douyin", "web"] },
+    "result": {
+      "type": ["object", "null"],
+      "additionalProperties": {}
+    },
+    "errorCode": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

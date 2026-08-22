@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/quote-publication-operation.v1.schema.json",
+  "title": "QuotePublicationOperation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "workspaceId", "quoteCaseId", "quoteVersionId", "dealId", "dealAuthorityRevision", "commercialAmountHash", "status", "piDocumentId", "dealEventId", "attempts", "lastErrorCode", "idempotencyKey", "createdAt", "updatedAt"],
+  "properties": {
+    "id": { "$ref": "#/$defs/nonempty" }, "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } },
+    "quoteCaseId": { "$ref": "#/$defs/nonempty" }, "quoteVersionId": { "$ref": "#/$defs/nonempty" }, "dealId": { "$ref": "#/$defs/nonempty" },
+    "dealAuthorityRevision": { "type": "integer", "minimum": 1 }, "commercialAmountHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "status": { "enum": ["queued", "running", "succeeded", "partial_failure", "failed", "superseded", "cancelled"] },
+    "piDocumentId": { "$ref": "#/$defs/nullableId" }, "dealEventId": { "$ref": "#/$defs/nullableId" },
+    "attempts": { "type": "integer", "minimum": 0 }, "lastErrorCode": { "$ref": "#/$defs/nullableId" },
+    "idempotencyKey": { "$ref": "#/$defs/nonempty" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": { "nonempty": { "type": "string", "minLength": 1 }, "nullableId": { "type": ["string", "null"], "minLength": 1 } }
+}

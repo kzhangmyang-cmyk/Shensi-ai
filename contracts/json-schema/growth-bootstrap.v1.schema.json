@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/growth-bootstrap.v1.schema.json",
+  "title": "GrowthBootstrapResponse",
+  "$defs": {
+    "capability": {
+      "enum": [
+        "catalog.read", "catalog.manage", "pricing.sensitive.read", "quote.draft.create", "quote.confirm",
+        "quote.exception.discount.approve", "quote.exception.margin.approve", "quote.exception.payment_terms.approve",
+        "quote.exception.gift.approve", "quote.exception.credit.approve", "quote.exception.manual.approve",
+        "ledger.pending.create", "ledger.verify", "finance.council.run", "finance.council.approve", "finance.council.policy.manage", "roi.close", "growth.performance.team.read", "growth.performance.workspace.read"
+      ]
+    },
+    "feature": { "enum": ["catalog", "quotes", "finance", "roi", "advisor"] },
+    "contractFields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilityRegistryVersion", "capabilities", "contractVersion", "contractHash", "features"],
+      "properties": {
+        "capabilityRegistryVersion": { "type": "string", "minLength": 1 },
+        "capabilities": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/capability" } },
+        "contractVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:(?:0|[1-9]\\d*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "contractHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "features": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/feature" } }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "workspaceId", "capabilityRegistryVersion", "capabilities", "contractVersion", "contractHash", "features"],
+      "properties": {
+        "status": { "const": "ready" },
+        "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } },
+        "capabilityRegistryVersion": { "$ref": "#/$defs/contractFields/properties/capabilityRegistryVersion" },
+        "capabilities": { "$ref": "#/$defs/contractFields/properties/capabilities" },
+        "contractVersion": { "$ref": "#/$defs/contractFields/properties/contractVersion" },
+        "contractHash": { "$ref": "#/$defs/contractFields/properties/contractHash" },
+        "features": { "$ref": "#/$defs/contractFields/properties/features" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "workspaceId", "capabilityRegistryVersion", "capabilities", "contractVersion", "contractHash", "features"],
+      "properties": {
+        "status": { "const": "workspace_selection_required" },
+        "workspaceId": { "type": "null" },
+        "capabilityRegistryVersion": { "$ref": "#/$defs/contractFields/properties/capabilityRegistryVersion" },
+        "capabilities": { "type": "array", "maxItems": 0 },
+        "contractVersion": { "$ref": "#/$defs/contractFields/properties/contractVersion" },
+        "contractHash": { "$ref": "#/$defs/contractFields/properties/contractHash" },
+        "features": { "$ref": "#/$defs/contractFields/properties/features" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/copilot-message.v1.schema.json",
+  "title": "CopilotMessage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "sessionId", "sequence", "message", "createdAt"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "message": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["role", "content", "timestamp"],
+          "properties": {
+            "role": { "const": "user" },
+            "content": {
+              "oneOf": [
+                { "type": "string" },
+                {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/inputContent" }
+                }
+              ]
+            },
+            "timestamp": { "type": "number" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "content",
+            "api",
+            "provider",
+            "model",
+            "usage",
+            "stopReason",
+            "timestamp"
+          ],
+          "properties": {
+            "role": { "const": "assistant" },
+            "content": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/assistantContent" }
+            },
+            "api": { "type": "string", "minLength": 1 },
+            "provider": { "type": "string", "minLength": 1 },
+            "model": { "type": "string", "minLength": 1 },
+            "responseModel": { "type": "string", "minLength": 1 },
+            "responseId": { "type": "string", "minLength": 1 },
+            "diagnostics": { "type": "array", "items": {} },
+            "usage": { "$ref": "#/$defs/usage" },
+            "stopReason": {
+              "enum": ["stop", "length", "toolUse", "error", "aborted"]
+            },
+            "errorMessage": { "type": "string" },
+            "timestamp": { "type": "number" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "toolCallId",
+            "toolName",
+            "content",
+            "isError",
+            "timestamp"
+          ],
+          "properties": {
+            "role": { "const": "toolResult" },
+            "toolCallId": { "type": "string", "minLength": 1 },
+            "toolName": { "type": "string", "minLength": 1 },
+            "content": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/inputContent" }
+            },
+            "details": {},
+            "usage": { "$ref": "#/$defs/usage" },
+            "addedToolNames": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "isError": { "type": "boolean" },
+            "timestamp": { "type": "number" }
+          }
+        }
+      ]
+    },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "textContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "text"],
+      "properties": {
+        "type": { "const": "text" },
+        "text": { "type": "string" },
+        "textSignature": { "type": "string" }
+      }
+    },
+    "imageContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "data", "mimeType"],
+      "properties": {
+        "type": { "const": "image" },
+        "data": { "type": "string" },
+        "mimeType": { "type": "string", "minLength": 1 }
+      }
+    },
+    "thinkingContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "thinking"],
+      "properties": {
+        "type": { "const": "thinking" },
+        "thinking": { "type": "string" },
+        "thinkingSignature": { "type": "string" },
+        "redacted": { "type": "boolean" }
+      }
+    },
+    "toolCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "name", "arguments"],
+      "properties": {
+        "type": { "const": "toolCall" },
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "thoughtSignature": { "type": "string" }
+      }
+    },
+    "inputContent": {
+      "oneOf": [
+        { "$ref": "#/$defs/textContent" },
+        { "$ref": "#/$defs/imageContent" }
+      ]
+    },
+    "assistantContent": {
+      "oneOf": [
+        { "$ref": "#/$defs/textContent" },
+        { "$ref": "#/$defs/thinkingContent" },
+        { "$ref": "#/$defs/toolCall" }
+      ]
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input",
+        "output",
+        "cacheRead",
+        "cacheWrite",
+        "totalTokens",
+        "cost"
+      ],
+      "properties": {
+        "input": { "type": "number" },
+        "output": { "type": "number" },
+        "cacheRead": { "type": "number" },
+        "cacheWrite": { "type": "number" },
+        "cacheWrite1h": { "type": "number" },
+        "reasoning": { "type": "number" },
+        "totalTokens": { "type": "number" },
+        "cost": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input", "output", "cacheRead", "cacheWrite", "total"],
+          "properties": {
+            "input": { "type": "number" },
+            "output": { "type": "number" },
+            "cacheRead": { "type": "number" },
+            "cacheWrite": { "type": "number" },
+            "total": { "type": "number" }
+          }
+        }
+      }
+    }
+  }
+}

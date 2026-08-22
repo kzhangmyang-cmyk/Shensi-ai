@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/package-version.v1.schema.json",
+  "title": "PackageVersion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "workspaceId", "packageCatalogItemId", "version", "currency", "status", "validFrom", "validTo", "revision", "components", "createdAt", "updatedAt"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } },
+    "packageCatalogItemId": { "type": "string", "minLength": 1 },
+    "version": { "type": "integer", "minimum": 1 },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "status": { "enum": ["draft", "active", "retired"] },
+    "validFrom": { "type": "string", "format": "date-time" },
+    "validTo": { "type": ["string", "null"], "format": "date-time" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "components": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/PackageComponent" } },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "PackageComponentInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["componentCatalogItemId", "componentPricingPolicyVersionId", "quantityMicros"],
+      "properties": {
+        "componentCatalogItemId": { "type": "string", "minLength": 1 },
+        "componentPricingPolicyVersionId": { "type": "string", "minLength": 1 },
+        "quantityMicros": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    },
+    "PackageVersionDraftInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["currency", "validFrom", "validTo", "components"],
+      "properties": {
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "validFrom": { "type": "string", "format": "date-time" },
+        "validTo": { "type": ["string", "null"], "format": "date-time" },
+        "components": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/PackageComponentInput" } }
+      }
+    },
+    "PackageComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packageVersionId", "componentCatalogItemId", "componentPricingPolicyVersionId", "quantityMicros"],
+      "properties": {
+        "packageVersionId": { "type": "string", "minLength": 1 },
+        "componentCatalogItemId": { "type": "string", "minLength": 1 },
+        "componentPricingPolicyVersionId": { "type": "string", "minLength": 1 },
+        "quantityMicros": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    }
+  }
+}

@@ -1,0 +1,1058 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/financial-council.v1.schema.json",
+  "title": "FinancialCouncilRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runId",
+    "workspaceId",
+    "currency",
+    "status",
+    "revision",
+    "dataAsOf",
+    "businessReport",
+    "policyVersionId",
+    "snapshotId",
+    "snapshotHash",
+    "consensusReport",
+    "portfolios",
+    "latestPortfolioRevision",
+    "approval",
+    "createdAt",
+    "updatedAt",
+    "expiresAt"
+  ],
+  "properties": {
+    "runId": { "$ref": "#/$defs/nonempty" },
+    "workspaceId": { "$ref": "#/$defs/workspace" },
+    "currency": { "$ref": "#/$defs/currency" },
+    "status": { "$ref": "#/$defs/publicRunStatus" },
+    "revision": { "$ref": "#/$defs/revision" },
+    "dataAsOf": { "$ref": "#/$defs/dateTime" },
+    "businessReport": { "$ref": "#/$defs/BusinessReportInput" },
+    "policyVersionId": { "$ref": "#/$defs/identifier" },
+    "snapshotId": { "$ref": "#/$defs/nonempty" },
+    "snapshotHash": { "$ref": "#/$defs/hash" },
+    "consensusReport": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ConsensusReport" }]
+    },
+    "portfolios": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 3,
+      "items": { "$ref": "#/$defs/ActionPortfolio" }
+    },
+    "latestPortfolioRevision": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "approval": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/FinancialCouncilApproval" }
+      ]
+    },
+    "createdAt": { "$ref": "#/$defs/dateTime" },
+    "updatedAt": { "$ref": "#/$defs/dateTime" },
+    "expiresAt": { "$ref": "#/$defs/dateTime" }
+  },
+  "$defs": {
+    "nonempty": { "type": "string", "minLength": 1, "maxLength": 10000 },
+    "workspace": {
+      "type": "string",
+      "minLength": 1,
+      "not": { "const": "all" }
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "\\S"
+    },
+    "businessText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "pattern": "\\S"
+    },
+    "currency": { "enum": ["CNY", "USD"] },
+    "dateTime": { "type": "string", "format": "date-time" },
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "safeInteger": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "nonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "bps": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "signedBps": { "type": "integer", "minimum": -10000, "maximum": 10000 },
+    "runStatus": {
+      "enum": [
+        "created",
+        "snapshot_frozen",
+        "analyzing",
+        "auditing",
+        "synthesizing",
+        "optimizing",
+        "awaiting_approval",
+        "approved",
+        "rejected",
+        "stale",
+        "expired",
+        "failed",
+        "not_computable"
+      ]
+    },
+    "publicRunStatus": {
+      "enum": [
+        "snapshot_frozen",
+        "analyzing",
+        "auditing",
+        "synthesizing",
+        "optimizing",
+        "awaiting_approval",
+        "approved",
+        "rejected",
+        "stale",
+        "expired",
+        "failed",
+        "not_computable"
+      ]
+    },
+    "agentRole": { "enum": ["finance", "profit", "cost", "cashflow", "tax"] },
+    "portfolioKind": { "enum": ["balanced", "cash_first", "growth_first"] },
+    "FinancialCouncilActionKind": {
+      "enum": [
+        "collect_receivable",
+        "review_loss_product_pricing",
+        "reduce_cost_anomaly",
+        "prepare_cash_reserve_budget",
+        "complete_financial_data",
+        "schedule_tax_review"
+      ]
+    },
+    "ScenarioMoney": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conservative", "base", "optimistic"],
+      "properties": {
+        "conservative": { "$ref": "#/$defs/safeInteger" },
+        "base": { "$ref": "#/$defs/safeInteger" },
+        "optimistic": { "$ref": "#/$defs/safeInteger" }
+      }
+    },
+    "ScenarioBps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conservative", "base", "optimistic"],
+      "properties": {
+        "conservative": { "$ref": "#/$defs/signedBps" },
+        "base": { "$ref": "#/$defs/signedBps" },
+        "optimistic": { "$ref": "#/$defs/signedBps" }
+      }
+    },
+    "BalanceSheetInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "period",
+        "cashMinor",
+        "receivablesMinor",
+        "inventoryMinor",
+        "otherCurrentAssetsMinor",
+        "nonCurrentAssetsMinor",
+        "currentLiabilitiesMinor",
+        "nonCurrentLiabilitiesMinor",
+        "accountsPayableMinor"
+      ],
+      "properties": {
+        "period": { "$ref": "#/$defs/businessText" },
+        "cashMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "receivablesMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "inventoryMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "otherCurrentAssetsMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "nonCurrentAssetsMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "currentLiabilitiesMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "nonCurrentLiabilitiesMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "accountsPayableMinor": { "$ref": "#/$defs/nonNegativeInteger" }
+      }
+    },
+    "ProductLineInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "revenueMinor",
+        "costOfGoodsSoldMinor",
+        "afterSalesCostMinor",
+        "shippingCostMinor",
+        "sellingExpenseMinor",
+        "allocatedOverheadMinor"
+      ],
+      "properties": {
+        "name": { "$ref": "#/$defs/businessText" },
+        "revenueMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "costOfGoodsSoldMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "afterSalesCostMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "shippingCostMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "sellingExpenseMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "allocatedOverheadMinor": { "$ref": "#/$defs/nonNegativeInteger" }
+      }
+    },
+    "CustomerProfitInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "revenueMinor",
+        "grossProfitMinor",
+        "serviceCostMinor",
+        "paymentDays",
+        "outstandingReceivableMinor"
+      ],
+      "properties": {
+        "name": { "$ref": "#/$defs/businessText" },
+        "revenueMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "grossProfitMinor": { "$ref": "#/$defs/safeInteger" },
+        "serviceCostMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "paymentDays": { "$ref": "#/$defs/nonNegativeInteger" },
+        "outstandingReceivableMinor": { "$ref": "#/$defs/nonNegativeInteger" }
+      }
+    },
+    "IncomeStatementInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "period",
+        "revenueMinor",
+        "costOfGoodsSoldMinor",
+        "operatingExpensesMinor",
+        "interestExpenseMinor",
+        "taxExpenseMinor"
+      ],
+      "properties": {
+        "period": { "$ref": "#/$defs/businessText" },
+        "revenueMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "costOfGoodsSoldMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "operatingExpensesMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "interestExpenseMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "taxExpenseMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "productLines": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/ProductLineInput" }
+        },
+        "customers": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/CustomerProfitInput" }
+        }
+      }
+    },
+    "ReceivableInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["customer", "amountMinor", "daysOutstanding"],
+      "properties": {
+        "customer": { "$ref": "#/$defs/businessText" },
+        "amountMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "daysOutstanding": { "$ref": "#/$defs/nonNegativeInteger" }
+      }
+    },
+    "CashFlowInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "period",
+        "openingCashMinor",
+        "operatingInflowMinor",
+        "operatingOutflowMinor",
+        "investingNetMinor",
+        "financingNetMinor",
+        "expectedInflowsNext30DaysMinor",
+        "expectedOutflowsNext30DaysMinor",
+        "expectedInflowsNext31To90DaysMinor",
+        "expectedOutflowsNext31To90DaysMinor"
+      ],
+      "properties": {
+        "period": { "$ref": "#/$defs/businessText" },
+        "openingCashMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "operatingInflowMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "operatingOutflowMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "investingNetMinor": { "$ref": "#/$defs/safeInteger" },
+        "financingNetMinor": { "$ref": "#/$defs/safeInteger" },
+        "receivables": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/ReceivableInput" }
+        },
+        "expectedInflowsNext30DaysMinor": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "expectedOutflowsNext30DaysMinor": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "expectedInflowsNext31To90DaysMinor": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "expectedOutflowsNext31To90DaysMinor": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "CostDetailInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "materialCostRateBps",
+        "laborCostMinor",
+        "rawMaterialCostMinor",
+        "salesCommissionRateBps",
+        "fixedOverheadMinor"
+      ],
+      "properties": {
+        "materialCostRateBps": { "$ref": "#/$defs/bps" },
+        "previousMaterialCostRateBps": { "$ref": "#/$defs/bps" },
+        "laborCostMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "rawMaterialCostMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "salesCommissionRateBps": { "$ref": "#/$defs/bps" },
+        "fixedOverheadMinor": { "$ref": "#/$defs/nonNegativeInteger" }
+      }
+    },
+    "TaxRiskInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "invoiceIssues",
+        "revenueRecognitionIssues",
+        "costAuthenticityIssues",
+        "payrollIssues",
+        "equityIssues"
+      ],
+      "properties": {
+        "invoiceIssues": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/businessText" }
+        },
+        "revenueRecognitionIssues": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/businessText" }
+        },
+        "costAuthenticityIssues": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/businessText" }
+        },
+        "payrollIssues": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/businessText" }
+        },
+        "equityIssues": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/businessText" }
+        }
+      }
+    },
+    "BusinessReportInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currency",
+        "companyName",
+        "period",
+        "balanceSheet",
+        "incomeStatement"
+      ],
+      "properties": {
+        "currency": { "$ref": "#/$defs/currency" },
+        "companyName": { "$ref": "#/$defs/businessText" },
+        "period": { "$ref": "#/$defs/businessText" },
+        "balanceSheet": { "$ref": "#/$defs/BalanceSheetInput" },
+        "incomeStatement": { "$ref": "#/$defs/IncomeStatementInput" },
+        "cashFlow": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/CashFlowInput" }]
+        },
+        "costDetail": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/CostDetailInput" }]
+        },
+        "taxRisk": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/TaxRiskInput" }]
+        }
+      }
+    },
+    "FinancialCouncilCreateInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currency", "dataAsOf", "businessReport", "policyVersionId"],
+      "properties": {
+        "currency": { "$ref": "#/$defs/currency" },
+        "dataAsOf": { "$ref": "#/$defs/dateTime" },
+        "businessReport": { "$ref": "#/$defs/BusinessReportInput" },
+        "policyVersionId": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "FinancialCouncilRunEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eventId",
+        "runId",
+        "revision",
+        "fromStatus",
+        "toStatus",
+        "reasonCode",
+        "occurredAt"
+      ],
+      "properties": {
+        "eventId": { "$ref": "#/$defs/nonempty" },
+        "runId": { "$ref": "#/$defs/nonempty" },
+        "revision": { "$ref": "#/$defs/revision" },
+        "fromStatus": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/runStatus" }]
+        },
+        "toStatus": { "$ref": "#/$defs/runStatus" },
+        "reasonCode": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "occurredAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "FinancialCouncilRunEventPagedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "nextAfter", "hasMore"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FinancialCouncilRunEvent" }
+        },
+        "nextAfter": { "type": ["string", "null"], "minLength": 1 },
+        "hasMore": { "type": "boolean" }
+      }
+    },
+    "FinancialSnapshotView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "snapshotId",
+        "runId",
+        "workspaceId",
+        "dataAsOf",
+        "currency",
+        "businessReport",
+        "sourceVersions",
+        "dataGaps",
+        "redactionLevel",
+        "snapshotHash",
+        "createdAt"
+      ],
+      "properties": {
+        "snapshotId": { "$ref": "#/$defs/nonempty" },
+        "runId": { "$ref": "#/$defs/nonempty" },
+        "workspaceId": { "$ref": "#/$defs/workspace" },
+        "dataAsOf": { "$ref": "#/$defs/dateTime" },
+        "currency": { "$ref": "#/$defs/currency" },
+        "businessReport": { "$ref": "#/$defs/BusinessReportInput" },
+        "sourceVersions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SourceVersion" }
+        },
+        "dataGaps": { "type": "array", "items": { "$ref": "#/$defs/DataGap" } },
+        "redactionLevel": { "enum": ["full", "redacted"] },
+        "snapshotHash": { "$ref": "#/$defs/hash" },
+        "createdAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "SourceVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "sourceId", "version", "contentHash"],
+      "properties": {
+        "source": {
+          "enum": ["crm", "quote", "financial_fact", "acquisition_cost", "roi"]
+        },
+        "sourceId": { "$ref": "#/$defs/nonempty" },
+        "version": { "$ref": "#/$defs/revision" },
+        "contentHash": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "DataGap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "source", "sourceId", "description"],
+      "properties": {
+        "code": {
+          "enum": [
+            "unverified_cost",
+            "unverified_financial_fact",
+            "missing_cogs",
+            "unmatched_payment",
+            "missing_commercial_binding",
+            "import_requires_review"
+          ]
+        },
+        "source": {
+          "enum": [
+            "crm",
+            "quote",
+            "financial_fact",
+            "acquisition_cost",
+            "roi",
+            "business_report"
+          ]
+        },
+        "sourceId": { "type": ["string", "null"], "minLength": 1 },
+        "description": { "$ref": "#/$defs/nonempty" }
+      }
+    },
+    "FinancialFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findingId",
+        "runId",
+        "snapshotId",
+        "agentRole",
+        "conclusion",
+        "evidenceRefs",
+        "formulaRef",
+        "confidenceBps",
+        "severity",
+        "assumptions",
+        "missingData",
+        "candidateActionIds"
+      ],
+      "properties": {
+        "findingId": { "$ref": "#/$defs/nonempty" },
+        "runId": { "$ref": "#/$defs/nonempty" },
+        "snapshotId": { "$ref": "#/$defs/nonempty" },
+        "agentRole": { "$ref": "#/$defs/agentRole" },
+        "conclusion": { "$ref": "#/$defs/nonempty" },
+        "evidenceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EvidenceRef" }
+        },
+        "formulaRef": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/FormulaResultRef" }]
+        },
+        "confidenceBps": { "$ref": "#/$defs/bps" },
+        "severity": { "enum": ["info", "warning", "critical"] },
+        "assumptions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "missingData": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DataGap" }
+        },
+        "candidateActionIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonempty" }
+        }
+      }
+    },
+    "EvidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "sourceId", "contentHash"],
+      "properties": {
+        "source": {
+          "enum": [
+            "crm",
+            "quote",
+            "financial_fact",
+            "acquisition_cost",
+            "roi",
+            "business_report"
+          ]
+        },
+        "sourceId": { "$ref": "#/$defs/nonempty" },
+        "contentHash": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "FormulaResultRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["formulaVersion", "inputHash", "resultHash"],
+      "properties": {
+        "formulaVersion": { "$ref": "#/$defs/nonempty" },
+        "inputHash": { "$ref": "#/$defs/hash" },
+        "resultHash": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "CandidateAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actionId",
+        "kind",
+        "sourceFindingIds",
+        "ownerRole",
+        "subjectRef",
+        "explanation",
+        "durationDays",
+        "prerequisites",
+        "mutuallyExclusiveWith",
+        "cashImpact",
+        "profitImpact",
+        "riskReductionBps",
+        "budgetCostMinor",
+        "capacityUnits",
+        "confidenceBps",
+        "requiredCapabilities",
+        "requiresHumanApproval"
+      ],
+      "properties": {
+        "actionId": { "$ref": "#/$defs/nonempty" },
+        "kind": { "$ref": "#/$defs/FinancialCouncilActionKind" },
+        "sourceFindingIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "ownerRole": { "$ref": "#/$defs/agentRole" },
+        "subjectRef": { "type": ["string", "null"], "minLength": 1 },
+        "explanation": { "$ref": "#/$defs/nonempty" },
+        "durationDays": { "$ref": "#/$defs/nonNegativeInteger" },
+        "prerequisites": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "mutuallyExclusiveWith": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "cashImpact": { "$ref": "#/$defs/ScenarioMoney" },
+        "profitImpact": { "$ref": "#/$defs/ScenarioMoney" },
+        "riskReductionBps": { "$ref": "#/$defs/ScenarioBps" },
+        "budgetCostMinor": { "$ref": "#/$defs/safeInteger" },
+        "capacityUnits": { "$ref": "#/$defs/nonNegativeInteger" },
+        "confidenceBps": { "$ref": "#/$defs/bps" },
+        "requiredCapabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "requiresHumanApproval": { "const": true }
+      }
+    },
+    "ConsensusReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reportId",
+        "runId",
+        "snapshotId",
+        "acceptedFindings",
+        "minorityFindings",
+        "rejectedFindings",
+        "unresolvedConflicts",
+        "dataGaps",
+        "overallDiagnosis",
+        "inputVersionHash",
+        "createdAt"
+      ],
+      "properties": {
+        "reportId": { "$ref": "#/$defs/nonempty" },
+        "runId": { "$ref": "#/$defs/nonempty" },
+        "snapshotId": { "$ref": "#/$defs/nonempty" },
+        "acceptedFindings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FinancialFinding" }
+        },
+        "minorityFindings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FinancialFinding" }
+        },
+        "rejectedFindings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FinancialFinding" }
+        },
+        "unresolvedConflicts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Conflict" }
+        },
+        "dataGaps": { "type": "array", "items": { "$ref": "#/$defs/DataGap" } },
+        "overallDiagnosis": { "$ref": "#/$defs/nonempty" },
+        "inputVersionHash": { "$ref": "#/$defs/hash" },
+        "createdAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "Conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conflictId", "type", "findingIds", "status"],
+      "properties": {
+        "conflictId": { "$ref": "#/$defs/nonempty" },
+        "type": {
+          "enum": [
+            "formula",
+            "evidence",
+            "definition",
+            "action_exclusivity",
+            "resource_competition",
+            "risk_preference"
+          ]
+        },
+        "findingIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "status": { "enum": ["unresolved", "resolved", "withdrawn"] }
+      }
+    },
+    "ActionPortfolio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "portfolioId",
+        "runId",
+        "revision",
+        "kind",
+        "actionIds",
+        "actions",
+        "hardConstraints",
+        "objectiveScoreBps",
+        "scenarioForecast",
+        "sensitivityAnalysis",
+        "rejectedActions",
+        "requiredApprovalCapabilities",
+        "expiresAt",
+        "createdAt"
+      ],
+      "properties": {
+        "portfolioId": { "$ref": "#/$defs/nonempty" },
+        "runId": { "$ref": "#/$defs/nonempty" },
+        "revision": { "$ref": "#/$defs/revision" },
+        "kind": { "$ref": "#/$defs/portfolioKind" },
+        "actionIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CandidateAction" }
+        },
+        "hardConstraints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ConstraintResult" }
+        },
+        "objectiveScoreBps": { "$ref": "#/$defs/bps" },
+        "scenarioForecast": { "$ref": "#/$defs/ScenarioForecast" },
+        "sensitivityAnalysis": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Sensitivity" }
+        },
+        "rejectedActions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/RejectedAction" }
+        },
+        "requiredApprovalCapabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "expiresAt": { "$ref": "#/$defs/dateTime" },
+        "createdAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "ConstraintResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "satisfied", "reason"],
+      "properties": {
+        "code": { "$ref": "#/$defs/nonempty" },
+        "satisfied": { "type": "boolean" },
+        "reason": { "type": ["string", "null"], "minLength": 1 }
+      }
+    },
+    "ScenarioForecast": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cashImpact", "profitImpact", "riskReductionBps"],
+      "properties": {
+        "cashImpact": { "$ref": "#/$defs/ScenarioMoney" },
+        "profitImpact": { "$ref": "#/$defs/ScenarioMoney" },
+        "riskReductionBps": { "$ref": "#/$defs/ScenarioBps" }
+      }
+    },
+    "Sensitivity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["factor", "impactBps"],
+      "properties": {
+        "factor": { "$ref": "#/$defs/nonempty" },
+        "impactBps": { "$ref": "#/$defs/signedBps" }
+      }
+    },
+    "RejectedAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "reasonCode", "reason"],
+      "properties": {
+        "actionId": { "$ref": "#/$defs/nonempty" },
+        "reasonCode": { "$ref": "#/$defs/nonempty" },
+        "reason": { "$ref": "#/$defs/nonempty" }
+      }
+    },
+    "FinancialCouncilPolicyVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policyVersionId",
+        "workspaceId",
+        "version",
+        "revision",
+        "currency",
+        "balancedWeightsBps",
+        "minimumCashReserveMinor",
+        "dueDebtMinor",
+        "necessaryOutflowMinor",
+        "budgetLimitMinor",
+        "capacityLimitUnits",
+        "durationLimitDays",
+        "minimumActionConfidenceBps",
+        "actionCoefficientVersion",
+        "policyHash",
+        "createdAt"
+      ],
+      "properties": {
+        "policyVersionId": { "$ref": "#/$defs/identifier" },
+        "workspaceId": { "$ref": "#/$defs/workspace" },
+        "version": { "$ref": "#/$defs/revision" },
+        "revision": { "$ref": "#/$defs/revision" },
+        "currency": { "$ref": "#/$defs/currency" },
+        "balancedWeightsBps": { "$ref": "#/$defs/ObjectiveWeights" },
+        "minimumCashReserveMinor": { "$ref": "#/$defs/safeInteger" },
+        "dueDebtMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "necessaryOutflowMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "budgetLimitMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "capacityLimitUnits": { "$ref": "#/$defs/nonNegativeInteger" },
+        "durationLimitDays": { "$ref": "#/$defs/nonNegativeInteger" },
+        "minimumActionConfidenceBps": { "$ref": "#/$defs/bps" },
+        "actionCoefficientVersion": { "$ref": "#/$defs/nonempty" },
+        "policyHash": { "$ref": "#/$defs/hash" },
+        "createdAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "FinancialCouncilPolicyInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currency",
+        "balancedWeightsBps",
+        "minimumCashReserveMinor",
+        "dueDebtMinor",
+        "necessaryOutflowMinor",
+        "budgetLimitMinor",
+        "capacityLimitUnits",
+        "durationLimitDays",
+        "minimumActionConfidenceBps",
+        "actionCoefficientVersion"
+      ],
+      "properties": {
+        "currency": { "$ref": "#/$defs/currency" },
+        "balancedWeightsBps": { "$ref": "#/$defs/ObjectiveWeights" },
+        "minimumCashReserveMinor": { "$ref": "#/$defs/safeInteger" },
+        "dueDebtMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "necessaryOutflowMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "budgetLimitMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "capacityLimitUnits": { "$ref": "#/$defs/nonNegativeInteger" },
+        "durationLimitDays": { "$ref": "#/$defs/nonNegativeInteger" },
+        "minimumActionConfidenceBps": { "$ref": "#/$defs/bps" },
+        "actionCoefficientVersion": { "$ref": "#/$defs/nonempty" }
+      }
+    },
+    "ObjectiveWeights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cash", "profit", "risk", "strategic"],
+      "properties": {
+        "cash": { "$ref": "#/$defs/bps" },
+        "profit": { "$ref": "#/$defs/bps" },
+        "risk": { "$ref": "#/$defs/bps" },
+        "strategic": { "$ref": "#/$defs/bps" }
+      }
+    },
+    "FinancialCouncilPortfolioRevisionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseRevision", "operations"],
+      "properties": {
+        "baseRevision": { "$ref": "#/$defs/revision" },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/FinancialPortfolioEditOperation" }
+        }
+      }
+    },
+    "FinancialPortfolioEditOperation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "portfolioKind"],
+          "properties": {
+            "kind": { "const": "select_portfolio" },
+            "portfolioKind": { "$ref": "#/$defs/portfolioKind" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "actionId"],
+          "properties": {
+            "kind": { "enum": ["remove_action", "restore_action"] },
+            "actionId": { "$ref": "#/$defs/identifier" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "actionId", "parameters"],
+          "properties": {
+            "kind": { "const": "replace_action_parameters" },
+            "actionId": { "$ref": "#/$defs/identifier" },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "properties": {
+                "ownerRole": { "$ref": "#/$defs/agentRole" },
+                "durationDays": { "type": "integer", "minimum": 1, "maximum": 365 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "FinancialCouncilPortfolioRevisionView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "revision", "baseRevision", "portfolios", "createdAt"],
+      "properties": {
+        "runId": { "$ref": "#/$defs/nonempty" },
+        "revision": { "$ref": "#/$defs/revision" },
+        "baseRevision": { "$ref": "#/$defs/revision" },
+        "portfolios": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/ActionPortfolio" }
+        },
+        "createdAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "FinancialCouncilApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approvalId",
+        "runId",
+        "portfolioRevision",
+        "portfolioKind",
+        "status",
+        "approvedActionIds",
+        "requiredCapabilities",
+        "reason",
+        "approvedAt"
+      ],
+      "properties": {
+        "approvalId": { "$ref": "#/$defs/nonempty" },
+        "runId": { "$ref": "#/$defs/nonempty" },
+        "portfolioRevision": { "$ref": "#/$defs/revision" },
+        "portfolioKind": { "$ref": "#/$defs/portfolioKind" },
+        "status": { "enum": ["approved", "rejected"] },
+        "approvedActionIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "requiredCapabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "reason": { "type": ["string", "null"], "minLength": 1, "maxLength": 10000 },
+        "approvedAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "FinancialCouncilDispatchView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dispatchId",
+        "runId",
+        "approvalId",
+        "portfolioRevision",
+        "portfolioKind",
+        "actionId",
+        "status",
+        "attempt",
+        "receiptId",
+        "lastErrorCode",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "dispatchId": { "$ref": "#/$defs/nonempty" },
+        "runId": { "$ref": "#/$defs/nonempty" },
+        "approvalId": { "$ref": "#/$defs/nonempty" },
+        "portfolioRevision": { "$ref": "#/$defs/revision" },
+        "portfolioKind": { "$ref": "#/$defs/portfolioKind" },
+        "actionId": { "$ref": "#/$defs/nonempty" },
+        "status": { "enum": ["queued", "running", "retry", "succeeded", "failed"] },
+        "attempt": { "$ref": "#/$defs/nonNegativeInteger" },
+        "receiptId": { "type": ["string", "null"], "minLength": 1 },
+        "lastErrorCode": { "type": ["string", "null"], "minLength": 1, "maxLength": 96 },
+        "createdAt": { "$ref": "#/$defs/dateTime" },
+        "updatedAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "FinancialCouncilDispatchPagedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "nextAfter", "hasMore"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FinancialCouncilDispatchView" }
+        },
+        "nextAfter": { "type": ["string", "null"], "minLength": 1 },
+        "hasMore": { "type": "boolean" }
+      }
+    },
+    "FinancialCouncilRejectInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portfolioRevision", "portfolioKind", "reason"],
+      "properties": {
+        "portfolioRevision": { "$ref": "#/$defs/revision" },
+        "portfolioKind": { "$ref": "#/$defs/portfolioKind" },
+        "reason": { "$ref": "#/$defs/nonempty" }
+      }
+    },
+    "FinancialCouncilApprovalInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portfolioKind"],
+      "properties": { "portfolioKind": { "$ref": "#/$defs/portfolioKind" } }
+    }
+  }
+}

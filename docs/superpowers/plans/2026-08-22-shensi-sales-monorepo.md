@@ -144,9 +144,14 @@ packages:
   - frontend
   - contracts
 
-onlyBuiltDependencies:
-  - esbuild
-  - sharp
+allowBuilds:
+  "@google/genai": false
+  "@scarf/scarf": false
+  esbuild: true
+  msgpackr-extract: true
+  protobufjs: true
+  puppeteer: true
+  tesseract.js: true
 ```
 
 Set root `package.json` to private package `shensi-sales`, preserve Node engine `>=22.22.3 <23`, keep `concurrently` `^9.2.1`, and define:
