@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/quote-case.v1.schema.json",
+  "title": "QuoteCase",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "workspaceId", "candidateId", "customerId", "dealId", "assignedTo", "status", "currentDraftVersionId", "revision", "commercialBindingSnapshot", "createdAt", "updatedAt"],
+  "properties": {
+    "id": { "$ref": "#/$defs/nonempty" },
+    "workspaceId": { "$ref": "#/$defs/workspaceId" },
+    "candidateId": { "$ref": "#/$defs/nullableId" },
+    "customerId": { "$ref": "#/$defs/nullableId" },
+    "dealId": { "$ref": "#/$defs/nullableId" },
+    "assignedTo": { "$ref": "#/$defs/nonempty" },
+    "status": { "enum": ["open", "closed", "cancelled"] },
+    "currentDraftVersionId": { "$ref": "#/$defs/nullableId" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "commercialBindingSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/CommercialBindingSnapshot" }] },
+    "createdAt": { "$ref": "#/$defs/dateTime" },
+    "updatedAt": { "$ref": "#/$defs/dateTime" }
+  },
+  "anyOf": [
+    { "properties": { "candidateId": { "type": "string" } } },
+    { "properties": { "customerId": { "type": "string" } } },
+    { "properties": { "dealId": { "type": "string" } } }
+  ],
+  "$defs": {
+    "nonempty": { "type": "string", "minLength": 1 },
+    "nullableId": { "type": ["string", "null"], "minLength": 1 },
+    "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } },
+    "dateTime": { "type": "string", "format": "date-time" },
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "safeSigned": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+    "money": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "bps": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "QuoteCaseCreateInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assignedTo"],
+      "properties": {
+        "candidateId": { "$ref": "#/$defs/nullableId" },
+        "customerId": { "$ref": "#/$defs/nullableId" },
+        "dealId": { "$ref": "#/$defs/nullableId" },
+        "assignedTo": { "$ref": "#/$defs/nonempty" }
+      },
+      "anyOf": [
+        { "required": ["candidateId"], "properties": { "candidateId": { "type": "string", "minLength": 1 } } },
+        { "required": ["customerId"], "properties": { "customerId": { "type": "string", "minLength": 1 } } },
+        { "required": ["dealId"], "properties": { "dealId": { "type": "string", "minLength": 1 } } }
+      ]
+    },
+    "BindQuoteCaseDealInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dealId"],
+      "properties": { "dealId": { "$ref": "#/$defs/nonempty" } }
+    },
+    "QuoteDecisionInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reason"],
+      "properties": { "reason": { "type": "string", "minLength": 1 } }
+    },
+    "CommercialBindingSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidateId", "handoffId", "leadId", "customerId", "dealId", "candidateVersion", "handoffContentHash", "dealContentHash", "bindingHashSchemaVersion", "attributionSnapshot", "bindingHash", "verifiedAt"],
+      "properties": {
+        "candidateId": { "$ref": "#/$defs/nonempty" },
+        "handoffId": { "$ref": "#/$defs/nonempty" },
+        "leadId": { "$ref": "#/$defs/nullableId" },
+        "customerId": { "$ref": "#/$defs/nonempty" },
+        "dealId": { "$ref": "#/$defs/nonempty" },
+        "candidateVersion": { "type": "integer", "minimum": 1 },
+        "handoffContentHash": { "$ref": "#/$defs/hash" },
+        "dealContentHash": { "$ref": "#/$defs/hash" },
+        "bindingHashSchemaVersion": { "$ref": "#/$defs/nonempty" },
+        "attributionSnapshot": { "$ref": "outcome-feedback.v1.schema.json#/$defs/liveAttribution" },
+        "bindingHash": { "$ref": "#/$defs/hash" },
+        "verifiedAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "QuotePreviewInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalogItemId", "pricingPolicyVersionId", "quantityMicros", "offeredUnitPriceMinor", "orderDiscountMinor", "paymentTermDays", "giftItems", "surchargeContext", "customerTargetPriceMinor", "creditRiskBps", "manualEscalation"],
+      "properties": {
+        "catalogItemId": { "$ref": "#/$defs/nonempty" },
+        "pricingPolicyVersionId": { "$ref": "#/$defs/nonempty" },
+        "quantityMicros": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "offeredUnitPriceMinor": { "$ref": "#/$defs/money" },
+        "orderDiscountMinor": { "$ref": "#/$defs/money" },
+        "paymentTermDays": { "type": "integer", "minimum": 0 },
+        "giftItems": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["catalogItemId", "quantityMicros"],
+            "properties": {
+              "catalogItemId": { "$ref": "#/$defs/nonempty" },
+              "quantityMicros": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+            }
+          }
+        },
+        "surchargeContext": {
+          "type": "object", "additionalProperties": false,
+          "required": ["region", "deliveryMethod"],
+          "properties": {
+            "region": { "type": ["string", "null"], "minLength": 1 },
+            "deliveryMethod": { "type": ["string", "null"], "minLength": 1 }
+          }
+        },
+        "customerTargetPriceMinor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/money" }] },
+        "creditRiskBps": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/bps" }] },
+        "manualEscalation": { "type": "boolean" }
+      }
+    },
+    "QuotePreviewIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputSnapshotHash", "calculationHash", "pricingPolicyVersionId", "pricingPolicyRevision", "packageVersionId", "formulaVersion"],
+      "properties": {
+        "inputSnapshotHash": { "$ref": "#/$defs/hash" },
+        "calculationHash": { "$ref": "#/$defs/hash" },
+        "pricingPolicyVersionId": { "$ref": "#/$defs/nonempty" },
+        "pricingPolicyRevision": { "type": "integer", "minimum": 1 },
+        "packageVersionId": { "$ref": "#/$defs/nullableId" },
+        "formulaVersion": { "const": "quote-calculation.v1" }
+      }
+    },
+    "QuoteGate": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "reasons", "requiredCapabilities"],
+          "properties": {
+            "status": { "enum": ["confirmation_required", "exception_approval_required"] },
+            "reasons": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "requiredCapabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "reasons", "requiredCapabilities"],
+          "properties": {
+            "status": { "const": "hard_blocked" },
+            "reasons": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            "requiredCapabilities": { "type": "array", "maxItems": 0 }
+          }
+        }
+      ]
+    },
+    "QuotePreviewResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["amountState", "currency", "listAmountMinor", "netProductAmountMinor", "quotedAmountMinor", "requiredSurchargeMinor", "estimatedFulfillmentCostMinor", "estimatedSalesCostMinor", "estimatedServiceCostMinor", "estimatedGrossProfitMinor", "estimatedContributionMinor", "discountBps", "grossMarginBps", "minimumAllowedQuotedAmountMinor", "recommendedOpeningQuotedAmountMinor", "gate", "previewIdentity"],
+          "properties": {
+            "amountState": { "const": "actionable" },
+            "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+            "listAmountMinor": { "$ref": "#/$defs/money" },
+            "netProductAmountMinor": { "$ref": "#/$defs/money" },
+            "quotedAmountMinor": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+            "requiredSurchargeMinor": { "$ref": "#/$defs/money" },
+            "estimatedFulfillmentCostMinor": { "$ref": "#/$defs/money" },
+            "estimatedSalesCostMinor": { "$ref": "#/$defs/money" },
+            "estimatedServiceCostMinor": { "$ref": "#/$defs/money" },
+            "estimatedGrossProfitMinor": { "$ref": "#/$defs/safeSigned" },
+            "estimatedContributionMinor": { "$ref": "#/$defs/safeSigned" },
+            "discountBps": { "$ref": "#/$defs/bps" },
+            "grossMarginBps": { "$ref": "#/$defs/safeSigned" },
+            "minimumAllowedQuotedAmountMinor": { "$ref": "#/$defs/money" },
+            "recommendedOpeningQuotedAmountMinor": { "$ref": "#/$defs/money" },
+            "gate": { "$ref": "#/$defs/QuoteGate" },
+            "previewIdentity": { "$ref": "#/$defs/QuotePreviewIdentity" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["amountState", "currency", "listAmountMinor", "diagnosticNetProductAmountMinor", "diagnosticQuotedAmountMinor", "requiredSurchargeMinor", "estimatedFulfillmentCostMinor", "estimatedSalesCostMinor", "estimatedServiceCostMinor", "estimatedGrossProfitMinor", "estimatedContributionMinor", "discountBps", "grossMarginBps", "minimumAllowedQuotedAmountMinor", "recommendedOpeningQuotedAmountMinor", "gate", "previewIdentity"],
+          "properties": {
+            "amountState": { "const": "non_positive_diagnostic" },
+            "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+            "listAmountMinor": { "$ref": "#/$defs/money" },
+            "diagnosticNetProductAmountMinor": { "$ref": "#/$defs/safeSigned" },
+            "diagnosticQuotedAmountMinor": { "$ref": "#/$defs/safeSigned" },
+            "requiredSurchargeMinor": { "$ref": "#/$defs/money" },
+            "estimatedFulfillmentCostMinor": { "$ref": "#/$defs/money" },
+            "estimatedSalesCostMinor": { "$ref": "#/$defs/money" },
+            "estimatedServiceCostMinor": { "$ref": "#/$defs/money" },
+            "estimatedGrossProfitMinor": { "$ref": "#/$defs/safeSigned" },
+            "estimatedContributionMinor": { "$ref": "#/$defs/safeSigned" },
+            "discountBps": { "$ref": "#/$defs/bps" },
+            "grossMarginBps": { "type": "null" },
+            "minimumAllowedQuotedAmountMinor": { "$ref": "#/$defs/money" },
+            "recommendedOpeningQuotedAmountMinor": { "$ref": "#/$defs/money" },
+            "gate": {
+              "type": "object", "additionalProperties": false,
+              "required": ["status", "reasons", "requiredCapabilities"],
+              "properties": {
+                "status": { "const": "hard_blocked" },
+                "reasons": { "type": "array", "minItems": 1, "items": { "enum": ["net_product_amount_not_positive", "quoted_amount_not_positive"] } },
+                "requiredCapabilities": { "type": "array", "maxItems": 0 }
+              }
+            },
+            "previewIdentity": { "$ref": "#/$defs/QuotePreviewIdentity" }
+          },
+          "allOf": [
+            {
+              "if": {
+                "type": "object",
+                "required": ["gate"],
+                "properties": {
+                  "gate": {
+                    "type": "object",
+                    "required": ["reasons"],
+                    "properties": {
+                      "reasons": { "type": "array", "contains": { "const": "net_product_amount_not_positive" } }
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "diagnosticNetProductAmountMinor": { "type": "integer", "maximum": 0 }
+                }
+              }
+            },
+            {
+              "if": {
+                "type": "object",
+                "required": ["gate"],
+                "properties": {
+                  "gate": {
+                    "type": "object",
+                    "required": ["reasons"],
+                    "properties": {
+                      "reasons": { "type": "array", "contains": { "const": "quoted_amount_not_positive" } }
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "diagnosticQuotedAmountMinor": { "type": "integer", "maximum": 0 }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

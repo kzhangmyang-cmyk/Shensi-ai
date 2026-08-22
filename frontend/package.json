@@ -1,0 +1,48 @@
+{
+  "name": "goodjob-crm-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5188",
+    "build": "tsc -b && vite build",
+    "test": "tsx src/self-test.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:financial-council:real": "playwright test --config=playwright.financial-council-real.config.ts --project=chromium",
+    "contract:import": "node scripts/import-growth-contract.mjs",
+    "contract:generate": "node scripts/generate-growth-contract-types.mjs",
+    "contract:check": "node scripts/check-growth-contract.mjs && node scripts/generate-growth-contract-types.mjs --check",
+    "test:growth:fixture": "tsx --test tests/fixtures/growth-contract.self-test.ts",
+    "test:e2e:growth": "playwright test growth-bootstrap.spec.ts",
+    "test:types": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json --noEmit && tsc -p browser-extension/douyin-visual-reader/tsconfig.json --noEmit",
+    "test:visual-reader": "tsx browser-extension/douyin-visual-reader/src/self-test.ts",
+    "test:visual-reader:ocr-smoke": "tsx scripts/test-visual-reader-ocr-smoke.mts",
+    "build:visual-reader": "tsx scripts/build-visual-reader-bundles.mts && tsx scripts/build-visual-reader-manifest.mts && npm run check:visual-reader-bundle && npm run test:visual-reader:ocr-smoke",
+    "check:visual-reader-bundle": "tsx scripts/check-visual-reader-bundle.mts",
+    "verify:visual-reader-build-order": "npm run build:visual-reader && npm run build && npm run check:visual-reader-bundle"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "echarts": "^6.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tesseract.js": "7.0.0",
+    "tesseract.js-core": "7.0.0",
+    "wasm-feature-detect": "1.9.0",
+    "@tesseract.js-data/chi_sim": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "vite": "^6.0.7",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "linkedom": "0.18.13",
+    "openapi-typescript": "7.13.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "yaml": "2.8.1"
+  }
+}

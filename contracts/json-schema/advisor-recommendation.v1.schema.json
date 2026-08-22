@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://goodjob.example/contracts/json-schema/advisor-recommendation.v1.schema.json", "title": "AdvisorRecommendation",
+  "type": "object", "additionalProperties": false,
+  "required": ["id", "workspaceId", "revision", "audienceRole", "type", "summary", "rationale", "metricRefs", "evidenceRefs", "entityRefs", "confidenceBps", "riskLevel", "recommendedAction", "status", "assignedTo", "acceptedBy", "acceptedAt", "outcomeRefs", "dataAsOf", "inputSnapshotHash", "modelSnapshotRef", "promptVersion", "schemaVersion", "generationIdempotencyKey", "expiresAt", "createdAt", "updatedAt"],
+  "properties": {
+    "id": { "$ref": "#/$defs/nonempty" }, "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } }, "revision": { "type": "integer", "minimum": 1 },
+    "audienceRole": { "enum": ["sales", "manager", "admin", "super_admin"] }, "type": { "enum": ["priority_customer", "quote_risk", "roi_gap", "cash_collection", "cost_completion"] },
+    "summary": { "$ref": "#/$defs/nonempty" }, "rationale": { "$ref": "#/$defs/nonempty" }, "metricRefs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/AdvisorMetricRef" } },
+    "evidenceRefs": { "type": "array", "items": { "$ref": "#/$defs/AdvisorEvidenceRef" } }, "entityRefs": { "type": "array", "items": { "$ref": "#/$defs/AdvisorEntityRef" } },
+    "confidenceBps": { "type": "integer", "minimum": 0, "maximum": 10000 }, "riskLevel": { "enum": ["low", "medium", "high", "critical"] }, "recommendedAction": { "$ref": "#/$defs/AdvisorRecommendedAction" },
+    "status": { "enum": ["proposed", "accepted", "ignored", "completed", "expired"] }, "assignedTo": { "$ref": "#/$defs/nullableId" }, "acceptedBy": { "$ref": "#/$defs/nullableId" },
+    "acceptedAt": { "type": ["string", "null"], "format": "date-time" }, "outcomeRefs": { "type": "array", "items": { "$ref": "#/$defs/nonempty" } }, "dataAsOf": { "$ref": "#/$defs/dateTime" },
+    "inputSnapshotHash": { "$ref": "#/$defs/hash" }, "modelSnapshotRef": { "$ref": "#/$defs/nonempty" }, "promptVersion": { "$ref": "#/$defs/nonempty" }, "schemaVersion": { "const": "advisor-recommendation.v1" },
+    "generationIdempotencyKey": { "$ref": "#/$defs/nonempty" }, "expiresAt": { "$ref": "#/$defs/dateTime" }, "createdAt": { "$ref": "#/$defs/dateTime" }, "updatedAt": { "$ref": "#/$defs/dateTime" }
+  },
+  "$defs": {
+    "nonempty": { "type": "string", "minLength": 1 }, "nullableId": { "type": ["string", "null"], "minLength": 1 }, "dateTime": { "type": "string", "format": "date-time" },
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }, "GrowthRoiSliceKey": { "type": "string", "pattern": "^(?:all|plan:.+)$" },
+    "FinancialDataGapCode": { "enum": ["unverified_cost", "unverified_financial_fact", "missing_cogs", "unmatched_payment", "missing_commercial_binding", "import_requires_review"] },
+    "FinancialDataGapSourceType": { "enum": ["cost_entry", "financial_fact", "finance_import", "commercial_binding"] },
+    "AdvisorRecommendedAction": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "candidateId"], "properties": { "kind": { "const": "open_candidate" }, "candidateId": { "$ref": "#/$defs/nonempty" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "quoteCaseId", "quoteCaseRevision", "quoteInput", "previewIdentity"], "properties": { "kind": { "const": "create_quote_draft" }, "quoteCaseId": { "$ref": "#/$defs/nonempty" }, "quoteCaseRevision": { "type": "integer", "minimum": 1 }, "quoteInput": { "$ref": "quote-case.v1.schema.json#/$defs/QuotePreviewInput" }, "previewIdentity": { "$ref": "quote-case.v1.schema.json#/$defs/QuotePreviewIdentity" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "quoteVersionId", "quoteVersionRevision"], "properties": { "kind": { "const": "create_quote_approval_task" }, "quoteVersionId": { "$ref": "#/$defs/nonempty" }, "quoteVersionRevision": { "type": "integer", "minimum": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "customerId", "dueAt"], "properties": { "kind": { "const": "create_sales_todo" }, "customerId": { "$ref": "#/$defs/nonempty" }, "dueAt": { "$ref": "#/$defs/dateTime" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "cohortId"], "properties": { "kind": { "const": "complete_cost_data" }, "cohortId": { "$ref": "#/$defs/nonempty" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "dealId"], "properties": { "kind": { "const": "complete_financial_fact" }, "dealId": { "$ref": "#/$defs/nonempty" } } }
+      ]
+    },
+    "AdvisorMetricRef": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "cohortId", "currency", "asOf", "planId", "closureVersionId", "sliceKey", "calculationHash"], "properties": { "kind": { "const": "growth_performance" }, "cohortId": { "$ref": "#/$defs/nonempty" }, "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }, "asOf": { "$ref": "#/$defs/dateTime" }, "planId": { "$ref": "#/$defs/nullableId" }, "closureVersionId": { "$ref": "#/$defs/nullableId" }, "sliceKey": { "$ref": "#/$defs/GrowthRoiSliceKey" }, "calculationHash": { "$ref": "#/$defs/hash" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "quoteCaseId", "previewIdentity", "inputSnapshotHash", "calculationHash"], "properties": { "kind": { "const": "quote_preview" }, "quoteCaseId": { "$ref": "#/$defs/nonempty" }, "previewIdentity": { "$ref": "quote-case.v1.schema.json#/$defs/QuotePreviewIdentity" }, "inputSnapshotHash": { "$ref": "#/$defs/hash" }, "calculationHash": { "$ref": "#/$defs/hash" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "candidateId", "qualificationDecisionId", "qualificationDecisionVersion", "inputSnapshotHash"], "properties": { "kind": { "const": "priority_score" }, "candidateId": { "$ref": "#/$defs/nonempty" }, "qualificationDecisionId": { "$ref": "#/$defs/nonempty" }, "qualificationDecisionVersion": { "$ref": "#/$defs/nonempty" }, "inputSnapshotHash": { "$ref": "#/$defs/hash" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "gapCode", "sourceType", "sourceId", "sourceSnapshotHash", "cohortId", "currency", "asOf"], "properties": { "kind": { "const": "financial_data_gap" }, "gapCode": { "$ref": "#/$defs/FinancialDataGapCode" }, "sourceType": { "$ref": "#/$defs/FinancialDataGapSourceType" }, "sourceId": { "$ref": "#/$defs/nonempty" }, "sourceSnapshotHash": { "$ref": "#/$defs/hash" }, "cohortId": { "$ref": "#/$defs/nullableId" }, "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }, "asOf": { "$ref": "#/$defs/dateTime" } } }
+      ]
+    },
+    "AdvisorEvidenceRef": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "candidateId", "qualificationDecisionId", "qualificationDecisionVersion", "inputSnapshotHash", "evidenceId", "contentHash"], "properties": { "kind": { "const": "candidate_evidence" }, "candidateId": { "$ref": "#/$defs/nonempty" }, "qualificationDecisionId": { "$ref": "#/$defs/nonempty" }, "qualificationDecisionVersion": { "$ref": "#/$defs/nonempty" }, "inputSnapshotHash": { "$ref": "#/$defs/hash" }, "evidenceId": { "$ref": "#/$defs/nonempty" }, "contentHash": { "$ref": "#/$defs/hash" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "quoteVersionId", "lifecycleRevision", "commercialAmountHash"], "properties": { "kind": { "const": "quote_version" }, "quoteVersionId": { "$ref": "#/$defs/nonempty" }, "lifecycleRevision": { "type": "integer", "minimum": 1 }, "commercialAmountHash": { "$ref": "#/$defs/hash" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "ledgerType", "ledgerEntryId", "currency", "verificationEventId", "verificationRevision", "evidenceHash"], "properties": { "kind": { "const": "ledger_entry" }, "ledgerType": { "enum": ["cost", "financial"] }, "ledgerEntryId": { "$ref": "#/$defs/nonempty" }, "currency": { "type": "string", "minLength": 1 }, "verificationEventId": { "$ref": "#/$defs/nonempty" }, "verificationRevision": { "type": "integer", "minimum": 1 }, "evidenceHash": { "$ref": "#/$defs/hash" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "closureVersionId", "version", "sliceKey", "calculationHash"], "properties": { "kind": { "const": "roi_snapshot" }, "closureVersionId": { "$ref": "#/$defs/nonempty" }, "version": { "type": "integer", "minimum": 1 }, "sliceKey": { "$ref": "#/$defs/GrowthRoiSliceKey" }, "calculationHash": { "$ref": "#/$defs/hash" } } }
+      ]
+    },
+    "AdvisorEntityRef": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "id", "quoteVersionId", "handoffContentHash", "bindingHashSchemaVersion"], "properties": { "kind": { "const": "customer" }, "id": { "$ref": "#/$defs/nonempty" }, "quoteVersionId": { "$ref": "#/$defs/nonempty" }, "handoffContentHash": { "$ref": "#/$defs/hash" }, "bindingHashSchemaVersion": { "$ref": "#/$defs/nonempty" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "id", "quoteVersionId", "dealContentHash", "bindingHashSchemaVersion", "dealAuthorityRevision"], "properties": { "kind": { "const": "deal" }, "id": { "$ref": "#/$defs/nonempty" }, "quoteVersionId": { "$ref": "#/$defs/nonempty" }, "dealContentHash": { "$ref": "#/$defs/hash" }, "bindingHashSchemaVersion": { "$ref": "#/$defs/nonempty" }, "dealAuthorityRevision": { "type": ["integer", "null"], "minimum": 0 } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "id", "lifecycleRevision", "commercialAmountHash"], "properties": { "kind": { "const": "quote_version" }, "id": { "$ref": "#/$defs/nonempty" }, "lifecycleRevision": { "type": "integer", "minimum": 1 }, "commercialAmountHash": { "$ref": "#/$defs/hash" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "id", "version", "sliceKey", "calculationHash"], "properties": { "kind": { "const": "closure_version" }, "id": { "$ref": "#/$defs/nonempty" }, "version": { "type": "integer", "minimum": 1 }, "sliceKey": { "$ref": "#/$defs/GrowthRoiSliceKey" }, "calculationHash": { "$ref": "#/$defs/hash" } } }
+      ]
+    },
+    "AdvisorRecommendationTransitionInput": {
+      "type": "object", "additionalProperties": false, "required": ["reason"], "properties": { "reason": { "type": ["string", "null"] } }
+    },
+    "AdvisorCopilotTaskResult": {
+      "type": "object", "additionalProperties": false, "required": ["recommendationId", "recommendationRevision", "actionHash", "actionReceiptId"],
+      "properties": { "recommendationId": { "$ref": "#/$defs/nonempty" }, "recommendationRevision": { "type": "integer", "minimum": 1 }, "actionHash": { "$ref": "#/$defs/hash" }, "actionReceiptId": { "$ref": "#/$defs/nonempty" } }
+    }
+  }
+}

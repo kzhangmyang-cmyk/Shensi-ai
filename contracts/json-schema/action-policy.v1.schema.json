@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/action-policy.v1.schema.json",
+  "title": "ActionPolicy",
+  "$defs": {
+    "boundedString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Canonical immutable SHA-256 digest: sha256: followed by exactly 64 lowercase hexadecimal characters."
+    },
+    "extensibleIdentifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+      "description": "Extensible identifier: 1-100 ASCII characters, starting with alphanumeric and continuing with alphanumeric, dot, underscore, colon, or hyphen."
+    },
+    "planRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "hash"],
+      "properties": {
+        "id": { "$ref": "#/$defs/boundedString" },
+        "version": { "type": "integer", "minimum": 1 },
+        "hash": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "ruleBundleRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "hash"],
+      "properties": {
+        "id": { "$ref": "#/$defs/boundedString" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "hash": { "$ref": "#/$defs/digest" }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tenantId",
+    "teamId",
+    "version",
+    "planRef",
+    "ruleBundleRef",
+    "policyHash",
+    "actions",
+    "effectiveAt",
+    "expiresAt",
+    "createdBy",
+    "createdAt"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/boundedString" },
+    "tenantId": { "$ref": "#/$defs/boundedString" },
+    "teamId": {
+      "oneOf": [
+        { "$ref": "#/$defs/boundedString" },
+        { "type": "null" }
+      ]
+    },
+    "version": { "type": "integer", "minimum": 1 },
+    "planRef": { "$ref": "#/$defs/planRef" },
+    "ruleBundleRef": { "$ref": "#/$defs/ruleBundleRef" },
+    "policyHash": { "$ref": "#/$defs/digest" },
+    "actions": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/extensibleIdentifier" },
+      "patternProperties": {
+        "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$": { "enum": ["auto_allowed", "review_required", "blocked"] }
+      },
+      "additionalProperties": false
+    },
+    "effectiveAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+    "createdBy": { "$ref": "#/$defs/boundedString" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

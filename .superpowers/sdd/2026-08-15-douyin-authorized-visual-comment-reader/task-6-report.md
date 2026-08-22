@@ -1,72 +1,30 @@
 # Task 6 report: local redacted comment-card OCR
 
-## Delivered
+## Status
 
-- A pure, testable raster pipeline clamps one visible comment card to the viewport, converts allowed body/time/public-counter rectangles and avatar bounds to crop pixels at the authorized device scale, and emits an `opaque-rect-v1` proof.
-- Every avatar pixel and every pixel outside the allowed union is overwritten with the exact RGBA `[17,61,51,255]`; the allowed union is at most 80%, crop area is at most 1,000,000 pixels, and declared proof rectangles remain bounded.
-- The offscreen document produces one lossless WebP candidate, decodes it locally, and compares the complete raster byte-for-byte before accepting it. A one-channel difference or a payload over 256 KiB fails closed. This replaced an unsafe lossy quality loop after a synthetic browser round trip showed that quality `0.92` changed 8,800 masked pixels while quality `1` preserved all tested pixels.
-- Complete DOM/ARIA text never enters screenshot capture or OCR. Missing/truncated text can enter the fallback only when `artifactUploadEnabled=true`, the request comes from the exact session-bound Douyin tab, that tab is active in the focused bound window at the same canonical URL, and OCR budget remains.
-- The service worker rechecks the immutable session/tab/window/generation before offscreen setup, before and after budget reservation, after `captureVisibleTab`, after offscreen processing, and once more after asynchronous WebP decode/pixel validation immediately before content release. After asynchronous tab/focus reads it also cross-checks the exact coordinator object, generation, and current reading state. Capture uses the approved owner's immutable window ID. Stop/takeover atomically removes the active coordinator, increments ownership, and ends the runtime synchronously before its first await; abort/finish completes only through the captured old target. A replacement generation owns a fresh capture queue rather than waiting for an old hung OCR chain, while a global transition barrier makes every new start wait for old coordinator persistence and offscreen-end settlement before installing or persisting its replacement. Each coordinator serializes authorization, tab confirmation, usage, and terminal mutations with their persistence, and replacement settlement drains that complete queue. Each start also binds the transition revision captured at receipt; a later stop, takeover, or start synchronously revokes queued and authorization-in-flight starts before they can install or remain accepted. Popup snapshot returns a one-use 30-second opaque in-memory token bound to the exact coordinator object, ownership generation, transition revision, session, and artifact flag. Confirmation consumes the closed-message token before side effects and rechecks its complete binding after every browser await; replacement, stop, takeover, or a newer snapshot invalidates it. Observation forwarding and ACK delivery likewise capture an immutable coordinator/generation/revision before awaiting and mutate only that target after reauthorization, so late old work cannot change replacement usage or pending batches.
-- After capture, raw PNG data exists only in a generation-owned clearable service-worker holder and the temporary offscreen message. End/takeover synchronously clears the holder even while post-capture authorization waits. `sendMessage` clones synchronously and both the adapter and runtime erase the message field in `finally` before awaiting its result. The offscreen data URL, decoded image, full canvas, and raw raster are cleared before either WebP encoder runs. Encoder canvases, pixel arrays, bitmaps, and encoded buffers remain registered with the generation lifecycle. Nothing is written to storage, IndexedDB, logs, or error responses.
-- Every service-worker lifetime owns a random 128-bit local epoch. Startup recovery invalidates the runtime and closes any surviving offscreen document before recovering the old session; subsequent sync/end/process messages bind both epoch and generation, so a prior offscreen minimum cannot lock out generation zero after restart.
-- The service worker does not trust the offscreen payload's proof. Before content release it derives exact dimensions/avatar/visible/body geometry from the latest authorized request, strictly parses canonical RIFF/WEBP bytes, decodes the raster, and checks every alpha, outside-allowed pixel, avatar pixel, masked-region union, and OCR word bound.
-- OCR uses one lazy `chi_sim+eng` Tesseract worker per live session. Initialization and recognition each have a 20-second bound; timeout, abort/completion, or 30 seconds idle terminates the worker, including a factory that resolves after its session ended. Word extraction traverses only `blocks[].paragraphs[].lines[].words[]`, excluding block, paragraph, line, and symbol duplicates. Offscreen reconstruction and asynchronous evidence validation share one canonical reading-order helper: vertically overlapping word boxes form a line and that line sorts left-to-right, so baseline jitter is accepted without weakening metadata-overlap rejection. Each batch contains at most 20 observations and at most five crops; artifact-disabled paths cannot capture.
-- Artifact proof keeps body plus exact public time/count metadata, but OCR receives a second raster containing the pixelwise body-minus-metadata set. Text is rebuilt only from ordered word boxes wholly inside body regions and rejects every word intersecting metadata; the asynchronous service-worker validator repeats that exclusion. OCR identity fields (`displayName`, `platformCommentId`, `publicProfileUrl`, and `secUid`) are null. Low confidence, character recall below 90%, number/money mismatch, and truncated/conflicting comparisons remain below the backend manual-review confidence threshold. Empty/failed/invalid OCR or a rejected capture transport retains an original truncated DOM observation below 0.85 rather than dropping it or completing text; missing DOM remains null.
-- Required nullable `domTextHash` and `ocrTextHash` now cross the strict submission and normalized-observation contracts and persist unchanged as client source provenance. The backend cross-checks the hash corresponding to the final extraction method while generating its separate server-owned `textHash`; no text or amount is concatenated.
-- The exact extension CSP is `script-src 'self' 'wasm-unsafe-eval'; object-src 'self'`. The build audit rejects `unsafe-eval`, `eval`, direct `Function`, `new Function`, source maps, remote executable URLs/endpoints, Node `Buffer`/`bmp-js` in the OCR worker, fixture/WebP leakage, test dependencies, unexpected OCR assets, hash drift, missing entry points, and bundles at or above 80 MiB.
+Task 6 is complete at frontend code commit `8b2e00d`, with backend documentation baseline `c31abf5`. Final independent review is `APPROVED` with 0 Critical, 0 Important, and 0 Minor findings.
 
-## Dependency decision and assets
+## Current implementation
 
-The implementation uses the already-selected Tesseract.js option, not a new OCR comparison. Official upstream evidence was checked on 2026-08-16:
+- Complete DOM/ARIA body text bypasses OCR. Missing or truncated body text can use the authorized artifact path only for the exact bound session, tab, window, URL, generation, revision, and current lifecycle.
+- Raw viewport capture exists only briefly in extension memory. The extension locally crops the comment card, masks the avatar and every disallowed pixel, runs OCR only on body-minus-metadata pixels, and can upload only the validated lossless redacted WebP.
+- Service-worker validation independently decodes the request-bound WebP and verifies exact dimensions, geometry, pixels, alpha, mask proof, OCR word bounds, metadata exclusion, and canonical vertical-overlap reading order before release.
+- OCR worker creation and recognition are bounded; timeout, stop, takeover, completion, idle expiry, or late factory settlement terminate the worker and release raw image resources.
+- Required nullable `domTextHash` and `ocrTextHash` remain source provenance through public contracts and memory/MySQL persistence. Invalid, failed, or empty OCR retains truncated DOM only as a protocol-valid low-confidence manual-review observation.
+- Popup confirmation uses a one-use short-lived in-memory token bound to the exact coordinator/session/generation/revision/artifact mode. Observation forwarding and ACK settlement reauthorize immutable owners after awaits.
+- The closed service-worker-to-content ACK carries the current in-memory channel nonce and clears a pending batch only when session, nonce, owner object, and lifecycle generation all match. A delayed old-owner ACK cannot clear a same-session replacement batch. Raw nonce values are not written to storage or logs.
+- Popup copy accurately distinguishes artifact-enabled local capture/redaction/OCR/redacted-WebP upload from screenshot-free text mode and states that closing the popup continues reading while the Stop button ends it.
 
-- [`naptha/tesseract.js` v7.0.0](https://github.com/naptha/tesseract.js/releases/tag/v7.0.0), Apache-2.0, is the current official release and supports a reusable browser worker. Upstream activity continued into 2026. The repository provides a security-reporting policy and listed no published GitHub security advisory at review time.
-- [`naptha/tesseract.js-core` v7.0.0](https://github.com/naptha/tesseract.js-core/releases/tag/v7.0.0), Apache-2.0, provides baseline, SIMD, and relaxed-SIMD LSTM WASM builds. The release documents current Emscripten and performance work; its GitHub advisory page also listed no published advisory at review time.
-- [`naptha/tessdata`](https://github.com/naptha/tessdata) documents `4.0.0_best_int` as the default LSTM-only integerized data and explicitly supports self-hosting language packages. `@tesseract.js-data/chi_sim@1.0.0` and `@tesseract.js-data/eng@1.0.0` are MIT licensed.
-- The open upstream MV3/runtime and long-running-worker concerns make the stock CDN-oriented browser artifact a poor direct fit. The extension therefore builds the pinned v7 source for ES2022, removes regenerator and every CDN fallback, requires a local extension language URL, accepts only redacted WebP `Uint8Array` image input, omits the BMP/`bmp-js`/Node `Buffer` branch, disables persistent cache, and bounds worker lifetime. Core/WASM bytes are copied unmodified. The pinned `best_int` language gzip files are decompressed at build time without changing their traineddata payload; runtime gzip support is disabled.
-- `npm audit --package-lock=false --omit=dev --json` reported no Tesseract-family vulnerability. It exited 1 for two pre-existing unrelated findings (`xlsx` high, `yaml` moderate); Task 6 does not change those packages.
+## Final verification
 
-The build writes and re-verifies this exact inventory in `ocr-assets.json`:
+- Focused protocol, content lifecycle, and service-worker ACK/popup ownership tests: PASS.
+- Frontend strict type checks: PASS.
+- Complete visual-reader self-test suite: PASS.
+- Frontend application self-test: PASS, 125 checks.
+- Unpacked-extension offscreen OCR smoke, extension build/audit, main build, and final bundle audit: PASS. The only build message is the existing Vite chunk-size warning.
+- Backend contracts: PASS, 78/78.
+- Acquisition contract drift: PASS, 18/18.
+- Generated acquisition type freshness and backend build: PASS.
+- Frontend/backend diff checks: PASS.
 
-| Asset | Bytes | SHA-256 |
-| --- | ---: | --- |
-| `ocr/worker.min.js` | 25,656 | `740be535b9a695902db34b79c38a9bc8ed11cabc4ac79a8f872f7ff620351ca0` |
-| `ocr/core/tesseract-core-lstm.wasm.js` | 3,896,484 | `eef5f8b2f8e20e150680b20adaec4a60babafee3adbe8a94583c81fee46e8680` |
-| `ocr/core/tesseract-core-lstm.wasm` | 2,855,361 | `66b17df6e20c5329a17ffa9c202a47eaa3e32500b253d4c7f38e7f2bc01457c3` |
-| `ocr/core/tesseract-core-simd-lstm.wasm.js` | 3,899,472 | `c58b46a4c796c0b8afccf77591d5b875b6896b45d402bbce8caa6f5362447b38` |
-| `ocr/core/tesseract-core-simd-lstm.wasm` | 2,857,601 | `34e8d50cac216427d86bf397d610fdd9f49492539bbcdfbfccc4eda20c810bea` |
-| `ocr/core/tesseract-core-relaxedsimd-lstm.wasm.js` | 3,905,767 | `861a536cf9ef8e63cb644d57bab39c388f37f7d6b6f60024b741c5f6b39a59b3` |
-| `ocr/core/tesseract-core-relaxedsimd-lstm.wasm` | 2,862,266 | `7985c92d4c64e7267d24cadffe1b2a1da6bf8aa55fdcaf953fe94fe122a24545` |
-| `ocr/lang/chi_sim.traineddata` | 2,471,033 | `9784f7c917c546424b690fcde708ce1f604a4393d08bb51ddab146d7d7c794e6` |
-| `ocr/lang/eng.traineddata` | 5,199,098 | `5dc5d8d640a212c9d6184921ba103b186f50e0fed9ee716c53e6b312b400d747` |
-| `ocr/licenses/tesseract.js-APACHE-2.0.txt` | 11,357 | `b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1` |
-| `ocr/licenses/tesseract.js-core-APACHE-2.0.txt` | 11,358 | `c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08` |
-| `ocr/licenses/tessdata-MIT.txt` | 1,078 | `bc142accb4ceadbcd706f2901aeb6a7d30430f0c454b38a5620f485ea13c02aa` |
-
-The fresh unpacked artifact is 29,644 KiB, below the recorded 80 MiB limit.
-
-## TDD and verification evidence
-
-The brief's focused command was first run before implementation and failed with `ERR_MODULE_NOT_FOUND` for `visual-pipeline` and `tesseract-ocr`. Subsequent RED→GREEN checkpoints covered:
-
-- pixel masking, HiDPI scaling, viewport clipping, circular/square avatar bounds, 80% visible area, Chinese/numbers/emoji, missing/truncated DOM, confidence/recall/money conflicts, and fake OCR;
-- capture authorization and service-worker ownership races, including disabled artifacts, complete DOM, exhausted budget, wrong sender/session/tab/window/focus/URL, coordinator replacement/status changes during tab reads, synchronous screenshot-holder clearing, message cloning failures, and malformed evidence;
-- protocol acceptance of only strict OCR crops, null OCR identity, five-crop batching, OCR accounting, and artifact-disabled crop stripping;
-- content fallback resolution with the required nullable DOM/OCR provenance hashes preserved through the strict public contract, including protocol acceptance of a truncated DOM fallback only with a null OCR crop;
-- a real local `chi_sim+eng` worker over low-contrast and visibly truncated synthetic WebP fixtures; the fixed Chinese fixture passes the 90% character-recall gate, while altered numeric evidence is either exact or below the 90% confidence gate;
-- an unpacked Chromium extension smoke that directly exercises the packaged offscreen redaction/WebP encoder, self-hosted worker/core/language assets, OCR words output, and immediate worker termination. Authorization/capture ownership is covered by deterministic runtime tests; the smoke does not claim a real Douyin or full production capture path. It first exposed the upstream gzip adapter's Node `Buffer` dependency and remained RED until runtime decompression was removed;
-- lossless WebP proof, overlapping body/metadata pixel and word exclusion, fresh-queue replacement of a hung generation, deferred old-persistence/offscreen-end settlement before replacement start, cancellation of a queued start by a later synchronous abort revision, and service-worker epoch recovery from a higher surviving offscreen generation.
-- hierarchical Tesseract block/paragraph/line/symbol de-duplication, exact unpacked-smoke text and single amount semantics, same-line baseline jitter, per-coordinator deferred persistence ordering and drain, actual service-worker popup confirmation replacement/abort races with deferred `tabs.get`, and capture-transport rejection for both truncated and missing DOM.
-- round-four one-use popup confirmation binding across different- and same-session replacement, artifact flips, abort, exact TTL expiry, and expiry while content start is pending; immutable observation/ACK ownership under replacement; one-pixel vertical-overlap reading order shared with the validator; and exact popup disclosures for artifact-on and text-only modes.
-- round-five closed service-worker-to-content ACK ownership: the exact in-memory channel nonce crosses only the internal runtime message, content matches it with the current owner object/generation/session before acknowledging, and a delayed old `batch-1` cannot clear a same-session replacement's new `batch-1`.
-
-Task 6 is complete at frontend code commit `8b2e00d`, with backend documentation baseline `c31abf5`. Final independent review is `APPROVED` with 0 Critical, 0 Important, and 0 Minor findings. Final verification passes the focused protocol/content/service-worker lifecycle tests, strict frontend types, the complete visual-reader suite, the 125-check frontend self-test, the unpacked-extension OCR smoke, extension build/audit and main build; backend verification passes 78/78 contracts, 18/18 acquisition drift, generated-type freshness, and backend build. The only build message is the existing Vite chunk-size warning. No real Douyin page or traffic was accessed.
-
-## Workspace protection
-
-Dependencies were obtained only with:
-
-```text
-npm install --no-save --package-lock=false tesseract.js@7.0.0 @tesseract.js-data/chi_sim@1.0.0 @tesseract.js-data/eng@1.0.0
-```
-
-`package.json` pins `tesseract.js`, `tesseract.js-core`, `@tesseract.js-data/chi_sim`, and `@tesseract.js-data/eng` exactly. The user's pre-existing untracked `package-lock.json` was not read, modified, staged, deleted, or committed, and no substitute lockfile was created.
+No real Douyin page or traffic was accessed. The protected user-owned frontend `package-lock.json` was not read, modified, staged, deleted, or committed.

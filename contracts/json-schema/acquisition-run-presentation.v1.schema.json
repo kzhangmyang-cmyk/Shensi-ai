@@ -1,0 +1,397 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/acquisition-run-presentation.v1.schema.json",
+  "title": "AcquisitionRunPresentation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run", "providers", "summary", "automationSteps", "commentSignals", "candidateEvents", "nextAfter", "hasMore"],
+  "properties": {
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "etag", "updatedAt", "completedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["queued", "running", "pause_requested", "paused", "cancel_requested", "cancelled", "succeeded", "succeeded_empty", "partial_success", "failed", "budget_exhausted"]
+        },
+        "etag": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": ["null", "string"], "format": "date-time" }
+      }
+    },
+    "providers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["shardId", "connectionId", "providerId", "status", "rawResultCount", "acceptedResultCount", "duplicateResultCount", "failedResultCount", "errorCode", "retryAfterAt"],
+        "properties": {
+          "shardId": { "type": "string" },
+          "connectionId": { "type": "string" },
+          "providerId": { "type": "string" },
+          "status": { "type": "string" },
+          "rawResultCount": { "type": "integer", "minimum": 0 },
+          "acceptedResultCount": { "type": "integer", "minimum": 0 },
+          "duplicateResultCount": { "type": "integer", "minimum": 0 },
+          "failedResultCount": { "type": "integer", "minimum": 0 },
+          "errorCode": { "type": ["null", "string"] },
+          "retryAfterAt": { "type": ["null", "string"], "format": "date-time" }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourcesSearched", "pagesAnalyzed", "organizationsFound", "dedupedCandidates", "validOpportunities", "highIntent", "financialEvaluatedHighIntentCount", "financialPendingHighIntentCount", "expectedRevenueByCurrency", "discoveredVideos", "commentsSampled", "validDemandSignals", "unresolvedActors", "highPotentialSignals"],
+      "properties": {
+        "sourcesSearched": { "type": "integer", "minimum": 0 },
+        "pagesAnalyzed": { "type": "integer", "minimum": 0, "description": "所有运行分片持久化的执行结果页数。" },
+        "organizationsFound": { "type": "integer", "minimum": 0 },
+        "dedupedCandidates": { "type": "integer", "minimum": 0 },
+        "validOpportunities": { "type": "integer", "minimum": 0 },
+        "highIntent": { "type": "integer", "minimum": 0 },
+        "financialEvaluatedHighIntentCount": { "type": "integer", "minimum": 0 },
+        "financialPendingHighIntentCount": { "type": "integer", "minimum": 0 },
+        "discoveredVideos": { "type": "integer", "minimum": 0 },
+        "commentsSampled": { "type": "integer", "minimum": 0 },
+        "validDemandSignals": { "type": "integer", "minimum": 0 },
+        "unresolvedActors": { "type": "integer", "minimum": 0 },
+        "highPotentialSignals": { "type": "integer", "minimum": 0 },
+        "expectedRevenueByCurrency": {
+          "type": "array",
+          "description": "仅合计高意向且绑定当前资格决定的财务值；币种不换算。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["currency", "amountMinor"],
+            "properties": {
+              "currency": { "type": "string" },
+              "amountMinor": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+    "automationSteps": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "startedAt", "completedAt", "durationMs", "processedCount", "errorCode", "message"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": ["discover_video_urls", "resolve_video_ids", "fetch_public_comment_samples", "normalize_platform_events", "aggregate_actor_signals", "qualify_candidates", "refresh_run_presentation"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "succeeded", "partial_success", "failed", "skipped"]
+          },
+          "startedAt": { "type": ["null", "string"], "format": "date-time" },
+          "completedAt": { "type": ["null", "string"], "format": "date-time" },
+          "durationMs": { "type": ["null", "integer"], "minimum": 0 },
+          "processedCount": { "type": "integer", "minimum": 0 },
+          "errorCode": {
+            "type": ["null", "string"],
+            "enum": [null, "public_sample_unavailable", "access_restricted", "rate_limited", "video_id_unresolved", "source_payload_invalid", "no_public_comments", "model_output_invalid"]
+          },
+          "message": { "type": "string", "minLength": 1, "maxLength": 500 }
+        }
+      }
+    },
+    "authorizedVisualReader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionId", "coverage", "status", "limits", "usage", "outcome", "lastErrorCode", "sessionCount", "aggregateStatus", "aggregateUsage", "visualSteps"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "coverage": { "const": "authorized_visible_top_level_sample" },
+        "status": {
+          "type": "string",
+          "enum": ["created", "collecting", "completed", "partial_success", "aborted", "expired"]
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxVideos", "maxCommentsPerVideo", "maxScrolls", "maxOcrCalls", "maxDurationMs"],
+          "properties": {
+            "maxVideos": { "type": "integer", "minimum": 1, "maximum": 10 },
+            "maxCommentsPerVideo": { "type": "integer", "minimum": 1, "maximum": 30 },
+            "maxScrolls": { "type": "integer", "minimum": 0, "maximum": 5 },
+            "maxOcrCalls": { "type": "integer", "minimum": 0, "maximum": 10 },
+            "maxDurationMs": { "type": "integer", "minimum": 1, "maximum": 120000 }
+          }
+        },
+        "usage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["videoCount", "observationCount", "scrollCount", "ocrCallCount", "domObservationCount", "accessibilityObservationCount", "ocrObservationCount", "lowConfidenceObservationCount", "artifactCount"],
+          "properties": {
+            "videoCount": { "type": "integer", "minimum": 0, "maximum": 10 },
+            "observationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+            "scrollCount": { "type": "integer", "minimum": 0, "maximum": 5 },
+            "ocrCallCount": { "type": "integer", "minimum": 0, "maximum": 10 },
+            "domObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+            "accessibilityObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+            "ocrObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+            "lowConfidenceObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+            "artifactCount": { "type": "integer", "minimum": 0, "maximum": 300 }
+          }
+        },
+        "outcome": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "videoCount", "observationCount", "domObservationCount", "accessibilityObservationCount", "ocrObservationCount", "lowConfidenceObservationCount", "artifactCount", "errorCodes"],
+              "properties": {
+                "status": { "type": "string", "enum": ["completed", "partial_success", "aborted", "expired"] },
+                "videoCount": { "type": "integer", "minimum": 0, "maximum": 10 },
+                "observationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+                "domObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+                "accessibilityObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+                "ocrObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+                "lowConfidenceObservationCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+                "artifactCount": { "type": "integer", "minimum": 0, "maximum": 300 },
+                "errorCodes": {
+                  "type": "array",
+                  "maxItems": 9,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": ["visual_reader_not_enabled", "visual_reader_session_expired", "visual_reader_budget_exhausted", "visual_source_invalid", "visual_observation_invalid", "visual_artifact_invalid", "visual_extraction_method_disabled", "visual_extraction_low_confidence", "visual_reader_user_takeover"]
+                  }
+                }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "lastErrorCode": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["visual_reader_not_enabled", "visual_reader_session_expired", "visual_reader_budget_exhausted", "visual_source_invalid", "visual_observation_invalid", "visual_artifact_invalid", "visual_extraction_method_disabled", "visual_extraction_low_confidence", "visual_reader_user_takeover"]
+            },
+            { "type": "null" }
+          ]
+        },
+        "sessionCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "aggregateStatus": {
+          "type": "string",
+          "enum": ["active", "succeeded", "partial_success", "failed", "stopped"]
+        },
+        "aggregateUsage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["videoCount", "observationCount", "scrollCount", "ocrCallCount", "domObservationCount", "accessibilityObservationCount", "ocrObservationCount", "lowConfidenceObservationCount", "artifactCount"],
+          "properties": {
+            "videoCount": { "type": "integer", "minimum": 0, "maximum": 10000 },
+            "observationCount": { "type": "integer", "minimum": 0, "maximum": 300000 },
+            "scrollCount": { "type": "integer", "minimum": 0, "maximum": 5000 },
+            "ocrCallCount": { "type": "integer", "minimum": 0, "maximum": 10000 },
+            "domObservationCount": { "type": "integer", "minimum": 0, "maximum": 300000 },
+            "accessibilityObservationCount": { "type": "integer", "minimum": 0, "maximum": 300000 },
+            "ocrObservationCount": { "type": "integer", "minimum": 0, "maximum": 300000 },
+            "lowConfidenceObservationCount": { "type": "integer", "minimum": 0, "maximum": 300000 },
+            "artifactCount": { "type": "integer", "minimum": 0, "maximum": 300000 }
+          }
+        },
+        "visualSteps": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "status", "startedAt", "completedAt", "durationMs", "processedCount", "errorCode", "message"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "enum": ["authorize_visual_reader", "read_visible_comment_cards", "extract_visible_text", "persist_visual_observations", "review_visual_signal_confidence"]
+              },
+              "status": { "type": "string", "enum": ["pending", "running", "succeeded", "partial_success", "failed", "skipped"] },
+              "startedAt": { "type": ["null", "string"], "format": "date-time" },
+              "completedAt": { "type": ["null", "string"], "format": "date-time" },
+              "durationMs": { "type": ["null", "integer"], "minimum": 0 },
+              "processedCount": { "type": "integer", "minimum": 0 },
+              "errorCode": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": ["visual_reader_not_enabled", "visual_reader_session_expired", "visual_reader_budget_exhausted", "visual_source_invalid", "visual_observation_invalid", "visual_artifact_invalid", "visual_extraction_method_disabled", "visual_extraction_low_confidence", "visual_reader_user_takeover"]
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "message": { "type": "string", "minLength": 1, "maxLength": 500 }
+            }
+          }
+        }
+      }
+    },
+    "commentSignals": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["eventId", "candidateId", "displayName", "handle", "text", "occurredAt", "likeCount", "replyCount", "ipLabel", "sourceUrl", "intentBand", "reasons", "confidence", "identityStatus", "evidenceId"],
+        "properties": {
+          "eventId": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "candidateId": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "handle": { "type": ["null", "string"], "maxLength": 255 },
+          "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "occurredAt": { "type": "string", "format": "date-time" },
+          "likeCount": { "type": "integer", "minimum": 0 },
+          "replyCount": { "type": "integer", "minimum": 0 },
+          "ipLabel": { "type": ["null", "string"], "maxLength": 100 },
+          "sourceUrl": { "type": "string", "format": "uri", "maxLength": 2000 },
+          "intentBand": { "type": "string", "enum": ["strong_signal", "potential_signal", "noise", "negative"] },
+          "reasons": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 200 } },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "identityStatus": { "type": "string", "enum": ["resolved", "needs_research"] },
+          "evidenceId": { "type": "string", "minLength": 1, "maxLength": 255 }
+        }
+      }
+    },
+    "candidateEvents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["eventId", "createdAt", "candidateId", "candidate", "qualification", "financialValue", "sourcePlatforms", "evidenceCount"],
+        "properties": {
+          "eventId": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "candidateId": { "type": "string" },
+          "candidate": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "subjectKind", "displayName", "industry", "region", "domain", "status", "version", "identityResolved", "updatedAt"],
+            "properties": {
+              "id": { "type": "string" },
+              "subjectKind": { "type": "string", "enum": ["organization", "individual"] },
+              "displayName": { "type": "string" },
+              "industry": { "type": ["null", "string"] },
+              "region": { "type": ["null", "string"] },
+              "domain": { "type": ["null", "string"] },
+              "status": { "type": "string" },
+              "version": { "type": "integer", "minimum": 1 },
+              "identityResolved": { "type": "boolean" },
+              "updatedAt": { "type": "string", "format": "date-time" }
+            }
+          },
+          "qualification": {
+            "type": ["null", "object"],
+            "additionalProperties": false,
+            "required": ["id", "candidateId", "decisionVersion", "decisionEngine", "grade", "score", "recommendedAction", "evidence", "positiveSignals", "negativeSignals", "reasons", "confidence", "ruleVersion", "promptVersion", "modelProvider", "model", "hardGateFailures", "createdAt"],
+            "properties": {
+              "id": { "type": "string" },
+              "candidateId": { "type": "string" },
+              "decisionVersion": { "type": "string" },
+              "decisionEngine": { "type": "string", "enum": ["model", "rules"] },
+              "grade": { "type": "string", "enum": ["S", "A", "B", "C", "D"] },
+              "score": { "type": "number" },
+              "recommendedAction": { "type": "string", "enum": ["priority_review", "public_response", "nurture", "observe", "do_not_contact"] },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["evidenceId", "excerpt"],
+                  "properties": {
+                    "evidenceId": { "type": "string" },
+                    "excerpt": { "type": "string" }
+                  }
+                }
+              },
+              "positiveSignals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "score"],
+                  "properties": {
+                    "name": { "type": "string" },
+                    "score": { "type": "number" }
+                  }
+                }
+              },
+              "negativeSignals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "score"],
+                  "properties": {
+                    "name": { "type": "string" },
+                    "score": { "type": "number" }
+                  }
+                }
+              },
+              "reasons": { "type": "array", "items": { "type": "string" } },
+              "confidence": { "type": "number" },
+              "ruleVersion": { "type": "string" },
+              "promptVersion": { "type": ["null", "string"] },
+              "modelProvider": { "type": ["null", "string"] },
+              "model": { "type": ["null", "string"] },
+              "hardGateFailures": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["missing_original_source", "identity_unresolved", "do_not_contact", "explicit_rejection", "non_public_or_sensitive_data", "stale_evidence", "schema_invalid"]
+                }
+              },
+              "createdAt": { "type": "string", "format": "date-time" }
+            }
+          },
+          "financialValue": {
+            "type": ["null", "object"],
+            "additionalProperties": false,
+            "required": ["id", "candidateId", "qualificationDecisionId", "version", "grade", "score", "currency", "expectedRevenueMinor", "expectedGrossProfitMinor", "expectedContributionMinor", "factors", "createdAt"],
+            "properties": {
+              "id": { "type": "string" },
+              "candidateId": { "type": "string" },
+              "qualificationDecisionId": { "type": "string" },
+              "version": { "type": "string" },
+              "grade": { "type": "string", "enum": ["S", "A", "B", "C", "D"] },
+              "score": { "type": "number" },
+              "currency": { "type": "string" },
+              "expectedRevenueMinor": { "type": "integer" },
+              "expectedGrossProfitMinor": { "type": "integer" },
+              "expectedContributionMinor": { "type": "integer" },
+              "factors": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["profitability", "cashFlow", "creditQuality", "repeatPotential", "referralPotential", "closeProbability"],
+                "properties": {
+                  "profitability": { "type": "number" },
+                  "cashFlow": { "type": "number" },
+                  "creditQuality": { "type": "number" },
+                  "repeatPotential": { "type": "number" },
+                  "referralPotential": { "type": "number" },
+                  "closeProbability": { "type": "number" }
+                }
+              },
+              "createdAt": { "type": "string", "format": "date-time" }
+            }
+          },
+          "sourcePlatforms": { "type": "array", "items": { "type": "string" } },
+          "evidenceCount": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "nextAfter": { "type": "string" },
+    "hasMore": { "type": "boolean" }
+  }
+}

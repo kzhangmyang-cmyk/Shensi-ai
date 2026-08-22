@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/platform-capability-snapshot.v1.schema.json",
+  "title": "PlatformCapabilitySnapshot",
+  "$defs": {
+    "boundedString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Canonical immutable SHA-256 digest: sha256: followed by exactly 64 lowercase hexadecimal characters."
+    },
+    "extensibleIdentifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+      "description": "Extensible identifier: 1-100 ASCII characters, starting with alphanumeric and continuing with alphanumeric, dot, underscore, colon, or hyphen."
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "scopes", "limitRefs", "reasonCode"],
+      "properties": {
+        "status": {
+          "enum": ["available", "unavailable", "authorization_required", "temporarily_unavailable"]
+        },
+        "scopes": {
+          "type": "array",
+          "maxItems": 500,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "limitRefs": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+        },
+        "reasonCode": {
+          "oneOf": [
+            { "type": "string", "minLength": 1, "maxLength": 100 },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tenantId",
+    "teamId",
+    "connectionId",
+    "credentialVersion",
+    "snapshotHash",
+    "capturedAt",
+    "expiresAt",
+    "capturedBy",
+    "capabilities"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/boundedString" },
+    "tenantId": { "$ref": "#/$defs/boundedString" },
+    "teamId": {
+      "oneOf": [
+        { "$ref": "#/$defs/boundedString" },
+        { "type": "null" }
+      ]
+    },
+    "connectionId": { "$ref": "#/$defs/boundedString" },
+    "credentialVersion": { "type": "integer", "minimum": 1 },
+    "snapshotHash": { "$ref": "#/$defs/digest" },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "capturedBy": { "$ref": "#/$defs/boundedString" },
+    "capabilities": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/extensibleIdentifier" },
+      "patternProperties": {
+        "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$": { "$ref": "#/$defs/capability" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

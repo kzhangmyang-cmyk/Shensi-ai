@@ -1,0 +1,21 @@
+{
+  "name": "goodjob-ai-acquisition-contracts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate:types": "node scripts/generate-frontend-contract-types.mjs",
+    "check:types": "node scripts/generate-frontend-contract-types.mjs --check",
+    "build:growth-release": "node scripts/build-growth-contract-release.mjs",
+    "check:growth-release": "node scripts/build-growth-contract-release.mjs --check",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "10.1.1",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
+    "openapi-typescript": "7.13.0",
+    "typescript": "^5.7.2",
+    "yaml": "2.8.1"
+  }
+}

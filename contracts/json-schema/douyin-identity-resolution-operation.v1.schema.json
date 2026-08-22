@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.local/contracts/douyin-identity-resolution-operation.v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "candidateId",
+    "candidateVersion",
+    "status",
+    "currentStage",
+    "outcome",
+    "retryable",
+    "canonicalProfileUrl",
+    "profileCandidates",
+    "evidence",
+    "intelligenceOperationId",
+    "createdAt",
+    "updatedAt",
+    "completedAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "candidateId": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "candidateVersion": { "type": "integer", "minimum": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["queued", "running", "succeeded", "requires_review", "failed"]
+    },
+    "currentStage": {
+      "type": ["string", "null"],
+      "enum": ["public_page", "independent_search", "consensus_gate", "identity_confirmation", "intelligence_dispatch", null]
+    },
+    "outcome": {
+      "type": ["string", "null"],
+      "enum": ["verified_consensus", "not_found", "insufficient_evidence", "ambiguous", "conflicting", "access_restricted", "redirect_not_allowed", "stale_candidate", "provider_unavailable", null]
+    },
+    "retryable": { "type": "boolean" },
+    "canonicalProfileUrl": { "type": ["string", "null"], "maxLength": 4096 },
+    "profileCandidates": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["publicProfileUrl", "evidenceIds"],
+        "properties": {
+          "publicProfileUrl": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "evidenceIds": {
+            "type": "array",
+            "maxItems": 100,
+            "items": { "type": "string", "minLength": 1, "maxLength": 255 }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidenceId", "evidenceClass", "publicProfileUrl", "sourceUrl", "sourceFingerprint", "accessStatus", "fetchedAt"],
+        "properties": {
+          "evidenceId": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "evidenceClass": { "type": "string", "enum": ["douyin_public_page", "independent_search_result"] },
+          "publicProfileUrl": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "sourceUrl": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "sourceFingerprint": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "accessStatus": { "type": "string", "enum": ["indexed_summary", "public_content", "access_restricted", "redirect_not_allowed", "provider_unavailable"] },
+          "fetchedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "intelligenceOperationId": { "type": ["string", "null"], "maxLength": 160 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

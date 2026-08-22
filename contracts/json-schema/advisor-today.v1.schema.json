@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://goodjob.example/contracts/json-schema/advisor-today.v1.schema.json", "title": "AdvisorTodayResponse",
+  "type": "object", "additionalProperties": false,
+  "required": ["workspaceId", "audienceRole", "dataAsOf", "priorityCustomers", "pendingQuoteApprovals", "expectedRoi", "actualRoi", "financialDataGaps", "recommendations", "sourceSnapshotHash"],
+  "properties": {
+    "workspaceId": { "$ref": "#/$defs/nonempty" },
+    "audienceRole": { "enum": ["sales", "manager", "admin", "super_admin"] },
+    "dataAsOf": { "$ref": "#/$defs/dateTime" },
+    "priorityCustomers": { "type": "array", "items": { "$ref": "#/$defs/PriorityCustomerView" } },
+    "pendingQuoteApprovals": { "type": "array", "items": { "$ref": "#/$defs/PendingQuoteApprovalView" } },
+    "expectedRoi": { "type": "array", "items": { "$ref": "#/$defs/AdvisorRoiSliceView" } },
+    "actualRoi": { "type": "array", "items": { "$ref": "#/$defs/AdvisorRoiSliceView" } },
+    "financialDataGaps": { "type": "array", "items": { "$ref": "#/$defs/FinancialDataGapView" } },
+    "recommendations": { "type": "array", "items": { "$ref": "advisor-recommendation.v1.schema.json" } },
+    "sourceSnapshotHash": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "nonempty": { "type": "string", "minLength": 1 }, "nullableId": { "type": ["string", "null"], "minLength": 1 }, "dateTime": { "type": "string", "format": "date-time" },
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "AdvisorTodayQuery": {
+      "type": "object", "additionalProperties": false, "required": ["currency", "asOf"],
+      "properties": { "currency": { "$ref": "#/$defs/currency" }, "asOf": { "$ref": "#/$defs/dateTime" } }
+    },
+    "PriorityCustomerView": {
+      "type": "object", "additionalProperties": false, "required": ["candidateId", "customerId", "dealId", "displayName", "priorityScoreBps", "qualificationDecisionId", "qualificationDecisionVersion", "inputSnapshotHash"],
+      "properties": { "candidateId": { "$ref": "#/$defs/nonempty" }, "customerId": { "$ref": "#/$defs/nullableId" }, "dealId": { "$ref": "#/$defs/nullableId" }, "displayName": { "$ref": "#/$defs/nonempty" }, "priorityScoreBps": { "type": "integer", "minimum": 0, "maximum": 10000 }, "qualificationDecisionId": { "$ref": "#/$defs/nonempty" }, "qualificationDecisionVersion": { "$ref": "#/$defs/nonempty" }, "inputSnapshotHash": { "$ref": "#/$defs/hash" } }
+    },
+    "PendingQuoteApprovalView": {
+      "type": "object", "additionalProperties": false, "required": ["approvalId", "quoteVersionId", "quoteVersionRevision", "quoteCaseId", "approvalKind", "requiredCapabilities", "submittedAt", "expiresAt"],
+      "properties": { "approvalId": { "$ref": "#/$defs/nonempty" }, "quoteVersionId": { "$ref": "#/$defs/nonempty" }, "quoteVersionRevision": { "type": "integer", "minimum": 1 }, "quoteCaseId": { "$ref": "#/$defs/nonempty" }, "approvalKind": { "enum": ["confirmation", "exception"] }, "requiredCapabilities": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/nonempty" } }, "submittedAt": { "$ref": "#/$defs/dateTime" }, "expiresAt": { "type": ["string", "null"], "format": "date-time" }, "currency": { "$ref": "#/$defs/currency" }, "quotedAmountMinor": { "type": "integer" }, "estimatedGrossProfitMinor": { "type": "integer" }, "estimatedContributionMinor": { "type": "integer" }, "grossMarginBps": { "type": "integer" } }
+    },
+    "FinancialDataGapView": {
+      "type": "object", "additionalProperties": false, "required": ["code", "sourceType", "sourceId", "sourceSnapshotHash", "cohortId", "currency", "asOf"],
+      "properties": { "code": { "enum": ["unverified_cost", "unverified_financial_fact", "missing_cogs", "unmatched_payment", "missing_commercial_binding", "import_requires_review"] }, "sourceType": { "enum": ["cost_entry", "financial_fact", "finance_import", "commercial_binding"] }, "sourceId": { "$ref": "#/$defs/nonempty" }, "sourceSnapshotHash": { "$ref": "#/$defs/hash" }, "cohortId": { "$ref": "#/$defs/nullableId" }, "currency": { "$ref": "#/$defs/currency" }, "asOf": { "$ref": "#/$defs/dateTime" } }
+    },
+    "RoiStatus": { "enum": ["computed", "not_computable"] },
+    "AdvisorRoiSliceView": {
+      "type": "object", "additionalProperties": false, "required": ["cohortId", "planId", "currency", "status", "formulaVersion"],
+      "properties": { "cohortId": { "$ref": "#/$defs/nonempty" }, "planId": { "$ref": "#/$defs/nullableId" }, "currency": { "$ref": "#/$defs/currency" }, "status": { "$ref": "#/$defs/RoiStatus" }, "reason": { "type": ["string", "null"] }, "roiBps": { "type": ["integer", "null"] }, "formulaVersion": { "type": "string", "minLength": 1 }, "amountVisibility": { "enum": ["full", "redacted"] } }
+    }
+  }
+}

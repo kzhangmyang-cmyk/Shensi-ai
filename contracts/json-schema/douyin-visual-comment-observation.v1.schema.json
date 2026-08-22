@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/douyin-visual-comment-observation.v1.schema.json",
+  "title": "DouyinVisualCommentObservationV1",
+  "description": "Server-normalized observation of one currently visible top-level Douyin comment. Standard JSON Schema validates sourceUrl and videoId independently; the Task 3 service must require the numeric sourceUrl video segment to equal videoId before persistence.",
+  "$defs": {
+    "visualObservationIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "not": { "pattern": "[\\u0000-\\u001F\\u007F]" }
+    },
+    "visualObservationDigest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "visualObservationNullableDigest": {
+      "oneOf": [
+        { "$ref": "#/$defs/visualObservationDigest" },
+        { "type": "null" }
+      ]
+    },
+    "visualObservationSourceUrl": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 80,
+      "pattern": "^https://www\\.douyin\\.com/video/[1-9][0-9]{0,31}/?$"
+    },
+    "visualObservationVideoId": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,31}$"
+    },
+    "visualObservationVisibleText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "pattern": "\\S"
+    },
+    "visualObservationExtractionMethod": {
+      "type": "string",
+      "enum": ["dom", "accessibility", "ocr", "vision"]
+    },
+    "visualObservationReaderVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "\\S"
+    },
+    "visualObservationCapturedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "visualObservationNullableVisibleString": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "\\S" },
+        { "type": "null" }
+      ]
+    },
+    "visualObservationNullableCount": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+        { "type": "null" }
+      ]
+    },
+    "visualObservationNullablePlatformCommentId": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+        { "type": "null" }
+      ]
+    },
+    "visualObservationNullablePublicProfileUrl": {
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 170,
+          "pattern": "^https://www\\.douyin\\.com/user/[A-Za-z0-9][A-Za-z0-9._~-]{0,127}/?$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "visualObservationNullableSecUid": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$" },
+        { "type": "null" }
+      ]
+    },
+    "visualObservationFieldConfidences": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["visibleText"],
+      "properties": {
+        "visibleText": { "type": "number", "minimum": 0, "maximum": 1 },
+        "displayName": { "type": "number", "minimum": 0, "maximum": 1 },
+        "visibleTimeText": { "type": "number", "minimum": 0, "maximum": 1 },
+        "likeCount": { "type": "number", "minimum": 0, "maximum": 1 },
+        "replyCount": { "type": "number", "minimum": 0, "maximum": 1 },
+        "platformCommentId": { "type": "number", "minimum": 0, "maximum": 1 },
+        "publicProfileUrl": { "type": "number", "minimum": 0, "maximum": 1 },
+        "secUid": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "visualObservationCardBounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 8192 },
+        "y": { "type": "number", "minimum": 0, "maximum": 8192 },
+        "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 8192 },
+        "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 8192 }
+      }
+    },
+    "douyinVisualCommentObservation": {
+      "title": "DouyinVisualCommentObservationV1",
+      "description": "Server-normalized observation of one currently visible top-level Douyin comment. Standard JSON Schema validates sourceUrl and videoId independently; the Task 3 service must require the numeric sourceUrl video segment to equal videoId before persistence.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observationId",
+        "sessionId",
+        "sourceUrl",
+        "videoId",
+        "visibleText",
+        "textHash",
+        "domTextHash",
+        "ocrTextHash",
+        "displayName",
+        "visibleTimeText",
+        "likeCount",
+        "replyCount",
+        "platformCommentId",
+        "publicProfileUrl",
+        "secUid",
+        "extractionMethod",
+        "fieldConfidences",
+        "viewportHash",
+        "cardBounds",
+        "redactedCropHash",
+        "readerVersion",
+        "capturedAt"
+      ],
+      "properties": {
+        "observationId": { "$ref": "#/$defs/visualObservationIdentifier" },
+        "sessionId": { "$ref": "#/$defs/visualObservationIdentifier" },
+        "sourceUrl": { "$ref": "#/$defs/visualObservationSourceUrl" },
+        "videoId": { "$ref": "#/$defs/visualObservationVideoId" },
+        "visibleText": { "$ref": "#/$defs/visualObservationVisibleText" },
+        "textHash": { "$ref": "#/$defs/visualObservationDigest" },
+        "domTextHash": { "$ref": "#/$defs/visualObservationNullableDigest" },
+        "ocrTextHash": { "$ref": "#/$defs/visualObservationNullableDigest" },
+        "displayName": { "$ref": "#/$defs/visualObservationNullableVisibleString" },
+        "visibleTimeText": { "$ref": "#/$defs/visualObservationNullableVisibleString" },
+        "likeCount": { "$ref": "#/$defs/visualObservationNullableCount" },
+        "replyCount": { "$ref": "#/$defs/visualObservationNullableCount" },
+        "platformCommentId": { "$ref": "#/$defs/visualObservationNullablePlatformCommentId" },
+        "publicProfileUrl": {
+          "$ref": "#/$defs/visualObservationNullablePublicProfileUrl",
+          "description": "Literal public profile link fact only. Standard JSON Schema validates it independently; the Task 3 service must verify its public user key agrees with secUid before persistence."
+        },
+        "secUid": { "$ref": "#/$defs/visualObservationNullableSecUid" },
+        "extractionMethod": { "$ref": "#/$defs/visualObservationExtractionMethod" },
+        "fieldConfidences": { "$ref": "#/$defs/visualObservationFieldConfidences" },
+        "viewportHash": { "$ref": "#/$defs/visualObservationDigest" },
+        "cardBounds": { "$ref": "#/$defs/visualObservationCardBounds" },
+        "redactedCropHash": {
+          "oneOf": [
+            { "$ref": "#/$defs/visualObservationDigest" },
+            { "type": "null" }
+          ]
+        },
+        "readerVersion": { "$ref": "#/$defs/visualObservationReaderVersion" },
+        "capturedAt": { "$ref": "#/$defs/visualObservationCapturedAt" }
+      }
+    }
+  },
+  "$ref": "#/$defs/douyinVisualCommentObservation"
+}

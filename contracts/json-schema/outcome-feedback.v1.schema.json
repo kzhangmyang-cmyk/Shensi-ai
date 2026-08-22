@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/outcome-feedback.v1.schema.json",
+  "title": "OutcomeFeedback",
+  "$defs": {
+    "organizationPartyRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["partyType", "organizationId", "tenantProspectId"],
+      "properties": {"partyType": {"const": "organization"}, "organizationId": {"type": "string", "minLength": 1}, "tenantProspectId": {"type": "string", "minLength": 1}}
+    },
+    "individualPartyRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["partyType", "individualPartyId", "demandSignalId"],
+      "properties": {"partyType": {"const": "individual"}, "individualPartyId": {"type": "string", "minLength": 1}, "demandSignalId": {"type": "string", "minLength": 1}}
+    },
+    "amount": {
+      "type": "object", "additionalProperties": false,
+      "required": ["amountMinor", "currency"],
+      "properties": {"amountMinor": {"type": "integer"}, "currency": {"type": "string", "minLength": 3, "maxLength": 3}}
+    },
+    "liveAttribution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["attributionVersion", "runId", "planId", "planVersionId", "planVersion", "planSnapshotHash", "discoveredEventId", "discoveredAt", "shardId", "operationId", "connectionId", "providerId", "evidenceIds", "providerIds", "queryIds", "strategyVersion", "qualificationDecisionId", "decisionVersion", "decisionSnapshotHash", "decisionEngine", "ruleVersion", "modelProvider", "model", "promptVersion"],
+      "properties": {
+        "attributionVersion": {"const": "acquisition-run.v1"}, "runId": {"type": "string"}, "planId": {"type": "string", "minLength": 1}, "planVersionId": {"type": "string", "minLength": 1}, "planVersion": {"type": "integer", "minimum": 1}, "planSnapshotHash": {"type": "string", "minLength": 1}, "discoveredEventId": {"type": "string", "minLength": 1}, "discoveredAt": {"type": "string", "format": "date-time"}, "shardId": {"type": "string", "minLength": 1}, "operationId": {"type": "string", "minLength": 1}, "connectionId": {"type": "string", "minLength": 1}, "providerId": {"type": "string", "minLength": 1}, "evidenceIds": {"type": "array", "items": {"type": "string"}}, "providerIds": {"type": "array", "items": {"type": "string"}}, "queryIds": {"type": "array", "items": {"type": "string"}}, "strategyVersion": {"type": "string"}, "qualificationDecisionId": {"type": "string"}, "decisionVersion": {"type": "string"}, "decisionSnapshotHash": {"type": "string"}, "decisionEngine": {"enum": ["model", "rules"]}, "ruleVersion": {"type": "string"}, "modelProvider": {"type": ["string", "null"]}, "model": {"type": ["string", "null"]}, "promptVersion": {"type": ["string", "null"]}
+      }
+    },
+    "legacyAttribution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runId", "evidenceIds", "providerIds", "queryIds", "strategyVersion", "qualificationDecisionId", "decisionVersion", "decisionSnapshotHash", "decisionEngine", "ruleVersion", "modelProvider", "model", "promptVersion"],
+      "properties": {
+        "runId": {"type": ["string", "null"]}, "evidenceIds": {"type": "array", "items": {"type": "string"}}, "providerIds": {"type": "array", "items": {"type": "string"}}, "queryIds": {"type": "array", "items": {"type": "string"}}, "strategyVersion": {"type": ["string", "null"]}, "qualificationDecisionId": {"type": ["string", "null"]}, "decisionVersion": {"type": ["string", "null"]}, "decisionSnapshotHash": {"type": ["string", "null"]}, "decisionEngine": {"enum": ["model", "rules", null]}, "ruleVersion": {"type": ["string", "null"]}, "modelProvider": {"type": ["string", "null"]}, "model": {"type": ["string", "null"]}, "promptVersion": {"type": ["string", "null"]}
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "ownerId", "teamId", "leadId", "customerId", "eventType", "occurredAt", "amount", "reasonCode", "reasonText", "idempotencyKey", "createdBy", "createdAt", "recordKind", "partyRef", "candidateId", "attribution"],
+      "properties": {
+        "id": {"type": "string"}, "ownerId": {"type": "string"}, "teamId": {"type": "string"}, "leadId": {"type": ["string", "null"]}, "customerId": {"type": ["string", "null"]}, "eventType": {"enum": ["validated", "contacted", "replied", "rejected", "do_not_contact", "private_domain_entered", "need_confirmed", "quoted", "won", "lost", "payment_received"]}, "occurredAt": {"type": "string", "format": "date-time"}, "amount": {"oneOf": [{"$ref": "#/$defs/amount"}, {"type": "null"}]}, "reasonCode": {"type": ["string", "null"]}, "reasonText": {"type": ["string", "null"]}, "idempotencyKey": {"type": "string"}, "createdBy": {"type": "string"}, "createdAt": {"type": "string", "format": "date-time"}, "recordKind": {"const": "live"}, "partyRef": {"oneOf": [{"$ref": "#/$defs/organizationPartyRef"}, {"$ref": "#/$defs/individualPartyRef"}]}, "candidateId": {"type": "string", "minLength": 1}, "attribution": {"$ref": "#/$defs/liveAttribution"}
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "ownerId", "teamId", "leadId", "customerId", "eventType", "occurredAt", "amount", "reasonCode", "reasonText", "idempotencyKey", "createdBy", "createdAt", "recordKind", "legacySourceId", "partyRef", "candidateId", "attribution", "migrationWarnings"],
+      "properties": {
+        "id": {"type": "string"}, "ownerId": {"type": "string"}, "teamId": {"type": "string"}, "leadId": {"type": ["string", "null"]}, "customerId": {"type": ["string", "null"]}, "eventType": {"enum": ["validated", "contacted", "replied", "rejected", "do_not_contact", "private_domain_entered", "need_confirmed", "quoted", "won", "lost", "payment_received"]}, "occurredAt": {"type": "string", "format": "date-time"}, "amount": {"oneOf": [{"$ref": "#/$defs/amount"}, {"type": "null"}]}, "reasonCode": {"type": ["string", "null"]}, "reasonText": {"type": ["string", "null"]}, "idempotencyKey": {"type": "string"}, "createdBy": {"type": "string"}, "createdAt": {"type": "string", "format": "date-time"}, "recordKind": {"const": "legacy_migrated"}, "legacySourceId": {"type": "string", "minLength": 1}, "partyRef": {"oneOf": [{"$ref": "#/$defs/organizationPartyRef"}, {"type": "null"}]}, "candidateId": {"type": ["string", "null"]}, "attribution": {"$ref": "#/$defs/legacyAttribution"}, "migrationWarnings": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  ]
+}

@@ -1,0 +1,844 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/content-fetch-operation.v1.schema.json",
+  "title": "ContentFetchOperation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "ownerId",
+    "teamId",
+    "actorId",
+    "sourceUrl",
+    "finalUrl",
+    "subjectChannel",
+    "status",
+    "accessStatus",
+    "httpStatus",
+    "contentType",
+    "title",
+    "rawArtifactHash",
+    "contentHash",
+    "evidenceCount",
+    "evidenceIds",
+    "candidateCount",
+    "candidateIds",
+    "commentSampleSummary",
+    "errorCode",
+    "createdAt",
+    "startedAt",
+    "completedAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "ownerId": { "type": "string", "minLength": 1 },
+    "teamId": { "type": "string", "minLength": 1 },
+    "actorId": { "type": "string", "minLength": 1 },
+    "sourceUrl": { "type": "string", "format": "uri" },
+    "finalUrl": { "type": ["string", "null"], "format": "uri" },
+    "subjectChannel": { "enum": ["organization", "individual"] },
+    "status": {
+      "enum": [
+        "queued",
+        "running",
+        "succeeded",
+        "partial_success",
+        "failed",
+        "access_restricted"
+      ]
+    },
+    "accessStatus": {
+      "type": ["string", "null"],
+      "enum": ["public_content", "access_restricted", null]
+    },
+    "httpStatus": { "type": ["integer", "null"], "minimum": 100, "maximum": 599 },
+    "contentType": { "type": ["string", "null"] },
+    "title": { "type": ["string", "null"] },
+    "rawArtifactHash": { "type": ["string", "null"] },
+    "contentHash": { "type": ["string", "null"] },
+    "evidenceCount": { "type": "integer", "minimum": 0 },
+    "evidenceIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "candidateCount": { "type": "integer", "minimum": 0, "maximum": 101 },
+    "candidateIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "maxItems": 101
+    },
+    "commentSampleSummary": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "videoCount",
+            "pagesFetched",
+            "commentsSampled",
+            "eventCount",
+            "evidenceCount",
+            "candidateIds",
+            "unresolvedActorCount",
+            "strongSignalCount",
+            "invalidCommentCount",
+            "errors",
+            "usage"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "skipped",
+                "succeeded",
+                "succeeded_empty",
+                "partial_success",
+                "failed"
+              ]
+            },
+            "videoCount": { "type": "integer", "minimum": 0, "maximum": 20 },
+            "pagesFetched": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "commentsSampled": { "type": "integer", "minimum": 0, "maximum": 2000 },
+            "eventCount": { "type": "integer", "minimum": 0, "maximum": 2000 },
+            "evidenceCount": { "type": "integer", "minimum": 0, "maximum": 2000 },
+            "candidateIds": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "uniqueItems": true,
+              "maxItems": 100
+            },
+            "unresolvedActorCount": { "type": "integer", "minimum": 0, "maximum": 2000 },
+            "strongSignalCount": { "type": "integer", "minimum": 0, "maximum": 2000 },
+            "invalidCommentCount": { "type": "integer", "minimum": 0, "maximum": 2000 },
+            "errors": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["sourceUrl", "videoId", "code"],
+                "properties": {
+                  "sourceUrl": { "type": "string", "format": "uri", "maxLength": 4096 },
+                  "videoId": { "type": "string", "pattern": "^[0-9]+$", "maxLength": 100 },
+                  "code": {
+                    "enum": [
+                      "public_sample_unavailable",
+                      "access_restricted",
+                      "rate_limited",
+                      "video_id_unresolved",
+                      "source_payload_invalid",
+                      "no_public_comments"
+                    ]
+                  }
+                }
+              }
+            },
+            "usage": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["requests", "results", "amountMinor", "durationSeconds"],
+              "properties": {
+                "requests": { "type": "integer", "minimum": 0 },
+                "results": { "type": "integer", "minimum": 0 },
+                "amountMinor": { "type": "integer", "minimum": 0 },
+                "durationSeconds": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "errorCode": { "type": ["string", "null"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "startedAt": { "type": ["string", "null"], "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "status": { "enum": ["succeeded", "partial_success", "access_restricted"] },
+        "evidenceCount": { "type": "integer", "const": 1 },
+        "evidenceIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "status": { "enum": ["queued", "running"] },
+        "evidenceCount": { "type": "integer", "const": 0 },
+        "evidenceIds": { "type": "array", "maxItems": 0 }
+      }
+    },
+    {
+      "properties": {
+        "status": { "const": "failed" },
+        "evidenceCount": { "type": "integer", "const": 0 },
+        "evidenceIds": { "type": "array", "maxItems": 0 }
+      }
+    },
+    {
+      "properties": {
+        "status": { "const": "failed" },
+        "evidenceCount": { "type": "integer", "const": 1 },
+        "evidenceIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1
+        }
+      }
+    }
+  ],
+  "allOf": [
+    {
+      "if": {
+        "required": ["status"],
+        "properties": {
+          "status": { "enum": ["queued", "running"] }
+        }
+      },
+      "then": {
+        "properties": {
+          "candidateCount": { "type": "integer", "const": 0 },
+          "candidateIds": { "type": "array", "maxItems": 0 },
+          "commentSampleSummary": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["evidenceCount"],
+        "properties": {
+          "evidenceCount": { "const": 0 }
+        }
+      },
+      "then": {
+        "properties": {
+          "candidateCount": { "type": "integer", "const": 0 },
+          "candidateIds": { "type": "array", "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "oneOf": [
+        {
+          "properties": {
+            "candidateCount": { "const": 0 },
+            "candidateIds": { "type": "array", "minItems": 0, "maxItems": 0 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 1 },
+            "candidateIds": { "type": "array", "minItems": 1, "maxItems": 1 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 2 },
+            "candidateIds": { "type": "array", "minItems": 2, "maxItems": 2 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 3 },
+            "candidateIds": { "type": "array", "minItems": 3, "maxItems": 3 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 4 },
+            "candidateIds": { "type": "array", "minItems": 4, "maxItems": 4 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 5 },
+            "candidateIds": { "type": "array", "minItems": 5, "maxItems": 5 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 6 },
+            "candidateIds": { "type": "array", "minItems": 6, "maxItems": 6 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 7 },
+            "candidateIds": { "type": "array", "minItems": 7, "maxItems": 7 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 8 },
+            "candidateIds": { "type": "array", "minItems": 8, "maxItems": 8 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 9 },
+            "candidateIds": { "type": "array", "minItems": 9, "maxItems": 9 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 10 },
+            "candidateIds": { "type": "array", "minItems": 10, "maxItems": 10 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 11 },
+            "candidateIds": { "type": "array", "minItems": 11, "maxItems": 11 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 12 },
+            "candidateIds": { "type": "array", "minItems": 12, "maxItems": 12 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 13 },
+            "candidateIds": { "type": "array", "minItems": 13, "maxItems": 13 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 14 },
+            "candidateIds": { "type": "array", "minItems": 14, "maxItems": 14 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 15 },
+            "candidateIds": { "type": "array", "minItems": 15, "maxItems": 15 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 16 },
+            "candidateIds": { "type": "array", "minItems": 16, "maxItems": 16 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 17 },
+            "candidateIds": { "type": "array", "minItems": 17, "maxItems": 17 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 18 },
+            "candidateIds": { "type": "array", "minItems": 18, "maxItems": 18 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 19 },
+            "candidateIds": { "type": "array", "minItems": 19, "maxItems": 19 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 20 },
+            "candidateIds": { "type": "array", "minItems": 20, "maxItems": 20 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 21 },
+            "candidateIds": { "type": "array", "minItems": 21, "maxItems": 21 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 22 },
+            "candidateIds": { "type": "array", "minItems": 22, "maxItems": 22 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 23 },
+            "candidateIds": { "type": "array", "minItems": 23, "maxItems": 23 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 24 },
+            "candidateIds": { "type": "array", "minItems": 24, "maxItems": 24 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 25 },
+            "candidateIds": { "type": "array", "minItems": 25, "maxItems": 25 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 26 },
+            "candidateIds": { "type": "array", "minItems": 26, "maxItems": 26 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 27 },
+            "candidateIds": { "type": "array", "minItems": 27, "maxItems": 27 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 28 },
+            "candidateIds": { "type": "array", "minItems": 28, "maxItems": 28 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 29 },
+            "candidateIds": { "type": "array", "minItems": 29, "maxItems": 29 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 30 },
+            "candidateIds": { "type": "array", "minItems": 30, "maxItems": 30 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 31 },
+            "candidateIds": { "type": "array", "minItems": 31, "maxItems": 31 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 32 },
+            "candidateIds": { "type": "array", "minItems": 32, "maxItems": 32 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 33 },
+            "candidateIds": { "type": "array", "minItems": 33, "maxItems": 33 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 34 },
+            "candidateIds": { "type": "array", "minItems": 34, "maxItems": 34 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 35 },
+            "candidateIds": { "type": "array", "minItems": 35, "maxItems": 35 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 36 },
+            "candidateIds": { "type": "array", "minItems": 36, "maxItems": 36 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 37 },
+            "candidateIds": { "type": "array", "minItems": 37, "maxItems": 37 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 38 },
+            "candidateIds": { "type": "array", "minItems": 38, "maxItems": 38 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 39 },
+            "candidateIds": { "type": "array", "minItems": 39, "maxItems": 39 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 40 },
+            "candidateIds": { "type": "array", "minItems": 40, "maxItems": 40 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 41 },
+            "candidateIds": { "type": "array", "minItems": 41, "maxItems": 41 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 42 },
+            "candidateIds": { "type": "array", "minItems": 42, "maxItems": 42 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 43 },
+            "candidateIds": { "type": "array", "minItems": 43, "maxItems": 43 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 44 },
+            "candidateIds": { "type": "array", "minItems": 44, "maxItems": 44 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 45 },
+            "candidateIds": { "type": "array", "minItems": 45, "maxItems": 45 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 46 },
+            "candidateIds": { "type": "array", "minItems": 46, "maxItems": 46 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 47 },
+            "candidateIds": { "type": "array", "minItems": 47, "maxItems": 47 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 48 },
+            "candidateIds": { "type": "array", "minItems": 48, "maxItems": 48 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 49 },
+            "candidateIds": { "type": "array", "minItems": 49, "maxItems": 49 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 50 },
+            "candidateIds": { "type": "array", "minItems": 50, "maxItems": 50 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 51 },
+            "candidateIds": { "type": "array", "minItems": 51, "maxItems": 51 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 52 },
+            "candidateIds": { "type": "array", "minItems": 52, "maxItems": 52 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 53 },
+            "candidateIds": { "type": "array", "minItems": 53, "maxItems": 53 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 54 },
+            "candidateIds": { "type": "array", "minItems": 54, "maxItems": 54 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 55 },
+            "candidateIds": { "type": "array", "minItems": 55, "maxItems": 55 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 56 },
+            "candidateIds": { "type": "array", "minItems": 56, "maxItems": 56 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 57 },
+            "candidateIds": { "type": "array", "minItems": 57, "maxItems": 57 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 58 },
+            "candidateIds": { "type": "array", "minItems": 58, "maxItems": 58 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 59 },
+            "candidateIds": { "type": "array", "minItems": 59, "maxItems": 59 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 60 },
+            "candidateIds": { "type": "array", "minItems": 60, "maxItems": 60 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 61 },
+            "candidateIds": { "type": "array", "minItems": 61, "maxItems": 61 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 62 },
+            "candidateIds": { "type": "array", "minItems": 62, "maxItems": 62 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 63 },
+            "candidateIds": { "type": "array", "minItems": 63, "maxItems": 63 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 64 },
+            "candidateIds": { "type": "array", "minItems": 64, "maxItems": 64 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 65 },
+            "candidateIds": { "type": "array", "minItems": 65, "maxItems": 65 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 66 },
+            "candidateIds": { "type": "array", "minItems": 66, "maxItems": 66 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 67 },
+            "candidateIds": { "type": "array", "minItems": 67, "maxItems": 67 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 68 },
+            "candidateIds": { "type": "array", "minItems": 68, "maxItems": 68 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 69 },
+            "candidateIds": { "type": "array", "minItems": 69, "maxItems": 69 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 70 },
+            "candidateIds": { "type": "array", "minItems": 70, "maxItems": 70 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 71 },
+            "candidateIds": { "type": "array", "minItems": 71, "maxItems": 71 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 72 },
+            "candidateIds": { "type": "array", "minItems": 72, "maxItems": 72 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 73 },
+            "candidateIds": { "type": "array", "minItems": 73, "maxItems": 73 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 74 },
+            "candidateIds": { "type": "array", "minItems": 74, "maxItems": 74 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 75 },
+            "candidateIds": { "type": "array", "minItems": 75, "maxItems": 75 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 76 },
+            "candidateIds": { "type": "array", "minItems": 76, "maxItems": 76 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 77 },
+            "candidateIds": { "type": "array", "minItems": 77, "maxItems": 77 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 78 },
+            "candidateIds": { "type": "array", "minItems": 78, "maxItems": 78 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 79 },
+            "candidateIds": { "type": "array", "minItems": 79, "maxItems": 79 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 80 },
+            "candidateIds": { "type": "array", "minItems": 80, "maxItems": 80 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 81 },
+            "candidateIds": { "type": "array", "minItems": 81, "maxItems": 81 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 82 },
+            "candidateIds": { "type": "array", "minItems": 82, "maxItems": 82 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 83 },
+            "candidateIds": { "type": "array", "minItems": 83, "maxItems": 83 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 84 },
+            "candidateIds": { "type": "array", "minItems": 84, "maxItems": 84 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 85 },
+            "candidateIds": { "type": "array", "minItems": 85, "maxItems": 85 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 86 },
+            "candidateIds": { "type": "array", "minItems": 86, "maxItems": 86 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 87 },
+            "candidateIds": { "type": "array", "minItems": 87, "maxItems": 87 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 88 },
+            "candidateIds": { "type": "array", "minItems": 88, "maxItems": 88 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 89 },
+            "candidateIds": { "type": "array", "minItems": 89, "maxItems": 89 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 90 },
+            "candidateIds": { "type": "array", "minItems": 90, "maxItems": 90 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 91 },
+            "candidateIds": { "type": "array", "minItems": 91, "maxItems": 91 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 92 },
+            "candidateIds": { "type": "array", "minItems": 92, "maxItems": 92 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 93 },
+            "candidateIds": { "type": "array", "minItems": 93, "maxItems": 93 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 94 },
+            "candidateIds": { "type": "array", "minItems": 94, "maxItems": 94 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 95 },
+            "candidateIds": { "type": "array", "minItems": 95, "maxItems": 95 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 96 },
+            "candidateIds": { "type": "array", "minItems": 96, "maxItems": 96 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 97 },
+            "candidateIds": { "type": "array", "minItems": 97, "maxItems": 97 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 98 },
+            "candidateIds": { "type": "array", "minItems": 98, "maxItems": 98 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 99 },
+            "candidateIds": { "type": "array", "minItems": 99, "maxItems": 99 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 100 },
+            "candidateIds": { "type": "array", "minItems": 100, "maxItems": 100 }
+          }
+        },
+        {
+          "properties": {
+            "candidateCount": { "const": 101 },
+            "candidateIds": { "type": "array", "minItems": 101, "maxItems": 101 }
+          }
+        }
+      ]
+    }
+  ]
+}

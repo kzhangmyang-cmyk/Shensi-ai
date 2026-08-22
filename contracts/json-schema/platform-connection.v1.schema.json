@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/platform-connection.v1.schema.json",
+  "title": "PlatformConnection",
+  "$defs": {
+    "boundedString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Canonical immutable SHA-256 digest: sha256: followed by exactly 64 lowercase hexadecimal characters."
+    },
+    "snapshotRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "hash"],
+      "properties": {
+        "id": { "$ref": "#/$defs/boundedString" },
+        "hash": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["limit", "remaining", "resetsAt"],
+      "properties": {
+        "limit": { "type": ["integer", "null"], "minimum": 0 },
+        "remaining": { "type": ["integer", "null"], "minimum": 0 },
+        "resetsAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tenantId",
+    "teamId",
+    "connectorId",
+    "platform",
+    "platformAccountRef",
+    "scopes",
+    "credentialVersion",
+    "sync",
+    "status",
+    "authorizationExpiresAt",
+    "limits",
+    "capabilitySnapshotRef",
+    "createdBy",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/boundedString" },
+    "tenantId": { "$ref": "#/$defs/boundedString" },
+    "teamId": {
+      "oneOf": [
+        { "$ref": "#/$defs/boundedString" },
+        { "type": "null" }
+      ]
+    },
+    "connectorId": { "$ref": "#/$defs/boundedString" },
+    "platform": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "platformAccountRef": { "$ref": "#/$defs/boundedString" },
+    "scopes": {
+      "type": "array",
+      "maxItems": 500,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "credentialVersion": { "type": "integer", "minimum": 1 },
+    "sync": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "cursor"],
+      "properties": {
+        "mode": { "enum": ["webhook", "poll", "hybrid", "disabled"] },
+        "cursor": {
+          "oneOf": [
+            { "type": "string", "minLength": 1, "maxLength": 8192 },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "status": {
+      "enum": ["pending", "active", "reauthorization_required", "revoked", "disabled", "error"]
+    },
+    "authorizationExpiresAt": { "type": ["string", "null"], "format": "date-time" },
+    "limits": {
+      "type": "object",
+      "propertyNames": { "type": "string", "minLength": 1, "maxLength": 100 },
+      "patternProperties": {
+        "^.{1,100}$": { "$ref": "#/$defs/limit" }
+      },
+      "additionalProperties": false
+    },
+    "capabilitySnapshotRef": {
+      "oneOf": [
+        { "$ref": "#/$defs/snapshotRef" },
+        { "type": "null" }
+      ],
+      "description": "Null only before the first capability capture; active connections require a current snapshot reference."
+    },
+    "createdBy": { "$ref": "#/$defs/boundedString" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "active" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": { "capabilitySnapshotRef": { "$ref": "#/$defs/snapshotRef" } }
+      }
+    }
+  ]
+}

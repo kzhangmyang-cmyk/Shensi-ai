@@ -1,0 +1,7 @@
+{
+  "queryText": "site:zhihu.com 采购 CRM 系统",
+  "provider": "brave",
+  "targetType": "individual_signal",
+  "cursor": null,
+  "limit": 10
+}

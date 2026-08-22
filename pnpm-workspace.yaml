@@ -1,2 +1,13 @@
+packages:
+  - backend
+  - frontend
+  - contracts
+
 allowBuilds:
-  esbuild: set this to true or false
+  "@google/genai": false
+  "@scarf/scarf": false
+  esbuild: true
+  msgpackr-extract: true
+  protobufjs: true
+  puppeteer: true
+  tesseract.js: true

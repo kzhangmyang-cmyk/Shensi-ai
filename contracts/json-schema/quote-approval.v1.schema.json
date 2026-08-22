@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/quote-approval.v1.schema.json",
+  "title": "QuoteApproval",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "workspaceId", "quoteVersionId", "status", "approvalKind", "requiredCapabilities", "triggeredRules", "pricingPolicyVersionId", "policySnapshotHash", "capabilityRegistryVersion", "submittedBy", "submittedAt", "decidedBy", "decidedAt", "reason"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } },
+    "quoteVersionId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["pending", "approved", "rejected", "cancelled"] },
+    "approvalKind": { "enum": ["confirmation", "exception"] },
+    "requiredCapabilities": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["quote.confirm", "quote.exception.discount.approve", "quote.exception.margin.approve", "quote.exception.payment_terms.approve", "quote.exception.gift.approve", "quote.exception.credit.approve", "quote.exception.manual.approve"] } },
+    "triggeredRules": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "pricingPolicyVersionId": { "type": "string", "minLength": 1 },
+    "policySnapshotHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "capabilityRegistryVersion": { "type": "string", "minLength": 1 },
+    "submittedBy": { "type": "string", "minLength": 1 },
+    "submittedAt": { "type": "string", "format": "date-time" },
+    "decidedBy": { "type": ["string", "null"], "minLength": 1 },
+    "decidedAt": { "type": ["string", "null"], "format": "date-time" },
+    "reason": { "type": ["string", "null"] }
+  }
+}

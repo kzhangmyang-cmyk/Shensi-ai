@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://goodjob.example/contracts/json-schema/allocation-set.v1.schema.json", "title": "AttributionAllocationSet",
+  "type": "object", "additionalProperties": false,
+  "required": ["id", "workspaceId", "sourceType", "sourceId", "version", "status", "revision", "items", "createdBy", "createdAt", "activatedBy", "activatedAt"],
+  "properties": {
+    "id": { "$ref": "#/$defs/nonempty" }, "workspaceId": { "$ref": "#/$defs/workspace" }, "sourceType": { "enum": ["cost_entry", "cost_estimate", "financial_fact", "source_report"] }, "sourceId": { "$ref": "#/$defs/nonempty" },
+    "version": { "type": "integer", "minimum": 1 }, "status": { "enum": ["draft", "active", "superseded"] }, "revision": { "type": "integer", "minimum": 1 },
+    "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/AttributionAllocationItem" } }, "createdBy": { "$ref": "#/$defs/nonempty" }, "createdAt": { "$ref": "#/$defs/dateTime" },
+    "activatedBy": { "$ref": "#/$defs/nullableId" }, "activatedAt": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "$defs": {
+    "nonempty": { "type": "string", "minLength": 1 }, "nullableId": { "type": ["string", "null"], "minLength": 1 }, "workspace": { "type": "string", "minLength": 1, "not": { "const": "all" } },
+    "dateTime": { "type": "string", "format": "date-time" }, "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }, "money": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "AttributionEvidenceRef": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "cohortMemberId"], "properties": { "kind": { "const": "cohort_member" }, "cohortMemberId": { "$ref": "#/$defs/nonempty" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "sourceReportId", "reportHash"], "properties": { "kind": { "const": "source_report" }, "sourceReportId": { "$ref": "#/$defs/nonempty" }, "reportHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "dealId", "bindingHash"], "properties": { "kind": { "const": "commercial_binding" }, "dealId": { "$ref": "#/$defs/nonempty" }, "bindingHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "ledgerType", "ledgerEntryId", "evidenceHash"], "properties": { "kind": { "const": "ledger_source" }, "ledgerType": { "enum": ["cost", "financial"] }, "ledgerEntryId": { "$ref": "#/$defs/nonempty" }, "evidenceHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } } }
+      ]
+    },
+    "AttributionAllocationItemInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cohortId", "candidateId", "planId", "runId", "allocationBps", "allocationRule", "ruleVersion", "evidenceRefs", "targetStableKey"],
+      "properties": {
+        "cohortId": { "$ref": "#/$defs/nonempty" }, "candidateId": { "$ref": "#/$defs/nullableId" }, "planId": { "$ref": "#/$defs/nullableId" }, "runId": { "$ref": "#/$defs/nullableId" },
+        "allocationBps": { "type": "integer", "minimum": 0, "maximum": 10000 }, "allocationRule": { "enum": ["first_touch", "direct", "manual", "equal_split", "evidence_weighted"] },
+        "ruleVersion": { "$ref": "#/$defs/nonempty" }, "evidenceRefs": { "type": "array", "items": { "$ref": "#/$defs/AttributionEvidenceRef" } }, "targetStableKey": { "$ref": "#/$defs/nonempty" }
+      }
+    },
+    "AttributionAllocationSetCreateInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourceType", "sourceId", "items"],
+      "properties": {
+        "sourceType": { "enum": ["cost_entry", "cost_estimate", "financial_fact", "source_report"] }, "sourceId": { "$ref": "#/$defs/nonempty" },
+        "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/AttributionAllocationItemInput" } }
+      }
+    },
+    "AttributionAllocationItem": {
+      "type": "object", "additionalProperties": false,
+      "required": ["allocationSetId", "cohortId", "candidateId", "planId", "runId", "allocationBps", "allocationRule", "ruleVersion", "evidenceRefs", "targetStableKey"],
+      "properties": {
+        "allocationSetId": { "$ref": "#/$defs/nonempty" }, "cohortId": { "$ref": "#/$defs/nonempty" }, "candidateId": { "$ref": "#/$defs/nullableId" }, "planId": { "$ref": "#/$defs/nullableId" }, "runId": { "$ref": "#/$defs/nullableId" },
+        "allocationBps": { "type": "integer", "minimum": 0, "maximum": 10000 }, "allocationRule": { "enum": ["first_touch", "direct", "manual", "equal_split", "evidence_weighted"] },
+        "ruleVersion": { "$ref": "#/$defs/nonempty" }, "evidenceRefs": { "type": "array", "items": { "$ref": "#/$defs/nonempty" } }, "targetStableKey": { "$ref": "#/$defs/nonempty" }
+      }
+    },
+    "CashSettlementAllocationSet": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "workspaceId", "sourceFactId", "version", "status", "revision", "items", "createdBy", "createdAt", "activatedBy", "activatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonempty" }, "workspaceId": { "$ref": "#/$defs/workspace" }, "sourceFactId": { "$ref": "#/$defs/nonempty" }, "version": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["draft", "active", "superseded"] }, "revision": { "type": "integer", "minimum": 1 }, "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/CashSettlementAllocationItem" } },
+        "createdBy": { "$ref": "#/$defs/nonempty" }, "createdAt": { "$ref": "#/$defs/dateTime" }, "activatedBy": { "$ref": "#/$defs/nullableId" }, "activatedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "CashSettlementAllocationItemInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["targetRevenueFactId", "dealId", "quoteVersionId", "amountMinor", "currency", "originalPaymentFactId", "originalPaymentAllocationSetId", "originalPaymentAllocationItemId"],
+      "properties": {
+        "targetRevenueFactId": { "$ref": "#/$defs/nonempty" }, "dealId": { "$ref": "#/$defs/nonempty" }, "quoteVersionId": { "$ref": "#/$defs/nonempty" },
+        "amountMinor": { "$ref": "#/$defs/money" }, "currency": { "$ref": "#/$defs/currency" }, "originalPaymentFactId": { "$ref": "#/$defs/nullableId" },
+        "originalPaymentAllocationSetId": { "$ref": "#/$defs/nullableId" }, "originalPaymentAllocationItemId": { "$ref": "#/$defs/nullableId" }
+      }
+    },
+    "CashSettlementAllocationSetCreateInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourceFactId", "items"],
+      "properties": { "sourceFactId": { "$ref": "#/$defs/nonempty" }, "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/CashSettlementAllocationItemInput" } } }
+    },
+    "CashSettlementAllocationItem": {
+      "type": "object", "additionalProperties": false,
+      "required": ["allocationSetId", "targetRevenueFactId", "dealId", "quoteVersionId", "amountMinor", "currency", "originalPaymentFactId", "originalPaymentAllocationSetId", "originalPaymentAllocationItemId", "commercialBindingSnapshot"],
+      "properties": {
+        "allocationSetId": { "$ref": "#/$defs/nonempty" }, "targetRevenueFactId": { "$ref": "#/$defs/nonempty" }, "dealId": { "$ref": "#/$defs/nonempty" }, "quoteVersionId": { "$ref": "#/$defs/nonempty" },
+        "amountMinor": { "$ref": "#/$defs/money" }, "currency": { "$ref": "#/$defs/currency" }, "originalPaymentFactId": { "$ref": "#/$defs/nullableId" }, "originalPaymentAllocationSetId": { "$ref": "#/$defs/nullableId" },
+        "originalPaymentAllocationItemId": { "$ref": "#/$defs/nullableId" }, "commercialBindingSnapshot": { "$ref": "quote-case.v1.schema.json#/$defs/CommercialBindingSnapshot" }
+      }
+    }
+  }
+}

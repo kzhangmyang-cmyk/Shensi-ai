@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/candidate-intelligence-operation.v1.schema.json",
+  "title": "CandidateIntelligenceOperation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "candidateId",
+    "status",
+    "currentStage",
+    "completedStages",
+    "skippedStages",
+    "research",
+    "qualification",
+    "battleCardId",
+    "failure",
+    "createdAt",
+    "startedAt",
+    "updatedAt",
+    "completedAt",
+    "failedAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "candidateId": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "status": { "enum": ["queued", "running", "succeeded", "failed"] },
+    "currentStage": {
+      "enum": ["research", "qualification", "battle_card", null]
+    },
+    "completedStages": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": { "enum": ["research", "qualification", "battle_card"] }
+    },
+    "skippedStages": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": { "enum": ["research", "qualification", "battle_card"] }
+    },
+    "research": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["summary", "findings"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1, "maxLength": 10000 },
+        "findings": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "content", "evidenceIds", "confidence"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+              "content": { "type": "string", "minLength": 1, "maxLength": 10000 },
+              "evidenceIds": {
+                "type": "array",
+                "maxItems": 500,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1, "maxLength": 255 }
+              },
+              "confidence": {
+                "type": ["number", "null"],
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "qualification": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["grade", "score", "hardGateFailures", "financialValueId"],
+      "properties": {
+        "grade": { "enum": ["S", "A", "B", "C", "D"] },
+        "score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "hardGateFailures": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "financialValueId": { "type": "string", "minLength": 1, "maxLength": 255 }
+      }
+    },
+    "battleCardId": { "type": ["string", "null"], "minLength": 1, "maxLength": 255 },
+    "failure": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["stage", "errorCode"],
+      "properties": {
+        "stage": { "enum": ["research", "qualification", "battle_card"] },
+        "errorCode": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "startedAt": { "type": ["string", "null"], "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" },
+    "failedAt": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://goodjob.example/contracts/json-schema/growth-performance.v1.schema.json", "title": "GrowthPerformanceResponse",
+  "type": "object", "additionalProperties": false,
+  "required": ["query", "expectedRoiByCurrency", "actualRoiByCurrency", "cashByCurrency", "coverage", "dataGaps", "dataAsOf"],
+  "properties": {
+    "query": { "$ref": "#/$defs/GrowthPerformanceQuery" }, "expectedRoiByCurrency": { "type": "array", "items": { "$ref": "#/$defs/ExpectedRoiCurrencyView" } },
+    "actualRoiByCurrency": { "type": "array", "items": { "$ref": "#/$defs/ActualRoiCurrencyView" } }, "cashByCurrency": { "type": "array", "items": { "$ref": "#/$defs/CashCurrencyView" } },
+    "coverage": { "$ref": "#/$defs/RoiCoverageSnapshot" }, "dataGaps": { "type": "array", "items": { "$ref": "#/$defs/RoiGapCode" } }, "dataAsOf": { "$ref": "#/$defs/dateTime" }
+  },
+  "$defs": {
+    "nonempty": { "type": "string", "minLength": 1 }, "nullableId": { "type": ["string", "null"], "minLength": 1 }, "dateTime": { "type": "string", "format": "date-time" },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }, "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }, "money": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "signed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }, "bps": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "GrowthRoiSliceKey": { "type": "string", "pattern": "^(?:all|plan:.+)$" },
+    "GrowthPerformanceQuery": {
+      "type": "object", "additionalProperties": false, "required": ["cohortId", "currency", "asOf", "planId", "closureVersionId", "sliceKey"],
+      "properties": { "cohortId": { "$ref": "#/$defs/nonempty" }, "currency": { "$ref": "#/$defs/currency" }, "asOf": { "$ref": "#/$defs/dateTime" }, "planId": { "$ref": "#/$defs/nullableId" }, "closureVersionId": { "$ref": "#/$defs/nullableId" }, "sliceKey": { "$ref": "#/$defs/GrowthRoiSliceKey" } }
+    },
+    "RoiCoverageSnapshot": {
+      "type": "object", "additionalProperties": false, "required": ["costCoverageBps", "marginCoverageBps", "cashCoverageBps", "attributionCoverageBps"],
+      "properties": { "costCoverageBps": { "$ref": "#/$defs/bps" }, "marginCoverageBps": { "$ref": "#/$defs/bps" }, "cashCoverageBps": { "$ref": "#/$defs/bps" }, "attributionCoverageBps": { "$ref": "#/$defs/bps" } }
+    },
+    "RoiGapCode": { "enum": ["cohort_not_closed", "unverified_cost", "unverified_financial_fact", "missing_cogs", "unmatched_payment", "missing_commercial_binding", "import_requires_review", "query_truncated"] },
+    "ExpectedRoiCurrencyView": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["currency", "status", "basis", "amountVisibility", "probabilityWeightedGrossProfitMinor", "attributedEstimatedAcquisitionCostMinor", "roiBps", "costCoverageBps", "formulaVersion"],
+          "properties": { "currency": { "$ref": "#/$defs/currency" }, "status": { "const": "computed" }, "basis": { "const": "probability_weighted_gross_profit" }, "amountVisibility": { "const": "full" }, "probabilityWeightedGrossProfitMinor": { "$ref": "#/$defs/signed" }, "attributedEstimatedAcquisitionCostMinor": { "$ref": "#/$defs/money" }, "roiBps": { "$ref": "#/$defs/signed" }, "costCoverageBps": { "$ref": "#/$defs/bps" }, "formulaVersion": { "const": "expected-roi.v1" } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["currency", "status", "basis", "amountVisibility", "roiBps", "costCoverageBps", "formulaVersion"],
+          "properties": { "currency": { "$ref": "#/$defs/currency" }, "status": { "const": "computed" }, "basis": { "const": "probability_weighted_gross_profit" }, "amountVisibility": { "const": "redacted" }, "roiBps": { "$ref": "#/$defs/signed" }, "costCoverageBps": { "$ref": "#/$defs/bps" }, "formulaVersion": { "const": "expected-roi.v1" } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["currency", "status", "basis", "amountVisibility", "reason", "costCoverageBps", "formulaVersion"],
+          "properties": { "currency": { "$ref": "#/$defs/currency" }, "status": { "const": "not_computable" }, "basis": { "const": "probability_weighted_gross_profit" }, "amountVisibility": { "const": "full" }, "reason": { "$ref": "#/$defs/ExpectedRoiNotComputableReason" }, "costCoverageBps": { "$ref": "#/$defs/bps" }, "formulaVersion": { "const": "expected-roi.v1" } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["currency", "status", "basis", "amountVisibility", "reason", "costCoverageBps", "formulaVersion"],
+          "properties": { "currency": { "$ref": "#/$defs/currency" }, "status": { "const": "not_computable" }, "basis": { "const": "probability_weighted_gross_profit" }, "amountVisibility": { "const": "redacted" }, "reason": { "$ref": "#/$defs/ExpectedRoiNotComputableReason" }, "costCoverageBps": { "$ref": "#/$defs/bps" }, "formulaVersion": { "const": "expected-roi.v1" } }
+        }
+      ]
+    },
+    "ExpectedRoiNotComputableReason": { "enum": ["missing_probability", "missing_estimated_cost", "zero_estimated_cost", "query_truncated"] },
+    "ActualRoiCurrencyView": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["currency", "status", "basis", "amountVisibility", "verifiedGrossProfitMinor", "verifiedAcquisitionCostMinor", "roiBps", "coverage", "closureVersionId", "sliceKey", "formulaVersion", "calculationHash", "membershipSnapshotHash", "dataAsOf"],
+          "properties": { "currency": { "$ref": "#/$defs/currency" }, "status": { "const": "computed" }, "basis": { "const": "verified_gross_profit" }, "amountVisibility": { "const": "full" }, "verifiedGrossProfitMinor": { "$ref": "#/$defs/signed" }, "verifiedAcquisitionCostMinor": { "$ref": "#/$defs/money" }, "roiBps": { "$ref": "#/$defs/signed" }, "coverage": { "$ref": "#/$defs/RoiCoverageSnapshot" }, "closureVersionId": { "$ref": "#/$defs/nonempty" }, "sliceKey": { "$ref": "#/$defs/GrowthRoiSliceKey" }, "formulaVersion": { "const": "actual-roi.v1" }, "calculationHash": { "$ref": "#/$defs/hash" }, "membershipSnapshotHash": { "$ref": "#/$defs/hash" }, "dataAsOf": { "$ref": "#/$defs/dateTime" } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["currency", "status", "basis", "amountVisibility", "roiBps", "coverage", "closureVersionId", "sliceKey", "formulaVersion", "calculationHash", "membershipSnapshotHash", "dataAsOf"],
+          "properties": { "currency": { "$ref": "#/$defs/currency" }, "status": { "const": "computed" }, "basis": { "const": "verified_gross_profit" }, "amountVisibility": { "const": "redacted" }, "roiBps": { "$ref": "#/$defs/signed" }, "coverage": { "$ref": "#/$defs/RoiCoverageSnapshot" }, "closureVersionId": { "$ref": "#/$defs/nonempty" }, "sliceKey": { "$ref": "#/$defs/GrowthRoiSliceKey" }, "formulaVersion": { "const": "actual-roi.v1" }, "calculationHash": { "$ref": "#/$defs/hash" }, "membershipSnapshotHash": { "$ref": "#/$defs/hash" }, "dataAsOf": { "$ref": "#/$defs/dateTime" } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["currency", "status", "basis", "amountVisibility", "reason", "coverage", "closureVersionId", "sliceKey", "formulaVersion", "dataAsOf"],
+          "properties": { "currency": { "$ref": "#/$defs/currency" }, "status": { "const": "not_computable" }, "basis": { "const": "verified_gross_profit" }, "amountVisibility": { "enum": ["full", "redacted"] }, "reason": { "enum": ["cohort_not_closed", "unverified_cost", "unverified_financial_fact", "missing_cogs", "unmatched_payment", "missing_commercial_binding", "import_requires_review", "zero_verified_cost", "query_truncated"] }, "coverage": { "$ref": "#/$defs/RoiCoverageSnapshot" }, "closureVersionId": { "$ref": "#/$defs/nullableId" }, "sliceKey": { "$ref": "#/$defs/GrowthRoiSliceKey" }, "formulaVersion": { "const": "actual-roi.v1" }, "dataAsOf": { "$ref": "#/$defs/dateTime" } }
+        }
+      ]
+    },
+    "ContractRoasResult": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["status", "valueBps", "formulaVersion"], "properties": { "status": { "const": "computed" }, "valueBps": { "$ref": "#/$defs/signed" }, "formulaVersion": { "const": "contract-roas.v1" } } },
+        { "type": "object", "additionalProperties": false, "required": ["status", "reason", "formulaVersion"], "properties": { "status": { "const": "not_available" }, "reason": { "const": "zero_acquisition_cost" }, "formulaVersion": { "const": "contract-roas.v1" } } }
+      ]
+    },
+    "CashMultipleResult": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["status", "valueBps", "formulaVersion"], "properties": { "status": { "const": "computed" }, "valueBps": { "$ref": "#/$defs/signed" }, "formulaVersion": { "const": "cash-multiple.v1" } } },
+        { "type": "object", "additionalProperties": false, "required": ["status", "reason", "formulaVersion"], "properties": { "status": { "const": "not_available" }, "reason": { "const": "zero_acquisition_cost" }, "formulaVersion": { "const": "cash-multiple.v1" } } }
+      ]
+    },
+    "CollectionRateResult": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["status", "valueBps", "formulaVersion"], "properties": { "status": { "const": "computed" }, "valueBps": { "$ref": "#/$defs/signed" }, "formulaVersion": { "const": "collection-rate.v1" } } },
+        { "type": "object", "additionalProperties": false, "required": ["status", "reason", "formulaVersion"], "properties": { "status": { "const": "not_available" }, "reason": { "const": "zero_verified_contract" }, "formulaVersion": { "const": "collection-rate.v1" } } }
+      ]
+    },
+    "CashCurrencyView": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["currency", "amountVisibility", "verifiedContractMinor", "verifiedAcquisitionCostMinor", "paymentReceivedMinor", "refundMinor", "badDebtMinor", "netCashMinor", "contractRoas", "cashMultiple", "collectionRate", "coverage"],
+          "properties": { "currency": { "$ref": "#/$defs/currency" }, "amountVisibility": { "const": "full" }, "verifiedContractMinor": { "$ref": "#/$defs/money" }, "verifiedAcquisitionCostMinor": { "$ref": "#/$defs/money" }, "paymentReceivedMinor": { "$ref": "#/$defs/money" }, "refundMinor": { "$ref": "#/$defs/money" }, "badDebtMinor": { "$ref": "#/$defs/money" }, "netCashMinor": { "$ref": "#/$defs/signed" }, "contractRoas": { "$ref": "#/$defs/ContractRoasResult" }, "cashMultiple": { "$ref": "#/$defs/CashMultipleResult" }, "collectionRate": { "$ref": "#/$defs/CollectionRateResult" }, "coverage": { "$ref": "#/$defs/RoiCoverageSnapshot" } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["currency", "amountVisibility", "contractRoas", "cashMultiple", "collectionRate", "coverage"],
+          "properties": { "currency": { "$ref": "#/$defs/currency" }, "amountVisibility": { "const": "redacted" }, "contractRoas": { "$ref": "#/$defs/ContractRoasResult" }, "cashMultiple": { "$ref": "#/$defs/CashMultipleResult" }, "collectionRate": { "$ref": "#/$defs/CollectionRateResult" }, "coverage": { "$ref": "#/$defs/RoiCoverageSnapshot" } }
+        }
+      ]
+    }
+  }
+}

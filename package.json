@@ -1,48 +1,32 @@
 {
-  "name": "goodjob-crm-frontend",
+  "name": "shensi-sales",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 5188",
-    "build": "tsc -b && vite build",
-    "test": "tsx src/self-test.ts",
-    "test:e2e": "playwright test",
-    "test:e2e:financial-council:real": "playwright test --config=playwright.financial-council-real.config.ts --project=chromium",
-    "contract:import": "node scripts/import-growth-contract.mjs",
-    "contract:generate": "node scripts/generate-growth-contract-types.mjs",
-    "contract:check": "node scripts/check-growth-contract.mjs && node scripts/generate-growth-contract-types.mjs --check",
-    "test:growth:fixture": "tsx --test tests/fixtures/growth-contract.self-test.ts",
-    "test:e2e:growth": "playwright test growth-bootstrap.spec.ts",
-    "test:types": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json --noEmit && tsc -p browser-extension/douyin-visual-reader/tsconfig.json --noEmit",
-    "test:visual-reader": "tsx browser-extension/douyin-visual-reader/src/self-test.ts",
-    "test:visual-reader:ocr-smoke": "tsx scripts/test-visual-reader-ocr-smoke.mts",
-    "build:visual-reader": "tsx scripts/build-visual-reader-bundles.mts && tsx scripts/build-visual-reader-manifest.mts && npm run check:visual-reader-bundle && npm run test:visual-reader:ocr-smoke",
-    "check:visual-reader-bundle": "tsx scripts/check-visual-reader-bundle.mts",
-    "verify:visual-reader-build-order": "npm run build:visual-reader && npm run build && npm run check:visual-reader-bundle"
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=22.22.3 <23"
   },
-  "dependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "echarts": "^6.1.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "tesseract.js": "7.0.0",
-    "tesseract.js-core": "7.0.0",
-    "wasm-feature-detect": "1.9.0",
-    "@tesseract.js-data/chi_sim": "1.0.0",
-    "@tesseract.js-data/eng": "1.0.0",
-    "vite": "^6.0.7",
-    "xlsx": "^0.18.5"
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter ./backend dev:mysql\" \"pnpm --filter ./frontend dev\"",
+    "dev:mysql": "concurrently \"pnpm --filter ./backend dev:mysql\" \"pnpm --filter ./frontend dev\"",
+    "build": "pnpm --filter ./contracts check:types && pnpm --filter ./backend build && pnpm --filter ./frontend build",
+    "generate:frontend-contract-types": "pnpm --filter ./contracts generate:types",
+    "check:generated-acquisition-types": "pnpm --filter ./contracts check:types",
+    "build:growth-contract-release": "pnpm --filter ./contracts build:growth-release",
+    "check:growth-contract-release": "pnpm --filter ./contracts check:growth-release",
+    "check:growth-contracts": "pnpm check:growth-contract-release && pnpm --filter ./backend test:growth-openapi",
+    "check:acquisition-contracts": "pnpm test:contracts && pnpm --filter ./backend test:contract-drift && pnpm --filter ./backend test:security && pnpm --filter ./backend test:acquisition-openapi && pnpm check:generated-acquisition-types && pnpm --filter ./frontend build && pnpm --filter ./frontend test && pnpm test:baota-package",
+    "test:contracts": "pnpm --filter ./contracts test",
+    "test:baota-package": "node --test deploy/baota/build-package.test.mjs",
+    "test": "pnpm test:contracts && pnpm --filter ./backend test && pnpm --filter ./frontend test && pnpm test:baota-package",
+    "test:layout": "node --test tools/shensi-monorepo-layout.test.mjs",
+    "test:financial-council": "pnpm --filter ./backend test:financial-council",
+    "test:e2e": "pnpm --filter ./frontend test:e2e",
+    "test:e2e:financial-council:real": "pnpm --filter ./frontend test:e2e:financial-council:real",
+    "test:growth-release-gate": "node --test tools/growth-dual-repo-release-gate.test.mjs",
+    "release:growth": "node tools/growth-dual-repo-release-gate.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1",
-    "@types/node": "^22.10.2",
-    "@types/react": "^19.0.2",
-    "@types/react-dom": "^19.0.2",
-    "linkedom": "0.18.13",
-    "openapi-typescript": "7.13.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
-    "yaml": "2.8.1"
+    "concurrently": "^9.2.1"
   }
 }
