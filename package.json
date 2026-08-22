@@ -19,7 +19,7 @@
     "test:contracts": "pnpm --filter ./contracts test",
     "test:baota-package": "node --test deploy/baota/build-package.test.mjs",
     "test": "pnpm test:contracts && pnpm --filter ./backend test && pnpm --filter ./frontend test && pnpm test:baota-package",
-    "test:layout": "node --test tools/shensi-monorepo-layout.test.mjs",
+    "test:layout": "node --test tools/*.test.mjs",
     "test:financial-council": "pnpm --filter ./backend test:financial-council",
     "test:e2e": "pnpm --filter ./frontend test:e2e",
     "test:e2e:financial-council:real": "pnpm --filter ./frontend test:e2e:financial-council:real",
