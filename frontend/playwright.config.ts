@@ -15,6 +15,7 @@ export default defineConfig({
   expect: { timeout: 5_000 },
   use: {
     baseURL: "http://127.0.0.1:5388",
+    timezoneId: "Asia/Shanghai",
     trace: "retain-on-failure"
   },
   projects: [

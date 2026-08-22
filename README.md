@@ -1,5 +1,7 @@
 # Shensi Sales
 
+[![Quality gates](https://github.com/kzhangmyang-cmyk/shensi-sales/actions/workflows/quality.yml/badge.svg)](https://github.com/kzhangmyang-cmyk/shensi-sales/actions/workflows/quality.yml)
+
 Shensi Sales 是面向外贸销售团队的客户增长与经营分析系统。本仓库统一维护前端、后端、共享 API 合同、部署资源和财务多智能体工作流。
 
 ## 仓库结构
@@ -50,6 +52,8 @@ pnpm test
 pnpm test:financial-council
 pnpm test:e2e
 ```
+
+GitHub `Quality gates` 会在 pull request 和 `main` push 上自动启动隔离的 MySQL 8.4 service，并运行上述根门禁、财务委员会与 Chromium 验收。测试数据库不使用任何生产 Secrets。
 
 合同门禁：
 

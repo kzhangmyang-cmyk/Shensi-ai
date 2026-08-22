@@ -1,281 +1,83 @@
-# GoodJob CRM 开发状态
+# Shensi Sales 开发状态
 
-## AI 经营顾问（2026-08-14）
+**当前日期：** 2026-08-22
 
-### 已完成：经营顾问智能体引擎与执行层
+**当前仓库：** `kzhangmyang-cmyk/shensi-sales`
 
-- `backend/src/business-advisor/`：6 个智能体角色（AI 经营总管、财务分析、利润分析、成本分析、现金流分析、税务健康），确定性分析引擎 + 专属知识库 + 报告编排。
-- API：`GET /agents`、`POST /analyze`、`POST /diagnose`，金额用整数 minor、比例用 BPS；报表勾稽不平/毛利为负/期末现金为负时报错拒绝编数。
-- 前端 `#growth/agents` 总览 + 智能体工作台 + 诊断报告页，首页「生成经营诊断报告」直达后端 diagnose。
+**默认分支：** `main`
 
-### 已完成：真实案例校准（丰博/金辉/天瑞/财务报表样本）
+## 当前结论
 
-- 知识库注入实际咨询方法论：报表勾稽检查、理论现金流勾稽法、费用对标法（对标华致酒行）、价差/量差分离、资金全链条复盘、民企高频税务风险、业务条线检查框架（采购-销售-授权审批-资金-存货-资产-财务规范-税务）。
-- 指标扩展：速动比率、应收账款周转率、存货周转率、利息保障倍数、收现比、净现比。
-- 诊断阈值校准：净利率 <5% 高风险；资产负债率 >70%；应收周转 >90 天；流动比率 <1.5；速动比率 <1.0；利息保障 <3；存货周转 <2；收现比 <85%；净现比 <1 且净利为正触发「利润与现金背离」。
-- 报告问题结构升级：每条问题带 分类 + 风险等级(red/yellow) + 风险说明，全量输出按优先级排序，摘要聚焦前三。
-- 后端 13 个业务测试 + 全量 self-test、前端 types/self-test/build/E2E 6 项全部通过。
+Shensi Sales 已经是统一的 pnpm Monorepo，前端、后端、共享合同、部署资源和财务多智能体位于同一个 Git 历史中。财务委员会的核心开发已完成，当前主要工作是正式模型和生产环境验收，不是重写财务智能体。
 
-### 已完成：真实报表导入（小企业会计准则 xls/xlsx）
+## 仓库与运行方式
 
-- 新增 `statements/parse` 与 `statements/diagnose` 接口：前端用 xlsx 读取文件 → 后端语义解析（兼容小企业/一般企业两种格式）→ 直接生成诊断报告。
-- 新增 `statements/import`：多 sheet / 集团报表一次导入，自动分类并按公司分组（「编制单位」优先，缺省回退 sheet 名），单家公司失败不拖垮全部，返回 `imported/failed` 汇总与逐家错误码。
-- 三重勾稽校验（资产=流动资产+非流动资产、负债=流动+非流动、资产=负债+权益），不平即拒绝；期间费用由报表勾稽倒推保证净利润口径一致。
-- 现金流缺失时降级处理：预测/收现比/净现比不参与，期末现金取资产负债表货币资金，报告标注「数据说明」。
-- 负权益与毛利为负的真实亏损企业允许诊断：负权益不再视为勾稽不平；毛利为负改为红色预警输出（此前直接拒诊，会把困难企业挡在门外）。
-- 已用 rar 中 10 家真实报表验证：9 家完整配对全部解析成功（1 家格式兼容由夹具覆盖），API 冒烟通过。
-- 后端业务测试 26 个、前端 types/self-test/build/E2E 7 项全部通过（含多公司分组导入与公司选择器）。
+- `backend/`：Express API、领域服务、worker、恢复 sweeper 和 MySQL 持久化。
+- `frontend/`：React/Vite 前端、授权视觉读取扩展和 Playwright 验收。
+- `contracts/`：OpenAPI、JSON Schema、不可变合同发布和前端类型生成。
+- `deploy/`：宝塔 Linux 安装、打包、数据库初始化和服务管理。
+- 根目录使用 Node.js `22.22.3` 和 pnpm `11.18.0`，唯一锁文件是 `pnpm-lock.yaml`。
+- 本地可以使用 Memory 模式进行快速功能验证；恢复、并发、审批和真实纵向验收使用 MySQL 模式。
 
-### 已完成：前端经营顾问团队入口
+## 已完成能力
 
-- 演示壳「智能体中心」（`#agents`）直接展示 AI 经营顾问团队：6 位智能体卡片、离线示例报告、工作台提问（内置示例数据，无需后端即可演示）。
-- 修复 growth 运行时重复注册监听器导致的页面挂载竞态；切换页面时保留工作区导航。
-- 登录真实模式后经「经营顾问」进入 `#growth/agents`（真实工作区 auth/工作区选择集成待产品链路补全）。
+### CRM 和销售工作台
 
-## 智能获客重构进度（2026-07-14）
+- JWT 登录、工作区与业务员/主管/管理员数据边界。
+- 客户、联系人、商机、待办、跟进提醒、导入导出、资料、考试、OCR 和账号管理。
+- Memory/MySQL 双模式存储，生产环境只根据显式配置创建初始管理员。
 
-### 已完成：Campaign + Version 持久化
+### 智能获客与 Growth
 
-- 正式获客项目使用服务端生成的 `pc_<UUID v4>`。
-- 草稿创建会原子生成项目、版本 1 和审计事件。
-- 项目版本保存完整 ICP、排除规则、来源范围和内容哈希，版本及事件只允许追加。
-- 项目修改使用 `If-Match` 和 revision 防止并发覆盖。
-- 业务员本人、经理/管理员团队范围和超级管理员禁入边界已完成。
-- 正式 `pc_` 项目与非 `pc_` 的 `compat_v1` 旧市场引用已完成分流。
-- 已完成 MySQL 三张表、部署基线 SQL、冷启动恢复、失败回滚和命名空间校验。
-- 已完成终态项目离职交接：禁止修改业务内容，但允许经理/管理员转交负责人。
-- Campaign API、MySQL、安全、市场链路、Provider MySQL 和生产构建测试全部通过。
-- 产品经理、外贸业务员、后端安全工程师最终复核均为 `APPROVE`。
+- 获客计划、版本、运行控制、队列协调、证据链、身份解析、候选人评估和受控 CRM 转化。
+- Growth Advisor、产品目录、报价、成本台账、ROI、财务导入和工作区策略。
+- 授权可见评论读取、本地 OCR、遮挡裁剪证据和脱敏/外网防护。
 
-### 已完成：Prospect Strategy 配置与审批
+### 财务多智能体委员会
 
-- 新建正式 Campaign 时，同一事务自动创建版本 1、默认 Strategy 草稿和连续审计事件。
-- Strategy 固定绑定 Campaign 及不可变版本，支持草稿编辑、预览、审批和终态禁用。
-- 关键词、国家和客户类型支持继承 Campaign、全局/不限或明确指定三类模式。
-- Provider 计划只保存非敏感配置，按优先级稳定排序；审批和激活复用真实 Runtime 门禁。
-- 所有 Strategy 写操作使用 `If-Match`；手工新增 Strategy 同时校验并推进 Campaign revision。
-- Campaign 转交负责人时，全部 Strategy 负责人和 revision 在同一事务内同步更新。
-- 激活 Campaign 前会重验当前版本全部已审批 Strategy、Provider 适配器和负责人个人凭据。
-- Preview 只返回解析条件、重复指纹、校验问题和执行顺序，不伪造历史、游标、成本或净新增。
-- 重复提示覆盖当前用户可见项目：业务员仅本人，经理/管理员仅本团队，跨团队不泄漏。
-- MySQL 已增加 Strategy 与 append-only Event 表、版本外键、状态约束、指纹索引和连续事件链校验。
-- Strategy API、MySQL 冷启动与回滚、安全隔离、Provider Runtime 和生产构建测试全部通过。
-- 产品经理、外贸业务员、后端安全工程师修复复审后均为 `APPROVE`。
+- 五个专业角色：财务、利润、成本、现金流和税务健康。
+- 确定性公式、证据绑定 finding、冲突图、一轮反驳、CFO 共识与少数意见保留。
+- 十二类硬约束与穷尽 oracle 校验的组合优化，固定输出 `balanced`、`cash_first`、`growth_first`。
+- 方案修订、当前数据/策略再验证、人工审批/拒绝、不可伪造授权证明和逐动作派发。
+- 持久化租约、ABA fencing、崩溃恢复、幂等重放、MySQL 事务回滚和受控草稿生成。
 
-### 已完成：Search Run Control Plane v1
+## 当前验证基线
 
-- 正式 Run 固定绑定 `campaignId + campaignVersion + strategyId`，并保存不可变执行快照。
-- 当前仅实现运行控制面，不调用 Provider，不生成原始记录、候选企业、线索、客户或商机。
-- 所有响应固定声明：
-  - `executionMode = control_plane_only_v1`
-  - `executionAvailable = false`
-  - `hasExecutionData = false`
-- 创建 Run 必须同时提供 Strategy `If-Match` 和 `Idempotency-Key`。
-- 幂等键原文不落库，只保存服务端 HMAC；完全相同请求返回当前 Run，不同请求复用同一键返回 `409`。
-- 活动唯一性固定为同团队、同负责人、同查询指纹最多一个 `queued` 或 `paused` Run。
-- 状态机固定为：
-  - `queued -> paused | cancelled`
-  - `paused -> queued | cancelled`
-  - `cancelled` 为终态
-- Campaign 暂停会在同一事务中暂停全部 `queued` Run、Shard 并写入连续审计事件；重新激活不会自动恢复。
-- 活动 Run 会阻止负责人转交、版本发布、项目完成/归档、Strategy 禁用和适用的账号删除。
-- Run 负责人不可变；历史可见性跟随 Campaign 当前负责人和团队权限。
-- 列表使用租户、角色和过滤条件绑定的 HMAC 签名游标；详情不返回内部哈希、原始游标或检查点。
-- MySQL 已增加 `prospect_search_runs`、`prospect_run_shards`、`prospect_run_events`，并同步到 `schema.mysql.sql` 部署基线。
-- 已完成复合外键、活动唯一索引、幂等唯一索引、CAS、append-only 事件、冷启动完整性和篡改检测。
-- 最终复核发现并修复 Campaign 暂停/创建竞态、同实例幂等并发 500 和静态部署基线缺表。
-- 新增确定性测试覆盖同键并发重放、异键同指纹竞争、Campaign 暂停/创建交错及静态基线导入。
-- Run API、Campaign、Strategy、安全、MySQL、Provider MySQL、全功能回归和前后端生产构建全部通过。
-- 高级产品经理、高级外贸业务员、后端安全工程师修复复审后均为 `APPROVE`。
+- `pnpm install --frozen-lockfile`：PASS。
+- `pnpm test`：PASS，包括 contracts 88/88、前端 self-test 125/125 和宝塔发布包 2/2。
+- `pnpm test:layout`：7/7 PASS，覆盖 Monorepo 目录、跨仓合同和 GitHub Quality workflow。
+- `pnpm build`：后端 TypeScript 和前端 Vite 生产构建 PASS；仅保留既有 chunk-size warning。
+- 真实 MySQL 8.4 财务委员会聚合测试：327/327 PASS，0 skip。
+- 真实 InnoDB 仓储/并发/恢复专项：83/83 PASS。
+- Chromium 完整回归：51 pass / 0 fail / 1 项按设计跳过。
+- 真实 MySQL + 真实后端 + 无 route interception Chromium 验收：1/1 PASS。
 
-### 已完成：Search Run Queue Bridge v1
+`.github/workflows/quality.yml` 在 pull request 和 `main` push 上使用 MySQL 8.4 service 自动运行根测试、构建、财务委员会和两类 Chromium 验收。该工作流不依赖生产 Secrets。
 
-- 每个新建 Run 会创建一条隐藏的 `prospect.orchestrate` 父 Job，每个 Shard 创建一条隐藏的 `prospect.provider.fetch` 子 Job。
-- Queue Bridge 只把已经持久化的 Run/Shard 控制意图映射到任务图，不领取任务、不调用 Provider、不生成执行数据。
-- 公开响应继续固定声明：
-  - `executionMode = control_plane_only_v1`
-  - `executionAvailable = false`
-  - `hasExecutionData = false`
-- 桥接 Job 使用保留任务类型，通用任务列表、详情、重试、取消、恢复和公开序列化入口均不可读取或操作。
-- 父子 Job 只保存经过 AES-GCM 加密的最小载荷；团队、负责人、Run、Shard、父子关系和执行快照均参与完整性校验。
-- 新增父、子桥接绑定表，使用 SHA-256 绑定哈希和六条 `RESTRICT` 外键约束 Job、Run、Shard 与父子绑定关系。
-- 桥接 Job 幂等摘要会按服务端 HMAC 规则重新计算并精确比较，不能只凭摘要格式通过校验。
-- `traceId` 固定为 `trace_<UUID v4>`；密文认证失败会转换为稳定的桥接完整性错误，Run API 返回 `409`。
-- Run 与全部 Shard 状态必须一致；桥接 Job 按“非取消为 `queued`、取消为 `cancelled`”映射，Pause、Resume、Cancel 和 Campaign Pause 操作前后均校验完整任务图。
-- 新 Run、精确幂等重放和读取操作均验证桥接图；MySQL 冷启动会进行双向孤儿、重复绑定、跨域引用和篡改检查。
-- `queueBridgeVersion = null` 的历史 Run 保持原状，不隐式补图；如果历史 Run 被挂入 v1 绑定则拒绝启动。
-- `schema.mysql.sql` 已同步桥接字段、两张绑定表、索引、检查约束和外键，可用于离线建库。
-- Run、Campaign、Strategy、安全、真实 MySQL、Provider/缓存/贸易/市场回归、全功能测试和前后端生产构建全部通过。
-- 高级产品经理、高级外贸业务员、后端安全工程师最终复核均为 `APPROVE`。
-- 非阻断测试遗留：后续把 trace、密文、Job 状态和 Shard 状态篡改用例补充到真实 MySQL 冷启动专项；当前已在内存专项覆盖，MySQL 已覆盖 Job HMAC 篡改。
+## 尚待生产验收
 
-### 尚未开始
+1. 在宝塔 Linux 生产机准备独立 MySQL、域名和 HTTPS，执行首次发布、备份和恢复演练。
+2. 配置实际模型供应商的 API Key、官方端点和能力探测，用脱敏真实财务样本校验输出质量、费用和延迟。
+3. 配置生产搜索/数据连接、配额与预算，完成企业和个人各一条从公开证据到人工审核的样例链。
+4. 官方抖音授权连接器与持久化周期调度仍是后续能力；当前只允许受控的公开样本和用户明确授权的本地可见读取。
+5. 完成一轮真实用户试运行，根据审批结果调整策略阈值和模型提示词。
 
-- Worker 领取、租约、心跳、运行中状态、重试退避、崩溃恢复和队列消费。
-- Provider 搜索执行、外部网络请求和请求事实记录。
-- 真实游标、水位线、配额/预算消耗、重试和断点续跑。
-- 候选企业生成、清洗、核验、去重和 CRM 转化。
-- Search Run Control Plane v1 与 Queue Bridge v1 均没有修改现有自动搜客前端界面。
-
-## 已完成
-
-- 前后端分离工程：
-  - `frontend`：Vite + 高保真原型 `index.html` + TypeScript 增强脚本
-  - `backend`：Node + Express + TypeScript
-- 前端已重新对齐根目录高保真原型：
-  - 运行页面直接使用原型视觉、布局、密度和 PPT 级报表模块
-  - `frontend/src/prototype-api.ts` 只负责登录、权限、数据刷新和按钮动作
-- 登录与 JWT 认证
-- 账号角色：
-  - 业务员：仅本人数据
-  - 主管：本团队全部数据
-  - 管理员：全量权限
-- 后端数据范围过滤：
-  - 客户
-  - 待办
-  - 账号列表
-  - 汇报摘要
-- 前端页面：
-  - 登录
-  - 工作台
-  - 待办清单
-  - 客户管理
-  - 商机管道
-  - 跟进提醒
-  - 导入导出
-  - 经营汇报
-  - 企业微信
-  - 资料维护
-  - 在线考试
-  - 小工具 OCR
-  - 账号管理
-- 原型功能增强：
-  - 登录真实调用 `/api/auth/login`
-  - 业务员、主管、管理员切换时重新加载对应数据范围
-  - 待办清单可完成
-  - 工作台待办支持新增、快捷输入、筛选、批量完成、完成反馈
-  - 客户管理支持新增客户、点击客户行切换详情、记录跟进动作
-  - 商机管道支持点击商机卡片“推进阶段”
-  - 跟进提醒支持完成提醒
-  - 导入导出支持创建导入任务、提交导出审批任务
-  - 资料维护支持上传资料、发布资料、批量发布、类目操作反馈
-  - 在线考试支持创建考试、发布考试、进入考试、选择答案、提交判分
-  - 小工具 OCR 支持加载名片、重新识别、编辑勾选字段、同步线索
-  - 报表模块支持生成可下载经营汇报文本
-  - 账号管理支持新增账号弹窗、权限模板、保存设置反馈
-  - 客户、商机、提醒、导入导出、企微、资料、考试、账号列表从后端刷新
-  - OCR 识别字段可勾选、编辑，并可同步到线索
-- OCR 名片同步线索接口和前端按钮状态。
-- MySQL 建表脚本：`backend/schema.mysql.sql`
-- 真实持久化层：
-  - 后端已抽象 `CrmStore`
-  - 默认内存模式便于原型开发
-  - 设置 `CRM_STORE=mysql` 或 `DATABASE_URL` / `MYSQL_URL` 后切换到 MySQL
-  - MySQL 启动时自动建表；仅开发/测试环境的空库会写入脱敏测试种子
-  - 生产环境只创建显式配置的初始超级管理员，业务表保持为空
-  - 写接口会等待 `persist()` 完成后再返回，避免前端成功但数据库未落盘
-- 页面级自动化测试：
-  - Playwright 覆盖登录、首页待办、客户新增、资料维护、在线考试、OCR 同步、PPT 级报表导出
-
-## 已验证
-
-- `npm run test --workspace backend`
-  - 业务员只能看到本人负责的数据
-  - 团队管理员只能看到本团队数据
-  - 不同公测团队之间的数据相互不可见
-  - OCR 名片可同步为线索
-- `npm run test --workspace frontend`
-  - 高保真原型关键模块存在
-  - 增强脚本接口路径存在
-- `npm run build`
-  - 后端 TypeScript 编译通过
-  - 前端生产构建通过
-- `npm run test:e2e`
-  - 页面级自动化测试 5 条通过
-  - 自动启动后端 `4188` 与前端 `5188`
-  - 使用本机 Google Chrome 通道执行，避免依赖 Playwright Chromium 下载缓存
-- 浏览器端到端验证：
-  - 登录页显示正常
-  - 业务员登录：3 个客户 / 3 个待办 / 本人数据范围
-  - 主管登录：5 个客户 / 5 个待办 / 团队数据范围
-  - 所有主导航页面可打开：工作台、客户、商机、提醒、导入导出、汇报、企微、资料、考试、小工具、账号
-  - 商机阶段可修改
-  - 跟进提醒可完成
-  - 导入导出任务可新建
-  - OCR 同步按钮从“同步到线索”变为“已同步”
-  - 主管账号管理页显示团队账号
-  - 资料维护、在线考试、小工具模块均非空白
-  - PPT 级报表模块保留 6 个汇报面板
-  - 1280px 桌面视口无横向溢出
-  - 控制台无前端错误
-- 当前已按界面落地核心交互：
-  - 工作台：新增待办、筛选、完成、批量完成
-  - 客户管理：新增客户、点击行查看详情、跟进记录反馈
-  - 商机管道：推进阶段并刷新管道
-  - 跟进提醒：完成提醒
-  - 导入导出：创建导入/导出任务
-  - 资料维护：上传资料、发布资料、批量发布
-  - 在线考试：创建考试、发布考试、答题交卷
-  - 小工具 OCR：加载/识别/编辑/同步线索
-  - 报表：导出汇报文件
-  - 账号管理：新增账号与权限保存反馈
-
-## 本地启动
+## 当前开发命令
 
 ```bash
-cd GoodJob/CRM
-npm run dev
+pnpm install --frozen-lockfile
+pnpm dev
+pnpm test:layout
+pnpm test
+pnpm build
+pnpm test:financial-council
 ```
 
-访问：
-
-- 前端：http://127.0.0.1:5188/
-- 后端：http://127.0.0.1:4188/
-
-## MySQL 持久化
-
-默认不设置环境变量时使用内存模式。开发环境启用 MySQL：
+真实财务委员会浏览器验收：
 
 ```bash
-cd GoodJob/CRM
-CRM_STORE=mysql DATABASE_URL="mysql://user:password@127.0.0.1:3306/goodjob_crm" npm run dev
+MYSQL_TEST_ADMIN_URL="mysql://<admin>@127.0.0.1:3306/mysql" \
+pnpm test:e2e:financial-council:real
 ```
 
-也可以使用：
-
-```bash
-MYSQL_URL="mysql://user:password@127.0.0.1:3306/goodjob_crm" npm run dev
-```
-
-生产环境必须显式配置 `DATABASE_URL` 或 `MYSQL_URL`，并配置
-`INITIAL_ADMIN_EMAIL`、至少 12 位的 `INITIAL_ADMIN_PASSWORD`。首次启动只创建该超级管理员，
-不会导入开发测试客户、线索、商机或其他业务数据。
-
-健康检查：
-
-```bash
-curl http://127.0.0.1:4188/api/health
-```
-
-返回 `{"ok":true,"store":"mysql"}` 表示当前实际使用 MySQL；返回 `memory` 表示仍在内存模式。
-
-当前 MySQL 持久化为原型阶段的事务级全量替换写入，已保证写接口等待落盘后返回。生产化时建议继续拆成按表、按行的增量写入，并补充审计日志和备份任务。
-
-## 自动化测试
-
-```bash
-npm run test
-npm run test:e2e
-```
-
-页面级测试固定使用：
-
-- 后端：http://127.0.0.1:4188/
-- 前端：http://127.0.0.1:5188/
-
-## 下一轮建议
-
-1. 增加真实 OCR 文件上传和图片识别服务。
-2. 增加真实 PDF/PPT 导出。
-3. 增加导入 Excel 字段映射和错误行修正。
-4. 增加 MySQL 备份、恢复、审计日志与迁移脚本。
+`docs/superpowers/plans/` 中的旧计划用于保留实施历史，其旧 checkbox 不再代表当前缺口；后续开发以本文档、根 `README.md` 和对应模块 README 为准。
