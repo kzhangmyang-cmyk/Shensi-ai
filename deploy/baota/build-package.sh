@@ -26,9 +26,14 @@ mkdir -p \
   "$STAGING_DIR/backend" \
   "$STAGING_DIR/frontend" \
   "$STAGING_DIR/contracts/json-schema" \
+  "$STAGING_DIR/contracts/openapi" \
+  "$STAGING_DIR/contracts/scripts" \
   "$STAGING_DIR/database"
 
-cp "$PROJECT_ROOT/package.json" "$PROJECT_ROOT/package-lock.json" "$STAGING_DIR/"
+cp "$PROJECT_ROOT/package.json" \
+  "$PROJECT_ROOT/pnpm-lock.yaml" \
+  "$PROJECT_ROOT/pnpm-workspace.yaml" \
+  "$STAGING_DIR/"
 cp "$PROJECT_ROOT/backend/package.json" "$PROJECT_ROOT/backend/tsconfig.json" "$STAGING_DIR/backend/"
 cp "$PROJECT_ROOT/contracts/package.json" "$STAGING_DIR/contracts/"
 cp "$PROJECT_ROOT/frontend/package.json" \
@@ -51,6 +56,12 @@ rsync -a \
 rsync -a \
   "$PROJECT_ROOT/contracts/json-schema/" \
   "$STAGING_DIR/contracts/json-schema/"
+rsync -a \
+  "$PROJECT_ROOT/contracts/openapi/" \
+  "$STAGING_DIR/contracts/openapi/"
+rsync -a \
+  "$PROJECT_ROOT/contracts/scripts/" \
+  "$STAGING_DIR/contracts/scripts/"
 
 sanitized_data="$(mktemp)"
 awk '

@@ -70,7 +70,7 @@ MYSQL_BIN=""
 MYSQLDUMP_BIN=""
 NGINX_BIN=""
 NODE_BIN=""
-NPM_BIN=""
+COREPACK_BIN=""
 
 log() {
   printf '\n\033[1;34m[%s]\033[0m %s\n' "$(date '+%H:%M:%S')" "$*"
@@ -129,7 +129,7 @@ GoodJob CRM 宝塔 Linux 一键安装脚本
   - 宝塔中已创建网站并绑定 DOMAIN。
   - 宝塔中已创建 MySQL 数据库和业务用户。
   - 首次安装使用空数据库。
-  - Node.js 22.19+、npm、Nginx、MySQL 客户端、systemd 可用。
+  - Node.js 22.19+、Corepack、Nginx、MySQL 客户端、systemd 可用。
   - 推荐先在宝塔为网站启用 HTTPS。
 EOF
 }
@@ -207,7 +207,8 @@ verify_package() {
   local actual=""
   for required_file in \
     "$SOURCE_DIR/package.json" \
-    "$SOURCE_DIR/package-lock.json" \
+    "$SOURCE_DIR/pnpm-lock.yaml" \
+    "$SOURCE_DIR/pnpm-workspace.yaml" \
     "$SOURCE_DIR/backend/package.json" \
     "$SOURCE_DIR/frontend/package.json" \
     "$BOOTSTRAP_FILE" \
@@ -509,21 +510,21 @@ for candidate in "${node_candidates[@]}"; do
   candidate_minor="$("$candidate" -p 'Number(process.versions.node.split(".")[1])' 2>/dev/null || printf '0')"
   if (( candidate_major > 22 || (candidate_major == 22 && candidate_minor >= 19) )); then
     NODE_BIN="$candidate"
-    if [[ -x "$(dirname "$candidate")/npm" ]]; then
-      NPM_BIN="$(dirname "$candidate")/npm"
+    if [[ -x "$(dirname "$candidate")/corepack" ]]; then
+      COREPACK_BIN="$(dirname "$candidate")/corepack"
     fi
     break
   fi
 done
-if [[ -z "$NPM_BIN" ]]; then
-  NPM_BIN="$(find_binary npm /www/server/nodejs/*/bin/npm 2>/dev/null || true)"
+if [[ -z "$COREPACK_BIN" ]]; then
+  COREPACK_BIN="$(find_binary corepack /www/server/nodejs/*/bin/corepack 2>/dev/null || true)"
 fi
 MYSQL_BIN="$(find_binary mysql /www/server/mysql/bin/mysql /usr/bin/mysql 2>/dev/null || true)"
 MYSQLDUMP_BIN="$(find_binary mysqldump /www/server/mysql/bin/mysqldump /usr/bin/mysqldump 2>/dev/null || true)"
 NGINX_BIN="$(find_binary nginx /www/server/nginx/sbin/nginx /usr/sbin/nginx 2>/dev/null || true)"
 
 [[ -n "$NODE_BIN" ]] || die "未找到 Node.js >=22.19.0。请在宝塔软件商店安装 Node.js 22.19+，并确保 node 可执行"
-[[ -n "$NPM_BIN" ]] || die "未找到 npm。请在宝塔软件商店安装 Node.js 22.19+"
+[[ -n "$COREPACK_BIN" ]] || die "未找到 Corepack。请安装包含 Corepack 的 Node.js 22.19+"
 [[ -n "$MYSQL_BIN" ]] || die "未找到 MySQL 客户端"
 [[ -n "$MYSQLDUMP_BIN" ]] || die "未找到 mysqldump，无法执行安装前备份"
 [[ -n "$NGINX_BIN" ]] || die "未找到宝塔 Nginx"
@@ -634,7 +635,8 @@ if ! id "$APP_USER" >/dev/null 2>&1; then
 fi
 install -d -m 0755 "$APP_ROOT" "$RELEASES_DIR"
 install -d -o "$APP_USER" -g "$APP_USER" -m 0750 \
-  "$SHARED_DIR" "$BACKUP_DIR" "$SHARED_DIR/puppeteer" "$SHARED_DIR/.wwebjs_auth"
+  "$SHARED_DIR" "$BACKUP_DIR" "$SHARED_DIR/corepack" \
+  "$SHARED_DIR/puppeteer" "$SHARED_DIR/.wwebjs_auth"
 install -d -o "$APP_USER" -g "$APP_USER" -m 0755 "$RELEASE_DIR"
 
 if [[ -L "$CURRENT_LINK" ]]; then
@@ -663,15 +665,17 @@ node_path="$(dirname "$NODE_BIN")"
 runuser -u "$APP_USER" -- env \
   HOME="/var/lib/$APP_USER" \
   PATH="$node_path:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  COREPACK_HOME="$SHARED_DIR/corepack" \
   PUPPETEER_CACHE_DIR="$SHARED_DIR/puppeteer" \
-  "$NPM_BIN" ci --no-audit --no-fund --prefix "$RELEASE_DIR"
+  "$COREPACK_BIN" pnpm --dir "$RELEASE_DIR" install --frozen-lockfile
 
 if [[ -d "$RELEASE_DIR/backend/src" && -d "$RELEASE_DIR/frontend/src" ]]; then
   log "4/9 执行生产构建"
   runuser -u "$APP_USER" -- env \
     HOME="/var/lib/$APP_USER" \
     PATH="$node_path:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-    "$NPM_BIN" run build --prefix "$RELEASE_DIR"
+    COREPACK_HOME="$SHARED_DIR/corepack" \
+    "$COREPACK_BIN" pnpm --dir "$RELEASE_DIR" build
 else
   log "4/9 使用安装包中的已构建产物"
 fi
@@ -681,7 +685,8 @@ fi
 runuser -u "$APP_USER" -- env \
   HOME="/var/lib/$APP_USER" \
   PATH="$node_path:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-  "$NPM_BIN" prune --omit=dev --no-audit --no-fund --prefix "$RELEASE_DIR"
+  COREPACK_HOME="$SHARED_DIR/corepack" \
+  "$COREPACK_BIN" pnpm --dir "$RELEASE_DIR" install --prod --frozen-lockfile
 find "$RELEASE_DIR/frontend/dist" -type d -exec chmod 0755 {} +
 find "$RELEASE_DIR/frontend/dist" -type f -exec chmod 0644 {} +
 

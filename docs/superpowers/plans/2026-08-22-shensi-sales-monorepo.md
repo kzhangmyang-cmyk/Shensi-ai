@@ -399,7 +399,9 @@ PR body lists source commits, directory layout, pnpm decision, exact test counts
 - 结构门禁：2/2 PASS。
 - 合同门禁：88/88 PASS；生成类型 freshness PASS。
 - 前端：types PASS，自测试 125/125 PASS，build PASS。
-- 后端：TypeScript build PASS；金融委员会 325 pass / 0 fail / 2 conditional live-MySQL skips。
+- 根门禁：`pnpm test` PASS；宝塔 pnpm 发布包 2/2 PASS；`pnpm test:layout` 2/2 PASS；整仓 `pnpm build` PASS。
+- 后端：TypeScript build PASS；金融委员会在真实 MySQL 环境下 327 pass / 0 fail / 0 skip。
 - Chromium 关键回归：20/20 PASS（visual reader + financial council fixture suites）。
-- 真实 MySQL + no-intercept Chromium：BLOCKED，当前环境 `MYSQL_TEST_ADMIN_URL` 未配置，且本机无 `mysql`/Docker；未用 fake 结果替代。
+- 真实 InnoDB：MySQL 8.4.11 LTS，仓储/并发/恢复门禁 83/83 PASS。
+- 真实 MySQL + 真实后端 + no-intercept Chromium：1/1 PASS。
 - `debug-agents.mts` 和原前端未提交的 `pnpm-workspace.yaml` 均未复制；原工作区保持原状。

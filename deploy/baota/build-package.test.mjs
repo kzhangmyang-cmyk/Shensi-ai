@@ -27,7 +27,7 @@ test("backend build emits the package start entry at dist/server.js", () => {
 
   try {
     execFileSync(
-      path.join(workspaceRoot, "node_modules/.bin/tsc"),
+      path.join(workspaceRoot, "backend/node_modules/.bin/tsc"),
       [
         "-p",
         path.join(workspaceRoot, "backend/tsconfig.json"),
@@ -76,7 +76,8 @@ test("Baota package can evaluate the acquisition OpenAPI module", () => {
   try {
     for (const relativePath of [
       "package.json",
-      "package-lock.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
       "backend/package.json",
       "backend/tsconfig.json",
       "backend/src",
@@ -88,6 +89,8 @@ test("Baota package can evaluate the acquisition OpenAPI module", () => {
       "frontend/src",
       "contracts/package.json",
       "contracts/json-schema",
+      "contracts/openapi",
+      "contracts/scripts",
       "deploy/baota"
     ]) {
       const destination = path.join(sourceDirectory, relativePath);
@@ -130,13 +133,26 @@ test("Baota package can evaluate the acquisition OpenAPI module", () => {
       extractedDirectory,
       readdirSync(extractedDirectory)[0]
     );
-    symlinkSync(
-      path.join(workspaceRoot, "node_modules"),
-      path.join(packageRoot, "node_modules"),
-      "dir"
+    assert.equal(existsSync(path.join(packageRoot, "pnpm-lock.yaml")), true);
+    assert.equal(existsSync(path.join(packageRoot, "pnpm-workspace.yaml")), true);
+    assert.equal(existsSync(path.join(packageRoot, "package-lock.json")), false);
+    assert.equal(
+      existsSync(path.join(packageRoot, "contracts/openapi/ai-acquisition.v1.yaml")),
+      true
     );
+    assert.equal(
+      existsSync(path.join(packageRoot, "contracts/scripts/generate-frontend-contract-types.mjs")),
+      true
+    );
+    for (const workspace of ["backend", "frontend", "contracts"]) {
+      symlinkSync(
+        path.join(workspaceRoot, workspace, "node_modules"),
+        path.join(packageRoot, workspace, "node_modules"),
+        "dir"
+      );
+    }
     execFileSync(
-      path.join(workspaceRoot, "node_modules/.bin/tsc"),
+      path.join(workspaceRoot, "backend/node_modules/.bin/tsc"),
       ["-p", path.join(packageRoot, "backend/tsconfig.json")],
       { cwd: packageRoot, encoding: "utf8" }
     );
