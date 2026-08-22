@@ -377,7 +377,7 @@ git status --short
 
 Expected: no secret/debug/build files tracked；工作树 clean。前端产品差异只来自目录前缀、Monorepo 路径、合同校验和 README。
 
-- [ ] **Step 6: 推送分支并创建 PR**
+- [x] **Step 6: 推送分支并创建 PR**
 
 ```bash
 git push -u origin codex/shensi-sales-monorepo
@@ -393,6 +393,7 @@ PR body lists source commits, directory layout, pnpm decision, exact test counts
 
 ## Implementation Record
 
+- 集成分支：`codex/shensi-sales-monorepo`；GitHub PR：`https://github.com/kzhangmyang-cmyk/shensi-sales/pull/1`。
 - 历史合并提交：`4d2185018f93333a2606d77f306ff3e14f25eea3`，父历史为 `14aab16d91f9393d96fdc9509077203454799e68` 与 `d21bbac7a751d853216bfe0a63461121396f5ab1`。
 - 重建时目标 `frontend/` subtree 与来源 `daaf468f8efd8dde5d85ea9715794bf96a3bce26` 的 tree hash 均为 `321756959c857b120fb0633db9c65815c9e050de`；随后只加入 Monorepo 路径、合同校验、生成类型和 README 变更。
 - `pnpm install --frozen-lockfile`：PASS，4 个 workspace importer。
