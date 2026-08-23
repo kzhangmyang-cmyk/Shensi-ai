@@ -30,6 +30,24 @@ const routingPolicy = Object.freeze({
   revision: 2,
   createdAt: "2026-08-23T00:00:00.000Z"
 });
+const councilPolicy = Object.freeze({
+  policyVersionId: "formula-policy-1",
+  workspaceId: "workspace-1",
+  version: 1,
+  revision: 1,
+  currency: "CNY",
+  balancedWeightsBps: { growth: 3_400, cash: 3_300, risk: 3_300 },
+  minimumCashReserveMinor: 1,
+  dueDebtMinor: 1,
+  necessaryOutflowMinor: 1,
+  budgetLimitMinor: 1,
+  capacityLimitUnits: 1,
+  durationLimitDays: 1,
+  minimumActionConfidenceBps: 1,
+  actionCoefficientVersion: "v1",
+  policyHash: `sha256:${"c".repeat(64)}`,
+  createdAt: "2026-08-23T00:00:00.000Z"
+});
 const selectedConnection = Object.freeze({
   connectionId: "connection-1",
   displayName: "OpenAI 生产",
@@ -141,17 +159,19 @@ const calls: Array<{ path: string; options?: GrowthHttpRequestOptions }> = [];
 const responseByPath = new Map<string, unknown>([
   ["/api/v1/finance/council-agent-center", agentCenter],
   ["/api/v1/finance/council-runs/run%20%2F%201/agents", runAgents],
+  ["/api/v1/finance/council-policy", councilPolicy],
   ["/api/v1/finance/council-model-routing-policy", routingPolicy],
   ["/api/v1/finance/council-model-routing-policy/preview", { roles: [routePreview] }],
   ["/api/v1/finance/statement-packages/preview", statementPreview],
   ["/api/v1/finance/statement-packages/preview%20%2F%201/commit", statementPackage],
-  ["/api/v1/finance/council-runs", run]
+  ["/api/v1/finance/council-runs/from-statement-package", run]
 ]);
 const http: GrowthHttpClient = {
   async request(path, options) {
     calls.push({ path, options });
     return {
-      status: path.includes("/commit") ? 201 : path.endsWith("council-runs") ? 202 : 200,
+      status: path.includes("/commit") ? 201
+        : path.endsWith("from-statement-package") ? 202 : 200,
       etag: path === "/api/v1/finance/council-model-routing-policy"
         ? '"opaque-routing-etag"' : null,
       body: responseByPath.get(path)
@@ -163,6 +183,7 @@ const signal = new AbortController().signal;
 
 await api.getAgentCenter(signal);
 await api.getRunAgents("run / 1", signal);
+await api.getCouncilPolicy(signal);
 await api.getRoutingPolicy(signal);
 await api.previewRouting("routing-preview-key", signal);
 await api.updateRouting({
@@ -201,6 +222,7 @@ await api.createRunFromPackage({
 assert.deepEqual(calls, [
   { path: "/api/v1/finance/council-agent-center", options: { signal } },
   { path: "/api/v1/finance/council-runs/run%20%2F%201/agents", options: { signal } },
+  { path: "/api/v1/finance/council-policy", options: { signal } },
   { path: "/api/v1/finance/council-model-routing-policy", options: { signal } },
   {
     path: "/api/v1/finance/council-model-routing-policy/preview",
@@ -234,7 +256,7 @@ assert.deepEqual(calls, [
     }
   },
   {
-    path: "/api/v1/finance/council-runs",
+    path: "/api/v1/finance/council-runs/from-statement-package",
     options: {
       method: "POST", idempotencyKey: "run-create-key", signal,
       body: { statementPackageId: "package-1", policyVersionId: "routing-policy-1" }

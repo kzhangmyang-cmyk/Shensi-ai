@@ -118,7 +118,8 @@ test.beforeAll(async () => {
           createdAt: "2026-08-23T00:00:00.000Z", expiresAt: null
         }, 201);
       }
-      if (method === "POST" && path === "/api/v1/finance/council-runs") {
+      if (method === "POST" && path ===
+        "/api/v1/finance/council-runs/from-statement-package") {
         return json(response, financialCouncilFixture.awaitingApproval, 202, {
           etag: '"council-run-fixture:7"'
         });
@@ -244,7 +245,8 @@ test("runs real three-report onboarding and Council inside one black shell", asy
     }))).toEqual({ clientWidth: width, scrollWidth: width });
   }
   expect(requests.some((request) => request.path.includes("statement-packages/preview"))).toBe(true);
-  expect(requests.some((request) => request.path === "/api/v1/finance/council-runs")).toBe(true);
+  expect(requests.some((request) => request.path ===
+    "/api/v1/finance/council-runs/from-statement-package")).toBe(true);
 });
 
 test("reload, route exit, and logout replace the authority lifecycle cleanly", async ({ page }) => {

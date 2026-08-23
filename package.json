@@ -25,6 +25,7 @@
     "test:financial-council": "pnpm --filter ./backend test:financial-council",
     "test:e2e": "pnpm --filter ./frontend test:e2e",
     "test:e2e:financial-council:real": "pnpm --filter ./frontend test:e2e:financial-council:real",
+    "test:e2e:financial-council:real-runtime": "pnpm --filter ./frontend test:e2e:financial-council:real-runtime",
     "test:growth-release-gate": "node --test tools/growth-dual-repo-release-gate.test.mjs",
     "release:growth": "node tools/growth-dual-repo-release-gate.mjs"
   },

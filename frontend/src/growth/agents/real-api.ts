@@ -4,6 +4,7 @@ import type {
   FinancialCouncilModelRoutePreview,
   FinancialCouncilModelRoutingPolicyInput,
   FinancialCouncilModelRoutingPolicyVersion,
+  FinancialCouncilPolicyVersion,
   FinancialCouncilRun,
   FinancialCouncilRunAgentsView,
   FinancialStatementPackageCommitInput,
@@ -13,7 +14,10 @@ import type {
   FinancialStatementUpload
 } from "../contracts";
 import type { GrowthHttpClient, GrowthHttpResponse } from "../http";
-import { validateFinancialCouncilRunResponse } from "../council/api";
+import {
+  createFinancialCouncilApi,
+  validateFinancialCouncilRunResponse
+} from "../council/api";
 
 const XLSX_MEDIA_TYPE =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -336,6 +340,7 @@ function validateStatementPackage(value: unknown): FinancialStatementPackageView
 export interface RealAgentCenterApi {
   getAgentCenter(signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilAgentCenterView>>;
   getRunAgents(runId: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilRunAgentsView>>;
+  getCouncilPolicy(signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilPolicyVersion>>;
   getRoutingPolicy(signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilModelRoutingPolicyVersion>>;
   previewRouting(idempotencyKey: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilModelRoutePreview[]>>;
   updateRouting(input: FinancialCouncilModelRoutingPolicyInput, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilModelRoutingPolicyVersion>>;
@@ -345,6 +350,7 @@ export interface RealAgentCenterApi {
 }
 
 export function createRealAgentCenterApi(http: GrowthHttpClient): RealAgentCenterApi {
+  const councilApi = createFinancialCouncilApi(http);
   const api: RealAgentCenterApi = {
     async getAgentCenter(signal) {
       const response = await http.request<unknown>(
@@ -357,6 +363,9 @@ export function createRealAgentCenterApi(http: GrowthHttpClient): RealAgentCente
         `/api/v1/finance/council-runs/${encodeURIComponent(runId)}/agents`, { signal }
       );
       return { ...response, body: validateRunAgents(response.body) };
+    },
+    getCouncilPolicy(signal) {
+      return councilApi.getPolicy(signal);
     },
     async getRoutingPolicy(signal) {
       const response = await http.request<unknown>(
@@ -412,7 +421,7 @@ export function createRealAgentCenterApi(http: GrowthHttpClient): RealAgentCente
         invalid("request");
       }
       const response = await http.request<unknown>(
-        "/api/v1/finance/council-runs",
+        "/api/v1/finance/council-runs/from-statement-package",
         { method: "POST", body, idempotencyKey, signal }
       );
       return { ...response, body: validateFinancialCouncilRunResponse(response.body) };

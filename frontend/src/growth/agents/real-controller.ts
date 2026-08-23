@@ -178,6 +178,7 @@ export function createRealAgentCenterController(
   let generation = 0;
   let destroyed = false;
   let routingEtag: string | null = null;
+  let councilPolicyVersionId: string | null = null;
 
   function publish(next: Partial<RealAgentCenterControllerState>): void {
     if (destroyed) return;
@@ -331,13 +332,15 @@ export function createRealAgentCenterController(
       const [routingKey, clearRoutingKey] = keyFor("routing-preview", {});
       publish({ busy: "loading", error: null });
       try {
-        const [readiness, policy, preview] = await Promise.all([
+        const [readiness, councilPolicy, policy, preview] = await Promise.all([
           options.api.getAgentCenter(signal),
+          options.api.getCouncilPolicy(signal),
           options.api.getRoutingPolicy(signal),
           options.api.previewRouting(routingKey, signal)
         ]);
         if (!stillCurrent(expected, "load", token)) return;
         clearRoutingKey();
+        councilPolicyVersionId = councilPolicy.body.policyVersionId;
         routingEtag = policy.etag;
         publish({
           readiness: readiness.body,
@@ -362,6 +365,7 @@ export function createRealAgentCenterController(
     operationTokens.clear();
     semanticKeys.clear();
     routingEtag = null;
+    councilPolicyVersionId = null;
     clearPrivateFiles();
     releaseSensitiveReferences();
     for (const kind of STATEMENT_KINDS) selectionRevisions[kind] += 1;
@@ -517,8 +521,8 @@ export function createRealAgentCenterController(
     },
     startCouncil() {
       const statementPackage = state.statementPackage;
-      const routingPolicy = state.routingPolicy;
-      if (!statementPackage || !routingPolicy) {
+      const formulaPolicyVersionId = councilPolicyVersionId;
+      if (!statementPackage || !formulaPolicyVersionId) {
         publish({ error: "financial_council_run_prerequisites_missing" });
         return Promise.resolve();
       }
@@ -528,7 +532,7 @@ export function createRealAgentCenterController(
       }
       const semantic = {
         statementPackageId: statementPackage.packageId,
-        policyVersionId: routingPolicy.policyVersionId
+        policyVersionId: formulaPolicyVersionId
       };
       return runOperation("create", semantic, async (expected, token, signal) => {
         const [idempotencyKey, clearKey] = keyFor("run-create", semantic);
@@ -539,7 +543,7 @@ export function createRealAgentCenterController(
           );
           if (!stillCurrent(expected, "create", token)
             || state.statementPackage?.packageId !== statementPackage.packageId
-            || state.routingPolicy?.policyVersionId !== routingPolicy.policyVersionId) return;
+            || councilPolicyVersionId !== formulaPolicyVersionId) return;
           clearKey();
           publish({ latestRun: response.body, runAgents: null, busy: null, error: null });
           const agents = await options.api.getRunAgents(response.body.runId, signal);

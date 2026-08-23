@@ -25,6 +25,7 @@ const policy = Object.freeze({
   ...routingInput, policyVersionId: "policy-1", revision: 1,
   createdAt: "2026-08-23T00:00:00.000Z"
 });
+const councilPolicy = Object.freeze({ policyVersionId: "formula-policy-1" });
 const center = Object.freeze({
   capabilities: { canApprove: true, canManageRouting: true, canRun: true },
   data: { status: "not_connected", packageId: null, companyName: null, period: null, verifiedAt: null, warningCodes: [] },
@@ -89,6 +90,7 @@ function apiFixture(overrides: Partial<RealAgentCenterApi> = {}) {
   const api: RealAgentCenterApi = {
     async getAgentCenter() { return { status: 200, etag: null, body: center } as never; },
     async getRunAgents() { return { status: 200, etag: null, body: runAgents } as never; },
+    async getCouncilPolicy() { return { status: 200, etag: null, body: councilPolicy } as never; },
     async getRoutingPolicy() { return { status: 200, etag: '"opaque-policy-etag"', body: policy } as never; },
     async previewRouting(key) { calls.previewKeys.push(key); return { status: 200, etag: null, body: previews } as never; },
     async updateRouting(_input, _etag, key) { calls.updateRouting += 1; calls.updateKeys.push(key); return { status: 200, etag: '"next-etag"', body: policy } as never; },
@@ -131,7 +133,7 @@ async function selectAll(controller: ReturnType<typeof createRealAgentCenterCont
   assert.equal(calls.createRunFromPackage, 1);
   assert.deepEqual(calls.createInputs, [{
     statementPackageId: "package-1",
-    policyVersionId: "policy-1"
+    policyVersionId: "formula-policy-1"
   }]);
   controller.destroy();
 }

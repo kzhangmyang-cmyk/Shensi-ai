@@ -137,6 +137,6 @@ MYSQL_TEST_ADMIN_URL="mysql://..." npm run test:financial-council:mysql --worksp
 
 `test:financial-council:mysql` 是真实 InnoDB 发布门禁；未配置 `MYSQL_TEST_ADMIN_URL` 时必须显式失败，不得将缺少证据记为通过。
 
-当前实现状态：财务委员会 P1–P5、工作区模型路由、三表 package onboarding 与脱敏 agent-center public surface 已实现，Growth contract 固定为 `1.0.11`（`sha256:bf569b15d0ecadd36a925e9e13d82c595489580904cce5cd9f8131a5586e68c1`）。既有基线已验证 Memory vertical（2/2）、前端 fixture E2E（10/10）、真实 InnoDB 矩阵（83/83）和无 route-intercept Chromium 纵向 E2E（1/1）；真实浏览器链路使用隔离 MySQL 库、真实 session/CSRF、Growth 路由、异步工作器与派发回执，模型输出使用确定性 test-only adapter，不代表真实模型供应商验收。本次新增 API 以 Memory/fake repository、静态/运行时 OpenAPI parity、contract、generated types 和 build 为发布证据；未配置 `MYSQL_TEST_ADMIN_URL` 时不宣称本次 latest-run/latest-package 查询或新增表已完成 live InnoDB 验收。
+当前实现状态：财务委员会 P1–P5、工作区模型路由、三表 package onboarding 与脱敏 agent-center public surface 已实现，Growth contract 固定为 `1.0.11`（`sha256:bf569b15d0ecadd36a925e9e13d82c595489580904cce5cd9f8131a5586e68c1`）。Task 8 的隔离 InnoDB 迁移/竞态（4/4）与跨两 runtime 恢复（1/1）已真实通过；真实双供应商因凭据环境缺失必须 BLOCKED，无 route-intercept Chromium 当前在 `financial_finding_invalid` 失败。因此状态为“实施完成，真实供应商验收待凭据”，不宣称全量真实验收通过。
 
 覆盖：金额换算、勾稽校验、指标计算、假利润/客户 ABC/现金流预警、知识库条目、诊断阈值（负债率/应收天数/利息保障/净现比）、两种报表格式解析与勾稽错误。

@@ -7,6 +7,10 @@ import { ensureFinancialCouncilMysqlSchema } from
   "./financial-council-mysql-repository.js";
 import { ensureFinancialCouncilPolicyMysqlSchema } from
   "./financial-council-policy-mysql-repository.js";
+import { ensureFinancialCouncilModelRoutingMysqlSchema } from
+  "./financial-council-model-routing-mysql-repository.js";
+import { ensureFinancialStatementPackageMysqlSchema } from
+  "./financial-statement-package-mysql-repository.js";
 import { ensureGrowthTemporalBarrierMysqlSchema } from
   "./growth-temporal-barrier-mysql-repository.js";
 import { ensureGrowthHttpIdempotencyMysqlSchema } from
@@ -23,15 +27,17 @@ function connectionOptions(url: URL) {
   };
 }
 
-export function requireFinancialCouncilMysqlTestAdminUrl(): URL {
+export function requireFinancialCouncilMysqlTestAdminUrl(
+  gate = "financial-council"
+): URL {
   const configured = process.env.MYSQL_TEST_ADMIN_URL?.trim();
   if (!configured) {
-    throw new Error("MYSQL_TEST_ADMIN_URL_REQUIRED:financial-council");
+    throw new Error(`MYSQL_TEST_ADMIN_URL_REQUIRED:${gate}`);
   }
   const url = new URL(configured);
   if (url.protocol !== "mysql:") {
     throw new Error(
-      "MYSQL_TEST_ADMIN_URL_REQUIRED:financial-council:mysql-protocol"
+      `MYSQL_TEST_ADMIN_URL_REQUIRED:${gate}:mysql-protocol`
     );
   }
   return url;
@@ -47,13 +53,20 @@ export interface FinancialCouncilMysqlTestDatabase {
 export interface OwnedFinancialCouncilMysqlTestDatabase {
   readonly databaseName: string;
   readonly pool: mysql.Pool;
+  openPool(): mysql.Pool;
   close(): Promise<void>;
 }
 
 export async function createFinancialCouncilMysqlTestDatabase():
-Promise<OwnedFinancialCouncilMysqlTestDatabase> {
+Promise<OwnedFinancialCouncilMysqlTestDatabase>;
+export async function createFinancialCouncilMysqlTestDatabase(options: {
+  readonly initializeSchemas?: boolean;
+}): Promise<OwnedFinancialCouncilMysqlTestDatabase>;
+export async function createFinancialCouncilMysqlTestDatabase(options: {
+  readonly initializeSchemas?: boolean;
+} = {}): Promise<OwnedFinancialCouncilMysqlTestDatabase> {
   const adminUrl = requireFinancialCouncilMysqlTestAdminUrl();
-  const databaseName = `financial_council_${process.pid}_${randomUUID()
+  const databaseName = `shensi_financial_council_${process.pid}_${randomUUID()
     .replaceAll("-", "").slice(0, 12)}`;
   const admin = await mysql.createConnection(connectionOptions(adminUrl));
   let pool: mysql.Pool | undefined;
@@ -63,19 +76,25 @@ Promise<OwnedFinancialCouncilMysqlTestDatabase> {
     await admin.query(`CREATE DATABASE \`${databaseName}\`
       CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
     created = true;
-    pool = mysql.createPool({
+    const openPool = () => mysql.createPool({
       ...connectionOptions(adminUrl), database: databaseName,
       connectionLimit: 8
     });
-    await ensureGrowthTemporalBarrierMysqlSchema(pool);
-    await ensureGrowthHttpIdempotencyMysqlSchema(pool);
-    await ensureFinancialCouncilMysqlSchema(pool);
-    await ensureFinancialCouncilPolicyMysqlSchema(pool);
-    await ensureFinancialCouncilDraftMysqlSchema(pool);
+    pool = openPool();
+    if (options.initializeSchemas !== false) {
+      await ensureGrowthTemporalBarrierMysqlSchema(pool);
+      await ensureGrowthHttpIdempotencyMysqlSchema(pool);
+      await ensureFinancialCouncilMysqlSchema(pool);
+      await ensureFinancialCouncilPolicyMysqlSchema(pool);
+      await ensureFinancialCouncilDraftMysqlSchema(pool);
+      await ensureFinancialCouncilModelRoutingMysqlSchema(pool);
+      await ensureFinancialStatementPackageMysqlSchema(pool);
+    }
     const ownedPool = pool;
     return Object.freeze({
       databaseName,
       pool: ownedPool,
+      openPool,
       close() {
         closePromise ??= (async () => {
           let failure: unknown;

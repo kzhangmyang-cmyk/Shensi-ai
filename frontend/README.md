@@ -245,4 +245,4 @@ pnpm --filter goodjob-crm-frontend run test:e2e:financial-council:real
 
 可通过 `FINANCIAL_COUNCIL_E2E_USER`、`FINANCIAL_COUNCIL_E2E_PASSWORD` 和
 `FINANCIAL_COUNCIL_E2E_DATA_AS_OF` 覆盖 test-only server 的默认账号与数据截止时间。
-未提供 `MYSQL_TEST_ADMIN_URL` 时，不能将真实 MySQL/browser 验收记为通过。当前本地发布证据为真实 InnoDB 83/83 和无 route-intercept Chromium E2E 1/1；浏览器链路使用真实 session/CSRF、Growth 路由、异步工作器与派发回执，模型输出使用确定性 test-only adapter。
+未提供 `MYSQL_TEST_ADMIN_URL` 时，不能将真实 MySQL/browser 验收记为通过。Task 8 的随机库迁移/竞态和跨 runtime 恢复已真实通过；当前无 route-intercept Chromium 三表纵向测试在 worker 的 `financial_finding_invalid` 失败，真实双供应商门禁因凭据缺失 BLOCKED。模型输出仍使用确定性 acceptance-only adapter，不代表真实供应商验收。

@@ -481,7 +481,7 @@ export async function ensureFinancialCouncilMysqlSchema(
       await connection.query(statement);
     }
     const [routingColumns] = await connection.query(
-      `SELECT column_name FROM information_schema.columns
+      `SELECT column_name AS column_name FROM information_schema.columns
        WHERE table_schema = DATABASE()
          AND table_name = 'financial_council_runs'
          AND column_name = 'model_routing_policy_version_id'`
@@ -500,7 +500,7 @@ export async function ensureFinancialCouncilMysqlSchema(
       );
     }
     const [packageColumns] = await connection.query(
-      `SELECT column_name FROM information_schema.columns
+      `SELECT column_name AS column_name FROM information_schema.columns
        WHERE table_schema = DATABASE()
          AND table_name = 'financial_council_runs'
          AND column_name IN ('statement_package_id','statement_package_hash')`

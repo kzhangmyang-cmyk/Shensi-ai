@@ -32,6 +32,8 @@ import { InMemoryFinancialCouncilPolicyRepository } from
   "./financial-council-policy-repository.js";
 import type { FinancialCouncilPolicyRepository } from
   "./financial-council-policy-repository.js";
+import type { FinancialCouncilModelRoutingRepository } from
+  "./financial-council-model-routing-repository.js";
 import { FinancialCouncilRebuttalCoordinator } from
   "./financial-council-rebuttal.js";
 import { createFinancialCouncilDispatchRuntime } from
@@ -45,6 +47,8 @@ import {
   type FinancialCouncilRepository
 } from "./financial-council-repository.js";
 import { FinancialCouncilService } from "./financial-council-service.js";
+import type { FinancialStatementPackageService } from
+  "./financial-statement-package-service.js";
 import { FinancialSnapshotBuilder } from "./financial-council-snapshot.js";
 import { FinancialCouncilSourceVerifier } from
   "./financial-council-source-verifier.js";
@@ -405,6 +409,9 @@ export async function createFinancialCouncilIntegrationFixture(options: {
   repository?: FinancialCouncilRepository;
   policyRepository?: FinancialCouncilPolicyRepository;
   draftRepository?: FinancialCouncilDraftRepository;
+  statementPackageRepository?: Pick<FinancialStatementPackageService,
+    "getVerified">;
+  modelRoutingRepository?: FinancialCouncilModelRoutingRepository;
   workspaceId?: string;
   autoWake?: boolean;
   modelDelayMs?: number;
@@ -515,6 +522,8 @@ export async function createFinancialCouncilIntegrationFixture(options: {
   });
   const service = new FinancialCouncilService({
     repository, policyRepository, snapshotBuilder, sourceVerifier, now,
+    statementPackageRepository: options.statementPackageRepository,
+    modelRoutingRepository: options.modelRoutingRepository,
     advisoryWake: options.autoWake ? pipeline : undefined
   });
   return Object.freeze({

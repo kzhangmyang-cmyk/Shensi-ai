@@ -8,6 +8,8 @@ import { createFinancialCouncilIntegrationFixture,
   "./financial-council-integration-fixtures.js";
 import { createFinancialCouncilMysqlTestDatabase } from
   "./financial-council-mysql-test-support.js";
+import { requireFinancialCouncilMysqlTestAdminUrl } from
+  "./financial-council-mysql-test-support.js";
 import { MysqlFinancialCouncilRepository } from
   "./financial-council-mysql-repository.js";
 import { MysqlFinancialCouncilPolicyRepository } from
@@ -16,6 +18,24 @@ import { MysqlFinancialCouncilDraftRepository } from
   "./financial-council-draft-mysql-repository.js";
 import { MysqlGrowthHttpIdempotencyRepository } from
   "./growth-http-idempotency-mysql-repository.js";
+import { MysqlFinancialStatementPackageRepository } from
+  "./financial-statement-package-mysql-repository.js";
+import { FinancialStatementPackageService } from
+  "./financial-statement-package-service.js";
+import { createFinancialStatementPackageRouter } from
+  "./financial-statement-package-router.js";
+import { MysqlFinancialCouncilModelRoutingRepository } from
+  "./financial-council-model-routing-mysql-repository.js";
+import { FinancialCouncilModelRoutingService } from
+  "./financial-council-model-routing-service.js";
+import { createFinancialCouncilModelRoutingPolicyVersion } from
+  "./financial-council-model-routing.js";
+import { createFinancialCouncilModelRoutingRouter } from
+  "./financial-council-model-routing-router.js";
+import { FinancialCouncilAgentCenter } from
+  "./financial-council-agent-center.js";
+import { createFinancialCouncilAgentCenterRouter } from
+  "./financial-council-agent-center-router.js";
 import { createFinancialCouncilRouter,
   createFinancialCouncilPolicyRouter } from
   "./financial-council-router.js";
@@ -45,10 +65,6 @@ export interface FinancialCouncilRealE2eContract {
   readonly schemaVersion: "financial-council-real-e2e.v1";
   readonly origin: string;
   readonly healthUrl: string;
-  readonly credentials: {
-    readonly email: string;
-    readonly password: string;
-  };
   readonly workspaceId: string;
   readonly dataAsOf: string;
   readonly csrf: {
@@ -68,10 +84,6 @@ export function financialCouncilRealE2eContract(
     schemaVersion: "financial-council-real-e2e.v1" as const,
     origin,
     healthUrl: `${origin}/healthz`,
-    credentials: Object.freeze({
-      email: FINANCIAL_COUNCIL_REAL_E2E_EMAIL,
-      password: FINANCIAL_COUNCIL_REAL_E2E_PASSWORD
-    }),
     workspaceId: FINANCIAL_COUNCIL_REAL_E2E_WORKSPACE,
     dataAsOf: FINANCIAL_COUNCIL_INTEGRATION_AS_OF,
     csrf: Object.freeze({
@@ -120,12 +132,65 @@ Promise<FinancialCouncilRealE2eServer> {
     throw new Error("FINANCIAL_COUNCIL_REAL_E2E_PORT_MUST_BE_4288");
   }
 
+  requireFinancialCouncilMysqlTestAdminUrl(
+    "financial-council-real-runtime"
+  );
+
   const database = await createFinancialCouncilMysqlTestDatabase();
   const repository = new MysqlFinancialCouncilRepository(database.pool);
   const policyRepository = new MysqlFinancialCouncilPolicyRepository(
     database.pool
   );
   const drafts = new MysqlFinancialCouncilDraftRepository(database.pool);
+  const statementPackages = new MysqlFinancialStatementPackageRepository(
+    database.pool
+  );
+  const statementService = new FinancialStatementPackageService({
+    repository: statementPackages,
+    now: () => "2026-08-16T08:09:00.000Z"
+  });
+  const e2eStatementService = Object.freeze({
+    async preview(...args: Parameters<typeof statementService.preview>) {
+      try { return await statementService.preview(...args); }
+      catch (error) {
+        console.error(JSON.stringify({
+          event: "financial_council_real_e2e_statement_preview_failed",
+          code: typeof (error as { code?: unknown })?.code === "string"
+            ? (error as { code: string }).code : "UNCLASSIFIED"
+        }));
+        throw error;
+      }
+    },
+    commit: statementService.commit.bind(statementService),
+    getPreview: statementService.getPreview.bind(statementService),
+    getVerified: statementService.getVerified.bind(statementService)
+  });
+  const modelRouting = new MysqlFinancialCouncilModelRoutingRepository(
+    database.pool
+  );
+  const runtimeConnections = Object.freeze([
+    Object.freeze({ id: "acceptance-openai", ownerId: "u_admin",
+      teamId: FINANCIAL_COUNCIL_REAL_E2E_WORKSPACE, provider: "openai" as const,
+      model: "acceptance-openai-structured", credentialVersion: 1,
+      capabilitySnapshot: Object.freeze({ structuredOutput: true,
+        toolCalling: false, parallelToolCalling: false, streaming: false,
+        modelListing: false }),
+      capabilityCertificationHash: `sha256:${"a".repeat(64)}`,
+      status: "active" as const, createdAt: FINANCIAL_COUNCIL_INTEGRATION_AS_OF,
+      updatedAt: FINANCIAL_COUNCIL_INTEGRATION_AS_OF }),
+    Object.freeze({ id: "acceptance-deepseek", ownerId: "u_admin",
+      teamId: FINANCIAL_COUNCIL_REAL_E2E_WORKSPACE,
+      provider: "deepseek" as const,
+      model: "acceptance-deepseek-structured", credentialVersion: 1,
+      capabilitySnapshot: Object.freeze({ structuredOutput: true,
+        toolCalling: false, parallelToolCalling: false, streaming: false,
+        modelListing: false }),
+      capabilityCertificationHash: `sha256:${"b".repeat(64)}`,
+      status: "active" as const, createdAt: FINANCIAL_COUNCIL_INTEGRATION_AS_OF,
+      updatedAt: FINANCIAL_COUNCIL_INTEGRATION_AS_OF })
+  ]);
+  const runtimeState = () => Object.freeze({ connections: runtimeConnections,
+    recentCalls: Object.freeze([]) });
   let fixture: Awaited<ReturnType<
     typeof createFinancialCouncilIntegrationFixture
   >>;
@@ -134,9 +199,11 @@ Promise<FinancialCouncilRealE2eServer> {
       repository,
       policyRepository,
       draftRepository: drafts,
+      statementPackageRepository: e2eStatementService,
+      modelRoutingRepository: modelRouting,
       workspaceId: FINANCIAL_COUNCIL_REAL_E2E_WORKSPACE,
       autoWake: true,
-      modelDelayMs: 1_750,
+      modelDelayMs: 25,
       formulaMinimumCashReserveMinor: 150_000_000,
       logger: {
         error(event) {
@@ -170,21 +237,76 @@ Promise<FinancialCouncilRealE2eServer> {
     }),
     expectedRevision: initialPolicy.revision
   }), financialCouncilIntegrationPolicyInput());
+  const roleRoute = () => Object.freeze({ mode: "auto" as const,
+    primaryConnectionId: null, fallbackConnectionIds: Object.freeze([]),
+    preferenceWeightBps: 0 });
+  const routingInput = Object.freeze({
+    roles: Object.freeze({ cfo: roleRoute(), finance: roleRoute(),
+      profit: roleRoute(), cost: roleRoute(), cashflow: roleRoute(),
+      tax: roleRoute() }),
+    maxRunBudgetMinor: 100_000, maxRoleBudgetMinor: 20_000,
+    requestTimeoutMs: 30_000
+  });
+  await modelRouting.put(Object.freeze({ workspace: policyWorkspace,
+    actorId: policyWorkspace.actorId,
+    idempotencyKey: "financial-council-real-e2e-routing",
+    requestHash: financialCouncilCanonicalHash({
+      purpose: "financial-council-real-e2e-routing"
+    }), expectedRevision: null }),
+  createFinancialCouncilModelRoutingPolicyVersion({
+    policyVersionId: "financial-council-real-e2e-routing-v1",
+    workspaceId: policyWorkspace.workspaceId, revision: 1, status: "active",
+    input: routingInput, createdBy: policyWorkspace.actorId,
+    createdAt: FINANCIAL_COUNCIL_INTEGRATION_AS_OF
+  }));
   fixture.dispatch.start();
   const httpIdempotency = new MysqlGrowthHttpIdempotencyRepository(
     database.pool
   );
+  const routingService = new FinancialCouncilModelRoutingService({
+    repository: modelRouting, runtimeState
+  });
+  const agentCenter = new FinancialCouncilAgentCenter({
+    latestPackage: statementPackages, latestRun: repository,
+    routing: modelRouting, runtimeState
+  });
   const service = fixture.service;
   const routerService = Object.freeze({
     async createRun(...args: Parameters<typeof service.createRun>) {
-      const created = await service.createRun(...args);
+      let created;
+      try { created = await service.createRun(...args); }
+      catch (error) {
+        console.error(JSON.stringify({
+          event: "financial_council_real_e2e_create_run_failed",
+          code: typeof (error as { code?: unknown })?.code === "string"
+            ? (error as { code: string }).code : "UNCLASSIFIED",
+          kind: error instanceof Error ? error.name : "unknown"
+        }));
+        throw error;
+      }
       await waitUntilProjectable(() => service.getRun(
         args[0].workspace, created.value.runId
       ));
       return created;
     },
-    createRunFromStatementPackage:
-      service.createRunFromStatementPackage.bind(service),
+    async createRunFromStatementPackage(...args: Parameters<
+      typeof service.createRunFromStatementPackage>) {
+      try {
+        const created = await service.createRunFromStatementPackage(...args);
+        await waitUntilProjectable(() => service.getRun(
+          args[0].workspace, created.value.runId
+        ));
+        return created;
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: "financial_council_real_e2e_create_package_run_failed",
+          code: typeof (error as { code?: unknown })?.code === "string"
+            ? (error as { code: string }).code : "UNCLASSIFIED",
+          kind: error instanceof Error ? error.name : "unknown"
+        }));
+        throw error;
+      }
+    },
     getRun: service.getRun.bind(service),
     listEvents: service.listEvents.bind(service),
     revisePortfolio: service.revisePortfolio.bind(service),
@@ -213,6 +335,19 @@ Promise<FinancialCouncilRealE2eServer> {
       router.use("/api/v1/finance/council-policy",
         createFinancialCouncilPolicyRouter({
           ...shared, service: policyService
+        }));
+      router.use("/api/v1/finance/statement-packages",
+        createFinancialStatementPackageRouter({
+          ...shared, service: e2eStatementService,
+          now: () => "2026-08-16T08:09:00.000Z"
+        }));
+      router.use("/api/v1/finance/council-model-routing-policy",
+        createFinancialCouncilModelRoutingRouter({
+          ...shared, service: routingService
+        }));
+      router.use("/api/v1/finance",
+        createFinancialCouncilAgentCenterRouter({
+          workspaceContext: activeWorkspace, center: agentCenter
         }));
       return Object.freeze({ close: () => fixture.close() });
     }
