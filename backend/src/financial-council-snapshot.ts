@@ -18,6 +18,8 @@ import {
   financialCouncilError,
   immutableFinancialCouncilInput,
   immutableFinancialCouncilValue,
+  LEGACY_TRUSTED_STATEMENT_PACKAGE_HASH,
+  LEGACY_TRUSTED_STATEMENT_PACKAGE_ID,
   type FinancialCouncilRun
 } from "./financial-council-domain.js";
 import { assertGrowthAsOfNotFuture } from "./growth-as-of.js";
@@ -33,15 +35,27 @@ export type FinancialCouncilSourceKind =
   | "business_report"
   | "crm"
   | "financial_fact"
+  | "financial_statement_package"
   | "quote"
   | "roi";
 
-export interface FinancialCouncilSourceRef {
-  readonly kind: FinancialCouncilSourceKind;
+export interface FinancialCouncilLegacySourceRef {
+  readonly kind: Exclude<FinancialCouncilSourceKind,
+  "financial_statement_package">;
   readonly sourceId: string;
   readonly version: string | number;
   readonly contentHash: `sha256:${string}`;
 }
+
+export interface FinancialStatementPackageSourceRef {
+  readonly kind: "financial_statement_package";
+  readonly sourceId: string;
+  readonly sourceVersion: "financial-statements.v2";
+  readonly snapshotHash: `sha256:${string}`;
+}
+
+export type FinancialCouncilSourceRef = FinancialCouncilLegacySourceRef
+  | FinancialStatementPackageSourceRef;
 
 export interface FinancialSnapshot {
   readonly snapshotId: string;
@@ -51,6 +65,8 @@ export interface FinancialSnapshot {
   readonly currency: string;
   readonly report: NormalizedBusinessReport;
   readonly reportInputHash: `sha256:${string}`;
+  readonly statementPackageId: string;
+  readonly statementPackageHash: `sha256:${string}`;
   readonly authority: FinancialCouncilAuthoritySnapshot;
   readonly formulaInputs: FinancialCouncilFormulaInputs;
   readonly dataGaps: readonly FinancialCouncilDataGap[];
@@ -160,7 +176,8 @@ function projectFormulaInputs(
     paymentDays: row.paymentDays,
     grade: row.grade
   })).sort((left, right) => compare(left.name, right.name));
-  const cashflow = report.cashFlow ? Object.freeze({
+  const cashflow = report.cashFlow
+    && !("forecast" in report.cashFlow) ? Object.freeze({
     status: "computed" as const,
     next30DaysNetMinor: result.cashflow.next30DaysNetMinor,
     next90DaysNetMinor: result.cashflow.next90DaysNetMinor,
@@ -232,6 +249,13 @@ function snapshotGaps(
       sourceId: null,
       description: "cash_flow_missing"
     });
+  } else if ("forecast" in report.cashFlow) {
+    gaps.push({
+      code: "import_requires_review",
+      source: "business_report",
+      sourceId: null,
+      description: "cash_forecast_not_computable"
+    });
   }
   if (authority.expectedRoi.length === 0) {
     gaps.push({
@@ -274,12 +298,21 @@ function snapshotGaps(
 
 function sourceRefs(
   reportInputHash: `sha256:${string}`,
-  authority: FinancialCouncilAuthoritySnapshot
+  authority: FinancialCouncilAuthoritySnapshot,
+  statementPackage: { readonly statementPackageId: string;
+    readonly statementPackageHash: `sha256:${string}` } = {
+      statementPackageId: LEGACY_TRUSTED_STATEMENT_PACKAGE_ID,
+      statementPackageHash: LEGACY_TRUSTED_STATEMENT_PACKAGE_HASH
+    }
 ): readonly FinancialCouncilSourceRef[] {
-  const refs: FinancialCouncilSourceRef[] = [{
-    kind: "business_report", sourceId: "business-report", version: 1,
-    contentHash: reportInputHash
-  }, {
+  const refs: FinancialCouncilSourceRef[] = [
+    statementPackage.statementPackageId === LEGACY_TRUSTED_STATEMENT_PACKAGE_ID
+      ? { kind: "business_report", sourceId: "business-report", version: 1,
+          contentHash: reportInputHash }
+      : { kind: "financial_statement_package",
+          sourceId: statementPackage.statementPackageId,
+          sourceVersion: "financial-statements.v2",
+          snapshotHash: statementPackage.statementPackageHash }, {
     kind: "crm", sourceId: "growth-advisor-today", version: 1,
     contentHash: authority.sourceSnapshotHash
   }];
@@ -351,7 +384,7 @@ function snapshotString(value: unknown, nullable = false): void {
 const SNAPSHOT_HASH = /^sha256:[0-9a-f]{64}$/u;
 const SNAPSHOT_SOURCE_KINDS = new Set<FinancialCouncilSourceKind>([
   "acquisition_cost", "business_report", "crm", "financial_fact", "quote",
-  "roi"
+  "roi", "financial_statement_package"
 ]);
 const SNAPSHOT_GAP_CODES = new Set<FinancialCouncilDataGap["code"]>([
   "unverified_cost", "unverified_financial_fact", "missing_cogs",
@@ -479,10 +512,13 @@ export function validateFinancialSnapshot(value: unknown): FinancialSnapshot {
   const stable = immutableFinancialCouncilInput(value) as unknown;
   exactSnapshotObject(stable, ["snapshotId", "runId", "workspaceId",
     "dataAsOf", "currency", "report", "reportInputHash", "authority",
-    "formulaInputs", "dataGaps", "sourceRefs", "snapshotHash"]);
+    "statementPackageId", "statementPackageHash", "formulaInputs", "dataGaps",
+    "sourceRefs", "snapshotHash"]);
   for (const key of ["snapshotId", "runId", "workspaceId", "dataAsOf",
   ] as const) snapshotNonemptyString(stable[key]);
   assertSnapshotHash(stable.reportInputHash);
+  snapshotNonemptyString(stable.statementPackageId);
+  assertSnapshotHash(stable.statementPackageHash);
   assertSnapshotHash(stable.snapshotHash);
   if (stable.currency !== "CNY" && stable.currency !== "USD") snapshotError();
   exactSnapshotObject(stable.report, ["currency", "companyName", "period",
@@ -525,6 +561,15 @@ export function validateFinancialSnapshot(value: unknown): FinancialSnapshot {
     if (order >= 0) snapshotError();
   }
   snapshotRows(stable.sourceRefs, (row) => {
+    if ((row as Record<string, unknown>).kind ===
+      "financial_statement_package") {
+      exactSnapshotObject(row, ["kind", "sourceId", "sourceVersion",
+        "snapshotHash"]);
+      snapshotNonemptyString(row.sourceId);
+      if (row.sourceVersion !== "financial-statements.v2") snapshotError();
+      assertSnapshotHash(row.snapshotHash);
+      return;
+    }
     exactSnapshotObject(row, ["kind", "sourceId", "version", "contentHash"]);
     if (!SNAPSHOT_SOURCE_KINDS.has(row.kind as FinancialCouncilSourceKind)) {
       snapshotError();
@@ -537,7 +582,10 @@ export function validateFinancialSnapshot(value: unknown): FinancialSnapshot {
     assertSnapshotHash(row.contentHash);
   });
   const expectedRefs = sourceRefs(
-    stable.reportInputHash as `sha256:${string}`, authority
+    stable.reportInputHash as `sha256:${string}`, authority, {
+      statementPackageId: stable.statementPackageId as string,
+      statementPackageHash: stable.statementPackageHash as `sha256:${string}`
+    }
   );
   if (financialCouncilCanonicalHash(stable.sourceRefs)
     !== financialCouncilCanonicalHash(expectedRefs)) snapshotError();
@@ -552,7 +600,8 @@ const SNAPSHOT_PROVENANCE_ADVISOR = createBusinessAdvisorService();
 export function validateFinancialSnapshotForRun(
   value: unknown,
   run: Pick<FinancialCouncilRun, "runId" | "workspaceId" | "dataAsOf"
-    | "currency" | "businessReport" | "snapshotId" | "snapshotHash">
+    | "currency" | "businessReport" | "statementPackageId"
+    | "statementPackageHash" | "snapshotId" | "snapshotHash">
 ): FinancialSnapshot {
   const snapshot = validateFinancialSnapshot(value);
   let businessReport: FinancialCouncilCreateInput["businessReport"];
@@ -569,7 +618,9 @@ export function validateFinancialSnapshotForRun(
     SNAPSHOT_PROVENANCE_ADVISOR.analyze(businessReport), businessReport
   );
   const dataGaps = snapshotGaps(businessReport, snapshot.authority);
-  const refs = sourceRefs(reportInputHash, snapshot.authority);
+  const statementPackage = { statementPackageId: run.statementPackageId,
+    statementPackageHash: run.statementPackageHash };
+  const refs = sourceRefs(reportInputHash, snapshot.authority, statementPackage);
   const identity = {
     runId: run.runId,
     workspaceId: run.workspaceId,
@@ -577,6 +628,7 @@ export function validateFinancialSnapshotForRun(
     currency: run.currency,
     report,
     reportInputHash,
+    ...statementPackage,
     authority: snapshot.authority,
     formulaInputs,
     dataGaps,
@@ -607,7 +659,11 @@ export class FinancialSnapshotBuilder {
   async freeze(
     command: CommandContext,
     runId: string,
-    rawInput: FinancialCouncilCreateInput
+    rawInput: FinancialCouncilCreateInput,
+    statementPackage: { readonly statementPackageId: string;
+      readonly statementPackageHash: `sha256:${string}` }
+      = { statementPackageId: LEGACY_TRUSTED_STATEMENT_PACKAGE_ID,
+        statementPackageHash: LEGACY_TRUSTED_STATEMENT_PACKAGE_HASH }
   ): Promise<FinancialSnapshot> {
     const input = exactCreateInput(rawInput);
     const workspaceId = command?.workspace?.workspaceId?.trim();
@@ -641,7 +697,7 @@ export class FinancialSnapshotBuilder {
       return snapshotError("financial_council_authority_workspace_mismatch");
     }
     const dataGaps = snapshotGaps(input.businessReport, authority);
-    const refs = sourceRefs(reportInputHash, authority);
+    const refs = sourceRefs(reportInputHash, authority, statementPackage);
     const identity = {
       runId,
       workspaceId,
@@ -649,6 +705,7 @@ export class FinancialSnapshotBuilder {
       currency: input.currency,
       report,
       reportInputHash,
+      ...statementPackage,
       authority,
       formulaInputs,
       dataGaps,

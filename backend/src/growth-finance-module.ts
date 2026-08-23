@@ -52,6 +52,13 @@ import type { FinanceImportRecoveryAuthorizer } from "./finance-import-worker.js
 import type { CommercialBindingVerifier } from "./commercial-binding-snapshot.js";
 import type { DealAuthoritativeQuoteReader } from "./authoritative-quote-reader.js";
 import { ensureFinanceImportMysqlSchema } from "./finance-import-mysql-repository.js";
+import { FinancialStatementPackageService } from
+  "./financial-statement-package-service.js";
+import { InMemoryFinancialStatementPackageRepository } from
+  "./financial-statement-package-repository.js";
+import { MysqlFinancialStatementPackageRepository,
+  ensureFinancialStatementPackageMysqlSchema } from
+  "./financial-statement-package-mysql-repository.js";
 
 export interface GrowthFinanceServices {
   readonly costLedger: AcquisitionCostLedgerService;
@@ -59,6 +66,7 @@ export interface GrowthFinanceServices {
   readonly imports: FinanceImportService;
   readonly verifiedAsOf: VerifiedFinancialLedgerSealedReader;
   readonly financialGaps: FinancialDataGapSealedReader;
+  readonly statementPackages?: FinancialStatementPackageService;
 }
 
 export const GROWTH_FINANCE_SERVICES =
@@ -128,6 +136,7 @@ export function createGrowthFinanceModule(
           | MysqlFinanceImportRepository;
         if (options.mode === "mysql") {
           await ensureFinanceImportMysqlSchema(options.pool);
+          await ensureFinancialStatementPackageMysqlSchema(options.pool);
           const mysqlLedger = new MysqlFinancialLedgerRepository(options.pool);
           ledgerRepository = mysqlLedger;
           verifiedAsOf = new MysqlVerifiedFinancialLedgerSealedReader(
@@ -165,12 +174,19 @@ export function createGrowthFinanceModule(
           now: options.now
         });
         const financialGaps = new EmptyFinancialDataGapSealedReader();
+        const statementPackageRepository = options.mode === "mysql"
+          ? new MysqlFinancialStatementPackageRepository(options.pool)
+          : new InMemoryFinancialStatementPackageRepository();
+        const statementPackages = new FinancialStatementPackageService({
+          repository: statementPackageRepository, now: options.now
+        });
         input.privateServices.provide(GROWTH_FINANCE_SERVICES, Object.freeze({
           costLedger,
           financialFacts,
           imports,
           verifiedAsOf,
-          financialGaps
+          financialGaps,
+          statementPackages
         }));
         worker = new FinanceImportWorker({
           repository: importRepository,

@@ -50,6 +50,12 @@ import type { FinancialCouncilModelRoutingRepository } from
   "./financial-council-model-routing-repository.js";
 import { LEGACY_UNROUTABLE_FINANCIAL_COUNCIL_MODEL_POLICY } from
   "./financial-council-model-selection.js";
+import type { FinancialStatementPackageService } from
+  "./financial-statement-package-service.js";
+import {
+  LEGACY_TRUSTED_STATEMENT_PACKAGE_HASH,
+  LEGACY_TRUSTED_STATEMENT_PACKAGE_ID
+} from "./financial-council-domain.js";
 
 export interface FinancialCouncilWakeSink {
   wake(run: FinancialCouncilRun): Promise<void>;
@@ -59,6 +65,8 @@ export interface FinancialCouncilServiceDependencies {
   readonly repository: FinancialCouncilRepository;
   readonly modelRoutingRepository?: Pick<
     FinancialCouncilModelRoutingRepository, "getCurrent">;
+  readonly statementPackageRepository?: Pick<
+    FinancialStatementPackageService, "getVerified">;
   readonly policyRepository?: FinancialCouncilPolicyRepository;
   readonly snapshotBuilder: Pick<FinancialSnapshotBuilder, "freeze">;
   readonly advisoryWake?: FinancialCouncilWakeSink;
@@ -103,7 +111,7 @@ function requestHash(value: string): `sha256:${string}` {
 }
 
 export type FinancialCouncilPublicRun = Omit<FinancialCouncilRun,
-"modelRoutingPolicyVersionId">;
+"modelRoutingPolicyVersionId" | "statementPackageId" | "statementPackageHash">;
 
 export type FinancialCouncilPublicRunEvent = Omit<FinancialCouncilRunEvent,
 "aggregateSnapshot"> & {
@@ -113,7 +121,9 @@ export type FinancialCouncilPublicRunEvent = Omit<FinancialCouncilRunEvent,
 function stripInternalRouting(
   run: FinancialCouncilRun
 ): FinancialCouncilPublicRun {
-  const { modelRoutingPolicyVersionId: _internal, ...projection } = run;
+  const { modelRoutingPolicyVersionId: _internal,
+    statementPackageId: _packageId,
+    statementPackageHash: _packageHash, ...projection } = run;
   return immutableFinancialCouncilValue(projection);
 }
 
@@ -232,6 +242,45 @@ export class FinancialCouncilService {
     command: CommandContext,
     rawInput: FinancialCouncilCreateInput
   ) {
+    return this.createRunInternal(command, rawInput, {
+      statementPackageId: LEGACY_TRUSTED_STATEMENT_PACKAGE_ID,
+      statementPackageHash: LEGACY_TRUSTED_STATEMENT_PACKAGE_HASH
+    });
+  }
+
+  async createRunFromStatementPackage(
+    command: CommandContext,
+    rawInput: { readonly statementPackageId: string;
+      readonly policyVersionId: string }
+  ) {
+    authorize(command?.workspace);
+    if (!rawInput || Object.keys(rawInput).sort().join("\0") !==
+      ["statementPackageId", "policyVersionId"].sort().join("\0")
+      || typeof rawInput.statementPackageId !== "string"
+      || !rawInput.statementPackageId.trim()
+      || typeof rawInput.policyVersionId !== "string"
+      || !rawInput.policyVersionId.trim()
+      || !this.dependencies.statementPackageRepository) {
+      throw financialCouncilError("financial_statement_package_invalid");
+    }
+    const statementPackage = await this.dependencies.statementPackageRepository
+      .getVerified({ workspaceId: command.workspace.workspaceId,
+        actorId: command.actorId }, rawInput.statementPackageId);
+    return this.createRunInternal(command, {
+      currency: statementPackage.currency,
+      dataAsOf: statementPackage.createdAt,
+      businessReport: statementPackage.businessReport,
+      policyVersionId: rawInput.policyVersionId
+    }, { statementPackageId: statementPackage.packageId,
+      statementPackageHash: statementPackage.packageHash });
+  }
+
+  private async createRunInternal(
+    command: CommandContext,
+    rawInput: FinancialCouncilCreateInput,
+    statementPackage: { readonly statementPackageId: string;
+      readonly statementPackageHash: `sha256:${string}` }
+  ) {
     authorize(command?.workspace);
     if (command.actorId !== command.workspace.actorId
       || command.expectedRevision !== null) {
@@ -274,7 +323,7 @@ export class FinancialCouncilService {
     }
     const createdAt = instant(this.now());
     const snapshot = await this.dependencies.snapshotBuilder.freeze(
-      command, runId, input
+      command, runId, input, statementPackage
     );
     const aggregate = immutableFinancialCouncilValue({
       runId,
@@ -289,6 +338,8 @@ export class FinancialCouncilService {
       policyVersionId: input.policyVersionId,
       modelRoutingPolicyVersionId: routingPolicy?.policyVersionId
         ?? LEGACY_UNROUTABLE_FINANCIAL_COUNCIL_MODEL_POLICY,
+      statementPackageId: statementPackage.statementPackageId,
+      statementPackageHash: statementPackage.statementPackageHash,
       snapshotId: null,
       snapshotHash: null,
       consensusReport: null,

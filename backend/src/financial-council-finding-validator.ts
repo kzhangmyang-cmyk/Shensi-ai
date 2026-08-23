@@ -224,9 +224,11 @@ function sourceEvidence(
   snapshot: FinancialSnapshot
 ): readonly FinancialCouncilEvidenceRef[] {
   return Object.freeze(snapshot.sourceRefs.map((ref) => Object.freeze({
-    source: ref.kind,
+    source: ref.kind === "financial_statement_package"
+      ? "business_report" : ref.kind,
     sourceId: ref.sourceId,
-    contentHash: ref.contentHash
+    contentHash: ref.kind === "financial_statement_package"
+      ? ref.snapshotHash : ref.contentHash
   })));
 }
 

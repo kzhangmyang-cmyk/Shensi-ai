@@ -102,6 +102,10 @@ export const FINANCIAL_COUNCIL_MYSQL_SCHEMA_STATEMENTS = Object.freeze([
     request_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     model_routing_policy_version_id VARCHAR(255)
       CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    statement_package_id VARCHAR(255)
+      CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    statement_package_hash CHAR(71)
+      CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     revision BIGINT UNSIGNED NOT NULL,
     status VARCHAR(32) NOT NULL,
     snapshot_id VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL,
@@ -495,6 +499,42 @@ export async function ensureFinancialCouncilMysqlSchema(
            CHARACTER SET ascii COLLATE ascii_bin NOT NULL`
       );
     }
+    const [packageColumns] = await connection.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = DATABASE()
+         AND table_name = 'financial_council_runs'
+         AND column_name IN ('statement_package_id','statement_package_hash')`
+    );
+    const packageColumnNames = new Set((packageColumns as MysqlRow[])
+      .map((row) => String(row.column_name)));
+    if (!packageColumnNames.has("statement_package_id")) {
+      await connection.query(
+        `ALTER TABLE financial_council_runs
+         ADD COLUMN statement_package_id VARCHAR(255)
+           CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL
+           DEFAULT 'trusted-legacy-financial-statement-fixture'
+           AFTER model_routing_policy_version_id`
+      );
+      await connection.query(
+        `ALTER TABLE financial_council_runs
+         MODIFY COLUMN statement_package_id VARCHAR(255)
+           CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL`
+      );
+    }
+    if (!packageColumnNames.has("statement_package_hash")) {
+      await connection.query(
+        `ALTER TABLE financial_council_runs
+         ADD COLUMN statement_package_hash CHAR(71)
+           CHARACTER SET ascii COLLATE ascii_bin NOT NULL
+           DEFAULT 'sha256:0000000000000000000000000000000000000000000000000000000000000000'
+           AFTER statement_package_id`
+      );
+      await connection.query(
+        `ALTER TABLE financial_council_runs
+         MODIFY COLUMN statement_package_hash CHAR(71)
+           CHARACTER SET ascii COLLATE ascii_bin NOT NULL`
+      );
+    }
   } finally {
     if (acquired) {
       try {
@@ -694,6 +734,7 @@ const RUN_KEYS = [
   "runId", "workspaceId", "creationKeyHash", "requestHash", "currency",
   "status", "revision", "dataAsOf", "businessReport", "policyVersionId",
   "modelRoutingPolicyVersionId",
+  "statementPackageId", "statementPackageHash",
   "snapshotId", "snapshotHash", "consensusReport", "portfolios",
   "latestPortfolioRevision", "approval", "createdAt", "updatedAt", "expiresAt"
 ] as const;
@@ -732,6 +773,8 @@ function parseRun(row: MysqlRow): FinancialCouncilRun {
       || aggregate.requestHash !== rowString(row, "request_hash")
       || aggregate.modelRoutingPolicyVersionId !==
         rowString(row, "model_routing_policy_version_id")
+      || aggregate.statementPackageId !== rowString(row, "statement_package_id")
+      || aggregate.statementPackageHash !== rowString(row, "statement_package_hash")
       || aggregate.revision !== rowInteger(row, "revision")
       || aggregate.status !== rowString(row, "status")
       || aggregate.snapshotId !== rowNullableString(row, "snapshot_id")
@@ -754,6 +797,10 @@ function parseEvent(row: MysqlRow): FinancialCouncilRunEvent {
       request_hash: jsonObject(row.aggregate_snapshot_json).requestHash,
       model_routing_policy_version_id:
         jsonObject(row.aggregate_snapshot_json).modelRoutingPolicyVersionId,
+      statement_package_id:
+        jsonObject(row.aggregate_snapshot_json).statementPackageId,
+      statement_package_hash:
+        jsonObject(row.aggregate_snapshot_json).statementPackageHash,
       revision: row.revision,
       status: row.to_status,
       snapshot_id: jsonObject(row.aggregate_snapshot_json).snapshotId,
@@ -1118,11 +1165,13 @@ implements FinancialCouncilRepository {
         await connection.query(
           `INSERT INTO financial_council_runs (
              run_id, workspace_id, creation_key_hash, request_hash,
-             model_routing_policy_version_id, revision,
+             model_routing_policy_version_id, statement_package_id,
+             statement_package_hash, revision,
              status, snapshot_id, snapshot_hash, run_json
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [frozen.runId, frozen.workspaceId, frozen.creationKeyHash,
             frozen.requestHash, frozen.modelRoutingPolicyVersionId,
+            frozen.statementPackageId, frozen.statementPackageHash,
             frozen.revision, frozen.status,
             frozen.snapshotId, frozen.snapshotHash, canonical(frozen)]
         );
@@ -1218,11 +1267,13 @@ implements FinancialCouncilRepository {
         await connection.query(
           `INSERT INTO financial_council_runs (
              run_id, workspace_id, creation_key_hash, request_hash,
-             model_routing_policy_version_id, revision,
+             model_routing_policy_version_id, statement_package_id,
+             statement_package_hash, revision,
              status, snapshot_id, snapshot_hash, run_json
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [stored.runId, stored.workspaceId, stored.creationKeyHash,
             stored.requestHash, stored.modelRoutingPolicyVersionId,
+            stored.statementPackageId, stored.statementPackageHash,
             stored.revision, stored.status,
             stored.snapshotId, stored.snapshotHash, canonical(stored)]
         );

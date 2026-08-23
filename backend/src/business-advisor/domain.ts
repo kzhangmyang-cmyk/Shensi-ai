@@ -48,7 +48,26 @@ export interface ReceivableInput {
   readonly daysOutstanding: number;
 }
 
-export interface CashFlowInput {
+export interface CashFlowForecastValues {
+  readonly expectedInflowsNext30DaysMinor: number;
+  readonly expectedOutflowsNext30DaysMinor: number;
+  readonly expectedInflowsNext31To90DaysMinor: number;
+  readonly expectedOutflowsNext31To90DaysMinor: number;
+  readonly forecast?: never;
+}
+
+export interface CashFlowForecastNotComputable {
+  readonly forecast: {
+    readonly status: "not_computable";
+    readonly reason: "source_statements_do_not_provide_forecast";
+  };
+  readonly expectedInflowsNext30DaysMinor?: never;
+  readonly expectedOutflowsNext30DaysMinor?: never;
+  readonly expectedInflowsNext31To90DaysMinor?: never;
+  readonly expectedOutflowsNext31To90DaysMinor?: never;
+}
+
+export type CashFlowInput = {
   readonly period: string;
   readonly openingCashMinor: number;
   readonly operatingInflowMinor: number;
@@ -56,11 +75,7 @@ export interface CashFlowInput {
   readonly investingNetMinor: number;
   readonly financingNetMinor: number;
   readonly receivables?: readonly ReceivableInput[];
-  readonly expectedInflowsNext30DaysMinor: number;
-  readonly expectedOutflowsNext30DaysMinor: number;
-  readonly expectedInflowsNext31To90DaysMinor: number;
-  readonly expectedOutflowsNext31To90DaysMinor: number;
-}
+} & (CashFlowForecastValues | CashFlowForecastNotComputable);
 
 export interface CostDetailInput {
   readonly materialCostRateBps: number;
@@ -278,11 +293,10 @@ export function canonicalBusinessReportInput(
   if (root.cashFlow !== undefined && root.cashFlow !== null) {
     const cash = requireBusinessRecord(root.cashFlow, [
       "period", "openingCashMinor", "operatingInflowMinor",
-      "operatingOutflowMinor", "investingNetMinor", "financingNetMinor",
-      "expectedInflowsNext30DaysMinor", "expectedOutflowsNext30DaysMinor",
-      "expectedInflowsNext31To90DaysMinor",
-      "expectedOutflowsNext31To90DaysMinor"
-    ], ["receivables"]);
+      "operatingOutflowMinor", "investingNetMinor", "financingNetMinor"
+    ], ["receivables", "forecast", "expectedInflowsNext30DaysMinor",
+      "expectedOutflowsNext30DaysMinor", "expectedInflowsNext31To90DaysMinor",
+      "expectedOutflowsNext31To90DaysMinor"]);
     const receivables = cash.receivables === undefined
       ? undefined
       : canonicalRows(requireBusinessArray(
@@ -297,6 +311,24 @@ export function canonicalBusinessReportInput(
             daysOutstanding: requireBusinessInteger(row.daysOutstanding, "receivable.daysOutstanding")
           });
         }));
+    const forecast = cash.forecast === undefined ? null
+      : requireBusinessRecord(cash.forecast, ["status", "reason"]);
+    const unavailable = forecast !== null;
+    if (unavailable) {
+      if (forecast.status !== "not_computable"
+        || forecast.reason !== "source_statements_do_not_provide_forecast"
+        || cash.expectedInflowsNext30DaysMinor !== undefined
+        || cash.expectedOutflowsNext30DaysMinor !== undefined
+        || cash.expectedInflowsNext31To90DaysMinor !== undefined
+        || cash.expectedOutflowsNext31To90DaysMinor !== undefined) {
+        throw businessAdvisorError("business_input_invalid", "cashFlow.forecast invalid");
+      }
+    } else if ([cash.expectedInflowsNext30DaysMinor,
+      cash.expectedOutflowsNext30DaysMinor,
+      cash.expectedInflowsNext31To90DaysMinor,
+      cash.expectedOutflowsNext31To90DaysMinor].some((value) => value === undefined)) {
+      throw businessAdvisorError("business_input_invalid", "cashFlow.forecast invalid");
+    }
     cashFlow = Object.freeze({
       period: requireBusinessText(cash.period, "cashFlow.period"),
       openingCashMinor: requireBusinessInteger(cash.openingCashMinor, "cashFlow.openingCashMinor"),
@@ -305,11 +337,16 @@ export function canonicalBusinessReportInput(
       investingNetMinor: requireBusinessInteger(cash.investingNetMinor, "cashFlow.investingNetMinor", true),
       financingNetMinor: requireBusinessInteger(cash.financingNetMinor, "cashFlow.financingNetMinor", true),
       ...(receivables === undefined ? {} : { receivables }),
-      expectedInflowsNext30DaysMinor: requireBusinessInteger(cash.expectedInflowsNext30DaysMinor, "cashFlow.expectedInflowsNext30DaysMinor"),
-      expectedOutflowsNext30DaysMinor: requireBusinessInteger(cash.expectedOutflowsNext30DaysMinor, "cashFlow.expectedOutflowsNext30DaysMinor"),
-      expectedInflowsNext31To90DaysMinor: requireBusinessInteger(cash.expectedInflowsNext31To90DaysMinor, "cashFlow.expectedInflowsNext31To90DaysMinor"),
-      expectedOutflowsNext31To90DaysMinor: requireBusinessInteger(cash.expectedOutflowsNext31To90DaysMinor, "cashFlow.expectedOutflowsNext31To90DaysMinor")
-    });
+      ...(unavailable ? { forecast: Object.freeze({
+        status: "not_computable" as const,
+        reason: "source_statements_do_not_provide_forecast" as const
+      }) } : {
+        expectedInflowsNext30DaysMinor: requireBusinessInteger(cash.expectedInflowsNext30DaysMinor, "cashFlow.expectedInflowsNext30DaysMinor"),
+        expectedOutflowsNext30DaysMinor: requireBusinessInteger(cash.expectedOutflowsNext30DaysMinor, "cashFlow.expectedOutflowsNext30DaysMinor"),
+        expectedInflowsNext31To90DaysMinor: requireBusinessInteger(cash.expectedInflowsNext31To90DaysMinor, "cashFlow.expectedInflowsNext31To90DaysMinor"),
+        expectedOutflowsNext31To90DaysMinor: requireBusinessInteger(cash.expectedOutflowsNext31To90DaysMinor, "cashFlow.expectedOutflowsNext31To90DaysMinor")
+      })
+    }) as CashFlowInput;
   }
   let costDetail: CostDetailInput | undefined;
   if (root.costDetail !== undefined && root.costDetail !== null) {

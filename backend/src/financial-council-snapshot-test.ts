@@ -442,6 +442,46 @@ test("snapshot seals once and every reader receives the same cutoff", async () =
       .map((ref) => [ref.kind, ref.sourceId]));
 });
 
+test("snapshot binds the verified statement package with the exact source ref", async () => {
+  const snapshot = await createHarness().builder.freeze(
+    command(), RUN_ID, input(), {
+      statementPackageId: "statement-package-1",
+      statementPackageHash: HASH("7")
+    }
+  );
+  assert.equal(snapshot.statementPackageId, "statement-package-1");
+  assert.equal(snapshot.statementPackageHash, HASH("7"));
+  assert.deepEqual(snapshot.sourceRefs.find((ref) =>
+    ref.kind === "financial_statement_package"), {
+    kind: "financial_statement_package",
+    sourceId: "statement-package-1",
+    sourceVersion: "financial-statements.v2",
+    snapshotHash: HASH("7")
+  });
+});
+
+test("historical cash flow without forecast remains a blocking data gap", async () => {
+  const report = businessReport();
+  report.cashFlow = {
+    period: report.period,
+    openingCashMinor: 600_000,
+    operatingInflowMinor: 4_500_000,
+    operatingOutflowMinor: 3_900_000,
+    investingNetMinor: 0,
+    financingNetMinor: 200_000,
+    forecast: { status: "not_computable",
+      reason: "source_statements_do_not_provide_forecast" }
+  };
+  const snapshot = await createHarness().builder.freeze(
+    command(), RUN_ID, input(report)
+  );
+  assert.deepEqual(snapshot.formulaInputs.cashflow, {
+    status: "not_computable", reason: "cash_flow_missing"
+  });
+  assert.ok(snapshot.dataGaps.some((gap) =>
+    gap.description === "cash_forecast_not_computable"));
+});
+
 test("persisted snapshot rejects re-signed impossible provenance", async () => {
   const snapshot = await createHarness().builder.freeze(
     command(), RUN_ID, input()

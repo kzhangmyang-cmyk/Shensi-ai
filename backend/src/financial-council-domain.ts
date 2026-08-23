@@ -26,6 +26,11 @@ export const FINANCIAL_COUNCIL_RUN_STATUSES = Object.freeze([
   "not_computable"
 ] as const satisfies readonly FinancialCouncilRunStatus[]);
 
+export const LEGACY_TRUSTED_STATEMENT_PACKAGE_ID =
+  "trusted-legacy-financial-statement-fixture" as const;
+export const LEGACY_TRUSTED_STATEMENT_PACKAGE_HASH =
+  `sha256:${"0".repeat(64)}` as const;
+
 export type FinancialCouncilTransitionKind = Exclude<
   FinancialCouncilRunStatus,
   "created"
@@ -43,6 +48,8 @@ export interface FinancialCouncilRun {
   readonly businessReport: BusinessReportInput;
   readonly policyVersionId: string;
   readonly modelRoutingPolicyVersionId: string;
+  readonly statementPackageId: string;
+  readonly statementPackageHash: `sha256:${string}`;
   readonly snapshotId: string | null;
   readonly snapshotHash: `sha256:${string}` | null;
   readonly consensusReport: ConsensusReport | null;

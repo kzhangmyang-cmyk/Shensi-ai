@@ -18,6 +18,12 @@ export interface ParsedStatements {
   readonly warnings: readonly string[];
 }
 
+export interface ParsedStatementPackage extends ParsedStatements {
+  readonly input: BusinessReportInput & {
+    readonly cashFlow: NonNullable<BusinessReportInput["cashFlow"]>;
+  };
+}
+
 export interface ParsedCompanyResult {
   readonly companyName: string;
   readonly period: string;
@@ -197,6 +203,167 @@ function findCompanyName(rows: readonly StatementRow[]): string {
     }
   }
   return "";
+}
+
+export function statementCompanyName(table: StatementTable): string {
+  return findCompanyName(table.rows);
+}
+
+export function statementCurrency(table: StatementTable): "CNY" | "USD" {
+  const currencies = new Set<string>();
+  for (const row of table.rows) {
+    for (const cell of row) {
+      const match = /^(?:币种|currency)\s*[:：]\s*([A-Za-z]{3})$/iu
+        .exec(cellText(cell));
+      if (match) currencies.add(match[1]!.toUpperCase());
+    }
+  }
+  if (currencies.size === 0) {
+    throw statementImportError("financial_statement_currency_required");
+  }
+  if (currencies.size !== 1) {
+    throw statementImportError("financial_statement_currency_mismatch");
+  }
+  const currency = [...currencies][0];
+  if (currency !== "CNY" && currency !== "USD") {
+    throw statementImportError("financial_statement_currency_invalid");
+  }
+  return currency;
+}
+
+function canonicalStatementPeriod(rows: readonly StatementRow[]): string {
+  const text = rows.map((row) => row.map(cellText).join("|")).join("\n");
+  const quarter = /(\d{4})年第?([1-4一二三四])季度/u.exec(text);
+  if (quarter) {
+    const number = ({ 一: 1, 二: 2, 三: 3, 四: 4 } as const)[
+      quarter[2] as "一" | "二" | "三" | "四"
+    ] ?? Number(quarter[2]);
+    return `${quarter[1]}-Q${number}`;
+  }
+  const date = /(\d{4})-(\d{2})-\d{2}/u.exec(text);
+  if (date) return `${date[1]}-Q${Math.ceil(Number(date[2]) / 3)}`;
+  throw statementImportError("financial_statement_period_required");
+}
+
+function cashFlowAmount(
+  rows: readonly StatementRow[],
+  label: string
+): number {
+  for (const row of rows) {
+    if (!normalizeLabel(cellText(row[0])).includes(normalizeLabel(label))) {
+      continue;
+    }
+    const candidates = row.slice(1).map((cell) => toNumber(cellText(cell)))
+      .filter((value): value is number => value !== null);
+    const value = candidates.at(-1);
+    if (value === undefined) break;
+    const minor = value * 100;
+    if (!Number.isSafeInteger(minor)) {
+      throw statementImportError("financial_statement_amount_invalid");
+    }
+    return minor;
+  }
+  throw statementImportError("financial_statement_cashflow_missing_row");
+}
+
+export function extractCashFlowStatement(rows: readonly StatementRow[]) {
+  if (rows.length === 0) {
+    throw statementImportError("financial_statement_cashflow_required");
+  }
+  const openingCashMinor = cashFlowAmount(
+    rows, "期初现金及现金等价物余额"
+  );
+  const operatingInflowMinor = cashFlowAmount(
+    rows, "经营活动现金流入小计"
+  );
+  const operatingOutflowMinor = cashFlowAmount(
+    rows, "经营活动现金流出小计"
+  );
+  const investingNetMinor = cashFlowAmount(
+    rows, "投资活动产生的现金流量净额"
+  );
+  const financingNetMinor = cashFlowAmount(
+    rows, "筹资活动产生的现金流量净额"
+  );
+  const closingCashMinor = cashFlowAmount(
+    rows, "期末现金及现金等价物余额"
+  );
+  if (openingCashMinor + operatingInflowMinor - operatingOutflowMinor
+      + investingNetMinor + financingNetMinor !== closingCashMinor) {
+    throw statementImportError("financial_statement_cashflow_unbalanced");
+  }
+  return Object.freeze({ openingCashMinor, operatingInflowMinor,
+    operatingOutflowMinor, investingNetMinor, financingNetMinor,
+    closingCashMinor });
+}
+
+export function parseStatementPackage(
+  balanceSheetTable: StatementTable,
+  incomeStatementTable: StatementTable,
+  cashFlowStatementTable: StatementTable
+): ParsedStatementPackage {
+  if (!cashFlowStatementTable) {
+    throw statementImportError("financial_statement_cashflow_required");
+  }
+  const tables = [balanceSheetTable, incomeStatementTable,
+    cashFlowStatementTable] as const;
+  const currencies = tables.map(statementCurrency);
+  if (new Set(currencies).size !== 1) {
+    throw statementImportError("financial_statement_currency_mismatch");
+  }
+  const companies = tables.map(statementCompanyName);
+  if (companies.some((company) => !company)) {
+    throw statementImportError("financial_statement_company_required");
+  }
+  if (new Set(companies).size !== 1) {
+    throw statementImportError("financial_statement_company_mismatch");
+  }
+  if ([...companies[0]!].length > 255) {
+    throw statementImportError("financial_statement_company_invalid");
+  }
+  const periods = tables.map((table) => canonicalStatementPeriod(table.rows));
+  if (new Set(periods).size !== 1) {
+    throw statementImportError("financial_statement_period_mismatch");
+  }
+  const pair = parseStatements(
+    balanceSheetTable, incomeStatementTable, companies[0]
+  );
+  const cash = extractCashFlowStatement(cashFlowStatementTable.rows);
+  if (cash.closingCashMinor !== pair.input.balanceSheet.cashMinor) {
+    throw statementImportError("financial_statement_cashflow_unbalanced");
+  }
+  const input = Object.freeze({
+    ...pair.input,
+    currency: currencies[0],
+    period: periods[0],
+    balanceSheet: Object.freeze({
+      ...pair.input.balanceSheet, period: periods[0]
+    }),
+    incomeStatement: Object.freeze({
+      ...pair.input.incomeStatement, period: periods[0]
+    }),
+    cashFlow: Object.freeze({
+      period: periods[0],
+      openingCashMinor: cash.openingCashMinor,
+      operatingInflowMinor: cash.operatingInflowMinor,
+      operatingOutflowMinor: cash.operatingOutflowMinor,
+      investingNetMinor: cash.investingNetMinor,
+      financingNetMinor: cash.financingNetMinor,
+      forecast: Object.freeze({
+        status: "not_computable" as const,
+        reason: "source_statements_do_not_provide_forecast" as const
+      })
+    })
+  }) as ParsedStatementPackage["input"];
+  return Object.freeze({
+    input,
+    companyName: companies[0]!,
+    period: periods[0]!,
+    warnings: Object.freeze([
+      "30/90 天现金预测缺少可验证输入，暂不可计算",
+      "未提供成本明细与税务风险数据，成本异常与税务体检暂不可用"
+    ])
+  });
 }
 
 function findPeriod(

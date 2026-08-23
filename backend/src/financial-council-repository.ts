@@ -1070,7 +1070,8 @@ function assertFinancialCouncilPortfolios(
 
 const RUN_KEYS = ["runId", "workspaceId", "creationKeyHash", "requestHash",
   "currency", "status", "revision", "dataAsOf", "businessReport",
-  "policyVersionId", "modelRoutingPolicyVersionId", "snapshotId", "snapshotHash", "consensusReport",
+  "policyVersionId", "modelRoutingPolicyVersionId", "statementPackageId",
+  "statementPackageHash", "snapshotId", "snapshotHash", "consensusReport",
   "portfolios", "latestPortfolioRevision", "approval", "createdAt",
   "updatedAt", "expiresAt"] as const;
 
@@ -1116,6 +1117,8 @@ asserts value is FinancialCouncilRun {
   if (value.businessReport.currency !== value.currency) inputInvalid();
   policyVersionId(value.policyVersionId);
   policyVersionId(value.modelRoutingPolicyVersionId);
+  policyVersionId(value.statementPackageId);
+  hash(value.statementPackageHash);
   if (value.snapshotId !== null) identifier(value.snapshotId);
   if (value.snapshotHash !== null) hash(value.snapshotHash);
   if ((value.snapshotId === null) !== (value.snapshotHash === null)) inputInvalid();

@@ -518,6 +518,9 @@ export async function createGrowthFinancialCouncilResources(input: {
   const service = new FinancialCouncilService({
     repository, policyRepository,
     modelRoutingRepository,
+    ...(input.finance.statementPackages ? {
+      statementPackageRepository: input.finance.statementPackages
+    } : {}),
     snapshotBuilder, sourceVerifier,
     advisoryWake: sink
   });

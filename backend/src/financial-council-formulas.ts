@@ -334,14 +334,22 @@ function businessReportEvidence(
   snapshot: FinancialSnapshot
 ): readonly FinancialCouncilEvidenceRef[] {
   const source = snapshot.sourceRefs.find((ref) =>
-    ref.kind === "business_report" && ref.sourceId === "business-report");
-  if (!source || source.contentHash !== snapshot.reportInputHash) {
+    (ref.kind === "business_report" && ref.sourceId === "business-report")
+    || (ref.kind === "financial_statement_package"
+      && ref.sourceId === snapshot.statementPackageId));
+  if (!source || (source.kind === "business_report"
+    ? source.contentHash !== snapshot.reportInputHash
+    : source.kind === "financial_statement_package"
+      ? source.snapshotHash !== snapshot.statementPackageHash
+      : true)) {
     return formulaError();
   }
   return Object.freeze([Object.freeze({
-    source: "business_report" as const,
+    source: source.kind === "financial_statement_package"
+      ? "business_report" as const : source.kind,
     sourceId: source.sourceId,
-    contentHash: source.contentHash
+    contentHash: source.kind === "financial_statement_package"
+      ? source.snapshotHash : source.contentHash
   })]);
 }
 
@@ -349,9 +357,11 @@ function allEvidence(
   snapshot: FinancialSnapshot
 ): readonly FinancialCouncilEvidenceRef[] {
   return Object.freeze(snapshot.sourceRefs.map((ref) => Object.freeze({
-    source: ref.kind,
+    source: ref.kind === "financial_statement_package"
+      ? "business_report" : ref.kind,
     sourceId: ref.sourceId,
-    contentHash: ref.contentHash
+    contentHash: ref.kind === "financial_statement_package"
+      ? ref.snapshotHash : ref.contentHash
   })));
 }
 

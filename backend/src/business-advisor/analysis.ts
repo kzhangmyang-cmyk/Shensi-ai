@@ -236,6 +236,15 @@ export function analyzeCashflow(
       warning: Object.freeze([])
     });
   }
+  if ("forecast" in input.cashFlow) {
+    return Object.freeze({
+      next30DaysNetMinor: 0,
+      next90DaysNetMinor: 0,
+      projectedClosingCash30DaysMinor: closingCashMinor,
+      projectedClosingCash90DaysMinor: closingCashMinor,
+      warning: Object.freeze(["30/90 天现金预测缺少可验证输入，暂不可计算"])
+    });
+  }
   const closing = closingCashMinor;
   const next30 = input.cashFlow.expectedInflowsNext30DaysMinor
     - input.cashFlow.expectedOutflowsNext30DaysMinor;

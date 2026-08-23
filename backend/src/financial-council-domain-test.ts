@@ -62,6 +62,8 @@ export function runFixture(
     }),
     policyVersionId: "policy-v1",
     modelRoutingPolicyVersionId: "legacy-unroutable",
+    statementPackageId: "trusted-legacy-financial-statement-fixture",
+    statementPackageHash: `sha256:${"0".repeat(64)}`,
     snapshotId: null,
     snapshotHash: null,
     consensusReport: null,

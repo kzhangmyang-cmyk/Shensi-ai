@@ -84,6 +84,8 @@ export function repositoryRunFixture(
     }),
     policyVersionId: "policy-v1",
     modelRoutingPolicyVersionId: "legacy-unroutable",
+    statementPackageId: "trusted-legacy-financial-statement-fixture",
+    statementPackageHash: `sha256:${"0".repeat(64)}`,
     snapshotId: null,
     snapshotHash: null,
     consensusReport: null,
@@ -149,6 +151,8 @@ export function snapshotFixture(
     currency: run.currency,
     report: Object.freeze(normalizeBusinessReport(run.businessReport)),
     reportInputHash,
+    statementPackageId: run.statementPackageId,
+    statementPackageHash: run.statementPackageHash,
     authority: Object.freeze({
       ...authorityProjection,
       sourceSnapshotHash: authorityHash
@@ -191,16 +195,20 @@ export function snapshotFixture(
       description: "expected_roi_missing"
     })]),
     sourceRefs: Object.freeze([Object.freeze({
-      kind: "business_report" as const,
-      sourceId: "business-report",
-      version: 1,
-      contentHash: reportInputHash
-    }), Object.freeze({
       kind: "crm" as const,
       sourceId: "growth-advisor-today",
       version: 1,
       contentHash: authorityHash
-    })])
+    }), Object.freeze(
+      run.statementPackageId === "trusted-legacy-financial-statement-fixture"
+        ? { kind: "business_report" as const,
+            sourceId: "business-report", version: 1,
+            contentHash: reportInputHash }
+        : { kind: "financial_statement_package" as const,
+            sourceId: run.statementPackageId,
+            sourceVersion: "financial-statements.v2" as const,
+            snapshotHash: run.statementPackageHash }
+    )].sort((left, right) => left.kind < right.kind ? -1 : 1))
   });
   const snapshotId = financialCouncilCanonicalHash(identity);
   const preimage = Object.freeze({ snapshotId, ...identity });

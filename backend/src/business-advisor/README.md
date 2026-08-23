@@ -50,7 +50,7 @@
 - `GET /api/v1/business-advisor/agents`：智能体团队与知识库标题
 - `POST /api/v1/business-advisor/analyze`：指标 + 产品/客户/现金流/成本/税务分析
 - `POST /api/v1/business-advisor/diagnose`：完整经营诊断报告
-- `POST /api/v1/business-advisor/statements/parse`：解析标准报表（资产负债表 + 利润表）为引擎输入
+- `POST /api/v1/business-advisor/statements/parse`：旧同步诊断入口，解析资产负债表 + 利润表；它不创建可供财务委员会使用的权威数据版本
 - `POST /api/v1/business-advisor/statements/diagnose`：解析报表并直接生成诊断报告
 - `POST /api/v1/business-advisor/statements/import`：多 sheet / 集团报表导入，按公司分组返回全部诊断结果
 
@@ -106,6 +106,12 @@ revision 1 是独立不可变记录，同时绑定 run/snapshot/audit/policy/con
 
 ## 报表导入（statement-import.ts）
 
+财务委员会的当前真实输入必须同时包含同一企业、同一期间、同一显式币种的资产负债表、利润表和现金流量表。三份 XLSX 先通过统一的 secure spreadsheet artifact 边界，公式、宏、外部链接、重复 sheet、压缩炸弹和超限内容均闭合失败；币种只接受工作簿 metadata/statement field 中明确写出的 `CNY` 或 `USD`，不从文件名推测。
+
+预览只保存一小时有效的非权威标准化记录，不写 financial fact ledger、不创建 verified package 或 council run，也不保存 workbook bytes、base64 或 raw cells。用户确认第三方模型数据提示后，commit 在单事务中锁定 preview，写入不可变 `financial-statements.v2` package 与幂等响应，再标记 preview committed。package 保存三份服务端文件哈希、解析器版本、canonical `BusinessReportInput`、输入哈希、警告、同意审计和 package hash。
+
+现金流量表提供期初现金、经营流入/流出、投资净额和筹资净额，并与期末现金及资产负债表货币资金双重勾稽。三表无法证明 30/90 天预测，因此 package 将 forecast 明确记录为 `not_computable/source_statements_do_not_provide_forecast`；snapshot 保留相应 data gap，绝不填零或拿历史现金流冒充预测。Council run 与 snapshot 内部必须绑定 package ID/hash，真实 package 的来源引用固定为 `{kind: financial_statement_package, sourceId, sourceVersion: financial-statements.v2, snapshotHash}`。公开路由与 UI 接线属于后续任务，本阶段未更改 OpenAPI。
+
 支持两类标准格式：
 
 - 小企业会计准则（会小企01表）：`资产/行次/期末余额/年初余额` 左右双栏布局，利润表含 `本年累计金额/本季金额`。
@@ -117,7 +123,7 @@ revision 1 是独立不可变记录，同时绑定 run/snapshot/audit/policy/con
 - 多 sheet 导入（`statements/import`）自动识别每个 sheet 是资产负债表还是利润表，按「编制单位」或 sheet 名分组配对；单家公司解析失败不影响其他公司，失败项带错误码返回。
 - `其他流动资产`、`非流动资产`、`非流动负债` 优先取报表自带合计行，并做三重勾稽校验：资产合计=流动资产+非流动资产、负债合计=流动+非流动负债、资产=负债+权益（容差 1 元），不平即报 `statement_unbalanced`。
 - 期间费用由报表自身勾稽倒推（营业收入-营业成本-净利润-财务费用-所得税费用），保证引擎净利润与报表一致。
-- 未提供现金流量表时 `cashFlow` 缺省：现金流预测/收现比/净现比不参与判定，报告用「数据说明」提示；期末现金取资产负债表货币资金。
+- 旧同步双表诊断在未提供现金流量表时仍可返回受限诊断，但它不是完整数据，也不能作为财务委员会真实运行输入；三表 package 缺少现金流量表会以 `financial_statement_cashflow_required` 失败。
 - 真实亏损企业（负权益、零收入有成本）允许诊断，毛利为负作为红色预警输出，不再拒绝。
 
 ## 测试

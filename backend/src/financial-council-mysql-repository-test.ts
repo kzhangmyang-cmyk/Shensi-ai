@@ -162,6 +162,12 @@ class FakeConnection {
       && normalized.includes("model_routing_policy_version_id")) {
       return [[{ column_name: "model_routing_policy_version_id" }], []];
     }
+    if (normalized.startsWith("SELECT column_name")
+      && normalized.includes("FROM information_schema.columns")
+      && normalized.includes("statement_package_id")) {
+      return [[{ column_name: "statement_package_id" },
+        { column_name: "statement_package_hash" }], []];
+    }
     if (normalized.startsWith("CREATE TABLE")) return [[], []];
     if (normalized.startsWith(
       "ALTER TABLE financial_council_portfolio_revisions"
@@ -385,8 +391,8 @@ class FakeConnection {
         throw new Error("run insert failed");
       }
       const [runId, workspaceId, creationKeyHash, requestHash,
-        modelRoutingPolicyVersionId, revision, status, snapshotId, snapshotHash,
-        runJson] = values;
+        modelRoutingPolicyVersionId, statementPackageId, statementPackageHash,
+        revision, status, snapshotId, snapshotHash, runJson] = values;
       const duplicate = state.runs.some((row) =>
         row.workspace_id === workspaceId
           && (row.creation_key_hash === creationKeyHash || row.run_id === runId));
@@ -396,6 +402,8 @@ class FakeConnection {
       state.runs.push({ run_id: runId, workspace_id: workspaceId,
         creation_key_hash: creationKeyHash, request_hash: requestHash,
         model_routing_policy_version_id: modelRoutingPolicyVersionId,
+        statement_package_id: statementPackageId,
+        statement_package_hash: statementPackageHash,
         revision, status, snapshot_id: snapshotId, snapshot_hash: snapshotHash,
         run_json: runJson });
       this.dirty = true;

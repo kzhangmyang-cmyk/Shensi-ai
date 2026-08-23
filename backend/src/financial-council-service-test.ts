@@ -67,10 +67,14 @@ function input(
 function frozenSnapshot(
   runId: string,
   workspaceId = "ws-1",
-  policyVersionId = "financial-council-policy.v1"
+  policyVersionId = "financial-council-policy.v1",
+  statementPackage = {
+    statementPackageId: "trusted-legacy-financial-statement-fixture",
+    statementPackageHash: `sha256:${"0".repeat(64)}` as const
+  }
 ) {
   return snapshotFixture(repositoryRunFixture({
-    runId, workspaceId, policyVersionId
+    runId, workspaceId, policyVersionId, ...statementPackage
   })).snapshot;
 }
 
@@ -79,6 +83,13 @@ function harness(options: {
   wake?: { wake(run: FinancialCouncilRun): Promise<void> };
   onWakeError?: (error: unknown, run: FinancialCouncilRun) => void | Promise<void>;
   modelRouting?: { current: ReturnType<typeof routingPolicyVersion> | null };
+  statementPackage?: {
+    packageId: string;
+    packageHash: `sha256:${string}`;
+    businessReport: FinancialCouncilCreateInput["businessReport"];
+    currency: "CNY" | "USD";
+    createdAt: string;
+  } | null;
 } = {}) {
   const repository = new InMemoryFinancialCouncilRepository();
   const policyRepository = new InMemoryFinancialCouncilPolicyRepository();
@@ -87,19 +98,32 @@ function harness(options: {
   let seenCommand: CommandContext | null = null;
   const service = new FinancialCouncilService({
     repository,
+    ...(options.statementPackage !== undefined ? {
+      statementPackageRepository: {
+        async getVerified(context: { workspaceId: string }, packageId: string) {
+          const value = options.statementPackage;
+          if (value && context.workspaceId === "ws-1"
+            && packageId === value.packageId) return value;
+          throw Object.assign(new Error("not found"), {
+            code: "financial_statement_package_not_found"
+          });
+        }
+      }
+    } : {}),
     policyRepository,
     ...(options.modelRouting ? { modelRoutingRepository: {
       async getCurrent() { return options.modelRouting!.current; }
     } } : {}),
     snapshotBuilder: {
-      async freeze(commandValue, runId, createInput) {
+      async freeze(commandValue, runId, createInput, statementPackage) {
         freezeCalls += 1;
         seenCommand = commandValue;
         if (options.freezeError) throw options.freezeError;
         return frozenSnapshot(
           runId,
           commandValue.workspace.workspaceId,
-          createInput.policyVersionId
+          createInput.policyVersionId,
+          statementPackage
         ) as never;
       }
     },
@@ -115,6 +139,28 @@ function harness(options: {
     seenCommand: () => seenCommand
   };
 }
+
+test("run creation reloads verified package data instead of trusting browser report",
+  async () => {
+    const report = input().businessReport;
+    const statementPackage = {
+      packageId: "statement-package-1",
+      packageHash: `sha256:${"7".repeat(64)}` as const,
+      businessReport: report,
+      currency: report.currency,
+      createdAt: NOW
+    };
+    const fixture = harness({ statementPackage });
+    const created = await fixture.service.createRunFromStatementPackage(
+      command(), { statementPackageId: statementPackage.packageId,
+        policyVersionId: "financial-council-policy.v1" }
+    );
+    const stored = await fixture.repository.findRun(context(),
+      created.value.runId);
+    assert.deepEqual(stored?.businessReport, report);
+    assert.equal(stored?.statementPackageId, statementPackage.packageId);
+    assert.equal(stored?.statementPackageHash, statementPackage.packageHash);
+  });
 
 test("run creation freezes current model routing while public projection hides it",
   async () => {
