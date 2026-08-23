@@ -1,6 +1,6 @@
 # Shensi Sales 开发状态
 
-**当前日期：** 2026-08-22
+**当前日期：** 2026-08-23
 
 **当前仓库：** `kzhangmyang-cmyk/shensi-sales`
 
@@ -8,7 +8,9 @@
 
 ## 当前结论
 
-Shensi Sales 已经是统一的 pnpm Monorepo，前端、后端、共享合同、部署资源和财务多智能体位于同一个 Git 历史中。财务委员会的核心开发已完成，当前主要工作是正式模型和生产环境验收，不是重写财务智能体。
+Shensi Sales 已经是统一的 pnpm Monorepo，前端、后端、共享合同、部署资源和财务多智能体位于同一个 Git 历史中。唯一产品前端是黑色智能体业务壳：`#agents` 的六张智能体卡牌是首页，旧白色 CRM 已删除且不再提供入口。财务委员会的核心开发已完成，当前主要工作是正式模型和生产环境验收，不是重写财务智能体。
+
+`/`、空 Hash、`#dashboard` 和未知 Hash 均自动规范化到 `#agents`。获客、私域、成交、自动工作流以及全部受支持的 Growth/财务深链继续由同一黑色壳承载；后端、数据库、合同、权限边界和现有业务数据均未删除或改变。
 
 ## 仓库与运行方式
 
@@ -21,10 +23,10 @@ Shensi Sales 已经是统一的 pnpm Monorepo，前端、后端、共享合同�
 
 ## 已完成能力
 
-### CRM 和销售工作台
+### 智能体业务壳与销售工作台
 
 - JWT 登录、工作区与业务员/主管/管理员数据边界。
-- 客户、联系人、商机、待办、跟进提醒、导入导出、资料、考试、OCR 和账号管理。
+- 黑色智能体中心首页及客户、联系人、商机、待办、跟进提醒、导入导出、资料、考试、OCR 和账号管理。
 - Memory/MySQL 双模式存储，生产环境只根据显式配置创建初始管理员。
 
 ### 智能获客与 Growth
@@ -66,12 +68,15 @@ Shensi Sales 已经是统一的 pnpm Monorepo，前端、后端、共享合同�
 
 ```bash
 pnpm install --frozen-lockfile
+pnpm --filter goodjob-crm-frontend dev
 pnpm dev
 pnpm test:layout
 pnpm test
 pnpm build
 pnpm test:financial-council
 ```
+
+前端默认 URL 是 `http://127.0.0.1:5188/#agents`。所有命令从 Monorepo 根目录执行；前端定向命令使用 `--filter goodjob-crm-frontend`。
 
 真实财务委员会浏览器验收：
 

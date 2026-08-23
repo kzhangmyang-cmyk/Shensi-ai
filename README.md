@@ -2,7 +2,7 @@
 
 [![Quality gates](https://github.com/kzhangmyang-cmyk/shensi-sales/actions/workflows/quality.yml/badge.svg)](https://github.com/kzhangmyang-cmyk/shensi-sales/actions/workflows/quality.yml)
 
-Shensi Sales 是面向外贸销售团队的客户增长与经营分析系统。本仓库统一维护前端、后端、共享 API 合同、部署资源和财务多智能体工作流。
+Shensi Sales 是面向外贸销售团队的客户增长与经营分析系统。本仓库统一维护前端、后端、共享 API 合同、部署资源和财务多智能体工作流。唯一前端是黑色智能体业务壳：产品首页为 `#agents` 的六张智能体卡牌，旧白色 CRM 已删除且不再提供入口。
 
 ## 仓库结构
 
@@ -30,18 +30,20 @@ tools/      跨 workspace 工程门禁
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm dev
+pnpm --filter goodjob-crm-frontend dev
 ```
 
-`pnpm dev` 默认同时启动 MySQL 模式后端和前端。也可以分别运行：
+前端默认地址为 `http://127.0.0.1:5188/#agents`。`/`、空 Hash、`#dashboard` 和未知 Hash 都会自动规范化到 `#agents`；获客、私域、成交、工作流以及 Growth/财务深链仍由同一黑色壳承载。
+
+需要同时启动 MySQL 模式后端和前端时运行 `pnpm dev`。也可以分别运行：
 
 ```bash
 pnpm --filter ./backend dev
 pnpm --filter ./backend dev:mysql
-pnpm --filter ./frontend dev
+pnpm --filter goodjob-crm-frontend dev
 ```
 
-前端默认地址为 `http://127.0.0.1:5188`。后端的 memory 模式适合本地功能验证；需要持久化、worker 恢复或真实纵向验收时使用 MySQL 模式。
+后端的 memory 模式适合本地功能验证；需要持久化、worker 恢复或真实纵向验收时使用 MySQL 模式。本次前端壳迁移没有删除或修改后端、数据库、合同、权限边界或既有业务数据。
 
 ## 常用门禁
 
@@ -74,7 +76,7 @@ pnpm test:e2e:financial-council:real
 
 ## 主要能力
 
-- 客户、联系人、商机、跟进、报价与销售任务管理
+- 黑色智能体中心首页、获客、私域、成交、工作流与销售任务
 - 公开来源获客、证据链、身份核验和受控 CRM 转化
 - Growth Advisor、产品目录、报价、成本台账、ROI 与财务导入
 - 五角色财务分析、审计反驳、CFO 共识、组合优化、人工审批和受控派发

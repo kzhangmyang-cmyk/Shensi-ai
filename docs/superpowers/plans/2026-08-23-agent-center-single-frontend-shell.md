@@ -1,6 +1,6 @@
 # 智能体中心单一前端壳实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **实施状态：** 已完成。下列任务记录实施后的当前状态。
 
 **Goal:** 将当前黑色 `#agents` 智能体中心升级为唯一前端壳，安全删除旧白色 CRM 页面和只服务于旧入口的代码。
 
@@ -9,6 +9,13 @@
 **Tech Stack:** TypeScript 5.7、Vite 6、原生 DOM、Playwright、现有 Node/tsx self-test、pnpm workspace。
 
 **Spec:** `docs/superpowers/specs/2026-08-23-agent-center-single-frontend-shell-design.md`
+
+## 任务状态
+
+- [x] Task 1：闭合唯一应用路由
+- [x] Task 2：抽出黑色壳认证控制器
+- [x] Task 3：删除旧白色 CRM 并建立唯一 DOM
+- [x] Task 4：清理无消费者依赖、同步文档并完成验收
 
 ## Global Constraints
 
@@ -59,7 +66,7 @@
 
 ---
 
-### Task 1: 闭合唯一应用路由
+### Task 1: 闭合唯一应用路由（已完成）
 
 **Files:**
 - Create: `frontend/src/app-route.ts`
@@ -74,7 +81,7 @@
 - Consumes: `parseGrowthHash(hash: string): GrowthRoute | null`、现有 `DemoModule`。
 - Produces: `normalizeAppHash(hash: string): string`、`isStandaloneModuleHash(hash: string): boolean`；`createDemoRouter()` 默认进入 `agents`。
 
-- [ ] **Step 1: 写路由失败测试**
+- [x] **Step 1: 写路由失败测试**
 
 ```ts
 import { strict as assert } from "node:assert";
@@ -90,13 +97,13 @@ assert.equal(normalizeAppHash("#growth/agents/profit"), "#growth/agents/profit")
 assert.equal(normalizeAppHash("#financial-council"), "#financial-council");
 ```
 
-- [ ] **Step 2: 运行测试并确认 RED**
+- [x] **Step 2: 运行测试并确认 RED**
 
 Run: `cd frontend && pnpm exec tsx src/app-route.self-test.ts`
 
 Expected: FAIL，报 `ERR_MODULE_NOT_FOUND` 或缺少 `normalizeAppHash`。
 
-- [ ] **Step 3: 实现最小闭合路由**
+- [x] **Step 3: 实现最小闭合路由**
 
 ```ts
 import { parseGrowthHash } from "./growth/router";
@@ -126,17 +133,17 @@ export function normalizeAppHash(hash: string): string {
 
 在 `DemoModule` 删除 `dashboard`；`createDemoRouter(initial = "agents")` 启动前调用 `normalizeAppHash`，使用 `history.replaceState` 规范化而不增加浏览器历史。`demo-app.ts` 删除 `renderDashboardView`、`resetDashboardViewState` 和 dashboard 分支。
 
-- [ ] **Step 4: 更新聚合 self-test**
+- [x] **Step 4: 更新聚合 self-test**
 
 在 `frontend/src/self-test.ts` 导入 `./app-route.self-test`，删除 `renderDashboardView` 及旧 dashboard 静态要求；在 `demo-store.self-test.ts` 用 conversation/private-domain view 的既有恶意枚举测试替代 dashboard renderer 调用，继续验证文本转义和 store 不变式。
 
-- [ ] **Step 5: 运行路由和现有 self-test**
+- [x] **Step 5: 运行路由和现有 self-test**
 
 Run: `cd frontend && pnpm exec tsx src/app-route.self-test.ts && pnpm test`
 
 Expected: 两个命令均 PASS，输出最终 `ok: true`；`#dashboard` 不再是 `DemoModule`。
 
-- [ ] **Step 6: 提交路由切换**
+- [x] **Step 6: 提交路由切换**
 
 ```bash
 git add frontend/src/app-route.ts frontend/src/app-route.self-test.ts frontend/src/demo/demo-types.ts frontend/src/demo/demo-router.ts frontend/src/demo/demo-app.ts frontend/src/demo/demo-store.self-test.ts frontend/src/self-test.ts
@@ -145,7 +152,7 @@ git commit -m "feat(frontend): make agent center the default route"
 
 ---
 
-### Task 2: 从旧 CRM 抽出最小认证控制器
+### Task 2: 从旧 CRM 抽出最小认证控制器（已完成）
 
 **Files:**
 - Create: `frontend/src/app-session.ts`
@@ -157,7 +164,7 @@ git commit -m "feat(frontend): make agent center the default route"
 - Consumes: `/api/auth/login`、`/api/auth/me`、`/api/auth/logout`、`gj_csrf` cookie、`gj_user` localStorage、`goodjob:auth-state-changed`。
 - Produces: `createAppSessionController(options): AppSessionController`，含 `start(): Promise<void>`、`login(email, password): Promise<void>`、`logout(): Promise<void>`、`destroy(): void`。
 
-- [ ] **Step 1: 写认证控制器失败测试**
+- [x] **Step 1: 写认证控制器失败测试**
 
 用 linkedom 创建只包含 `#loginButton`、`#loginEmail`、`#loginPassword`、`.replica-user`、`[data-session-user-name]` 和 `[data-session-user-role]` 的 DOM，注入 fake `fetchImpl`、memory storage 和 cookie source，断言：
 
@@ -175,13 +182,13 @@ assert.deepEqual(events, [true, false]);
 
 另加真实模式用例：写请求携带 `x-csrf-token`；`/api/auth/me` 401 时清除本地 session 且不展示黑色壳。
 
-- [ ] **Step 2: 运行测试并确认 RED**
+- [x] **Step 2: 运行测试并确认 RED**
 
 Run: `cd frontend && pnpm exec tsx src/app-session.self-test.ts`
 
 Expected: FAIL，报缺少 `app-session.js`。
 
-- [ ] **Step 3: 实现认证控制器**
+- [x] **Step 3: 实现认证控制器**
 
 实现闭合的 `AppUser`：
 
@@ -206,17 +213,17 @@ export interface AppUser {
 - logout 即使服务器请求失败也清理本地 session；
 - `destroy()` 移除 DOM 监听器，避免重复启动。
 
-- [ ] **Step 4: 把黑色侧栏用户按钮绑定到新控制器**
+- [x] **Step 4: 把黑色侧栏用户按钮绑定到新控制器**
 
 在 `index.html` 的 `.replica-user` 增加 `id="logoutButton"` 和 `aria-label="退出登录"`；名称、角色节点分别增加 `data-session-user-name`、`data-session-user-role`。在页面底部加载 `/src/app-session.ts`，模块入口只执行一次 `createAppSessionController().start()`。
 
-- [ ] **Step 5: 运行认证、类型和聚合测试**
+- [x] **Step 5: 运行认证、类型和聚合测试**
 
 Run: `cd frontend && pnpm exec tsx src/app-session.self-test.ts && pnpm test && pnpm run test:types`
 
 Expected: 全部 PASS；真实写请求的 CSRF 断言通过。
 
-- [ ] **Step 6: 提交认证抽取**
+- [x] **Step 6: 提交认证抽取**
 
 ```bash
 git add frontend/index.html frontend/src/app-session.ts frontend/src/app-session.self-test.ts frontend/src/self-test.ts
@@ -225,7 +232,7 @@ git commit -m "refactor(frontend): isolate shell authentication"
 
 ---
 
-### Task 3: 删除旧白色 CRM 并让黑色壳成为唯一 DOM
+### Task 3: 删除旧白色 CRM 并让黑色壳成为唯一 DOM（已完成）
 
 **Files:**
 - Create: `frontend/src/app-shell.css`
@@ -247,7 +254,7 @@ git commit -m "refactor(frontend): isolate shell authentication"
 - Consumes: Task 1 的 Hash 规范化、Task 2 的认证事件、现有 `replica-dashboard.ts`、`demo-app.ts`、`growth/entry.ts`。
 - Produces: 页面中唯一业务壳 `.replica-shell`；旧 `.shell`、`prototype-api.ts` 和 dashboard DOM 不再存在。
 
-- [ ] **Step 1: 写唯一壳浏览器失败测试**
+- [x] **Step 1: 写唯一壳浏览器失败测试**
 
 新增 Playwright spec：
 
@@ -267,13 +274,13 @@ test("root and legacy dashboard open the agent center only", async ({ page }) =>
 
 再断言 `#acquisition`、`#private-domain`、`#growth/agents` 和 `#financial-council` 仍能激活对应现有 host，不出现旧 CRM。
 
-- [ ] **Step 2: 运行浏览器测试并确认 RED**
+- [x] **Step 2: 运行浏览器测试并确认 RED**
 
 Run: `cd frontend && pnpm exec playwright test agent-center-shell.spec.ts --project=chromium`
 
 Expected: FAIL；当前 `/` 或 `#dashboard` 仍含旧 `.shell`/dashboard DOM。
 
-- [ ] **Step 3: 缩减 `index.html`**
+- [x] **Step 3: 缩减 `index.html`**
 
 正文只保留现有完整登录表单、现有完整 `.replica-shell`（含获客面板、动态 module host、inspector 和对话框）以及现有完整 `#growthWorkspace`。资源入口必须精确收敛为：
 
@@ -290,7 +297,7 @@ Expected: FAIL；当前 `/` 或 `#dashboard` 仍含旧 `.shell`/dashboard DOM。
 
 删除旧 `<div class="shell">` 全部 DOM、旧内联 tab/router script、`prototype-api.ts` 和 `m1-layout.css` 入口。黑色壳内部现有获客面板、`#demoModuleMain`、`#demoModuleInspector`、任务/连接对话框必须原样保留。
 
-- [ ] **Step 4: 建立最小全局与登录样式**
+- [x] **Step 4: 建立最小全局与登录样式**
 
 `app-shell.css` 只定义 `html/body` 基础、`.login-screen`、登录表单、错误提示、认证前后可见性和移动端登录布局。`replica-dashboard.css` 删除：
 
@@ -300,7 +307,7 @@ body.is-authenticated > .shell { display: none !important; }
 
 不改六张卡牌和现有黑色壳设计 token。
 
-- [ ] **Step 5: 删除确认不可达的旧文件并闭合静态测试**
+- [x] **Step 5: 删除确认不可达的旧文件并闭合静态测试**
 
 删除本任务列出的七个文件。更新 `self-test.ts`，以源码断言锁定：
 
@@ -314,7 +321,7 @@ assert.match(prototype, /id="demoModuleMain"/u);
 
 `growth/entry.ts` 的 shell selector 从 `.replica-shell, .shell` 改为 `.replica-shell`。
 
-- [ ] **Step 6: 执行依赖和导入审计**
+- [x] **Step 6: 执行依赖和导入审计**
 
 Run:
 
@@ -324,7 +331,7 @@ rg -n "prototype-api|m1-layout|lead-finder-layout|demo-dashboard-view|src/main\.
 
 Expected: 除设计/历史文档外，前端运行代码和当前测试零匹配；任何剩余源码匹配都必须在本任务内删除或改写。
 
-- [ ] **Step 7: 运行唯一壳和保留路径门禁**
+- [x] **Step 7: 运行唯一壳和保留路径门禁**
 
 Run:
 
@@ -336,9 +343,9 @@ pnpm exec playwright test agent-center-shell.spec.ts demo-auth.spec.ts growth-bo
 pnpm build
 ```
 
-Expected: 全部 PASS；构建中不再打包 `prototype-api.ts`、旧 React CRM、xlsx 或 echarts。
+Expected: 全部 PASS；构建中不再打包 `prototype-api.ts`、旧 React CRM 或 `echarts`。保留的财务报表导入继续打包 `xlsx`。
 
-- [ ] **Step 8: 提交唯一壳和旧代码删除**
+- [x] **Step 8: 提交唯一壳和旧代码删除**
 
 ```bash
 git add -A frontend/index.html frontend/src frontend/tests/agent-center-shell.spec.ts frontend/playwright.config.ts
@@ -347,7 +354,7 @@ git commit -m "refactor(frontend): remove the legacy crm shell"
 
 ---
 
-### Task 4: 清理依赖、同步当前文档并完成全量验收
+### Task 4: 清理依赖、同步当前文档并完成全量验收（已完成）
 
 **Files:**
 - Modify: `frontend/package.json`
@@ -360,7 +367,7 @@ git commit -m "refactor(frontend): remove the legacy crm shell"
 - Consumes: Task 3 的唯一黑色应用壳。
 - Produces: 与实际入口一致的安装、启动、测试和产品说明。
 
-- [ ] **Step 1: 证明旧依赖已无消费者**
+- [x] **Step 1: 审计保留与无消费者依赖**
 
 Run:
 
@@ -368,19 +375,19 @@ Run:
 rg -n 'from "(xlsx|echarts)|from "react|from "react-dom' frontend/src --glob '!ui-kit/**'
 ```
 
-Expected: `xlsx` 和 `echarts` 零匹配；React 只允许在保留的 `frontend/src/ui-kit/` 出现。
+Expected: 保留的财务报表导入在 `frontend/src/growth/agents/controller.ts` 直接使用 `xlsx`；`echarts` 零匹配；React 只出现在保留的 `frontend/src/ui-kit/`。
 
-- [ ] **Step 2: 删除旧 CRM 独占依赖**
+- [x] **Step 2: 删除无消费者依赖**
 
 Run:
 
 ```bash
-pnpm --filter goodjob-crm-frontend remove xlsx echarts
+pnpm --filter goodjob-crm-frontend remove echarts
 ```
 
-Expected: `frontend/package.json` 不再包含 `xlsx`、`echarts`，根 `pnpm-lock.yaml` 同步且 `pnpm install --frozen-lockfile` 可用。React 依赖因 UI kit 仍使用而保留。
+Expected: `frontend/package.json` 与根 `pnpm-lock.yaml` 不再包含 `echarts`，但保留 `xlsx` 以支持财务报表导入；`pnpm install --frozen-lockfile` 可用。React 依赖因 UI kit 仍使用而保留。
 
-- [ ] **Step 3: 更新当前文档**
+- [x] **Step 3: 更新当前文档**
 
 把三个当前入口文档正文改成以下真实规则：
 
@@ -392,7 +399,7 @@ Expected: `frontend/package.json` 不再包含 `xlsx`、`echarts`，根 `pnpm-lo
 - 后端、数据库、合同和现有业务数据未删除；
 - 开发、测试和 build 命令仍从 pnpm workspace 执行。
 
-- [ ] **Step 4: 运行完整前端门禁**
+- [x] **Step 4: 运行完整前端门禁**
 
 Run:
 
@@ -408,7 +415,7 @@ git diff --check
 
 Expected: 所有命令 PASS；若既有构建仅有已记录的 Vite chunk-size warning，可记录但不得把失败写成通过。
 
-- [ ] **Step 5: 在真实浏览器完成四视口验收**
+- [x] **Step 5: 在真实浏览器完成四视口验收**
 
 依次使用 1440、1366、1024、390 像素 viewport 打开 `/`，完成 demo 登录并验证：
 
@@ -419,14 +426,14 @@ Expected: 所有命令 PASS；若既有构建仅有已记录的 Vite chunk-size 
 - `#acquisition`、`#private-domain`、`#growth/agents`、`#financial-council` 可达；
 - DOM 中不存在 `.shell` 和 `#dashboard`。
 
-- [ ] **Step 6: 提交依赖和文档收尾**
+- [x] **Step 6: 提交依赖和文档收尾**
 
 ```bash
 git add frontend/package.json pnpm-lock.yaml README.md frontend/README.md DEVELOPMENT_STATUS.md
 git commit -m "docs: make agent center the canonical frontend"
 ```
 
-- [ ] **Step 7: 最终状态核对**
+- [x] **Step 7: 最终状态核对**
 
 Run:
 

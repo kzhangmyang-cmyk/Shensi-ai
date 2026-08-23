@@ -1,30 +1,31 @@
 # Shensi Sales 前端
 
-本目录是 Shensi Sales Monorepo 的前端 workspace，包含真实 Growth/财务委员会界面、演示模式、浏览器扩展和 Playwright 验收。后端位于仓库根目录的 `backend/`。
+本目录是 Shensi Sales Monorepo 的前端 workspace，包含黑色智能体业务壳、真实 Growth/财务委员会界面、演示模式、浏览器扩展和 Playwright 验收。后端位于仓库根目录的 `backend/`。
 
 ## 当前范围
 
-- 多模块自动营销系统桌面端布局
-- 获客中心、社媒对话、私域客户池与成交工作台等演示模块
-- 智能体与自动工作流均为前端模拟展示
-- 深色玻璃质感 UI、荧光绿色强调色与可滑动项目卡片
-- Mac 与 Windows 桌面端界面演示
+- 唯一产品前端为黑色智能体业务壳；`#agents` 的六张智能体卡牌是产品首页
+- 获客、社媒对话、私域客户池、成交工作台、自动工作流与 Growth/财务深链继续由同一壳承载
+- `/`、空 Hash、`#dashboard` 和未知 Hash 自动回到 `#agents`；旧白色 CRM 已删除且不再提供入口
+- 演示模式只使用本地确定性数据；真实模式继续使用现有同源 API、会话、CSRF、RBAC 和 workspace 边界
+- 本次壳迁移未删除或改动后端、数据库、合同、权限边界或既有业务数据
 
 ## 本地运行
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm --filter ./frontend dev
+pnpm --filter goodjob-crm-frontend dev
 ```
 
-访问 `http://127.0.0.1:5188/#acquisition`，点击登录按钮即可进入前端演示系统。
+从 Monorepo 根目录运行上述命令后，访问 `http://127.0.0.1:5188/#agents`。点击登录按钮即可进入前端演示系统；旧 `#dashboard` 会自动回到智能体中心。
 
 ## 验证
 
 ```bash
-pnpm --filter ./frontend test
-pnpm --filter ./frontend test:e2e
-pnpm --filter ./frontend build
+pnpm --filter goodjob-crm-frontend run test:types
+pnpm --filter goodjob-crm-frontend test
+pnpm --filter goodjob-crm-frontend run test:e2e
+pnpm --filter goodjob-crm-frontend build
 ```
 
 演示模块不会直接连接抖音、小红书、快手、微信或微博，也不会代表用户执行营销动作。
@@ -56,9 +57,9 @@ Cookie 或浏览器配置，也不上传完整页面截图，不执行私信、�
 ### 安装未打包的只读扩展
 
 ```bash
-pnpm run test:visual-reader
-pnpm run build:visual-reader
-pnpm run verify:visual-reader-build-order
+pnpm --filter goodjob-crm-frontend run test:visual-reader
+pnpm --filter goodjob-crm-frontend run build:visual-reader
+pnpm --filter goodjob-crm-frontend run verify:visual-reader-build-order
 ```
 
 在 Chrome 的扩展程序页面开启开发者模式，选择“加载已解压的扩展程序”，目录为
@@ -156,7 +157,7 @@ worker/core/WASM/语言文件的版本、字节数和 SHA-256。当前未压缩�
 浏览器配置、私信/评论/点赞/关注/发布以及自动 CRM 转换：
 
 ```bash
-pnpm run test:e2e -- acquisition-visual-reader.spec.ts
+pnpm --filter goodjob-crm-frontend run test:e2e -- acquisition-visual-reader.spec.ts
 ```
 
 ### 卸载与手工 Beta smoke
@@ -175,7 +176,7 @@ pnpm run test:e2e -- acquisition-visual-reader.spec.ts
 ## Growth 真实模式（Real Mode）
 
 前端钉住了 Growth 合同消费快照（`contracts/pinned/`，当前 1.0.10）；可编辑合同的唯一来源是 Monorepo 根目录 `../contracts/`，合同门禁会验证两者身份与哈希一致。
-`src/growth/` 提供独立增长工作区：
+`src/growth/` 提供由同一前端壳恢复的增长工作区：
 
 - `#growth/advisor` 增长参谋今日视图与受控建议
 - `#growth/agents` 六位员工肖像业务顾问团队、经营诊断报告与单 Agent 工作台
@@ -205,11 +206,11 @@ Growth API 与主应用共用同源 Cookie 登录态和 `gj_csrf` CSRF Cookie。
 ## 验证（Growth 门禁）
 
 ```bash
-pnpm run contract:check
-pnpm run test:types
-pnpm test
-pnpm run test:e2e
-pnpm build
+pnpm --filter goodjob-crm-frontend run contract:check
+pnpm --filter goodjob-crm-frontend run test:types
+pnpm --filter goodjob-crm-frontend test
+pnpm --filter goodjob-crm-frontend run test:e2e
+pnpm --filter goodjob-crm-frontend build
 git diff --check
 ```
 
@@ -219,7 +220,7 @@ git diff --check
 
 ```bash
 MYSQL_TEST_ADMIN_URL="$MYSQL_TEST_ADMIN_URL" \
-pnpm --filter ./frontend test:e2e:financial-council:real
+pnpm --filter goodjob-crm-frontend run test:e2e:financial-council:real
 ```
 
 可通过 `FINANCIAL_COUNCIL_E2E_USER`、`FINANCIAL_COUNCIL_E2E_PASSWORD` 和
