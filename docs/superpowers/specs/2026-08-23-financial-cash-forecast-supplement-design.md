@@ -1,6 +1,6 @@
 # 财务现金预测补充输入设计
 
-**状态：** 已批准，等待实施计划
+**状态：** 已批准，实施计划已生成
 
 **日期：** 2026-08-23
 
@@ -163,7 +163,6 @@ Memory 与 MySQL 必须使用同一验证器、同一 canonical preimage 和同�
 - `1.0.11` 文件、manifest 和 OpenAPI 字节保持不变。
 - 前端只消费生成的 `1.0.12` 类型，不手写重复 DTO。
 - 400/401/403/409/412 继续保留现有语义；新增稳定错误码：
-  - `financial_cash_forecast_required`；
   - `financial_cash_forecast_invalid`；
   - `financial_cash_forecast_future`；
   - `financial_cash_forecast_conflict`。
