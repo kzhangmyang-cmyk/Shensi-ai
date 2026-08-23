@@ -178,7 +178,7 @@ Memory 与 MySQL 必须使用同一验证器、同一 canonical preimage 和同�
 - 应收账款可添加/删除行，字段为客户、金额、逾期天数；
 - 显式“当前没有应收账款”操作生成空数组；
 - 金额使用当前 package 币种展示，输入为十进制主币单位，controller 通过无浮点的字符串解析转换为 minor integer；
-- 不在 DOM、console、storage、URL 或 idempotency key 中保存客户名称和金额；
+- 编辑期间客户名称和金额只允许存在于当前表单控件与 controller 私有内存；不得复制到 `data-*` 属性、console、storage、URL、idempotency key 或公共状态投影；
 - 预测提交前展示管理层声明，只有勾选后才允许 commit；
 - commit 成功后清除所有私有输入引用，只保留服务器公共汇总投影；
 - close、destroy、logout、模式切换和新 preview 必须中止请求并清除预测状态；
