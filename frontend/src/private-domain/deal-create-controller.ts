@@ -281,8 +281,20 @@ export function createDealCreateController(
       setStatus("请填写商机名称、产品、下一动作、日期并选择获客来源", "error");
       return;
     }
-    const quantity = Number(inputValue<HTMLInputElement>(dialog, "#dealQuantityInput"));
-    const unitPrice = Number(inputValue<HTMLInputElement>(dialog, "#dealUnitPriceInput"));
+    const quantityValue = inputValue<HTMLInputElement>(dialog, "#dealQuantityInput");
+    const unitPriceValue = inputValue<HTMLInputElement>(dialog, "#dealUnitPriceInput");
+    const quantity = Number(quantityValue);
+    const unitPrice = Number(unitPriceValue);
+    if (!quantityValue
+      || !unitPriceValue
+      || !Number.isFinite(quantity)
+      || !Number.isFinite(unitPrice)
+      || quantity <= 0
+      || unitPrice <= 0
+      || !Number.isFinite(quantity * unitPrice)) {
+      setStatus("数量和单价必须为大于 0 的有效数字", "error");
+      return;
+    }
     const input: AuthoritativeDealCreateInput = {
       title,
       customerId: activeCustomer.id,

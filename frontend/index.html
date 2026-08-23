@@ -552,8 +552,8 @@
         <label>产品 / 采购需求<input id="dealProductInput" required placeholder="例如：产品型号 / 数量 / 规格" /></label>
         <label>获客来源<select id="dealAcquisitionBindingInput" required></select></label>
         <label>币种<select id="dealCurrencyInput"><option>USD</option><option>EUR</option><option>GBP</option><option>CNY</option><option>JPY</option><option>AED</option></select></label>
-        <label>数量<input id="dealQuantityInput" type="number" min="0" step="1" value="30" /></label>
-        <label>单价<input id="dealUnitPriceInput" type="number" min="0" step="0.01" value="600" /></label>
+        <label>数量<input id="dealQuantityInput" type="number" min="0.01" step="0.01" value="30" required /></label>
+        <label>单价<input id="dealUnitPriceInput" type="number" min="0.01" step="0.01" value="600" required /></label>
         <label>金额<input id="dealAmountInput" type="number" value="18000" readonly /></label>
         <label>下一动作日期<input id="dealNextActionAtInput" type="date" required /></label>
         <label>预计成交日期<input id="dealExpectedCloseAtInput" type="date" /></label>

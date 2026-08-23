@@ -31,6 +31,7 @@ input {
   z-index: 100;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 420px;
+  overflow-y: auto;
   color: #fff;
   background:
     linear-gradient(135deg, rgba(18, 24, 38, 0.94), rgba(36, 56, 92, 0.92)),

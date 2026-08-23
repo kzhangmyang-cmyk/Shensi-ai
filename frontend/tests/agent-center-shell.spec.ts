@@ -17,7 +17,7 @@ async function useSavedDemoSession(page: Page): Promise<void> {
   });
 }
 
-test("root and legacy dashboard open the agent center only", async ({ page }) => {
+test("root and same-page legacy hashes normalize to the agent center only", async ({ page }) => {
   await page.goto("/");
   await page.locator("#loginButton").click();
 
@@ -26,6 +26,14 @@ test("root and legacy dashboard open the agent center only", async ({ page }) =>
   await expect(page.locator(".agent-card")).toHaveCount(6);
   await expect(page.locator(".shell")).toHaveCount(0);
   await expect(page.locator("#dashboard")).toHaveCount(0);
+
+  for (const hash of ["#unknown-old-crm", "#dashboard", ""]) {
+    await page.evaluate((nextHash) => {
+      window.location.hash = nextHash;
+    }, hash);
+    await expect(page).toHaveURL(/#agents$/u);
+    await expect(page.locator(".agent-card")).toHaveCount(6);
+  }
 
   await page.goto("/#dashboard");
   await expect(page).toHaveURL(/#agents$/u);
@@ -151,12 +159,36 @@ test("real private-domain customers can create an authoritative deal", async ({ 
   await expect(dialog).toBeVisible();
   await expect(dialog.locator("#dealCustomerIdInput"))
     .toHaveValue("customer-shell-1");
+  const quantityInput = dialog.locator("#dealQuantityInput");
+  const unitPriceInput = dialog.locator("#dealUnitPriceInput");
+  for (const numericInput of [quantityInput, unitPriceInput]) {
+    await expect(numericInput).toHaveAttribute("required", "");
+    await expect(numericInput).toHaveAttribute("min", "0.01");
+    await expect(numericInput).toHaveAttribute("step", "0.01");
+  }
   await dialog.locator("#dealTitleInput").fill("AI 获客绑定商机");
   await dialog.locator("#dealProductInput").fill("GoodJob CRM");
-  await dialog.locator("#dealQuantityInput").fill("30");
-  await dialog.locator("#dealUnitPriceInput").fill("600");
   await dialog.locator("#dealNextActionAtInput").fill("2026-08-25");
   await dialog.locator("#dealExpectedCloseAtInput").fill("2026-09-13");
+
+  for (const invalid of [
+    { input: quantityInput, value: "" },
+    { input: quantityInput, value: "0" },
+    { input: quantityInput, value: "-1" },
+    { input: unitPriceInput, value: "" },
+    { input: unitPriceInput, value: "0" },
+    { input: unitPriceInput, value: "-1" }
+  ]) {
+    await quantityInput.fill("30");
+    await unitPriceInput.fill("600");
+    await invalid.input.fill(invalid.value);
+    await dialog.locator("#saveDealButton").click();
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    expect(dealRequests).toHaveLength(0);
+  }
+
+  await quantityInput.fill("30");
+  await unitPriceInput.fill("600");
   await dialog.locator("#saveDealButton").click();
 
   await expect.poll(() => dealRequests).toHaveLength(1);
@@ -268,6 +300,26 @@ test("deal creation authentication loss closes and clears the top-layer dialog",
   await page.evaluate(() => new Promise(requestAnimationFrame));
   await expect(page).toHaveURL(/#private-domain$/u);
   await expect(dialog).not.toBeVisible();
+});
+
+test("short desktop login overlay scrolls to the login controls", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 300 });
+  await page.goto("/");
+
+  const loginScreen = page.locator(".login-screen");
+  await expect(loginScreen).toBeVisible();
+  const dimensions = await loginScreen.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight
+  }));
+  expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
+
+  await loginScreen.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect.poll(() => loginScreen.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+  await expect(page.locator("#loginButton")).toBeInViewport();
 });
 
 test("agent center has no page-level horizontal overflow at critical widths", async ({ page }) => {

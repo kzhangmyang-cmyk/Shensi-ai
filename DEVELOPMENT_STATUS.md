@@ -26,7 +26,7 @@ Shensi Sales 已经是统一的 pnpm Monorepo，前端、后端、共享合同�
 ### 智能体业务壳与销售工作台
 
 - JWT 登录、工作区与业务员/主管/管理员数据边界。
-- 黑色智能体中心首页及客户、联系人、商机、待办、跟进提醒、导入导出、资料、考试、OCR 和账号管理。
+- 黑色智能体中心首页及六张经营智能体卡牌；支持获客、会话、私域客户池、成交转化、话术策略、市场计划、连接/模型设置，以及 Growth 经营顾问、增长参谋、产品目录、报价、财务核销、ROI 和财务委员会深链。
 - Memory/MySQL 双模式存储，生产环境只根据显式配置创建初始管理员。
 
 ### 智能获客与 Growth
@@ -46,7 +46,7 @@ Shensi Sales 已经是统一的 pnpm Monorepo，前端、后端、共享合同�
 ## 当前验证基线
 
 - `pnpm install --frozen-lockfile`：PASS。
-- `pnpm test`：PASS，包括 contracts 88/88、前端 self-test 125/125 和宝塔发布包 2/2。
+- `pnpm test`：PASS，包括 contracts 88/88、前端 self-test 56 checks 和宝塔发布包 2/2。
 - `pnpm test:layout`：7/7 PASS，覆盖 Monorepo 目录、跨仓合同和 GitHub Quality workflow。
 - `pnpm build`：后端 TypeScript 和前端 Vite 生产构建 PASS；仅保留既有 chunk-size warning。
 - 真实 MySQL 8.4 财务委员会聚合测试：327/327 PASS，0 skip。

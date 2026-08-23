@@ -132,6 +132,8 @@ async function assertPendingExitCanStartAnotherDeal(
     document.querySelector<HTMLInputElement>("#dealProductInput")!.value = "测试产品";
     document.querySelector<HTMLInputElement>("#dealNextActionInput")!.value = "确认采购清单并安排报价";
     document.querySelector<HTMLInputElement>("#dealNextActionAtInput")!.value = "2026-08-25";
+    document.querySelector<HTMLInputElement>("#dealQuantityInput")!.value = "30";
+    document.querySelector<HTMLInputElement>("#dealUnitPriceInput")!.value = "600";
     const binding = document.querySelector<HTMLSelectElement>(
       "#dealAcquisitionBindingInput"
     )!;
@@ -347,3 +349,94 @@ await assertPendingExitCanStartAnotherDeal(
   "replicaDealCreateClose",
   (operation) => operation.reject(new Error("late old failure"))
 );
+
+{
+  const { document } = parseHTML(`<!doctype html><html><body class="is-authenticated">
+    <div id="replicaToast"><span></span></div>
+    <dialog id="replicaDealCreateDialog">
+      <form id="replicaDealCreateForm">
+        <input id="dealCustomerIdInput" />
+        <input id="dealCustomerInput" />
+        <input id="dealTitleInput" value="正数校验商机" />
+        <input id="dealProductInput" value="测试产品" />
+        <select id="dealAcquisitionBindingInput"></select>
+        <select id="dealCurrencyInput"><option value="USD" selected>USD</option></select>
+        <input id="dealQuantityInput" value="30" />
+        <input id="dealUnitPriceInput" value="600" />
+        <input id="dealAmountInput" value="18000" />
+        <input id="dealNextActionAtInput" value="2026-08-25" />
+        <input id="dealExpectedCloseAtInput" />
+        <input id="dealNextActionInput" value="确认采购清单并安排报价" />
+        <div id="replicaDealCreateStatus"></div>
+        <button id="saveDealButton" type="submit">保存商机</button>
+      </form>
+    </dialog>
+  </body></html>`);
+  const dialog = document.querySelector<HTMLDialogElement>("#replicaDealCreateDialog")!;
+  const form = document.querySelector<HTMLFormElement>("#replicaDealCreateForm")!;
+  Object.assign(dialog, {
+    showModal() {
+      dialog.setAttribute("open", "");
+    },
+    close() {
+      dialog.removeAttribute("open");
+    }
+  });
+  Object.assign(form, { reset() {} });
+  const pendingDeal = deferred<{ deal: { id: string } }>();
+  const dealInputs: AuthoritativeDealCreateInput[] = [];
+  const controller = createDealCreateController({
+    document,
+    location: { hash: "#private-domain" },
+    api: {
+      async getCustomer() {
+        return customer;
+      },
+      createDeal(dealInput) {
+        dealInputs.push(dealInput);
+        return pendingDeal.promise;
+      }
+    }
+  });
+  dispatchCustomEvent(document, "goodjob:deal-create-requested", {
+    customerId: customer.id
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  document.querySelector<HTMLOptionElement>(
+    "#dealAcquisitionBindingInput option"
+  )!.setAttribute("selected", "");
+
+  const quantity = document.querySelector<HTMLInputElement>("#dealQuantityInput")!;
+  const unitPrice = document.querySelector<HTMLInputElement>("#dealUnitPriceInput")!;
+  const status = document.querySelector<HTMLElement>("#replicaDealCreateStatus")!;
+  const submit = () => {
+    const event = document.createEvent("Event");
+    event.initEvent("submit", true, true);
+    form.dispatchEvent(event);
+  };
+  for (const invalid of [
+    { quantity: "", unitPrice: "600" },
+    { quantity: "0", unitPrice: "600" },
+    { quantity: "-1", unitPrice: "600" },
+    { quantity: "NaN", unitPrice: "600" },
+    { quantity: "30", unitPrice: "" },
+    { quantity: "30", unitPrice: "0" },
+    { quantity: "30", unitPrice: "-1" },
+    { quantity: "30", unitPrice: "NaN" }
+  ]) {
+    quantity.value = invalid.quantity;
+    unitPrice.value = invalid.unitPrice;
+    submit();
+    assert.equal(dealInputs.length, 0);
+    assert.equal(status.textContent, "数量和单价必须为大于 0 的有效数字");
+  }
+
+  quantity.value = "0.5";
+  unitPrice.value = "0.01";
+  submit();
+  assert.equal(dealInputs.length, 1);
+  assert.equal(dealInputs[0]?.quantity, 0.5);
+  assert.equal(dealInputs[0]?.unitPrice, 0.01);
+  controller.destroy();
+}
