@@ -15,9 +15,7 @@ function renderUnavailable(reason: string): void {
 
 export function startGrowthWhenRequested(): void {
   const host = growthWorkspaceHost();
-  const shells = document.querySelectorAll<HTMLElement>(
-    ".replica-shell, .shell"
-  );
+  const shells = document.querySelectorAll<HTMLElement>(".replica-shell");
   let startPromise: Promise<void> | null = null;
   let resetPromise: Promise<void> = Promise.resolve();
   let retryAfterPending = false;

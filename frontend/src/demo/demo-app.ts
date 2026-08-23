@@ -18,6 +18,7 @@ import { showDemoToast } from "./demo-ui";
 import { createPrivateDomainController } from "../private-domain/controller";
 import { startGrowthWhenRequested } from "../growth/entry";
 import { createAgentsController } from "../growth/agents/controller";
+import { parseGrowthHash } from "../growth/router";
 
 let agentsDemoController: ReturnType<typeof createAgentsController> | null = null;
 
@@ -70,6 +71,15 @@ export function startDemoApp(): void {
   let realPrivateDomainActive = false;
   let requestedRealCustomerId = "";
   const render = () => {
+    if (parseGrowthHash(window.location.hash)) {
+      if (realPrivateDomainActive) privateDomainController.deactivate();
+      realPrivateDomainActive = false;
+      agentsDemoController?.dispose();
+      agentsDemoController = null;
+      host.replaceChildren();
+      inspector.replaceChildren();
+      return;
+    }
     if (router.current() === "private-domain"
       && shell.dataset.acquisitionMode !== "demo") {
       if (!realPrivateDomainActive || requestedRealCustomerId) {
@@ -484,6 +494,7 @@ export function startDemoApp(): void {
 
   store.subscribe(render);
   router.subscribe(render);
+  window.addEventListener("hashchange", render);
   document.addEventListener("goodjob:acquisition-mode-changed", () => {
     router.navigate(router.current());
   });

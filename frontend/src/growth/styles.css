@@ -3,8 +3,7 @@
   background: var(--growth-surface, #ffffff);
 }
 
-.replica-shell[hidden],
-.shell[hidden] {
+.replica-shell[hidden] {
   display: none !important;
 }
 

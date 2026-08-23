@@ -231,119 +231,6 @@ test("real acquisition header survives a private-domain round trip without hidde
   await expect(page.locator("#demoModuleMain")).toBeHidden();
 });
 
-test("hidden legacy dashboard neither polls nor initialises a zero-size chart", async ({ page }) => {
-  test.skip(!process.env.VITE_API_TARGET?.trim(), "requires the real-mode frontend build");
-  const dashboardRequests: string[] = [];
-  const chartWarnings: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "warning" && /dom width or height/i.test(message.text())) {
-      chartWarnings.push(message.text());
-    }
-  });
-  await page.route("**/api/**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === "/api/auth/me") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          user: {
-            id: "demo-admin",
-            name: "Admin",
-            email: "admin@goodjob.com",
-            role: "admin",
-            teamId: "demo-team",
-            avatar: "AD"
-          }
-        })
-      });
-      return;
-    }
-    if (url.pathname === "/api/dashboard/summary") dashboardRequests.push(url.pathname);
-    await route.abort();
-  });
-  await page.addInitScript(() => {
-    const user = {
-      id: "demo-admin",
-      name: "Admin",
-      email: "admin@goodjob.com",
-      role: "admin",
-      teamId: "demo-team",
-      avatar: "AD"
-    };
-    const summary = {
-      scope: "本团队业务数据",
-      scopeLabels: { business: "团队业务", todos: "本人待办" },
-      updatedAt: "2026-08-08T08:00:00.000Z",
-      periods: {},
-      briefing: {
-        title: "今日经营简报",
-        description: "测试缓存",
-        basis: "真实数据",
-        action: "查看重点客户",
-        impact: "保护成交节奏",
-        riskAmount: 0,
-        riskLabel: "无风险",
-        closableDeals: 0,
-        closableAmount: 0,
-        unreadWecom: 0
-      },
-      metrics: {
-        customers: 0,
-        riskCustomers: 0,
-        todos: 0,
-        overdueTodos: 0,
-        forecastAmount: 0,
-        wecomBoundRate: 0,
-        pendingKnowledge: 0,
-        examPassRate: 0,
-        unfinishedExams: 0,
-        customerCompleteness: 0
-      },
-      schedule: [],
-      quality: { followHealth: 0, overdueRate: 0, avgResponseHours: 0 },
-      leadFunnel: {
-        stages: [
-          { key: "entered", label: "进入系统", count: 1, conversionRate: 100 },
-          { key: "valid", label: "有效线索", count: 1, conversionRate: 100 }
-        ],
-        todayAdded: 1,
-        filteredOut: 0,
-        dealConversionRate: 0
-      },
-      pipelineHealth: [],
-      todoInsights: {
-        total: 0,
-        overdue: 0,
-        completionRate: 0,
-        impactAmount: 0,
-        typeRows: [],
-        weekLoad: [],
-        historyCount: 0,
-        historyAmount: 0
-      },
-      priorityTasks: []
-    };
-    localStorage.setItem("gj_user", JSON.stringify(user));
-    localStorage.setItem("gj_dashboard_cache", JSON.stringify({
-      "demo-admin:admin:demo-team": {
-        summary,
-        todos: [],
-        customers: [],
-        cachedAt: new Date().toISOString()
-      }
-    }));
-  });
-
-  await page.goto("/#acquisition");
-  await expect(page.locator("body")).toHaveClass(/is-authenticated/);
-  await expect.poll(() => dashboardRequests.length).toBe(1);
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await page.waitForTimeout(250);
-
-  expect(chartWarnings).toEqual([]);
-  expect(dashboardRequests).toHaveLength(1);
-});
 
 test("AI draft creation preserves the complete server plan through approval and run", async ({ page }) => {
   const createdPlans: unknown[] = [];
@@ -690,11 +577,6 @@ test("real acquisition task opens authoritative plan and AI candidate review", a
     idempotencyKey: string | undefined;
     body: unknown;
   }> = [];
-  const dealRequests: Array<{
-    method: string;
-    body: Record<string, unknown>;
-  }> = [];
-  const dealRows: Array<Record<string, unknown>> = [];
   const acquisitionBindings = [{
     handoffId: "ach-ui-1",
     leadId: "lead-ui-1",
@@ -706,43 +588,7 @@ test("real acquisition task opens authoritative plan and AI candidate review", a
     candidateId: "candidate-ui-2",
     createdAt: "2026-08-07T08:11:00.000Z"
   }];
-  const consumedHandoffIds = new Set<string>();
-  let failNextCustomerRequest = false;
-  let pendingCustomerGate: {
-    started(): void;
-    wait: Promise<void>;
-  } | null = null;
-  function holdNextCustomerRequest() {
-    let markStarted!: () => void;
-    let release!: () => void;
-    const started = new Promise<void>((resolve) => {
-      markStarted = resolve;
-    });
-    const wait = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    pendingCustomerGate = { started: markStarted, wait };
-    return { started, release };
-  }
   await page.route("**/api/customers*", async (route) => {
-    const url = new URL(route.request().url());
-    if (failNextCustomerRequest) {
-      failNextCustomerRequest = false;
-      await route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        body: JSON.stringify({ message: "客户权威数据暂时不可用" })
-      });
-      return;
-    }
-    const gate = url.searchParams.get("scope") === "mine"
-      ? pendingCustomerGate
-      : null;
-    if (gate) {
-      pendingCustomerGate = null;
-      gate.started();
-      await gate.wait;
-    }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -761,8 +607,7 @@ test("real acquisition task opens authoritative plan and AI candidate review", a
           grade: "A",
           nextReminder: "2026-08-09T10:30:00.000Z",
           wecomBound: false,
-          acquisitionBindings: acquisitionBindings.filter((binding) =>
-            !consumedHandoffIds.has(binding.handoffId)),
+          acquisitionBindings,
           activities: [{
             id: "activity-ui-1",
             customerId: "customer-ui-1",
@@ -776,57 +621,6 @@ test("real acquisition task opens authoritative plan and AI candidate review", a
         }]
       })
     });
-  });
-  await page.route("**/api/dashboard/summary", async (route) => {
-    await route.fulfill({
-      status: 503,
-      contentType: "application/json",
-      body: JSON.stringify({ message: "E2E 不刷新 legacy dashboard" })
-    });
-  });
-  await page.route("**/api/deals**", async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    const fulfill = (value: unknown) => route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(value)
-    });
-    if (url.pathname === "/api/deals/closed") {
-      await fulfill({
-        deals: [],
-        total: 0,
-        page: 1,
-        pageSize: 20,
-        counts: { won: 0, lost: 0, revisit: 0 }
-      });
-      return;
-    }
-    if (url.pathname === "/api/deals" && request.method() === "GET") {
-      await fulfill({ deals: dealRows, events: [] });
-      return;
-    }
-    const body = request.postDataJSON() as Record<string, unknown>;
-    dealRequests.push({ method: request.method(), body });
-    if (url.pathname === "/api/deals" && request.method() === "POST") {
-      const acquisitionBinding = body.acquisitionBinding as {
-        handoffId?: unknown;
-      } | undefined;
-      if (typeof acquisitionBinding?.handoffId === "string") {
-        consumedHandoffIds.add(acquisitionBinding.handoffId);
-      }
-      const deal = {
-        id: `deal-ui-${dealRows.length + 1}`,
-        ...body,
-        stage: "询盘",
-        amountType: "estimate",
-        stageChangedAt: "2026-08-08T08:00:00.000Z"
-      };
-      dealRows.push(deal);
-      await fulfill({ deal });
-      return;
-    }
-    await fulfill({ message: "测试路由未配置" });
   });
   await page.route("**/api/todos", async (route) => {
     await route.fulfill({
@@ -1152,108 +946,4 @@ test("real acquisition task opens authoritative plan and AI candidate review", a
   await expect(page.locator("#demoModuleInspector")).toContainText("todo-ui-1");
   await expect(page.locator("#demoModuleInspector")).toContainText("获客候选已交接");
   await expect(page.locator("#demoModuleMain")).not.toContainText("演示模式");
-
-  const createRealDeal = page.locator('[data-private-domain-action="create-deal"]');
-  await expect(createRealDeal).toBeVisible();
-  await createRealDeal.click();
-  await expect(page.locator("#appModal")).toHaveClass(/active/);
-  await expect(page.locator("#dealCustomerIdInput")).toHaveValue("customer-ui-1");
-  await expect(page.locator("#dealAcquisitionBindingField")).toBeVisible();
-  await expect(page.locator("#dealAcquisitionBindingInput")).toHaveValue("");
-  await page.locator("#dealAcquisitionBindingInput").selectOption("ach-ui-1");
-  await page.locator("#dealTitleInput").fill("AI 获客绑定商机");
-  await page.locator("#dealProductInput").fill("GoodJob CRM");
-  const firstBindingRefresh = page.waitForResponse((response) =>
-    response.url().includes("/api/customers?scope=mine")
-    && response.status() === 200);
-  await page.locator("#saveDealButton").click();
-  await firstBindingRefresh;
-  await expect.poll(() => dealRequests.length).toBe(1);
-  expect(dealRequests[0]).toEqual({
-    method: "POST",
-    body: expect.objectContaining({
-      title: "AI 获客绑定商机",
-      customerId: "customer-ui-1",
-      acquisitionBinding: {
-        handoffId: "ach-ui-1",
-        leadId: "lead-ui-1"
-      }
-    })
-  });
-
-  await expect(createRealDeal).toBeVisible();
-  await createRealDeal.click();
-  await expect(page.locator("#dealAcquisitionBindingInput")).toHaveValue("ach-ui-2");
-  await page.locator("#dealTitleInput").fill("AI 获客绑定商机二");
-  await page.locator("#dealProductInput").fill("GoodJob CRM");
-  const finalBindingRefresh = page.waitForResponse((response) =>
-    response.url().includes("/api/customers?scope=mine")
-    && response.status() === 200);
-  await page.locator("#saveDealButton").click();
-  await finalBindingRefresh;
-  await expect.poll(() => dealRequests.length).toBe(2);
-  await expect(createRealDeal).toHaveCount(0);
-
-  failNextCustomerRequest = true;
-  const failedAuthorityRefresh = page.waitForResponse((response) =>
-    response.url().includes("/api/customers?scope=mine")
-    && response.status() === 503);
-  await page.evaluate(() => document.dispatchEvent(new CustomEvent(
-    "goodjob:acquisition-candidate-changed",
-    {
-      detail: {
-        action: "private_domain_handoff_completed",
-        customerId: "customer-ui-1",
-        todoId: "todo-ui-1",
-        leadId: "lead-ui-1",
-        handoffId: "ach-ui-1"
-      }
-    }
-  )));
-  await failedAuthorityRefresh;
-  const retryRefresh = page.locator(".toast.error").getByRole("button", {
-    name: "重试刷新"
-  });
-  await expect(retryRefresh).toBeVisible();
-  const successfulRetry = page.waitForResponse((response) =>
-    response.url().includes("/api/customers?scope=mine")
-    && response.status() === 200);
-  await retryRefresh.click();
-  await successfulRetry;
-  await expect(retryRefresh).toHaveCount(0);
-
-  const leaveGate = holdNextCustomerRequest();
-  await page.locator('[data-private-domain-action="retry"]').click();
-  await leaveGate.started;
-  await page.locator('[data-replica-view="dashboard"]').click();
-  const leaveResponse = page.waitForResponse(
-    (response) => response.url().includes("/api/customers?scope=mine")
-  );
-  leaveGate.release();
-  await leaveResponse;
-  await page.evaluate(() => new Promise(requestAnimationFrame));
-  await expect(page.locator("#demoModuleMain")).toContainText(
-    "让每一次客户信号，都进入下一步"
-  );
-  await expect(page.locator("#demoModuleMain")).not.toContainText("真实客户池");
-
-  const demoGate = holdNextCustomerRequest();
-  await page.locator('[data-replica-view="private-domain"]').click();
-  await demoGate.started;
-  await page.evaluate(() => {
-    const shell = document.querySelector<HTMLElement>(".replica-shell");
-    if (shell) shell.dataset.acquisitionMode = "demo";
-    document.dispatchEvent(new CustomEvent(
-      "goodjob:acquisition-mode-changed",
-      { detail: { mode: "demo" } }
-    ));
-  });
-  const demoResponse = page.waitForResponse(
-    (response) => response.url().includes("/api/customers?scope=mine")
-  );
-  demoGate.release();
-  await demoResponse;
-  await page.evaluate(() => new Promise(requestAnimationFrame));
-  await expect(page.locator("#demoModuleMain")).toContainText("演示模式");
-  await expect(page.locator("#demoModuleMain")).not.toContainText("真实客户池");
 });

@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests",
   testMatch: [
+    "agent-center-shell.spec.ts",
     "demo-auth.spec.ts",
     "acquisition-performance.spec.ts",
     "acquisition-identity-resolution.spec.ts",

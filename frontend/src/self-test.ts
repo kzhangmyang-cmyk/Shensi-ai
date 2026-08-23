@@ -3,7 +3,6 @@ import { strict as assert } from "node:assert";
 import "./app-route.self-test";
 import "./app-session.self-test";
 import "./demo/demo-store.self-test";
-import { buildLeadFinderIntentChips, getLeadFinderLayoutMode } from "./lead-finder-layout";
 import "./acquisition/runtime-model.self-test";
 import "./acquisition/runtime-api.self-test";
 import "./acquisition/runtime-presenter.self-test";
@@ -59,32 +58,7 @@ import "./growth/council/view.self-test";
 import "./growth/council/entry.self-test";
 import "./connections/connection-view.self-test";
 
-assert.equal(getLeadFinderLayoutMode(0), "entry");
-assert.equal(getLeadFinderLayoutMode(1), "results");
-assert.deepEqual(
-  buildLeadFinderIntentChips({
-    goal: "德国的 LED 工业照明经销商",
-    productKeywords: "LED 工业照明",
-    countries: "德国, 奥地利",
-    industry: "工业照明",
-    customerType: "经销商 / Distributor"
-  }),
-  ["德国", "奥地利", "LED 工业照明", "工业照明", "经销商"]
-);
-assert.deepEqual(
-  buildLeadFinderIntentChips({
-    goal: "寻找北欧工业照明合作伙伴",
-    productKeywords: "",
-    countries: "",
-    industry: "",
-    customerType: ""
-  }),
-  ["寻找北欧工业照明合作伙伴"]
-);
-
 const prototype = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-const apiLayer = readFileSync(new URL("./prototype-api.ts", import.meta.url), "utf8");
-const m1Layout = readFileSync(new URL("./m1-layout.css", import.meta.url), "utf8");
 const replicaStyles = readFileSync(new URL("./replica-dashboard.css", import.meta.url), "utf8");
 const replicaBehavior = readFileSync(new URL("./replica-dashboard.ts", import.meta.url), "utf8");
 const demoApp = readFileSync(new URL("./demo/demo-app.ts", import.meta.url), "utf8");
@@ -114,61 +88,8 @@ for (const customerFacingSource of [
 
 const required = [
   "login-screen",
-  "business-dashboard",
-  "id=\"forecast\"",
-  "data-priority-filter=\"all\"",
-  "dashboardPriorityFilter",
-  "todo-board",
-  "report-deck",
-  "id=\"knowledge\"",
-  "id=\"exam\"",
-  "id=\"tools\"",
-  "id=\"settings\"",
-  "prototype-api.ts",
-  "/api/auth/login",
-  "/api/dashboard/summary",
-  "DASHBOARD_LIVE_REFRESH_MS",
-  "refreshVisibleDashboard",
-  "requestDashboardRefresh",
-  "/api/knowledge/assets",
-  "/api/exams",
-  "/api/tools/ocr/jobs/ocr1/sync-lead",
-  "/api/lead-finder/providers",
-  "/api/lead-finder/search",
-  "/api/lead-finder/source-config",
-  "/conversion-preview",
-  "转为客户",
-  "createDeal",
-  "pipelineAmount",
-  "/api/leads?trash=true",
-  "sourceEvents",
-  "leadPermanentConfirmInput",
-  "加入线索中心",
-  "leadSourceCenterButton",
-  "leadSourceChips",
-  "openLeadSourceCenter",
-  "ai_search",
-  "data-view=\"commission\"",
-  "id=\"commission\"",
-  "commissionSyncDealsButton",
-  "commissionRecalculateButton",
-  "/api/commission/products",
-  "/api/commission/sales-records",
-  "/api/commission/calculations/recalculate",
-  "renderCommission",
-  "m1-layout.css",
-  "id=\"allToolsMenu\"",
-  "class=\"lead-taskbar\"",
-  "lead-workbench-header",
-  "lead-search-row",
-  "lead-inline-summary",
-  "lead-list-toolbar",
-  "leadFinderTaskButton",
-  "leadMoreConditionsButton",
-  "id=\"leadFinderIntentChips\"",
-  "data-layout-state=\"entry\"",
-  "renderLeadFinderLayout",
-  "buildLeadFinderIntentChips",
+  "src/app-shell.css",
+  "src/app-entry.ts",
   "replica-shell",
   "id=\"replicaTaskModal\"",
   "id=\"replicaSearchInput\"",
@@ -215,6 +136,12 @@ const required = [
   "src/demo/demo.css"
 ];
 
+assert.doesNotMatch(prototype, /class="shell"/u);
+assert.doesNotMatch(prototype, /id="dashboard"/u);
+assert.doesNotMatch(prototype, /prototype-api\.ts/u);
+assert.match(prototype, /data-replica-view="agents"/u);
+assert.match(prototype, /id="demoModuleMain"/u);
+
 assert.equal(
   replicaBehavior.includes("startAcquisitionRuntime"),
   true,
@@ -236,50 +163,12 @@ assert.equal(
   "hash navigation must update the visible module without a page reload"
 );
 
-const leadFinderMarkupRequired = [
-  "class=\"lead-taskbar\"",
-  "class=\"lead-workbench-header\"",
-  "class=\"lead-search-row\"",
-  "class=\"lead-inline-summary\"",
-  "class=\"lead-list-toolbar\"",
-  "id=\"leadFinderTaskButton\"",
-  "id=\"leadMoreConditionsButton\"",
-  "id=\"leadFinderIntentChips\"",
-  "id=\"leadFinderAdvancedSettings\"",
-  "id=\"leadFinderQueuePanel\"",
-  "id=\"leadFinderAiBadge\"",
-  "data-layout-state=\"entry\""
-];
-
-const uniqueLeadFinderIds = [
-  "leadFinderTaskButton",
-  "leadMoreConditionsButton",
-  "leadFinderAdvancedSettings",
-  "leadFinderQueuePanel",
-  "leadFinderAiBadge"
-];
-
 for (const token of required) {
   if (
     !prototype.includes(token)
-    && !apiLayer.includes(token)
-    && !m1Layout.includes(token)
     && !replicaStyles.includes(token)
     && !replicaBehavior.includes(token)
   ) throw new Error(`missing ${token}`);
-}
-
-for (const token of leadFinderMarkupRequired) {
-  if (!prototype.includes(token)) throw new Error(`missing lead finder HTML markup ${token}`);
-}
-
-for (const id of uniqueLeadFinderIds) {
-  const matches = prototype.match(new RegExp(`id=["']${id}["']`, "g")) || [];
-  assert.equal(matches.length, 1, `expected exactly one #${id} in HTML`);
-}
-
-if (!prototype.includes(".report-hero") || !prototype.includes(".ocr-workbench") || !prototype.includes(".account-grid")) {
-  throw new Error("missing high fidelity prototype styles");
 }
 
 assert.match(replicaBehavior, /function isAcquisitionActive\(\): boolean/,
@@ -291,4 +180,4 @@ assert.match(replicaBehavior, /taskForm\?\.addEventListener\("submit", \(event\)
 assert.ok(!demoApp.includes('shell.addEventListener("change"'),
   "demo app must not rerender on every native change event");
 
-console.log(JSON.stringify({ ok: true, checked: required.length + leadFinderMarkupRequired.length + uniqueLeadFinderIds.length + 4 }, null, 2));
+console.log(JSON.stringify({ ok: true, checked: required.length + 9 }, null, 2));

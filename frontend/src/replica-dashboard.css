@@ -31,10 +31,6 @@ body.is-authenticated {
   overflow: hidden;
 }
 
-body.is-authenticated > .shell {
-  display: none !important;
-}
-
 body.is-authenticated .replica-shell {
   box-sizing: border-box;
   width: 100%;
