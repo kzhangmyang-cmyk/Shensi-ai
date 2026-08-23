@@ -85,6 +85,19 @@ checkReviewFinding("legacy one-way links normalize without duplicating customers
   assert.equal(legacyStore.getState().customers.length, legacyState.customers.length);
 });
 
+checkReviewFinding("retired dashboard task modules are rejected from persisted state", () => {
+  const legacyDashboardState = JSON.parse(JSON.stringify(initial)) as DemoState;
+  legacyDashboardState.tasks[0].module = "dashboard" as never;
+  const legacyDashboardStore = createDemoStore({
+    storage: {
+      getItem: () => JSON.stringify(legacyDashboardState),
+      setItem: () => undefined,
+      removeItem: () => undefined
+    }
+  });
+  assert.equal(legacyDashboardStore.getState().tasks[0].module, "conversations");
+});
+
 checkReviewFinding("generic stage movement cannot enter or reopen terminal stages", () => {
   const terminalStore = createDemoStore({ storage: null, now: () => "2026-07-29T09:00:00.000Z" });
   const opportunityId = "opportunity-office";
