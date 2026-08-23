@@ -1,5 +1,4 @@
 export type DemoModule =
-  | "dashboard"
   | "acquisition"
   | "conversations"
   | "private-domain"

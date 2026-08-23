@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
 import { strict as assert } from "node:assert";
+import "./app-route.self-test";
 import "./demo/demo-store.self-test";
-import { renderDashboardView } from "./demo/demo-dashboard-view";
-import { createDemoStore } from "./demo/demo-store";
 import { buildLeadFinderIntentChips, getLeadFinderLayoutMode } from "./lead-finder-layout";
 import "./acquisition/runtime-model.self-test";
 import "./acquisition/runtime-api.self-test";
@@ -82,19 +81,6 @@ assert.deepEqual(
   ["寻找北欧工业照明合作伙伴"]
 );
 
-const dashboardStore = createDemoStore({ storage: null, now: () => "2026-07-29T09:00:00.000Z" });
-dashboardStore.transferConversationToPrivate("conversation-douyin-lin");
-const dashboardMain = { innerHTML: "", querySelectorAll: () => [] } as unknown as HTMLElement;
-const dashboardInspector = { innerHTML: "" } as HTMLElement;
-renderDashboardView(dashboardStore.getState(), dashboardMain, dashboardInspector);
-assert.equal(
-  dashboardMain.innerHTML.match(/<b>林女士<\/b>/g)?.length,
-  1,
-  "a transferred conversation and its private customer must occupy one priority position"
-);
-assert.equal(dashboardInspector.innerHTML.includes("设置中心 → 重置演示数据"), true);
-assert.equal(dashboardInspector.innerHTML.includes("清除本站点存储"), false);
-
 const prototype = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const apiLayer = readFileSync(new URL("./prototype-api.ts", import.meta.url), "utf8");
 const m1Layout = readFileSync(new URL("./m1-layout.css", import.meta.url), "utf8");
@@ -102,7 +88,6 @@ const replicaStyles = readFileSync(new URL("./replica-dashboard.css", import.met
 const replicaBehavior = readFileSync(new URL("./replica-dashboard.ts", import.meta.url), "utf8");
 const demoApp = readFileSync(new URL("./demo/demo-app.ts", import.meta.url), "utf8");
 const demoRouter = readFileSync(new URL("./demo/demo-router.ts", import.meta.url), "utf8");
-const demoDashboardView = readFileSync(new URL("./demo/demo-dashboard-view.ts", import.meta.url), "utf8");
 const demoCapabilitiesView = readFileSync(
   new URL("./demo/demo-capabilities-view.ts", import.meta.url),
   "utf8"
@@ -226,11 +211,7 @@ const required = [
   "id=\"replicaAcquisitionDetailCenter\"",
   "id=\"replicaAcquisitionDetailCenterBody\"",
   "src/demo/demo-app.ts",
-  "src/demo/demo.css",
-  "renderDashboardView",
-  "data-demo-action=\"open-module\"",
-  "今日业务漏斗",
-  "最近业务活动"
+  "src/demo/demo.css"
 ];
 
 assert.equal(
@@ -284,7 +265,6 @@ for (const token of required) {
     && !m1Layout.includes(token)
     && !replicaStyles.includes(token)
     && !replicaBehavior.includes(token)
-    && !demoDashboardView.includes(token)
   ) throw new Error(`missing ${token}`);
 }
 

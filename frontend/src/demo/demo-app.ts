@@ -1,6 +1,5 @@
 import { createDemoRouter, demoModuleMeta } from "./demo-router";
 import { renderConversationsView, resetConversationViewState, setConversationFilter } from "./demo-conversations-view";
-import { renderDashboardView, resetDashboardViewState } from "./demo-dashboard-view";
 import { renderCapabilityDemoView } from "./demo-capabilities-view";
 import { isOpportunityStage, lossReasons, renderConversionView } from "./demo-conversion-view";
 import {
@@ -29,10 +28,6 @@ function renderModule(module: DemoModule, state: DemoState, host: HTMLElement, i
       demo: true
     });
     agentsDemoController.render();
-    return;
-  }
-  if (module === "dashboard") {
-    renderDashboardView(state, host, inspector);
     return;
   }
   if (module === "conversations") {
@@ -315,13 +310,12 @@ export function startDemoApp(): void {
       resetInProgress = true;
       shell.querySelectorAll<HTMLDialogElement>("dialog[open]").forEach((openDialog) => openDialog.close());
       shell.querySelectorAll<HTMLFormElement>("form").forEach((form) => form.reset());
-      resetDashboardViewState();
       resetConversationViewState();
       resetPrivateDomainViewState();
       draggedOpportunityId = "";
       document.dispatchEvent(new Event("goodjob:demo-reset"));
       store.reset();
-      router.navigate("dashboard");
+      router.navigate("agents");
       showDemoToast("演示：已恢复初始数据");
       resetInProgress = false;
       return;

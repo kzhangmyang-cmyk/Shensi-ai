@@ -1,5 +1,6 @@
 import type { DemoModule } from "./demo-types";
 import { parseGrowthHash } from "../growth/router";
+import { normalizeAppHash } from "../app-route";
 
 export interface DemoRouter {
   current(): DemoModule;
@@ -15,12 +16,6 @@ interface ModuleMeta {
 }
 
 export const demoModuleMeta: Record<DemoModule, ModuleMeta> = {
-  dashboard: {
-    title: "自动营销总览",
-    subtitle: "汇总全渠道运营数据与今日待办",
-    searchPlaceholder: "搜索数据、待办或客户...",
-    primaryAction: "查看今日计划"
-  },
   acquisition: {
     title: "自动营销系统",
     subtitle: "演示模式 · 获客 · 沟通 · 私域沉淀 · 成交",
@@ -73,17 +68,18 @@ export const demoModuleMeta: Record<DemoModule, ModuleMeta> = {
 
 const modules = new Set<DemoModule>(Object.keys(demoModuleMeta) as DemoModule[]);
 
-function moduleFromHash(fallback: DemoModule): DemoModule {
-  const hash = window.location.hash.replace(/^#/, "");
-  if (!hash) return fallback;
-  return modules.has(hash as DemoModule) ? hash as DemoModule : "acquisition";
+function moduleFromHash(hash: string, fallback: DemoModule): DemoModule {
+  const module = hash.replace(/^#/, "");
+  return modules.has(module as DemoModule) ? module as DemoModule : fallback;
 }
 
-export function createDemoRouter(initial: DemoModule = "acquisition"): DemoRouter {
-  const growthRequested = parseGrowthHash(window.location.hash) !== null;
+export function createDemoRouter(initial: DemoModule = "agents"): DemoRouter {
+  const initialHash = normalizeAppHash(window.location.hash);
+  if (window.location.hash !== initialHash) window.history.replaceState(null, "", initialHash);
+  const growthRequested = parseGrowthHash(initialHash) !== null;
   let active = growthRequested
     ? initial
-    : moduleFromHash(initial);
+    : moduleFromHash(initialHash, initial);
   const listeners = new Set<(module: DemoModule) => void>();
 
   function renderShell(module: DemoModule): void {
@@ -116,15 +112,18 @@ export function createDemoRouter(initial: DemoModule = "acquisition"): DemoRoute
   }
 
   function navigate(module: DemoModule): void {
-    active = modules.has(module) ? module : "acquisition";
+    const nextHash = normalizeAppHash(`#${module}`);
+    active = moduleFromHash(nextHash, "agents");
     renderShell(active);
-    if (window.location.hash !== `#${active}`) window.location.hash = active;
+    if (window.location.hash !== nextHash) window.location.hash = nextHash;
     listeners.forEach((listener) => listener(active));
   }
 
   window.addEventListener("hashchange", () => {
-    if (parseGrowthHash(window.location.hash)) return;
-    const next = moduleFromHash(initial);
+    const normalizedHash = normalizeAppHash(window.location.hash);
+    if (window.location.hash !== normalizedHash) window.history.replaceState(null, "", normalizedHash);
+    if (parseGrowthHash(normalizedHash)) return;
+    const next = moduleFromHash(normalizedHash, initial);
     if (next === active) return;
     active = next;
     renderShell(active);
@@ -132,7 +131,6 @@ export function createDemoRouter(initial: DemoModule = "acquisition"): DemoRoute
   });
 
   renderShell(active);
-  if (!growthRequested && window.location.hash !== `#${active}`) window.location.hash = active;
 
   return {
     current: () => active,

@@ -3,7 +3,6 @@ import { parseFollowUpAt } from "./demo-app";
 import { renderCapabilityDemoView } from "./demo-capabilities-view";
 import { renderConversationsView } from "./demo-conversations-view";
 import { getConversionMetrics, renderConversionView } from "./demo-conversion-view";
-import { renderDashboardView } from "./demo-dashboard-view";
 import { renderPrivateDomainView } from "./demo-private-domain-view";
 import { createDemoStore } from "./demo-store";
 import type { DemoState } from "./demo-types";
@@ -143,21 +142,13 @@ checkReviewFinding("malicious persisted unions, ranges, and relationships fall b
   const unsafeConversationMain = { innerHTML: "" } as HTMLElement;
   const unsafeConversationInspector = { innerHTML: "" } as HTMLElement;
   renderConversationsView(maliciousEnums, unsafeConversationMain, unsafeConversationInspector);
-  const unsafeDashboardMain = { innerHTML: "", querySelectorAll: () => [] } as unknown as HTMLElement;
-  const unsafeDashboardInspector = { innerHTML: "" } as HTMLElement;
-  renderDashboardView(maliciousEnums, unsafeDashboardMain, unsafeDashboardInspector);
+  const unsafePrivateDomainMain = { innerHTML: "" } as HTMLElement;
+  const unsafePrivateDomainInspector = { innerHTML: "" } as HTMLElement;
+  renderPrivateDomainView(maliciousEnums, unsafePrivateDomainMain, unsafePrivateDomainInspector);
   assert.equal(unsafeConversationMain.innerHTML.includes(payload), false);
   assert.equal(unsafeConversationInspector.innerHTML.includes(payload), false);
-  assert.equal(unsafeDashboardMain.innerHTML.includes(payload), false);
-});
-
-checkReviewFinding("dashboard entity actions retain safe entity type and id", () => {
-  const dashboardMain = { innerHTML: "", querySelectorAll: () => [] } as unknown as HTMLElement;
-  const dashboardInspector = { innerHTML: "" } as HTMLElement;
-  renderDashboardView(initial, dashboardMain, dashboardInspector);
-  assert.equal(dashboardMain.innerHTML.includes('data-demo-entity-type="conversation" data-demo-entity-id="conversation-kuaishou-wang"'), true);
-  assert.equal(dashboardMain.innerHTML.includes('data-demo-entity-type="customer" data-demo-entity-id="customer-wechat-zhou"'), true);
-  assert.equal(dashboardMain.innerHTML.includes('data-demo-entity-type="opportunity" data-demo-entity-id="opportunity-office"'), true);
+  assert.equal(unsafePrivateDomainMain.innerHTML.includes(payload), false);
+  assert.equal(unsafePrivateDomainInspector.innerHTML.includes(payload), false);
 });
 
 assert.deepEqual(reviewFailures, [], reviewFailures.join("\n"));
