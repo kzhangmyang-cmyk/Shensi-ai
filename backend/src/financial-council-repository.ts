@@ -143,6 +143,7 @@ export function financialCouncilOptimizationRunHash(
     dataAsOf: run.dataAsOf,
     businessReport: run.businessReport,
     policyVersionId: run.policyVersionId,
+    modelRoutingPolicyVersionId: run.modelRoutingPolicyVersionId,
     snapshotId: run.snapshotId,
     snapshotHash: run.snapshotHash,
     createdAt: run.createdAt,
@@ -873,12 +874,14 @@ function assertModelBinding(
     "role", "phase", "attempt", "connectionId", "credentialVersion",
     "provider", "model", "capabilitySnapshotHash", "baseUrlFingerprint",
     "promptVersion", "schemaVersion", "contentHash", "promptHash",
-    "schemaHash"]);
+    "schemaHash", "routingPolicyVersionId", "routeReasonCodes"]);
   for (const key of ["jobId", "connectionId", "model", "baseUrlFingerprint",
     "promptVersion", "schemaVersion"] as const) specialId(value[key]);
   for (const key of ["snapshotHash", "capabilitySnapshotHash", "contentHash",
     "promptHash", "schemaHash"] as const) specialHash(value[key]);
   specialInteger(value.credentialVersion, 1);
+  specialId(value.routingPolicyVersionId);
+  specialIds(value.routeReasonCodes);
   if (!MODEL_PROVIDERS.has(String(value.provider))
     || value.runId !== outer.runId || value.snapshotId !== outer.snapshotId
     || value.snapshotHash !== outer.snapshotHash || value.role !== outer.role
@@ -903,7 +906,7 @@ export function validateFinancialCouncilSpecialistResult(
     specialHash(stable.snapshotHash);
     if (!SPECIALIST_ROLES.has(String(stable.role))
       || !SPECIALIST_PHASES.has(String(stable.phase))) specialInvalid();
-    specialInteger(stable.attempt, 1, 100);
+    specialInteger(stable.attempt, 1, 3);
     specialHash(stable.outputHash);
     specialTimestamp(stable.createdAt);
     if (typeof stable.repaired !== "boolean") specialInvalid();
@@ -1067,7 +1070,7 @@ function assertFinancialCouncilPortfolios(
 
 const RUN_KEYS = ["runId", "workspaceId", "creationKeyHash", "requestHash",
   "currency", "status", "revision", "dataAsOf", "businessReport",
-  "policyVersionId", "snapshotId", "snapshotHash", "consensusReport",
+  "policyVersionId", "modelRoutingPolicyVersionId", "snapshotId", "snapshotHash", "consensusReport",
   "portfolios", "latestPortfolioRevision", "approval", "createdAt",
   "updatedAt", "expiresAt"] as const;
 
@@ -1112,6 +1115,7 @@ asserts value is FinancialCouncilRun {
   assertCanonicalBusinessReport(value.businessReport);
   if (value.businessReport.currency !== value.currency) inputInvalid();
   policyVersionId(value.policyVersionId);
+  policyVersionId(value.modelRoutingPolicyVersionId);
   if (value.snapshotId !== null) identifier(value.snapshotId);
   if (value.snapshotHash !== null) hash(value.snapshotHash);
   if ((value.snapshotId === null) !== (value.snapshotHash === null)) inputInvalid();
@@ -2294,14 +2298,17 @@ implements FinancialCouncilRepository {
       return { value: current, replayed: true };
     }
     if (input.result.binding.jobId
-        !== `financial-council:${current.runId}:${current.role}:rebut:1`
+        !== `financial-council:${current.runId}:${current.role}:rebut:${
+          input.result.binding.attempt}`
       || input.result.binding.contentHash !== rebuttalContentHash(current.input)
       || input.result.binding.runId !== current.runId
       || input.result.binding.snapshotId !== current.snapshotId
       || input.result.binding.snapshotHash !== current.snapshotHash
       || input.result.binding.role !== current.role
       || input.result.binding.phase !== "rebut"
-      || input.result.binding.attempt !== 1
+      || !Number.isSafeInteger(input.result.binding.attempt)
+      || input.result.binding.attempt < 1
+      || input.result.binding.attempt > 3
       || input.result.value.findingId !== current.targetFindingId) {
       throw financialCouncilError("financial_council_rebuttal_invalid");
     }

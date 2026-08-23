@@ -8104,6 +8104,7 @@ app.post("/api/v1/ai/connections", requireAuth, asyncRoute(async (req, res) => {
         const configStates = store.aiModelConfigs.map((item) => ({
           item,
           enabled: item.enabled,
+          isDefault: item.isDefault,
           updatedAt: item.updatedAt
         }));
         const credentialLength = store.modelCredentialVersions.length;
@@ -8127,6 +8128,7 @@ app.post("/api/v1/ai/connections", requireAuth, asyncRoute(async (req, res) => {
           model: body.model,
           apiKey: body.apiKey,
           enabled: false,
+          isDefault: false,
           temperature: 0.1,
           useLeadFinder: true,
           useWebsiteParse: true,
@@ -8159,6 +8161,7 @@ app.post("/api/v1/ai/connections", requireAuth, asyncRoute(async (req, res) => {
           );
           for (const state of configStates) {
             state.item.enabled = state.enabled;
+            state.item.isDefault = state.isDefault;
             state.item.updatedAt = state.updatedAt;
           }
         };
@@ -8386,6 +8389,7 @@ app.post("/api/v1/ai/connections/:id/activate", requireAuth, asyncRoute(async (r
         const configStates = store.aiModelConfigs.map((item) => ({
           item,
           enabled: item.enabled,
+          isDefault: item.isDefault,
           updatedAt: item.updatedAt
         }));
         const eventLength =
@@ -8395,6 +8399,7 @@ app.post("/api/v1/ai/connections/:id/activate", requireAuth, asyncRoute(async (r
         const rollback = () => {
           for (const state of configStates) {
             state.item.enabled = state.enabled;
+            state.item.isDefault = state.isDefault;
             state.item.updatedAt = state.updatedAt;
           }
           store.modelConnectionActivationEvents.splice(eventLength);
@@ -8541,6 +8546,7 @@ app.post("/api/tools/ai-config", requireAuth, asyncRoute(async (req, res) => {
     model: body.model,
     apiKey,
     enabled: false,
+    isDefault: false,
     temperature: body.temperature,
     useLeadFinder: body.useLeadFinder,
     useWebsiteParse: body.useWebsiteParse,
@@ -11719,7 +11725,10 @@ function configSupportsUseCase(config: AiModelConfig, useCase?: AiUseCase) {
 
 function getAiConfig(user: SessionUser, useCase?: AiUseCase) {
   const configs = getAiConfigs(user);
-  return configs.find((item) => item.enabled && item.apiKey && configSupportsUseCase(item, useCase))
+  return configs.find((item) => item.enabled && item.isDefault === true
+      && item.apiKey && configSupportsUseCase(item, useCase))
+    || configs.find((item) => item.enabled && item.apiKey
+      && configSupportsUseCase(item, useCase))
     || configs.find((item) => configSupportsUseCase(item, useCase))
     || configs[0]
     || null;
@@ -11774,6 +11783,7 @@ function modelConnectionStore(
         );
         if (!config) continue;
         config.enabled = connection.status === "active";
+        config.isDefault = connection.isDefault === true;
         config.updatedAt = connection.updatedAt;
       }
       if (!options.deferPersistence) await store.persist();

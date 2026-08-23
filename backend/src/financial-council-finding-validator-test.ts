@@ -387,7 +387,9 @@ test("validator reauthorizes the server-owned tax action projection", async () =
       schemaVersion: "financial-council-specialist-output.v1",
       contentHash: HASH,
       promptHash: HASH,
-      schemaHash: HASH
+      schemaHash: HASH,
+      routingPolicyVersionId: "legacy-unroutable",
+      routeReasonCodes: ["test_fixture"]
     },
     repaired: false,
     providerRequestId: null,

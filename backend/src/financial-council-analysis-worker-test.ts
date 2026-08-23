@@ -149,7 +149,7 @@ test("process restart resumes auditing without replaying the five analyze jobs",
     "synthesizing");
 });
 
-test("one retry is transport-only and keeps one logical role identity", async () => {
+test("analysis worker delegates the entire attempt budget to the routed port", async () => {
   const { repository, run } = await setup();
   const attempts = new Map<FinancialCouncilAgentRole, number>();
   const logical: FinancialCouncilAgentRole[] = [];
@@ -168,8 +168,8 @@ test("one retry is transport-only and keeps one logical role identity", async ()
     leaseTokenFactory: () => "3".repeat(64)
   });
   await worker.wake(run);
-  assert.equal(logical.length, 6);
-  assert.equal(attempts.get("profit"), 2);
+  assert.equal(logical.length, 5);
+  assert.equal(attempts.get("profit"), 1);
   assert.deepEqual([...new Set(logical)],
     ["finance", "profit", "cost", "cashflow", "tax"]);
 });

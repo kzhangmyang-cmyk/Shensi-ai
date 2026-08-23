@@ -389,6 +389,7 @@ test("v1 connection derives immutable official capability evidence", async () =>
   assert.equal(result.json.endpointProfileId, "moonshot-cn");
   assert.equal(result.json.endpointRegion, "cn");
   assert.equal(result.json.adapterVersion, "official-openai-compatible.v1");
+  assert.equal("isDefault" in result.json, false);
   assert.deepEqual(result.json.capabilitySnapshot, {
     structuredOutput: false,
     toolCalling: true,

@@ -184,7 +184,9 @@ class RecordingModel implements FinancialCouncilModelPort {
         schemaVersion: content.schemaVersion,
         contentHash: content.contentHash,
         promptHash: content.promptHash,
-        schemaHash: content.schemaHash
+        schemaHash: content.schemaHash,
+        routingPolicyVersionId: "legacy-unroutable",
+        routeReasonCodes: ["test_fixture"]
       },
       repaired: false,
       providerRequestId: null

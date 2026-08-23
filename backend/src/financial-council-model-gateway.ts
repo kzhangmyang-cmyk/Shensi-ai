@@ -16,7 +16,8 @@ import type {
   FinancialCfoNarrativeOutput,
   FinancialCouncilModelFailureCode,
   FinancialCouncilModelPhase,
-  FinancialCouncilModelPort,
+  FinancialCouncilAttemptModelPort,
+  FinancialCouncilModelRouteBinding,
   FinancialCouncilModelResult,
   FinancialCouncilRebutInput,
   FinancialCouncilRebutOutput
@@ -27,6 +28,7 @@ import {
 import { hashModelCallValue } from "./model-providers/call-ledger.js";
 import {
   bindActiveModelSnapshotDurably,
+  bindModelConnectionSnapshotDurably,
   createActiveModelGatewayForSnapshot
 } from "./model-providers/runtime.js";
 import type {
@@ -48,6 +50,9 @@ interface InFlightFinancialCouncilModelCall {
   readonly contentHash: string;
   readonly promptHash: string;
   readonly schemaHash: string;
+  readonly connectionId: string | null;
+  readonly routingPolicyVersionId: string;
+  readonly routeReasonCodes: readonly string[];
   readonly promise: Promise<FinancialCouncilModelResult<unknown>>;
 }
 
@@ -147,7 +152,8 @@ function exactSnapshot(
     schemaVersion: string;
     promptHash: string;
     schemaHash: string;
-  }
+  },
+  route: FinancialCouncilModelRouteBinding | null
 ) {
   const role = phase === "synthesize" ? "cfo"
     : (input as FinancialCouncilAnalyzeInput).role;
@@ -158,12 +164,13 @@ function exactSnapshot(
     && snapshot.schemaVersion === content.schemaVersion
     && snapshot.promptHash === content.promptHash
     && snapshot.schemaHash === content.schemaHash
+    && (route === null || snapshot.connectionId === route.connectionId)
     && content.jobId ===
       `financial-council:${input.runId}:${role}:${phase}:${input.attempt}`;
 }
 
 export class ActiveModelGatewayFinancialCouncilModelPort
-implements FinancialCouncilModelPort {
+implements FinancialCouncilAttemptModelPort {
   readonly #store: DurableModelRuntimeStore;
   readonly #fetch?: typeof fetch;
   readonly #requestTimeoutMs: number;
@@ -183,39 +190,46 @@ implements FinancialCouncilModelPort {
   }
 
   analyze(
-    input: FinancialCouncilAnalyzeInput
+    input: FinancialCouncilAnalyzeInput,
+    route?: FinancialCouncilModelRouteBinding
   ): Promise<FinancialCouncilModelResult<FinancialCouncilAnalyzeOutput>> {
-    return this.#run("analyze", input);
+    return this.#run("analyze", input, route ?? null);
   }
 
   rebut(
-    input: FinancialCouncilRebutInput
+    input: FinancialCouncilRebutInput,
+    route?: FinancialCouncilModelRouteBinding
   ): Promise<FinancialCouncilModelResult<FinancialCouncilRebutOutput>> {
-    return this.#run("rebut", input);
+    return this.#run("rebut", input, route ?? null);
   }
 
-  async synthesize(
-    input: FinancialCfoNarrativeInput
-  ): Promise<FinancialCfoNarrativeOutput> {
-    return (await this.#run("synthesize", input)).value;
+  synthesize(
+    input: FinancialCfoNarrativeInput,
+    route?: FinancialCouncilModelRouteBinding
+  ): Promise<FinancialCouncilModelResult<FinancialCfoNarrativeOutput>> {
+    return this.#run("synthesize", input, route ?? null);
   }
 
   async #run(
     phase: "analyze",
-    input: FinancialCouncilAnalyzeInput
+    input: FinancialCouncilAnalyzeInput,
+    route: FinancialCouncilModelRouteBinding | null
   ): Promise<FinancialCouncilModelResult<FinancialCouncilAnalyzeOutput>>;
   async #run(
     phase: "rebut",
-    input: FinancialCouncilRebutInput
+    input: FinancialCouncilRebutInput,
+    route: FinancialCouncilModelRouteBinding | null
   ): Promise<FinancialCouncilModelResult<FinancialCouncilRebutOutput>>;
   async #run(
     phase: "synthesize",
-    input: FinancialCfoNarrativeInput
+    input: FinancialCfoNarrativeInput,
+    route: FinancialCouncilModelRouteBinding | null
   ): Promise<FinancialCouncilModelResult<FinancialCfoNarrativeOutput>>;
   async #run(
     phase: FinancialCouncilModelPhase,
     input: FinancialCouncilAnalyzeInput | FinancialCouncilRebutInput
-      | FinancialCfoNarrativeInput
+      | FinancialCfoNarrativeInput,
+    route: FinancialCouncilModelRouteBinding | null
   ): Promise<FinancialCouncilModelResult<
     FinancialCouncilAnalyzeOutput | FinancialCouncilRebutOutput
     | FinancialCfoNarrativeOutput
@@ -225,19 +239,19 @@ implements FinancialCouncilModelPort {
       const content = buildFinancialCouncilModelContent(
         "analyze", analyzeInput
       );
-      return this.#singleFlight(phase, analyzeInput, content, () =>
-        this.#execute(phase, analyzeInput, content));
+      return this.#singleFlight(phase, analyzeInput, content, route, () =>
+        this.#execute(phase, analyzeInput, content, route));
     }
     if (phase === "rebut") {
       const rebutInput = input as FinancialCouncilRebutInput;
       const content = buildFinancialCouncilModelContent("rebut", rebutInput);
-      return this.#singleFlight(phase, rebutInput, content, () =>
-        this.#execute(phase, rebutInput, content));
+      return this.#singleFlight(phase, rebutInput, content, route, () =>
+        this.#execute(phase, rebutInput, content, route));
     }
     const cfoInput = input as FinancialCfoNarrativeInput;
     const content = buildFinancialCouncilModelContent("synthesize", cfoInput);
-    return this.#singleFlight(phase, cfoInput, content, () =>
-      this.#execute(phase, cfoInput, content));
+    return this.#singleFlight(phase, cfoInput, content, route, () =>
+      this.#execute(phase, cfoInput, content, route));
   }
 
   #singleFlight<Value>(
@@ -245,6 +259,7 @@ implements FinancialCouncilModelPort {
     input: FinancialCouncilAnalyzeInput | FinancialCouncilRebutInput
       | FinancialCfoNarrativeInput,
     content: FinancialCouncilModelContent<Value>,
+    route: FinancialCouncilModelRouteBinding | null,
     execute: () => Promise<FinancialCouncilModelResult<Value>>
   ): Promise<FinancialCouncilModelResult<Value>> {
     let calls = inFlightFinancialCouncilModelCalls.get(this.#store);
@@ -265,7 +280,10 @@ implements FinancialCouncilModelPort {
         || existing.attempt !== input.attempt
         || existing.contentHash !== content.contentHash
         || existing.promptHash !== content.promptHash
-        || existing.schemaHash !== content.schemaHash) {
+        || existing.schemaHash !== content.schemaHash
+        || existing.connectionId !== (route?.connectionId ?? null)
+        || existing.routingPolicyVersionId !==
+          (route?.routingPolicyVersionId ?? "legacy-unroutable")) {
         return Promise.reject(new FinancialCouncilModelError(
           "financial_council_model_snapshot_mismatch",
           false
@@ -298,6 +316,11 @@ implements FinancialCouncilModelPort {
       contentHash: content.contentHash,
       promptHash: content.promptHash,
       schemaHash: content.schemaHash,
+      connectionId: route?.connectionId ?? null,
+      routingPolicyVersionId: route?.routingPolicyVersionId
+        ?? "legacy-unroutable",
+      routeReasonCodes: Object.freeze([...(route?.reasonCodes
+        ?? ["legacy_default_connection"])]),
       promise: tracked as Promise<FinancialCouncilModelResult<unknown>>
     });
     calls.set(content.jobId, entry);
@@ -318,11 +341,12 @@ implements FinancialCouncilModelPort {
     phase: FinancialCouncilModelPhase,
     input: FinancialCouncilAnalyzeInput | FinancialCouncilRebutInput
       | FinancialCfoNarrativeInput,
-    content: FinancialCouncilModelContent<Value>
+    content: FinancialCouncilModelContent<Value>,
+    route: FinancialCouncilModelRouteBinding | null
   ): Promise<FinancialCouncilModelResult<Value>> {
     let snapshot: StoredAiJobModelSnapshot;
     try {
-      snapshot = await bindActiveModelSnapshotDurably(this.#store, {
+      const bindingInput = {
         jobId: content.jobId,
         ownerId: input.ownerId,
         teamId: input.teamId,
@@ -330,7 +354,12 @@ implements FinancialCouncilModelPort {
         schemaVersion: content.schemaVersion,
         promptHash: content.promptHash,
         schemaHash: content.schemaHash
-      });
+      };
+      snapshot = route
+        ? await bindModelConnectionSnapshotDurably(this.#store, {
+            ...bindingInput, connectionId: route.connectionId
+          })
+        : await bindActiveModelSnapshotDurably(this.#store, bindingInput);
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       if (/immutable identity mismatch/iu.test(message)) {
@@ -341,7 +370,8 @@ implements FinancialCouncilModelPort {
           error
         );
       }
-      if (/No active official model connection/iu.test(message)) {
+      if (/No active official model connection|Official model connection.*unavailable/iu
+        .test(message)) {
         return fail(
           "not_computable:model_connection_unavailable",
           false,
@@ -351,12 +381,12 @@ implements FinancialCouncilModelPort {
       }
       return fail(
         "financial_council_model_snapshot_persistence_failed",
-        true,
+        false,
         null,
         error
       );
     }
-    if (!exactSnapshot(snapshot, input, phase, content)) {
+    if (!exactSnapshot(snapshot, input, phase, content, route)) {
       return fail("financial_council_model_snapshot_mismatch", false);
     }
 
@@ -385,7 +415,7 @@ implements FinancialCouncilModelPort {
     } catch (error) {
       return fail(
         "financial_council_model_ledger_persistence_failed",
-        true,
+        false,
         null,
         providerError === undefined
           ? error
@@ -421,7 +451,11 @@ implements FinancialCouncilModelPort {
         schemaVersion: content.schemaVersion,
         contentHash: content.contentHash,
         promptHash: content.promptHash,
-        schemaHash: content.schemaHash
+        schemaHash: content.schemaHash,
+        routingPolicyVersionId: route?.routingPolicyVersionId
+          ?? "legacy-unroutable",
+        routeReasonCodes: Object.freeze([...(route?.reasonCodes
+          ?? ["legacy_default_connection"])])
       }),
       repaired: generated.repaired,
       providerRequestId: generated.providerRequestId

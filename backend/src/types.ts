@@ -2521,6 +2521,8 @@ export interface AiModelConfig {
   model: string;
   apiKey: string;
   enabled: boolean;
+  /** Internal default selector; intentionally omitted from public DTOs. */
+  isDefault?: boolean;
   temperature: number;
   useLeadFinder: boolean;
   useWebsiteParse: boolean;

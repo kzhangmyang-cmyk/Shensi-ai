@@ -387,6 +387,34 @@ test("analyze persists the immutable official snapshot and call ledger before su
   assert.match(messages[0]?.content ?? "", /不得调用任何工具|no tools/iu);
 });
 
+test("an exact routed connection is snapshotted before traffic and bound in the result",
+  async () => {
+    const f = fixture([completion(validAnalyzeOutput())]);
+    const fallback = { ...modelConfig(), id: "connection_fallback",
+      name: "Fallback", model: "fallback-model", credentialVersion: 4 };
+    f.store.aiModelConfigs.push(fallback);
+    f.store.modelCredentialVersions.push({
+      connectionId: fallback.id, provider: fallback.provider,
+      ownerId, teamId, version: 4, credentialRef: "credential_v4",
+      apiKeyEncrypted: encryptAiModelApiKey({ id: fallback.id,
+        provider: fallback.provider, ownerId, teamId }, "sk-fallback-v4"),
+      keyMask: "k-v4", createdBy: ownerId, createdAt
+    });
+    const value = await f.port.analyze(analyzeInput({ attempt: 2 }), {
+      connectionId: fallback.id,
+      routingPolicyVersionId: "routing-policy-frozen",
+      reasonCodes: ["structured_output_certified", "pinned"]
+    });
+    assert.equal(value.binding.connectionId, fallback.id);
+    assert.equal(value.binding.attempt, 2);
+    assert.equal(value.binding.routingPolicyVersionId,
+      "routing-policy-frozen");
+    assert.deepEqual(value.binding.routeReasonCodes,
+      ["structured_output_certified", "pinned"]);
+    assert.equal(f.persistObservations[0]?.snapshots, 1);
+    assert.equal(f.requests.length, 1);
+  });
+
 test("concurrent identical specialist calls dispatch the provider once", async () => {
   const f = fixture([
     completion(validAnalyzeOutput()),
@@ -896,7 +924,7 @@ test("provider success is never returned when call-ledger persistence fails", as
   await rejectsWith(
     f.port.analyze(analyzeInput()),
     "financial_council_model_ledger_persistence_failed",
-    true
+    false
   );
   assert.equal(f.requests.length, 1);
   assert.equal(f.store.modelCallRecords.at(-1)?.status, "succeeded");
@@ -912,7 +940,7 @@ test("CFO synthesis uses the durable gateway and rejects non-contract output", a
   };
   const accepted = fixture([completion(valid)]);
 
-  assert.deepEqual(await accepted.port.synthesize(cfoInput()), valid);
+  assert.deepEqual((await accepted.port.synthesize(cfoInput())).value, valid);
   assert.equal(accepted.store.aiJobModelSnapshots[0]?.jobId,
     "financial-council:run_cfo:cfo:synthesize:1");
   assert.equal(accepted.store.modelCallRecords.length, 1);

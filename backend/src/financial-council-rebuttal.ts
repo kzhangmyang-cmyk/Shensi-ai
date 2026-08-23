@@ -145,27 +145,18 @@ export class FinancialCouncilRebuttalCoordinator {
     }
     const input = reserved.value.input;
     const expectedContent = buildFinancialCouncilModelContent("rebut", input);
-    let modelResult;
-    let failure: unknown;
-    for (let transportAttempt = 0; transportAttempt < 2;
-      transportAttempt += 1) {
-      try {
-        modelResult = await this.options.model.rebut(input);
-        break;
-      } catch (error) {
-        failure = error;
-        if (!(error as { retryable?: unknown } | null)?.retryable) throw error;
-      }
-    }
-    if (!modelResult) throw failure;
-    if (modelResult.binding.jobId !== expectedContent.jobId
+    const modelResult = await this.options.model.rebut(input, request.context);
+    if (modelResult.binding.jobId !==
+        `financial-council:${input.runId}:${input.role}:rebut:${
+          modelResult.binding.attempt}`
       || modelResult.binding.contentHash !== expectedContent.contentHash
       || modelResult.binding.runId !== input.runId
       || modelResult.binding.snapshotId !== input.snapshotId
       || modelResult.binding.snapshotHash !== input.snapshotHash
       || modelResult.binding.role !== input.role
       || modelResult.binding.phase !== "rebut"
-      || modelResult.binding.attempt !== 1) {
+      || !Number.isSafeInteger(modelResult.binding.attempt)
+      || modelResult.binding.attempt < 1 || modelResult.binding.attempt > 3) {
       throw financialCouncilError("financial_council_rebuttal_invalid");
     }
     const output = this.options.validateOutput(

@@ -382,7 +382,7 @@ implements FinancialCouncilOptimizationWorkerLike {
         const narrative = await synthesizeFinancialCfoNarrative(
           this.options.cfo,
           cfoInput({ control, run, consensus: deterministic,
-            auditHash: graph.graphHash })
+            auditHash: graph.graphHash }), context
         );
         consensus = withNarrative(deterministic, narrative.overallDiagnosis);
         await this.options.repository.storeConsensus(context, consensus, {

@@ -155,6 +155,25 @@ test("binding an AI job snapshots the active connection once for all retries", (
   assert.equal(store.pendingAiJobModelSnapshots.length, 1);
 });
 
+test("legacy active binding chooses the single default from multiple enabled connections",
+  () => {
+    const store = runtimeStore();
+    store.aiModelConfigs[0].enabled = true;
+    store.aiModelConfigs[1].enabled = true;
+    Object.assign(store.aiModelConfigs[0], { isDefault: false });
+    Object.assign(store.aiModelConfigs[1], { isDefault: true });
+    const snapshot = bindActiveModelSnapshot(store, {
+      jobId: "job_default_1",
+      ownerId,
+      teamId,
+      promptVersion: "ai-search.v1",
+      schemaVersion: "ai-search-result.v1",
+      promptHash: contentHash("private prompt"),
+      schemaHash: companiesSchemaHash
+    });
+    assert.equal(snapshot.connectionId, "conn_old");
+  });
+
 test("durable binding persists once and rejects immutable job identity drift", async () => {
   const store = runtimeStore();
   const persisted: string[] = [];

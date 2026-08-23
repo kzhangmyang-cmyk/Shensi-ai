@@ -21,6 +21,8 @@ import { createDefaultFinancialCouncilPolicy } from
   "./financial-council-policy.js";
 import type { CommandContext } from "./growth-command-context.js";
 import type { FinancialCouncilCreateInput } from "./growth-contract-types.js";
+import { routingPolicyVersion } from
+  "./financial-council-model-routing-repository-contract-test.js";
 
 const NOW = "2026-08-16T08:00:00.000Z";
 
@@ -76,6 +78,7 @@ function harness(options: {
   freezeError?: Error;
   wake?: { wake(run: FinancialCouncilRun): Promise<void> };
   onWakeError?: (error: unknown, run: FinancialCouncilRun) => void | Promise<void>;
+  modelRouting?: { current: ReturnType<typeof routingPolicyVersion> | null };
 } = {}) {
   const repository = new InMemoryFinancialCouncilRepository();
   const policyRepository = new InMemoryFinancialCouncilPolicyRepository();
@@ -85,6 +88,9 @@ function harness(options: {
   const service = new FinancialCouncilService({
     repository,
     policyRepository,
+    ...(options.modelRouting ? { modelRoutingRepository: {
+      async getCurrent() { return options.modelRouting!.current; }
+    } } : {}),
     snapshotBuilder: {
       async freeze(commandValue, runId, createInput) {
         freezeCalls += 1;
@@ -109,6 +115,30 @@ function harness(options: {
     seenCommand: () => seenCommand
   };
 }
+
+test("run creation freezes current model routing while public projection hides it",
+  async () => {
+    const modelRouting = { current: routingPolicyVersion("ws-1") };
+    const fixture = harness({ modelRouting });
+    const created = await fixture.service.createRun(command(), input());
+    assert.equal("modelRoutingPolicyVersionId" in created.value, false);
+    const stored = await fixture.repository.findRun(
+      context(), created.value.runId
+    );
+    assert.equal(stored?.modelRoutingPolicyVersionId,
+      modelRouting.current.policyVersionId);
+    const publicEvents = await fixture.service.listEvents(
+      context(), created.value.runId
+    );
+    assert.equal(publicEvents.every((event) =>
+      !("modelRoutingPolicyVersionId" in event.aggregateSnapshot)), true);
+    modelRouting.current = routingPolicyVersion("ws-1", 2);
+    const replay = await fixture.service.createRun(command(), input());
+    assert.deepEqual(replay.value, created.value);
+    assert.equal((await fixture.repository.findRun(
+      context(), created.value.runId
+    ))?.modelRoutingPolicyVersionId, "routing-policy-1");
+  });
 
 test("policy service materializes one default and activates immutable versions",
   async () => {

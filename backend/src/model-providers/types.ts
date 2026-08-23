@@ -48,6 +48,8 @@ export interface ModelConnection {
   capabilitySnapshot: ModelCapabilitySnapshot;
   capabilityCertificationHash?: string;
   status: "active" | "inactive" | "disabled";
+  /** Internal default selector; non-enumerable on public route values. */
+  isDefault?: boolean;
   createdAt: string;
   updatedAt: string;
 }

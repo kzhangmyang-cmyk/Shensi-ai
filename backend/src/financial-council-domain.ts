@@ -42,6 +42,7 @@ export interface FinancialCouncilRun {
   readonly dataAsOf: string;
   readonly businessReport: BusinessReportInput;
   readonly policyVersionId: string;
+  readonly modelRoutingPolicyVersionId: string;
   readonly snapshotId: string | null;
   readonly snapshotHash: `sha256:${string}` | null;
   readonly consensusReport: ConsensusReport | null;

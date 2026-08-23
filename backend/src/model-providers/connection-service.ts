@@ -46,7 +46,7 @@ export function modelConnectionFromAiConfig(
       404
     );
   }
-  return {
+  const connection: ModelConnection = {
     id: config.id,
     ownerId: config.ownerId,
     teamId: config.teamId,
@@ -69,6 +69,13 @@ export function modelConnectionFromAiConfig(
     createdAt: config.createdAt || config.updatedAt,
     updatedAt: config.updatedAt
   };
+  Object.defineProperty(connection, "isDefault", {
+    value: config.isDefault === true,
+    enumerable: false,
+    configurable: true,
+    writable: true
+  });
+  return connection;
 }
 
 interface LegacyActiveConnection {
@@ -146,11 +153,15 @@ export async function activateModelConnection(
   const previous = store.connections.find(
     (item) => item.ownerId === scope.ownerId
       && item.teamId === scope.teamId
-      && item.status === "active"
+      && item.status === "active" && item.isDefault === true
+  ) ?? store.connections.find(
+    (item) => item.ownerId === scope.ownerId
+      && item.teamId === scope.teamId && item.status === "active"
   );
   const before = store.connections.map((item) => ({
     item,
     status: item.status,
+    isDefault: item.isDefault,
     updatedAt: item.updatedAt
   }));
   const now = new Date().toISOString();
@@ -158,7 +169,8 @@ export async function activateModelConnection(
     if (item.ownerId !== scope.ownerId || item.teamId !== scope.teamId) {
       continue;
     }
-    item.status = item.id === target.id ? "active" : "inactive";
+    if (item.id === target.id) item.status = "active";
+    item.isDefault = item.id === target.id;
     item.updatedAt = now;
   }
   const event: ModelConnectionActivationEvent = {
@@ -178,6 +190,7 @@ export async function activateModelConnection(
   } catch (error) {
     for (const state of before) {
       state.item.status = state.status;
+      state.item.isDefault = state.isDefault;
       state.item.updatedAt = state.updatedAt;
     }
     store.activationEvents.pop();

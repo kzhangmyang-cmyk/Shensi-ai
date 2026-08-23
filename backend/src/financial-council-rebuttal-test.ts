@@ -94,7 +94,9 @@ function result(input: FinancialCouncilRebutInput,
       promptVersion: `financial-council-${input.role}-rebut.v1`,
       schemaVersion: "financial-council-specialist-output.v1",
       contentHash: content.contentHash, promptHash: content.promptHash,
-      schemaHash: content.schemaHash
+      schemaHash: content.schemaHash,
+      routingPolicyVersionId: "legacy-unroutable",
+      routeReasonCodes: ["test_fixture"]
     }
   };
 }

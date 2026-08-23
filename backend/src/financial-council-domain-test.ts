@@ -61,6 +61,7 @@ export function runFixture(
       })
     }),
     policyVersionId: "policy-v1",
+    modelRoutingPolicyVersionId: "legacy-unroutable",
     snapshotId: null,
     snapshotHash: null,
     consensusReport: null,

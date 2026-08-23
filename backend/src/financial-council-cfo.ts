@@ -1,26 +1,34 @@
 import type {
   FinancialCfoNarrative,
   FinancialCfoNarrativeInput,
-  FinancialCfoNarrativeOutput
+  FinancialCfoNarrativeOutput,
+  FinancialCouncilModelResult
 } from "./financial-council-model-port.js";
 import {
   immutableFinancialCouncilInput,
   immutableFinancialCouncilValue
 } from "./financial-council-domain.js";
+import type { ActiveWorkspaceContext } from "./growth-workspace-context.js";
 
 export interface FinancialCfoNarrativePort {
   synthesize(
-    input: FinancialCfoNarrativeInput
-  ): Promise<FinancialCfoNarrativeOutput>;
+    input: FinancialCfoNarrativeInput,
+    workspace?: ActiveWorkspaceContext
+  ): Promise<FinancialCfoNarrativeOutput | FinancialCouncilModelResult<
+    FinancialCfoNarrativeOutput>>;
 }
 
 export async function synthesizeFinancialCfoNarrative(
   port: FinancialCfoNarrativePort,
-  rawInput: FinancialCfoNarrativeInput
+  rawInput: FinancialCfoNarrativeInput,
+  workspace?: ActiveWorkspaceContext
 ): Promise<FinancialCfoNarrative> {
   const input = immutableFinancialCouncilInput(rawInput);
   try {
-    const output = immutableFinancialCouncilInput(await port.synthesize(input));
+    const raw = immutableFinancialCouncilInput(
+      await port.synthesize(input, workspace)
+    );
+    const output = modelResultValue(raw, input);
     if (!validNarrative(input, output)) return template(input, "model_invalid");
     return immutableFinancialCouncilValue({
       ...output,
@@ -32,6 +40,25 @@ export async function synthesizeFinancialCfoNarrative(
       ? "model_invalid"
       : "model_unavailable");
   }
+}
+
+function modelResultValue(
+  value: FinancialCfoNarrativeOutput | FinancialCouncilModelResult<
+    FinancialCfoNarrativeOutput>,
+  input: FinancialCfoNarrativeInput
+): FinancialCfoNarrativeOutput {
+  if (!("value" in value)) return value;
+  const binding = value.binding;
+  if (binding.runId !== input.runId || binding.snapshotId !== input.snapshotId
+    || binding.snapshotHash !== input.snapshotHash || binding.role !== "cfo"
+    || binding.phase !== "synthesize"
+    || !Number.isSafeInteger(binding.attempt) || binding.attempt < 1
+    || binding.attempt > 3
+    || binding.jobId !== `financial-council:${input.runId}:cfo:synthesize:${
+      binding.attempt}`) throw Object.assign(new Error(
+        "financial_council_model_output_invalid"
+      ), { code: "financial_council_model_output_invalid" });
+  return value.value;
 }
 
 function validNarrative(

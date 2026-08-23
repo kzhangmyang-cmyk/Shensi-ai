@@ -344,19 +344,9 @@ implements FinancialCouncilAnalysisWorkerLike {
     lease: FinancialCouncilAnalysisLease,
     role: FinancialCouncilAgentRole
   ): Promise<void> {
-    let failure: unknown;
-    for (let transportAttempt = 0; transportAttempt < 2; transportAttempt += 1) {
-      try {
-        await timeout(this.options.pipeline.analyzeRole({
-          context: workerContext, runId: lease.runId, role, lease
-        }), this.#roleTimeoutMs);
-        return;
-      } catch (error) {
-        failure = error;
-        if (!(error as { retryable?: unknown } | null)?.retryable) break;
-      }
-    }
-    throw failure;
+    await timeout(this.options.pipeline.analyzeRole({
+      context: workerContext, runId: lease.runId, role, lease
+    }), this.#roleTimeoutMs);
   }
 
   async #gap(

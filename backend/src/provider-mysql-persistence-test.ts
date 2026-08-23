@@ -351,6 +351,7 @@ async function main() {
       .map((item) => `${item.teamId}:${item.id}`)
       .sort();
     assert.deepEqual(activeAfterSwitch, [
+      `model-team-a:${teamAConnectionOne}`,
       `model-team-a:${teamAConnectionTwo}`,
       `model-team-b:${teamBConnectionOne}`
     ]);
@@ -393,11 +394,11 @@ async function main() {
 
     await admin.query(
       `ALTER TABLE \`${databaseName}\`.ai_model_configs
-       DROP INDEX uniq_ai_model_active_owner_team`
+       DROP INDEX uniq_ai_model_default_owner_team`
     );
     await admin.query(
       `UPDATE \`${databaseName}\`.ai_model_configs
-       SET enabled = TRUE,
+       SET enabled = TRUE, is_default = FALSE,
            updated_at = CASE id
              WHEN ? THEN ?
              WHEN ? THEN ?
@@ -430,10 +431,25 @@ async function main() {
         .map((item) => `${item.teamId}:${item.id}`)
         .sort(),
       [
+        `model-team-a:${teamAConnectionOne}`,
+        `model-team-a:${teamAConnectionTwo}`,
+        `model-team-b:${teamBConnectionOne}`,
+        `model-team-b:${teamBConnectionTwo}`
+      ],
+      "legacy migration must retain every enabled connection"
+    );
+    assert.deepEqual(
+      migrationRestart.aiModelConfigs
+        .filter(
+          (item) => item.ownerId === sharedModelOwner && item.isDefault
+        )
+        .map((item) => `${item.teamId}:${item.id}`)
+        .sort(),
+      [
         `model-team-a:${teamAConnectionTwo}`,
         `model-team-b:${teamBConnectionOne}`
       ],
-      "legacy migration must retain one active model connection per owner and team"
+      "legacy migration must select one deterministic default per owner and team"
     );
     const [modelActiveIndexRows] = await admin.query<Array<
       RowDataPacket & {
@@ -443,13 +459,13 @@ async function main() {
       }
     >>(
       `SHOW INDEX FROM \`${databaseName}\`.ai_model_configs
-       WHERE Key_name = 'uniq_ai_model_active_owner_team'`
+       WHERE Key_name = 'uniq_ai_model_default_owner_team'`
     );
     assert.deepEqual(
       modelActiveIndexRows
         .sort((left, right) => left.Seq_in_index - right.Seq_in_index)
         .map((item) => item.Column_name),
-      ["active_owner_team_key"]
+      ["default_owner_team_key"]
     );
     assert.ok(
       modelActiveIndexRows.every(

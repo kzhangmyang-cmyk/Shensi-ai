@@ -157,6 +157,11 @@ class FakeConnection {
     if (normalized === "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ") {
       return [[], []];
     }
+    if (normalized.startsWith("SELECT column_name")
+      && normalized.includes("FROM information_schema.columns")
+      && normalized.includes("model_routing_policy_version_id")) {
+      return [[{ column_name: "model_routing_policy_version_id" }], []];
+    }
     if (normalized.startsWith("CREATE TABLE")) return [[], []];
     if (normalized.startsWith(
       "ALTER TABLE financial_council_portfolio_revisions"
@@ -379,8 +384,9 @@ class FakeConnection {
       if (this.pool.failurePoint === "run_insert") {
         throw new Error("run insert failed");
       }
-      const [runId, workspaceId, creationKeyHash, requestHash, revision,
-        status, snapshotId, snapshotHash, runJson] = values;
+      const [runId, workspaceId, creationKeyHash, requestHash,
+        modelRoutingPolicyVersionId, revision, status, snapshotId, snapshotHash,
+        runJson] = values;
       const duplicate = state.runs.some((row) =>
         row.workspace_id === workspaceId
           && (row.creation_key_hash === creationKeyHash || row.run_id === runId));
@@ -389,6 +395,7 @@ class FakeConnection {
       });
       state.runs.push({ run_id: runId, workspace_id: workspaceId,
         creation_key_hash: creationKeyHash, request_hash: requestHash,
+        model_routing_policy_version_id: modelRoutingPolicyVersionId,
         revision, status, snapshot_id: snapshotId, snapshot_hash: snapshotHash,
         run_json: runJson });
       this.dirty = true;
@@ -646,14 +653,17 @@ class FakeConnection {
       if (this.pool.failurePoint === "run_update") {
         throw new Error("run update failed");
       }
-      const [revision, status, snapshotId, snapshotHash, runJson,
-        workspaceId, runId, expectedRevision] = values;
+      const [revision, status, snapshotId, snapshotHash,
+        modelRoutingPolicyVersionId, runJson, workspaceId, runId,
+        expectedRevision] = values;
       const row = state.runs.find((candidate) =>
         candidate.workspace_id === workspaceId && candidate.run_id === runId
           && candidate.revision === expectedRevision);
       if (!row) return [{ affectedRows: 0 }, []];
       Object.assign(row, { revision, status, snapshot_id: snapshotId,
-        snapshot_hash: snapshotHash, run_json: runJson });
+        snapshot_hash: snapshotHash,
+        model_routing_policy_version_id: modelRoutingPolicyVersionId,
+        run_json: runJson });
       this.dirty = true;
       return [{ affectedRows: 1 }, []];
     }

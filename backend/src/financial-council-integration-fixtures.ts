@@ -273,7 +273,9 @@ function modelResult<Value>(
       schemaVersion: content.schemaVersion,
       contentHash: content.contentHash,
       promptHash: content.promptHash,
-      schemaHash: content.schemaHash
+      schemaHash: content.schemaHash,
+      routingPolicyVersionId: "legacy-unroutable",
+      routeReasonCodes: Object.freeze(["deterministic_test_model"])
     }),
     repaired: false,
     providerRequestId: null
@@ -359,8 +361,9 @@ implements FinancialCouncilModelPort {
   }
 
   async synthesize(input: FinancialCfoNarrativeInput):
-  Promise<FinancialCfoNarrativeOutput> {
-    return Object.freeze({
+  Promise<FinancialCouncilModelResult<FinancialCfoNarrativeOutput>> {
+    const content = buildFinancialCouncilModelContent("synthesize", input);
+    const value = Object.freeze({
       overallDiagnosis: "Prioritize cash protection and verified margins.",
       priorityFindingIds: Object.freeze(input.acceptedFindings
         .slice(0, 2).map((row) => row.findingId)),
@@ -369,6 +372,21 @@ implements FinancialCouncilModelPort {
       riskNotes: Object.freeze(input.unresolvedConflicts.length
         ? ["An unresolved risk preference remains visible."] : [])
     });
+    return Object.freeze({ value, binding: Object.freeze({
+      jobId: `financial-council:${input.runId}:cfo:synthesize:1`,
+      runId: input.runId, snapshotId: input.snapshotId,
+      snapshotHash: input.snapshotHash, role: "cfo" as const,
+      phase: "synthesize" as const, attempt: 1,
+      connectionId: "deterministic-integration-model", credentialVersion: 1,
+      provider: "openai" as const, model: "deterministic-council-v1",
+      capabilitySnapshotHash: HASH("integration-capability"),
+      baseUrlFingerprint: "test-only-no-network",
+      promptVersion: content.promptVersion, schemaVersion: content.schemaVersion,
+      contentHash: content.contentHash, promptHash: content.promptHash,
+      schemaHash: content.schemaHash,
+      routingPolicyVersionId: "legacy-unroutable",
+      routeReasonCodes: Object.freeze(["deterministic_test_model"])
+    }), repaired: false, providerRequestId: null });
   }
 }
 
@@ -529,7 +547,7 @@ export async function advanceFinancialCouncilToApproval(
     }
   );
   await fixture.pipeline.wake(created.value);
-  return fixture.service.getRun(workspace, created.value.runId);
+  return (await fixture.repository.findRun(workspace, created.value.runId))!;
 }
 
 export function financialCouncilIntegrationPolicyInput() {

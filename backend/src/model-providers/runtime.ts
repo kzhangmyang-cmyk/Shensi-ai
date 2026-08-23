@@ -103,7 +103,7 @@ export function bindActiveModelSnapshot(
       && item.teamId === input.teamId
   );
   if (existing) return existing;
-  const active = store.aiModelConfigs.find(
+  const enabled = store.aiModelConfigs.filter(
     (item) => item.ownerId === input.ownerId
       && item.teamId === input.teamId
       && item.enabled
@@ -111,6 +111,10 @@ export function bindActiveModelSnapshot(
         item.provider as (typeof MODEL_PROVIDER_IDS)[number]
       )
   );
+  const active = enabled.find((item) => item.isDefault === true)
+    ?? (enabled.length === 1 && enabled[0].isDefault === undefined
+      ? enabled[0]
+      : undefined);
   if (!active) {
     throw new Error("No active official model connection for AI job");
   }
@@ -174,6 +178,38 @@ export async function bindActiveModelSnapshotDurably(
     )) {
       await store.persist();
     }
+    return snapshot;
+  } finally {
+    release();
+  }
+}
+
+export async function bindModelConnectionSnapshotDurably(
+  store: DurableModelRuntimeStore,
+  input: BindModelConnectionSnapshotInput
+) {
+  const predecessor = durableSnapshotBindingTails.get(store)
+    ?? Promise.resolve();
+  let release!: () => void;
+  const turn = new Promise<void>((resolve) => { release = resolve; });
+  durableSnapshotBindingTails.set(store, predecessor.then(() => turn));
+  await predecessor;
+  try {
+    const existing = store.aiJobModelSnapshots.find(
+      (item) => item.jobId === input.jobId
+    );
+    if (existing && (!exactStoredSnapshotBinding(existing, input)
+      || existing.connectionId !== input.connectionId)) {
+      throw new Error("AI job snapshot immutable identity mismatch");
+    }
+    const snapshot = existing ?? bindModelConnectionSnapshot(store, input);
+    if (!exactStoredSnapshotBinding(snapshot, input)
+      || snapshot.connectionId !== input.connectionId) {
+      throw new Error("AI job snapshot immutable identity mismatch");
+    }
+    if (store.pendingAiJobModelSnapshots.some(
+      (item) => item.jobId === snapshot.jobId
+    )) await store.persist();
     return snapshot;
   } finally {
     release();

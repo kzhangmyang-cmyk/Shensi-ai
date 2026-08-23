@@ -93,14 +93,15 @@ function exactBinding(
     || binding.snapshotHash !== expected.snapshotHash
     || binding.role !== expected.role
     || binding.phase !== "analyze"
-    || binding.attempt !== 1
+    || !Number.isSafeInteger(binding.attempt) || binding.attempt < 1
+    || binding.attempt > 3
     || binding.contentHash !== expected.contentHash
     || binding.promptHash !== expected.promptHash
     || binding.schemaHash !== expected.schemaHash
     || binding.promptVersion !== expected.promptVersion
     || binding.schemaVersion !== expected.schemaVersion
     || binding.jobId !== `financial-council:${expected.runId}:`
-      + `${expected.role}:analyze:1`) {
+      + `${expected.role}:analyze:${binding.attempt}`) {
     invalid("financial_council_specialist_binding_invalid");
   }
 }
@@ -260,7 +261,7 @@ export class FinancialCouncilSpecialistCoordinator {
       businessData: projection.businessData
     };
     const content = buildFinancialCouncilModelContent("analyze", input);
-    const modelResult = await this.#model.analyze(input);
+    const modelResult = await this.#model.analyze(input, context);
     exactBinding(modelResult, {
       runId: verified.run.runId,
       snapshotId: verified.snapshot.snapshotId,
@@ -281,7 +282,7 @@ export class FinancialCouncilSpecialistCoordinator {
       snapshotHash: verified.snapshot.snapshotHash,
       role,
       phase: "analyze",
-      attempt: 1,
+      attempt: modelResult.binding.attempt,
       outputHash: validated.outputHash,
       modelJobId: modelResult.binding.jobId
     });
@@ -293,7 +294,7 @@ export class FinancialCouncilSpecialistCoordinator {
       snapshotHash: verified.snapshot.snapshotHash,
       role,
       phase: "analyze" as const,
-      attempt: 1,
+      attempt: modelResult.binding.attempt,
       outputHash: validated.outputHash,
       modelBinding: modelResult.binding,
       repaired: modelResult.repaired,

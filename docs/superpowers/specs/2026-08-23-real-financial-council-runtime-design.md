@@ -154,6 +154,7 @@ AI 经营总管共识与少数意见
 - 供应商：`openai`、`moonshot`、`minimax`、`zhipu`、`deepseek`、`qwen`、`doubao`、`hunyuan`、`qianfan`；
 - API Key 只在创建或轮换时提交，后端加密保存，前端之后只显示掩码；
 - 连接测试包括认证、模型列表、结构化 JSON 输出、超时和端点身份；
+- 同一 owner/team 可以有多个 `active` 连接，但只有一个内部 `default`；旧版非财务任务只绑定该默认连接，财务路由在全部合格 `active` 连接中选择主连接和最多两个有序备用；
 - 只有 `active` 且 `structuredOutput=true` 的连接可以参与财务路由；
 - 自定义 URL 必须经过已有 SSRF、DNS、TLS 和 endpoint profile 规则；
 - 测试失败不能自动激活连接。

@@ -64,7 +64,10 @@ import { MysqlVerifiedFinancialLedgerSealedReader } from
   "./financial-ledger-as-of-mysql-reader.js";
 import { ActiveModelGatewayFinancialCouncilModelPort } from
   "./financial-council-model-gateway.js";
-import type { DurableModelRuntimeStore } from "./model-providers/runtime.js";
+import {
+  readFinancialCouncilModelRoutingRuntimeState,
+  type DurableModelRuntimeStore
+} from "./model-providers/runtime.js";
 import { FinancialCouncilSpecialistCoordinator } from
   "./financial-council-specialists.js";
 import { FinancialCouncilRebuttalCoordinator } from
@@ -87,6 +90,12 @@ import {
   MysqlFinancialCouncilModelRoutingRepository,
   ensureFinancialCouncilModelRoutingMysqlSchema
 } from "./financial-council-model-routing-mysql-repository.js";
+import {
+  DurableFinancialCouncilAttemptFence,
+  RoutedFinancialCouncilModelPort
+} from "./financial-council-routed-model-port.js";
+import { RepositoryFinancialCouncilModelSelectionPort } from
+  "./financial-council-model-selection.js";
 
 export interface GrowthFinancialCouncilServices {
   readonly service: FinancialCouncilService;
@@ -450,8 +459,19 @@ export async function createGrowthFinancialCouncilResources(input: {
         })
       })
     });
-    const model = new ActiveModelGatewayFinancialCouncilModelPort({
+    const attemptModel = new ActiveModelGatewayFinancialCouncilModelPort({
       store: input.modelStore
+    });
+    const model = new RoutedFinancialCouncilModelPort({
+      selection: new RepositoryFinancialCouncilModelSelectionPort({
+        repository,
+        routingRepository: modelRoutingRepository,
+        runtimeState: () => readFinancialCouncilModelRoutingRuntimeState(
+          input.modelStore!
+        )
+      }),
+      delegate: attemptModel,
+      fence: new DurableFinancialCouncilAttemptFence(input.modelStore)
     });
     const specialists = new FinancialCouncilSpecialistCoordinator({
       repository, model, resolvePolicy, now
@@ -496,7 +516,9 @@ export async function createGrowthFinancialCouncilResources(input: {
     onError() {}
   });
   const service = new FinancialCouncilService({
-    repository, policyRepository, snapshotBuilder, sourceVerifier,
+    repository, policyRepository,
+    modelRoutingRepository,
+    snapshotBuilder, sourceVerifier,
     advisoryWake: sink
   });
   const relay = new FinancialCouncilWakeRelay({

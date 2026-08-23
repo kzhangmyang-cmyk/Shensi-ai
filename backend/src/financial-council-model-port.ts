@@ -6,6 +6,7 @@ import type {
 import type {
   ModelProviderId
 } from "./model-providers/types.js";
+import type { ActiveWorkspaceContext } from "./growth-workspace-context.js";
 
 export type FinancialCouncilModelPhase = "analyze" | "rebut" | "synthesize";
 export type FinancialCouncilModelRole = FinancialCouncilAgentRole | "cfo";
@@ -125,6 +126,8 @@ export interface FinancialCouncilModelBinding {
   readonly contentHash: `sha256:${string}`;
   readonly promptHash: `sha256:${string}`;
   readonly schemaHash: `sha256:${string}`;
+  readonly routingPolicyVersionId: string;
+  readonly routeReasonCodes: readonly string[];
 }
 
 export interface FinancialCouncilModelResult<Value> {
@@ -136,14 +139,35 @@ export interface FinancialCouncilModelResult<Value> {
 
 export interface FinancialCouncilModelPort {
   analyze(
-    input: FinancialCouncilAnalyzeInput
+    input: FinancialCouncilAnalyzeInput,
+    workspace?: ActiveWorkspaceContext
   ): Promise<FinancialCouncilModelResult<FinancialCouncilAnalyzeOutput>>;
   rebut(
-    input: FinancialCouncilRebutInput
+    input: FinancialCouncilRebutInput,
+    workspace?: ActiveWorkspaceContext
   ): Promise<FinancialCouncilModelResult<FinancialCouncilRebutOutput>>;
   synthesize(
-    input: FinancialCfoNarrativeInput
-  ): Promise<FinancialCfoNarrativeOutput>;
+    input: FinancialCfoNarrativeInput,
+    workspace?: ActiveWorkspaceContext
+  ): Promise<FinancialCouncilModelResult<FinancialCfoNarrativeOutput>>;
+}
+
+export interface FinancialCouncilModelRouteBinding {
+  readonly connectionId: string;
+  readonly routingPolicyVersionId: string;
+  readonly reasonCodes: readonly string[];
+}
+
+export interface FinancialCouncilAttemptModelPort {
+  analyze(input: FinancialCouncilAnalyzeInput,
+    route: FinancialCouncilModelRouteBinding): Promise<
+    FinancialCouncilModelResult<FinancialCouncilAnalyzeOutput>>;
+  rebut(input: FinancialCouncilRebutInput,
+    route: FinancialCouncilModelRouteBinding): Promise<
+    FinancialCouncilModelResult<FinancialCouncilRebutOutput>>;
+  synthesize(input: FinancialCfoNarrativeInput,
+    route: FinancialCouncilModelRouteBinding): Promise<
+    FinancialCouncilModelResult<FinancialCfoNarrativeOutput>>;
 }
 
 export type FinancialCouncilModelFailureCode =

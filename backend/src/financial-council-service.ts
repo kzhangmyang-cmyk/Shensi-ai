@@ -46,6 +46,10 @@ import type { FinancialCouncilApprovalRecord } from
   "./financial-council-approval.js";
 import type { FinancialCouncilDispatchOperationStatus } from
   "./financial-council-dispatch-operation.js";
+import type { FinancialCouncilModelRoutingRepository } from
+  "./financial-council-model-routing-repository.js";
+import { LEGACY_UNROUTABLE_FINANCIAL_COUNCIL_MODEL_POLICY } from
+  "./financial-council-model-selection.js";
 
 export interface FinancialCouncilWakeSink {
   wake(run: FinancialCouncilRun): Promise<void>;
@@ -53,6 +57,8 @@ export interface FinancialCouncilWakeSink {
 
 export interface FinancialCouncilServiceDependencies {
   readonly repository: FinancialCouncilRepository;
+  readonly modelRoutingRepository?: Pick<
+    FinancialCouncilModelRoutingRepository, "getCurrent">;
   readonly policyRepository?: FinancialCouncilPolicyRepository;
   readonly snapshotBuilder: Pick<FinancialSnapshotBuilder, "freeze">;
   readonly advisoryWake?: FinancialCouncilWakeSink;
@@ -96,12 +102,27 @@ function requestHash(value: string): `sha256:${string}` {
   return value as `sha256:${string}`;
 }
 
-function publicRun(run: FinancialCouncilRun): FinancialCouncilRun {
+export type FinancialCouncilPublicRun = Omit<FinancialCouncilRun,
+"modelRoutingPolicyVersionId">;
+
+export type FinancialCouncilPublicRunEvent = Omit<FinancialCouncilRunEvent,
+"aggregateSnapshot"> & {
+  readonly aggregateSnapshot: FinancialCouncilPublicRun;
+};
+
+function stripInternalRouting(
+  run: FinancialCouncilRun
+): FinancialCouncilPublicRun {
+  const { modelRoutingPolicyVersionId: _internal, ...projection } = run;
+  return immutableFinancialCouncilValue(projection);
+}
+
+function publicRun(run: FinancialCouncilRun): FinancialCouncilPublicRun {
   if (run.status === "created" || run.revision < 2
     || run.snapshotId === null || run.snapshotHash === null) {
     throw financialCouncilError("financial_council_integrity");
   }
-  return run;
+  return stripInternalRouting(run);
 }
 
 export class FinancialCouncilService {
@@ -241,6 +262,16 @@ export class FinancialCouncilService {
     if (selectedPolicy.currency !== input.currency) {
       throw financialCouncilError("financial_council_policy_currency_mismatch");
     }
+    const routingPolicy = this.dependencies.modelRoutingRepository
+      ? await this.dependencies.modelRoutingRepository.getCurrent(
+          command.workspace
+        )
+      : null;
+    if (this.dependencies.modelRoutingRepository && !routingPolicy) {
+      throw financialCouncilError(
+        "financial_council_model_routing_policy_unavailable"
+      );
+    }
     const createdAt = instant(this.now());
     const snapshot = await this.dependencies.snapshotBuilder.freeze(
       command, runId, input
@@ -256,6 +287,8 @@ export class FinancialCouncilService {
       dataAsOf: snapshot.dataAsOf,
       businessReport: input.businessReport,
       policyVersionId: input.policyVersionId,
+      modelRoutingPolicyVersionId: routingPolicy?.policyVersionId
+        ?? LEGACY_UNROUTABLE_FINANCIAL_COUNCIL_MODEL_POLICY,
       snapshotId: null,
       snapshotHash: null,
       consensusReport: null,
@@ -290,13 +323,13 @@ export class FinancialCouncilService {
             .catch(() => undefined);
         });
     }
-    return result;
+    return { value: publicRun(result.value), replayed: result.replayed };
   }
 
   async getRun(
     context: ActiveWorkspaceContext,
     runId: string
-  ): Promise<FinancialCouncilRun> {
+  ): Promise<FinancialCouncilPublicRun> {
     authorize(context);
     if (typeof runId !== "string" || !runId.trim() || runId.length > 255) {
       throw financialCouncilError("financial_council_input_invalid");
@@ -399,9 +432,13 @@ export class FinancialCouncilService {
   async listEvents(
     context: ActiveWorkspaceContext,
     runId: string
-  ): Promise<readonly FinancialCouncilRunEvent[]> {
+  ): Promise<readonly FinancialCouncilPublicRunEvent[]> {
     await this.getRun(context, runId);
-    return this.dependencies.repository.listEvents(context, runId);
+    const events = await this.dependencies.repository.listEvents(context, runId);
+    return Object.freeze(events.map((event) => immutableFinancialCouncilValue({
+      ...event,
+      aggregateSnapshot: stripInternalRouting(event.aggregateSnapshot)
+    })));
   }
 }
 

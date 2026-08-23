@@ -83,6 +83,7 @@ export function repositoryRunFixture(
       })
     }),
     policyVersionId: "policy-v1",
+    modelRoutingPolicyVersionId: "legacy-unroutable",
     snapshotId: null,
     snapshotHash: null,
     consensusReport: null,
@@ -341,7 +342,9 @@ export function specialistResultFixture(
       schemaVersion: "financial-council-specialist-output.v1",
       contentHash: SHA_A,
       promptHash: SHA_A,
-      schemaHash: SHA_A
+      schemaHash: SHA_A,
+      routingPolicyVersionId: "legacy-unroutable",
+      routeReasonCodes: ["test_fixture"]
     },
     repaired: false,
     providerRequestId: null,
@@ -1009,7 +1012,9 @@ export function registerFinancialCouncilRepositoryContract(
         promptVersion: "financial-council-finance-rebut.v1",
         schemaVersion: "financial-council-specialist-output.v1",
         contentHash: content.contentHash, promptHash: content.promptHash,
-        schemaHash: content.schemaHash } };
+        schemaHash: content.schemaHash,
+        routingPolicyVersionId: "legacy-unroutable",
+        routeReasonCodes: ["test_fixture"] } };
     const completion = { attemptId: reservation.attemptId,
       inputHash: reservation.inputHash, result, completedAt: T2,
       disposition: { status: "withdrawn" as const, blockingConflictIds: [] } };

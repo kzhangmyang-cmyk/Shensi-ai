@@ -48,8 +48,14 @@ function connection(
 }
 
 test("activation is owner-and-team scoped and existing job snapshots remain immutable", async () => {
-  const first = connection("conn-first", "owner-1", "moonshot", true);
-  const second = connection("conn-second", "owner-1", "zhipu", false);
+  const first = Object.assign(
+    connection("conn-first", "owner-1", "moonshot", true),
+    { isDefault: true }
+  );
+  const second = Object.assign(
+    connection("conn-second", "owner-1", "zhipu", false),
+    { isDefault: false }
+  );
   const otherOwner = connection("conn-other", "owner-2", "openai", true);
   const sameOwnerOtherTeam = connection(
     "conn-other-team",
@@ -82,8 +88,10 @@ test("activation is owner-and-team scoped and existing job snapshots remain immu
           && item.status === "active"
       )
       .map((item) => item.id),
-    [second.id]
+    [first.id, second.id]
   );
+  assert.equal(first.isDefault, false);
+  assert.equal(second.isDefault, true);
   assert.equal(otherOwner.status, "active");
   assert.equal(sameOwnerOtherTeam.status, "active");
   await assert.rejects(
@@ -398,7 +406,7 @@ test("legacy activation migration selects updated_at DESC then id ASC per owner 
   );
 });
 
-test("MySQL enforces one active connection per owner and team and activation is transactionally audited", () => {
+test("MySQL allows multiple active connections with one transactional default", () => {
   const installSchema = readFileSync(
     new URL("../schema.mysql.sql", import.meta.url),
     "utf8"
@@ -414,11 +422,11 @@ test("MySQL enforces one active connection per owner and team and activation is 
   for (const schema of [installSchema, fullInstallSchema]) {
     assert.match(
       schema,
-      /active_owner_team_key VARCHAR\(191\) GENERATED ALWAYS AS/
+      /default_owner_team_key VARCHAR\(191\) GENERATED ALWAYS AS/
     );
     assert.match(
       schema,
-      /UNIQUE KEY uniq_ai_model_active_owner_team\(active_owner_team_key\)/
+      /UNIQUE KEY uniq_ai_model_default_owner_team\(default_owner_team_key\)/
     );
     assert.match(schema, /CREATE TABLE ai_model_credential_versions/);
     assert.match(schema, /CREATE TABLE ai_job_model_snapshots/);
@@ -435,7 +443,7 @@ test("MySQL enforces one active connection per owner and team and activation is 
   );
   assert.match(
     mysqlStore,
-    /const activateModelConnection =[\s\S]+beginTransaction\(\)[\s\S]+SET enabled = FALSE[\s\S]+WHERE owner_id = \? AND team_id = \?[\s\S]+SET enabled = TRUE[\s\S]+WHERE id = \? AND owner_id = \? AND team_id = \?[\s\S]+INSERT INTO ai_model_connection_activation_events[\s\S]+commit\(\)/
+    /const activateModelConnection =[\s\S]+beginTransaction\(\)[\s\S]+SET is_default = FALSE[\s\S]+WHERE owner_id = \? AND team_id = \?[\s\S]+SET enabled = TRUE, is_default = TRUE[\s\S]+WHERE id = \? AND owner_id = \? AND team_id = \?[\s\S]+INSERT INTO ai_model_connection_activation_events[\s\S]+commit\(\)/
   );
   assert.match(
     mysqlStore,
@@ -445,27 +453,27 @@ test("MySQL enforces one active connection per owner and team and activation is 
     mysqlStore,
     /selectLegacyActiveConnectionIds[\s\S]+WHERE id = \? AND owner_id = \? AND team_id = \?[\s\S]+system_migration[\s\S]+ai_model_credential_versions/
   );
-  const activeScopeColumnPosition = mysqlStore.indexOf(
-    '"active_owner_team_key"'
+  const defaultScopeColumnPosition = mysqlStore.indexOf(
+    '"default_owner_team_key"'
   );
   const legacyIndexDropPosition = mysqlStore.indexOf(
     '"uniq_ai_model_active_owner"',
-    activeScopeColumnPosition
+    defaultScopeColumnPosition
   );
   const migrationPosition = mysqlStore.indexOf(
     "await migrateLegacyAiModelConnections(pool)",
     legacyIndexDropPosition
   );
-  const activeScopeIndexPosition = mysqlStore.indexOf(
-    '"uniq_ai_model_active_owner_team"',
+  const defaultScopeIndexPosition = mysqlStore.indexOf(
+    '"uniq_ai_model_default_owner_team"',
     migrationPosition
   );
   assert.ok(
-    activeScopeColumnPosition >= 0
-      && legacyIndexDropPosition > activeScopeColumnPosition
+    defaultScopeColumnPosition >= 0
+      && legacyIndexDropPosition > defaultScopeColumnPosition
       && migrationPosition > legacyIndexDropPosition
-      && activeScopeIndexPosition > migrationPosition,
-    "schema upgrade must drop the legacy owner-only invariant, normalize each owner/team scope, then install the scoped unique invariant"
+      && defaultScopeIndexPosition > migrationPosition,
+    "schema upgrade must remove the active invariant, normalize one default per scope, then install the default-only unique invariant"
   );
   assert.match(
     mysqlStore,

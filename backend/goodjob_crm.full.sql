@@ -294,6 +294,7 @@ CREATE TABLE ai_model_configs (
   model VARCHAR(120) NOT NULL,
   api_key TEXT,
   enabled BOOLEAN DEFAULT FALSE,
+  is_default BOOLEAN NOT NULL DEFAULT FALSE,
   credential_version INT NOT NULL DEFAULT 1,
   capability_snapshot_json JSON,
   capability_certification_hash VARCHAR(80) NULL,
@@ -308,16 +309,16 @@ CREATE TABLE ai_model_configs (
   last_test_message VARCHAR(255) DEFAULT '',
   owner_id VARCHAR(64) NOT NULL,
   team_id VARCHAR(64) NOT NULL,
-  active_owner_team_key VARCHAR(191) GENERATED ALWAYS AS (
+  default_owner_team_key VARCHAR(191) GENERATED ALWAYS AS (
     CASE
-      WHEN enabled THEN
+      WHEN enabled AND is_default THEN
         CONCAT(CHAR_LENGTH(owner_id), ':', owner_id, ':', team_id)
       ELSE NULL
     END
   ) STORED,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uniq_ai_model_active_owner_team(active_owner_team_key),
+  UNIQUE KEY uniq_ai_model_default_owner_team(default_owner_team_key),
   INDEX idx_ai_model_owner(owner_id)
 );
 
