@@ -39,6 +39,86 @@ function run(runId: string, status = "analyzing", revision = 2) {
 const emptyPage = Object.freeze({ items: [], nextAfter: null, hasMore: false });
 const policy = Object.freeze({ policyVersionId: "policy-1", revision: 1 });
 
+// This catches production package onboarding falling back to the legacy
+// browser-supplied businessReport creation method.
+{
+  let createdInput: unknown = null;
+  const api: FinancialCouncilApi = {
+    async createFromStatementPackage(input: unknown) {
+      createdInput = input;
+      return { status: 202, etag: '"run:1"', body: run("package-run") } as never;
+    },
+    async getRun() {
+      return { status: 200, etag: '"run:1"', body: run("package-run") } as never;
+    },
+    async listEvents() { return { status: 200, etag: null, body: emptyPage } as never; },
+    async listDispatches() { return { status: 200, etag: null, body: emptyPage } as never; },
+    async getPolicy() { return { status: 200, etag: '"policy:1"', body: policy } as never; }
+  } as unknown as FinancialCouncilApi;
+  const controller = createFinancialCouncilController({ api });
+  await controller.createFromStatementPackage({
+    statementPackageId: "package-1",
+    policyVersionId: "policy-1"
+  });
+  assert.deepEqual(createdInput, {
+    statementPackageId: "package-1",
+    policyVersionId: "policy-1"
+  });
+  assert.equal(controller.getState().run?.runId, "package-run");
+  controller.destroy();
+}
+
+// This catches a late create response reopening a run after route exit and
+// verifies close aborts the mutation transport itself.
+{
+  const lateCreate = deferred<never>();
+  let signal: AbortSignal | undefined;
+  const api: FinancialCouncilApi = {
+    async createRun(_input: unknown, _key: string, commandSignal?: AbortSignal) {
+      signal = commandSignal;
+      return lateCreate.promise;
+    }
+  } as unknown as FinancialCouncilApi;
+  const controller = createFinancialCouncilController({ api });
+  const creating = controller.create({} as never);
+  controller.close();
+  assert.equal(signal?.aborted, true);
+  lateCreate.resolve({ status: 202, etag: '"run:1"', body: run("late") } as never);
+  await creating;
+  assert.equal(controller.getState().run, null);
+  assert.equal(controller.getState().busy, null);
+  controller.destroy();
+}
+
+// This catches a late policy mutation reviving policy state after destroy.
+{
+  const lateUpdate = deferred<never>();
+  let signal: AbortSignal | undefined;
+  const api: FinancialCouncilApi = {
+    async getRun() { return { status: 200, etag: '"run:1"', body: run("run-1") } as never; },
+    async listEvents() { return { status: 200, etag: null, body: emptyPage } as never; },
+    async listDispatches() { return { status: 200, etag: null, body: emptyPage } as never; },
+    async getPolicy() { return { status: 200, etag: '"policy:1"', body: policy } as never; },
+    async updatePolicy(
+      _input: unknown,
+      _etag: string,
+      _key: string,
+      commandSignal?: AbortSignal
+    ) {
+      signal = commandSignal;
+      return lateUpdate.promise;
+    }
+  } as unknown as FinancialCouncilApi;
+  const controller = createFinancialCouncilController({ api });
+  await controller.open("run-1");
+  const updating = controller.updatePolicy({} as never);
+  controller.destroy();
+  assert.equal(signal?.aborted, true);
+  lateUpdate.resolve({ status: 200, etag: '"policy:2"', body: { ...policy, revision: 2 } } as never);
+  await updating;
+  assert.equal(controller.getState().policy, null);
+}
+
 class ManualScheduler {
   readonly callbacks: Array<() => void> = [];
   schedule = (callback: () => void) => {

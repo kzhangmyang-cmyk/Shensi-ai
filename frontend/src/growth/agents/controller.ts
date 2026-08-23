@@ -29,6 +29,7 @@ export interface AgentsControllerOptions {
   readonly input?: BusinessReportInput;
   readonly demo?: boolean;
   readonly session?: AgentsSessionState;
+  readonly window?: Window;
 }
 
 export interface AgentsSessionState {
@@ -99,7 +100,8 @@ interface AnalysisSummary {
   readonly actionsHtml: string;
 }
 
-function sourceBadgesForInput(input: BusinessReportInput): readonly string[] {
+function sourceBadgesForInput(input: BusinessReportInput | null): readonly string[] {
+  if (!input) return Object.freeze([]);
   return Object.freeze([
     "资产负债表",
     "利润表",
@@ -235,14 +237,15 @@ function renderAnalysisAnswer(
 export function createAgentsController(
   options: AgentsControllerOptions
 ): AgentsController {
+  const windowPort = options.window ?? window;
   const api: BusinessAdvisorApi = createBusinessAdvisorApi(
     options.http ?? createGrowthHttpClient()
   );
-  let activeInput = options.input
+  let activeInput: BusinessReportInput | null = options.input
     ?? options.session?.activeInput
-    ?? sampleBusinessReport();
+    ?? (options.demo ? sampleBusinessReport() : null);
   let lastReport: DiagnosisReport | null = options.session?.lastReport ?? null;
-  let sourceLabel = options.session?.sourceLabel ?? "示例数据";
+  let sourceLabel = options.session?.sourceLabel ?? (options.demo ? "示例数据" : "");
   let importWarnings: readonly string[] = options.session?.importWarnings ?? [];
   let importedCompanies: readonly ParsedCompanyResult[] = [];
   let demoRoute: { view: "overview" } | { view: "report" }
@@ -252,7 +255,7 @@ export function createAgentsController(
 
   function persistSession(): void {
     if (!options.session) return;
-    options.session.activeInput = activeInput;
+    options.session.activeInput = activeInput ?? undefined;
     options.session.lastReport = lastReport ?? undefined;
     options.session.sourceLabel = sourceLabel;
     options.session.importWarnings = importWarnings;
@@ -266,19 +269,19 @@ export function createAgentsController(
   function canCommitOperation(generation: number): boolean {
     return !disposed
       && operationGeneration === generation
-      && (options.demo || parseAgentsHash(window.location.hash) !== null);
+      && (options.demo || parseAgentsHash(windowPort.location.hash) !== null);
   }
 
   function mountView(html: string): void {
     options.host.innerHTML = html;
     options.host.scrollTop = 0;
-    window.scrollTo(0, 0);
+    windowPort.scrollTo(0, 0);
   }
 
   function renderView(): void {
     const route = options.demo
       ? demoRoute
-      : parseAgentsHash(window.location.hash);
+      : parseAgentsHash(windowPort.location.hash);
     if (options.demo) {
       if (route?.view === "detail") {
         mountView(renderAgentDetail(route.agentId));
@@ -404,13 +407,13 @@ export function createAgentsController(
 
   function showDiagnosisReport(report: DiagnosisReport): void {
     if (disposed
-      || (!options.demo && parseAgentsHash(window.location.hash) === null)) return;
+      || (!options.demo && parseAgentsHash(windowPort.location.hash) === null)) return;
     lastReport = report;
     persistSession();
     if (options.demo) {
       demoRoute = { view: "report" };
-    } else if (window.location.hash !== "#growth/agents/report") {
-      window.history.pushState(null, "", "#growth/agents/report");
+    } else if (windowPort.location.hash !== "#growth/agents/report") {
+      windowPort.history.pushState(null, "", "#growth/agents/report");
     }
     mountView(renderDiagnosisReport(report, {
       sourceLabel,
@@ -419,12 +422,13 @@ export function createAgentsController(
   }
 
   async function handleReport(): Promise<void> {
+    if (!options.demo && !activeInput) return;
     const generation = beginOperation();
     options.host.innerHTML = renderAgentConclusion("<p>正在生成经营诊断报告…</p>");
     try {
       const report = options.demo
         ? demoDiagnosisReport()
-        : await api.diagnose(activeInput);
+        : await api.diagnose(activeInput!);
       if (!canCommitOperation(generation)) return;
       showDiagnosisReport(report);
     } catch (error) {
@@ -522,6 +526,7 @@ export function createAgentsController(
   }
 
   async function handleAsk(agentId: string, question: string): Promise<void> {
+    if (!options.demo && !activeInput) return;
     const output = options.host.querySelector<HTMLElement>("[data-agents-output]");
     if (!output) return;
     output.innerHTML = '<div class="agent-answer-loading">正在分析…</div>';
@@ -529,7 +534,7 @@ export function createAgentsController(
       if (agentId === "cfo") {
         const report = options.demo
           ? demoDiagnosisReport()
-          : await api.diagnose(activeInput);
+          : await api.diagnose(activeInput!);
         output.innerHTML = renderAnalysisAnswer(question, {
           conclusionHtml: `<p>${escapeHtml(report.summary)}</p>`,
           evidenceHtml: `<ul>${report.issues.map((issue) =>
@@ -542,7 +547,7 @@ export function createAgentsController(
       }
       const result = options.demo
         ? demoAnalysisResult() as AnalysisResult
-        : await api.analyze(activeInput) as AnalysisResult;
+        : await api.analyze(activeInput!) as AnalysisResult;
       output.innerHTML = renderAnalysisAnswer(
         question,
         summarizeAnalysis(agentId, result)
@@ -604,6 +609,7 @@ export function createAgentsController(
       return;
     }
     if (action === "sample-report") {
+      if (!options.demo) return;
       const generation = beginOperation();
       sourceLabel = "示例数据";
       importWarnings = [];
@@ -634,13 +640,13 @@ export function createAgentsController(
       return;
     }
     if (action === "create-todo") {
-      window.dispatchEvent(new CustomEvent("goodjob:todo-create-requested", {
+      windowPort.dispatchEvent(new CustomEvent("goodjob:todo-create-requested", {
         detail: { source: "business-advisor" }
       }));
       return;
     }
     if (action === "open-data") {
-      window.location.hash = "#growth/finance";
+      windowPort.location.hash = "#growth/finance";
       return;
     }
   }
@@ -652,7 +658,7 @@ export function createAgentsController(
     event.preventDefault();
     const route = options.demo
       ? demoRoute
-      : parseAgentsHash(window.location.hash);
+      : parseAgentsHash(windowPort.location.hash);
     if (!route || route.view !== "detail") return;
     const questionInput = form.querySelector<HTMLInputElement>(
       'input[name="question"]'
@@ -668,7 +674,7 @@ export function createAgentsController(
   options.host.addEventListener("dragover", onStatementDragOver);
   options.host.addEventListener("dragleave", onStatementDragLeave);
   options.host.addEventListener("drop", onStatementDrop);
-  window.addEventListener("hashchange", onHashChange);
+  windowPort.addEventListener("hashchange", onHashChange);
 
   return Object.freeze({
     render: renderView,
@@ -681,7 +687,7 @@ export function createAgentsController(
       options.host.removeEventListener("dragover", onStatementDragOver);
       options.host.removeEventListener("dragleave", onStatementDragLeave);
       options.host.removeEventListener("drop", onStatementDrop);
-      window.removeEventListener("hashchange", onHashChange);
+      windowPort.removeEventListener("hashchange", onHashChange);
     }
   });
 }

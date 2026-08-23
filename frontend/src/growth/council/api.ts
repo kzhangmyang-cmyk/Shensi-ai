@@ -1,6 +1,7 @@
 import type { components } from "../../generated/growth-advisor-quote-roi";
 import type {
   FinancialCouncilApproval,
+  CreateCouncilRunFromPackageInput,
   FinancialCouncilDispatchPagedResult,
   FinancialCouncilPolicyInput,
   FinancialCouncilPolicyVersion,
@@ -15,6 +16,7 @@ import type {
 } from "../http";
 
 export type {
+  CreateCouncilRunFromPackageInput,
   FinancialCouncilApproval,
   FinancialCouncilDispatchPagedResult as FinancialCouncilDispatchPage,
   FinancialCouncilPolicyInput,
@@ -87,7 +89,9 @@ function responseError(): never {
   throw new CouncilApiValidationError();
 }
 
-function validateRun(value: unknown): FinancialCouncilRun {
+export function validateFinancialCouncilRunResponse(
+  value: unknown
+): FinancialCouncilRun {
   const row = record(value, [
     "runId", "workspaceId", "currency", "status", "revision", "dataAsOf",
     "businessReport", "policyVersionId", "snapshotId", "snapshotHash",
@@ -200,6 +204,16 @@ function createBody(input: FinancialCouncilCreateInput) {
   } as FinancialCouncilCreateInput;
 }
 
+function packageCreateBody(
+  input: CreateCouncilRunFromPackageInput
+): CreateCouncilRunFromPackageInput {
+  const value = input as unknown as Record<string, unknown>;
+  return {
+    statementPackageId: value.statementPackageId,
+    policyVersionId: value.policyVersionId
+  } as CreateCouncilRunFromPackageInput;
+}
+
 function policyBody(input: FinancialCouncilPolicyInput): FinancialCouncilPolicyInput {
   const value = input as unknown as Record<string, unknown>;
   return {
@@ -223,31 +237,44 @@ function revisionBody(
   return { baseRevision: value.baseRevision, operations: value.operations } as FinancialCouncilPortfolioRevisionInput;
 }
 
+function optionalSignal(signal: AbortSignal | undefined) {
+  return signal ? { signal } : {};
+}
+
 export interface FinancialCouncilApi {
-  createRun(input: FinancialCouncilCreateInput, idempotencyKey: string): Promise<GrowthHttpResponse<FinancialCouncilRun>>;
+  createRun(input: FinancialCouncilCreateInput, idempotencyKey: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilRun>>;
+  createFromStatementPackage(input: CreateCouncilRunFromPackageInput, idempotencyKey: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilRun>>;
   getRun(runId: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilRun>>;
   listEvents(runId: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilRunEventPage>>;
   getPolicy(signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilPolicy>>;
-  updatePolicy(input: FinancialCouncilPolicyInput, etag: string, idempotencyKey: string): Promise<GrowthHttpResponse<FinancialCouncilPolicy>>;
-  revisePortfolio(runId: string, input: FinancialCouncilPortfolioRevisionInput, etag: string, idempotencyKey: string): Promise<GrowthHttpResponse<FinancialCouncilPortfolioRevision>>;
-  approve(runId: string, revision: number, input: FinancialCouncilApprovalInput, etag: string, idempotencyKey: string): Promise<GrowthHttpResponse<FinancialCouncilApproval>>;
-  reject(runId: string, input: FinancialCouncilRejectInput, etag: string, idempotencyKey: string): Promise<GrowthHttpResponse<FinancialCouncilApproval>>;
+  updatePolicy(input: FinancialCouncilPolicyInput, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilPolicy>>;
+  revisePortfolio(runId: string, input: FinancialCouncilPortfolioRevisionInput, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilPortfolioRevision>>;
+  approve(runId: string, revision: number, input: FinancialCouncilApprovalInput, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilApproval>>;
+  reject(runId: string, input: FinancialCouncilRejectInput, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilApproval>>;
   listDispatches(runId: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilDispatchPage>>;
 }
 
 export function createFinancialCouncilApi(http: GrowthHttpClient): FinancialCouncilApi {
   const api: FinancialCouncilApi = {
-    async createRun(input, idempotencyKey) {
+    async createRun(input, idempotencyKey, signal) {
       const response = await http.request<unknown>("/api/v1/finance/council-runs", {
-        method: "POST", body: createBody(input), idempotencyKey
+        method: "POST", body: createBody(input), idempotencyKey,
+        ...optionalSignal(signal)
       });
-      return { ...response, body: validateRun(response.body) };
+      return { ...response, body: validateFinancialCouncilRunResponse(response.body) };
+    },
+    async createFromStatementPackage(input, idempotencyKey, signal) {
+      const response = await http.request<unknown>("/api/v1/finance/council-runs", {
+        method: "POST", body: packageCreateBody(input), idempotencyKey,
+        ...optionalSignal(signal)
+      });
+      return { ...response, body: validateFinancialCouncilRunResponse(response.body) };
     },
     async getRun(runId, signal) {
       const response = await http.request<unknown>(
         `/api/v1/finance/council-runs/${encodeURIComponent(runId)}`, { signal }
       );
-      return { ...response, body: validateRun(response.body) };
+      return { ...response, body: validateFinancialCouncilRunResponse(response.body) };
     },
     async listEvents(runId, signal) {
       const response = await http.request<unknown>(
@@ -259,27 +286,30 @@ export function createFinancialCouncilApi(http: GrowthHttpClient): FinancialCoun
       const response = await http.request<unknown>("/api/v1/finance/council-policy", { signal });
       return { ...response, body: validatePolicy(response.body) };
     },
-    async updatePolicy(input, etag, idempotencyKey) {
+    async updatePolicy(input, etag, idempotencyKey, signal) {
       const response = await http.request<unknown>("/api/v1/finance/council-policy", {
-        method: "PUT", body: policyBody(input), ifMatch: etag, idempotencyKey
+        method: "PUT", body: policyBody(input), ifMatch: etag, idempotencyKey,
+        ...optionalSignal(signal)
       });
       return { ...response, body: validatePolicy(response.body) };
     },
-    async revisePortfolio(runId, input, etag, idempotencyKey) {
+    async revisePortfolio(runId, input, etag, idempotencyKey, signal) {
       const response = await http.request<unknown>(
         `/api/v1/finance/council-runs/${encodeURIComponent(runId)}/portfolio-revisions`,
-        { method: "POST", body: revisionBody(input), ifMatch: etag, idempotencyKey }
+        { method: "POST", body: revisionBody(input), ifMatch: etag,
+          idempotencyKey, ...optionalSignal(signal) }
       );
       return { ...response, body: validateRevision(response.body) };
     },
-    async approve(runId, revision, input, etag, idempotencyKey) {
+    async approve(runId, revision, input, etag, idempotencyKey, signal) {
       const response = await http.request<unknown>(
         `/api/v1/finance/council-runs/${encodeURIComponent(runId)}/portfolio-revisions/${encodeURIComponent(String(revision))}/approve`,
-        { method: "POST", body: { portfolioKind: input.portfolioKind }, ifMatch: etag, idempotencyKey }
+        { method: "POST", body: { portfolioKind: input.portfolioKind },
+          ifMatch: etag, idempotencyKey, ...optionalSignal(signal) }
       );
       return { ...response, body: validateApproval(response.body) };
     },
-    async reject(runId, input, etag, idempotencyKey) {
+    async reject(runId, input, etag, idempotencyKey, signal) {
       const response = await http.request<unknown>(
         `/api/v1/finance/council-runs/${encodeURIComponent(runId)}/reject`,
         {
@@ -290,7 +320,8 @@ export function createFinancialCouncilApi(http: GrowthHttpClient): FinancialCoun
             reason: input.reason
           },
           ifMatch: etag,
-          idempotencyKey
+          idempotencyKey,
+          ...optionalSignal(signal)
         }
       );
       return { ...response, body: validateApproval(response.body) };

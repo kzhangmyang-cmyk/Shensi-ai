@@ -1,5 +1,6 @@
 import { GrowthApiError } from "../http";
 import type {
+  CreateCouncilRunFromPackageInput,
   FinancialCouncilApi,
   FinancialCouncilApprovalInput,
   FinancialCouncilDispatchPage,
@@ -51,6 +52,7 @@ export interface FinancialCouncilController {
   subscribe(listener: (state: FinancialCouncilControllerState) => void): () => void;
   open(runId: string): Promise<void>;
   create(input: Parameters<FinancialCouncilApi["createRun"]>[0]): Promise<void>;
+  createFromStatementPackage(input: CreateCouncilRunFromPackageInput): Promise<void>;
   updatePolicy(input: FinancialCouncilPolicyInput): Promise<void>;
   selectPortfolio(kind: FinancialCouncilControllerState["selectedPortfolioKind"]): void;
   setEditDraft(draft: FinancialCouncilPortfolioRevisionInput | null): void;
@@ -120,6 +122,7 @@ export function createFinancialCouncilController(
   let pollAbort: AbortController | null = null;
   let runEtag: string | null = null;
   let policyEtag: string | null = null;
+  const commandAborts = new Set<AbortController>();
 
   function publish(next: Partial<FinancialCouncilControllerState>): void {
     if (destroyed) return;
@@ -134,12 +137,28 @@ export function createFinancialCouncilController(
     pollAbort = null;
   }
 
+  function stopCommands(): void {
+    for (const abort of commandAborts) abort.abort();
+    commandAborts.clear();
+  }
+
+  function commandAbort(): AbortController {
+    const abort = new AbortController();
+    commandAborts.add(abort);
+    return abort;
+  }
+
+  function generationCurrent(expected: number): boolean {
+    return !destroyed && generation === expected;
+  }
+
   function newGeneration(): number {
     generation += 1;
     refreshGeneration += 1;
     runEtag = null;
     policyEtag = null;
     stopPolling();
+    stopCommands();
     return generation;
   }
 
@@ -233,13 +252,42 @@ export function createFinancialCouncilController(
     },
     async create(input) {
       const [idempotencyKey, clearKey] = keyFor("create", input);
+      const expected = generation;
+      const abort = commandAbort();
       publish({ busy: "creating", error: null });
       try {
-        const response = await options.api.createRun(input, idempotencyKey);
+        const response = await options.api.createRun(
+          input, idempotencyKey, abort.signal
+        );
+        if (!generationCurrent(expected)) return;
         clearKey();
         await this.open(response.body.runId);
       } catch (error) {
-        publish({ busy: null, error: errorMessage(error) });
+        if (generationCurrent(expected) && !abort.signal.aborted) {
+          publish({ busy: null, error: errorMessage(error) });
+        }
+      } finally {
+        commandAborts.delete(abort);
+      }
+    },
+    async createFromStatementPackage(input) {
+      const [idempotencyKey, clearKey] = keyFor("create-package", input);
+      const expected = generation;
+      const abort = commandAbort();
+      publish({ busy: "creating", error: null });
+      try {
+        const response = await options.api.createFromStatementPackage(
+          input, idempotencyKey, abort.signal
+        );
+        if (!generationCurrent(expected)) return;
+        clearKey();
+        await this.open(response.body.runId);
+      } catch (error) {
+        if (generationCurrent(expected) && !abort.signal.aborted) {
+          publish({ busy: null, error: errorMessage(error) });
+        }
+      } finally {
+        commandAborts.delete(abort);
       }
     },
     async updatePolicy(input) {
@@ -248,18 +296,29 @@ export function createFinancialCouncilController(
         return;
       }
       const [idempotencyKey, clearKey] = keyFor("policy", input);
+      const expected = generation;
+      const expectedPolicy = state.policy;
+      const expectedEtag = policyEtag;
+      const abort = commandAbort();
       publish({ busy: "updating_policy", error: null });
       try {
         const response = await options.api.updatePolicy(
           input,
-          policyEtag,
-          idempotencyKey
+          expectedEtag,
+          idempotencyKey,
+          abort.signal
         );
+        if (!generationCurrent(expected) || state.policy !== expectedPolicy
+          || policyEtag !== expectedEtag) return;
         clearKey();
         policyEtag = response.etag;
         publish({ policy: response.body, busy: null, lastUpdatedAt: now() });
       } catch (error) {
-        publish({ busy: null, error: errorMessage(error) });
+        if (generationCurrent(expected) && !abort.signal.aborted) {
+          publish({ busy: null, error: errorMessage(error) });
+        }
+      } finally {
+        commandAborts.delete(abort);
       }
     },
     selectPortfolio(kind) { publish({ selectedPortfolioKind: kind }); },
@@ -271,13 +330,14 @@ export function createFinancialCouncilController(
         return;
       }
       const expected = generation;
+      const abort = commandAbort();
       const [idempotencyKey, clearKey] = keyFor("revise", {
         runId: run.runId, baseRevision: input.baseRevision, operations: input.operations
       });
       publish({ busy: "revising", error: null });
       try {
         await options.api.revisePortfolio(
-          run.runId, input, runEtag, idempotencyKey
+          run.runId, input, runEtag, idempotencyKey, abort.signal
         );
         if (!current(expected, run.runId)) return;
         clearKey();
@@ -285,6 +345,8 @@ export function createFinancialCouncilController(
         if (current(expected, run.runId)) publish({ busy: null, editDraft: null });
       } catch (error) {
         if (current(expected, run.runId)) publish({ busy: null, error: errorMessage(error) });
+      } finally {
+        commandAborts.delete(abort);
       }
     },
     async approve(input) {
@@ -294,6 +356,7 @@ export function createFinancialCouncilController(
         return;
       }
       const expected = generation;
+      const abort = commandAbort();
       const revision = run.latestPortfolioRevision;
       const [idempotencyKey, clearKey] = keyFor("approve", {
         runId: run.runId, revision, portfolioKind: input.portfolioKind
@@ -301,7 +364,7 @@ export function createFinancialCouncilController(
       publish({ busy: "approving", error: null });
       try {
         await options.api.approve(
-          run.runId, revision, input, runEtag, idempotencyKey
+          run.runId, revision, input, runEtag, idempotencyKey, abort.signal
         );
         if (!current(expected, run.runId)) return;
         clearKey();
@@ -309,6 +372,8 @@ export function createFinancialCouncilController(
         if (current(expected, run.runId)) publish({ busy: null });
       } catch (error) {
         if (current(expected, run.runId)) publish({ busy: null, error: errorMessage(error) });
+      } finally {
+        commandAborts.delete(abort);
       }
     },
     async reject(input) {
@@ -318,6 +383,7 @@ export function createFinancialCouncilController(
         return;
       }
       const expected = generation;
+      const abort = commandAbort();
       const [idempotencyKey, clearKey] = keyFor("reject", {
         runId: run.runId,
         portfolioRevision: input.portfolioRevision,
@@ -326,7 +392,7 @@ export function createFinancialCouncilController(
       publish({ busy: "rejecting", error: null });
       try {
         await options.api.reject(
-          run.runId, input, runEtag, idempotencyKey
+          run.runId, input, runEtag, idempotencyKey, abort.signal
         );
         if (!current(expected, run.runId)) return;
         clearKey();
@@ -334,6 +400,8 @@ export function createFinancialCouncilController(
         if (current(expected, run.runId)) publish({ busy: null });
       } catch (error) {
         if (current(expected, run.runId)) publish({ busy: null, error: errorMessage(error) });
+      } finally {
+        commandAborts.delete(abort);
       }
     },
     close() {

@@ -72,12 +72,23 @@ export type FinancialCouncilModelRoutingPolicyInput =
   components["schemas"]["FinancialCouncilModelRoutingPolicyInput"];
 export type FinancialCouncilModelRoutingPolicyView =
   components["schemas"]["FinancialCouncilModelRoutingPolicyView"];
+export type FinancialCouncilModelRoutingPolicyVersion =
+  FinancialCouncilModelRoutingPolicyView;
+export type FinancialCouncilModelRoutePreview =
+  components["schemas"]["FinancialCouncilRun_FinancialCouncilModelRoutePreview"];
 export type FinancialStatementPackagePreviewInput =
   components["schemas"]["FinancialStatementPackagePreviewInput"];
 export type FinancialStatementPackagePreviewView =
   components["schemas"]["FinancialStatementPackagePreviewView"];
+export type FinancialStatementPackagePreview =
+  FinancialStatementPackagePreviewView;
 export type FinancialStatementPackageView =
   components["schemas"]["FinancialStatementPackageView"];
+export type FinancialStatementPackageCommitInput =
+  components["schemas"]["FinancialStatementConsentInput"];
+export type FinancialStatementUpload =
+  components["schemas"]["FinanceImportOperation_FinancialStatementUpload"];
+export type FinancialStatementKind = FinancialStatementUpload["kind"];
 export type FinancialCouncilAgentCenterView =
   components["schemas"]["FinancialCouncilAgentCenterView"];
 export type FinancialCouncilRunAgentsView =

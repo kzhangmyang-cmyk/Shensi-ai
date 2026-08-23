@@ -73,16 +73,31 @@ assert.deepEqual(calls[0]?.options, {
   }
 });
 
+await api.createFromStatementPackage({
+  statementPackageId: "package-1",
+  policyVersionId: "policy-1",
+  businessReport: { leaked: true },
+  workspaceId: "must-not-cross"
+} as never, "council-package:key-1");
+assert.deepEqual(calls[1], {
+  path: "/api/v1/finance/council-runs",
+  options: {
+    method: "POST",
+    idempotencyKey: "council-package:key-1",
+    body: { statementPackageId: "package-1", policyVersionId: "policy-1" }
+  }
+});
+
 await api.revisePortfolio("run / 1", {
   baseRevision: 2,
   operations: [{ kind: "select_portfolio", portfolioKind: "balanced" }],
   impacts: { profitMinor: 9 }
 } as never, '"financial-council-run:run-1:2"', "council-revise:key-1");
 assert.equal(
-  calls[1]?.path,
+  calls[2]?.path,
   "/api/v1/finance/council-runs/run%20%2F%201/portfolio-revisions"
 );
-assert.deepEqual(calls[1]?.options, {
+assert.deepEqual(calls[2]?.options, {
   method: "POST",
   ifMatch: '"financial-council-run:run-1:2"',
   idempotencyKey: "council-revise:key-1",
