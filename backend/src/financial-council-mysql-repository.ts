@@ -1314,6 +1314,30 @@ implements FinancialCouncilRepository {
     return (await this.readVerifiedHistory(context, runId))?.run ?? null;
   }
 
+  async findLatestRun(
+    context: ActiveWorkspaceContext,
+    input: { readonly limit: 1 }
+  ): Promise<FinancialCouncilRun | null> {
+    if (!input || Object.getPrototypeOf(input) !== Object.prototype
+      || Object.keys(input).length !== 1 || input.limit !== 1) {
+      throw financialCouncilError("financial_council_input_invalid");
+    }
+    return this.transaction(async (connection) => {
+      const [runRows] = await connection.query(
+        `SELECT * FROM financial_council_runs
+         WHERE workspace_id = ?
+         ORDER BY JSON_UNQUOTE(JSON_EXTRACT(run_json, '$.createdAt')) DESC,
+                  run_id DESC
+         LIMIT 1`, [context.workspaceId]
+      );
+      const row = (runRows as MysqlRow[])[0];
+      if (!row) return null;
+      const run = parseRun(row);
+      await this.verifyStoredRun(connection, run);
+      return run;
+    }, true);
+  }
+
   async getVerifiedRunSnapshot(
     context: ActiveWorkspaceContext,
     runId: string

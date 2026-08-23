@@ -395,6 +395,10 @@ export interface FinancialCouncilRepository {
     context: ActiveWorkspaceContext,
     runId: string
   ): Promise<FinancialCouncilRun | null>;
+  findLatestRun(
+    context: ActiveWorkspaceContext,
+    input: { readonly limit: 1 }
+  ): Promise<FinancialCouncilRun | null>;
   getVerifiedRunSnapshot(
     context: ActiveWorkspaceContext,
     runId: string
@@ -1693,6 +1697,26 @@ implements FinancialCouncilRepository {
     const run = this.runs.get(key(context.workspaceId, runId)) ?? null;
     if (run) this.assertStoredRun(run);
     return run;
+  }
+
+  async findLatestRun(
+    context: ActiveWorkspaceContext,
+    input: { readonly limit: 1 }
+  ): Promise<FinancialCouncilRun | null> {
+    if (!input || Object.getPrototypeOf(input) !== Object.prototype
+      || Object.keys(input).length !== 1 || input.limit !== 1) {
+      throw financialCouncilError("financial_council_input_invalid");
+    }
+    const candidates = [...this.runs.values()].filter((run) =>
+      run.workspaceId === context.workspaceId).sort((left, right) => {
+      if (left.createdAt !== right.createdAt) {
+        return left.createdAt > right.createdAt ? -1 : 1;
+      }
+      return -utf8ByteCompare(left.runId, right.runId);
+    });
+    const latest = candidates[0] ?? null;
+    if (latest) this.assertStoredRun(latest);
+    return latest;
   }
 
   async getVerifiedRunSnapshot(

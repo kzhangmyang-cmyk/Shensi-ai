@@ -169,6 +169,19 @@ export class FinancialStatementPackageService {
     });
   }
 
+  async getPreview(context: Pick<FinancialStatementPackageCommandContext,
+  "workspaceId" | "actorId">, previewId: string) {
+    if (!context?.workspaceId?.trim() || !context.actorId?.trim()
+      || typeof previewId !== "string" || !previewId.trim()) {
+      fail("financial_statement_context_invalid");
+    }
+    const value = await this.dependencies.repository.getPreview(
+      context.workspaceId, previewId
+    );
+    if (!value) fail("financial_statement_preview_not_found");
+    return value;
+  }
+
   async getVerified(context: Pick<FinancialStatementPackageCommandContext,
   "workspaceId" | "actorId">, packageId: string) {
     if (!context?.workspaceId?.trim() || !context.actorId?.trim()) {
@@ -178,5 +191,15 @@ export class FinancialStatementPackageService {
       context.workspaceId, packageId);
     if (!value) fail("financial_statement_package_not_found");
     return value;
+  }
+
+  async getLatestVerified(context: Pick<FinancialStatementPackageCommandContext,
+  "workspaceId" | "actorId">) {
+    if (!context?.workspaceId?.trim() || !context.actorId?.trim()) {
+      fail("financial_statement_context_invalid");
+    }
+    return this.dependencies.repository.getLatestVerified(
+      context.workspaceId, Object.freeze({ limit: 1 })
+    );
   }
 }

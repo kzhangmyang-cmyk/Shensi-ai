@@ -96,6 +96,16 @@ import {
 } from "./financial-council-routed-model-port.js";
 import { RepositoryFinancialCouncilModelSelectionPort } from
   "./financial-council-model-selection.js";
+import { FinancialCouncilModelRoutingService } from
+  "./financial-council-model-routing-service.js";
+import { createFinancialCouncilModelRoutingRouter } from
+  "./financial-council-model-routing-router.js";
+import { createFinancialStatementPackageRouter } from
+  "./financial-statement-package-router.js";
+import { FinancialCouncilAgentCenter } from
+  "./financial-council-agent-center.js";
+import { createFinancialCouncilAgentCenterRouter } from
+  "./financial-council-agent-center-router.js";
 
 export interface GrowthFinancialCouncilServices {
   readonly service: FinancialCouncilService;
@@ -104,6 +114,8 @@ export interface GrowthFinancialCouncilServices {
 export interface GrowthFinancialCouncilResources
 extends GrowthFinancialCouncilServices {
   readonly modelRoutingRepository: FinancialCouncilModelRoutingRepository;
+  readonly modelRoutingService: FinancialCouncilModelRoutingService;
+  readonly agentCenter: FinancialCouncilAgentCenter;
   readonly relay: Pick<FinancialCouncilWakeRelay, "start" | "sweep" | "close">;
   closeFinancialCouncilResources(): Promise<void>;
 }
@@ -285,6 +297,9 @@ export interface GrowthFinancialCouncilModuleOptions {
   }) => Promise<GrowthFinancialCouncilResources>;
   readonly createRouter?: typeof createFinancialCouncilRouter;
   readonly createPolicyRouter?: typeof createFinancialCouncilPolicyRouter;
+  readonly createModelRoutingRouter?: typeof createFinancialCouncilModelRoutingRouter;
+  readonly createStatementPackageRouter?: typeof createFinancialStatementPackageRouter;
+  readonly createAgentCenterRouter?: typeof createFinancialCouncilAgentCenterRouter;
 }
 
 function sealedAdvisor(value: unknown): GrowthAdvisorSealedQueryService {
@@ -342,7 +357,8 @@ function trustedResources(
     || Object.getPrototypeOf(value) !== Object.prototype
     || Reflect.ownKeys(value).some((key) => typeof key !== "string")
     || (Reflect.ownKeys(value) as string[]).sort().join("\u0000")
-      !== ["service", "modelRoutingRepository", "relay",
+      !== ["service", "modelRoutingRepository", "modelRoutingService",
+        "agentCenter", "relay",
         "closeFinancialCouncilResources"]
         .sort().join("\u0000")) {
     throw new Error("INVALID_GROWTH_FINANCIAL_COUNCIL_RESOURCES");
@@ -531,9 +547,30 @@ export async function createGrowthFinancialCouncilResources(input: {
     batchSize: input.relayBatchSize,
     deliveryTimeoutMs: input.relayDeliveryTimeoutMs
   });
+  const runtimeState = () => input.modelStore
+    ? readFinancialCouncilModelRoutingRuntimeState(input.modelStore)
+    : Object.freeze({ connections: Object.freeze([]), recentCalls: Object.freeze([]) });
+  const modelRoutingService = new FinancialCouncilModelRoutingService({
+    repository: modelRoutingRepository, runtimeState
+  });
+  const agentCenter = new FinancialCouncilAgentCenter({
+    latestPackage: Object.freeze({
+      async getLatestVerified(workspaceId: string) {
+        if (!input.finance.statementPackages) return null;
+        return input.finance.statementPackages.getLatestVerified({
+          workspaceId, actorId: workspaceId
+        });
+      }
+    }) as never,
+    latestRun: repository,
+    routing: modelRoutingRepository,
+    runtimeState
+  });
   const resources = Object.freeze({
     service,
     modelRoutingRepository,
+    modelRoutingService,
+    agentCenter,
     relay,
     async closeFinancialCouncilResources() {
       await dispatch.close();
@@ -622,6 +659,36 @@ export function createGrowthFinancialCouncilModule(
             httpIdempotency: foundation.httpIdempotency
           })
         );
+        const modelRoutingRouterFactory = options.createModelRoutingRouter
+          ?? createFinancialCouncilModelRoutingRouter;
+        input.router.use(
+          "/api/v1/finance/council-model-routing-policy",
+          modelRoutingRouterFactory({
+            service: resources.modelRoutingService,
+            workspaceContext: foundation.workspaceContext,
+            commandContextFactory: foundation.commandContextFactory,
+            httpIdempotency: foundation.httpIdempotency
+          })
+        );
+        if (finance.statementPackages) {
+          const statementRouterFactory = options.createStatementPackageRouter
+            ?? createFinancialStatementPackageRouter;
+          input.router.use(
+            "/api/v1/finance/statement-packages",
+            statementRouterFactory({
+              service: finance.statementPackages,
+              workspaceContext: foundation.workspaceContext,
+              commandContextFactory: foundation.commandContextFactory,
+              httpIdempotency: foundation.httpIdempotency
+            })
+          );
+        }
+        const agentCenterRouterFactory = options.createAgentCenterRouter
+          ?? createFinancialCouncilAgentCenterRouter;
+        input.router.use("/api/v1/finance", agentCenterRouterFactory({
+          center: resources.agentCenter,
+          workspaceContext: foundation.workspaceContext
+        }));
         const policyRouterFactory = options.createPolicyRouter
           ?? createFinancialCouncilPolicyRouter;
         input.router.use(

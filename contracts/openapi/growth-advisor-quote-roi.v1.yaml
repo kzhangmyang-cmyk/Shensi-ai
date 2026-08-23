@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GoodJob Growth Advisor, Quote and ROI API
-  version: 1.0.10
+  version: 1.0.11
 servers:
   - url: /
 
@@ -1359,6 +1359,159 @@ paths:
         '403': *apiErrorResponse
         '404': *apiErrorResponse
 
+  /api/v1/finance/council-model-routing-policy:
+    get:
+      operationId: getFinancialCouncilModelRoutingPolicy
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters: []
+      responses:
+        '200': { $ref: '#/components/responses/FinancialCouncilModelRoutingPolicy' }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '404': *apiErrorResponse
+    put:
+      operationId: updateFinancialCouncilModelRoutingPolicy
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
+        - $ref: '#/components/parameters/ifMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilModelRoutingPolicyInput' }
+      responses:
+        '200': { $ref: '#/components/responses/FinancialCouncilModelRoutingPolicy' }
+        '400': *apiErrorResponse
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '409': *apiErrorResponse
+        '412': *apiErrorResponse
+        '422': *apiErrorResponse
+        '428': *apiErrorResponse
+
+  /api/v1/finance/council-model-routing-policy/preview:
+    post:
+      operationId: previewFinancialCouncilModelRoutingPolicy
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, maxProperties: 0 }
+      responses:
+        '200': { $ref: '#/components/responses/FinancialCouncilModelRoutePreview' }
+        '400': *apiErrorResponse
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
+
+  /api/v1/finance/statement-packages/preview:
+    post:
+      operationId: previewFinancialStatementPackage
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialStatementPackagePreviewInput' }
+      responses:
+        '200': { $ref: '#/components/responses/FinancialStatementPackagePreview' }
+        '400': *apiErrorResponse
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
+
+  /api/v1/finance/statement-packages/{previewId}/commit:
+    parameters: [{ $ref: '#/components/parameters/previewId' }]
+    post:
+      operationId: commitFinancialStatementPackage
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialStatementConsentInput' }
+      responses:
+        '201': { $ref: '#/components/responses/FinancialStatementPackage' }
+        '400': *apiErrorResponse
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '404': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
+
+  /api/v1/finance/council-runs/from-statement-package:
+    post:
+      operationId: createFinancialCouncilRunFromStatementPackage
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/CreateCouncilRunFromPackageInput' }
+      responses:
+        '202': { $ref: '#/components/responses/FinancialCouncilRun' }
+        '400': *apiErrorResponse
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '404': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
+
+  /api/v1/finance/council-agent-center:
+    get:
+      operationId: getFinancialCouncilAgentCenter
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters: []
+      responses:
+        '200': { $ref: '#/components/responses/FinancialCouncilAgentCenter' }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+
+  /api/v1/finance/council-runs/{runId}/agents:
+    parameters: [{ $ref: '#/components/parameters/runId' }]
+    get:
+      operationId: getFinancialCouncilRunAgents
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters: []
+      responses:
+        '200': { $ref: '#/components/responses/FinancialCouncilRunAgents' }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '404': *apiErrorResponse
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1415,6 +1568,16 @@ components:
     FinancialCouncilApproval: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilApproval' }
     FinancialCouncilDispatchView: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilDispatchView' }
     FinancialCouncilDispatchPagedResult: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilDispatchPagedResult' }
+    CreateCouncilRunFromPackageInput: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/CreateCouncilRunFromPackageInput' }
+    FinancialCouncilModelRoutingPolicyInput: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilModelRoutingPolicyInput' }
+    FinancialCouncilModelRoutingPolicyView: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilModelRoutingPolicyView' }
+    FinancialCouncilModelRoutePreviewResponse: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilModelRoutePreviewResponse' }
+    FinancialCouncilAgentCenterView: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilAgentCenterView' }
+    FinancialCouncilRunAgentsView: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilRunAgentsView' }
+    FinancialStatementPackagePreviewInput: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialStatementPackagePreviewInput' }
+    FinancialStatementConsentInput: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialStatementConsentInput' }
+    FinancialStatementPackagePreviewView: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialStatementPackagePreviewView' }
+    FinancialStatementPackageView: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialStatementPackageView' }
     GrowthBootstrapResponse: { $ref: ../json-schema/growth-bootstrap.v1.schema.json }
     CatalogItem: { $ref: ../json-schema/catalog-item.v1.schema.json }
     CatalogItemPagedResult:
@@ -1733,6 +1896,33 @@ components:
       content: { application/json: { schema: { $ref: '#/components/schemas/CashSettlementAllocationSet' } } }
     CashSettlementAllocationSetPagedResult: { description: Cash settlement allocation set page, content: { application/json: { schema: { $ref: '#/components/schemas/CashSettlementAllocationSetPagedResult' } } } }
     FinanceImportPreview: { description: Finance import preview, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceImportPreview' } } } }
+    FinancialCouncilModelRoutingPolicy:
+      description: Closed workspace council model routing policy
+      headers:
+        ETag: { $ref: '#/components/headers/ETag' }
+        Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+      content: { application/json: { schema: { $ref: '#/components/schemas/FinancialCouncilModelRoutingPolicyView' } } }
+    FinancialCouncilModelRoutePreview:
+      description: Closed deterministic council model routing preview
+      headers:
+        Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+      content: { application/json: { schema: { $ref: '#/components/schemas/FinancialCouncilModelRoutePreviewResponse' } } }
+    FinancialStatementPackagePreview:
+      description: Sanitized three-statement package preview
+      headers:
+        Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+      content: { application/json: { schema: { $ref: '#/components/schemas/FinancialStatementPackagePreviewView' } } }
+    FinancialStatementPackage:
+      description: Sanitized verified statement package
+      headers:
+        Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+      content: { application/json: { schema: { $ref: '#/components/schemas/FinancialStatementPackageView' } } }
+    FinancialCouncilAgentCenter:
+      description: Sanitized council readiness and latest run projection
+      content: { application/json: { schema: { $ref: '#/components/schemas/FinancialCouncilAgentCenterView' } } }
+    FinancialCouncilRunAgents:
+      description: Sanitized role and model attempt projection
+      content: { application/json: { schema: { $ref: '#/components/schemas/FinancialCouncilRunAgentsView' } } }
     FinanceImportOperation:
       description: Finance import operation
       content: { application/json: { schema: { $ref: '#/components/schemas/FinanceImportOperation' } } }

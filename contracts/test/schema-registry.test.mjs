@@ -450,6 +450,49 @@ test("financial council contract is closed and carries three portfolios", async 
   assert.equal(validate(negativeObjectiveScore), false);
 });
 
+test("council onboarding DTOs reject browser authority and secret-bearing fields", async () => {
+  const registry = await loadSchemaRegistry();
+  const council = registry.schemaDocuments.get("financial-council");
+  const statement = [...registry.schemaDocuments.values()].find((document) =>
+    document.title === "FinanceImportOperation");
+  assert.ok(council); assert.ok(statement);
+  const ajv = new Ajv2020({ allErrors: true, strict: false }); addFormats(ajv);
+  for (const schema of registry.schemaDocuments.values()) ajv.addSchema(schema);
+  const compile = (document, name) => ajv.compile({
+    $ref: `${document.$id}#/$defs/${name}`
+  });
+  const runInput = compile(council, "CreateCouncilRunFromPackageInput");
+  const exactRun = { statementPackageId: "package-1", policyVersionId: "policy-1" };
+  assert.equal(runInput(exactRun), true, JSON.stringify(runInput.errors));
+  for (const field of ["workspaceId", "businessReport", "capabilities"]) {
+    assert.equal(runInput({ ...exactRun, [field]: {} }), false, field);
+  }
+
+  const upload = (kind) => ({ kind, fileName: `${kind}.xlsx`,
+    mediaType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    contentBase64: "AA==" });
+  const preview = compile(statement, "FinancialStatementPackagePreviewInput");
+  const uploads = [upload("balance_sheet"), upload("income_statement"),
+    upload("cash_flow_statement")];
+  assert.equal(preview({ statements: uploads }), true, JSON.stringify(preview.errors));
+  assert.equal(preview({ statements: [uploads[1], uploads[0], uploads[2]] }), false);
+  assert.equal(preview({ statements: [{ ...uploads[0], rawCells: [] },
+    uploads[1], uploads[2]] }), false);
+
+  const center = compile(council, "FinancialCouncilAgentCenterView");
+  const centerView = { data: { status: "not_connected", packageId: null,
+    companyName: null, period: null, verifiedAt: null, warningCodes: [] },
+    models: { status: "not_connected", routingPolicyVersionId: null, roles: [
+      "cfo", "finance", "profit", "cost", "cashflow", "tax"
+    ].map((role) => ({ role, status: "not_connected", provider: null,
+      model: null, connectionDisplayName: null })) }, latestRun: null,
+    capabilities: { canRun: true, canApprove: false, canManageRouting: false } };
+  assert.equal(center(centerView), true, JSON.stringify(center.errors));
+  for (const field of ["apiKey", "prompt", "businessData"]) {
+    assert.equal(center({ ...centerView, [field]: "secret" }), false, field);
+  }
+});
+
 test("growth bootstrap accepts the public financial council capabilities", async () => {
   const raw = JSON.parse(await readFile(new URL(
     "../json-schema/growth-bootstrap.v1.schema.json", import.meta.url

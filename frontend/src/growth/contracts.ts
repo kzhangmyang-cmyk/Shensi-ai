@@ -5,7 +5,7 @@ import type {
 } from "../generated/growth-advisor-quote-roi.js";
 
 export const GROWTH_CONTRACT_NAME = "growth-advisor-quote-roi";
-export const GROWTH_CONTRACT_VERSION = "1.0.10";
+export const GROWTH_CONTRACT_VERSION = "1.0.11";
 
 export type GrowthPaths = paths;
 export type GrowthOperations = operations;
@@ -66,6 +66,22 @@ export type FinancialCouncilCandidateAction =
   components["schemas"]["CandidateAction"];
 export type FinancialCouncilActionPortfolio =
   components["schemas"]["ActionPortfolio"];
+export type CreateCouncilRunFromPackageInput =
+  components["schemas"]["CreateCouncilRunFromPackageInput"];
+export type FinancialCouncilModelRoutingPolicyInput =
+  components["schemas"]["FinancialCouncilModelRoutingPolicyInput"];
+export type FinancialCouncilModelRoutingPolicyView =
+  components["schemas"]["FinancialCouncilModelRoutingPolicyView"];
+export type FinancialStatementPackagePreviewInput =
+  components["schemas"]["FinancialStatementPackagePreviewInput"];
+export type FinancialStatementPackagePreviewView =
+  components["schemas"]["FinancialStatementPackagePreviewView"];
+export type FinancialStatementPackageView =
+  components["schemas"]["FinancialStatementPackageView"];
+export type FinancialCouncilAgentCenterView =
+  components["schemas"]["FinancialCouncilAgentCenterView"];
+export type FinancialCouncilRunAgentsView =
+  components["schemas"]["FinancialCouncilRunAgentsView"];
 
 export type GetAdvisorTodayOperation =
   operations["getAdvisorToday"];
@@ -93,3 +109,19 @@ export type RejectFinancialCouncilRunOperation =
   operations["rejectFinancialCouncilRun"];
 export type ListFinancialCouncilDispatchesOperation =
   operations["listFinancialCouncilDispatches"];
+export type GetFinancialCouncilModelRoutingPolicyOperation =
+  operations["getFinancialCouncilModelRoutingPolicy"];
+export type UpdateFinancialCouncilModelRoutingPolicyOperation =
+  operations["updateFinancialCouncilModelRoutingPolicy"];
+export type PreviewFinancialCouncilModelRoutingPolicyOperation =
+  operations["previewFinancialCouncilModelRoutingPolicy"];
+export type PreviewFinancialStatementPackageOperation =
+  operations["previewFinancialStatementPackage"];
+export type CommitFinancialStatementPackageOperation =
+  operations["commitFinancialStatementPackage"];
+export type CreateFinancialCouncilRunFromStatementPackageOperation =
+  operations["createFinancialCouncilRunFromStatementPackage"];
+export type GetFinancialCouncilAgentCenterOperation =
+  operations["getFinancialCouncilAgentCenter"];
+export type GetFinancialCouncilRunAgentsOperation =
+  operations["getFinancialCouncilRunAgents"];

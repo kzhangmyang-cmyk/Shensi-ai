@@ -83,4 +83,13 @@ export async function runFinancialStatementPackageRepositoryContract(
   (error: unknown) => (error as { code?: string }).code ===
     "financial_statement_idempotency_conflict");
   assert.equal(await repository.getVerified("workspace-b", "package-1"), null);
+  assert.equal((await repository.getLatestVerified("workspace-a",
+    Object.freeze({ limit: 1 })))?.packageId, "package-1");
+  assert.equal(await repository.getLatestVerified("workspace-b",
+    Object.freeze({ limit: 1 })), null);
+  for (const invalid of [{}, { limit: 2 }, { limit: 1, workspaceId: "workspace-b" }]) {
+    await assert.rejects(repository.getLatestVerified("workspace-a",
+      invalid as never), (error: unknown) => (error as { code?: string }).code
+        === "financial_statement_input_invalid");
+  }
 }

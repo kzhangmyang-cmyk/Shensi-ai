@@ -445,3 +445,145 @@ export interface FinancialCouncilDispatchPagedResult {
 
 export type CandidateAction = FinancialCouncilCandidateAction;
 export type ActionPortfolio = FinancialCouncilActionPortfolio;
+
+export type FinancialCouncilModelRole =
+  | "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+export type FinancialCouncilCenterStatus = "not_connected" | "ready"
+  | "running" | "waiting" | "completed" | "manual_review" | "model_error";
+export type FinancialCouncilModelProvider = "openai" | "moonshot" | "minimax"
+  | "zhipu" | "deepseek" | "qwen" | "doubao" | "hunyuan" | "qianfan";
+export type FinancialCouncilAttemptErrorCode = "MODEL_RATE_LIMITED"
+  | "MODEL_TIMEOUT" | "MODEL_UNAVAILABLE" | "MODEL_AUTH_FAILED"
+  | "MODEL_OUTPUT_INVALID" | "MODEL_POLICY_CONFLICT" | "MODEL_ERROR";
+
+export interface CreateCouncilRunFromPackageInput {
+  statementPackageId: string;
+  policyVersionId: string;
+}
+
+export type FinancialCouncilModelRoleRoute =
+  | { mode: "auto"; primaryConnectionId: null; fallbackConnectionIds: readonly [];
+      preferenceWeightBps: number }
+  | { mode: "pinned"; primaryConnectionId: string;
+      fallbackConnectionIds: readonly string[]; preferenceWeightBps: number };
+export type FinancialCouncilModelRoutingRoles = Readonly<Record<
+  FinancialCouncilModelRole, FinancialCouncilModelRoleRoute>>;
+export interface FinancialCouncilModelRoutingPolicyInput {
+  roles: FinancialCouncilModelRoutingRoles;
+  maxRunBudgetMinor: number;
+  maxRoleBudgetMinor: number;
+  requestTimeoutMs: number;
+}
+export interface FinancialCouncilModelRoutingPolicyView
+extends FinancialCouncilModelRoutingPolicyInput {
+  policyVersionId: string;
+  revision: number;
+  createdAt: string;
+}
+export interface FinancialCouncilPublicModelConnection {
+  connectionId: string;
+  provider: FinancialCouncilModelProvider;
+  model: string;
+  displayName: string;
+}
+export interface FinancialCouncilModelRoutePreview {
+  role: FinancialCouncilModelRole;
+  orderedConnections: readonly FinancialCouncilPublicModelConnection[];
+  selectedConnection: FinancialCouncilPublicModelConnection | null;
+  reasonCodes: readonly ("structured_output_certified" | "recent_success_rate"
+    | "recent_p95_latency" | "known_cost" | "cost_unknown"
+    | "consecutive_failure_penalty" | "role_preference_weight"
+    | "stable_tiebreak")[];
+  missingCapabilities: readonly ("structured_output_certified"
+    | "pinned_connection_eligible")[];
+}
+
+export type FinancialStatementKind = "balance_sheet" | "income_statement"
+  | "cash_flow_statement";
+export interface FinancialStatementUpload<K extends FinancialStatementKind> {
+  kind: K;
+  fileName: string;
+  mediaType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  contentBase64: string;
+}
+export interface FinancialStatementPackagePreviewInput {
+  statements: readonly [FinancialStatementUpload<"balance_sheet">,
+    FinancialStatementUpload<"income_statement">,
+    FinancialStatementUpload<"cash_flow_statement">];
+}
+export interface FinancialStatementConsentInput {
+  consent: { accepted: true; noticeVersion: "financial-model-data.v1" };
+}
+export interface FinancialStatementSourceView {
+  kind: FinancialStatementKind;
+  fileName: string;
+  fileHash: Sha256;
+  mediaType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  sheetNames: readonly string[];
+}
+interface FinancialStatementPackageCommonView {
+  companyName: string;
+  currency: BusinessCurrency;
+  period: string;
+  sourceFiles: readonly FinancialStatementSourceView[];
+  parserVersion: "financial-statements.v2";
+  warningCodes: readonly string[];
+  createdAt: string;
+}
+export interface FinancialStatementPackagePreviewView
+extends FinancialStatementPackageCommonView {
+  previewId: string;
+  status: "preview";
+  expiresAt: string;
+}
+export interface FinancialStatementPackageView
+extends FinancialStatementPackageCommonView {
+  packageId: string;
+  status: "verified";
+  expiresAt: null;
+}
+
+export interface FinancialCouncilAgentRoleView {
+  role: FinancialCouncilModelRole;
+  status: FinancialCouncilCenterStatus;
+  provider: string | null;
+  model: string | null;
+  connectionDisplayName: string | null;
+}
+export interface FinancialCouncilLatestRunView {
+  runId: string;
+  status: FinancialCouncilRunStatus;
+  revision: number;
+  updatedAt: string;
+}
+export interface FinancialCouncilAgentCenterView {
+  data: { status: "not_connected" | "ready"; packageId: string | null;
+    companyName: string | null; period: string | null; verifiedAt: string | null;
+    warningCodes: readonly string[] };
+  models: { status: "not_connected" | "ready";
+    routingPolicyVersionId: string | null;
+    roles: readonly FinancialCouncilAgentRoleView[] };
+  latestRun: FinancialCouncilLatestRunView | null;
+  capabilities: { canRun: boolean; canApprove: boolean;
+    canManageRouting: boolean };
+}
+export interface FinancialCouncilModelAttemptView {
+  attempt: number;
+  provider: string;
+  model: string;
+  connectionDisplayName: string;
+  status: "succeeded" | "failed";
+  errorCode: FinancialCouncilAttemptErrorCode | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+export interface FinancialCouncilRunAgentView {
+  role: FinancialCouncilModelRole;
+  phase: "analysis" | "consensus";
+  status: FinancialCouncilCenterStatus;
+  attempts: readonly FinancialCouncilModelAttemptView[];
+}
+export interface FinancialCouncilRunAgentsView
+extends FinancialCouncilLatestRunView {
+  roles: readonly FinancialCouncilRunAgentView[];
+}

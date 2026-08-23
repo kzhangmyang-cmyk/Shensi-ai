@@ -175,7 +175,7 @@ pnpm --filter goodjob-crm-frontend run test:e2e -- acquisition-visual-reader.spe
 
 ## Growth 真实模式（Real Mode）
 
-前端钉住了 Growth 合同消费快照（`contracts/pinned/`，当前 1.0.10）；可编辑合同的唯一来源是 Monorepo 根目录 `../contracts/`，合同门禁会验证两者身份与哈希一致。
+前端钉住了 Growth 合同消费快照（`contracts/pinned/`，当前 1.0.11）；可编辑合同的唯一来源是 Monorepo 根目录 `../contracts/`，合同门禁会验证两者身份与哈希一致。
 `src/growth/` 提供由同一前端壳恢复的增长工作区：
 
 - `#growth/advisor` 增长参谋今日视图与受控建议
@@ -186,6 +186,8 @@ pnpm --filter goodjob-crm-frontend run test:e2e -- acquisition-visual-reader.spe
 - `#growth/roi` 预计与已关账实际 ROI
 - `#financial-council` 财务委员会创建入口；使用当前已验证的 Business report 创建运行
 - `#financial-council/run/<runId>` 财务委员会工作台。审批只创建草稿和待办，不执行财务动作；税务内容须由专业人士复核。
+
+`1.0.11` 类型还覆盖闭合的三表 package preview/commit、run-from-package、六角色模型路由与脱敏 agent-center API。workspace、连接归属与 capabilities 由服务端认证上下文决定；前端不能提交 workspace、凭据、prompt 或标准化业务数据。
 
 进入真实模式前，前端会调用 `GET /api/v1/growth/bootstrap` 做合同门禁：
 合同大版本或哈希与钉住 manifest 不一致时显示

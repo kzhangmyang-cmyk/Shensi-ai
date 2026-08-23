@@ -26,6 +26,8 @@ export interface FinancialStatementPackageRepository {
   }>;
   getVerified(workspaceId: string, packageId: string): Promise<
     FinancialStatementPackage | null>;
+  getLatestVerified(workspaceId: string, input: { readonly limit: 1 }): Promise<
+    FinancialStatementPackage | null>;
   cleanupExpired(now: string): Promise<number>;
 }
 
@@ -145,6 +147,24 @@ implements FinancialStatementPackageRepository {
     if (!value) return null;
     assertPackage(value);
     return clone(value);
+  }
+
+  async getLatestVerified(workspaceId: string, input: { readonly limit: 1 }) {
+    if (!input || Object.getPrototypeOf(input) !== Object.prototype
+      || Object.keys(input).length !== 1 || input.limit !== 1) {
+      fail("financial_statement_input_invalid");
+    }
+    const latest = [...this.packages.values()].filter((value) =>
+      value.workspaceId === workspaceId).sort((left, right) => {
+      if (left.createdAt !== right.createdAt) {
+        return left.createdAt > right.createdAt ? -1 : 1;
+      }
+      return Buffer.compare(Buffer.from(right.packageId, "utf8"),
+        Buffer.from(left.packageId, "utf8"));
+    })[0];
+    if (!latest) return null;
+    assertPackage(latest);
+    return clone(latest);
   }
 
   async cleanupExpired(now: string): Promise<number> {

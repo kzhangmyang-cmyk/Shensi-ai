@@ -98,7 +98,11 @@ test("generated Growth types expose the closed financial council aliases", async
       "FinancialCouncilRun", "FinancialCouncilCreateInput", "CandidateAction",
       "ActionPortfolio", "FinancialCouncilApproval", "FinancialCouncilDispatchView",
       "FinancialCouncilPortfolioRevisionInput", "FinancialCouncilPortfolioRevision",
-      "FinancialCouncilRunEventPagedResult", "FinancialCouncilDispatchPagedResult"
+      "FinancialCouncilRunEventPagedResult", "FinancialCouncilDispatchPagedResult",
+      "CreateCouncilRunFromPackageInput", "FinancialCouncilModelRoutingPolicyInput",
+      "FinancialCouncilModelRoutingPolicyView", "FinancialStatementPackagePreviewInput",
+      "FinancialStatementPackagePreviewView", "FinancialStatementPackageView",
+      "FinancialCouncilAgentCenterView", "FinancialCouncilRunAgentsView"
     ]) assert.match(generated, new RegExp(`\\b${alias}\\b`));
     assert.match(generated, /collect_receivable/);
     assert.doesNotMatch(generated, /tax_filing/);

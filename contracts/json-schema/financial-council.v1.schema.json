@@ -1048,6 +1048,226 @@
         "reason": { "$ref": "#/$defs/nonempty" }
       }
     },
+    "CreateCouncilRunFromPackageInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statementPackageId", "policyVersionId"],
+      "properties": {
+        "statementPackageId": { "$ref": "#/$defs/identifier" },
+        "policyVersionId": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "FinancialCouncilModelRole": {
+      "enum": ["cfo", "finance", "profit", "cost", "cashflow", "tax"]
+    },
+    "FinancialCouncilModelRoleRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "primaryConnectionId", "fallbackConnectionIds", "preferenceWeightBps"],
+      "properties": {
+        "mode": { "enum": ["auto", "pinned"] },
+        "primaryConnectionId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/identifier" }]
+        },
+        "fallbackConnectionIds": {
+          "type": "array",
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "preferenceWeightBps": { "$ref": "#/$defs/bps" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "auto" } } },
+          "then": {
+            "properties": {
+              "primaryConnectionId": { "type": "null" },
+              "fallbackConnectionIds": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "pinned" } } },
+          "then": { "properties": { "primaryConnectionId": { "$ref": "#/$defs/identifier" } } }
+        }
+      ]
+    },
+    "FinancialCouncilModelRoutingRoles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cfo", "finance", "profit", "cost", "cashflow", "tax"],
+      "properties": {
+        "cfo": { "$ref": "#/$defs/FinancialCouncilModelRoleRoute" },
+        "finance": { "$ref": "#/$defs/FinancialCouncilModelRoleRoute" },
+        "profit": { "$ref": "#/$defs/FinancialCouncilModelRoleRoute" },
+        "cost": { "$ref": "#/$defs/FinancialCouncilModelRoleRoute" },
+        "cashflow": { "$ref": "#/$defs/FinancialCouncilModelRoleRoute" },
+        "tax": { "$ref": "#/$defs/FinancialCouncilModelRoleRoute" }
+      }
+    },
+    "FinancialCouncilModelRoutingPolicyInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roles", "maxRunBudgetMinor", "maxRoleBudgetMinor", "requestTimeoutMs"],
+      "properties": {
+        "roles": { "$ref": "#/$defs/FinancialCouncilModelRoutingRoles" },
+        "maxRunBudgetMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "maxRoleBudgetMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "requestTimeoutMs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    },
+    "FinancialCouncilModelRoutingPolicyView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policyVersionId", "revision", "roles", "maxRunBudgetMinor", "maxRoleBudgetMinor", "requestTimeoutMs", "createdAt"],
+      "properties": {
+        "policyVersionId": { "$ref": "#/$defs/identifier" },
+        "revision": { "$ref": "#/$defs/revision" },
+        "roles": { "$ref": "#/$defs/FinancialCouncilModelRoutingRoles" },
+        "maxRunBudgetMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "maxRoleBudgetMinor": { "$ref": "#/$defs/nonNegativeInteger" },
+        "requestTimeoutMs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "createdAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "FinancialCouncilPublicModelConnection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["connectionId", "provider", "model", "displayName"],
+      "properties": {
+        "connectionId": { "$ref": "#/$defs/identifier" },
+        "provider": { "enum": ["openai", "moonshot", "minimax", "zhipu", "deepseek", "qwen", "doubao", "hunyuan", "qianfan"] },
+        "model": { "$ref": "#/$defs/identifier" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 255 }
+      }
+    },
+    "FinancialCouncilModelRoutePreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "orderedConnections", "selectedConnection", "reasonCodes", "missingCapabilities"],
+      "properties": {
+        "role": { "$ref": "#/$defs/FinancialCouncilModelRole" },
+        "orderedConnections": { "type": "array", "maxItems": 3, "items": { "$ref": "#/$defs/FinancialCouncilPublicModelConnection" } },
+        "selectedConnection": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/FinancialCouncilPublicModelConnection" }] },
+        "reasonCodes": {
+          "type": "array", "uniqueItems": true,
+          "items": { "enum": ["structured_output_certified", "recent_success_rate", "recent_p95_latency", "known_cost", "cost_unknown", "consecutive_failure_penalty", "role_preference_weight", "stable_tiebreak"] }
+        },
+        "missingCapabilities": {
+          "type": "array", "uniqueItems": true,
+          "items": { "enum": ["structured_output_certified", "pinned_connection_eligible"] }
+        }
+      }
+    },
+    "FinancialCouncilModelRoutePreviewResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roles"],
+      "properties": {
+        "roles": { "type": "array", "minItems": 6, "maxItems": 6,
+          "items": { "$ref": "#/$defs/FinancialCouncilModelRoutePreview" } }
+      }
+    },
+    "FinancialCouncilCenterStatus": {
+      "enum": ["not_connected", "ready", "running", "waiting", "completed", "manual_review", "model_error"]
+    },
+    "FinancialCouncilAgentRoleView": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "status", "provider", "model", "connectionDisplayName"],
+      "properties": {
+        "role": { "$ref": "#/$defs/FinancialCouncilModelRole" },
+        "status": { "$ref": "#/$defs/FinancialCouncilCenterStatus" },
+        "provider": { "type": ["string", "null"], "minLength": 1, "maxLength": 64 },
+        "model": { "type": ["string", "null"], "minLength": 1, "maxLength": 255 },
+        "connectionDisplayName": { "type": ["string", "null"], "minLength": 1, "maxLength": 255 }
+      }
+    },
+    "FinancialCouncilAgentCenterView": {
+      "type": "object", "additionalProperties": false,
+      "required": ["data", "models", "latestRun", "capabilities"],
+      "properties": {
+        "data": {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "packageId", "companyName", "period", "verifiedAt", "warningCodes"],
+          "properties": {
+            "status": { "enum": ["not_connected", "ready"] },
+            "packageId": { "type": ["string", "null"], "minLength": 1 },
+            "companyName": { "type": ["string", "null"], "minLength": 1 },
+            "period": { "type": ["string", "null"], "minLength": 1 },
+            "verifiedAt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/dateTime" }] },
+            "warningCodes": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 96 } }
+          }
+        },
+        "models": {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "routingPolicyVersionId", "roles"],
+          "properties": {
+            "status": { "enum": ["not_connected", "ready"] },
+            "routingPolicyVersionId": { "type": ["string", "null"], "minLength": 1 },
+            "roles": { "type": "array", "minItems": 6, "maxItems": 6, "items": { "$ref": "#/$defs/FinancialCouncilAgentRoleView" } }
+          }
+        },
+        "latestRun": {
+          "oneOf": [{ "type": "null" }, {
+            "type": "object", "additionalProperties": false,
+            "required": ["runId", "status", "revision", "updatedAt"],
+            "properties": {
+              "runId": { "$ref": "#/$defs/identifier" },
+              "status": { "$ref": "#/$defs/publicRunStatus" },
+              "revision": { "$ref": "#/$defs/revision" },
+              "updatedAt": { "$ref": "#/$defs/dateTime" }
+            }
+          }]
+        },
+        "capabilities": {
+          "type": "object", "additionalProperties": false,
+          "required": ["canRun", "canApprove", "canManageRouting"],
+          "properties": {
+            "canRun": { "type": "boolean" }, "canApprove": { "type": "boolean" },
+            "canManageRouting": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "FinancialCouncilAttemptErrorCode": {
+      "enum": ["MODEL_RATE_LIMITED", "MODEL_TIMEOUT", "MODEL_UNAVAILABLE", "MODEL_AUTH_FAILED", "MODEL_OUTPUT_INVALID", "MODEL_POLICY_CONFLICT", "MODEL_ERROR"]
+    },
+    "FinancialCouncilModelAttemptView": {
+      "type": "object", "additionalProperties": false,
+      "required": ["attempt", "provider", "model", "connectionDisplayName", "status", "errorCode", "startedAt", "completedAt"],
+      "properties": {
+        "attempt": { "$ref": "#/$defs/revision" },
+        "provider": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "model": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "connectionDisplayName": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "status": { "enum": ["succeeded", "failed"] },
+        "errorCode": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/FinancialCouncilAttemptErrorCode" }] },
+        "startedAt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/dateTime" }] },
+        "completedAt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/dateTime" }] }
+      }
+    },
+    "FinancialCouncilRunAgentView": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "phase", "status", "attempts"],
+      "properties": {
+        "role": { "$ref": "#/$defs/FinancialCouncilModelRole" },
+        "phase": { "enum": ["analysis", "consensus"] },
+        "status": { "$ref": "#/$defs/FinancialCouncilCenterStatus" },
+        "attempts": { "type": "array", "maxItems": 3, "items": { "$ref": "#/$defs/FinancialCouncilModelAttemptView" } }
+      }
+    },
+    "FinancialCouncilRunAgentsView": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runId", "status", "revision", "updatedAt", "roles"],
+      "properties": {
+        "runId": { "$ref": "#/$defs/identifier" },
+        "status": { "$ref": "#/$defs/publicRunStatus" },
+        "revision": { "$ref": "#/$defs/revision" },
+        "updatedAt": { "$ref": "#/$defs/dateTime" },
+        "roles": { "type": "array", "minItems": 6, "maxItems": 6, "items": { "$ref": "#/$defs/FinancialCouncilRunAgentView" } }
+      }
+    },
     "FinancialCouncilApprovalInput": {
       "type": "object",
       "additionalProperties": false,

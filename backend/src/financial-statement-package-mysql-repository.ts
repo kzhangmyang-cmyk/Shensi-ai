@@ -230,6 +230,18 @@ implements FinancialStatementPackageRepository {
     return found[0] ? parsePackage(found[0]) : null;
   }
 
+  async getLatestVerified(workspaceId: string, input: { readonly limit: 1 }) {
+    if (!input || Object.getPrototypeOf(input) !== Object.prototype
+      || Object.keys(input).length !== 1 || input.limit !== 1) {
+      fail("financial_statement_input_invalid");
+    }
+    const found = rows(await this.pool.query(
+      `SELECT package_hash, package_json FROM financial_statement_packages
+        WHERE workspace_id = ? ORDER BY created_at DESC, package_id DESC
+        LIMIT 1`, [workspaceId]));
+    return found[0] ? parsePackage(found[0]) : null;
+  }
+
   async cleanupExpired(now: string): Promise<number> {
     const [result] = await this.pool.query(
       `DELETE FROM financial_statement_package_previews

@@ -183,6 +183,8 @@ Promise<FinancialCouncilRealE2eServer> {
       ));
       return created;
     },
+    createRunFromStatementPackage:
+      service.createRunFromStatementPackage.bind(service),
     getRun: service.getRun.bind(service),
     listEvents: service.listEvents.bind(service),
     revisePortfolio: service.revisePortfolio.bind(service),

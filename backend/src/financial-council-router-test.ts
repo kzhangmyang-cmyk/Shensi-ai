@@ -223,6 +223,36 @@ function frozenRun() {
   });
 }
 
+test("run-from-package accepts only package and policy identities", async () => {
+  const server = await listen({
+    async createRunFromStatementPackage() {
+      return { value: frozenRun(), replayed: false };
+    },
+    async getRun() { return frozenRun(); }, async createRun() {
+      return { value: frozenRun(), replayed: false };
+    }, async listEvents() { return []; }
+  });
+  const request = (body: unknown, key: string) => server.request(
+    "/api/v1/finance/council-runs/from-statement-package", { method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+      body: JSON.stringify(body) });
+  try {
+    const created = await request({ statementPackageId: "package-1",
+      policyVersionId: "policy-1" }, "package-run-1");
+    assert.equal(created.response.status, 202);
+    for (const forbidden of ["modelRoutingPolicyVersionId", "statementPackageId",
+      "statementPackageHash"]) assert.equal(forbidden in created.body, false);
+    for (const [body, key] of [[{ statementPackageId: "package-1",
+      policyVersionId: "policy-1", businessReport: {} }, "open-business"],
+      [{ statementPackageId: "package-1", policyVersionId: "policy-1",
+        workspaceId: "other" }, "open-workspace"],
+      [{ statementPackageId: "package-1", policyVersionId: "policy-1",
+        capabilities: [] }, "open-capabilities"]] as const) {
+      assert.equal((await request(body, key)).response.status, 422);
+    }
+  } finally { await server.close(); }
+});
+
 async function listen(
   service: Record<string, unknown>,
   httpIdempotency: GrowthHttpIdempotencyRepository
@@ -447,9 +477,9 @@ test("P4 route payloads conform to the closed financial council runtime schemas"
   }), true, JSON.stringify(dispatches.errors));
 });
 
-test("real mounted P4 responses conform to the immutable 1.0.10 release", async () => {
+test("real mounted P4 responses conform to the immutable 1.0.11 release", async () => {
   const release = loadGrowthContractRelease();
-  assert.equal(release.manifest.contractVersion, "1.0.10");
+  assert.equal(release.manifest.contractVersion, "1.0.11");
   const components = structuredClone((release.document as {
     components: { schemas: Record<string, Record<string, unknown>> };
   }).components);

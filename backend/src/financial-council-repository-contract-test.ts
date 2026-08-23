@@ -728,6 +728,20 @@ export function registerFinancialCouncilRepositoryContract(
   createRepository: () => Promise<FinancialCouncilRepository>
     | FinancialCouncilRepository
 ): void {
+  test(`${label}: latest run is workspace scoped and the limit input is closed`, async () => {
+    const repository = await createRepository();
+    const run = repositoryRunFixture();
+    await repository.createRun(command("latest-create"), run);
+    assert.equal((await repository.findLatestRun(workspace(),
+      Object.freeze({ limit: 1 })))?.runId, run.runId);
+    assert.equal(await repository.findLatestRun(workspace("ws-2"),
+      Object.freeze({ limit: 1 })), null);
+    for (const invalid of [{}, { limit: 2 }, { limit: 1, workspaceId: "ws-2" }]) {
+      await assert.rejects(repository.findLatestRun(workspace(), invalid as never),
+        hasCode("financial_council_input_invalid"));
+    }
+  });
+
   test(`${label}: audit graph and initial dispositions commit atomically`, async () => {
     const repository = await createRepository();
     const aggregate = repositoryRunFixture();

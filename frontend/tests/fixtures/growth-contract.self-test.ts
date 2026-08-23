@@ -20,8 +20,8 @@ const pinnedManifest = JSON.parse(await readFile(
   "utf8"
 )) as { contractVersion: string; contractHash: string };
 
-test("financial council fixtures pin immutable release 1.0.10", () => {
-  assert.equal(pinnedManifest.contractVersion, "1.0.10");
+test("financial council fixtures pin immutable release 1.0.11", () => {
+  assert.equal(pinnedManifest.contractVersion, "1.0.11");
 });
 
 test("financial council fixtures cover every required public state", () => {

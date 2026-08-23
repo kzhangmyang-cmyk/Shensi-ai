@@ -15,7 +15,7 @@ docs/       当前设计、开发与运维文档
 tools/      跨 workspace 工程门禁
 ```
 
-`contracts/` 是可编辑合同的唯一来源。`frontend/contracts/pinned/` 是前端消费的不可变快照，`contract:check` 会验证它与根合同发布 `1.0.10` 的身份和哈希一致。
+`contracts/` 是可编辑合同的唯一来源。`frontend/contracts/pinned/` 是前端消费的不可变快照，`contract:check` 会验证它与根合同发布 `1.0.11` 的身份和哈希一致。
 
 ## 环境要求
 
@@ -91,6 +91,7 @@ pnpm test:e2e:financial-council:real
 - 公开来源获客、证据链、身份核验和受控 CRM 转化
 - Growth Advisor、产品目录、报价、成本台账、ROI 与财务导入
 - 五角色财务分析、审计反驳、CFO 共识、组合优化、人工审批和受控派发
+- 工作区三表 package、六角色模型路由预览与脱敏智能体状态；审批只创建草稿、待办或后续审批任务
 - 授权可见评论读取、本地 OCR、遮挡制品和隐私安全门禁
 
 ## 进一步文档

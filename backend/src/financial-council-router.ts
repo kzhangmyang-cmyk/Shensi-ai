@@ -44,13 +44,15 @@ import type { FinancialCouncilPortfolioRevision } from
 import type { ActiveWorkspaceContext } from "./growth-workspace-context.js";
 
 const CREATE_PATH = "/api/v1/finance/council-runs";
+const CREATE_FROM_PACKAGE_PATH =
+  "/api/v1/finance/council-runs/from-statement-package";
 const REVISE_PATH = "/api/v1/finance/council-runs/:runId/portfolio-revisions";
 const APPROVE_PATH = "/api/v1/finance/council-runs/:runId/portfolio-revisions/:revision/approve";
 const REJECT_PATH = "/api/v1/finance/council-runs/:runId/reject";
 
 export interface FinancialCouncilRouterDependencies {
   readonly service: Pick<FinancialCouncilService,
-    "createRun" | "getRun" | "listEvents" | "revisePortfolio"
+    "createRun" | "createRunFromStatementPackage" | "getRun" | "listEvents" | "revisePortfolio"
     | "getPortfolioRevision" | "approve" | "reject" | "getApproval"
     | "listDispatches">;
   readonly workspaceContext: GrowthWorkspaceContextResolver;
@@ -96,6 +98,14 @@ function exactCreateInput(raw: unknown): FinancialCouncilCreateInput {
   } catch {
     throw new GrowthHttpError(422, "financial_council_input_invalid");
   }
+}
+
+function exactCreateFromPackageInput(raw: unknown) {
+  const record = exactKeys(raw, ["statementPackageId", "policyVersionId"]);
+  return Object.freeze({
+    statementPackageId: identifier(record.statementPackageId),
+    policyVersionId: identifier(record.policyVersionId)
+  });
 }
 
 function runId(req: Request): string {
@@ -443,6 +453,42 @@ export function createFinancialCouncilRouter(
     setRevisionEtag(
       res, "financial-council-run", result.value.runId, result.value.revision
     );
+    res.status(202).json(result.value);
+  }));
+
+  router.post("/from-statement-package", route(async (req, res) => {
+    const body = exactCreateFromPackageInput(req.body);
+    const command = dependencies.commandContextFactory(req, {
+      canonicalPath: CREATE_FROM_PACKAGE_PATH,
+      pathParams: Object.freeze({}), payload: body, expectedRevision: null
+    });
+    let repositoryReplayed = false;
+    const result = await executeGrowthIdempotentCommand({
+      repository: dependencies.httpIdempotency,
+      reservation: {
+        workspaceId: command.workspace.workspaceId, actorId: command.actorId,
+        method: "POST", canonicalPath: CREATE_FROM_PACKAGE_PATH,
+        key: `financial-council-package:http:${growthHttpIdempotencyKeyHash(
+          command.idempotencyKey)}`,
+        requestHash: command.requestHash, attemptedAt: now(),
+        leaseOwner: `financial-council-package-http-${randomUUID()}`,
+        leaseDurationMs: 30_000
+      }
+    }, async (resourceId) => {
+      if (!resourceId) throw new GrowthHttpError(409, "idempotency_conflict");
+      return projectRun(await dependencies.service.getRun(
+        command.workspace, resourceId));
+    }, async () => {
+      const created = await dependencies.service.createRunFromStatementPackage(
+        command, body);
+      repositoryReplayed = created.replayed;
+      return { resourceId: created.value.runId, operationId: null };
+    });
+    if (result.replayed || repositoryReplayed) {
+      res.setHeader("Idempotency-Replayed", "true");
+    }
+    setRevisionEtag(res, "financial-council-run", result.value.runId,
+      result.value.revision);
     res.status(202).json(result.value);
   }));
 

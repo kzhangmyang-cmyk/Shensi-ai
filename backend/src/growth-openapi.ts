@@ -193,6 +193,26 @@ function prepareReleasedSchema(
     }
     return prepareReleasedSchema(target, source);
   }
+  if (Array.isArray(record.prefixItems)) {
+    if (record.items !== false) {
+      throw new TypeError(
+        "Growth tuple schemas require items:false before OpenAPI 3.0 projection"
+      );
+    }
+    const prefixItems = record.prefixItems.map((item) =>
+      prepareReleasedSchema(item, source));
+    const rewrittenTuple = Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !["prefixItems", "items", "$defs"].includes(key))
+      .map(([key, item]) => [key, prepareReleasedSchema(item, source)]));
+    return {
+      ...rewrittenTuple,
+      items: { oneOf: prefixItems },
+      "x-json-schema-prefix-items": prefixItems.map(
+        convertJsonSchema202012ToOpenApi30
+      ),
+      "x-json-schema-items": false
+    };
+  }
   const rewritten = Object.fromEntries(Object.entries(value)
     .filter(([key]) => key !== "contains" && key !== "$defs")
     .map(([key, item]) => [

@@ -420,8 +420,8 @@ test("constructed resources own a workspace policy repository", async () => {
   assert.equal(fixture.resources.modelRoutingRepository instanceof
     InMemoryFinancialCouncilModelRoutingRepository, true);
   assert.deepEqual(Reflect.ownKeys(fixture.resources).sort(), [
-    "closeFinancialCouncilResources", "modelRoutingRepository", "relay",
-    "service"
+    "agentCenter", "closeFinancialCouncilResources", "modelRoutingRepository",
+    "modelRoutingService", "relay", "service"
   ]);
   await fixture.resources.relay.close();
   await fixture.resources.closeFinancialCouncilResources();
@@ -526,9 +526,10 @@ test("financial council module initializes schema before routes and closes once"
     privateServices: fixture.registry
   });
   assert.deepEqual(fixture.events, [
-    "schema", "resources:create", "route:mount", "route:mount"
+    "schema", "resources:create", "route:mount", "route:mount",
+    "route:mount", "route:mount"
   ]);
-  assert.equal(fixture.mounts(), 2);
+  assert.equal(fixture.mounts(), 4);
   assert.equal(
     fixture.registry.require(GROWTH_FINANCIAL_COUNCIL_SERVICES).service,
     fixture.resources.service

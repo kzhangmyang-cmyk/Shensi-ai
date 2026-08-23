@@ -8,6 +8,80 @@
     "createdAt": { "type": "string", "format": "date-time" }, "completedAt": { "type": ["string", "null"], "format": "date-time" }
   },
   "$defs": {
+    "FinancialStatementUpload": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "fileName", "mediaType", "contentBase64"],
+      "properties": {
+        "kind": { "enum": ["balance_sheet", "income_statement", "cash_flow_statement"] },
+        "fileName": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "mediaType": { "const": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+        "contentBase64": { "type": "string", "minLength": 1 }
+      }
+    },
+    "FinancialStatementPackagePreviewInput": {
+      "type": "object", "additionalProperties": false, "required": ["statements"],
+      "properties": {
+        "statements": {
+          "type": "array", "minItems": 3, "maxItems": 3,
+          "prefixItems": [
+            { "allOf": [{ "$ref": "#/$defs/FinancialStatementUpload" }, { "properties": { "kind": { "const": "balance_sheet" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/FinancialStatementUpload" }, { "properties": { "kind": { "const": "income_statement" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/FinancialStatementUpload" }, { "properties": { "kind": { "const": "cash_flow_statement" } } }] }
+          ],
+          "items": false
+        }
+      }
+    },
+    "FinancialStatementConsentInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["consent"],
+      "properties": {
+        "consent": { "type": "object", "additionalProperties": false,
+          "required": ["accepted", "noticeVersion"],
+          "properties": { "accepted": { "const": true },
+            "noticeVersion": { "const": "financial-model-data.v1" } }
+        }
+      }
+    },
+    "FinancialStatementSourceView": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "fileName", "fileHash", "mediaType", "sheetNames"],
+      "properties": {
+        "kind": { "enum": ["balance_sheet", "income_statement", "cash_flow_statement"] },
+        "fileName": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "fileHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "mediaType": { "const": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+        "sheetNames": { "type": "array", "minItems": 1, "maxItems": 10,
+          "items": { "type": "string", "minLength": 1, "maxLength": 255 } }
+      }
+    },
+    "FinancialStatementPackagePreviewView": {
+      "type": "object", "additionalProperties": false,
+      "required": ["previewId", "status", "expiresAt", "companyName", "currency", "period", "sourceFiles", "parserVersion", "warningCodes", "createdAt"],
+      "properties": {
+        "previewId": { "type": "string", "minLength": 1 }, "status": { "const": "preview" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "companyName": { "type": "string", "minLength": 1 },
+        "currency": { "enum": ["CNY", "USD"] }, "period": { "type": "string", "minLength": 1 },
+        "sourceFiles": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "$ref": "#/$defs/FinancialStatementSourceView" } },
+        "parserVersion": { "const": "financial-statements.v2" },
+        "warningCodes": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 96 } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "FinancialStatementPackageView": {
+      "type": "object", "additionalProperties": false,
+      "required": ["packageId", "status", "expiresAt", "companyName", "currency", "period", "sourceFiles", "parserVersion", "warningCodes", "createdAt"],
+      "properties": {
+        "packageId": { "type": "string", "minLength": 1 }, "status": { "const": "verified" },
+        "expiresAt": { "type": "null" }, "companyName": { "type": "string", "minLength": 1 },
+        "currency": { "enum": ["CNY", "USD"] }, "period": { "type": "string", "minLength": 1 },
+        "sourceFiles": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "$ref": "#/$defs/FinancialStatementSourceView" } },
+        "parserVersion": { "const": "financial-statements.v2" },
+        "warningCodes": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 96 } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
     "FinanceImportRowErrorCode": { "enum": ["spreadsheet_formula_forbidden", "verified_import_forbidden", "required_field_missing", "money_invalid", "currency_invalid", "business_time_invalid", "commercial_binding_invalid", "row_identity_conflict", "financial_fact_conflict", "financial_fact_amount_invalid", "amount_out_of_range"] },
     "FinanceImportRowError": {
       "type": "object", "additionalProperties": false, "required": ["rowNumber", "code", "field", "message"],

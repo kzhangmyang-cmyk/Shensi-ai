@@ -4,6 +4,22 @@ This workspace is the normative, executable boundary for the AI acquisition
 agent. JSON Schemas use Draft 2020-12 and OpenAPI describes authenticated
 `/api/v1` operations.
 
+## Growth Financial Council 1.0.11
+
+Growth `1.0.11` publishes the closed council onboarding boundary: routing
+policy GET/PUT/POST-preview, statement package POST-preview/commit,
+run-from-statement-package, agent-center, and per-run agent reads. Reads and
+routing preview require `finance.council.run`; routing PUT requires
+`finance.council.policy.manage`; statement commands require
+`ledger.pending.create`. Every POST and the PUT require `Idempotency-Key`, the
+PUT also requires `If-Match`, and the routing GET returns `ETag`. Exact replay
+alone returns `Idempotency-Replayed: true`.
+
+All request and response DTOs reject unknown properties. Statement responses
+exclude workbook bytes, base64, raw cells, and normalized business reports;
+agent projections exclude credentials, prompts, provider bodies, and business
+data. The immutable `1.0.10` release remains byte-for-byte unchanged.
+
 ## Single-source workflow
 
 During migration, every implemented operation must remain semantically equal

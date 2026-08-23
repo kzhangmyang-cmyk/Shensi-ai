@@ -16,6 +16,11 @@ import type {
   FinancialDataGapSourceType,
   FinancialCouncilActionKind,
   FinancialCouncilFinding,
+  CreateCouncilRunFromPackageInput,
+  FinancialCouncilAgentCenterView,
+  FinancialCouncilModelRoutingPolicyInput,
+  FinancialCouncilRunAgentsView,
+  FinancialStatementPackagePreviewInput,
   FinancialCouncilRun,
   FinancialCouncilRunStatus,
   FinancialSnapshotView,
@@ -104,11 +109,20 @@ const invalidEvidenceSource: FinancialCouncilFinding = { ...financialCouncilFind
 const invalidSnapshotSource: FinancialSnapshotView = { ...financialSnapshot, sourceVersions: [{ source: "tool", sourceId: "source-1", version: 1, contentHash: hash }] };
 // @ts-expect-error conflict kinds are a closed public union
 const invalidConflictKind: ConsensusReport = { ...financialConsensus, unresolvedConflicts: [{ conflictId: "conflict-1", type: "tool", findingIds: ["finding-1"], status: "unresolved" }] };
-void [invalidSlice, invalidGapCode, invalidEntity, invalidFinancialCouncilAction, invalidApproval, invalidConsensusInRun, invalidEvidenceSource, invalidSnapshotSource, invalidConflictKind];
+const packageInput = { statementPackageId: "package-1", policyVersionId: "policy-1" } satisfies CreateCouncilRunFromPackageInput;
+const routingInput = {} as FinancialCouncilModelRoutingPolicyInput;
+const previewInput = {} as FinancialStatementPackagePreviewInput;
+const center = {} as FinancialCouncilAgentCenterView;
+const runAgents = {} as FinancialCouncilRunAgentsView;
+// @ts-expect-error run-from-package never accepts browser-normalized financial data
+const invalidPackageInput: CreateCouncilRunFromPackageInput = { ...packageInput, businessReport: {} };
+// @ts-expect-error a statement tuple has one fixed order
+const invalidPreviewInput: FinancialStatementPackagePreviewInput = { statements: [] };
+void [invalidSlice, invalidGapCode, invalidEntity, invalidFinancialCouncilAction, invalidApproval, invalidConsensusInRun, invalidEvidenceSource, invalidSnapshotSource, invalidConflictKind, packageInput, routingInput, previewInput, center, runAgents, invalidPackageInput, invalidPreviewInput];
 
 test("canonical Growth union fixtures compile with closed negative branches", () => {
   execFileSync(fileURLToPath(new URL(
-    "../../node_modules/.bin/tsc",
+    "../node_modules/.bin/tsc",
     import.meta.url
   )), [
     "--noEmit",

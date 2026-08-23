@@ -82,7 +82,39 @@ const operations = {
   "/api/v1/finance/council-runs/{runId}/portfolio-revisions/{revision}/approve": ["post"],
   "/api/v1/finance/council-runs/{runId}/reject": ["post"],
   "/api/v1/finance/council-runs/{runId}/dispatches": ["get"]
+  ,
+  "/api/v1/finance/council-model-routing-policy": ["get", "put"],
+  "/api/v1/finance/council-model-routing-policy/preview": ["post"],
+  "/api/v1/finance/statement-packages/preview": ["post"],
+  "/api/v1/finance/statement-packages/{previewId}/commit": ["post"],
+  "/api/v1/finance/council-runs/from-statement-package": ["post"],
+  "/api/v1/finance/council-agent-center": ["get"],
+  "/api/v1/finance/council-runs/{runId}/agents": ["get"]
 };
+
+test("1.0.11 exposes closed real council onboarding routes", async () => {
+  const document = await loadNamedOpenApiSource(
+    "growth-advisor-quote-roi.v1.yaml"
+  );
+  assert.equal(document.info.version, "1.0.11");
+  for (const path of [
+    "/api/v1/finance/council-model-routing-policy",
+    "/api/v1/finance/council-model-routing-policy/preview",
+    "/api/v1/finance/statement-packages/preview",
+    "/api/v1/finance/statement-packages/{previewId}/commit",
+    "/api/v1/finance/council-runs/from-statement-package",
+    "/api/v1/finance/council-agent-center",
+    "/api/v1/finance/council-runs/{runId}/agents"
+  ]) assert.ok(document.paths[path], path);
+  const validate = await loadDefinitionValidator(
+    "financial-council.v1.schema.json", "CreateCouncilRunFromPackageInput"
+  );
+  assert.equal(validate({ statementPackageId: "fsp-1",
+    policyVersionId: "policy-1" }), true);
+  assert.equal(validate({ statementPackageId: "fsp-1",
+    policyVersionId: "policy-1", businessReport: {}, workspaceId: "other" }),
+  false);
+});
 
 const standardHttpMethods = new Set([
   "get", "put", "post", "delete", "options", "head", "patch", "trace"
@@ -900,7 +932,8 @@ test("fix round 1 non-council operations use the canonical concrete workspace he
     const workspaceHeaders = parameters.filter((parameter) =>
       parameter.name?.toLowerCase() === "x-workspace-id" && parameter.in === "header"
     );
-    if (path.startsWith("/api/v1/finance/council")) {
+    if (path.startsWith("/api/v1/finance/council")
+      || path.startsWith("/api/v1/finance/statement-packages")) {
       assert.equal(workspaceHeaders.length, 0, `${method.toUpperCase()} ${path}`);
       continue;
     }
@@ -944,7 +977,11 @@ test("fix round 1 mutations require auth guards and versioned responses publish 
     const ifMatch = parameters.find((parameter) =>
       parameter.in === "header" && parameter.name === "If-Match"
     );
-    if (["createCatalogItem", "createFinancialCouncilRun"].includes(operation.operationId)) {
+    if (["createCatalogItem", "createFinancialCouncilRun",
+      "previewFinancialCouncilModelRoutingPolicy",
+      "previewFinancialStatementPackage", "commitFinancialStatementPackage",
+      "createFinancialCouncilRunFromStatementPackage"].includes(
+      operation.operationId)) {
       assert.equal(ifMatch, undefined, `${method.toUpperCase()} ${path} If-Match`);
     } else {
       assert.equal(ifMatch?.required, true, `${method.toUpperCase()} ${path} If-Match`);
@@ -1171,7 +1208,9 @@ test("fix round 2 transition ETags describe the returned next-If-Match resource"
     acceptAdvisorRecommendation: "#/components/responses/AdvisorRecommendation", ignoreAdvisorRecommendation: "#/components/responses/AdvisorRecommendation", completeAdvisorRecommendation: "#/components/responses/AdvisorRecommendation",
     createFinancialCouncilRun: "#/components/responses/FinancialCouncilRun", getFinancialCouncilRun: "#/components/responses/FinancialCouncilRun", rejectFinancialCouncilRun: "#/components/responses/FinancialCouncilApproval",
     getFinancialCouncilPolicy: "#/components/responses/FinancialCouncilPolicyVersion", updateFinancialCouncilPolicy: "#/components/responses/FinancialCouncilPolicyVersion",
-    createFinancialCouncilPortfolioRevision: "#/components/responses/FinancialCouncilPortfolioRevision", approveFinancialCouncilPortfolioRevision: "#/components/responses/FinancialCouncilApproval"
+    createFinancialCouncilPortfolioRevision: "#/components/responses/FinancialCouncilPortfolioRevision", approveFinancialCouncilPortfolioRevision: "#/components/responses/FinancialCouncilApproval",
+    getFinancialCouncilModelRoutingPolicy: "#/components/responses/FinancialCouncilModelRoutingPolicy", updateFinancialCouncilModelRoutingPolicy: "#/components/responses/FinancialCouncilModelRoutingPolicy",
+    createFinancialCouncilRunFromStatementPackage: "#/components/responses/FinancialCouncilRun"
   };
   const actualRevisionedResponses = {};
   for (const { operation } of allPublishedOperations(document)) {
