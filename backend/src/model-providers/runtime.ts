@@ -20,6 +20,7 @@ import {
   normalizeModelBaseUrl
 } from "./connection-service.js";
 import type {
+  ModelConnection,
   ModelCredentialVersion,
   StoredAiJobModelSnapshot
 } from "./types.js";
@@ -35,6 +36,42 @@ export interface ModelRuntimeStore {
   modelCallRecords: ModelCallRecord[];
   pendingModelCallRecords: ModelCallRecord[];
   persist?(): Promise<void>;
+}
+
+export interface FinancialCouncilModelRoutingRuntimeState {
+  readonly connections: readonly ModelConnection[];
+  readonly recentCalls: readonly ModelCallRecord[];
+}
+
+function frozenRuntimeValue<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map((item) => frozenRuntimeValue(item))) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.freeze(Object.fromEntries(Object.entries(value).map(
+      ([key, item]) => [key, frozenRuntimeValue(item)]
+    ))) as T;
+  }
+  return value;
+}
+
+/**
+ * Takes a detached read snapshot for deterministic Financial Council routing.
+ * No prices are inferred here: callers may add only an explicit price source,
+ * while durable call records retain their known/unknown cost identity.
+ */
+export function readFinancialCouncilModelRoutingRuntimeState(
+  store: Pick<ModelRuntimeStore, "aiModelConfigs" | "modelCallRecords">
+): FinancialCouncilModelRoutingRuntimeState {
+  const connections = store.aiModelConfigs
+    .filter((config) => MODEL_PROVIDER_IDS.includes(
+      config.provider as (typeof MODEL_PROVIDER_IDS)[number]
+    ))
+    .map(modelConnectionFromAiConfig);
+  return frozenRuntimeValue({
+    connections,
+    recentCalls: structuredClone(store.modelCallRecords)
+  });
 }
 
 export interface BindActiveModelSnapshotInput {

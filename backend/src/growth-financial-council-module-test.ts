@@ -18,6 +18,8 @@ import { FinancialCouncilService } from "./financial-council-service.js";
 import { RepositoryVerifiedFinancialLedgerSealedReader } from
   "./financial-ledger-as-of-reader.js";
 import { policyWorkspace } from "./financial-council-policy-test-support.js";
+import { InMemoryFinancialCouncilModelRoutingRepository } from
+  "./financial-council-model-routing-repository.js";
 
 class FakeDeadlineClock {
   private nextId = 1;
@@ -415,6 +417,12 @@ test("constructed resources own a workspace policy repository", async () => {
   const fixture = await moduleFixture();
   const policy = await fixture.resources.service.getPolicy(policyWorkspace());
   assert.equal(policy.policyVersionId, "financial-council-policy.v1");
+  assert.equal(fixture.resources.modelRoutingRepository instanceof
+    InMemoryFinancialCouncilModelRoutingRepository, true);
+  assert.deepEqual(Reflect.ownKeys(fixture.resources).sort(), [
+    "closeFinancialCouncilResources", "modelRoutingRepository", "relay",
+    "service"
+  ]);
   await fixture.resources.relay.close();
   await fixture.resources.closeFinancialCouncilResources();
 });

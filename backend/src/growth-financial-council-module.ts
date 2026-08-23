@@ -79,6 +79,14 @@ import {
   FinancialCouncilOptimizationWorker,
   FinancialCouncilPipelineWorker
 } from "./financial-council-optimization-worker.js";
+import {
+  InMemoryFinancialCouncilModelRoutingRepository,
+  type FinancialCouncilModelRoutingRepository
+} from "./financial-council-model-routing-repository.js";
+import {
+  MysqlFinancialCouncilModelRoutingRepository,
+  ensureFinancialCouncilModelRoutingMysqlSchema
+} from "./financial-council-model-routing-mysql-repository.js";
 
 export interface GrowthFinancialCouncilServices {
   readonly service: FinancialCouncilService;
@@ -86,6 +94,7 @@ export interface GrowthFinancialCouncilServices {
 
 export interface GrowthFinancialCouncilResources
 extends GrowthFinancialCouncilServices {
+  readonly modelRoutingRepository: FinancialCouncilModelRoutingRepository;
   readonly relay: Pick<FinancialCouncilWakeRelay, "start" | "sweep" | "close">;
   closeFinancialCouncilResources(): Promise<void>;
 }
@@ -324,20 +333,29 @@ function trustedResources(
     || Object.getPrototypeOf(value) !== Object.prototype
     || Reflect.ownKeys(value).some((key) => typeof key !== "string")
     || (Reflect.ownKeys(value) as string[]).sort().join("\u0000")
-      !== ["service", "relay", "closeFinancialCouncilResources"]
+      !== ["service", "modelRoutingRepository", "relay",
+        "closeFinancialCouncilResources"]
         .sort().join("\u0000")) {
     throw new Error("INVALID_GROWTH_FINANCIAL_COUNCIL_RESOURCES");
   }
   const serviceDescriptor = Object.getOwnPropertyDescriptor(value, "service");
   const relayDescriptor = Object.getOwnPropertyDescriptor(value, "relay");
+  const routingDescriptor = Object.getOwnPropertyDescriptor(
+    value, "modelRoutingRepository"
+  );
   const closeDescriptor = Object.getOwnPropertyDescriptor(value,
     "closeFinancialCouncilResources");
   const data = (descriptor: PropertyDescriptor | undefined): descriptor is
     PropertyDescriptor & { value: unknown } =>
     descriptor?.enumerable === true && "value" in descriptor;
-  if (!data(serviceDescriptor) || !data(relayDescriptor)
+  if (!data(serviceDescriptor) || !data(routingDescriptor)
+    || !data(relayDescriptor)
     || !data(closeDescriptor)
     || !isFinancialCouncilService(serviceDescriptor.value)
+    || (Object.getPrototypeOf(routingDescriptor.value)
+        !== InMemoryFinancialCouncilModelRoutingRepository.prototype
+      && Object.getPrototypeOf(routingDescriptor.value)
+        !== MysqlFinancialCouncilModelRoutingRepository.prototype)
     || !isFinancialCouncilWakeRelay(relayDescriptor.value)
     || typeof closeDescriptor.value !== "function") {
     throw new Error("INVALID_GROWTH_FINANCIAL_COUNCIL_RESOURCES");
@@ -381,6 +399,9 @@ export async function createGrowthFinancialCouncilResources(input: {
   const draftRepository = input.mode === "mysql"
     ? new MysqlFinancialCouncilDraftRepository(input.pool!)
     : new InMemoryFinancialCouncilDraftRepository();
+  const modelRoutingRepository = input.mode === "mysql"
+    ? new MysqlFinancialCouncilModelRoutingRepository(input.pool!)
+    : new InMemoryFinancialCouncilModelRoutingRepository();
   const authority = new FinancialCouncilAuthorityReader({
     advisor,
     verifiedFacts: {
@@ -487,6 +508,7 @@ export async function createGrowthFinancialCouncilResources(input: {
   });
   const resources = Object.freeze({
     service,
+    modelRoutingRepository,
     relay,
     async closeFinancialCouncilResources() {
       await dispatch.close();
@@ -542,6 +564,7 @@ export function createGrowthFinancialCouncilModule(
           await ensureFinancialCouncilMysqlSchema(options.pool);
           await ensureFinancialCouncilPolicyMysqlSchema(options.pool);
           await ensureFinancialCouncilDraftMysqlSchema(options.pool);
+          await ensureFinancialCouncilModelRoutingMysqlSchema(options.pool);
         }
         const createdResources = options.createResources
           ? await options.createResources({ foundation, advisor, finance })

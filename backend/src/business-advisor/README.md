@@ -70,6 +70,14 @@ HTTP 幂等仓库只保存 domain-separated digest，不保存原始 `Idempotenc
 
 策略请求为严格闭合对象：所有金额和限制必须为非负 safe integer，平衡权重总和固定为 10,000 BPS，系数版本由服务端 allowlist 控制。现金优先和增长优先权重转换固定在代码中；现金储备、到期债务/必要支出、合规、权限、关键数据、预算、容量、时限、前置、互斥和置信度门槛不是可关闭布尔开关。新运行只能引用本 workspace 中已存在的不可变策略 ID，该 ID 可唯一解析到确切 version、revision 和 hash。
 
+### 工作区模型路由（内部资源）
+
+Financial Council 组合根按同一 `memory | mysql` mode 和同一 MySQL pool 创建工作区模型路由仓库，不使用全局 singleton。路由策略固定覆盖 `cfo|finance|profit|cost|cashflow|tax` 六个角色，支持自动选择或一个固定主连接加最多两个有序备用连接；版本通过 `active|superseded` 状态、revision CAS、actor-scoped 幂等键和 immutable policy hash 持久化，Memory 与 MySQL 共用行为合同。MySQL 仅新增 `financial_council_model_routing_policies` 与 `financial_council_model_routing_idempotency` 两张表，schema 在命名锁内前向创建，不提供破坏性 down migration。
+
+自动评分只接纳当前 workspace 中 active、官方 provider、`structuredOutput=true` 且 certification hash 格式闭合有效的连接。它从 canonical `financial-council:<runId>:<role>:<phase>:<attempt>` job ID 的右侧解析角色，仅统计同 workspace/role 最近 30 条 durable call record，并确定性组合成功率、P95、显式已知成本、连续失败惩罚和角色级 `preferenceWeightBps`；成本未知时不推测 token 单价，相同分数按 connection ID 的 UTF-8 binary 顺序稳定排序。该认证门槛只表示持久字段闭合有效，不证明证书来源或时效。
+
+模型路由仓库目前只存在于受信任的 Financial Council 私有资源对象中；公开 routing policy/preview API、OpenAPI 与前端类型将在 Task 5 暴露 public surface 时同步发布。本阶段现有 README API 清单和 OpenAPI 合同保持不变，`ActiveModelGateway` 的当前 active-connection 语义也未改变。
+
 runnable 扫描使用 workspace/run 的 UTF-8 binary-byte 复合游标，Memory 与 MySQL 共用同一全序。relay 对 runnable enumeration、wake sink 与错误 observer 都设置有界 deadline，因此永久不返回的查询或投递不会阻塞 sweep 或应用关闭。公开创建合同只接受 CNY/USD，策略版本 ID 与业务报表文本分别最多包含 255 和 4000 个 Unicode code point，报表数组上限 100 项。公开 run 从 `snapshot_frozen` 开始，内部 revision-1 `created` 状态只存在于事件历史，service 与 router 都不会把它作为 run 响应。
 
 ### 五专家可恢复执行
@@ -123,6 +131,6 @@ MYSQL_TEST_ADMIN_URL="mysql://..." npm run test:financial-council:mysql --worksp
 
 `test:financial-council:mysql` 是真实 InnoDB 发布门禁；未配置 `MYSQL_TEST_ADMIN_URL` 时必须显式失败，不得将缺少证据记为通过。
 
-当前实现状态：财务委员会 P1–P5 已实现，Growth contract 固定为 `1.0.10`（`sha256:dcbbc8e43c0ba43cd8e628cb49bd43f8f1a77810d3f864c83e11f4ac2fa0aee3`）。已验证 Memory vertical（2/2）、前端 fixture E2E（10/10）、真实 InnoDB 矩阵（83/83）和无 route-intercept Chromium 纵向 E2E（1/1）。真实浏览器链路使用隔离 MySQL 库、真实 session/CSRF、Growth 路由、异步工作器与派发回执；模型输出使用确定性 test-only adapter，不代表真实模型供应商验收。
+当前实现状态：财务委员会 P1–P5 与内部工作区模型路由策略持久化已实现，Growth contract 固定为 `1.0.10`（`sha256:dcbbc8e43c0ba43cd8e628cb49bd43f8f1a77810d3f864c83e11f4ac2fa0aee3`）。模型路由 public surface 尚未发布。既有基线已验证 Memory vertical（2/2）、前端 fixture E2E（10/10）、真实 InnoDB 矩阵（83/83）和无 route-intercept Chromium 纵向 E2E（1/1）；真实浏览器链路使用隔离 MySQL 库、真实 session/CSRF、Growth 路由、异步工作器与派发回执，模型输出使用确定性 test-only adapter，不代表真实模型供应商验收。本次模型路由变更的 Memory/MySQL 合同与 schema 生命周期证据见对应 repository tests；未配置 `MYSQL_TEST_ADMIN_URL` 时不宣称本次新增表已完成 live InnoDB 验收。
 
 覆盖：金额换算、勾稽校验、指标计算、假利润/客户 ABC/现金流预警、知识库条目、诊断阈值（负债率/应收天数/利息保障/净现比）、两种报表格式解析与勾稽错误。
