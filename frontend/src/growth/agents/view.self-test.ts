@@ -7,6 +7,7 @@ import { parseAgentsHash } from "./entry";
 import {
   renderAgentDetail,
   renderAgentsOverview,
+  renderRealAgentsOverview,
   renderCompanyPicker,
   renderDiagnosisReport
 } from "./view";
@@ -65,6 +66,64 @@ assert.equal(demoOverview.includes("演示数据"), true);
 assert.equal(demoOverview.includes("data-agents-demo-link=\"profit\""), true);
 assert.equal(demoOverview.includes("上传真实报表（xls / xlsx）"), false);
 assert.equal(demoOverview.includes("<script>"), false);
+
+const roles = ["cfo", "finance", "profit", "cost", "cashflow", "tax"] as const;
+const autoRoute = {
+  mode: "auto" as const, primaryConnectionId: null, fallbackConnectionIds: [] as string[],
+  preferenceWeightBps: 0
+};
+const realOverview = renderRealAgentsOverview({
+  readiness: {
+    capabilities: { canApprove: true, canManageRouting: true, canRun: true },
+    data: { status: "not_connected", packageId: null, companyName: null,
+      period: null, verifiedAt: null, warningCodes: [] },
+    models: { status: "ready", routingPolicyVersionId: "policy-1", roles: roles.map((role) => ({
+      role, status: role === "tax" ? "manual_review" : "ready",
+      connectionDisplayName: `<${role}>`, provider: "openai", model: "gpt-5"
+    })) },
+    latestRun: null
+  },
+  routingPolicy: {
+    policyVersionId: "policy-1", revision: 1,
+    maxRoleBudgetMinor: 1_000, maxRunBudgetMinor: 6_000,
+    requestTimeoutMs: 30_000, createdAt: "2026-08-23T00:00:00.000Z",
+    roles: { cfo: autoRoute, finance: autoRoute, profit: autoRoute,
+      cost: autoRoute, cashflow: autoRoute, tax: autoRoute }
+  },
+  routingPreview: roles.map((role) => ({
+    role,
+    selectedConnection: { connectionId: `${role}-1`, displayName: `${role}主模型`,
+      provider: "openai", model: "gpt-5" },
+    orderedConnections: [
+      { connectionId: `${role}-1`, displayName: `${role}主模型`, provider: "openai", model: "gpt-5" },
+      { connectionId: `${role}-2`, displayName: `${role}备用模型`, provider: "deepseek", model: "deepseek-chat" }
+    ],
+    reasonCodes: ["structured_output_certified"], missingCapabilities: []
+  })),
+  files: { balance_sheet: null, income_statement: null, cash_flow_statement: null },
+  statementPreview: null, statementPackage: null, latestRun: null, runAgents: null,
+  consentAccepted: false, busy: null, error: null
+});
+for (const kind of ["balance_sheet", "income_statement", "cash_flow_statement"]) {
+  assert.match(realOverview, new RegExp(`data-statements-file="${kind}"`, "u"));
+}
+assert.match(realOverview, /已选择 0 \/ 3 份必需报表/u);
+assert.doesNotMatch(realOverview, /sample-report|示例数据/u);
+assert.deepEqual(
+  roles.map((role) => realOverview.indexOf(`data-agent-id="${role}"`)).every(
+    (position, index, all) => position >= 0 && (index === 0 || position > all[index - 1])
+  ),
+  true
+);
+assert.match(realOverview, /需要人工复核/u);
+assert.match(realOverview, /备用/u);
+assert.match(realOverview, /标准化财务数据会传输给所选第三方模型供应商/u);
+assert.match(realOverview, /data-real-consent/u);
+assert.match(realOverview, /data-routing-action="open"/u);
+assert.match(realOverview, /data-routing-action="save"/u);
+assert.doesNotMatch(realOverview, /<tax>/u);
+assert.match(realOverview, /&lt;tax&gt;/u);
+assert.doesNotMatch(realOverview, /apiKey|prompt|rawWorkbook/u);
 
 const detail = renderAgentDetail("profit");
 assert.equal(detail.includes("找出钱到底赚在哪"), true);

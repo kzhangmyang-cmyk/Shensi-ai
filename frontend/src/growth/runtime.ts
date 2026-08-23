@@ -61,7 +61,7 @@ export class GrowthPageRegistry {
 }
 
 export function growthWorkspaceHost(): HTMLElement | null {
-  return document.querySelector<HTMLElement>("#growthWorkspace");
+  return document.querySelector<HTMLElement>("#demoModuleMain");
 }
 
 let activeAbort: AbortController | null = null;
@@ -75,6 +75,7 @@ let sharedRuntime: {
 } | null = null;
 
 function clearGrowthContent(host: HTMLElement): void {
+  if (parseGrowthHash(window.location.hash) === null) return;
   for (const child of [...host.children]) {
     if (child.matches("nav.growth-nav")) continue;
     child.remove();
@@ -388,17 +389,8 @@ export async function startGrowthRuntime(
           host,
           controller,
           capabilities: mode.bootstrap.capabilities as readonly string[],
-          async createInput(dataAsOf) {
-            const businessReport = agentsSession.activeInput;
-            if (!businessReport) return null;
-            const policy = await api.getPolicy();
-            return {
-              currency: businessReport.currency,
-              dataAsOf,
-              businessReport: businessReport as unknown as FinancialCouncilCreateInput["businessReport"],
-              policyVersionId: policy.body.policyVersionId
-            };
-          }
+          canCreate: false,
+          async createInput() { return null; }
         });
         const runId = context.route.name === "financial-council"
           ? context.route.runId : undefined;

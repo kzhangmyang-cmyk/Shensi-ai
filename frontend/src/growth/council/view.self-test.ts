@@ -19,7 +19,7 @@ const html = renderFinancialCouncilWorkbench(ready, {
   capabilities: ["finance.council.approve"]
 });
 const orderedHeadings = [
-  "运行摘要", "专家结论", "审计与异议", "CFO 诊断与数据缺口",
+  "运行摘要", "六角色进度", "专家结论", "审计与异议", "CFO 诊断与数据缺口",
   "组合比较", "已选组合详情", "编辑并重新优化", "人工审批", "派发回执"
 ];
 let position = -1;
@@ -40,6 +40,8 @@ assert.match(html, /data-council-action="approve"/u);
 assert.match(html, /data-council-action="reject"/u);
 assert.match(html, /税务相关内容须由具备资质的专业人士复核/u);
 assert.match(html, /只创建草稿和待办，不执行任何财务动作/u);
+assert.match(html, /暂不可计算/u);
+assert.match(html, /需要人工复核/u);
 assert.doesNotMatch(html, /<script>/u);
 assert.doesNotMatch(html, /"businessReport"/u);
 

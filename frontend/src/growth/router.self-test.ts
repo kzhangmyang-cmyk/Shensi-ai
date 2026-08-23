@@ -5,6 +5,10 @@ assert.deepEqual(parseGrowthHash("#growth/advisor"), { name: "advisor" });
 assert.deepEqual(parseGrowthHash("#financial-council"), {
   name: "financial-council"
 });
+assert.deepEqual(parseGrowthHash("#financial-council/run/run-1"), {
+  name: "financial-council",
+  runId: "run-1"
+});
 assert.deepEqual(parseGrowthHash("#financial-council/run/run%20%2F%201"), {
   name: "financial-council",
   runId: "run / 1"

@@ -5,7 +5,7 @@
 ## 当前范围
 
 - 唯一产品前端为黑色智能体业务壳；`#agents` 的六张智能体卡牌是产品首页
-- 获客、社媒对话、私域客户池、成交工作台、自动工作流与 Growth/财务深链继续由同一壳承载
+- 获客、社媒对话、私域客户池、成交工作台、自动工作流与财务委员会深链继续由同一黑色壳承载；`#demoModuleMain` 是唯一可见主内容宿主
 - `/`、空 Hash、`#dashboard` 和未知 Hash 自动回到 `#agents`；旧白色 CRM 已删除且不再提供入口
 - 演示模式只使用本地确定性数据；真实模式继续使用现有同源 API、会话、CSRF、RBAC 和 workspace 边界
 - 本次壳迁移未删除或改动后端、数据库、合同、权限边界或既有业务数据
@@ -176,16 +176,16 @@ pnpm --filter goodjob-crm-frontend run test:e2e -- acquisition-visual-reader.spe
 ## Growth 真实模式（Real Mode）
 
 前端钉住了 Growth 合同消费快照（`contracts/pinned/`，当前 1.0.11）；可编辑合同的唯一来源是 Monorepo 根目录 `../contracts/`，合同门禁会验证两者身份与哈希一致。
-`src/growth/` 提供由同一前端壳恢复的增长工作区：
+`src/growth/` 提供由同一黑色前端壳承载的真实业务界面：
 
 - `#growth/advisor` 增长参谋今日视图与受控建议
-- `#growth/agents` 六位员工肖像业务顾问团队、经营诊断报告与单 Agent 工作台
+- `#agents` 是六位经营顾问的唯一首页；旧 `#growth/agents` 与其角色子路径统一规范化到 `#agents`
 - `#growth/catalog` 产品目录 / 套餐 / 定价策略
 - `#growth/quotes` 报价工作台
 - `#growth/finance` 成本、财务事实与 Excel 导入
 - `#growth/roi` 预计与已关账实际 ROI
-- `#financial-council` 财务委员会创建入口；使用当前已验证的 Business report 创建运行
-- `#financial-council/run/<runId>` 财务委员会工作台。审批只创建草稿和待办，不执行财务动作；税务内容须由专业人士复核。
+- `#financial-council` 财务委员会入口；真实运行必须先从 `#agents` 完成三表 package 流程
+- `#financial-council/run/<runId>` 财务委员会工作台。它和 `#agents` 共用同一 `.replica-shell`，不会切换到旧白色 Growth 页面。
 
 `1.0.11` 类型还覆盖闭合的三表 package preview/commit、run-from-package、六角色模型路由与脱敏 agent-center API。workspace、连接归属与 capabilities 由服务端认证上下文决定；前端不能提交 workspace、凭据、prompt 或标准化业务数据。
 
@@ -199,11 +199,26 @@ pnpm --filter goodjob-crm-frontend run test:e2e -- acquisition-visual-reader.spe
 Growth API 与主应用共用同源 Cookie 登录态和 `gj_csrf` CSRF Cookie。
 未登录时可保留 `#growth/...` 或 `#financial-council/...` 目标路由；用户登录或恢复有效会话后，前端会
 自动重新执行 bootstrap，不会跳回 `#acquisition`。Growth 工作区显示时会
-隐藏旧演示壳层，避免两套页面同时出现。
+继续使用唯一黑色壳；`#growthWorkspace` 永久隐藏且不承载可见产品页面。
 
-业务顾问中心支持在浏览器本地读取 `xls / xlsx` 资产负债表与利润表，
-再将结构化报表数据交给现有 Growth API 生成诊断；文件上传与解析界面不代表
-仓库内包含报表存储或后端服务。
+`body[data-session-mode="demo"]` 只挂载明确标记的本地演示 controller；
+`body[data-session-mode="real"]` 只挂载真实 agent-center API/controller。登录、退出或会话
+authority 变化会销毁旧 controller、终止未完成请求并清空主内容/检查器，然后只挂载一个
+匹配新 authority 的实例。真实模式不读取示例报告、本地演示会话或浏览器端旧报表权威。
+
+真实三表流程固定为资产负债表、利润表和现金流量表：`0/3 → 服务端预览 → 第三方模型
+数据传输授权 → commit 形成 verified package → 创建 Council run`。浏览器状态只保留
+文件名、大小、时间与哈希等元数据；原始内容仅在发起预览请求所需的短生命周期内存在，
+不会写入页面、URL、localStorage 或 sessionStorage。服务端未返回或无法计算的字段显示
+“暂不可计算”，不能用 `0` 或演示数据补齐。
+
+六角色卡片和模型路由都消费服务端投影。普通用户只能查看选中模型；拥有
+`finance.council.policy.manage` 的管理员可在同一智能体中心固定主模型和备用模型，保存时
+使用当前 ETag 与稳定幂等键。财务数据传输授权在文件、预览或工作区变化后重置。
+
+委员会工作台展示专家审计、反驳/少数意见、CFO 诊断、三套服务端组合、重新优化和审批。
+过期、不可行、无权限、不完整或不可计算的运行不能审批。审批只创建内部草稿与待办，
+不付款、不报税、不记账、不发送外部消息；税务结论必须由具备资质的专业人士复核。
 
 ## 验证（Growth 门禁）
 
@@ -212,6 +227,9 @@ pnpm --filter goodjob-crm-frontend run contract:check
 pnpm --filter goodjob-crm-frontend run test:types
 pnpm --filter goodjob-crm-frontend test
 pnpm --filter goodjob-crm-frontend run test:e2e
+pnpm --filter ./frontend exec playwright test \
+  agent-center-shell.spec.ts financial-council-agent-center.spec.ts \
+  growth-financial-council.spec.ts demo-auth.spec.ts --project=chromium
 pnpm --filter goodjob-crm-frontend build
 git diff --check
 ```

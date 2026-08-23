@@ -16,6 +16,10 @@ export function isStandaloneModuleHash(hash: string): boolean {
 }
 
 export function normalizeAppHash(hash: string): string {
+  const pathname = hash.replace(/^#/, "").split("?", 1)[0];
+  if (pathname === "growth/agents" || pathname.startsWith("growth/agents/")) {
+    return "#agents";
+  }
   if (parseGrowthHash(hash)) return hash.startsWith("#") ? hash : `#${hash}`;
   return isStandaloneModuleHash(hash)
     ? `#${hash.replace(/^#/, "")}`

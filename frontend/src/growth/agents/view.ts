@@ -7,6 +7,18 @@ import type {
   DiagnosisReport,
   ParsedCompanyResult
 } from "./api";
+import type { RealAgentCenterControllerState } from "./real-controller";
+
+const REAL_ROLES = ["cfo", "finance", "profit", "cost", "cashflow", "tax"] as const;
+const REAL_STATUS_LABELS = {
+  not_connected: "未连接数据",
+  ready: "数据已就绪",
+  running: "分析中",
+  waiting: "等待其他专家",
+  completed: "已完成",
+  manual_review: "需要人工复核",
+  model_error: "模型连接异常"
+} as const;
 
 function escapeHtml(value: string): string {
   return value
@@ -86,6 +98,154 @@ function dataSourceBadges(sources: readonly string[] = []): string {
   return sources.map((source) =>
     `<span class="data-source-badge">${escapeHtml(source)}</span>`
   ).join("");
+}
+
+function realFileField(
+  state: RealAgentCenterControllerState,
+  kind: keyof RealAgentCenterControllerState["files"],
+  label: string
+): string {
+  const file = state.files[kind];
+  return `<label class="statement-dropzone" data-statements-drop="${kind}">
+    <input class="statements-file-input" type="file" accept=".xls,.xlsx"
+      aria-label="${label}" data-statements-file="${kind}" />
+    <span class="statement-file-type" aria-hidden="true">XLS</span>
+    <span class="statement-file-copy"><strong>${label}</strong>
+      <span>点击选择 xls / xlsx 文件</span></span>
+    <span class="statement-file-name${file ? " has-file" : ""}"
+      data-statements-file-name="${kind}">${file
+        ? `${escapeHtml(file.name)} · ${file.size} bytes`
+        : "未选择文件"}</span>
+  </label>`;
+}
+
+function realRoutingDialog(state: RealAgentCenterControllerState): string {
+  const editable = state.readiness?.capabilities.canManageRouting === true;
+  const rows = REAL_ROLES.map((role) => {
+    const preview = state.routingPreview.find((item) => item.role === role);
+    const policy = state.routingPolicy?.roles[role];
+    const options = preview?.orderedConnections ?? [];
+    const optionMarkup = options.map((connection) =>
+      `<option value="${escapeHtml(connection.connectionId)}" ${
+        policy?.primaryConnectionId === connection.connectionId ? "selected" : ""}>
+        ${escapeHtml(connection.displayName)} · ${escapeHtml(connection.model)}
+      </option>`).join("");
+    return `<fieldset class="routing-role" data-routing-role="${role}">
+      <legend>${escapeHtml(businessAgentById(role)?.name ?? role)}</legend>
+      <label>路由模式 <select data-routing-field="mode" ${editable ? "" : "disabled"}>
+        <option value="auto" ${policy?.mode !== "pinned" ? "selected" : ""}>自动推荐</option>
+        <option value="pinned" ${policy?.mode === "pinned" ? "selected" : ""}>管理员固定</option>
+      </select></label>
+      <label>主模型 <select data-routing-field="primary" ${editable ? "" : "disabled"}>
+        <option value="">由服务端推荐</option>${optionMarkup}
+      </select></label>
+      <label>备用模型 <select data-routing-field="fallback" ${editable ? "" : "disabled"}>
+        <option value="">无</option>${optionMarkup}
+      </select></label>
+      <p>${preview?.reasonCodes.map((code) => escapeHtml(code)).join(" · ")
+        || "服务端尚未返回路由理由"}</p>
+    </fieldset>`;
+  }).join("");
+  return `<dialog class="routing-dialog" data-routing-dialog aria-labelledby="routing-title">
+    <form method="dialog"><header><h3 id="routing-title">六角色模型路由</h3>
+      <button value="cancel" aria-label="关闭模型路由">×</button></header></form>
+    <p>仅展示服务端认证通过的连接；不会显示密钥、提示词或财务请求正文。</p>
+    <div class="routing-grid">${rows}</div>
+    ${editable
+      ? `<button type="button" data-routing-action="save">保存路由策略</button>`
+      : "<p>当前账号为只读权限，不能修改路由策略。</p>"}
+  </dialog>`;
+}
+
+function realAgentCard(
+  state: RealAgentCenterControllerState,
+  role: typeof REAL_ROLES[number]
+): string {
+  const agent = businessAgentById(role)!;
+  const runRole = state.runAgents?.roles.find((item) => item.role === role);
+  const readinessRole = state.readiness?.models.roles.find((item) => item.role === role);
+  const fallback = runRole?.attempts.some((attempt) => attempt.status === "failed") === true;
+  const preview = state.routingPreview.find((item) => item.role === role);
+  const latestAttempt = runRole?.attempts.at(-1);
+  const connectionName = latestAttempt?.connectionDisplayName
+    ?? readinessRole?.connectionDisplayName
+    ?? preview?.selectedConnection?.displayName;
+  const status = runRole?.status ?? readinessRole?.status ?? "not_connected";
+  const phase = runRole?.phase ?? null;
+  return `<article class="agent-card real-agent-card" data-agent-id="${role}">
+    <header>${agentAvatar(agent)}<div class="agent-card-identity">
+      <h3>${escapeHtml(agent.name)}</h3><p>${escapeHtml(agent.title)}</p></div></header>
+    <p class="agent-summary">${escapeHtml(agent.summary)}</p>
+    <span class="agent-status ${status === "ready" || status === "completed"
+      ? "agent-status-ready" : ""}">${REAL_STATUS_LABELS[status]}</span>
+    <dl class="agent-server-projection">
+      <div><dt>当前模型</dt><dd>${escapeHtml(connectionName ?? "暂未选择")}</dd></div>
+      <div><dt>当前阶段</dt><dd>${escapeHtml(phase ?? "等待运行")}</dd></div>
+      <div><dt>最近运行</dt><dd>${escapeHtml(state.readiness?.latestRun?.updatedAt ?? "暂无")}</dd></div>
+    </dl>
+    ${fallback ? '<span class="routing-fallback-badge">主模型失败，已使用备用模型</span>'
+      : preview && preview.orderedConnections.length > 1
+        ? '<span class="routing-fallback-badge">已配置备用模型</span>' : ""}
+    ${role === "tax" ? '<p class="council-disclaimer">税务内容需要具备资质的专业人士人工复核，不构成税务意见。</p>' : ""}
+  </article>`;
+}
+
+export function renderRealAgentsOverview(
+  state: RealAgentCenterControllerState
+): string {
+  const selected = Object.values(state.files).filter(Boolean).length;
+  const preview = state.statementPreview;
+  const verified = state.statementPackage;
+  const serviceMessage = state.error
+    ? `<p class="growth-error" role="alert">真实财务服务未就绪：${escapeHtml(state.error)}</p>`
+    : !state.readiness ? '<p class="agents-real-loading" role="status">正在连接真实财务服务…</p>' : "";
+  return `<section class="growth-panel agents-home agents-real" data-agent-center-authority="real">
+    <header class="agents-hero"><div class="agents-hero-copy">
+      <span class="agents-eyebrow">REAL FINANCIAL COUNCIL</span>
+      <h2>AI 经营顾问团队</h2><p>真实企业工作区 · 服务端财务权威</p></div>
+      <div class="agents-hero-actions"><button type="button" data-routing-action="open">
+        查看模型路由</button></div></header>
+    ${serviceMessage}
+    <section class="statements-import" aria-labelledby="real-statements-title">
+      <header class="statements-import-heading"><div>
+        <span class="agents-overline">THREE-REPORT ONBOARDING</span>
+        <h3 id="real-statements-title">上传三张必需财务报表</h3>
+        <p>依次完成预览、授权确认、提交验证和委员会运行。</p></div>
+        <span class="statements-security">浏览器不持有原始工作簿内容</span></header>
+      <div class="statements-import-fields">
+        ${realFileField(state, "balance_sheet", "资产负债表")}
+        ${realFileField(state, "income_statement", "利润表")}
+        ${realFileField(state, "cash_flow_statement", "现金流量表")}
+      </div>
+      <p data-statements-selection>已选择 ${selected} / 3 份必需报表</p>
+      <button type="button" data-real-action="preview" ${selected === 3 && !state.busy ? "" : "disabled"}>
+        1. 服务端解析预览</button>
+      ${preview ? `<section class="statement-preview" aria-labelledby="statement-preview-title">
+        <h4 id="statement-preview-title">解析预览</h4>
+        <dl><div><dt>企业</dt><dd>${escapeHtml(preview.companyName)}</dd></div>
+          <div><dt>期间</dt><dd>${escapeHtml(preview.period)}</dd></div>
+          <div><dt>币种</dt><dd>${escapeHtml(preview.currency)}</dd></div></dl>
+        <h5>服务端警告与无效项</h5><ul>${preview.warningCodes.map((warning) =>
+          `<li>${escapeHtml(warning)}</li>`).join("") || "<li>无警告</li>"}</ul>
+        <p>标准化关键金额以服务端验证结果为准；未知项目显示“暂不可计算”。</p>
+      </section>` : ""}
+      <label class="financial-consent"><input type="checkbox" data-real-consent
+        ${state.consentAccepted ? "checked" : ""} ${preview ? "" : "disabled"}>
+        我确认标准化财务数据会传输给所选第三方模型供应商；已阅读
+        <button type="button" data-routing-action="open">安全路由摘要</button>。</label>
+      <div class="statements-import-actions">
+        <button type="button" data-real-action="commit" ${preview && state.consentAccepted && !state.busy ? "" : "disabled"}>
+          2. 确认并提交验证</button>
+        <button type="button" data-real-action="run" ${verified && state.readiness?.capabilities.canRun && !state.busy ? "" : "disabled"}>
+          3. 启动财务委员会</button>
+      </div>
+      ${verified ? `<p class="statement-package-ready">已验证：${escapeHtml(verified.companyName)} · ${escapeHtml(verified.period)}</p>` : ""}
+    </section>
+    <section aria-labelledby="real-agents-title"><h3 id="real-agents-title">六角色服务端状态</h3>
+      <div class="agents-grid">${REAL_ROLES.map((role) => realAgentCard(state, role)).join("")}</div>
+    </section>
+    ${realRoutingDialog(state)}
+  </section>`;
 }
 
 export function renderAgentsOverview(

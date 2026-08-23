@@ -23,10 +23,19 @@ export function startGrowthWhenRequested(): void {
 
   const syncSurface = () => {
     const growthRequested = parseGrowthHash(window.location.hash) !== null;
-    if (host) host.hidden = !growthRequested;
-    shells.forEach((shell) => {
-      shell.hidden = growthRequested;
-    });
+    if (growthRequested) {
+      document.querySelectorAll<HTMLElement>(
+        '[data-replica-module-panel="acquisition"]'
+      ).forEach((panel) => { panel.hidden = true; });
+      if (host) host.hidden = false;
+      const inspector = document.querySelector<HTMLElement>("#demoModuleInspector");
+      if (inspector) inspector.hidden = true;
+      const title = document.querySelector<HTMLElement>("#replicaHeaderTitle");
+      const subtitle = document.querySelector<HTMLElement>("#replicaHeaderSubtitle");
+      if (title) title.textContent = "财务委员会";
+      if (subtitle) subtitle.textContent = "真实三表 · 六角色审计 · 人工审批";
+    }
+    shells.forEach((shell) => { shell.hidden = false; });
     return growthRequested;
   };
 

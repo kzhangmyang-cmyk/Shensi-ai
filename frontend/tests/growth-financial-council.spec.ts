@@ -30,7 +30,7 @@ async function selectBalancedPortfolio(page: Page): Promise<void> {
 async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => {
     const nodes = [document.documentElement, document.body,
-      document.querySelector("#growthWorkspace"), document.querySelector(".council-workbench")]
+      document.querySelector("#demoModuleMain"), document.querySelector(".council-workbench")]
       .filter((node): node is HTMLElement => node instanceof HTMLElement);
     return nodes.filter((node) => node.scrollWidth > node.clientWidth + 1)
       .map((node) => node.id || node.className);
@@ -51,25 +51,18 @@ async function auditSecurity(page: Page, fixture: FinancialCouncilFixtureHarness
   for (const sentinel of SENTINELS) expect(surfaces).not.toContain(sentinel);
 }
 
-test("creates a valid report run through analyzing, auditing, and five expert conclusions", async ({ page }) => {
+test("opens the server run with six-role progress and five expert conclusions", async ({ page }) => {
   test.setTimeout(15_000);
-  const fixture = await installFinancialCouncilFixture(page);
-  await page.goto("/#growth/agents");
-  await expect(page.getByRole("heading", { name: "AI 经营顾问团队" })).toBeVisible();
-  await page.locator('[data-agents-action="generate-report"]').click();
-  await expect(page.getByRole("heading", { name: "《经营诊断报告》" })).toBeVisible();
-  await page.evaluate(() => { window.location.hash = "#financial-council"; });
-  await page.getByLabel("数据截至时间").fill("2026-08-16T08:00");
-  await page.getByRole("button", { name: "创建运行" }).click();
-  await expect(page.getByText("analyzing", { exact: true })).toBeVisible();
-  await expect(page.getByText("auditing", { exact: true })).toBeVisible({ timeout: 5_000 });
-  await expect(page.getByText("awaiting_approval", { exact: true })).toBeVisible({ timeout: 5_000 });
+  const fixture = await openCouncil(page);
+  await expect(page.getByRole("heading", { name: "六角色进度" })).toBeVisible();
+  await expect(page.locator("[data-council-role]")).toHaveCount(6);
+  await expect(page.getByText("awaiting_approval", { exact: true }).first()).toBeVisible();
   for (const name of ["财务专家", "利润专家", "成本专家", "现金流专家", "税务专家"]) {
     await expect(page.getByRole("heading", { name })).toBeVisible();
   }
   await expect(page.getByText("复议保留")).toBeVisible();
   expect(fixture.requests.filter((request) => request.method === "POST"
-    && request.path === "/api/v1/finance/council-runs")).toHaveLength(1);
+    && request.path === "/api/v1/finance/council-runs")).toHaveLength(0);
   await fixture.dispose();
 });
 

@@ -21,6 +21,11 @@ const PORTFOLIO_LABELS: Readonly<Record<PortfolioKind, string>> = {
   growth_first: "增长优先组合"
 };
 
+const ROLE_PROGRESS = [
+  ["cfo", "AI 经营总管"], ["finance", "财务"], ["profit", "利润"],
+  ["cost", "成本"], ["cashflow", "现金流"], ["tax", "税务"]
+] as const;
+
 export interface FinancialCouncilViewOptions {
   readonly capabilities: readonly string[];
   readonly canCreate?: boolean;
@@ -137,6 +142,19 @@ function cfoSection(state: FinancialCouncilControllerState): string {
       ...gaps.map((gap) => `<li>${escapeHtml(gap.description)}（${escapeHtml(gap.code)}）</li>`),
       ...missing.map((gap) => `<li>${escapeHtml(gap)}</li>`)
     ].join("") || "<li>无服务端报告的数据缺口。</li>"}</ul>
+  </section>`;
+}
+
+function progressSection(state: FinancialCouncilControllerState): string {
+  const status = state.run?.status ?? "not_connected";
+  return `<section class="council-section" aria-labelledby="council-progress-heading">
+    <h3 id="council-progress-heading">六角色进度</h3>
+    <div class="council-role-progress">${ROLE_PROGRESS.map(([role, label]) =>
+      `<article data-council-role="${role}"><h4>${label}</h4>
+        <p>${escapeHtml(status)}</p><span>${status === "awaiting_approval" && role === "tax"
+          ? "需要人工复核" : status === "not_computable" ? "暂不可计算" : "服务端状态"}</span>
+      </article>`).join("")}</div>
+    <p>未知或无法由服务端确定的指标：暂不可计算。</p>
   </section>`;
 }
 
@@ -299,6 +317,7 @@ export function renderFinancialCouncilWorkbench(
       <p>状态 <strong>${escapeHtml(run.status)}</strong> · dataAsOf ${escapeHtml(run.dataAsOf)} · revision ${run.revision}</p>
       ${run.status === "stale" ? "<p class=\"council-status council-status-blocked\">该运行已过期或数据已失效。</p>" : ""}
     </section>
+    ${progressSection(state)}
     <section class="council-section" aria-labelledby="council-specialists-heading">
       <h3 id="council-specialists-heading">专家结论</h3><div class="council-specialist-grid">${specialistCards(state)}</div>
     </section>

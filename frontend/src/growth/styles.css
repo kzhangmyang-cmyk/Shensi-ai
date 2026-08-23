@@ -1916,6 +1916,174 @@
   margin: 1rem 0 0.65rem;
 }
 
+.replica-shell .agents-real .statements-import-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.replica-shell .agents-real-loading,
+.replica-shell .statement-preview,
+.replica-shell .statement-package-ready,
+.replica-shell .financial-consent {
+  display: block;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--replica-line-soft, rgba(229, 238, 233, 0.09));
+  border-radius: var(--replica-radius-sm, 12px);
+  background: rgba(255, 255, 255, 0.022);
+  color: var(--replica-text, #f1f3f0);
+}
+
+.replica-shell .statement-preview dl,
+.replica-shell .agent-server-projection {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0.75rem 0;
+}
+
+.replica-shell .statement-preview dl div,
+.replica-shell .agent-server-projection div {
+  min-width: 0;
+  padding: 0.55rem;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.replica-shell .statement-preview dt,
+.replica-shell .agent-server-projection dt {
+  color: var(--replica-muted, #8c928e);
+  font-size: 0.7rem;
+}
+
+.replica-shell .statement-preview dd,
+.replica-shell .agent-server-projection dd {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--replica-text, #f1f3f0);
+  font-size: 0.78rem;
+}
+
+.replica-shell .financial-consent button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--replica-accent, #18ed78);
+  text-decoration: underline;
+}
+
+.replica-shell .routing-fallback-badge {
+  display: inline-flex;
+  margin: 0.4rem 0;
+  padding: 0.24rem 0.48rem;
+  border: 1px solid rgba(240, 164, 75, 0.3);
+  border-radius: 999px;
+  color: var(--replica-amber, #f0a44b);
+  font-size: 0.68rem;
+}
+
+.replica-shell .routing-dialog {
+  width: min(68rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  padding: 1.1rem;
+  overflow: auto;
+  border: 1px solid var(--replica-line, rgba(229, 238, 233, 0.18));
+  border-radius: var(--replica-radius-md, 18px);
+  background: #0b0e0c;
+  color: var(--replica-text, #f1f3f0);
+}
+
+.replica-shell .routing-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.74);
+}
+
+.replica-shell .routing-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.replica-shell .routing-dialog header button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 1.4rem;
+}
+
+.replica-shell .routing-grid,
+.replica-shell .council-role-progress {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.replica-shell .routing-role,
+.replica-shell .council-role-progress article {
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--replica-line-soft, rgba(229, 238, 233, 0.09));
+  border-radius: var(--replica-radius-sm, 12px);
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.replica-shell .routing-role label {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.45rem;
+}
+
+.replica-shell .routing-role select,
+.replica-shell .council-workbench :is(input, select, textarea) {
+  min-width: 0;
+  border: 1px solid var(--replica-line, rgba(229, 238, 233, 0.18));
+  background: #121613;
+  color: var(--replica-text, #f1f3f0);
+}
+
+.replica-shell .council-workbench {
+  color: var(--replica-text, #f1f3f0);
+}
+
+.replica-shell :is(.council-section, .council-blockers, .council-create,
+  .council-specialist-card) {
+  border-color: var(--replica-line-soft, rgba(229, 238, 233, 0.09));
+  border-radius: var(--replica-radius-sm, 12px);
+  background: var(--replica-surface, rgba(14, 16, 17, 0.82));
+  color: var(--replica-text, #f1f3f0);
+}
+
+.replica-shell .council-workbench :is(p, li, span, label) {
+  color: var(--replica-muted, #a7ada9);
+}
+
+.replica-shell .council-workbench :is(h2, h3, h4, strong, legend) {
+  color: var(--replica-text, #f1f3f0);
+}
+
+.replica-shell .council-portfolio-option,
+.replica-shell .council-edit-list > li {
+  border-color: var(--replica-line-soft, rgba(229, 238, 233, 0.09));
+  border-radius: 0.55rem;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.replica-shell .council-workbench button,
+.replica-shell .routing-dialog > button {
+  min-height: 2.35rem;
+  padding: 0.48rem 0.85rem;
+  border: 1px solid rgba(24, 237, 120, 0.35);
+  border-radius: var(--replica-radius-sm, 12px);
+  background: rgba(24, 237, 120, 0.11);
+  color: var(--replica-accent, #18ed78);
+}
+
+.replica-shell .council-workbench button:disabled,
+.replica-shell .statements-import button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 :is(.replica-shell, #growthWorkspace) .statements-import-fields .statement-dropzone {
   position: relative;
   display: grid;
@@ -2122,6 +2290,17 @@
   }
 
   :is(.replica-shell, #growthWorkspace) .statements-import-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .replica-shell .statement-preview dl,
+  .replica-shell .agent-server-projection,
+  .replica-shell .routing-grid,
+  .replica-shell .council-role-progress {
+    grid-template-columns: 1fr;
+  }
+
+  .replica-shell .routing-role label {
     grid-template-columns: 1fr;
   }
 

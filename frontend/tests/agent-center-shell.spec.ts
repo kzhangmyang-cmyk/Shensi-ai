@@ -40,7 +40,7 @@ test("root and same-page legacy hashes normalize to the agent center only", asyn
   await expect(page.getByRole("heading", { name: "AI 经营顾问团队" })).toBeVisible();
 });
 
-test("supported business deep links stay on their existing hosts", async ({ page }) => {
+test("supported business deep links stay inside the one black shell", async ({ page }) => {
   await useSavedDemoSession(page);
 
   await page.goto("/#acquisition");
@@ -51,17 +51,20 @@ test("supported business deep links stay on their existing hosts", async ({ page
   await expect(page.locator("#demoModuleMain")).toBeVisible();
   await expect(page.locator("#replicaHeaderTitle")).toHaveText("私域客户池");
 
-  for (const hash of ["#growth/agents", "#financial-council"]) {
-    await page.goto(`/${hash}`);
-    await expect(page).toHaveURL(new RegExp(`${hash.replace("/", "\\/")}$`, "u"));
-    await expect(page.locator("#growthWorkspace")).toBeVisible();
-    await expect(page.locator(".replica-shell")).toBeHidden();
-    await expect(page.locator(".shell")).toHaveCount(0);
-    await expect(page.locator("#dashboard")).toHaveCount(0);
-  }
+  await page.goto("/#growth/agents");
+  await expect(page).toHaveURL(/#agents$/u);
+  await expect(page.locator("#demoModuleMain")).toBeVisible();
+  await expect(page.locator(".replica-shell")).toBeVisible();
+  await expect(page.locator("#growthWorkspace")).toBeHidden();
+
+  await page.goto("/#financial-council");
+  await expect(page).toHaveURL(/#financial-council$/u);
+  await expect(page.locator("#demoModuleMain")).toBeVisible();
+  await expect(page.locator(".replica-shell")).toBeVisible();
+  await expect(page.locator("#growthWorkspace")).toBeHidden();
 });
 
-test("growth agents unmount on a same-page return and restart cleanly", async ({ page }) => {
+test("legacy growth agents canonicalize without creating a second instance", async ({ page }) => {
   const installed = await installGrowthContractScenario(
     page,
     growthContractScenario("happy_path")
@@ -69,20 +72,10 @@ test("growth agents unmount on a same-page return and restart cleanly", async ({
   await useSavedDemoSession(page);
   await page.goto("/#growth/agents");
 
-  await expect(page.locator("#growthWorkspace .agent-card")).toHaveCount(6);
-  await page.evaluate(() => {
-    window.location.hash = "#agents";
-  });
-
   await expect(page).toHaveURL(/#agents$/u);
-  await expect(page.locator(".agent-card")).toHaveCount(6);
+  await expect(page.locator("#demoModuleMain .agent-card")).toHaveCount(6);
   await expect(page.locator("#growthWorkspace .agent-card")).toHaveCount(0);
-
-  await page.evaluate(() => {
-    window.location.hash = "#growth/agents";
-  });
-  await expect(page.locator("#growthWorkspace .agent-card")).toHaveCount(6);
-  await expect(page.locator(".agent-card")).toHaveCount(6);
+  await expect(page.locator(".replica-shell")).toHaveCount(1);
   await installed.dispose();
 });
 

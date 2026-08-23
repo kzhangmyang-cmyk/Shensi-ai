@@ -10,6 +10,7 @@ export default defineConfig({
     "acquisition-comment-automation.spec.ts",
     "acquisition-visual-reader.spec.ts",
     "growth-bootstrap.spec.ts",
+    "financial-council-agent-center.spec.ts",
     "growth-financial-council.spec.ts"
   ],
   timeout: 20_000,

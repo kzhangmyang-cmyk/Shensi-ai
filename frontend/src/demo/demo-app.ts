@@ -20,15 +20,31 @@ import { createDealCreateController } from "../private-domain/deal-create-contro
 import { startGrowthWhenRequested } from "../growth/entry";
 import { createAgentsController } from "../growth/agents/controller";
 import { parseGrowthHash } from "../growth/router";
+import { createGrowthHttpClient } from "../growth/http";
+import { createRealAgentCenterApi } from "../growth/agents/real-api";
+import { createRealAgentCenterController } from "../growth/agents/real-controller";
 
 let agentsDemoController: ReturnType<typeof createAgentsController> | null = null;
+let agentsAuthority: "demo" | "real" | null = null;
 
 function renderModule(module: DemoModule, state: DemoState, host: HTMLElement, inspector: HTMLElement): void {
   if (module === "agents") {
-    agentsDemoController ??= createAgentsController({
-      host,
-      demo: true
-    });
+    const authority = document.body.dataset.sessionMode === "real" ? "real" : "demo";
+    if (agentsDemoController && agentsAuthority !== authority) {
+      agentsDemoController.dispose();
+      agentsDemoController = null;
+      host.replaceChildren();
+      inspector.replaceChildren();
+    }
+    agentsAuthority = authority;
+    agentsDemoController ??= authority === "real"
+      ? createAgentsController({
+          host,
+          real: createRealAgentCenterController({
+            api: createRealAgentCenterApi(createGrowthHttpClient())
+          })
+        })
+      : createAgentsController({ host, demo: true });
     agentsDemoController.render();
     return;
   }
@@ -78,6 +94,7 @@ export function startDemoApp(): void {
       realPrivateDomainActive = false;
       agentsDemoController?.dispose();
       agentsDemoController = null;
+      agentsAuthority = null;
       host.replaceChildren();
       inspector.replaceChildren();
       return;
@@ -96,6 +113,7 @@ export function startDemoApp(): void {
     realPrivateDomainActive = false;
     agentsDemoController?.dispose();
     agentsDemoController = null;
+    agentsAuthority = null;
     renderModule(router.current(), store.getState(), host, inspector);
   };
   let draggedOpportunityId = "";
@@ -498,7 +516,18 @@ export function startDemoApp(): void {
   router.subscribe(render);
   window.addEventListener("hashchange", render);
   document.addEventListener("goodjob:acquisition-mode-changed", () => {
+    if (parseGrowthHash(window.location.hash)) return;
     router.navigate(router.current());
+  });
+  document.addEventListener("goodjob:auth-state-changed", (event) => {
+    agentsDemoController?.dispose();
+    agentsDemoController = null;
+    agentsAuthority = null;
+    host.replaceChildren();
+    inspector.replaceChildren();
+    const authenticated = (event as CustomEvent<{ authenticated?: boolean }>).detail
+      ?.authenticated === true;
+    if (authenticated) render();
   });
   render();
 }

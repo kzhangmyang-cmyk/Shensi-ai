@@ -18,6 +18,7 @@ export interface FinancialCouncilWorkbenchEntryOptions {
   readonly host: HTMLElement;
   readonly controller: EntryController;
   readonly capabilities: readonly string[];
+  readonly canCreate?: boolean;
   readonly createInput: (dataAsOf: string) => Promise<FinancialCouncilCreateInput | null>;
   readonly replaceHash?: (hash: string) => void;
 }
@@ -79,7 +80,8 @@ export function createFinancialCouncilWorkbenchEntry(
     if (disposed) return;
     options.host.innerHTML = renderFinancialCouncilWorkbench(state, {
       capabilities: options.capabilities,
-      canCreate: options.capabilities.includes("finance.council.run")
+      canCreate: options.canCreate
+        ?? options.capabilities.includes("finance.council.run")
     });
   }
 

@@ -19,15 +19,22 @@ import {
   renderAgentConclusion,
   renderAgentDetail,
   renderAgentsOverview,
+  renderRealAgentsOverview,
   renderDiagnosisReport
 } from "./view";
 import { parseAgentsHash } from "./entry";
+import type { RealAgentCenterController } from "./real-controller";
+import type {
+  FinancialCouncilModelRoutingPolicyInput,
+  FinancialStatementKind
+} from "../contracts";
 
 export interface AgentsControllerOptions {
   readonly http?: GrowthHttpClient;
   readonly host: HTMLElement;
   readonly input?: BusinessReportInput;
   readonly demo?: boolean;
+  readonly real?: RealAgentCenterController;
   readonly session?: AgentsSessionState;
   readonly window?: Window;
 }
@@ -234,9 +241,124 @@ function renderAnalysisAnswer(
   </article>`;
 }
 
+const REAL_ROLES = ["cfo", "finance", "profit", "cost", "cashflow", "tax"] as const;
+
+function createRealAgentsController(
+  options: AgentsControllerOptions & { readonly real: RealAgentCenterController }
+): AgentsController {
+  const windowPort = options.window ?? window;
+  let disposed = false;
+  const render = () => {
+    if (disposed) return;
+    options.host.innerHTML = renderRealAgentsOverview(options.real.getState());
+  };
+  const unsubscribe = options.real.subscribe(render);
+
+  function openRouting(): void {
+    const dialog = options.host.querySelector<HTMLDialogElement>("[data-routing-dialog]");
+    if (!dialog) return;
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "");
+  }
+
+  function routingInput(): FinancialCouncilModelRoutingPolicyInput | null {
+    const policy = options.real.getState().routingPolicy;
+    if (!policy) return null;
+    const roles = Object.fromEntries(REAL_ROLES.map((role) => {
+      const row = options.host.querySelector<HTMLElement>(`[data-routing-role="${role}"]`);
+      const mode = row?.querySelector<HTMLSelectElement>('[data-routing-field="mode"]')?.value;
+      const primary = row?.querySelector<HTMLSelectElement>('[data-routing-field="primary"]')?.value ?? "";
+      const fallback = row?.querySelector<HTMLSelectElement>('[data-routing-field="fallback"]')?.value ?? "";
+      const original = policy.roles[role];
+      return [role, mode === "pinned" ? {
+        mode: "pinned" as const,
+        primaryConnectionId: primary || null,
+        fallbackConnectionIds: fallback && fallback !== primary ? [fallback] : [],
+        preferenceWeightBps: original.preferenceWeightBps
+      } : {
+        mode: "auto" as const,
+        primaryConnectionId: null,
+        fallbackConnectionIds: [],
+        preferenceWeightBps: original.preferenceWeightBps
+      }];
+    })) as FinancialCouncilModelRoutingPolicyInput["roles"];
+    return {
+      maxRoleBudgetMinor: policy.maxRoleBudgetMinor,
+      maxRunBudgetMinor: policy.maxRunBudgetMinor,
+      requestTimeoutMs: policy.requestTimeoutMs,
+      roles
+    };
+  }
+
+  function onChange(event: Event): void {
+    if (disposed) return;
+    const input = (event.target as HTMLElement | null)
+      ?.closest<HTMLInputElement>("[data-statements-file]");
+    if (input && options.host.contains(input)) {
+      const file = input.files?.[0];
+      const kind = input.dataset.statementsFile as FinancialStatementKind | undefined;
+      if (file && kind) void options.real.selectStatement(kind, file);
+      return;
+    }
+    const consent = (event.target as HTMLElement | null)
+      ?.closest<HTMLInputElement>("[data-real-consent]");
+    if (consent && options.host.contains(consent)) {
+      options.real.acceptModelDataNotice(consent.checked);
+    }
+  }
+
+  function onClick(event: MouseEvent): void {
+    if (disposed) return;
+    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+      "[data-real-action], [data-routing-action]"
+    );
+    if (!target || !options.host.contains(target)) return;
+    const routingAction = target.dataset.routingAction;
+    if (routingAction === "open") {
+      openRouting();
+      return;
+    }
+    if (routingAction === "save") {
+      const input = routingInput();
+      if (input) void options.real.updateRouting(input);
+      return;
+    }
+    switch (target.dataset.realAction) {
+      case "preview": void options.real.previewStatements(); break;
+      case "commit": void options.real.commitStatements(); break;
+      case "run":
+        void options.real.startCouncil().then(() => {
+          if (disposed) return;
+          const runId = options.real.getState().latestRun?.runId;
+          if (runId) windowPort.location.hash = `#financial-council/run/${encodeURIComponent(runId)}`;
+        });
+        break;
+    }
+  }
+
+  options.host.addEventListener("change", onChange);
+  options.host.addEventListener("click", onClick);
+  render();
+  return Object.freeze({
+    render,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      unsubscribe();
+      options.host.removeEventListener("change", onChange);
+      options.host.removeEventListener("click", onClick);
+      options.real.destroy();
+      options.host.replaceChildren();
+    }
+  });
+}
+
 export function createAgentsController(
   options: AgentsControllerOptions
 ): AgentsController {
+  if (options.real) {
+    return createRealAgentsController({ ...options, real: options.real });
+  }
   const windowPort = options.window ?? window;
   const api: BusinessAdvisorApi = createBusinessAdvisorApi(
     options.http ?? createGrowthHttpClient()
