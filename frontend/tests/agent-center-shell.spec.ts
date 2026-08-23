@@ -192,6 +192,84 @@ test("real private-domain customers can create an authoritative deal", async ({ 
   await expect(page.locator("#replicaToast")).toContainText("商机已新增");
 });
 
+test("deal creation authentication loss closes and clears the top-layer dialog", async ({ page }) => {
+  await page.route("**/api/customers*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        customers: [{
+          id: "customer-auth-loss",
+          company: "敏感客户有限公司",
+          country: "中国",
+          contact: "李总",
+          ownerId: "demo-admin",
+          teamId: "demo-team",
+          stage: "待首次跟进",
+          amount: 18800,
+          health: 80,
+          nextReminder: "2026-08-25T10:30:00.000Z",
+          wecomBound: false,
+          activities: [],
+          acquisitionBindings: [{
+            handoffId: "handoff-auth-loss",
+            leadId: "lead-auth-loss",
+            candidateId: "candidate-auth-loss",
+            createdAt: "2026-08-23T08:10:00.000Z"
+          }]
+        }]
+      })
+    });
+  });
+  await page.route("**/api/todos", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ todos: [] })
+    });
+  });
+  await page.route("**/api/deals", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "登录已失效" })
+    });
+  });
+  await useSavedDemoSession(page);
+  await page.addInitScript(() => {
+    document.cookie = "gj_csrf=csrf-auth-loss; path=/";
+  });
+  await page.goto("/#private-domain");
+  await page.evaluate(() => {
+    const shell = document.querySelector<HTMLElement>(".replica-shell");
+    if (shell) shell.dataset.acquisitionMode = "real";
+    document.dispatchEvent(new CustomEvent(
+      "goodjob:acquisition-mode-changed",
+      { detail: { mode: "real" } }
+    ));
+  });
+
+  await page.getByRole("button", { name: "创建真实商机" }).click();
+  const dialog = page.locator("#replicaDealCreateDialog");
+  await expect(dialog).toBeVisible();
+  await dialog.locator("#dealTitleInput").fill("敏感商机");
+  await dialog.locator("#dealProductInput").fill("敏感产品");
+  await dialog.locator("#dealNextActionAtInput").fill("2026-08-25");
+  await dialog.locator("#saveDealButton").click();
+
+  await expect(page.locator(".login-screen")).toBeVisible();
+  await expect(dialog).not.toBeVisible();
+  await expect(dialog.locator("#dealCustomerIdInput")).toHaveValue("");
+  await expect(dialog.locator("#dealCustomerInput")).toHaveValue("");
+  await expect(dialog.locator("#dealTitleInput")).toHaveValue("");
+  await expect(dialog.locator("#dealProductInput")).toHaveValue("");
+  await expect(dialog.locator("#dealAcquisitionBindingInput option")).toHaveCount(0);
+  await expect(dialog).not.toContainText(/敏感客户|敏感商机|敏感产品/u);
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await expect(page).toHaveURL(/#private-domain$/u);
+  await expect(dialog).not.toBeVisible();
+});
+
 test("agent center has no page-level horizontal overflow at critical widths", async ({ page }) => {
   await useSavedDemoSession(page);
   await page.goto("/#agents");

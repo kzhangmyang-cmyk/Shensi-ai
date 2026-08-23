@@ -1,6 +1,8 @@
 import { strict as assert } from "node:assert";
+import { parseHTML } from "linkedom";
 import {
   createAuthoritativeDealCreateApi,
+  createDealCreateController,
   type AuthoritativeDealCreateInput
 } from "./deal-create-controller";
 
@@ -38,6 +40,24 @@ const input: AuthoritativeDealCreateInput = {
   expectedCloseAt: "2026-09-13",
   acquisitionBinding: { handoffId: "handoff-1", leadId: "lead-1" }
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((fulfil) => {
+    resolve = fulfil;
+  });
+  return { promise, resolve };
+}
+
+function dispatchCustomEvent(
+  document: Document,
+  type: string,
+  detail: unknown
+): void {
+  const event = document.createEvent("CustomEvent");
+  event.initCustomEvent(type, false, false, detail);
+  document.dispatchEvent(event);
+}
 
 {
   const requests: Array<{ path: string; init: RequestInit }> = [];
@@ -80,4 +100,123 @@ const input: AuthoritativeDealCreateInput = {
 
   await assert.rejects(api.getCustomer(customer.id), /登录已失效/u);
   assert.equal(unauthorized, 1);
+}
+
+{
+  const { document } = parseHTML(`<!doctype html><html><body class="is-authenticated">
+    <div id="replicaToast"><span>初始提示</span></div>
+    <dialog id="replicaDealCreateDialog">
+      <form id="replicaDealCreateForm">
+        <input id="dealCustomerIdInput" />
+        <input id="dealCustomerInput" />
+        <input id="dealTitleInput" />
+        <input id="dealProductInput" />
+        <select id="dealAcquisitionBindingInput"></select>
+        <select id="dealCurrencyInput"><option value="USD" selected>USD</option></select>
+        <input id="dealQuantityInput" value="30" />
+        <input id="dealUnitPriceInput" value="600" />
+        <input id="dealAmountInput" value="18000" />
+        <input id="dealNextActionAtInput" />
+        <input id="dealExpectedCloseAtInput" />
+        <input id="dealNextActionInput" value="确认采购清单并安排报价" />
+        <div id="replicaDealCreateStatus"></div>
+        <button id="saveDealButton" type="submit">保存商机</button>
+        <button id="replicaDealCreateCancel" type="button">取消</button>
+        <button id="replicaDealCreateClose" type="button">关闭</button>
+      </form>
+    </dialog>
+  </body></html>`);
+  const dialog = document.querySelector<HTMLDialogElement>("#replicaDealCreateDialog")!;
+  const form = document.querySelector<HTMLFormElement>("#replicaDealCreateForm")!;
+  Object.assign(dialog, {
+    showModal() {
+      dialog.setAttribute("open", "");
+    },
+    close() {
+      dialog.removeAttribute("open");
+    }
+  });
+  Object.assign(form, {
+    reset() {
+      form.querySelectorAll<HTMLInputElement>("input").forEach((field) => {
+        field.value = field.getAttribute("value") ?? "";
+      });
+      form.querySelectorAll<HTMLSelectElement>("select").forEach((field) => {
+        field.selectedIndex = field.options.length > 0 ? 0 : -1;
+      });
+    }
+  });
+  const pendingDeal = deferred<{ deal: { id: string } }>();
+  let createSignal: AbortSignal | undefined;
+  let customerRequests = 0;
+  const location = { hash: "#private-domain" };
+  const controller = createDealCreateController({
+    document,
+    location,
+    api: {
+      async getCustomer() {
+        customerRequests += 1;
+        return customer;
+      },
+      createDeal(_input, signal?: AbortSignal) {
+        createSignal = signal;
+        return pendingDeal.promise;
+      }
+    }
+  });
+
+  dispatchCustomEvent(document, "goodjob:deal-create-requested", {
+    customerId: customer.id
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(dialog.hasAttribute("open"), true);
+  document.querySelector<HTMLInputElement>("#dealTitleInput")!.value = "敏感商机";
+  document.querySelector<HTMLInputElement>("#dealProductInput")!.value = "敏感产品";
+  document.querySelector<HTMLInputElement>("#dealNextActionAtInput")!.value = "2026-08-25";
+  document.querySelector<HTMLOptionElement>(
+    "#dealAcquisitionBindingInput option"
+  )!.setAttribute("selected", "");
+  const submit = document.createEvent("Event");
+  submit.initEvent("submit", true, true);
+  form.dispatchEvent(submit);
+  await Promise.resolve();
+
+  document.body.classList.remove("is-authenticated");
+  dispatchCustomEvent(document, "goodjob:auth-state-changed", {
+    authenticated: false
+  });
+
+  assert.equal(dialog.hasAttribute("open"), false);
+  assert.equal(createSignal?.aborted, true);
+  assert.equal(document.querySelector<HTMLInputElement>("#dealCustomerIdInput")?.value, "");
+  assert.equal(document.querySelector<HTMLInputElement>("#dealCustomerInput")?.value, "");
+  assert.equal(document.querySelector<HTMLInputElement>("#dealTitleInput")?.value, "");
+  assert.equal(document.querySelector<HTMLInputElement>("#dealProductInput")?.value, "");
+  assert.equal(document.querySelector("#dealAcquisitionBindingInput")?.textContent, "");
+  assert.equal(document.querySelector("#replicaDealCreateStatus")?.textContent, "");
+
+  pendingDeal.resolve({ deal: { id: "late-deal" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(dialog.hasAttribute("open"), false);
+  assert.equal(location.hash, "#private-domain");
+  assert.doesNotMatch(dialog.textContent, /敏感商机|敏感产品|测试客户/u);
+
+  document.body.classList.add("is-authenticated");
+  dispatchCustomEvent(document, "goodjob:deal-create-requested", {
+    customerId: customer.id
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(dialog.hasAttribute("open"), true);
+  assert.equal(customerRequests, 2);
+  controller.destroy();
+  assert.equal(dialog.hasAttribute("open"), false);
+  assert.equal(document.querySelector<HTMLInputElement>("#dealCustomerIdInput")?.value, "");
+  dispatchCustomEvent(document, "goodjob:deal-create-requested", {
+    customerId: customer.id
+  });
+  await Promise.resolve();
+  assert.equal(customerRequests, 2);
 }

@@ -21,7 +21,10 @@ export interface AuthoritativeDealCreateInput {
 
 export interface AuthoritativeDealCreateApi {
   getCustomer(customerId: string, signal?: AbortSignal): Promise<PrivateDomainCustomer | null>;
-  createDeal(input: AuthoritativeDealCreateInput): Promise<{ deal: { id: string } }>;
+  createDeal(
+    input: AuthoritativeDealCreateInput,
+    signal?: AbortSignal
+  ): Promise<{ deal: { id: string } }>;
 }
 
 export interface DealCreateController {
@@ -101,10 +104,11 @@ export function createAuthoritativeDealCreateApi(
       );
       return result.customers.find((customer) => customer.id === customerId) ?? null;
     },
-    createDeal(input) {
+    createDeal(input, signal) {
       return request<{ deal: { id: string } }>(
         "/api/deals",
-        { method: "POST", body: JSON.stringify(input) }
+        { method: "POST", body: JSON.stringify(input) },
+        signal
       );
     }
   };
@@ -149,7 +153,8 @@ export function createDealCreateController(
   let activeBindings: PrivateDomainAcquisitionBinding[] = [];
   let requestSerial = 0;
   let abortController: AbortController | null = null;
-  let toastTimer = 0;
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  let destroyed = false;
 
   function setStatus(message: string, kind: "loading" | "error" = "loading") {
     if (!status) return;
@@ -165,8 +170,35 @@ export function createDealCreateController(
     label.textContent = message;
     toast.classList.toggle("error", error);
     toast.classList.add("show");
-    if (toastTimer) window.clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => toast.classList.remove("show"), 2_600);
+    if (toastTimer !== null) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove("show"), 2_600);
+  }
+
+  function clearSensitiveState(): void {
+    requestSerial += 1;
+    abortController?.abort();
+    abortController = null;
+    activeCustomer = null;
+    activeBindings = [];
+    if (dialog?.hasAttribute("open")) dialog.close();
+    form?.reset();
+    form?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+      "input, textarea"
+    ).forEach((field) => {
+      field.value = "";
+    });
+    form?.querySelectorAll<HTMLSelectElement>("select").forEach((field) => {
+      if (field.id === "dealAcquisitionBindingInput") field.replaceChildren();
+      field.selectedIndex = -1;
+    });
+    setStatus("");
+    saveButton?.removeAttribute("disabled");
+    if (toastTimer !== null) clearTimeout(toastTimer);
+    toastTimer = null;
+    const toast = documentRef.querySelector<HTMLElement>("#replicaToast");
+    toast?.classList.remove("show", "error");
+    const toastLabel = toast?.querySelector<HTMLElement>("span");
+    if (toastLabel) toastLabel.textContent = "";
   }
 
   function updateAmount() {
@@ -177,7 +209,10 @@ export function createDealCreateController(
   }
 
   function openDialog(customer: PrivateDomainCustomer) {
-    if (!dialog || !form) return;
+    if (destroyed
+      || !documentRef.body.classList.contains("is-authenticated")
+      || !dialog
+      || !form) return;
     activeCustomer = customer;
     activeBindings = pendingAcquisitionBindings(customer);
     form.reset();
@@ -202,7 +237,9 @@ export function createDealCreateController(
   async function onDealCreateRequested(event: Event) {
     const detail = (event as CustomEvent<{ customerId?: unknown }>).detail;
     const customerId = typeof detail?.customerId === "string" ? detail.customerId.trim() : "";
-    if (!customerId || !documentRef.body.classList.contains("is-authenticated")) {
+    if (destroyed
+      || !customerId
+      || !documentRef.body.classList.contains("is-authenticated")) {
       if (customerId) showToast("登录已失效，请重新登录", true);
       return;
     }
@@ -213,7 +250,8 @@ export function createDealCreateController(
     showToast("正在读取客户权威数据");
     try {
       const customer = await api.getCustomer(customerId, requestAbort.signal);
-      if (serial !== requestSerial) return;
+      if (serial !== requestSerial
+        || !documentRef.body.classList.contains("is-authenticated")) return;
       if (!customer || pendingAcquisitionBindings(customer).length === 0) {
         showToast("该客户当前没有可绑定的获客来源，请刷新后重试", true);
         return;
@@ -229,7 +267,10 @@ export function createDealCreateController(
 
   async function onSubmit(event: Event) {
     event.preventDefault();
-    if (!dialog || !activeCustomer) return;
+    if (destroyed
+      || !documentRef.body.classList.contains("is-authenticated")
+      || !dialog
+      || !activeCustomer) return;
     const selectedHandoffId = inputValue<HTMLSelectElement>(dialog, "#dealAcquisitionBindingInput");
     const selectedBinding = activeBindings.find((binding) => binding.handoffId === selectedHandoffId);
     const title = inputValue<HTMLInputElement>(dialog, "#dealTitleInput");
@@ -258,19 +299,36 @@ export function createDealCreateController(
         leadId: selectedBinding.leadId
       }
     };
+    const serial = ++requestSerial;
+    abortController?.abort();
+    const requestAbort = new AbortController();
+    abortController = requestAbort;
     saveButton?.setAttribute("disabled", "");
     setStatus("正在创建真实商机…");
     try {
-      const result = await api.createDeal(input);
+      const result = await api.createDeal(input, requestAbort.signal);
+      if (serial !== requestSerial
+        || requestAbort.signal.aborted
+        || !documentRef.body.classList.contains("is-authenticated")) return;
       dispatchDealCreated(documentRef, result.deal.id, input);
       dialog.close();
       locationRef.hash = "#conversion";
       showToast("商机已新增");
     } catch {
-      setStatus("商机创建失败，请稍后重试", "error");
+      if (serial === requestSerial && !requestAbort.signal.aborted) {
+        setStatus("商机创建失败，请稍后重试", "error");
+      }
     } finally {
-      saveButton?.removeAttribute("disabled");
+      if (serial === requestSerial) {
+        abortController = null;
+        saveButton?.removeAttribute("disabled");
+      }
     }
+  }
+
+  function onAuthenticationStateChanged(event: Event) {
+    const detail = (event as CustomEvent<{ authenticated?: boolean }>).detail;
+    if (detail?.authenticated === false) clearSensitiveState();
   }
 
   function closeDialog() {
@@ -283,18 +341,20 @@ export function createDealCreateController(
   dialog?.querySelector("#replicaDealCreateCancel")?.addEventListener("click", closeDialog);
   dialog?.querySelector("#replicaDealCreateClose")?.addEventListener("click", closeDialog);
   documentRef.addEventListener("goodjob:deal-create-requested", onDealCreateRequested);
+  documentRef.addEventListener("goodjob:auth-state-changed", onAuthenticationStateChanged);
 
   return {
     destroy() {
-      requestSerial += 1;
-      abortController?.abort();
-      if (toastTimer) window.clearTimeout(toastTimer);
+      if (destroyed) return;
+      destroyed = true;
+      clearSensitiveState();
       form?.removeEventListener("submit", onSubmit);
       quantityInput?.removeEventListener("input", updateAmount);
       unitPriceInput?.removeEventListener("input", updateAmount);
       dialog?.querySelector("#replicaDealCreateCancel")?.removeEventListener("click", closeDialog);
       dialog?.querySelector("#replicaDealCreateClose")?.removeEventListener("click", closeDialog);
       documentRef.removeEventListener("goodjob:deal-create-requested", onDealCreateRequested);
+      documentRef.removeEventListener("goodjob:auth-state-changed", onAuthenticationStateChanged);
     }
   };
 }
