@@ -51,7 +51,7 @@ Shensi Sales 已经是统一的 pnpm Monorepo，前端、后端、共享合同�
 - `pnpm build`：后端 TypeScript 和前端 Vite 生产构建 PASS；仅保留既有 chunk-size warning。
 - 真实 MySQL 8.4 财务委员会聚合测试：327/327 PASS，0 skip。
 - 真实 InnoDB 仓储/并发/恢复专项：83/83 PASS。
-- Chromium 完整回归：51 pass / 0 fail / 1 项按设计跳过。
+- 前端 Chromium 完整回归：58/58 PASS（从 Monorepo 根目录执行 `pnpm --filter goodjob-crm-frontend run test:e2e`）。
 - 真实 MySQL + 真实后端 + 无 route interception Chromium 验收：1/1 PASS。
 
 `.github/workflows/quality.yml` 在 pull request 和 `main` push 上使用 MySQL 8.4 service 自动运行根测试、构建、财务委员会和两类 Chromium 验收。该工作流不依赖生产 Secrets。

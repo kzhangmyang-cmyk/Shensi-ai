@@ -439,11 +439,11 @@ Run:
 
 ```bash
 git status --short
-git log -4 --oneline
-git diff HEAD~4..HEAD --check
+git log --oneline --reverse f0e2d06^..HEAD
+git diff f0e2d06^..HEAD --check
 ```
 
-Expected: 工作树干净；四个提交依次为路由、认证、唯一壳删除、依赖与文档；diff check PASS。
+Expected: 工作树干净；迁移里程碑依次包含 `f0e2d06` → `6f81a68` → `db36e05` → `b3d6b05` → `e6fbc0f` → `13daa15` → `3790b94` → `872e724`。其中包含认证与唯一壳的 review fixes，验收不将迁移错误地断言为仅四个提交；diff check PASS。
 
 ---
 
