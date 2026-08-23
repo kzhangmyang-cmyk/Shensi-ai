@@ -332,7 +332,7 @@ export function createDealCreateController(
   }
 
   function closeDialog() {
-    dialog?.close();
+    clearSensitiveState();
   }
 
   form?.addEventListener("submit", onSubmit);
