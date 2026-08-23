@@ -28,6 +28,14 @@ interface AppSessionOptions {
 }
 
 const STORAGE_KEY = "gj_user";
+
+class AppSessionRequestError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "AppSessionRequestError";
+  }
+}
+
 const roleLabels: Record<AppUser["role"], string> = {
   sales: "业务员",
   manager: "销售主管",
@@ -75,7 +83,22 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
   let lifecycleGeneration = 0;
 
   const loginButton = documentRef.querySelector<HTMLButtonElement>("#loginButton");
+  const loginError = documentRef.querySelector<HTMLElement>("#loginError");
   const logoutButton = documentRef.querySelector<HTMLButtonElement>("#replicaLogoutButton");
+
+  const clearLoginError = () => {
+    if (loginError) loginError.textContent = "";
+  };
+
+  const showSafeLoginError = (error: unknown) => {
+    if (!loginError) return;
+    loginError.textContent = error instanceof AppSessionRequestError
+      && error.status === 401
+      ? "账号或密码错误，请重试"
+      : error instanceof TypeError
+        ? "网络连接失败，请检查网络后重试"
+        : "登录失败，请稍后重试";
+  };
 
   const beginAuthenticationOperation = () => {
     lifecycleGeneration += 1;
@@ -107,6 +130,7 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
   };
 
   const applyAuthenticatedUser = (user: AppUser) => {
+    clearLoginError();
     storage.setItem(STORAGE_KEY, JSON.stringify(user));
     updateSidebarUser(user);
     documentRef.body.classList.add("is-authenticated");
@@ -133,7 +157,10 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
     if (!response.ok) {
       if (response.status === 401 && isCurrentOperation(generation)) clearLocalSession();
       const body = await response.json().catch(() => ({ message: "请求失败" }));
-      throw new Error(typeof body?.message === "string" ? body.message : "请求失败");
+      throw new AppSessionRequestError(
+        response.status,
+        typeof body?.message === "string" ? body.message : "请求失败"
+      );
     }
     return response.json() as Promise<T>;
   };
@@ -171,15 +198,25 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
 
     async login(_email: string, password: string) {
       const generation = beginAuthenticationOperation();
-      if (demoMode) {
-        if (isCurrentOperation(generation)) applyAuthenticatedUser(createDemoAdmin());
-        return;
+      clearLoginError();
+      try {
+        if (demoMode) {
+          if (_email.trim().toLowerCase() !== "admin@goodjob.com"
+            || password !== "goodjob123") {
+            throw new AppSessionRequestError(401, "invalid_demo_credentials");
+          }
+          if (isCurrentOperation(generation)) applyAuthenticatedUser(createDemoAdmin());
+          return;
+        }
+        const result = await request<{ user: AppUser }>("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email: _email, password })
+        }, generation);
+        if (isCurrentOperation(generation)) applyAuthenticatedUser(result.user);
+      } catch (error) {
+        if (isCurrentOperation(generation)) showSafeLoginError(error);
+        throw error;
       }
-      const result = await request<{ user: AppUser }>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email: _email, password })
-      }, generation);
-      if (isCurrentOperation(generation)) applyAuthenticatedUser(result.user);
     },
 
     async logout() {

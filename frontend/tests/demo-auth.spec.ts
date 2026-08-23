@@ -69,6 +69,22 @@ test("standalone frontend login enters the demo workspace without an API server"
   await expect(page.locator(".toast.error")).toHaveCount(0);
 });
 
+test("login rejection is announced safely and clears on a successful retry", async ({ page }) => {
+  await page.goto("/#agents");
+  const error = page.locator("#loginError");
+  await expect(error).toHaveAttribute("aria-live", "polite");
+
+  await page.locator("#loginPassword").fill("wrong-password");
+  await page.locator("#loginButton").click();
+  await expect(page.locator("body")).not.toHaveClass(/is-authenticated/u);
+  await expect(error).toHaveText("账号或密码错误，请重试");
+
+  await page.locator("#loginPassword").fill("goodjob123");
+  await page.locator("#loginButton").click();
+  await expect(page.locator("body")).toHaveClass(/is-authenticated/u);
+  await expect(error).toHaveText("");
+});
+
 test("standalone frontend restores a saved demo session without calling the API", async ({ page }) => {
   const apiRequests: string[] = [];
   page.on("request", (request) => {
@@ -588,7 +604,32 @@ test("real acquisition task opens authoritative plan and AI candidate review", a
     candidateId: "candidate-ui-2",
     createdAt: "2026-08-07T08:11:00.000Z"
   }];
+  let pendingCustomerGate: {
+    started(): void;
+    wait: Promise<void>;
+  } | null = null;
+  function holdNextCustomerRequest() {
+    let markStarted!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    pendingCustomerGate = { started: markStarted, wait };
+    return { started, release };
+  }
   await page.route("**/api/customers*", async (route) => {
+    const url = new URL(route.request().url());
+    const gate = url.searchParams.get("scope") === "mine"
+      ? pendingCustomerGate
+      : null;
+    if (gate) {
+      pendingCustomerGate = null;
+      gate.started();
+      await gate.wait;
+    }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -946,4 +987,39 @@ test("real acquisition task opens authoritative plan and AI candidate review", a
   await expect(page.locator("#demoModuleInspector")).toContainText("todo-ui-1");
   await expect(page.locator("#demoModuleInspector")).toContainText("获客候选已交接");
   await expect(page.locator("#demoModuleMain")).not.toContainText("演示模式");
+
+  const leaveGate = holdNextCustomerRequest();
+  await page.locator('[data-private-domain-action="retry"]').click();
+  await leaveGate.started;
+  await page.locator('[data-replica-view="agents"]').click();
+  const leaveResponse = page.waitForResponse(
+    (response) => response.url().includes("/api/customers?scope=mine")
+  );
+  leaveGate.release();
+  await leaveResponse;
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await expect(page.getByRole("heading", { name: "AI 经营顾问团队" }))
+    .toBeVisible();
+  await expect(page.locator(".agent-card")).toHaveCount(6);
+  await expect(page.locator("#demoModuleMain")).not.toContainText("真实客户池");
+
+  const demoGate = holdNextCustomerRequest();
+  await page.locator('[data-replica-view="private-domain"]').click();
+  await demoGate.started;
+  await page.evaluate(() => {
+    const shell = document.querySelector<HTMLElement>(".replica-shell");
+    if (shell) shell.dataset.acquisitionMode = "demo";
+    document.dispatchEvent(new CustomEvent(
+      "goodjob:acquisition-mode-changed",
+      { detail: { mode: "demo" } }
+    ));
+  });
+  const demoResponse = page.waitForResponse(
+    (response) => response.url().includes("/api/customers?scope=mine")
+  );
+  demoGate.release();
+  await demoResponse;
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await expect(page.locator("#demoModuleMain")).toContainText("演示模式");
+  await expect(page.locator("#demoModuleMain")).not.toContainText("真实客户池");
 });

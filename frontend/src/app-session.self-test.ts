@@ -27,10 +27,64 @@ function createDocument() {
     <button id="loginButton"></button>
     <input id="loginEmail" />
     <input id="loginPassword" />
+    <p id="loginError" role="alert" aria-live="polite"></p>
     <button class="replica-user" id="replicaLogoutButton"></button>
     <strong data-session-user-name></strong>
     <small data-session-user-role></small>
   </body></html>`).document;
+}
+
+{
+  const document = createDocument();
+  const nextLogin = createDeferred<Response>();
+  let attempts = 0;
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage: createStorage(),
+    demoMode: false,
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return new Response(JSON.stringify({
+          message: "wrong password; database=postgres://internal-secret"
+        }), { status: 401 });
+      }
+      return nextLogin.promise;
+    }
+  });
+
+  await assert.rejects(controller.login(admin.email, "wrong"));
+  assert.equal(
+    document.querySelector("#loginError")?.textContent,
+    "账号或密码错误，请重试"
+  );
+  const retry = controller.login(admin.email, "goodjob123");
+  assert.equal(document.querySelector("#loginError")?.textContent, "");
+  nextLogin.resolve(new Response(JSON.stringify({ user: admin }), { status: 200 }));
+  await retry;
+  assert.equal(document.querySelector("#loginError")?.textContent, "");
+  controller.destroy();
+}
+
+{
+  const document = createDocument();
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage: createStorage(),
+    demoMode: false,
+    fetchImpl: async () => {
+      throw new TypeError("network secret: internal-api-token");
+    }
+  });
+
+  await assert.rejects(controller.login(admin.email, "goodjob123"));
+  assert.equal(
+    document.querySelector("#loginError")?.textContent,
+    "网络连接失败，请检查网络后重试"
+  );
+  controller.destroy();
 }
 
 function createDeferred<T>() {

@@ -19,6 +19,7 @@ export function startGrowthWhenRequested(): void {
   let startPromise: Promise<void> | null = null;
   let resetPromise: Promise<void> = Promise.resolve();
   let retryAfterPending = false;
+  let surfaceSequence = 0;
 
   const syncSurface = () => {
     const growthRequested = parseGrowthHash(window.location.hash) !== null;
@@ -29,8 +30,7 @@ export function startGrowthWhenRequested(): void {
     return growthRequested;
   };
 
-  const startRequestedGrowth = () => {
-    if (!syncSurface()) return;
+  const startGrowth = () => {
     if (startPromise) {
       retryAfterPending = true;
       return;
@@ -53,6 +53,25 @@ export function startGrowthWhenRequested(): void {
         }
         retryAfterPending = false;
         startRequestedGrowth();
+      });
+  };
+
+  const startRequestedGrowth = () => {
+    const request = ++surfaceSequence;
+    if (!syncSurface()) {
+      retryAfterPending = false;
+      resetPromise = resetPromise
+        .catch(() => undefined)
+        .then(() => resetGrowthRuntime())
+        .catch(() => undefined);
+      return;
+    }
+    void resetPromise
+      .catch(() => undefined)
+      .then(() => {
+        if (request !== surfaceSequence
+          || parseGrowthHash(window.location.hash) === null) return;
+        startGrowth();
       });
   };
 

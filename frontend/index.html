@@ -34,6 +34,7 @@
       <div class="login-field"><label>账号</label><input id="loginEmail" value="admin@goodjob.com" autocomplete="username"></div>
       <div class="login-field"><label>密码</label><input id="loginPassword" type="password" value="goodjob123" autocomplete="current-password"></div>
       <button class="btn primary" id="loginButton" style="width:100%; height:36px">登录系统</button>
+      <p class="login-error" id="loginError" role="status" aria-live="polite"></p>
     </div>
   </section>
 
@@ -536,6 +537,34 @@
         <button type="button" id="replicaAcquisitionDetailCenterDone" data-acquisition-detail-action="close">完成</button>
       </div>
     </div>
+  </dialog>
+
+  <dialog class="replica-modal replica-deal-create-dialog" id="replicaDealCreateDialog" aria-labelledby="replicaDealCreateTitle">
+    <form id="replicaDealCreateForm">
+      <div class="replica-modal-head">
+        <div><span class="replica-wizard-kicker">REAL DEAL</span><h2 id="replicaDealCreateTitle">创建真实商机</h2></div>
+        <button type="button" id="replicaDealCreateClose" aria-label="关闭"><i class="ph ph-x" aria-hidden="true"></i></button>
+      </div>
+      <div class="replica-deal-create-fields">
+        <input id="dealCustomerIdInput" type="hidden" />
+        <label>关联客户<input id="dealCustomerInput" readonly /></label>
+        <label>商机名称<input id="dealTitleInput" required placeholder="例如：年度采购项目" /></label>
+        <label>产品 / 采购需求<input id="dealProductInput" required placeholder="例如：产品型号 / 数量 / 规格" /></label>
+        <label>获客来源<select id="dealAcquisitionBindingInput" required></select></label>
+        <label>币种<select id="dealCurrencyInput"><option>USD</option><option>EUR</option><option>GBP</option><option>CNY</option><option>JPY</option><option>AED</option></select></label>
+        <label>数量<input id="dealQuantityInput" type="number" min="0" step="1" value="30" /></label>
+        <label>单价<input id="dealUnitPriceInput" type="number" min="0" step="0.01" value="600" /></label>
+        <label>金额<input id="dealAmountInput" type="number" value="18000" readonly /></label>
+        <label>下一动作日期<input id="dealNextActionAtInput" type="date" required /></label>
+        <label>预计成交日期<input id="dealExpectedCloseAtInput" type="date" /></label>
+        <label class="replica-deal-create-wide">下一步动作<input id="dealNextActionInput" value="确认采购清单并安排报价" required /></label>
+      </div>
+      <div class="replica-real-submit-status" id="replicaDealCreateStatus" role="status" aria-live="polite" hidden></div>
+      <div class="replica-modal-footer">
+        <button type="button" id="replicaDealCreateCancel">取消</button>
+        <button type="submit" class="replica-real-submit" id="saveDealButton">保存商机</button>
+      </div>
+    </form>
   </dialog>
 
   <script type="module" src="/src/app-entry.ts"></script>

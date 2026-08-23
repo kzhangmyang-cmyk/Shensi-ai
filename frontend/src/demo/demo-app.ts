@@ -16,6 +16,7 @@ import { createDemoStore } from "./demo-store";
 import type { DemoModule, DemoState } from "./demo-types";
 import { showDemoToast } from "./demo-ui";
 import { createPrivateDomainController } from "../private-domain/controller";
+import { createDealCreateController } from "../private-domain/deal-create-controller";
 import { startGrowthWhenRequested } from "../growth/entry";
 import { createAgentsController } from "../growth/agents/controller";
 import { parseGrowthHash } from "../growth/router";
@@ -68,6 +69,7 @@ export function startDemoApp(): void {
     main: host,
     inspector
   });
+  createDealCreateController();
   let realPrivateDomainActive = false;
   let requestedRealCustomerId = "";
   const render = () => {

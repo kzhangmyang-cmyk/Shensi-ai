@@ -25,6 +25,7 @@ import "./acquisition/performance-view.self-test";
 import "./private-domain/runtime-api.self-test";
 import "./private-domain/controller.self-test";
 import "./private-domain/view.self-test";
+import "./private-domain/deal-create-controller.self-test";
 import "./connections/connection-api.self-test";
 import "./connections/connection-controller.self-test";
 import "./growth/router.self-test";
