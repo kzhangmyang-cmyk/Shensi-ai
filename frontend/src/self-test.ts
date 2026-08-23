@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { strict as assert } from "node:assert";
 import "./app-route.self-test";
+import "./app-session.self-test";
 import "./demo/demo-store.self-test";
 import { buildLeadFinderIntentChips, getLeadFinderLayoutMode } from "./lead-finder-layout";
 import "./acquisition/runtime-model.self-test";
