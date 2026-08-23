@@ -127,20 +127,23 @@ function click(document: Document, selector: string) {
   assert.equal(storage.getItem("gj_user")?.includes("admin@goodjob.com"), true);
   assert.equal(document.querySelector("[data-session-user-name]")?.textContent, "Admin");
   assert.equal(document.querySelector("[data-session-user-role]")?.textContent, "管理员");
+  assert.equal(document.body.dataset.sessionMode, "demo");
   assert.deepEqual(events, [true]);
   await controller.logout();
   assert.equal(storage.getItem("gj_user"), null);
+  assert.equal(document.body.dataset.sessionMode, undefined);
   assert.deepEqual(events, [true, false]);
   controller.destroy();
 }
 
 {
   const document = createDocument();
+  const storage = createStorage();
   const requests: Array<{ path: string; init: RequestInit }> = [];
   const controller = createAppSessionController({
     document,
     location: { hash: "" } as Location,
-    storage: createStorage(),
+    storage,
     cookieSource: () => "other=value; gj_csrf=csrf-token",
     demoMode: false,
     fetchImpl: async (path, init = {}) => {
@@ -154,6 +157,10 @@ function click(document: Document, selector: string) {
   assert.equal(requests[0].path, "/api/auth/login");
   assert.equal(requests[0].init.credentials, "same-origin");
   assert.equal(new Headers(requests[0].init.headers).get("x-csrf-token"), "csrf-token");
+  assert.equal(document.body.dataset.sessionMode, "real");
+  assert.equal(storage.getItem("gj_user")?.includes("demo-admin"), false);
+  await controller.logout();
+  assert.equal(document.body.dataset.sessionMode, undefined);
   controller.destroy();
 }
 

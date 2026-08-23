@@ -5,6 +5,8 @@ dist/
 **/dist/
 *.tsbuildinfo
 .env
+# Local real-runtime credentials must never enter version control.
+.env.real.local
 .env.*
 !.env.example
 coverage/

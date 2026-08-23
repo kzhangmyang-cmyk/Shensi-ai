@@ -105,6 +105,7 @@ import {
 import {
   createGrowthCommercialApplication
 } from "./growth-commercial-application.js";
+import { GROWTH_FEATURES, type GrowthFeature } from "./growth-bootstrap-router.js";
 import {
   createGrowthCommercialCompositionForStore
 } from "./growth-commercial-composition.js";
@@ -12239,6 +12240,12 @@ export async function closeServerRuntimeResources(
   if (firstFailure) throw firstFailure;
 }
 
+export function enabledServerGrowthFeatures(
+  _context: ActiveWorkspaceContext
+): readonly GrowthFeature[] {
+  return GROWTH_FEATURES;
+}
+
 async function startServer() {
   const mysqlRequested = process.env.CRM_STORE === "mysql"
     || (process.env.CRM_STORE !== "memory" && Boolean(process.env.DATABASE_URL || process.env.MYSQL_URL));
@@ -12280,7 +12287,7 @@ async function startServer() {
       manifest: loadGrowthContractRelease().manifest,
       requireAuth,
       workspaceMiddleware: foundation.workspaceMiddleware,
-      enabledFeatures: () => ["catalog"],
+      enabledFeatures: enabledServerGrowthFeatures,
       composition: foundation.composition
     });
     growthRuntimeBridge.install(growthRuntime);

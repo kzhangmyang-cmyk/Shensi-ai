@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "concurrently \"pnpm --filter ./backend dev:mysql\" \"pnpm --filter ./frontend dev\"",
     "dev:mysql": "concurrently \"pnpm --filter ./backend dev:mysql\" \"pnpm --filter ./frontend dev\"",
+    "dev:real": "node --env-file-if-exists=.env.real.local tools/start-real-local.mjs",
+    "setup:mysql:local": "node --env-file-if-exists=.env.real.local backend/scripts/setup-local-mysql.ts",
     "build": "pnpm --filter ./contracts check:types && pnpm --filter ./backend build && pnpm --filter ./frontend build",
     "generate:frontend-contract-types": "pnpm --filter ./contracts generate:types",
     "check:generated-acquisition-types": "pnpm --filter ./contracts check:types",

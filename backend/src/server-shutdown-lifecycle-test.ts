@@ -1,6 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { closeServerRuntimeResources } from "./server.js";
+import {
+  closeServerRuntimeResources,
+  enabledServerGrowthFeatures
+} from "./server.js";
+import type { ActiveWorkspaceContext } from "./growth-workspace-context.js";
+
+test("server enables every current Growth feature for a concrete workspace", () => {
+  const context: ActiveWorkspaceContext = Object.freeze({
+    workspaceId: "team-1",
+    kind: "team",
+    actorId: "admin-1",
+    role: "admin",
+    teamId: "team-1",
+    capabilities: Object.freeze([]),
+    capabilityRegistryVersion: "growth-capabilities.v1"
+  });
+
+  assert.deepEqual(enabledServerGrowthFeatures(context), [
+    "catalog",
+    "quotes",
+    "finance",
+    "roi",
+    "advisor"
+  ]);
+});
 
 test("server shutdown attempts Growth, HTTP, and store cleanup after Acquisition rejects", async () => {
   const events: string[] = [];

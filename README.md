@@ -26,6 +26,8 @@ tools/      跨 workspace 工程门禁
 
 环境变量从根目录 `.env.example` 复制到本地 `.env` 后填写。不要提交 `.env`、数据库连接、Cookie、token 或客户数据。
 
+真实本地模式固定使用 `127.0.0.1:3307`、数据库 `shensi_sales` 和应用账号 `shensi_sales_app@127.0.0.1`。将 `.env.example` 中的变量名复制到 Git 忽略的 `.env.real.local`，在本机填写 `MYSQL_LOCAL_ADMIN_URL`、`SHENSI_MYSQL_APP_PASSWORD`、`DATABASE_URL` 以及各项应用密钥；`DATABASE_URL` 中的应用密码必须与 `SHENSI_MYSQL_APP_PASSWORD` 一致。凭据只能在本机输入，禁止粘贴到聊天、日志、提交或测试快照中。
+
 ## 安装与开发
 
 ```bash
@@ -35,7 +37,16 @@ pnpm --filter goodjob-crm-frontend dev
 
 前端默认地址为 `http://127.0.0.1:5188/#agents`。`/`、空 Hash、`#dashboard` 和未知 Hash 都会自动规范化到 `#agents`；获客、私域、成交、工作流以及 Growth/财务深链仍由同一黑色壳承载。
 
-需要同时启动 MySQL 模式后端和前端时运行 `pnpm dev`。也可以分别运行：
+需要可重复地启动真实本地模式时，先用本机 MySQL 管理账号做一次最小权限初始化，再启动唯一的黑色前端壳与后端：
+
+```bash
+pnpm setup:mysql:local
+pnpm dev:real
+```
+
+初始化命令只创建数据库 `shensi_sales` 和账号 `shensi_sales_app@127.0.0.1`，且仅授予该数据库范围内的 `SELECT`、`INSERT`、`UPDATE`、`DELETE`、`CREATE`、`ALTER`、`INDEX`、`REFERENCES` 权限。`pnpm dev:real` 以 `CRM_STORE=mysql` 启动 `http://127.0.0.1:4188`，并让 `http://127.0.0.1:5188/#agents` 通过真实 session、CSRF 与 `/api/auth/*` 登录；任一进程可用 `Ctrl-C` 一并停止。真实模式的 MySQL 不可用时后端会失败关闭，不回退到 memory。
+
+普通开发需要同时启动 MySQL 模式后端和前端时运行 `pnpm dev`。也可以分别运行：
 
 ```bash
 pnpm --filter ./backend dev
