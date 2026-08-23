@@ -27,10 +27,24 @@ function createDocument() {
     <button id="loginButton"></button>
     <input id="loginEmail" />
     <input id="loginPassword" />
-    <button class="replica-user"></button>
+    <button class="replica-user" id="replicaLogoutButton"></button>
     <strong data-session-user-name></strong>
     <small data-session-user-role></small>
   </body></html>`).document;
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((fulfil) => {
+    resolve = fulfil;
+  });
+  return { promise, resolve };
+}
+
+function click(document: Document, selector: string) {
+  const event = document.createEvent("Event");
+  event.initEvent("click", true, true);
+  document.querySelector<HTMLElement>(selector)?.dispatchEvent(event);
 }
 
 {
@@ -108,6 +122,134 @@ function createDocument() {
   assert.equal(storage.getItem("gj_user"), null);
   assert.equal(document.body.classList.contains("is-authenticated"), false);
   assert.deepEqual(events, [false]);
+  controller.destroy();
+}
+
+{
+  const document = createDocument();
+  const storage = createStorage({ gj_user: JSON.stringify(admin) });
+  const events: boolean[] = [];
+  const meResponse = createDeferred<Response>();
+  let requestCount = 0;
+  document.addEventListener("goodjob:auth-state-changed", (event) => {
+    events.push((event as CustomEvent<{ authenticated: boolean }>).detail.authenticated);
+  });
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage,
+    demoMode: false,
+    fetchImpl: async () => {
+      requestCount += 1;
+      return meResponse.promise;
+    }
+  });
+
+  const firstStart = controller.start();
+  const repeatedStart = controller.start();
+  assert.equal(requestCount, 1);
+  meResponse.resolve(new Response(JSON.stringify({ user: admin }), { status: 200 }));
+  await Promise.all([firstStart, repeatedStart]);
+  assert.equal(document.body.classList.contains("is-authenticated"), true);
+  assert.deepEqual(events, [true]);
+  controller.destroy();
+}
+
+{
+  const document = createDocument();
+  const storage = createStorage();
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage,
+    demoMode: true
+  });
+
+  await controller.start();
+  controller.destroy();
+  click(document, "#loginButton");
+  await Promise.resolve();
+  assert.equal(document.body.classList.contains("is-authenticated"), false);
+  assert.equal(storage.getItem("gj_user"), null);
+}
+
+{
+  const document = createDocument();
+  const storage = createStorage({ gj_user: JSON.stringify(admin) });
+  const events: boolean[] = [];
+  const meResponse = createDeferred<Response>();
+  document.addEventListener("goodjob:auth-state-changed", (event) => {
+    events.push((event as CustomEvent<{ authenticated: boolean }>).detail.authenticated);
+  });
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage,
+    demoMode: false,
+    fetchImpl: async (path) => String(path) === "/api/auth/me"
+      ? meResponse.promise
+      : new Response(JSON.stringify({}), { status: 200 })
+  });
+
+  const restoring = controller.start();
+  await controller.logout();
+  meResponse.resolve(new Response(JSON.stringify({ user: admin }), { status: 200 }));
+  await restoring;
+  assert.equal(storage.getItem("gj_user"), null);
+  assert.equal(document.body.classList.contains("is-authenticated"), false);
+  assert.deepEqual(events, [false]);
+  controller.destroy();
+}
+
+{
+  const document = createDocument();
+  const storedSession = JSON.stringify({ ...admin, name: "Stored user" });
+  const storage = createStorage({ gj_user: storedSession });
+  const events: boolean[] = [];
+  const meResponse = createDeferred<Response>();
+  document.addEventListener("goodjob:auth-state-changed", (event) => {
+    events.push((event as CustomEvent<{ authenticated: boolean }>).detail.authenticated);
+  });
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage,
+    demoMode: false,
+    fetchImpl: async () => meResponse.promise
+  });
+
+  const restoring = controller.start();
+  controller.destroy();
+  meResponse.resolve(new Response(JSON.stringify({ user: admin }), { status: 200 }));
+  await restoring;
+  assert.equal(storage.getItem("gj_user"), storedSession);
+  assert.equal(document.body.classList.contains("is-authenticated"), false);
+  assert.deepEqual(events, []);
+}
+
+{
+  const document = createDocument();
+  const storage = createStorage({ gj_user: JSON.stringify(admin) });
+  const unhandled: unknown[] = [];
+  const onUnhandledRejection = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandledRejection);
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage,
+    demoMode: false,
+    fetchImpl: async (path) => String(path) === "/api/auth/me"
+      ? new Response(JSON.stringify({ user: admin }), { status: 200 })
+      : new Response(JSON.stringify({ message: "服务暂不可用" }), { status: 503 })
+  });
+
+  await controller.start();
+  click(document, "#replicaLogoutButton");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  process.off("unhandledRejection", onUnhandledRejection);
+  assert.equal(storage.getItem("gj_user"), null);
+  assert.equal(document.body.classList.contains("is-authenticated"), false);
+  assert.deepEqual(unhandled, []);
   controller.destroy();
 }
 

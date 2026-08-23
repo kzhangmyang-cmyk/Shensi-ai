@@ -72,9 +72,17 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
   const cookieSource = options.cookieSource ?? (() => documentRef.cookie);
   const demoMode = options.demoMode ?? (import.meta.env.DEV && !import.meta.env.VITE_API_TARGET?.trim());
   let started = false;
+  let lifecycleGeneration = 0;
 
   const loginButton = documentRef.querySelector<HTMLButtonElement>("#loginButton");
-  const logoutButton = documentRef.querySelector<HTMLButtonElement>("#logoutButton");
+  const logoutButton = documentRef.querySelector<HTMLButtonElement>("#replicaLogoutButton");
+
+  const beginAuthenticationOperation = () => {
+    lifecycleGeneration += 1;
+    return lifecycleGeneration;
+  };
+
+  const isCurrentOperation = (generation: number) => generation === lifecycleGeneration;
 
   const publishAuthenticationState = (authenticated: boolean) => {
     const event = documentRef.createEvent("CustomEvent");
@@ -106,7 +114,11 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
     publishAuthenticationState(true);
   };
 
-  const request = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+  const request = async <T>(
+    path: string,
+    init: RequestInit = {},
+    generation = lifecycleGeneration
+  ): Promise<T> => {
     const method = (init.method ?? "GET").toUpperCase();
     const csrfToken = readCookie(cookieSource, "gj_csrf");
     const response = await fetchImpl(path, {
@@ -119,7 +131,7 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
       }
     });
     if (!response.ok) {
-      if (response.status === 401) clearLocalSession();
+      if (response.status === 401 && isCurrentOperation(generation)) clearLocalSession();
       const body = await response.json().catch(() => ({ message: "请求失败" }));
       throw new Error(typeof body?.message === "string" ? body.message : "请求失败");
     }
@@ -132,51 +144,55 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
     void controller.login(email, password).catch(() => undefined);
   };
   const onLogoutClick = () => {
-    void controller.logout();
+    void controller.logout().catch(() => undefined);
   };
 
   const controller: AppSessionController = {
     async start() {
       if (started) return;
       started = true;
+      const generation = beginAuthenticationOperation();
       loginButton?.addEventListener("click", onLoginClick);
       logoutButton?.addEventListener("click", onLogoutClick);
 
       if (!storage.getItem(STORAGE_KEY)) return;
       if (demoMode) {
-        applyAuthenticatedUser(createDemoAdmin());
+        if (isCurrentOperation(generation)) applyAuthenticatedUser(createDemoAdmin());
         return;
       }
       try {
-        const result = await request<{ user: AppUser }>("/api/auth/me");
-        applyAuthenticatedUser(result.user);
+        const result = await request<{ user: AppUser }>("/api/auth/me", {}, generation);
+        if (isCurrentOperation(generation)) applyAuthenticatedUser(result.user);
       } catch {
         // A failed session check must never leave a stale local login active.
-        clearLocalSession();
+        if (isCurrentOperation(generation)) clearLocalSession();
       }
     },
 
     async login(_email: string, password: string) {
+      const generation = beginAuthenticationOperation();
       if (demoMode) {
-        applyAuthenticatedUser(createDemoAdmin());
+        if (isCurrentOperation(generation)) applyAuthenticatedUser(createDemoAdmin());
         return;
       }
       const result = await request<{ user: AppUser }>("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({ email: _email, password })
-      });
-      applyAuthenticatedUser(result.user);
+      }, generation);
+      if (isCurrentOperation(generation)) applyAuthenticatedUser(result.user);
     },
 
     async logout() {
+      const generation = beginAuthenticationOperation();
       try {
-        if (!demoMode) await request<void>("/api/auth/logout", { method: "POST" });
+        if (!demoMode) await request<void>("/api/auth/logout", { method: "POST" }, generation);
       } finally {
-        clearLocalSession();
+        if (isCurrentOperation(generation)) clearLocalSession();
       }
     },
 
     destroy() {
+      beginAuthenticationOperation();
       if (!started) return;
       loginButton?.removeEventListener("click", onLoginClick);
       logoutButton?.removeEventListener("click", onLogoutClick);
