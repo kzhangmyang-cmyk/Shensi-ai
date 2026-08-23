@@ -1,6 +1,6 @@
 # 真实财务委员会运行手册
 
-当前状态：实施完成，真实供应商验收待凭据。本地隔离 MySQL 的迁移、并发竞态与跨实例恢复已验证；当前无真实双供应商连接凭据，无拦截 Chromium 闭环仍因三表运行在 `financial_finding_invalid` 处失败，不得将其记为通过。
+当前状态：实施完成，真实供应商验收待凭据。本地隔离 MySQL 的迁移、并发竞态与跨实例恢复已验证；当前无真实双供应商连接凭据。仅三表输入无法证明 30/90 天现金预测，必须稳定进入 `not_computable`；新增可信预测输入合同前，无拦截 Chromium 不可记为审批闭环通过。
 
 ## MySQL 8.4（3307）
 
@@ -28,7 +28,7 @@
 - `MYSQL_TEST_ADMIN_URL_REQUIRED:financial-council-real-runtime`：未提供隔离测试管理连接；非零退出，不能 skip。
 - `LIVE_PROVIDER_*_REQUIRED`、`LIVE_PROVIDER_PAIR_MUST_USE_DISTINCT_PROVIDERS`、`LIVE_PROVIDER_*_NOT_READY`：补齐环境或连接中心状态后重跑，不得在日志打印 cause/body/URL/secret。
 - `financial_council_lease_stale`：旧 lease 或精确过期时刻写入被正常拒绝；由新 runtime 重新 claim，不要手工改 token。
-- `financial_finding_invalid`：当前真实三表 Chromium 闭环的已知阻断点；保留随机库/trace 之外的脱敏元数据进行定位，不降级为 fixture route。
+- `not_computable`：三表-only package 的预期安全状态。package 保留 `source_statements_do_not_provide_forecast` 缺口，snapshot/formula catalog 不得用历史现金流伪造预测；在可信 forecast 输入合同上线前不可审批。
 
 ## 门禁与回滚
 

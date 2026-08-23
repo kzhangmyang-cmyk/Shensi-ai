@@ -2,7 +2,7 @@
 
 ## 结论
 
-DONE_WITH_CONCERNS。隔离真实 MySQL 的 schema upgrade、双连接竞态、精确过期/ABA lease 拒绝、跨两 runtime 恢复与 outbox receipt replay 已通过。双供应商 smoke 因当前环境缺 `DATABASE_URL`、两个 workspace connection ID 和官方解密/JWT 环境而安全非零 BLOCKED。无拦截 Chromium 使用真实 MySQL/session/CSRF/routes，但 worker 在 finance `FinancialFindingValidator` 准备阶段以 `financial_finding_invalid` 失败，因此不声称浏览器或整体真实验收通过。
+DONE_WITH_CONCERNS。隔离真实 MySQL 的 schema upgrade、双连接竞态、精确过期/ABA lease 拒绝、跨两 runtime 恢复与 outbox receipt replay 已通过。双供应商 smoke 因当前环境缺 `DATABASE_URL`、两个 workspace connection ID 和官方解密/JWT 环境而安全非零 BLOCKED。三表-only 运行已从公式重算不一致修复为稳定 `not_computable`；因为三表无法证明 30/90 天预测且 `cashflow` 是 critical hard constraint，新增可信预测输入合同前无拦截 Chromium 不可到达审批闭环。
 
 ## RED / GREEN
 
@@ -12,7 +12,9 @@ DONE_WITH_CONCERNS。隔离真实 MySQL 的 schema upgrade、双连接竞态、�
 - Browser RED 1：非 ISO 期间导致 `financial_statement_period_required`；已改 ISO 期间。
 - Browser RED 2：package-run 错发到 legacy create endpoint；已改为 `/api/v1/finance/council-runs/from-statement-package`。
 - Browser RED 3：前端把模型 routing policy ID 作为公式 policy ID；已通过现有 `/api/v1/finance/council-policy` 分别加载与绑定，real API/controller self-tests 与 types pass。
-- Browser 最终状态：FAIL。真实链路到达 package commit、run create、revision 3 `analyzing`，随后 `financial_finding_invalid`；`awaiting_approval` 60s 断言失败。已撤销临时诊断仪器和未验证推测修复。
+- Follow-up RED：用现有真实 XLSX parser、in-memory package 与真实 council pipeline 的最小后端测试稳定复现 `financial_formula_input_invalid`。首个不一致字段为 `formulaInputs.cashflow`：snapshot 识别 package forecast 为 not-computable，formula catalog 却重算为 computed。
+- Follow-up GREEN：formula catalog 使用与 snapshot 相同的 forecast-presence 条件；focused formula/snapshot/statement-package suite 27/27 pass，三表-only pipeline 稳定终止于 `not_computable`。
+- Browser 最终状态仍为 FAIL。旧 trace 到达 package commit、run create、revision 3 `analyzing`；修复后的最小后端证据证明三表-only 不能合法到达 `awaiting_approval`。没有放宽 validator/critical cashflow，也没有伪造 forecast。
 
 ## 真实 MySQL / races / restart
 
@@ -46,13 +48,15 @@ PASS：
 - MySQL restart：1/1。
 - `git diff --check`：exit 0。
 - `pnpm build`：exit 0（contracts types + backend TypeScript + frontend production build）。
+- follow-up focused formula/snapshot/statement-package：27 pass / 0 fail / 0 skip。
+- `pnpm --filter ./backend test:financial-council`：366 pass / 0 fail / 2 MySQL-env skip。
 - root/backend/frontend lockfiles 相对 BASE `2eac052`：0 changes。
 
 BLOCKED/FAIL/not run：
 
 - live providers：BLOCKED, `DATABASE_URL_REQUIRED`。
-- no-intercept Chromium：FAIL, `financial_finding_invalid`。
-- 由于已知 Chromium 失败且无真实 provider 凭据，不声称完整 release gate、root build 或全量 frontend/backend suites 在本次最终状态中通过。
+- no-intercept Chromium：FAIL；三表-only 按安全合同为 `not_computable`，而当前 spec 要求 `awaiting_approval`。
+- 由于已知 Chromium 失败且无真实 provider 凭据，不声称完整 release gate 通过。
 - 既有 `test:financial-council:mysql` 定向运行曾显示 71 pass / 1 fail / 2 skip，故不列入 PASS。
 
 ## 安全 / locks / 文档
@@ -64,8 +68,8 @@ BLOCKED/FAIL/not run：
 
 ## Self-review / concerns
 
-已自查 fail-closed env gates、隔离 DB lifecycle、双连接身份、lease 精确边界、fallback 零 primary 网络、readiness 脱敏、无拦截静态合同。主要 concern 是真实三表生成的 run 在 worker validator 准备阶段失败；下一步应以最小后端 statement-package -> snapshot -> validator 测试定位，不应放宽 validator 或改用网络拦截。
+已自查 fail-closed env gates、隔离 DB lifecycle、双连接身份、lease 精确边界、fallback 零 primary 网络、readiness 脱敏、无拦截静态合同。主要 concern 是已批准合同之间的验收目标冲突：三表 package 必须声明 forecast 不可计算，critical cashflow 又必须阻止不安全审批。下一步是单独设计并审批可信 30/90 天预测输入/证据合同，不是放宽 validator 或伪造数据。
 
 ## Commit
 
-目标提交：`test(finance): verify the real financial council runtime`。提交 hash 在 commit 后回填/交付。
+主提交：`16a3a91 test(finance): verify the real financial council runtime`。Follow-up 提交单独交付。

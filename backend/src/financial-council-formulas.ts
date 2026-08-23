@@ -421,7 +421,7 @@ function canonicalFormulaInputs(
   const customers = [...analyzeCustomerProfit(report)]
     .sort((left, right) => compare(left.name, right.name));
   const cashflowAnalysis = analyzeCashflow(report, normalized.closingCashMinor);
-  const cashflow = report.cashFlow
+  const cashflow = report.cashFlow && !("forecast" in report.cashFlow)
     ? { status: "computed" as const,
         ...cashflowAnalysis,
         warning: Object.freeze([...cashflowAnalysis.warning].sort(compare)) }

@@ -245,4 +245,4 @@ pnpm --filter goodjob-crm-frontend run test:e2e:financial-council:real
 
 可通过 `FINANCIAL_COUNCIL_E2E_USER`、`FINANCIAL_COUNCIL_E2E_PASSWORD` 和
 `FINANCIAL_COUNCIL_E2E_DATA_AS_OF` 覆盖 test-only server 的默认账号与数据截止时间。
-未提供 `MYSQL_TEST_ADMIN_URL` 时，不能将真实 MySQL/browser 验收记为通过。Task 8 的随机库迁移/竞态和跨 runtime 恢复已真实通过；当前无 route-intercept Chromium 三表纵向测试在 worker 的 `financial_finding_invalid` 失败，真实双供应商门禁因凭据缺失 BLOCKED。模型输出仍使用确定性 acceptance-only adapter，不代表真实供应商验收。
+未提供 `MYSQL_TEST_ADMIN_URL` 时，不能将真实 MySQL/browser 验收记为通过。Task 8 的随机库迁移/竞态和跨 runtime 恢复已真实通过，真实双供应商门禁因凭据缺失 BLOCKED。三表 parser 会如实标记 30/90 天 forecast `not_computable`，而 `cashflow` 是 critical hard constraint；因此三表-only run 必须稳定进入 `not_computable`。在有可信预测输入合同前，无 route-intercept Chromium 不可声称 `awaiting_approval` 或审批闭环通过。

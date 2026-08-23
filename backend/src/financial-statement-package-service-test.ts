@@ -5,6 +5,16 @@ import { InMemoryFinancialStatementPackageRepository } from
   "./financial-statement-package-repository.js";
 import { FinancialStatementPackageService } from
   "./financial-statement-package-service.js";
+import {
+  createFinancialCouncilIntegrationFixture,
+  financialCouncilIntegrationCommand,
+  financialCouncilIntegrationPolicyInput,
+  financialCouncilIntegrationWorkspace
+} from "./financial-council-integration-fixtures.js";
+import { validateFinancialSnapshotForRun } from
+  "./financial-council-snapshot.js";
+import { buildFinancialFormulaCatalog } from
+  "./financial-council-formulas.js";
 
 function upload(kind: "balance_sheet" | "income_statement"
   | "cash_flow_statement", rows: readonly (readonly unknown[])[]) {
@@ -84,4 +94,66 @@ test("secure upload parser rejects formulas", async () => {
     { uploads: [files[0], formula, files[2]] }),
   (error: unknown) => (error as { code?: string }).code ===
     "financial_statement_formula_forbidden");
+});
+
+test("three-statement package reaches explicit not-computable council state",
+  async () => {
+  const repository = new InMemoryFinancialStatementPackageRepository();
+  const service = new FinancialStatementPackageService({ repository,
+    now: () => "2026-08-16T08:09:00.000Z",
+    ids: { next: () => "three-statement-preview" } });
+  const context = { workspaceId: "council-e2e", actorId: "council-admin",
+    idempotencyKey: "three-statement-preview-key",
+    requestHash: `sha256:${"7".repeat(64)}` as const };
+  const preview = await service.preview(context, { uploads: uploads() });
+  const committed = await service.commit({ ...context,
+    idempotencyKey: "three-statement-commit-key",
+    requestHash: `sha256:${"8".repeat(64)}` }, {
+    previewId: preview.previewId,
+    consent: { accepted: true, noticeVersion: "financial-model-data.v1",
+      acceptedBy: context.actorId, acceptedAt: "2026-08-16T08:09:00.000Z" }
+  });
+  assert.deepEqual(committed.value.businessReport.cashFlow?.forecast,
+    { status: "not_computable",
+      reason: "source_statements_do_not_provide_forecast" });
+  const fixture = await createFinancialCouncilIntegrationFixture({
+    statementPackageRepository: service
+  });
+  try {
+    const initial = await fixture.service.getPolicy(
+      financialCouncilIntegrationWorkspace()
+    );
+    const policy = await fixture.service.updatePolicy(
+      financialCouncilIntegrationCommand("three-statement-policy",
+        initial.revision), financialCouncilIntegrationPolicyInput()
+    );
+    const created = await fixture.service.createRunFromStatementPackage(
+      financialCouncilIntegrationCommand("three-statement-run", null), {
+        statementPackageId: committed.value.packageId,
+        policyVersionId: policy.value.policyVersionId
+      }
+    );
+    const verified = await fixture.repository.getVerifiedRunSnapshot(
+      financialCouncilIntegrationWorkspace(), created.value.runId
+    );
+    assert.ok(verified);
+    const snapshot = validateFinancialSnapshotForRun(
+      verified.snapshot, verified.run
+    );
+    assert.deepEqual(snapshot.formulaInputs.cashflow,
+      { status: "not_computable", reason: "cash_flow_missing" });
+    const catalog = buildFinancialFormulaCatalog({ snapshot,
+      businessReport: verified.run.businessReport,
+      policy: { formulaPolicyVersion: "financial-council-formula-policy.v1",
+        minimumProductMarginBps: 1_000,
+        minimumCashReserveMinor: 900_000 } });
+    assert.ok(catalog.dataGaps.some((gap) =>
+      gap.formulaId === "cashflow_forecast"));
+    await fixture.pipeline.wake(created.value);
+    assert.equal((await fixture.service.getRun(
+      financialCouncilIntegrationWorkspace(), created.value.runId
+    )).status, "not_computable");
+  } finally {
+    await fixture.close();
+  }
 });

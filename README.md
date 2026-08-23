@@ -85,7 +85,7 @@ pnpm test:e2e:financial-council:real
 
 没有 `MYSQL_TEST_ADMIN_URL` 时，该真实验收属于阻塞，不能以 Memory 或 fake MySQL 结果替代。
 
-当前 Task 8 状态为“实施完成，真实供应商验收待凭据”：隔离 MySQL 的并发竞态与跨 runtime 恢复已通过；真实双供应商因未配置连接 ID/解密环境而 BLOCKED，无拦截 Chromium 三表闭环当前在 `financial_finding_invalid` 失败。详见 [真实财务委员会运行手册](docs/operations/financial-council-real-runtime.md)。
+当前 Task 8 状态为“实施完成，真实供应商验收待凭据”：隔离 MySQL 的并发竞态与跨 runtime 恢复已通过；真实双供应商因未配置连接 ID/解密环境而 BLOCKED。仅三表输入按安全合同必须稳定进入 `not_computable`：三表不能证明 30/90 天现金预测，而 `cashflow` 是 critical hard constraint。在新增可信预测输入合同前，无拦截 Chromium 不可到达 `awaiting_approval`。详见 [真实财务委员会运行手册](docs/operations/financial-council-real-runtime.md)。
 
 ## 主要能力
 
