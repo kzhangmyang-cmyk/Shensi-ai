@@ -25,9 +25,10 @@ services:
       CRM_STORE: mysql
       BACKEND_HOST: 0.0.0.0
       PORT: 4188
+      TRUSTED_PROXY_CIDRS: 172.30.0.4/32
     depends_on:
       mysql: { condition: service_healthy }
-    networks: [shensi_internal]
+    networks: [shensi_internal, shensi_egress]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4188/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s
@@ -46,7 +47,9 @@ services:
     depends_on:
       backend: { condition: service_healthy }
       frontend: { condition: service_started }
-    networks: [shensi_internal]
+    networks:
+      shensi_internal:
+        ipv4_address: 172.30.0.4
 secrets:
   mysql_app_password: { file: ./secrets/mysql_app_password }
   mysql_root_password: { file: ./secrets/mysql_root_password }
@@ -55,3 +58,7 @@ volumes:
 networks:
   shensi_internal:
     internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  shensi_egress:

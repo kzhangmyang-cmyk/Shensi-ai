@@ -73,8 +73,9 @@ release bytes in place. See `docs/API_INDEX.md`.
 - The canonical repository is this checkout, not the legacy import source.
 - The current local real-runtime database name is still `shensi_sales`.
 - `deploy/compose.yaml` defines the production MySQL, backend, frontend, and
-  gateway topology. Only the gateway publishes HTTP; the other services use
-  the internal Compose network.
+  gateway topology. Only the gateway publishes HTTP; MySQL, frontend, and the
+  gateway use the internal Compose network only, while the backend also has a
+  separate egress network for outbound integrations.
 - Canonical live-data migration tooling is not present yet; it remains an
   explicit next task, not an implicit capability.
 - Source databases are read-only migration inputs. Restore and verification

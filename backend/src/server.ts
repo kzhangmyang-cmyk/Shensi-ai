@@ -92,7 +92,7 @@ import { ProspectScheduler } from "./prospect-scheduler.js";
 import { ProspectWorkerService } from "./prospect-worker-service.js";
 import { loadLocalEnv } from "./runtime-env.js";
 import { registerSwagger } from "./swagger.js";
-import { resolveBackendHost } from "./server-network.js";
+import { resolveBackendHost, resolveTrustedProxy } from "./server-network.js";
 import {
   createAcquisitionApplication
 } from "./acquisition-application.js";
@@ -503,7 +503,7 @@ async function synchronizeProspectQueue() {
 }
 
 app.disable("x-powered-by");
-app.set("trust proxy", "loopback");
+app.set("trust proxy", resolveTrustedProxy());
 const allowedOrigins = new Set((process.env.CORS_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())

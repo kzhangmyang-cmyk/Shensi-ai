@@ -11,7 +11,7 @@ import {
 } from "./credential-security.js";
 import { assertPublicHttpUrl } from "./outbound-security.js";
 import { setProviderHttpTestTransport } from "./provider-http-client.js";
-import { resolveBackendHost } from "./server-network.js";
+import { resolveBackendHost, resolveTrustedProxy } from "./server-network.js";
 import { getStore } from "./store.js";
 
 const TEST_JWT_SECRET = "goodjob-security-test-secret-at-least-32-characters";
@@ -73,6 +73,22 @@ try {
   }
   if (resolveBackendHost({ NODE_ENV: "production", BACKEND_HOST: "0.0.0.0" }) !== "0.0.0.0") {
     throw new Error("production backend must allow the Compose internal-network host");
+  }
+  if (
+    JSON.stringify(resolveTrustedProxy({
+      NODE_ENV: "production",
+      TRUSTED_PROXY_CIDRS: "172.30.0.4/32"
+    })) !== JSON.stringify(["loopback", "172.30.0.4/32"])
+  ) {
+    throw new Error("production backend must trust only the fixed Compose gateway hop");
+  }
+  for (const unsafeTrustedProxy of ["172.30.0.0/24", "10.0.0.8/32", "172.30.0.4/32,10.0.0.8/32"]) {
+    try {
+      resolveTrustedProxy({ NODE_ENV: "production", TRUSTED_PROXY_CIDRS: unsafeTrustedProxy });
+      throw new Error(`production trusted proxy unexpectedly accepted ${unsafeTrustedProxy}`);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("production trusted proxy unexpectedly")) throw error;
+    }
   }
   for (const unsafeHost of ["::", "10.0.0.8"]) {
     try {

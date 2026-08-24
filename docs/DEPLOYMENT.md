@@ -13,8 +13,16 @@ services on the isolated `shensi_internal` network:
 
 The backend is not published to the host. It listens on `0.0.0.0` only so the
 internal gateway can reach it; Compose's internal network is its network
-boundary. Production always sets `NODE_ENV=production` and `CRM_STORE=mysql`;
-memory/demo persistence is not a production fallback.
+boundary. The backend alone also joins the egress-enabled `shensi_egress`
+network for approved provider, search, email, and Twilio calls. MySQL,
+frontend, and gateway remain only on `shensi_internal`. Production always sets
+`NODE_ENV=production` and `CRM_STORE=mysql`; memory/demo persistence is not a
+production fallback.
+
+The internal gateway has fixed address `172.30.0.4` on the private
+`172.30.0.0/24` network. Compose sets `TRUSTED_PROXY_CIDRS=172.30.0.4/32` for
+the backend, so Express trusts only that gateway hop plus loopback. Do not
+widen this value or publish a backend port.
 
 ### Prerequisites
 
@@ -44,15 +52,23 @@ generated values into shell history, tracked files, or logs.
 ```bash
 umask 077
 mkdir -p deploy/secrets
-openssl rand -base64 36 > deploy/secrets/mysql_app_password
-openssl rand -base64 36 > deploy/secrets/mysql_root_password
+openssl rand -base64 36 | tr -d '\\n' > deploy/secrets/mysql_app_password
+openssl rand -base64 36 | tr -d '\\n' > deploy/secrets/mysql_root_password
 ```
 
 Set `DATABASE_URL` in `.env.production.local` to a URL whose user is
 `shensi_app`, host is `mysql`, port is `3306`, and database is `shensi`. Its
-password must be the exact content of `mysql_app_password`, URL-encoded for a
-database URL. Keep strong punctuation in the password; encode it instead of
-weakening it. `SHENSI_HTTP_PORT` is optional and defaults to `8080`.
+password must be the exact newline-free content of `mysql_app_password`,
+URL-encoded for a database URL. Keep strong punctuation in the password;
+encode it instead of weakening it. After copying `.env.example`, use this
+deterministic command to update `DATABASE_URL` in the ignored production file
+without printing the password or its encoded form:
+
+```bash
+node -e 'const fs=require("node:fs"); const envPath=".env.production.local"; const password=fs.readFileSync("deploy/secrets/mysql_app_password","utf8"); if (!password || /[\\r\\n]/.test(password)) throw new Error("MYSQL_APP_PASSWORD_MUST_BE_NEWLINE_FREE"); const url=`mysql://shensi_app:${encodeURIComponent(password)}@mysql:3306/shensi`; const env=fs.readFileSync(envPath,"utf8"); if (!/^DATABASE_URL=.*$/m.test(env)) throw new Error("DATABASE_URL_REQUIRED"); fs.writeFileSync(envPath,env.replace(/^DATABASE_URL=.*$/m,`DATABASE_URL=${url}`));'
+```
+
+`SHENSI_HTTP_PORT` is optional and defaults to `8080`.
 
 ### Deploy and operate
 
