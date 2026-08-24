@@ -38,6 +38,18 @@ as non-root users. The current image references are `mysql:8.4.11`,
 `node:22.22.3-bookworm-slim`, and
 `nginxinc/nginx-unprivileged:1.27-alpine`.
 
+Use `./scripts/deploy` as the canonical production command. It accepts only
+MySQL persistence with `CRM_SEED_DEVELOPMENT_DATA=false`, checks
+`.env.production.local` has POSIX mode `0600`,
+requires the security values and owner-only MySQL secret files, confirms that
+the URL-encoded `DATABASE_URL` password and `SHENSI_MYSQL_APP_PASSWORD` agree
+with `deploy/secrets/mysql_app_password`, then renders, builds, starts, and
+health-checks Compose. It reports service state and public origin only; it
+never prints configuration or secret values. Docker Engine/Compose absence is
+a hard failure, not a successful deployment. The current execution environment
+does not have Docker; see the blocked entry in `docs/PROJECT_STATUS.md` for
+that recorded verification limitation.
+
 ### Configuration and secrets
 
 `.env.production.local` and `deploy/secrets/` are ignored and must never be
@@ -70,16 +82,17 @@ node -e 'const fs=require("node:fs"); const envPath=".env.production.local"; con
 
 `SHENSI_HTTP_PORT` is optional and defaults to `8080`.
 
+Set `SHENSI_MYSQL_APP_PASSWORD` in `.env.production.local` to the exact
+newline-free content of `deploy/secrets/mysql_app_password`; the wrapper uses
+it only for consistency validation and never prints it.
+
 ### Deploy and operate
 
 From the repository root, validate the rendered configuration and build/start
 the topology:
 
 ```bash
-docker compose -f deploy/compose.yaml --env-file .env.production.local config --quiet
-docker compose -f deploy/compose.yaml --env-file .env.production.local up --build -d
-docker compose -f deploy/compose.yaml --env-file .env.production.local ps
-curl --fail http://127.0.0.1:${SHENSI_HTTP_PORT:-8080}/healthz
+./scripts/deploy
 ```
 
 The gateway health endpoint is `/healthz`; the backend container healthcheck
@@ -123,7 +136,22 @@ read-only migration inputs.
 
 ## Local and Baota entry points
 
-Local development uses root package scripts:
+Canonical local development uses the ignored `.env.local` with real MySQL and
+the required runtime security keys:
+
+```bash
+cp .env.example .env.local
+./scripts/dev
+./scripts/verify
+```
+
+The development wrapper reserves `4191` for the API and `5191` for Vite before
+starting either process, forces `CRM_STORE=mysql`, and gives Vite
+`VITE_API_TARGET=http://127.0.0.1:4191`. `./scripts/verify` runs the context,
+contract, backend-build, frontend-test/type/build, and local health gates;
+keep the local runtime running while it performs its health checks.
+
+The following root scripts remain useful for focused work:
 
 ```bash
 pnpm --filter ./backend dev

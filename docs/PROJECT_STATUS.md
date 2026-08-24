@@ -21,6 +21,10 @@ ledger.
 - The canonical production topology is `deploy/compose.yaml`: MySQL, backend,
   frontend, and a single public gateway service use an internal Compose
   network. Production backend persistence is MySQL only.
+- Canonical `./scripts/dev`, `./scripts/deploy`, and `./scripts/verify`
+  wrappers validate real MySQL/security configuration, fail closed for ports
+  and production secret-file permissions, and keep verification output free of
+  environment values.
 
 ## Active
 

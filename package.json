@@ -9,7 +9,9 @@
   "scripts": {
     "check:context": "node scripts/context-check.mjs",
     "dev": "concurrently \"pnpm --filter ./backend dev:mysql\" \"pnpm --filter ./frontend dev\"",
+    "dev:shensi": "node --env-file-if-exists=.env.local scripts/dev.mjs",
     "dev:mysql": "concurrently \"pnpm --filter ./backend dev:mysql\" \"pnpm --filter ./frontend dev\"",
+    "deploy:shensi": "node --env-file-if-exists=.env.production.local scripts/deploy.mjs",
     "dev:real": "node --env-file-if-exists=.env.real.local tools/start-real-local.mjs",
     "setup:mysql:local": "node --env-file-if-exists=.env.real.local backend/scripts/setup-local-mysql.ts",
     "build": "pnpm --filter ./contracts check:types && pnpm --filter ./backend build && pnpm --filter ./frontend build",
@@ -28,6 +30,7 @@
     "test:e2e:financial-council:real": "pnpm --filter ./frontend test:e2e:financial-council:real",
     "test:e2e:financial-council:real-runtime": "pnpm --filter ./frontend test:e2e:financial-council:real-runtime",
     "test:growth-release-gate": "node --test tools/growth-dual-repo-release-gate.test.mjs",
+    "verify:shensi": "node scripts/verify.mjs",
     "release:growth": "node tools/growth-dual-repo-release-gate.mjs"
   },
   "devDependencies": {

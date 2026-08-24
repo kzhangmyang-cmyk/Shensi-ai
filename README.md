@@ -5,6 +5,25 @@ teams. This repository is the canonical development path for the dark agent
 center frontend, the Express domain API and workers, the MySQL persistence
 layer, and the shared acquisition and Growth contracts.
 
+## Canonical commands
+
+For local MySQL-backed development, create the ignored file, replace its
+placeholders with real local values, and then use the canonical wrappers:
+
+```bash
+cp .env.example .env.local
+./scripts/dev
+./scripts/verify
+```
+
+For production, provision the production secrets and configuration described
+in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md), then run:
+
+```bash
+cp .env.example .env.production.local
+./scripts/deploy
+```
+
 ## Start here
 
 Read these files in order before changing the system:
@@ -56,7 +75,14 @@ provider encryption keys. Use `.env.example` only as a list of variable names.
 
 ## Local runtime
 
-The memory backend and frontend can be started separately:
+`./scripts/dev` reads `.env.local`, requires a real MySQL URL and the runtime
+security keys, reserves API port `4191` and frontend port `5191` before either
+process starts, and runs MySQL mode only. It forwards `SIGINT` and `SIGTERM`
+to both child processes and terminates them within a bounded shutdown window.
+Do not use memory mode as evidence for this runtime.
+
+The following direct commands are retained for focused development work; they
+are not the canonical runtime path:
 
 ```bash
 pnpm --filter ./backend dev
@@ -90,6 +116,7 @@ Run the current-context check before module work and all aggregate gates before
 claiming a repository-wide change is complete:
 
 ```bash
+./scripts/verify
 ./scripts/context-check
 pnpm test
 pnpm build
