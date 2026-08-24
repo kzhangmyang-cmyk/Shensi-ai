@@ -82,6 +82,7 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
   let started = false;
   let lifecycleGeneration = 0;
 
+  const loginForm = documentRef.querySelector<HTMLFormElement>("#loginForm");
   const loginButton = documentRef.querySelector<HTMLButtonElement>("#loginButton");
   const loginError = documentRef.querySelector<HTMLElement>("#loginError");
   const logoutButton = documentRef.querySelector<HTMLButtonElement>("#replicaLogoutButton");
@@ -98,6 +99,13 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
       : error instanceof TypeError
         ? "网络连接失败，请检查网络后重试"
         : "登录失败，请稍后重试";
+  };
+
+  const setLoginPending = (pending: boolean) => {
+    loginForm?.setAttribute("aria-busy", String(pending));
+    if (!loginButton) return;
+    loginButton.disabled = pending;
+    loginButton.textContent = pending ? "正在验证" : "登录工作台";
   };
 
   const beginAuthenticationOperation = () => {
@@ -168,7 +176,8 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
     return response.json() as Promise<T>;
   };
 
-  const onLoginClick = () => {
+  const onLoginSubmit = (event: Event) => {
+    event.preventDefault();
     const email = documentRef.querySelector<HTMLInputElement>("#loginEmail")?.value.trim() ?? "";
     const password = documentRef.querySelector<HTMLInputElement>("#loginPassword")?.value ?? "";
     void controller.login(email, password).catch(() => undefined);
@@ -182,7 +191,7 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
       if (started) return;
       started = true;
       const generation = beginAuthenticationOperation();
-      loginButton?.addEventListener("click", onLoginClick);
+      loginForm?.addEventListener("submit", onLoginSubmit);
       logoutButton?.addEventListener("click", onLogoutClick);
 
       if (!storage.getItem(STORAGE_KEY)) return;
@@ -202,6 +211,7 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
     async login(_email: string, password: string) {
       const generation = beginAuthenticationOperation();
       clearLoginError();
+      setLoginPending(true);
       try {
         if (demoMode) {
           if (_email.trim().toLowerCase() !== "admin@goodjob.com"
@@ -219,6 +229,8 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
       } catch (error) {
         if (isCurrentOperation(generation)) showSafeLoginError(error);
         throw error;
+      } finally {
+        if (isCurrentOperation(generation)) setLoginPending(false);
       }
     },
 
@@ -227,14 +239,18 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
       try {
         if (!demoMode) await request<void>("/api/auth/logout", { method: "POST" }, generation);
       } finally {
-        if (isCurrentOperation(generation)) clearLocalSession();
+        if (isCurrentOperation(generation)) {
+          clearLocalSession();
+          setLoginPending(false);
+        }
       }
     },
 
     destroy() {
       beginAuthenticationOperation();
+      setLoginPending(false);
       if (!started) return;
-      loginButton?.removeEventListener("click", onLoginClick);
+      loginForm?.removeEventListener("submit", onLoginSubmit);
       logoutButton?.removeEventListener("click", onLogoutClick);
       started = false;
     }

@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
 import { createAppSessionController, type AppUser } from "./app-session";
 
@@ -24,10 +25,12 @@ function createStorage(initial: Record<string, string> = {}): MemoryStorage {
 
 function createDocument() {
   return parseHTML(`<!doctype html><html><body>
-    <button id="loginButton"></button>
-    <input id="loginEmail" />
-    <input id="loginPassword" />
-    <p id="loginError" role="alert" aria-live="polite"></p>
+    <form id="loginForm" aria-busy="false">
+      <button id="loginButton"></button>
+      <input id="loginEmail" />
+      <input id="loginPassword" />
+      <p id="loginError" role="alert" aria-live="polite"></p>
+    </form>
     <button class="replica-user" id="replicaLogoutButton"></button>
     <strong data-session-user-name></strong>
     <small data-session-user-role></small>
@@ -99,6 +102,63 @@ function click(document: Document, selector: string) {
   const event = document.createEvent("Event");
   event.initEvent("click", true, true);
   document.querySelector<HTMLElement>(selector)?.dispatchEvent(event);
+}
+
+{
+  const document = createDocument();
+  const pending = createDeferred<Response>();
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage: createStorage(),
+    demoMode: false,
+    fetchImpl: async () => pending.promise
+  });
+
+  const login = controller.login("owner@example.com", "correct-password");
+  assert.equal(document.querySelector<HTMLButtonElement>("#loginButton")?.disabled, true);
+  assert.equal(document.querySelector("#loginForm")?.getAttribute("aria-busy"), "true");
+  pending.resolve(new Response(JSON.stringify({ user: admin }), {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  }));
+  await login;
+  assert.equal(document.querySelector<HTMLButtonElement>("#loginButton")?.disabled, false);
+  assert.equal(document.querySelector("#loginForm")?.getAttribute("aria-busy"), "false");
+  controller.destroy();
+}
+
+{
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  assert.equal(html.includes("Shensi"), true);
+  assert.equal(html.includes('value="admin@goodjob.com"'), false);
+  assert.equal(html.includes('value="goodjob123"'), false);
+}
+
+{
+  const document = createDocument();
+  const first = createDeferred<Response>();
+  const second = createDeferred<Response>();
+  let requestCount = 0;
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage: createStorage(),
+    demoMode: false,
+    fetchImpl: async () => requestCount++ === 0 ? first.promise : second.promise
+  });
+
+  const staleLogin = controller.login("first@example.com", "first-password");
+  const currentLogin = controller.login("second@example.com", "second-password");
+  first.resolve(new Response(JSON.stringify({ user: admin }), { status: 200 }));
+  await staleLogin;
+  assert.equal(document.querySelector<HTMLButtonElement>("#loginButton")?.disabled, true);
+  assert.equal(document.querySelector("#loginForm")?.getAttribute("aria-busy"), "true");
+  second.resolve(new Response(JSON.stringify({ user: admin }), { status: 200 }));
+  await currentLogin;
+  assert.equal(document.querySelector<HTMLButtonElement>("#loginButton")?.disabled, false);
+  assert.equal(document.querySelector("#loginForm")?.getAttribute("aria-busy"), "false");
+  controller.destroy();
 }
 
 {

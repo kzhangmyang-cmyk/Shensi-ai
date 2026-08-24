@@ -11,30 +11,33 @@
   <link rel="stylesheet" href="/src/growth/styles.css" />
 </head>
 <body>
-  <section class="login-screen" aria-label="登录">
-    <div class="login-visual">
-      <div class="brand" style="border:0; padding:0; margin-bottom:34px">
-        <div class="brand-mark">GJ</div>
-        <div>
-          <strong>GoodJob 自动营销系统</strong>
-          <span>多渠道获客与成交自动化</span>
-        </div>
-      </div>
-      <h1>登录后进入你的自动营销工作台。</h1>
-      <p>支持 Mac 与 Windows，通过智能体或自动工作流完成获客、沟通、私域沉淀与成交推进。</p>
-      <div class="login-proof">
-        <div><b>RBAC</b><span>角色权限</span></div>
-        <div><b>Data Scope</b><span>数据范围隔离</span></div>
-        <div><b>Audit</b><span>操作审计</span></div>
-      </div>
+  <section class="login-screen shensi-login" aria-label="Shensi 登录">
+    <div class="shensi-login-story">
+      <a class="shensi-login-brand" href="#" aria-label="Shensi 首页">
+        <span class="shensi-login-mark" aria-hidden="true">S</span>
+        <span><strong>Shensi</strong><small>多智能体增长与经营系统</small></span>
+      </a>
+      <p class="shensi-login-kicker">AI OPERATING SYSTEM FOR GROWTH</p>
+      <h1>让获客、成交与财务决策，在同一个智能体系统里协作。</h1>
+      <p>真实数据、明确权限、完整审计。每一步自动化都保留人工批准边界。</p>
+      <ul class="shensi-login-capabilities" aria-label="系统能力">
+        <li>自动获客</li><li>客户经营</li><li>财务委员会</li><li>模型路由</li>
+      </ul>
     </div>
-    <div class="login-panel">
-      <h2>账号登录</h2>
-      <p>请输入已分配的账号和密码。系统内不提供账号切换，切换身份需退出后重新登录。</p>
-      <div class="login-field"><label>账号</label><input id="loginEmail" value="admin@goodjob.com" autocomplete="username"></div>
-      <div class="login-field"><label>密码</label><input id="loginPassword" type="password" value="goodjob123" autocomplete="current-password"></div>
-      <button class="btn primary" id="loginButton" style="width:100%; height:36px">登录系统</button>
-      <p class="login-error" id="loginError" role="status" aria-live="polite"></p>
+    <div class="shensi-login-panel">
+      <form id="loginForm" aria-busy="false">
+        <p class="shensi-login-eyebrow">SECURE WORKSPACE</p>
+        <h2>登录 Shensi</h2>
+        <p>使用管理员分配的企业账号进入工作区。</p>
+        <label class="login-field" for="loginEmail"><span>账号</span>
+          <input id="loginEmail" name="email" type="email" autocomplete="username" required>
+        </label>
+        <label class="login-field" for="loginPassword"><span>密码</span>
+          <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button type="submit" id="loginButton">登录工作台</button>
+        <p class="login-error" id="loginError" role="status" aria-live="polite"></p>
+      </form>
     </div>
   </section>
 
