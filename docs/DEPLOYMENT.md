@@ -41,8 +41,9 @@ as non-root users. The current image references are `mysql:8.4.11`,
 Use `./scripts/deploy` as the canonical production command. It accepts only
 MySQL persistence with `CRM_SEED_DEVELOPMENT_DATA=false`, checks
 `.env.production.local` has POSIX mode `0600`,
-requires the security values and owner-only MySQL secret files, confirms that
-the URL-encoded `DATABASE_URL` password and `SHENSI_MYSQL_APP_PASSWORD` agree
+requires the security values and owner-only MySQL secret files of at least 32
+bytes, confirms that the canonically URL-encoded `DATABASE_URL` password and
+`SHENSI_MYSQL_APP_PASSWORD` agree
 with `deploy/secrets/mysql_app_password`, then renders, builds, starts, and
 health-checks Compose. It reports service state and public origin only; it
 never prints configuration or secret values. Docker Engine/Compose absence is
@@ -71,8 +72,9 @@ openssl rand -base64 36 | tr -d '\n' > deploy/secrets/mysql_root_password
 Set `DATABASE_URL` in `.env.production.local` to a URL whose user is
 `shensi_app`, host is `mysql`, port is `3306`, and database is `shensi`. Its
 password must be the exact newline-free content of `mysql_app_password`,
-URL-encoded for a database URL. Keep strong punctuation in the password;
-encode it instead of weakening it. After copying `.env.example`, use this
+encoded exactly with JavaScript `encodeURIComponent` for a database URL. Keep
+strong punctuation in the password; encode it instead of weakening it. After
+copying `.env.example`, use this
 deterministic command to update `DATABASE_URL` in the ignored production file
 without printing the password or its encoded form:
 
@@ -98,6 +100,13 @@ the topology:
 The gateway health endpoint is `/healthz`; the backend container healthcheck
 calls `/api/health`; MySQL is healthy after `mysqladmin ping` succeeds. View
 service logs without exposing configuration values:
+
+Before deployment, the wrapper checks the host bind address `0.0.0.0`. It
+allows that port to be held by the running gateway from this exact Compose
+project for a redeploy, but rejects other owners. If `up -d` completes and the
+bounded health checks fail, it runs `docker compose down --remove-orphans`
+without volumes and reports only a stable cleanup result; it does not leave an
+unhealthy topology running.
 
 ```bash
 docker compose -f deploy/compose.yaml --env-file .env.production.local logs --follow --tail=100 gateway backend mysql

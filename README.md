@@ -77,8 +77,10 @@ provider encryption keys. Use `.env.example` only as a list of variable names.
 
 `./scripts/dev` reads `.env.local`, requires a real MySQL URL and the runtime
 security keys, reserves API port `4191` and frontend port `5191` before either
-process starts, and runs MySQL mode only. It forwards `SIGINT` and `SIGTERM`
-to both child processes and terminates them within a bounded shutdown window.
+process starts, and runs MySQL mode only. Vite uses `--strictPort`, so a port
+race fails rather than selecting a different port. It forwards `SIGINT` and
+`SIGTERM` to both child process trees and terminates them within a bounded
+shutdown window.
 Do not use memory mode as evidence for this runtime.
 
 The following direct commands are retained for focused development work; they

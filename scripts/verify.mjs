@@ -4,14 +4,11 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readEnvironmentFile } from "./dev.mjs";
 
-export function healthTargets(environment = process.env) {
+export function healthTargets(environment = {}) {
   const backendPort = Number(environment.SHENSI_BACKEND_PORT ?? 4191);
   const frontendPort = Number(environment.SHENSI_FRONTEND_PORT ?? 5191);
   if (!Number.isInteger(backendPort) || !Number.isInteger(frontendPort)) throw new Error("VERIFY_PORT_INVALID");
-  return [
-    { name: "backend", url: `http://127.0.0.1:${backendPort}/api/health` },
-    { name: "frontend", url: `http://127.0.0.1:${frontendPort}/` }
-  ];
+  return [{ name: "backend", url: `http://127.0.0.1:${backendPort}/api/health` }, { name: "frontend", url: `http://127.0.0.1:${frontendPort}/` }];
 }
 
 function run(root, command, argumentsList) {
@@ -19,36 +16,33 @@ function run(root, command, argumentsList) {
   if (result.error || result.status !== 0) throw new Error(`VERIFY_COMMAND_FAILED:${command}`);
 }
 
-export async function verifyHealth(environment = process.env) {
+export async function verifyHealth(environment = {}) {
   for (const { name, url } of healthTargets(environment)) {
-    let response;
     try {
-      response = await fetch(url, { signal: AbortSignal.timeout(5_000) });
-    } catch {
-      throw new Error(`VERIFY_HEALTHCHECK_FAILED:${name}`);
-    }
-    if (!response.ok) throw new Error(`VERIFY_HEALTHCHECK_FAILED:${name}`);
-    console.log(`HEALTH_OK:${name}`);
+      const response = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+      if (response.ok) { console.log(`HEALTH_OK:${name}`); continue; }
+    } catch { /* Keep configuration values out of health failures. */ }
+    throw new Error(`VERIFY_HEALTHCHECK_FAILED:${name}`);
   }
+}
+
+export async function runVerification(root, environment, options = {}) {
+  const { run: runCommand = (command, argumentsList) => run(root, command, argumentsList), verifyHealth: checkHealth = verifyHealth } = options;
+  runCommand(process.execPath, ["scripts/context-check.mjs"]);
+  runCommand("pnpm", ["--filter", "./contracts", "test"]);
+  runCommand("pnpm", ["--filter", "./backend", "build"]);
+  runCommand("pnpm", ["--filter", "./frontend", "test"]);
+  runCommand("pnpm", ["--filter", "./frontend", "test:types"]);
+  runCommand("pnpm", ["--filter", "./frontend", "build"]);
+  await checkHealth(environment);
 }
 
 async function main() {
   const root = resolve(import.meta.dirname, "..");
   const environmentFile = resolve(root, ".env.local");
-  const environment = existsSync(environmentFile)
-    ? { ...readEnvironmentFile(environmentFile), ...process.env }
-    : process.env;
-  run(root, process.execPath, ["scripts/context-check.mjs"]);
-  run(root, "pnpm", ["--filter", "./contracts", "test"]);
-  run(root, "pnpm", ["--filter", "./backend", "build"]);
-  run(root, "pnpm", ["--filter", "./frontend", "test"]);
-  run(root, "pnpm", ["--filter", "./frontend", "build"]);
-  await verifyHealth(environment);
+  await runVerification(root, existsSync(environmentFile) ? readEnvironmentFile(environmentFile) : {});
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  main().catch((error) => {
-    console.error(error.message);
-    process.exitCode = 1;
-  });
+  main().catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

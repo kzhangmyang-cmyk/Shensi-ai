@@ -23,8 +23,8 @@ ledger.
   network. Production backend persistence is MySQL only.
 - Canonical `./scripts/dev`, `./scripts/deploy`, and `./scripts/verify`
   wrappers validate real MySQL/security configuration, fail closed for ports
-  and production secret-file permissions, and keep verification output free of
-  environment values.
+  and production secret-file permissions, use file-only production settings,
+  and keep verification output free of environment values.
 
 ## Active
 

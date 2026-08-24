@@ -76,17 +76,19 @@ test("production rejects memory persistence and development seed data", () => {
   );
 });
 
-test("production configuration rejects a database URL that differs from its secret file", () => {
+test("production configuration rejects a database URL that is not canonical for its secret file", () => {
   const directory = mkdtempSync(join(tmpdir(), "shensi-runtime-"));
   try {
-    writeFileSync(join(directory, "mysql_app_password"), "actual-password", { mode: 0o600 });
-    writeFileSync(join(directory, "mysql_root_password"), "root-password", { mode: 0o600 });
+    const appPassword = "a".repeat(32);
+    const differentPassword = "b".repeat(32);
+    writeFileSync(join(directory, "mysql_app_password"), appPassword, { mode: 0o600 });
+    writeFileSync(join(directory, "mysql_root_password"), "r".repeat(32), { mode: 0o600 });
     assert.throws(
       () => validateProductionSecrets({
-        DATABASE_URL: "mysql://shensi_app:not-the-secret@mysql:3306/shensi",
-        SHENSI_MYSQL_APP_PASSWORD: "actual-password"
+        DATABASE_URL: `mysql://shensi_app:${differentPassword}@mysql:3306/shensi`,
+        SHENSI_MYSQL_APP_PASSWORD: appPassword
       }, directory),
-      /DATABASE_URL_SECRET_MISMATCH/u
+      /DATABASE_URL_PASSWORD_NOT_CANONICAL/u
     );
   } finally {
     rmSync(directory, { recursive: true, force: true });
