@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import shutil
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -44,6 +45,7 @@ class AccountManager:
                 if current >= session["expires_at"]:
                     if not session["closed"]:
                         self._browser.close(session["context"])
+                    shutil.rmtree(session["profile"], ignore_errors=True)
                     del self._sessions[session_id]
                     removed += 1
         return removed
@@ -64,6 +66,7 @@ class AccountManager:
             "account_handle": None,
             "account_display_name": None,
             "login_state_version": None,
+            "profile": profile,
             }
         return LoginSessionView(
             session_id=session_id,
@@ -106,5 +109,8 @@ class AccountManager:
     def disconnect(self, session_id: str) -> None:
         with self._lock:
             session = self._sessions.pop(session_id, None)
-            if session and not session["closed"]:
+            if session is None:
+                raise KeyError(session_id)
+            if not session["closed"]:
                 self._browser.close(session["context"])
+            shutil.rmtree(session["profile"], ignore_errors=True)

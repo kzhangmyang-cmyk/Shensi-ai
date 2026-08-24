@@ -39,6 +39,7 @@ export interface DouyinMediaCrawlerGateway {
   }>>;
   createLoginSession(signal?: AbortSignal): Promise<DouyinLoginSession>;
   getLoginSession(sessionId: string, signal?: AbortSignal): Promise<DouyinLoginSession>;
+  disconnectLoginSession(sessionId: string, signal?: AbortSignal): Promise<void>;
 }
 
 export interface DouyinLoginSession {
@@ -171,6 +172,13 @@ export function createDouyinMediaCrawlerGateway(
     },
     getLoginSession(sessionId: string, signal?: AbortSignal) {
       return loginSessionRequest("GET", `/internal/v1/douyin/login-sessions/${encodeURIComponent(sessionId)}`, signal);
+    },
+    async disconnectLoginSession(sessionId: string, signal?: AbortSignal) {
+      const request = requestAbortSignal(signal, timeoutMs);
+      try {
+        const response = await fetchImpl(new URL(`/internal/v1/douyin/login-sessions/${encodeURIComponent(sessionId)}`, baseUrl), { method: "DELETE", headers: { authorization: `Bearer ${serviceSecret}` }, signal: request.signal });
+        if (!response.ok && response.status !== 404) throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
+      } catch (error) { if (error instanceof MediaCrawlerGatewayError) throw error; throw new MediaCrawlerGatewayError("mediacrawler_unavailable"); } finally { request.dispose(); }
     },
     async health(signal?: AbortSignal) {
       const request = requestAbortSignal(signal, timeoutMs);

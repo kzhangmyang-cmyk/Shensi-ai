@@ -94,3 +94,24 @@ The requested aggregate was retried after these fixes. It completed all 34
 runtime close test, but its Node test worker retained an idle handle for more
 than 100 seconds and was terminated. This is the remaining aggregate-runner
 blocker; all focused, security, contract, and build checks are green.
+
+## Fix round 2/5
+
+RED/GREEN: the dedicated router regression originally received a cross-workspace
+`412` (not the required `404`); after separating not-found from conditional
+failure, it passes create, exact `200` replay/header, cross-workspace `404`,
+and stale `412`. The account service and fake MySQL transaction tests also
+pass atomic active-handle conflict and persisted replay behavior.
+
+The pinned browser adapter now owns Playwright entirely on a dedicated browser
+thread; every sync route call is marshalled to that thread, and its open path
+closes the persistent context on all navigation/locator/fetch/validation
+failures. Deployment startup validates the encrypted profile volume and root;
+the global ASGI app installs it only at startup, so imports/tests do not create
+a browser or insecure temporary profile. The source-controlled Node bearer
+secret fallback was removed: the integration is simply not mounted unless both
+server-owned MediaCrawler environment values are present.
+
+Focused GREEN: `uv run --directory services/media-crawler pytest
+tests/shensi_adapter/test_accounts.py tests/shensi_adapter/test_contracts.py -q`
+reported 4 passed; Node account tests reported 7 passed; backend build passed.

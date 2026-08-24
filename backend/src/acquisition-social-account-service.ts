@@ -6,7 +6,7 @@ import type { AcquisitionSocialAccountPrivateRecord, AcquisitionSocialAccountRep
 export interface AcquisitionSocialAccountScope { workspaceId: string; }
 export interface AcquisitionSocialAccountServiceOptions {
   repository: AcquisitionSocialAccountRepository;
-  gateway: Pick<DouyinMediaCrawlerGateway, "createLoginSession" | "getLoginSession">;
+  gateway: Pick<DouyinMediaCrawlerGateway, "createLoginSession" | "getLoginSession"> & Partial<Pick<DouyinMediaCrawlerGateway, "disconnectLoginSession">>;
   idFactory?: () => string;
   now?: () => string;
 }

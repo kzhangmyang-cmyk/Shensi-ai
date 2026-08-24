@@ -12348,10 +12348,12 @@ async function startServer() {
         growthRuntime.integrations.probabilityAssessments,
       quoteProjectedDocumentAuthority:
         growthRuntime.integrations.quoteProjectedDocumentAuthority,
-      douyinMediaCrawlerGateway: createDouyinMediaCrawlerGateway({
-        baseUrl: process.env.MEDIACRAWLER_BASE_URL ?? "http://127.0.0.1:8010",
-        serviceSecret: process.env.MEDIACRAWLER_SERVICE_SECRET ?? "mediacrawler-unconfigured-secret-at-least-32-bytes"
-      })
+      ...(process.env.MEDIACRAWLER_BASE_URL && process.env.MEDIACRAWLER_SERVICE_SECRET
+        ? { douyinMediaCrawlerGateway: createDouyinMediaCrawlerGateway({
+            baseUrl: process.env.MEDIACRAWLER_BASE_URL,
+            serviceSecret: process.env.MEDIACRAWLER_SERVICE_SECRET
+          }) }
+        : {})
     });
     acquisitionRuntimeBridge.install(acquisitionRuntime);
   } catch (error) {

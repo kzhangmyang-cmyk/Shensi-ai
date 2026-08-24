@@ -18,3 +18,8 @@ The adapter's authenticated internal Douyin QR endpoints keep browser profiles
 and cookies inside the configured encrypted deployment volume.  They return an
 opaque account handle only to the trusted acquisition backend; public account
 API responses are deliberately sanitized and never include browser state.
+
+The deployment must set both `MEDIACRAWLER_ENCRYPTED_VOLUME` and
+`MEDIACRAWLER_PROFILE_ROOT`; startup rejects missing or out-of-volume profiles.
+The adapter owns Playwright on one dedicated thread so FastAPI worker threads
+never call a browser object directly.
