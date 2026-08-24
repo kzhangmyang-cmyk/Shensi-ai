@@ -74,7 +74,12 @@ export function createAcquisitionRunCandidatesRouter(options: {
     const rawLimit = typeof req.query.limit === "string" ? Number(req.query.limit) : 50;
     if (!runId || !Number.isSafeInteger(rawLimit) || rawLimit < 1 || rawLimit > 100) { fail(res, 400, "invalid_request", requestId); return; }
     const all = (await options.repository.list(workspace.workspaceId, runId)).map(publicItem);
-    const filtered = status ? all.filter((item) => item.status === status) : all;
+    // A DNC record is durable suppression state, never part of a default
+    // downstream candidate feed. It is visible only through an explicit
+    // status filter, which the application can additionally authorize.
+    const filtered = status
+      ? all.filter((item) => item.status === status)
+      : all.filter((item) => item.status !== "do_not_contact");
     const hash = filterHash(status); const currentSnapshot = snapshot(filtered);
     let offset = 0;
     if (typeof req.query.cursor === "string") {

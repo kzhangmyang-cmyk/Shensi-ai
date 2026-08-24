@@ -250,6 +250,9 @@ function validateOutcomeAttribution(
 }
 
 function validUrl(value: string, label: string) {
+  if (typeof value !== "string" || Buffer.byteLength(value, "utf8") > 2_000) {
+    fail("invalid_request", `${label}长度无效`, 400);
+  }
   let url: URL;
   try {
     url = new URL(value);
