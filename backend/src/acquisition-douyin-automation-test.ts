@@ -7,12 +7,16 @@ import {
 } from "./acquisition-douyin-automation.js";
 import {
   createAcquisitionDouyinAutomationAuthorityValidator,
-  InMemoryAcquisitionDouyinAutomationRepository
+  InMemoryAcquisitionDouyinAutomationRepository,
+  type AcquisitionDouyinAutomationAuthorityValidator
 } from "./acquisition-douyin-automation-repository.js";
 import {
   AcquisitionDouyinAutomationError,
   AcquisitionDouyinAutomationService
 } from "./acquisition-douyin-automation-service.js";
+import {
+  AcquisitionMemoryTransactionCoordinator
+} from "./acquisition-memory-transaction-coordinator.js";
 import {
   InMemoryAcquisitionPlanRunRepository,
   type AcquisitionPlan,
@@ -49,6 +53,12 @@ const POLICY: DouyinAutomationPolicyInput = {
     maxDurationSeconds: 3_600
   }
 };
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((settled) => { resolve = settled; });
+  return { promise, resolve };
+}
 
 function planPayload(): AcquisitionPlanPayload {
   return {
@@ -155,39 +165,43 @@ async function fixture(options: {
   accounts?: Pick<AcquisitionSocialAccountRepository, "findByWorkspaceAndPlatform">;
   resolvedWorkspaceId?: string;
   payload?: AcquisitionPlanPayload;
-  authorityDrift?: "plan" | "account" | "login";
+  pauseAuthorityOperation?: "policy" | "run";
 } = {}) {
-  const plans = new InMemoryAcquisitionPlanRunRepository();
+  const memoryTransactions = new AcquisitionMemoryTransactionCoordinator();
+  const plans = new InMemoryAcquisitionPlanRunRepository(memoryTransactions);
   await seedPlan(plans, options.payload);
-  const accountRepository = new InMemoryAcquisitionSocialAccountRepository();
+  const accountRepository = new InMemoryAcquisitionSocialAccountRepository(
+    memoryTransactions
+  );
   if (options.seedActiveAccount !== false) await seedAccount(accountRepository);
   let sequence = 0;
-  const authorityPlans = options.authorityDrift === "plan"
+  const authorityEntered = deferred();
+  const authorityRelease = deferred();
+  const baseAuthority = createAcquisitionDouyinAutomationAuthorityValidator({
+    memoryTransactions,
+    plans,
+    accounts: accountRepository
+  });
+  const authority: AcquisitionDouyinAutomationAuthorityValidator = options.pauseAuthorityOperation
     ? {
-        getPlan: async (id: string) => {
-          const plan = await plans.getPlan(id);
-          return plan ? { ...plan, currentVersionId: "plan-version-changed" } : null;
-        },
-        getPlanVersion: (id: string) => plans.getPlanVersion(id)
-      }
-    : plans;
-  const authorityAccounts = options.authorityDrift
-    && options.authorityDrift !== "plan"
-    ? {
-        async findByWorkspaceAndPlatform(workspaceId: string, platform: "douyin") {
-          const account = await accountRepository.findByWorkspaceAndPlatform(workspaceId, platform);
-          if (!account) return null;
-          return options.authorityDrift === "account"
-            ? { ...account, state: "login_expired" as const }
-            : { ...account, loginStateVersion: account.loginStateVersion + 1 };
+        async isCurrent(command, requireApproved, token) {
+          const current = await baseAuthority.isCurrent(
+            command,
+            requireApproved,
+            token
+          );
+          const operation = "policyVersionId" in command ? "run" : "policy";
+          if (operation === options.pauseAuthorityOperation) {
+            authorityEntered.resolve();
+            await authorityRelease.promise;
+          }
+          return current;
         }
       }
-    : accountRepository;
+    : baseAuthority;
   const repository = new InMemoryAcquisitionDouyinAutomationRepository(
-    createAcquisitionDouyinAutomationAuthorityValidator({
-      plans: authorityPlans,
-      accounts: authorityAccounts
-    })
+    memoryTransactions,
+    authority
   );
   const service = new AcquisitionDouyinAutomationService({
     repository,
@@ -199,7 +213,57 @@ async function fixture(options: {
     idFactory: (prefix) => `${prefix}-${++sequence}`,
     now: () => NOW
   });
-  return { service, repository, plans, accountRepository };
+  return {
+    service,
+    repository,
+    plans,
+    accountRepository,
+    authorityEntered: authorityEntered.promise,
+    releaseAuthority: authorityRelease.resolve
+  };
+}
+
+type AutomationFixture = Awaited<ReturnType<typeof fixture>>;
+
+async function mutateAuthority(
+  fixtureValue: AutomationFixture,
+  drift: "plan" | "account" | "login"
+) {
+  if (drift === "plan") {
+    await fixtureValue.plans.transaction((transaction) => {
+      const plan = transaction.getPlan("plan-1");
+      const prior = transaction.getPlanVersion("plan-version-1");
+      assert.ok(plan && prior);
+      const version: AcquisitionPlanVersion = {
+        ...prior,
+        id: "plan-version-2",
+        version: 2,
+        payloadHash: "plan-snapshot-hash-2",
+        createdAt: "2026-08-25T01:01:00.000Z"
+      };
+      transaction.appendPlanVersion(version);
+      transaction.putPlan({
+        ...plan,
+        status: "draft",
+        version: 2,
+        revision: plan.revision + 1,
+        etag: '"plan-1:3"',
+        currentVersionId: version.id,
+        approvedVersionId: null,
+        approvedSnapshotHash: null,
+        approvedBy: null,
+        approvedAt: null,
+        updatedAt: version.createdAt
+      });
+    });
+    return;
+  }
+  const account = await fixtureValue.accountRepository
+    .findByWorkspaceAndPlatform(SCOPE.workspaceId, "douyin");
+  assert.ok(account);
+  await fixtureValue.accountRepository.upsert(drift === "account"
+    ? { ...account, state: "login_expired" }
+    : { ...account, loginStateVersion: account.loginStateVersion! + 1 });
 }
 
 function rejectsCode(code: string) {
@@ -217,6 +281,23 @@ test("automation input applies the server-owned daily candidate default", () => 
   });
   assert.equal(normalized.dailyCandidateLimit, 50);
   assert.equal(defaultDouyinAutomationPolicyInput().dailyCandidateLimit, 50);
+});
+
+test("memory authority transaction tokens expire with their shared boundary", async () => {
+  const memoryTransactions = new AcquisitionMemoryTransactionCoordinator();
+  const plans = new InMemoryAcquisitionPlanRunRepository(memoryTransactions);
+  await seedPlan(plans);
+  let expiredToken: Parameters<typeof plans.getDouyinAutomationAuthority>[0] | null = null;
+  await memoryTransactions.transaction((token) => { expiredToken = token; });
+  assert.ok(expiredToken);
+  assert.throws(
+    () => plans.getDouyinAutomationAuthority(
+      expiredToken!,
+      "plan-1",
+      "plan-version-1"
+    ),
+    /acquisition_memory_transaction_token_mismatch/u
+  );
 });
 
 test("automation input rejects daily limits outside 1 through 200", () => {
@@ -440,23 +521,65 @@ test("policy idempotency treats normalized If-Match as request semantics", async
   );
 });
 
-test("memory commit rejects plan, account, and login authority drift after service reads", async () => {
-  for (const authorityDrift of ["plan", "account", "login"] as const) {
-    const { service, repository } = await fixture({ authorityDrift });
-    const initial = await service.get(SCOPE, "plan-1");
-    await assert.rejects(
-      service.put(
-        SCOPE,
-        "plan-1",
-        initial.etag,
-        `policy-authority-${authorityDrift}`,
-        POLICY
-      ),
-      rejectsCode("automation_policy_binding_conflict")
+test("memory authority changes cannot interleave between validation and policy persistence", async () => {
+  for (const drift of ["plan", "account", "login"] as const) {
+    const fixtureValue = await fixture({ pauseAuthorityOperation: "policy" });
+    const initial = await fixtureValue.service.get(SCOPE, "plan-1");
+    const command = fixtureValue.service.put(
+      SCOPE,
+      "plan-1",
+      initial.etag,
+      `policy-interleave-${drift}`,
+      POLICY
     );
+    await fixtureValue.authorityEntered;
+    const mutation = mutateAuthority(fixtureValue, drift);
+    let mutationSettled = false;
+    void mutation.then(() => { mutationSettled = true; });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const interleaved = mutationSettled;
+    fixtureValue.releaseAuthority();
+    const [result] = await Promise.all([command, mutation]);
+
+    assert.equal(interleaved, false, drift);
+    assert.equal(result.replayed, false);
+    assert.equal(
+      (await fixtureValue.repository.listVersions(SCOPE.workspaceId, "plan-1")).length,
+      1
+    );
+  }
+});
+
+test("memory authority changes cannot interleave between validation and run persistence", async () => {
+  for (const drift of ["plan", "account", "login"] as const) {
+    const fixtureValue = await fixture({ pauseAuthorityOperation: "run" });
+    const initial = await fixtureValue.service.get(SCOPE, "plan-1");
+    await fixtureValue.service.put(
+      SCOPE,
+      "plan-1",
+      initial.etag,
+      `policy-before-run-${drift}`,
+      POLICY
+    );
+    const command = fixtureValue.service.runNow(
+      SCOPE,
+      "plan-1",
+      `run-interleave-${drift}`,
+      {}
+    );
+    await fixtureValue.authorityEntered;
+    const mutation = mutateAuthority(fixtureValue, drift);
+    let mutationSettled = false;
+    void mutation.then(() => { mutationSettled = true; });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const interleaved = mutationSettled;
+    fixtureValue.releaseAuthority();
+    const [result] = await Promise.all([command, mutation]);
+
+    assert.equal(interleaved, false, drift);
     assert.deepEqual(
-      await repository.listVersions(SCOPE.workspaceId, "plan-1"),
-      []
+      await fixtureValue.repository.getRunIntent(SCOPE.workspaceId, result.value.id),
+      result.value
     );
   }
 });

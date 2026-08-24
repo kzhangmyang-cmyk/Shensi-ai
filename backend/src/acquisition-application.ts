@@ -200,6 +200,9 @@ import {
   type AcquisitionPlanRunRepository
 } from "./acquisition-plan-run-repository.js";
 import {
+  AcquisitionMemoryTransactionCoordinator
+} from "./acquisition-memory-transaction-coordinator.js";
+import {
   AcquisitionPlanRunService
 } from "./acquisition-plan-run-service.js";
 import {
@@ -1266,7 +1269,10 @@ export async function createAcquisitionApplication(
       toolResults = new MysqlAcquisitionToolResultLedger(pool, { now });
       toolAudit = new MysqlAcquisitionToolAuditStore(pool);
     } else {
-      const planRun = new InMemoryAcquisitionPlanRunRepository();
+      const memoryTransactions = new AcquisitionMemoryTransactionCoordinator();
+      const planRun = new InMemoryAcquisitionPlanRunRepository(
+        memoryTransactions
+      );
       const memoryAuthority = options.advisorCandidateAuthority
         instanceof InMemoryAdvisorCandidateAuthorityRepository
         ? options.advisorCandidateAuthority
@@ -2073,10 +2079,17 @@ export async function createAcquisitionApplication(
       return completed;
     };
     const router = Router();
+    const planMemoryTransactions = repositories.planRun
+      instanceof InMemoryAcquisitionPlanRunRepository
+      ? repositories.planRun.memoryTransactions
+      : null;
     const socialAccountRepository = options.socialAccountRepository
       ?? (options.store.mode === "mysql"
         ? new MysqlAcquisitionSocialAccountRepository(pool!)
-        : new InMemoryAcquisitionSocialAccountRepository());
+        : new InMemoryAcquisitionSocialAccountRepository(
+            planMemoryTransactions
+              ?? new AcquisitionMemoryTransactionCoordinator()
+          ));
     if (options.douyinMediaCrawlerGateway) {
       const socialAccounts = new AcquisitionSocialAccountService({
         repository: socialAccountRepository,
@@ -2089,16 +2102,30 @@ export async function createAcquisitionApplication(
         requestIdFactory: () => idFactory("request")
       }));
     }
+    const defaultDouyinAutomationRepository = () => {
+      if (options.store.mode === "mysql") {
+        return new MysqlAcquisitionDouyinAutomationRepository(pool!);
+      }
+      if (!(repositories.planRun instanceof InMemoryAcquisitionPlanRunRepository)
+        || !(socialAccountRepository
+          instanceof InMemoryAcquisitionSocialAccountRepository)
+        || repositories.planRun.memoryTransactions
+          !== socialAccountRepository.memoryTransactions) {
+        throw new Error("acquisition_memory_automation_transaction_boundary_required");
+      }
+      const memoryTransactions = repositories.planRun.memoryTransactions;
+      return new InMemoryAcquisitionDouyinAutomationRepository(
+        memoryTransactions,
+        createAcquisitionDouyinAutomationAuthorityValidator({
+          memoryTransactions,
+          plans: repositories.planRun,
+          accounts: socialAccountRepository
+        })
+      );
+    };
     const douyinAutomation = new AcquisitionDouyinAutomationService({
       repository: options.douyinAutomationRepository
-        ?? (options.store.mode === "mysql"
-          ? new MysqlAcquisitionDouyinAutomationRepository(pool!)
-          : new InMemoryAcquisitionDouyinAutomationRepository(
-              createAcquisitionDouyinAutomationAuthorityValidator({
-                plans: repositories.planRun,
-                accounts: socialAccountRepository
-              })
-            )),
+        ?? defaultDouyinAutomationRepository(),
       plans: repositories.planRun,
       accounts: socialAccountRepository,
       resolvePlanWorkspace: (scope) => acquisitionWorkspace.resolve(scope),

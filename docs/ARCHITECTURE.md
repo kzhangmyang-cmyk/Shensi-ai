@@ -45,7 +45,10 @@ exposing its private handle. It publishes immutable policy versions behind a
 compare-and-swap head and creates idempotent run intents that freeze the
 approved plan version, policy version, account/login version, local date, and
 daily-budget identity. MySQL transactions revalidate those authorities under
-lock before either write commits.
+lock before either write commits. Memory composition uses one shared
+transaction token across plan, account, and automation repositories, keeping
+the same validation-and-append boundary atomic during development and focused
+tests.
 
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a

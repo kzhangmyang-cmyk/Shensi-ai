@@ -1,3 +1,8 @@
+import {
+  AcquisitionMemoryTransactionCoordinator,
+  type AcquisitionMemoryTransactionToken
+} from "./acquisition-memory-transaction-coordinator.js";
+
 export type AcquisitionSubjectChannel = "organization" | "individual";
 export type AcquisitionTargetPlatform = "douyin" | "web";
 export type AcquisitionOperationKind =
@@ -534,12 +539,16 @@ implements AcquisitionPlanRunRepository {
   private state = emptyState();
   private tail: Promise<void> = Promise.resolve();
 
+  constructor(
+    readonly memoryTransactions = new AcquisitionMemoryTransactionCoordinator()
+  ) {}
+
   transaction<T>(
     work: (
       transaction: AcquisitionPlanRunRepositoryTransaction
     ) => Promise<T> | T
   ): Promise<T> {
-    const current = this.tail.then(async () => {
+    const current = this.memoryTransactions.transaction(async () => {
       const workingState = clone(this.state);
       const result = await work(transactionFor(workingState));
       this.state = workingState;
@@ -547,6 +556,18 @@ implements AcquisitionPlanRunRepository {
     });
     this.tail = current.then(() => undefined, () => undefined);
     return current;
+  }
+
+  getDouyinAutomationAuthority(
+    token: AcquisitionMemoryTransactionToken,
+    planId: string,
+    planVersionId: string
+  ) {
+    this.memoryTransactions.assertOwns(token);
+    return {
+      plan: clone(this.state.plans.get(planId) ?? null),
+      version: clone(this.state.planVersions.get(planVersionId) ?? null)
+    };
   }
 
   private async snapshot() {

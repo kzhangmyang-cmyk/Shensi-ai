@@ -52,10 +52,13 @@ mutable policy head, hashed command replays, and
 `acquisition_douyin_run_intents`. Policy publication and run-intent creation
 use one authority predicate for Memory and MySQL: the current plan/version plus
 the workspace-scoped active account and login-state version must still match at
-commit. MySQL takes the existing plan row lock before checking command replay,
-so concurrent identical new keys yield one write and one exact replay. Run
-intents freeze the plan, policy, account, local date, and daily-budget
-identities consumed by the scheduler and crawler.
+commit. Memory composition gives plan, social-account, and automation
+repositories one transaction coordinator: a short-lived token covers authority
+validation and policy/run-intent persistence, so account/login or plan changes
+cannot interleave. MySQL takes the existing plan row lock before checking
+command replay, so concurrent identical new keys yield one write and one exact
+replay. Run intents freeze the plan, policy, account, local date, and
+daily-budget identities consumed by the scheduler and crawler.
 
 ## Public Interfaces
 

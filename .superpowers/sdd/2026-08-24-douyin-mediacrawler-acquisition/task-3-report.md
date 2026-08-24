@@ -211,3 +211,72 @@ commit.
   ready for the credentialed MySQL gate.
 - The frontend production build retains the existing non-failing large-chunk
   warning; this round does not add generated frontend bytes.
+
+## Review fix round 2 / 5
+
+### RED evidence
+
+Two deterministic regressions paused Memory authority validation after it had
+read a valid plan/version/account but before policy or run-intent persistence.
+Each then attempted a plan mutation and yielded one event-loop turn. Against
+round 1, both tests failed with the same exact result:
+
+- policy persistence: plan mutation settled during the gap (`true !== false`);
+- run-intent persistence: plan mutation settled during the gap
+  (`true !== false`).
+
+The tests release their validation barriers before asserting, so the RED run
+completed normally with 2 tests, 0 passed, 2 failed, and no leaked wait. A
+second focused RED proved a transaction token remained usable after its
+boundary: expected `acquisition_memory_transaction_token_mismatch`, but no
+exception was thrown.
+
+### GREEN evidence
+
+- `AcquisitionMemoryTransactionCoordinator` now issues one short-lived token
+  while holding a FIFO transaction boundary. The token is invalidated in a
+  `finally` block when the transaction completes or fails.
+- Memory plan writes, active social-account/login mutations, policy appends,
+  and run-intent appends use the same coordinator in application composition.
+  Authority plan/version/account reads require that live token and bypass
+  future queued writes, avoiding self-deadlock.
+- Automation validation and its copy-on-write state publication execute
+  inside that same boundary. A mutation that starts after validation queues
+  behind the append; a mutation that owns the boundary first commits before
+  the command validates, so the command rejects without a write.
+- The deterministic matrix covers all six combinations: plan, account state,
+  and login-state-version mutations for both PUT and run-now. The focused
+  interleaving/token run is 3/3.
+- The repository parity matrix drives plan/account/login drift through both
+  Memory and MySQL for policy and run commands. Both return
+  `binding_mismatch`, and neither appends a policy version or run intent.
+- MySQL production transaction and plan-row lock behavior is unchanged.
+
+### Round-2 gates
+
+- Focused automation plus response conformance: 33 tests, 32 passed, 1
+  conditional live-MySQL skip, 0 failed. The Task 3 portion was 24 tests, 23
+  passed and the same 1 skipped.
+- Social-account/plan/application compatibility focus: 39 passed, followed by
+  the social-account MySQL repository focus at 9 passed, 1 conditional skip.
+- Complete Python adapter/PGID suite: 21 passed.
+- `pnpm check:acquisition-contracts`: passed, including editable/runtime
+  drift, security, generated-type freshness, frontend build/tests, and Baota
+  package evaluation.
+- Complete acquisition aggregate: the first run identified one synchronous
+  rejection compatibility regression in Memory account validation (1033
+  passed, 3 skipped, 1 failed). After restoring the repository's Promise
+  rejection contract, the fresh rerun completed with 1037 tests: 1034 passed,
+  3 skipped, 0 failed.
+- Backend TypeScript build: passed after the final fix.
+- Frontend production/test/extension type checks: passed.
+- `git diff --check`: passed.
+- Immutable Growth 1.0.11/1.0.12 bytes and unrelated lockfiles: unchanged.
+
+### Round-2 concerns
+
+- The credentialed live-MySQL concurrency test remains conditional because
+  `MYSQL_TEST_ADMIN_URL` is absent. MySQL production code did not change in
+  this round; stateful parity and concurrency tests executed.
+- The frontend production build retains the existing non-failing large-chunk
+  warning.

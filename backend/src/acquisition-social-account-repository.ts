@@ -1,4 +1,8 @@
 import type { AcquisitionSocialAccount, AcquisitionSocialAccountState } from "./acquisition-social-account.js";
+import {
+  AcquisitionMemoryTransactionCoordinator,
+  type AcquisitionMemoryTransactionToken
+} from "./acquisition-memory-transaction-coordinator.js";
 
 export interface AcquisitionSocialAccountPrivateRecord extends AcquisitionSocialAccount {
   accountHandle: string | null;
@@ -136,32 +140,59 @@ export class InMemoryAcquisitionSocialAccountRepository implements AcquisitionSo
   private readonly records = new Map<string, AcquisitionSocialAccountPrivateRecord>();
   private readonly sessions = new Map<string, AcquisitionSocialLoginSessionPrivateRecord>();
   private readonly replays = new Map<string, MemoryReplayRecord>();
+  private tail: Promise<void> = Promise.resolve();
+
+  constructor(
+    readonly memoryTransactions = new AcquisitionMemoryTransactionCoordinator()
+  ) {}
+
+  private transaction<T>(work: () => T | Promise<T>) {
+    const current = this.memoryTransactions.transaction(() => work());
+    this.tail = current.then(() => undefined, () => undefined);
+    return current;
+  }
 
   private accountKey(workspaceId: string, platform: "douyin") { return `${workspaceId}\u0000${platform}`; }
 
   async findByWorkspaceAndPlatform(workspaceId: string, platform: "douyin") {
+    await this.tail;
     return this.records.get(this.accountKey(workspaceId, platform)) ?? null;
   }
 
   async findById(workspaceId: string, id: string) {
+    await this.tail;
     return [...this.records.values()].find((record) => record.workspaceId === workspaceId && record.id === id) ?? null;
+  }
+
+  getDouyinAutomationAuthorityAccount(
+    token: AcquisitionMemoryTransactionToken,
+    workspaceId: string,
+    platform: "douyin"
+  ) {
+    this.memoryTransactions.assertOwns(token);
+    return this.records.get(this.accountKey(workspaceId, platform)) ?? null;
   }
 
   async upsert(record: AcquisitionSocialAccountPrivateRecord) {
     assertValidAcquisitionSocialAccountPrivateRecord(record);
     const saved = cloneRecord(record);
-    this.records.set(this.accountKey(saved.workspaceId, saved.platform), saved);
-    return saved;
+    return this.transaction(() => {
+      this.records.set(this.accountKey(saved.workspaceId, saved.platform), saved);
+      return saved;
+    });
   }
 
   async bindActive(record: AcquisitionSocialAccountPrivateRecord) {
     assertValidAcquisitionSocialAccountPrivateRecord(record);
-    const current = this.records.get(this.accountKey(record.workspaceId, record.platform));
-    if (current?.state === "active" && current.accountHandle !== record.accountHandle) return "active_handle_conflict" as const;
-    if (current?.state === "active" && current.accountHandle === record.accountHandle) return current;
-    const saved = cloneRecord(record);
-    this.records.set(this.accountKey(saved.workspaceId, saved.platform), saved);
-    return saved;
+    const candidate = cloneRecord(record);
+    return this.transaction(() => {
+      const current = this.records.get(this.accountKey(candidate.workspaceId, candidate.platform));
+      if (current?.state === "active" && current.accountHandle !== candidate.accountHandle) return "active_handle_conflict" as const;
+      if (current?.state === "active" && current.accountHandle === candidate.accountHandle) return current;
+      const saved = candidate;
+      this.records.set(this.accountKey(saved.workspaceId, saved.platform), saved);
+      return saved;
+    });
   }
 
   private disconnected(existing: AcquisitionSocialAccountPrivateRecord, updatedAt: string) {
@@ -169,12 +200,14 @@ export class InMemoryAcquisitionSocialAccountRepository implements AcquisitionSo
       revision: existing.revision + 1, etag: `\"account-v${existing.revision + 1}\"`, updatedAt });
   }
 
-  async disconnect(workspaceId: string, id: string, etag: string, updatedAt: string) {
-    const existing = [...this.records.values()].find((record) => record.workspaceId === workspaceId && record.id === id);
-    if (!existing || existing.etag !== etag) return null;
-    const saved = this.disconnected(existing, updatedAt);
-    this.records.set(this.accountKey(saved.workspaceId, saved.platform), saved);
-    return saved;
+  disconnect(workspaceId: string, id: string, etag: string, updatedAt: string) {
+    return this.transaction(() => {
+      const existing = [...this.records.values()].find((record) => record.workspaceId === workspaceId && record.id === id);
+      if (!existing || existing.etag !== etag) return null;
+      const saved = this.disconnected(existing, updatedAt);
+      this.records.set(this.accountKey(saved.workspaceId, saved.platform), saved);
+      return saved;
+    });
   }
 
   async saveLoginSession(record: AcquisitionSocialLoginSessionPrivateRecord) {
@@ -258,14 +291,16 @@ export class InMemoryAcquisitionSocialAccountRepository implements AcquisitionSo
     this.complete(pending, completion);
   }
 
-  async disconnectAndCompleteReplay(workspaceId: string, id: string, etag: string, updatedAt: string, fence: AcquisitionSocialAccountReplayFence, completion: AcquisitionSocialAccountReplayCompletion) {
-    const pending = this.pending(fence);
-    if (pending.requestHash !== completion.requestHash) throw new Error("replay_request_hash_mismatch");
-    const existing = [...this.records.values()].find((record) => record.workspaceId === workspaceId && record.id === id);
-    if (!existing || existing.etag !== etag) return null;
-    const saved = this.disconnected(existing, updatedAt);
-    this.records.set(this.accountKey(saved.workspaceId, saved.platform), saved);
-    this.complete(pending, completion);
-    return saved;
+  disconnectAndCompleteReplay(workspaceId: string, id: string, etag: string, updatedAt: string, fence: AcquisitionSocialAccountReplayFence, completion: AcquisitionSocialAccountReplayCompletion) {
+    return this.transaction(() => {
+      const pending = this.pending(fence);
+      if (pending.requestHash !== completion.requestHash) throw new Error("replay_request_hash_mismatch");
+      const existing = [...this.records.values()].find((record) => record.workspaceId === workspaceId && record.id === id);
+      if (!existing || existing.etag !== etag) return null;
+      const saved = this.disconnected(existing, updatedAt);
+      this.records.set(this.accountKey(saved.workspaceId, saved.platform), saved);
+      this.complete(pending, completion);
+      return saved;
+    });
   }
 }

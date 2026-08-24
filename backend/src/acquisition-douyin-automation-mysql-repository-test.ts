@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import mysql from "mysql2/promise";
 import { ensureAcquisitionMysqlSchema } from "./acquisition-mysql-repositories.js";
 import {
@@ -18,7 +18,14 @@ import type {
   DouyinAutomationPolicyVersion,
   DouyinAutomationRunIntent
 } from "./acquisition-douyin-automation.js";
-import { createHash } from "node:crypto";
+import {
+  douyinAutomationAuthorityIsCurrent,
+  InMemoryAcquisitionDouyinAutomationRepository,
+  type DouyinAutomationAuthorityState
+} from "./acquisition-douyin-automation-repository.js";
+import {
+  AcquisitionMemoryTransactionCoordinator
+} from "./acquisition-memory-transaction-coordinator.js";
 
 test("automation MySQL schema keeps immutable versions, a mutable head, hashed replay keys and run intents", async () => {
   const statements = [
@@ -199,6 +206,54 @@ function policyVersion(): DouyinAutomationPolicyVersion {
   };
 }
 
+function authorityState(): DouyinAutomationAuthorityState {
+  return {
+    plan: {
+      id: "plan-1", ownerId: "owner-1", teamId: "team-1", status: "approved",
+      currentVersionId: "plan-version-1", approvedVersionId: "plan-version-1",
+      approvedSnapshotHash: "plan-hash"
+    } as never,
+    version: {
+      id: "plan-version-1", planId: "plan-1", ownerId: "owner-1", teamId: "team-1",
+      version: 1, payloadHash: "plan-hash"
+    } as never,
+    account: {
+      id: "account-1", workspaceId: "workspace-1", platform: "douyin",
+      state: "active", loginStateVersion: 7
+    }
+  };
+}
+
+function driftAuthority(
+  authority: DouyinAutomationAuthorityState,
+  drift: "plan" | "account" | "login"
+) {
+  if (drift === "plan") {
+    authority.plan = { ...authority.plan!, currentVersionId: "plan-version-changed" };
+  } else if (drift === "account") {
+    authority.account = { ...authority.account!, state: "login_expired" };
+  } else {
+    authority.account = { ...authority.account!, loginStateVersion: 8 };
+  }
+}
+
+function memoryRepository(authority: DouyinAutomationAuthorityState) {
+  const memoryTransactions = new AcquisitionMemoryTransactionCoordinator();
+  return new InMemoryAcquisitionDouyinAutomationRepository(
+    memoryTransactions,
+    {
+      isCurrent(command, requireApproved, token) {
+        memoryTransactions.assertOwns(token);
+        return douyinAutomationAuthorityIsCurrent(
+          command,
+          authority,
+          requireApproved
+        );
+      }
+    }
+  );
+}
+
 test("automation MySQL repository matches append, CAS, replay and frozen run behavior", async () => {
   const pool = new StatefulAutomationMysqlPool();
   const repository = new MysqlAcquisitionDouyinAutomationRepository(pool as never);
@@ -282,22 +337,63 @@ test("automation MySQL repository serializes identical new policy and run keys",
   assert.equal(pool.runs.size, 1);
 });
 
-test("automation MySQL commit matches memory authority drift rejection", async () => {
+test("Memory and MySQL reject the same policy and run authority drift", async () => {
   for (const drift of ["plan", "account", "login"] as const) {
+    const authority = authorityState();
+    const memory = memoryRepository(authority);
     const pool = new StatefulAutomationMysqlPool();
-    if (drift === "plan") pool.planCurrentVersionId = "plan-version-changed";
-    if (drift === "account") pool.accountState = "login_expired";
-    if (drift === "login") pool.accountLoginStateVersion = 8;
-    const repository = new MysqlAcquisitionDouyinAutomationRepository(pool as never);
+    const mysqlRepository = new MysqlAcquisitionDouyinAutomationRepository(pool as never);
     const value = policyVersion();
-    const result = await repository.savePolicy({
+    const policyCommand = {
       workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
       planVersionId: "plan-version-1", accountId: "account-1", accountLoginStateVersion: 7,
       expectedEtag: '"default"', defaultEtag: '"default"', idempotencyKey: `drift-${drift}`,
       requestHash: `sha256:${"f".repeat(64)}`, value
-    });
-    assert.equal(result.kind, "binding_mismatch", drift);
+    };
+    driftAuthority(authority, drift);
+    if (drift === "plan") pool.planCurrentVersionId = "plan-version-changed";
+    if (drift === "account") pool.accountState = "login_expired";
+    if (drift === "login") pool.accountLoginStateVersion = 8;
+    const [memoryPolicy, mysqlPolicy] = await Promise.all([
+      memory.savePolicy(policyCommand),
+      mysqlRepository.savePolicy(policyCommand)
+    ]);
+    assert.equal(memoryPolicy.kind, "binding_mismatch", `memory policy ${drift}`);
+    assert.equal(mysqlPolicy.kind, memoryPolicy.kind, `mysql policy ${drift}`);
     assert.equal(pool.versions.size, 0, drift);
+
+    const runAuthority = authorityState();
+    const runMemory = memoryRepository(runAuthority);
+    const runPool = new StatefulAutomationMysqlPool();
+    const runMysql = new MysqlAcquisitionDouyinAutomationRepository(runPool as never);
+    const seedCommand = { ...policyCommand, idempotencyKey: `seed-run-${drift}` };
+    assert.equal((await runMemory.savePolicy(seedCommand)).kind, "created");
+    assert.equal((await runMysql.savePolicy(seedCommand)).kind, "created");
+    driftAuthority(runAuthority, drift);
+    if (drift === "plan") runPool.planCurrentVersionId = "plan-version-changed";
+    if (drift === "account") runPool.accountState = "login_expired";
+    if (drift === "login") runPool.accountLoginStateVersion = 8;
+    const run: DouyinAutomationRunIntent = {
+      id: `run-drift-${drift}`, workspaceId: "workspace-1", planId: "plan-1",
+      planVersionId: "plan-version-1", planVersion: 1, planSnapshotHash: "plan-hash",
+      policyVersionId: value.id, policyHash: value.policyHash, accountId: "account-1",
+      accountLoginStateVersion: 7, dailyBudgetId: `sha256:${"d".repeat(64)}`,
+      localDate: "2026-08-25", trigger: "run_now", status: "queued", reason: null,
+      createdBy: "owner-1", createdAt: "2026-08-25T01:01:00.000Z"
+    };
+    const runCommand = {
+      workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
+      planVersionId: "plan-version-1", policyVersionId: value.id, accountId: "account-1",
+      accountLoginStateVersion: 7, idempotencyKey: `run-drift-${drift}`,
+      requestHash: `sha256:${"e".repeat(64)}`, value: run
+    };
+    const [memoryRun, mysqlRun] = await Promise.all([
+      runMemory.createRunIntent(runCommand),
+      runMysql.createRunIntent(runCommand)
+    ]);
+    assert.equal(memoryRun.kind, "binding_mismatch", `memory run ${drift}`);
+    assert.equal(mysqlRun.kind, memoryRun.kind, `mysql run ${drift}`);
+    assert.equal(runPool.runs.size, 0, drift);
   }
 });
 

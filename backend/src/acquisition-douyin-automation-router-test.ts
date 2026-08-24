@@ -13,6 +13,9 @@ import {
   AcquisitionDouyinAutomationService
 } from "./acquisition-douyin-automation-service.js";
 import {
+  AcquisitionMemoryTransactionCoordinator
+} from "./acquisition-memory-transaction-coordinator.js";
+import {
   InMemoryAcquisitionPlanRunRepository,
   type AcquisitionPlan,
   type AcquisitionPlanPayload,
@@ -79,7 +82,8 @@ function payload(): AcquisitionPlanPayload {
 }
 
 async function createHttp() {
-  const plans = new InMemoryAcquisitionPlanRunRepository();
+  const memoryTransactions = new AcquisitionMemoryTransactionCoordinator();
+  const plans = new InMemoryAcquisitionPlanRunRepository(memoryTransactions);
   const planPayload = payload();
   const version: AcquisitionPlanVersion = {
     id: "plan-version-1",
@@ -116,7 +120,9 @@ async function createHttp() {
     transaction.putPlan(plan);
     transaction.appendPlanVersion(version);
   });
-  const accounts = new InMemoryAcquisitionSocialAccountRepository();
+  const accounts = new InMemoryAcquisitionSocialAccountRepository(
+    memoryTransactions
+  );
   await accounts.upsert({
     id: "account-1",
     workspaceId: "workspace-a",
@@ -135,7 +141,12 @@ async function createHttp() {
   let sequence = 0;
   const service = new AcquisitionDouyinAutomationService({
     repository: new InMemoryAcquisitionDouyinAutomationRepository(
-      createAcquisitionDouyinAutomationAuthorityValidator({ plans, accounts })
+      memoryTransactions,
+      createAcquisitionDouyinAutomationAuthorityValidator({
+        memoryTransactions,
+        plans,
+        accounts
+      })
     ),
     plans,
     accounts,
