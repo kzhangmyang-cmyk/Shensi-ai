@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   fetchProviderHttpWithRedirectTrace,
+  selectProviderNetworkAddress,
   setProviderHttpTestTransport
 } from "./provider-http-client.js";
 
@@ -52,4 +53,35 @@ test("redirect trace rejects an unapproved redirect host", async (t) => {
     ),
     /不在已批准|跨主机重定向/u
   );
+});
+
+test("official model endpoints may use the local proxy synthetic DNS pair without weakening private-address rejection", () => {
+  const synthetic = selectProviderNetworkAddress([
+    { address: "198.18.0.184", family: 4 },
+    { address: "fdfe:dcba:9876::a5", family: 6 }
+  ], {
+    allowedHosts: ["api.deepseek.com"],
+    allowedPathPrefixes: ["/"],
+    allowedMethods: ["POST"],
+    allowSyntheticProxyAddresses: true
+  });
+  assert.deepEqual(synthetic, { address: "198.18.0.184", family: 4 });
+
+  assert.throws(() => selectProviderNetworkAddress([
+    { address: "198.18.0.184", family: 4 },
+    { address: "fdfe:dcba:9876::a5", family: 6 }
+  ], {
+    allowedHosts: ["custom.example"],
+    allowedPathPrefixes: ["/"],
+    allowedMethods: ["POST"]
+  }), /公网安全检查/u);
+
+  assert.throws(() => selectProviderNetworkAddress([
+    { address: "10.0.0.8", family: 4 }
+  ], {
+    allowedHosts: ["api.deepseek.com"],
+    allowedPathPrefixes: ["/"],
+    allowedMethods: ["POST"],
+    allowSyntheticProxyAddresses: true
+  }), /公网安全检查/u);
 });

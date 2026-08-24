@@ -87,6 +87,12 @@ export interface ProviderNetworkPolicy {
   allowedPaths?: string[];
   allowedMethods: Array<"GET" | "POST">;
   redirectHosts?: string[];
+  /**
+   * Allows the narrowly recognized fake-IP pair used by local transparent
+   * proxies. Callers must only enable this for a server-owned exact endpoint
+   * allowlist; arbitrary custom provider URLs must remain fail-closed.
+   */
+  allowSyntheticProxyAddresses?: boolean;
   maxResponseBytes?: number;
   timeoutMs?: number;
 }

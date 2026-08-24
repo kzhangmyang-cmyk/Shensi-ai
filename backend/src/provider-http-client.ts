@@ -57,16 +57,51 @@ function policyError(message: string) {
   });
 }
 
-async function resolveAllowedAddress(hostname: string) {
+interface ResolvedNetworkAddress {
+  address: string;
+  family: number;
+}
+
+function isSyntheticProxyAddress(address: string) {
+  const normalized = address.toLowerCase().split("%")[0];
+  if (isIP(normalized) === 4) {
+    const [first, second] = normalized.split(".").map(Number);
+    return first === 198 && (second === 18 || second === 19);
+  }
+  return isIP(normalized) === 6
+    && normalized.startsWith("fdfe:dcba:9876:");
+}
+
+export function selectProviderNetworkAddress(
+  addresses: ResolvedNetworkAddress[],
+  policy: ProviderNetworkPolicy
+) {
+  const allowed = addresses.filter(
+    (item) => !isPrivateNetworkAddress(item.address)
+  );
+  if (allowed.length && allowed.length === addresses.length) {
+    return allowed[0];
+  }
+  const syntheticIpv4 = addresses.find(
+    (item) => item.family === 4 && isSyntheticProxyAddress(item.address)
+  );
+  if (policy.allowSyntheticProxyAddresses === true
+    && syntheticIpv4
+    && addresses.every((item) => isSyntheticProxyAddress(item.address))) {
+    return syntheticIpv4;
+  }
+  throw policyError("数据源地址未通过公网安全检查");
+}
+
+async function resolveAllowedAddress(
+  hostname: string,
+  policy: ProviderNetworkPolicy
+) {
   const normalizedHostname = normalizeNetworkHostname(hostname);
   const addresses = isIP(normalizedHostname)
     ? [{ address: normalizedHostname, family: isIP(normalizedHostname) }]
     : await lookup(normalizedHostname, { all: true, verbatim: true });
-  const allowed = addresses.filter((item) => !isPrivateNetworkAddress(item.address));
-  if (!allowed.length || allowed.length !== addresses.length) {
-    throw policyError("数据源地址未通过公网安全检查");
-  }
-  return allowed[0];
+  return selectProviderNetworkAddress(addresses, policy);
 }
 
 function validateTarget(rawUrl: string, policy: ProviderNetworkPolicy, redirect = false) {
@@ -227,7 +262,10 @@ async function requestOnce(
     headers.set("accept-encoding", "identity");
     if (body) headers.set("content-length", String(body.length));
     if (!providerHttpTestTransport) {
-      address = await withinDeadline(resolveAllowedAddress(url.hostname), remainingDeadlineMs(deadlineAt));
+      address = await withinDeadline(
+        resolveAllowedAddress(url.hostname, policy),
+        remainingDeadlineMs(deadlineAt)
+      );
     }
   } catch (error) {
     recordResult({ httpStatus: 0, responseSize: 0, errorCode: errorCode(error) });
