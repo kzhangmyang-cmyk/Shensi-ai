@@ -2644,6 +2644,27 @@ export class AcquisitionDomainService {
       if (provenance.coverage !== "public_top_level_sample") {
         fail("invalid_request", "平台公开事件覆盖范围无效", 400);
       }
+    } else if (provenance.kind === "mediacrawler_public_record") {
+      if (raw.targetType !== "individual_signal"
+        || raw.accessStatus !== "public_content"
+        || raw.sourcePlatform !== "douyin") {
+        fail("invalid_request", "爬虫公开记录证据目标或访问状态无效", 400);
+      }
+      const exactKeys = ["cursor", "jobId", "kind", "recordId", "sourceUrl", "upstreamCommit"];
+      if (Object.keys(provenance).sort().join("\u0000") !== exactKeys.join("\u0000")) {
+        fail("invalid_request", "爬虫公开记录 provenance 字段无效", 400);
+      }
+      provenance.sourceUrl = validUrl(provenance.sourceUrl, "爬虫公开记录来源 URL");
+      provenance.jobId = requiredText(provenance.jobId, "爬虫任务 ID", 255);
+      provenance.recordId = requiredText(provenance.recordId, "平台记录 ID", 255);
+      if (provenance.cursor !== null && (typeof provenance.cursor !== "string"
+        || !provenance.cursor.trim() || Buffer.byteLength(provenance.cursor, "utf8") > 512)) {
+        fail("invalid_request", "爬虫游标无效", 400);
+      }
+      provenance.upstreamCommit = requiredText(provenance.upstreamCommit, "上游提交", 40);
+      if (!/^[a-f0-9]{40}$/u.test(provenance.upstreamCommit)) {
+        fail("invalid_request", "上游提交无效", 400);
+      }
     } else if (provenance.kind === "authorized_visual_observation") {
       if (raw.targetType !== "individual_signal"
         || raw.accessStatus !== "access_restricted"
@@ -2730,6 +2751,8 @@ export class AcquisitionDomainService {
       sourceTitle: String(raw.sourceTitle ?? "").trim().slice(0, 500),
       sourceSnippet: provenance.kind === "platform_public_event"
         ? String(raw.sourceSnippet ?? "").slice(0, 4_000)
+        : provenance.kind === "mediacrawler_public_record"
+          ? [...String(raw.sourceSnippet ?? "").normalize("NFKC").trim()].slice(0, 500).join("")
         : String(raw.sourceSnippet ?? "").trim().slice(0, 4_000),
       publishedAt: raw.publishedAt
         ? validIso(raw.publishedAt, "证据发布时间")

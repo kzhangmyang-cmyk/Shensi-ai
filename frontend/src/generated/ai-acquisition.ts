@@ -680,6 +680,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/acquisition/runs/{runId}/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List evidence-bound candidates for an acquisition run
+         * @description Cursor is bound to the active workspace, run, full filter set, and candidate snapshot. Only bounded public evidence is returned.
+         */
+        get: operations["listAcquisitionRunCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/acquisition/providers": {
         parameters: {
             query?: never;
@@ -1795,6 +1817,16 @@ export interface components {
             /** Format: date-time */
             completedAt: string | null;
         };
+        AcquisitionRunCandidate: {
+            id: string;
+            status: string;
+            displayName: string;
+            evidence: {
+                /** Format: uri */
+                sourceUrl: string;
+                excerpt: string;
+            };
+        };
         /** @enum {string} */
         DouyinAutomationFailureCode: "unauthorized" | "workspace_required" | "workspace_context_invalid" | "invalid_request" | "invalid_automation_scope" | "invalid_automation_policy" | "invalid_automation_keywords" | "invalid_automation_schedule" | "invalid_automation_local_time" | "invalid_automation_time_zone" | "invalid_automation_collection" | "automation_collection_required" | "invalid_automation_limits" | "invalid_daily_candidate_limit" | "invalid_run_now_input" | "invalid_idempotency_key" | "invalid_if_match" | "if_match_required" | "automation_plan_not_found" | "automation_plan_snapshot_corrupt" | "active_douyin_account_required" | "active_douyin_account_workspace_mismatch" | "automation_policy_required" | "approved_automation_plan_required" | "automation_policy_plan_version_mismatch" | "automation_account_login_state_changed" | "automation_idempotency_conflict" | "automation_precondition_failed" | "automation_policy_binding_conflict" | "automation_run_binding_conflict" | "automation_policy_binding_corrupt" | "automation_idempotency_record_corrupt" | "automation_internal_error";
         PlatformConnection: components["schemas"]["platform-connection.v1.schema"];
@@ -2653,6 +2685,15 @@ export interface components {
                 coverage: "public_top_level_sample";
             } | {
                 /** @constant */
+                kind: "mediacrawler_public_record";
+                /** Format: uri */
+                sourceUrl: string;
+                jobId: string;
+                recordId: string;
+                cursor: string | null;
+                upstreamCommit: string;
+            } | {
+                /** @constant */
                 kind: "authorized_visual_observation";
                 /** Format: uri */
                 sourceUrl: string;
@@ -2678,7 +2719,7 @@ export interface components {
             };
             /** @enum {unknown} */
             accessStatus: "indexed_summary" | "public_content" | "user_supplied" | "access_restricted";
-        } & (unknown & unknown);
+        } & (unknown & unknown & unknown);
         budgetUsage: {
             requests: number;
             results: number;
@@ -5143,6 +5184,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AcquisitionCrawlerStatus"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionRunCandidates: {
+        parameters: {
+            query?: {
+                status?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace-bound candidate page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AcquisitionRunCandidate"][];
+                        nextCursor: string | null;
+                    };
                 };
             };
             /** @description Unified API error */

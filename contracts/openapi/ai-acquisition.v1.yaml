@@ -344,6 +344,21 @@ components:
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         completedAt: { type: [string, 'null'], format: date-time }
+    AcquisitionRunCandidate:
+      type: object
+      additionalProperties: false
+      required: [id, status, displayName, evidence]
+      properties:
+        id: { type: string }
+        status: { type: string }
+        displayName: { type: string, maxLength: 200 }
+        evidence:
+          type: object
+          additionalProperties: false
+          required: [sourceUrl, excerpt]
+          properties:
+            sourceUrl: { type: string, format: uri }
+            excerpt: { type: string, maxLength: 500 }
     DouyinAutomationFailureCode:
       type: string
       enum: [unauthorized, workspace_required, workspace_context_invalid, invalid_request, invalid_automation_scope, invalid_automation_policy, invalid_automation_keywords, invalid_automation_schedule, invalid_automation_local_time, invalid_automation_time_zone, invalid_automation_collection, automation_collection_required, invalid_automation_limits, invalid_daily_candidate_limit, invalid_run_now_input, invalid_idempotency_key, invalid_if_match, if_match_required, automation_plan_not_found, automation_plan_snapshot_corrupt, active_douyin_account_required, active_douyin_account_workspace_mismatch, automation_policy_required, approved_automation_plan_required, automation_policy_plan_version_mismatch, automation_account_login_state_changed, automation_idempotency_conflict, automation_precondition_failed, automation_policy_binding_conflict, automation_run_binding_conflict, automation_policy_binding_corrupt, automation_idempotency_record_corrupt, automation_internal_error]
@@ -779,6 +794,30 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '200': { description: Persisted crawler status, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionCrawlerStatus' } } } }
+  /api/v1/acquisition/runs/{runId}/candidates:
+    parameters: [{ name: runId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    get:
+      operationId: listAcquisitionRunCandidates
+      summary: List evidence-bound candidates for an acquisition run
+      description: Cursor is bound to the active workspace, run, full filter set, and candidate snapshot. Only bounded public evidence is returned.
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 100 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: cursor, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 8192 } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200':
+          description: Workspace-bound candidate page
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/AcquisitionRunCandidate' } }
+                  nextCursor: { type: [string, 'null'] }
   /api/v1/acquisition/providers:
     get:
       operationId: listAcquisitionProviders

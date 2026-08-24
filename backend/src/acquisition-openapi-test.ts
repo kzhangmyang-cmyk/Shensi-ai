@@ -68,6 +68,7 @@ test("acquisition OpenAPI publishes the complete agent control surface", () => {
     "/api/v1/acquisition/plans/{planId}/automation",
     "/api/v1/acquisition/plans/{planId}/run-now",
     "/api/v1/acquisition/runs/{runId}/crawler-status",
+    "/api/v1/acquisition/runs/{runId}/candidates",
     "/api/v1/acquisition/providers",
     "/api/v1/acquisition/provider-connections",
     "/api/v1/acquisition/provider-connections/{id}",
@@ -137,6 +138,21 @@ test("crawler status OpenAPI is a persisted-only closed projection", () => {
   }
 });
 
+test("run candidates OpenAPI publishes only bounded public evidence", () => {
+  const operation = createAcquisitionOpenApiPaths()[
+    "/api/v1/acquisition/runs/{runId}/candidates"
+  ]!.get as Record<string, any>;
+  assert.equal(operation.operationId, "listAcquisitionRunCandidates");
+  const schema = operation.responses["200"].content["application/json"].schema;
+  assert.equal(schema.additionalProperties, false);
+  const item = schema.properties.items.items;
+  assert.equal(item.additionalProperties, false);
+  assert.equal(item.properties.evidence.properties.excerpt.maxLength, 500);
+  for (const privateField of ["cookie", "rawResponse", "handle", "cursor", "upstreamCommit"]) {
+    assert.equal(item.properties[privateField], undefined);
+  }
+});
+
 test("social-account create and disconnect publish exact replay headers", () => {
   const paths = createAcquisitionOpenApiPaths();
   for (const [path, method] of [
@@ -197,7 +213,7 @@ test("every published acquisition operation has a unique stable camelCase id", (
     }
   }
 
-  assert.equal(ids.length, 66);
+  assert.equal(ids.length, 67);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(
     paths["/api/v1/acquisition/plans/{id}/approval"]?.post?.operationId,

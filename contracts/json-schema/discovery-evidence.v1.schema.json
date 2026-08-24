@@ -133,6 +133,19 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "required": ["kind", "sourceUrl", "jobId", "recordId", "cursor", "upstreamCommit"],
+          "properties": {
+            "kind": { "const": "mediacrawler_public_record" },
+            "sourceUrl": { "type": "string", "format": "uri", "maxLength": 2000, "pattern": "^https://" },
+            "jobId": { "type": "string", "minLength": 1, "maxLength": 255 },
+            "recordId": { "type": "string", "minLength": 1, "maxLength": 255 },
+            "cursor": { "type": ["string", "null"], "minLength": 1, "maxLength": 512 },
+            "upstreamCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
           "required": [
             "kind",
             "sourceUrl",
@@ -238,6 +251,28 @@
         "properties": {
           "targetType": { "const": "individual_signal" },
           "accessStatus": { "const": "public_content" }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "provenance": {
+            "type": "object",
+            "properties": { "kind": { "const": "mediacrawler_public_record" } },
+            "required": ["kind"]
+          }
+        },
+        "required": ["provenance"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "targetType": { "const": "individual_signal" },
+          "sourcePlatform": { "const": "douyin" },
+          "accessStatus": { "const": "public_content" },
+          "sourceSnippet": { "maxLength": 500 }
         }
       }
     },

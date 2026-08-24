@@ -310,6 +310,8 @@ import {
   MysqlAcquisitionCrawlerJobRepository
 } from "./acquisition-crawler-job-mysql-repository.js";
 import { createAcquisitionCrawlerJobRouter } from "./acquisition-crawler-job-router.js";
+import { createAcquisitionRunCandidatesRouter } from "./acquisition-run-candidates-router.js";
+import { discoveryEvidencePublicSourceUrl } from "./acquisition-domain.js";
 import { AcquisitionCrawlerWorker } from "./acquisition-crawler-worker.js";
 import { AcquisitionCrawlerRecoverySweeper } from "./acquisition-crawler-recovery-sweeper.js";
 import { AcquisitionDouyinScheduler } from "./acquisition-douyin-scheduler.js";
@@ -2193,6 +2195,34 @@ export async function createAcquisitionApplication(
         requestIdFactory: () => idFactory("request")
       })
     );
+    router.use(createAcquisitionRunCandidatesRouter({
+      repository: {
+        async list(workspaceId, runId) {
+          const run = await repositories.planRun.getRun(runId);
+          if (!run) return [];
+          const resolved = await acquisitionWorkspace.resolve({ ownerId: run.ownerId, teamId: run.teamId });
+          if (!resolved || resolved.workspaceId !== workspaceId) return [];
+          const scope = { ownerId: run.ownerId, teamId: run.teamId };
+          const links = await repositories.planRun.listRunCandidateLinks(runId);
+          const results: Array<{ id: string; status: string; displayName: string; evidence: { sourceUrl: string; excerpt: string } }> = [];
+          for (const link of links) {
+            const candidate = await repositories.domain.findCandidate(scope, link.candidateId);
+            if (!candidate) continue;
+            const evidence = await Promise.all(candidate.evidenceIds.map((id) => repositories.domain.findEvidence(scope, id)));
+            const publicEvidence = evidence.find((item) => item && item.sourcePlatform === "douyin" && discoveryEvidencePublicSourceUrl(item));
+            if (!publicEvidence) continue;
+            const sourceUrl = discoveryEvidencePublicSourceUrl(publicEvidence);
+            if (!sourceUrl) continue;
+            results.push({ id: candidate.id, status: candidate.status,
+              displayName: candidate.profile.kind === "individual" ? candidate.profile.publicDisplayName : candidate.profile.name,
+              evidence: { sourceUrl, excerpt: publicEvidence.sourceSnippet } });
+          }
+          return results;
+        }
+      },
+      cursorSecret: derivedSecret(masterSecret, "run-candidates-cursor"),
+      requestIdFactory: () => idFactory("request")
+    }));
     douyinScheduler = new AcquisitionDouyinScheduler({
       repository: crawlerJobs,
       runIntents: {

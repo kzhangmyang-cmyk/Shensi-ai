@@ -1121,6 +1121,7 @@ const acquisitionOperationIds: Record<string, string> = {
   "put /api/v1/acquisition/plans/{planId}/automation": "putAcquisitionDouyinAutomation",
   "post /api/v1/acquisition/plans/{planId}/run-now": "runAcquisitionDouyinAutomationNow",
   "get /api/v1/acquisition/runs/{runId}/crawler-status": "getAcquisitionCrawlerStatus",
+  "get /api/v1/acquisition/runs/{runId}/candidates": "listAcquisitionRunCandidates",
   "get /api/v1/acquisition/providers": "listAcquisitionProviders",
   "get /api/v1/acquisition/provider-connections":
     "listAcquisitionProviderConnections",
@@ -1392,6 +1393,22 @@ const acquisitionCrawlerStatusSchema = {
     completedAt: { type: "string", format: "date-time", nullable: true }
   }
 };
+const acquisitionRunCandidatesSchema = {
+  type: "object", additionalProperties: false, required: ["items", "nextCursor"],
+  properties: {
+    items: { type: "array", items: { type: "object", additionalProperties: false,
+      required: ["id", "status", "displayName", "evidence"], properties: {
+        id: { type: "string" }, status: { type: "string" },
+        displayName: { type: "string", maxLength: 200 },
+        evidence: { type: "object", additionalProperties: false,
+          required: ["sourceUrl", "excerpt"], properties: {
+            sourceUrl: { type: "string", format: "uri" },
+            excerpt: { type: "string", maxLength: 500 }
+          } }
+      } } },
+    nextCursor: { type: "string", nullable: true }
+  }
+};
 function addSocialAccountPaths(paths: AcquisitionOpenApiPaths) {
   add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions", "post", operation("post", "开始抖音二维码登录", { parameters: [idempotencyParameter(1)], requestBody: jsonBody({ type: "object", required: ["platform"], properties: { platform: { type: "string", enum: ["douyin"] } }, additionalProperties: false }), responses: { ...standardResponses(201, "二维码登录会话", socialLoginSessionSchema), "200": { ...response("幂等重放", socialLoginSessionSchema), headers: { "Idempotency-Replayed": { schema: { type: "string", enum: ["true"] } } } } } }));
   add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}", "get", operation("get", "查询抖音二维码登录", { parameters: [idParameter(255, "sessionId")], responses: standardResponses(200, "二维码登录会话", socialLoginSessionSchema) }));
@@ -1442,6 +1459,13 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
   add(paths, "/api/v1/acquisition/runs/{runId}/crawler-status", "get", operation("get", "读取已持久化的抖音采集状态", {
     parameters: [idParameter(255, "runId")],
     responses: standardResponses(200, "采集状态", acquisitionCrawlerStatusSchema)
+  }));
+  add(paths, "/api/v1/acquisition/runs/{runId}/candidates", "get", operation("get", "读取运行的证据候选", {
+    parameters: [idParameter(255, "runId"),
+      { name: "status", in: "query", required: false, schema: { type: "string", minLength: 1, maxLength: 100 } },
+      { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
+      { name: "cursor", in: "query", required: false, schema: { type: "string", minLength: 1, maxLength: 8192 } }],
+    responses: standardResponses(200, "候选页", acquisitionRunCandidatesSchema)
   }));
 }
 function addProviderPaths(paths: AcquisitionOpenApiPaths) {

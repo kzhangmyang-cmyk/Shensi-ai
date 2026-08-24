@@ -68,6 +68,15 @@ export type EvidenceProvenance =
       coverage: "public_top_level_sample";
     }
   | {
+      /** Closed provenance emitted only from a persisted MediaCrawler page. */
+      kind: "mediacrawler_public_record";
+      sourceUrl: string;
+      jobId: string;
+      recordId: string;
+      cursor: string | null;
+      upstreamCommit: string;
+    }
+  | {
       kind: "authorized_visual_observation";
       sourceUrl: string;
       observationId: string;

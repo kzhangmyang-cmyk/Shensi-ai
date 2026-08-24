@@ -28,11 +28,31 @@ import {
 import { AcquisitionSocialAccountService } from "./acquisition-social-account-service.js";
 import { InMemoryAcquisitionSocialAccountRepository } from "./acquisition-social-account-repository.js";
 import { createAcquisitionSocialAccountRouter } from "./acquisition-social-account-router.js";
+import { createAcquisitionRunCandidatesRouter } from "./acquisition-run-candidates-router.js";
 
 const OWNER = "response-contract-owner";
 const TEAM = "response-contract-team";
 const NOW = "2026-08-05T00:00:00.000Z";
 const openApiPaths = createAcquisitionOpenApiPaths();
+
+test("run candidate page conforms and omits private crawler state", async () => {
+  const http = await mount(createAcquisitionRunCandidatesRouter({
+    repository: {
+      async list() {
+        return [{ id: "candidate-public-1", status: "needs_research", displayName: "公开用户",
+          evidence: { sourceUrl: "https://www.douyin.com/video/7350000000000000001", excerpt: "正在公开咨询获客方案" } }];
+      }
+    },
+    cursorSecret: "response-contract-run-candidate-secret-at-least-32-bytes"
+  }));
+  try {
+    const result = await http.request("/api/v1/acquisition/runs/run-response-1/candidates");
+    assert.equal(result.response.status, 200);
+    assertResponseConforms("/api/v1/acquisition/runs/{runId}/candidates", "get", 200, result.body);
+    assert.equal(JSON.stringify(result.body).includes("cookie"), false);
+    assert.equal(JSON.stringify(result.body).includes("handle"), false);
+  } finally { await http.close(); }
+});
 
 test("actual social-account HTTP replays and 404/412 errors conform without private browser state", async () => {
   const service = new AcquisitionSocialAccountService({
