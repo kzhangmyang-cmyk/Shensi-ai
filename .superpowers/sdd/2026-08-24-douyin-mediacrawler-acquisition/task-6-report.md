@@ -117,3 +117,45 @@ handoff).
 
 No raw model output is stored and Task 7 remains the sole revision-persistence
 owner. The ledger-deferred Minor response-contract maximum was not changed.
+
+## Fix round 2/5 — scoped re-review remediation
+
+### RED
+
+- Added the reviewer counterexamples before implementation. The focused run
+  demonstrated that a keyword list with one legal entry and one overlong entry
+  was silently sanitized; required age/refusal forms were missed; and a bare
+  domain could survive the Unicode projection.
+
+### GREEN
+
+- Keyword tool arguments now fail as one closed record: every member must be a
+  non-empty NFKC-normalized string of at most 100 code points and unique after
+  canonicalization. Invalid members are never dropped to salvage a result.
+- Age parsing consumes complete Arabic/Chinese number tokens, includes
+  `不满18岁`, and retains adults such as `二十岁`, `二十八岁`, `三十七岁`, and
+  `2017岁末版本`; normalized refusal includes `拒绝联系我` without relying on
+  ASCII boundaries.
+- Draft validation rejects Unicode format/bidi controls, bare domains, and
+  candidate-specific unsupported assertions. Factual candidate clauses must
+  occur verbatim in approved evidence (apart from deterministic reporting
+  prefixes).
+- The post-model read compares full immutable candidate/evidence authority,
+  including tenant, platform, provenance, source URL, job/record/upstream
+  commit, hashes/snippets, and membership. It also queries the exact
+  workspace/actor DNC authority immediately before returning.
+- Historical content registry entries now preserve the exact pre-Task-6 v5/v5
+  and v5/v6 bundles/hashes without outreach injection; explicit compatibility
+  tests resolve both snapshot identities.
+
+### Verification
+
+- Focused production gateway/history/race/counterexample suites: 66 passed,
+  0 failed.
+- `pnpm --filter ./backend test:model-gateway`: 21 passed, 0 failed.
+- `pnpm check:acquisition-contracts`: passed (contracts 91/91, contract-drift
+  18/18, security, runtime OpenAPI 39/39, generated types, frontend
+  build/tests, and package gate passed; existing Vite chunk advisory only).
+- `pnpm --filter ./backend test:acquisition`: passed (aggregate output is
+  environment-gated for optional live MySQL cases).
+- `pnpm build`, `./scripts/context-check`, and `git diff --check`: passed.

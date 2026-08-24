@@ -19,5 +19,12 @@ test("fails closed on malformed keyword tool arguments before canonicalization",
   ]) {
     assert.throws(() => parseDouyinKeywordToolArguments(value), /OUTREACH_MODEL_RESPONSE_INVALID/u);
   }
+  for (const value of [
+    { keywords: ["合法词", "x".repeat(101)] },
+    { keywords: ["合法词", "   "] },
+    { keywords: ["合法词", "合法词"] }
+  ]) {
+    assert.throws(() => parseDouyinKeywordToolArguments(value), /OUTREACH_MODEL_RESPONSE_INVALID/u);
+  }
   assert.deepEqual(parseDouyinKeywordToolArguments({ keywords: [" 工厂获客 "] }), ["工厂获客"]);
 });

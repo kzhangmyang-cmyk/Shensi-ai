@@ -29,9 +29,17 @@ export function parseDouyinKeywordToolArguments(value: unknown): string[] {
     || record.keywords.some((item) => typeof item !== "string")) {
     throw new Error("OUTREACH_MODEL_RESPONSE_INVALID");
   }
-  const keywords = canonicalizeDouyinKeywords(record.keywords);
-  if (!keywords.length) throw new Error("OUTREACH_MODEL_RESPONSE_INVALID");
-  return keywords;
+  const normalized = record.keywords.map((raw) =>
+    (raw as string).normalize("NFKC").trim().replace(/\s+/gu, " ")
+  );
+  if (normalized.some((keyword) => !keyword || [...keyword].length > 100)) {
+    throw new Error("OUTREACH_MODEL_RESPONSE_INVALID");
+  }
+  const identities = normalized.map((keyword) => keyword.toLocaleLowerCase("en-US"));
+  if (new Set(identities).size !== identities.length) {
+    throw new Error("OUTREACH_MODEL_RESPONSE_INVALID");
+  }
+  return normalized;
 }
 
 export async function generateDouyinKeywords(input: {

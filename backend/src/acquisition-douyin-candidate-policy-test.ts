@@ -27,6 +27,15 @@ test("policy fails closed for refusals, complaints, minors, and missing sources"
   }
 });
 
+test("parses complete Arabic and Chinese age tokens without adult or version false positives", () => {
+  for (const text of ["不满18岁，需要获客方案", "十七岁想学习", "拒绝联系我"]) {
+    assert.equal(qualifyDouyinCrawlerCandidate({ text, hasOriginalPublicSource: true }).status, "suppressed");
+  }
+  for (const text of ["二十岁需要获客方案", "二十八岁需要获客方案", "三十七岁需要获客方案", "2017岁末版本需要获客方案"]) {
+    assert.equal(qualifyDouyinCrawlerCandidate({ text, hasOriginalPublicSource: true }).status, "qualified", text);
+  }
+});
+
 test("creator discovery and demand comments use separate admission policies", () => {
   assert.equal(qualifyDouyinCrawlerCandidate({
     text: "工业除尘设备厂家",

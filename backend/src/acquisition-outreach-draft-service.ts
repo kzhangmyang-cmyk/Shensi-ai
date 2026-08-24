@@ -7,6 +7,7 @@ import {
   acquisitionOutreachModelRequest
 } from "./acquisition-outreach-model-content.js";
 import { validateAcquisitionOutreachDraft, type AcquisitionOutreachDraft } from "./acquisition-outreach-draft.js";
+import { canonicalJsonStringify } from "./canonical-json.js";
 
 export function assertDraftableDouyinCandidate(input: { id: string; version: number; status: string; evidence: Array<{ id: string; contentHash: string; text: string }> }) {
   if (!input.id || !Number.isSafeInteger(input.version) || input.version < 1
@@ -35,20 +36,21 @@ export function parseOutreachDraftToolArguments(value: unknown) {
 }
 
 export class AcquisitionOutreachDraftService {
-  constructor(private readonly options: { domain: AcquisitionDomainRepository; resolveSnapshot(scope: { ownerId: string; teamId: string }): Promise<{ jobId: string }>; gateway(snapshotId: string): Promise<AcquisitionPiGatewayPort>; }) {}
-  async generate(input: { scope: { ownerId: string; teamId: string }; candidateId: string; evidenceIds?: string[] }): Promise<Readonly<AcquisitionOutreachDraft>> {
+  constructor(private readonly options: { domain: AcquisitionDomainRepository; hasDoNotContact(scope: { workspaceId: string; ownerId: string; teamId: string }, publicActorKey: string): Promise<boolean>; resolveSnapshot(scope: { ownerId: string; teamId: string }): Promise<{ jobId: string }>; gateway(snapshotId: string): Promise<AcquisitionPiGatewayPort>; }) {}
+  async generate(input: { scope: { workspaceId: string; ownerId: string; teamId: string }; candidateId: string; evidenceIds?: string[] }): Promise<Readonly<AcquisitionOutreachDraft>> {
     const candidate = await this.options.domain.findCandidate(input.scope, input.candidateId);
-    if (!candidate || candidate.status === "do_not_contact"
+    if (!candidate || candidate.ownerId !== input.scope.ownerId || candidate.teamId !== input.scope.teamId || candidate.status === "do_not_contact"
       || candidate.profile.kind !== "individual"
       || candidate.profile.sourcePlatform !== "douyin") {
       throw new Error("OUTREACH_CANDIDATE_NOT_DRAFTABLE");
     }
+    if (!candidate.profile.publicActorKey || await this.options.hasDoNotContact(input.scope, candidate.profile.publicActorKey)) throw new Error("OUTREACH_CANDIDATE_NOT_DRAFTABLE");
     const expected = [...candidate.evidenceIds].sort();
     if (input.evidenceIds && canonicalIds(input.evidenceIds) !== canonicalIds(expected)) throw new Error("OUTREACH_EVIDENCE_FORGED");
     const evidence = await Promise.all(expected.map((id) => this.options.domain.findEvidence(input.scope, id)));
     if (evidence.some((item) => !item)) throw new Error("OUTREACH_EVIDENCE_FORGED");
     const trusted = evidence as DiscoveryEvidence[];
-    if (trusted.some((item) => item.sourcePlatform !== "douyin"
+    if (trusted.some((item) => item.ownerId !== input.scope.ownerId || item.teamId !== input.scope.teamId || item.sourcePlatform !== "douyin"
       || item.provenance.kind !== "mediacrawler_public_record"
       || !/^sha256:[a-f0-9]{64}$/u.test(item.contentHash))) {
       throw new Error("OUTREACH_EVIDENCE_FORGED");
@@ -64,14 +66,17 @@ export class AcquisitionOutreachDraftService {
     // authority before returning so a concurrent DNC/refusal/revision change
     // can never be turned into a usable immutable draft.
     const current = await this.options.domain.findCandidate(input.scope, input.candidateId);
-    if (!current || current.id !== candidate.id || current.version !== candidate.version
+    if (!current || canonicalJsonStringify(candidateAuthority(current)) !== canonicalJsonStringify(candidateAuthority(candidate))
       || current.status !== candidate.status || canonicalIds(current.evidenceIds) !== canonicalIds(expected)) {
       throw new Error("OUTREACH_CANDIDATE_AUTHORITY_CHANGED");
     }
     const currentEvidence = await Promise.all(expected.map((id) => this.options.domain.findEvidence(input.scope, id)));
     if (currentEvidence.some((item) => !item)
-      || currentEvidence.some((item, index) => item?.contentHash !== trusted[index]?.contentHash
-        || item?.sourceSnippet !== trusted[index]?.sourceSnippet)) {
+      || currentEvidence.some((item, index) => !item || canonicalJsonStringify(evidenceAuthority(item)) !== canonicalJsonStringify(evidenceAuthority(trusted[index]!)))) {
+      throw new Error("OUTREACH_CANDIDATE_AUTHORITY_CHANGED");
+    }
+    if (current.profile.kind !== "individual" || !current.profile.publicActorKey
+      || await this.options.hasDoNotContact(input.scope, current.profile.publicActorKey)) {
       throw new Error("OUTREACH_CANDIDATE_AUTHORITY_CHANGED");
     }
     assertDraftableDouyinCandidate({ id: current.id, version: current.version, status: current.status,
@@ -86,3 +91,5 @@ export class AcquisitionOutreachDraftService {
 function canonicalIds(values: string[]) { return JSON.stringify([...values].sort()); }
 function publicUrl(evidence: DiscoveryEvidence) { return evidence.provenance.kind === "mediacrawler_public_record" ? evidence.provenance.sourceUrl : null; }
 function publicCandidate(candidate: AcquisitionCandidate) { return candidate.profile.kind === "individual" ? { displayName: candidate.profile.publicDisplayName, platform: candidate.profile.sourcePlatform } : { displayName: candidate.profile.name, platform: "unknown" }; }
+function candidateAuthority(candidate: AcquisitionCandidate) { return candidate; }
+function evidenceAuthority(evidence: DiscoveryEvidence) { return evidence; }

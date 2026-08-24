@@ -683,7 +683,8 @@ export interface CreateAcquisitionModelContentBundleOptions {
 function modelContentBundle(
   options: CreateAcquisitionModelContentBundleOptions,
   includePlanDraft: boolean,
-  battleCardVersion: "battle-card.v1" | "battle-card.v2"
+  battleCardVersion: "battle-card.v1" | "battle-card.v2",
+  includeOutreach = false
 ): ModelContentBundle {
   const systemPrompt = options.systemPrompt?.trim()
     || DEFAULT_ACQUISITION_PI_SYSTEM_PROMPT;
@@ -710,7 +711,7 @@ function modelContentBundle(
     toolSchemas[ACQUISITION_PLAN_DRAFT_TOOL_SCHEMA_ID] =
       Object.freeze([acquisitionPlanDraftTool()]);
   }
-  if (battleCardVersion === "battle-card.v2") {
+  if (includeOutreach) {
     Object.assign(promptTemplates, acquisitionOutreachPromptTemplates());
     Object.assign(toolSchemas, acquisitionOutreachToolSchemas());
   }
@@ -723,7 +724,7 @@ function modelContentBundle(
 export function createAcquisitionModelContentBundle(
   options: CreateAcquisitionModelContentBundleOptions = {}
 ): ModelContentBundle {
-  return modelContentBundle(options, true, "battle-card.v2");
+  return modelContentBundle(options, true, "battle-card.v2", true);
 }
 
 export const ACQUISITION_LEGACY_MODEL_CONTENT_BUNDLE =
@@ -742,17 +743,23 @@ export const ACQUISITION_PREVIOUS_MODEL_CONTENT_BUNDLE =
 export const ACQUISITION_PREVIOUS_MODEL_CONTENT_HASHES =
   modelContentBundleHashes(ACQUISITION_PREVIOUS_MODEL_CONTENT_BUNDLE);
 
+/** Exact pre-Task-6 active bundle kept for immutable v5/v6 snapshots. */
+export const ACQUISITION_PRE_TASK6_MODEL_CONTENT_BUNDLE =
+  modelContentBundle({}, true, "battle-card.v2");
+export const ACQUISITION_PRE_TASK6_MODEL_CONTENT_HASHES =
+  modelContentBundleHashes(ACQUISITION_PRE_TASK6_MODEL_CONTENT_BUNDLE);
+
 export const ACQUISITION_MODEL_CONTENT_BUNDLE =
   createAcquisitionModelContentBundle();
 
 export const ACQUISITION_MODEL_CONTENT_HASHES =
   modelContentBundleHashes(ACQUISITION_MODEL_CONTENT_BUNDLE);
 
-const ACQUISITION_RETIRED_MODEL_CONTENT_BUNDLE =
+export const ACQUISITION_RETIRED_MODEL_CONTENT_BUNDLE =
   modelContentBundle({
     businessTools: legacyAcquisitionAgentToolDefinitions()
   }, true, "battle-card.v2");
-const ACQUISITION_RETIRED_MODEL_CONTENT_HASHES =
+export const ACQUISITION_RETIRED_MODEL_CONTENT_HASHES =
   modelContentBundleHashes(ACQUISITION_RETIRED_MODEL_CONTENT_BUNDLE);
 
 const ACQUISITION_MODEL_CONTENT_REGISTRY = Object.freeze([{
@@ -765,6 +772,11 @@ const ACQUISITION_MODEL_CONTENT_REGISTRY = Object.freeze([{
   schemaVersion: ACQUISITION_PREVIOUS_MODEL_SCHEMA_VERSION,
   ...ACQUISITION_PREVIOUS_MODEL_CONTENT_HASHES,
   bundle: ACQUISITION_PREVIOUS_MODEL_CONTENT_BUNDLE
+}, {
+  promptVersion: "acquisition-model-prompt-bundle.v5",
+  schemaVersion: "acquisition-model-schema-bundle.v6",
+  ...ACQUISITION_PRE_TASK6_MODEL_CONTENT_HASHES,
+  bundle: ACQUISITION_PRE_TASK6_MODEL_CONTENT_BUNDLE
 }, {
   promptVersion: ACQUISITION_RETIRED_MODEL_PROMPT_VERSION,
   schemaVersion: ACQUISITION_RETIRED_MODEL_SCHEMA_VERSION,

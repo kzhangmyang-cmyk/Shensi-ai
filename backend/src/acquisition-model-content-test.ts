@@ -15,6 +15,10 @@ import {
   ACQUISITION_PLAN_DRAFT_PROMPT_ID,
   ACQUISITION_PLAN_DRAFT_SUBMIT_TOOL,
   ACQUISITION_PLAN_DRAFT_TOOL_SCHEMA_ID,
+  ACQUISITION_PRE_TASK6_MODEL_CONTENT_BUNDLE,
+  ACQUISITION_PRE_TASK6_MODEL_CONTENT_HASHES,
+  ACQUISITION_RETIRED_MODEL_CONTENT_BUNDLE,
+  ACQUISITION_RETIRED_MODEL_CONTENT_HASHES,
   acquisitionModelContentForSnapshot
 } from "./acquisition-model-content.js";
 
@@ -59,6 +63,10 @@ assert.ok(ACQUISITION_MODEL_CONTENT_BUNDLE.promptTemplates["acquisition.douyin.k
 assert.ok(ACQUISITION_MODEL_CONTENT_BUNDLE.toolSchemas["acquisition.douyin.keyword-suggestions.v1"]);
 assert.ok(ACQUISITION_MODEL_CONTENT_BUNDLE.promptTemplates["acquisition.douyin.outreach-draft.v1"]);
 assert.ok(ACQUISITION_MODEL_CONTENT_BUNDLE.toolSchemas["acquisition.douyin.outreach-draft.v1"]);
+for (const bundle of [ACQUISITION_PRE_TASK6_MODEL_CONTENT_BUNDLE, ACQUISITION_RETIRED_MODEL_CONTENT_BUNDLE]) {
+  assert.equal(bundle.promptTemplates["acquisition.douyin.keyword-suggestions.v1"], undefined);
+  assert.equal(bundle.toolSchemas["acquisition.douyin.keyword-suggestions.v1"], undefined);
+}
 assert.deepEqual(ACQUISITION_LEGACY_MODEL_CONTENT_HASHES, {
   promptHash:
     "sha256:5c840bb642766df13767c21139ccd8ed0709d60b5aeac04d4736e39e383b519b",
@@ -97,6 +105,14 @@ assert.equal(
   Array.isArray(judgmentTools?.[0]?.parameters.oneOf),
   true
 );
+assert.equal(acquisitionModelContentForSnapshot({
+  promptVersion: "acquisition-model-prompt-bundle.v5", schemaVersion: "acquisition-model-schema-bundle.v6",
+  ...ACQUISITION_PRE_TASK6_MODEL_CONTENT_HASHES
+}), ACQUISITION_PRE_TASK6_MODEL_CONTENT_BUNDLE);
+assert.equal(acquisitionModelContentForSnapshot({
+  promptVersion: "acquisition-model-prompt-bundle.v5", schemaVersion: "acquisition-model-schema-bundle.v5",
+  ...ACQUISITION_RETIRED_MODEL_CONTENT_HASHES
+}), ACQUISITION_RETIRED_MODEL_CONTENT_BUNDLE);
 const judgmentParameters = judgmentTools?.[0]?.parameters as {
   oneOf: Array<any>;
 } | undefined;
