@@ -7,6 +7,7 @@
     "node": ">=22.22.3 <23"
   },
   "scripts": {
+    "check:context": "node scripts/context-check.mjs",
     "dev": "concurrently \"pnpm --filter ./backend dev:mysql\" \"pnpm --filter ./frontend dev\"",
     "dev:mysql": "concurrently \"pnpm --filter ./backend dev:mysql\" \"pnpm --filter ./frontend dev\"",
     "dev:real": "node --env-file-if-exists=.env.real.local tools/start-real-local.mjs",

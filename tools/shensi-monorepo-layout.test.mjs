@@ -13,7 +13,7 @@ test("repository exposes the approved monorepo layout", async () => {
   assert.match(workspace, /- frontend/u);
   assert.match(workspace, /- contracts/u);
   assert.equal(await exists("backend/src/server.ts"), true);
-  assert.equal(await exists("frontend/src/main.tsx"), true);
+  assert.equal(await exists("frontend/src/app-entry.ts"), true);
   assert.equal(await exists("contracts/package.json"), true);
   assert.equal(await exists("package-lock.json"), false);
   assert.equal(await exists("debug-agents.mts"), false);

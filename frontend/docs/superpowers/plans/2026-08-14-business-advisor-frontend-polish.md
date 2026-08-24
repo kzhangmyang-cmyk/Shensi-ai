@@ -432,11 +432,11 @@ npx playwright test tests/growth-bootstrap.spec.ts
 
 分别截取桌面与移动端截图，与已确认的概念图对照：
 
-- `docs/superpowers/specs/assets/2026-08-14-business-advisor/team-overview.png`
-- `docs/superpowers/specs/assets/2026-08-14-business-advisor/diagnosis-report.png`
-- `docs/superpowers/specs/assets/2026-08-14-business-advisor/agent-workbench.png`
-- `docs/superpowers/specs/assets/2026-08-14-business-advisor/statement-upload.png`
-- `docs/superpowers/specs/assets/2026-08-14-business-advisor/diagnosis-report-mobile.png`
+- `docs/archive/superpowers/specs/assets/2026-08-14-business-advisor/team-overview.png`
+- `docs/archive/superpowers/specs/assets/2026-08-14-business-advisor/diagnosis-report.png`
+- `docs/archive/superpowers/specs/assets/2026-08-14-business-advisor/agent-workbench.png`
+- `docs/archive/superpowers/specs/assets/2026-08-14-business-advisor/statement-upload.png`
+- `docs/archive/superpowers/specs/assets/2026-08-14-business-advisor/diagnosis-report-mobile.png`
 
 检查浏览器控制台无新增 error/warning。
 

@@ -85,4 +85,4 @@ MYSQL_TEST_ADMIN_URL="mysql://<admin>@127.0.0.1:3306/mysql" \
 pnpm test:e2e:financial-council:real
 ```
 
-`docs/superpowers/plans/` 中的旧计划用于保留实施历史，其旧 checkbox 不再代表当前缺口；后续开发以本文档、根 `README.md` 和对应模块 README 为准。
+`docs/archive/superpowers/plans/` 中的旧计划仅保留实施历史，其旧 checkbox 不代表当前缺口；当前进度只以 `docs/PROJECT_STATUS.md` 为准。
