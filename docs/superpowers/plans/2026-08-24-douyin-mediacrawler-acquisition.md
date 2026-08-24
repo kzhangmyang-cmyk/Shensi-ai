@@ -224,7 +224,7 @@ git commit -m "feat(acquisition): add authorized MediaCrawler service boundary"
 
 **Interfaces:**
 - Consumes: Task 1 gateway/authentication and existing `ActiveWorkspaceContext`.
-- Produces: `AcquisitionSocialAccountService`, one-account-per-workspace repository contract, and router mounted by Task 3.
+- Produces: `AcquisitionSocialAccountService`, one-account-per-workspace repository contract, and its mounted public router consumed by later tasks.
 
 - [ ] **Step 1: Write QR/account RED tests**
 
@@ -626,11 +626,19 @@ git commit -m "feat(acquisition): qualify Douyin crawler candidates"
 - Create: `backend/src/acquisition-outreach-model-content-test.ts`
 - Create: `backend/src/acquisition-outreach-draft-service.ts`
 - Create: `backend/src/acquisition-outreach-draft-service-test.ts`
+- Create: `backend/src/acquisition-douyin-keyword-router.ts`
+- Create: `backend/src/acquisition-douyin-keyword-router-test.ts`
 - Modify: `backend/src/acquisition-application.ts:1500-1700`
+- Modify: `contracts/openapi/ai-acquisition.v1.yaml`
+- Modify generated: `frontend/src/generated/ai-acquisition.ts`
+- Modify: `contracts/test/acquisition-openapi.test.mjs`
+- Modify: `backend/src/acquisition-openapi.ts`
+- Modify: `backend/src/acquisition-openapi-test.ts`
+- Modify: `backend/src/acquisition-openapi-response-conformance-test.ts`
 
 **Interfaces:**
-- Consumes: existing active model gateway and Task 5 verified candidates/evidence.
-- Produces: `generateDouyinKeywords`, immutable `AcquisitionOutreachDraft`, and draft service used by Task 7.
+- Consumes: existing active model gateway, Task 3 automation context, and Task 5 verified candidates/evidence.
+- Produces: a public keyword-suggestion command, `generateDouyinKeywords`, validated immutable `AcquisitionOutreachDraft` values, and draft service used by Task 7.
 
 - [ ] **Step 1: Write model-contract RED tests**
 
@@ -659,6 +667,7 @@ server recomputation of `contentHash`.
 ```bash
 pnpm --dir backend exec tsx --test --test-concurrency=1 \
   src/acquisition-douyin-keyword-generator-test.ts \
+  src/acquisition-douyin-keyword-router-test.ts \
   src/acquisition-outreach-model-content-test.ts \
   src/acquisition-outreach-draft-test.ts \
   src/acquisition-outreach-draft-service-test.ts
@@ -667,22 +676,27 @@ pnpm --dir backend exec tsx --test --test-concurrency=1 \
 - [ ] **Step 3: Implement keyword and draft generation**
 
 Use the official active model snapshot and structured output. The trusted
-system prompt defines output keys and prohibited content; public evidence is a
-separate user payload. Server code canonicalizes keywords, verifies candidate
-revision/evidence membership, applies the negative policy again, validates
-comment/message length, and computes the immutable content hash.
+system prompt defines output keys and prohibited content; business/ICP and
+public evidence are separate user payloads. Server code canonicalizes
+keywords, verifies candidate revision/evidence membership, applies the
+negative policy again, validates comment/message length, and computes the
+immutable content hash.
 
-- [ ] **Step 4: Add editable draft revision behavior**
+- [ ] **Step 4: Publish keyword suggestions and keep draft persistence single-owned**
 
-Human edits pass the same validators, create a new draft revision, preserve
-the source model snapshot/rationale as provenance, and compute a new content
-hash. Raw model output is not persisted after the validated projection is
-stored.
+Add `POST /plans/:planId/automation/keyword-suggestions`. It derives the
+workspace business and ICP context on the server, returns bounded editable
+keywords plus the frozen model snapshot identity, and accepts no caller model
+or workspace authority. Publish the closed contract, regenerate frontend
+types, and add response conformance. Task 6 returns validated immutable draft
+values but does not create a second draft repository: Task 7 persists generated
+and human-edited revisions in `acquisition_outreach_batch_candidates`. Raw
+model output is discarded after validation.
 
 - [ ] **Step 5: Run GREEN and commit**
 
-Run focused tests, model gateway tests, acquisition aggregate, build, and diff
-check. Commit:
+Run focused tests, model gateway tests, acquisition contract checks,
+acquisition aggregate, build, and diff check. Commit:
 
 ```bash
 git commit -m "feat(acquisition): draft evidence-grounded Douyin outreach"
@@ -706,6 +720,7 @@ git commit -m "feat(acquisition): draft evidence-grounded Douyin outreach"
 - Modify: `backend/goodjob_crm.full.sql`
 - Modify: `contracts/openapi/ai-acquisition.v1.yaml`
 - Modify generated: `frontend/src/generated/ai-acquisition.ts`
+- Modify: `contracts/test/acquisition-openapi.test.mjs`
 - Modify: `backend/src/acquisition-openapi.ts`
 - Modify: `backend/src/acquisition-openapi-test.ts`
 - Modify: `backend/src/acquisition-openapi-response-conformance-test.ts`
@@ -744,8 +759,11 @@ pnpm --dir backend exec tsx --test --test-concurrency=1 \
 
 Freeze run, policy, account/login version, candidate revisions, evidence
 hashes, draft revisions, model snapshots, daily limit, and canonical batch
-hash. PUT creates a new revision. Approval atomically stores approver/time,
-approval hash, exact comment/message contents and hashes, and ordered actions.
+hash. Persist Task 6 generated drafts as batch-candidate revision 1. Human
+edits pass the same validators, preserve source model provenance, recompute
+content hashes, and create the next batch-candidate revision. PUT creates a new
+batch revision. Approval atomically stores approver/time, approval hash, exact
+comment/message contents and hashes, and ordered actions.
 
 - [ ] **Step 4: Implement public routes and contract**
 
@@ -878,7 +896,7 @@ git commit -m "feat(acquisition): execute approved Douyin outreach"
 - Modify: `frontend/playwright.config.ts`
 
 **Interfaces:**
-- Consumes: Tasks 3 and 7 generated public types and Task 8 action projections.
+- Consumes: Tasks 2-7 generated public types and Task 8 action projections.
 - Produces: real `#acquisition` account/login, automation, run, candidate, approval, and receipt experience.
 
 - [ ] **Step 1: Write API/controller/view RED tests**

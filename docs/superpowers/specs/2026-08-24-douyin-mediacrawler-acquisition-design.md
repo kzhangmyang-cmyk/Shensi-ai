@@ -283,6 +283,7 @@ The first contract version adds these route families under
 - `DELETE /social-accounts/{accountId}`
 - `GET /plans/{planId}/automation`
 - `PUT /plans/{planId}/automation`
+- `POST /plans/{planId}/automation/keyword-suggestions`
 - `POST /plans/{planId}/run-now`
 - `GET /runs/{runId}/crawler-status`
 - `GET /runs/{runId}/candidates`
@@ -306,6 +307,7 @@ browser paths, service credentials, raw platform responses, or unbounded logs.
 The minimal new MySQL families are:
 
 - `acquisition_social_accounts`
+- `acquisition_douyin_automation_policy_versions`
 - `acquisition_crawler_jobs`
 - `acquisition_crawler_job_cursors`
 - `acquisition_outreach_batches`
