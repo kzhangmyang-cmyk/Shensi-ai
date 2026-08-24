@@ -1313,10 +1313,18 @@ const douyinAutomationPolicyProperties = {
   collectDemandComments: { type: "boolean" },
   limits: douyinAutomationLimitsSchema
 };
+const douyinAutomationDisabledCollectionSources = {
+  required: ["collectCreators", "collectDemandComments"],
+  properties: {
+    collectCreators: { enum: [false] },
+    collectDemandComments: { enum: [false] }
+  }
+};
 const douyinAutomationPolicyInputSchema = {
   type: "object", additionalProperties: false,
   required: ["keywords", "schedule", "collectCreators", "collectDemandComments", "limits"],
-  properties: douyinAutomationPolicyProperties
+  properties: douyinAutomationPolicyProperties,
+  not: douyinAutomationDisabledCollectionSources
 };
 const douyinAutomationPolicyAuthorityProperties = {
   id: { type: "string", nullable: true },
@@ -1333,11 +1341,13 @@ const douyinAutomationPolicyAuthorityProperties = {
 const douyinAutomationPolicyResourceSchema = {
   type: "object", additionalProperties: false,
   required: Object.keys(douyinAutomationPolicyAuthorityProperties),
-  properties: douyinAutomationPolicyAuthorityProperties
+  properties: douyinAutomationPolicyAuthorityProperties,
+  not: douyinAutomationDisabledCollectionSources
 };
 const douyinAutomationPolicyVersionSchema = {
   type: "object", additionalProperties: false,
   required: Object.keys(douyinAutomationPolicyAuthorityProperties),
+  not: douyinAutomationDisabledCollectionSources,
   properties: {
     ...douyinAutomationPolicyAuthorityProperties,
     id: { type: "string" }, source: { type: "string", enum: ["version"] },

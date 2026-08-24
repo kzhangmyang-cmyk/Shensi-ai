@@ -6,6 +6,7 @@ import {
   createAcquisitionDouyinAutomationRouter
 } from "./acquisition-douyin-automation-router.js";
 import {
+  createAcquisitionDouyinAutomationAuthorityValidator,
   InMemoryAcquisitionDouyinAutomationRepository
 } from "./acquisition-douyin-automation-repository.js";
 import {
@@ -133,7 +134,9 @@ async function createHttp() {
   });
   let sequence = 0;
   const service = new AcquisitionDouyinAutomationService({
-    repository: new InMemoryAcquisitionDouyinAutomationRepository(),
+    repository: new InMemoryAcquisitionDouyinAutomationRepository(
+      createAcquisitionDouyinAutomationAuthorityValidator({ plans, accounts })
+    ),
     plans,
     accounts,
     resolvePlanWorkspace: async () => ({ workspaceId: "workspace-a" }),
@@ -269,6 +272,15 @@ test("run-now is workspace-bound, closed, idempotent, and rejects changed replay
       }
     );
     assert.equal(saved.response.status, 200);
+
+    const missingBody = await http.request(
+      "/api/v1/acquisition/plans/plan-1/run-now",
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": "run-router-missing-body-1" }
+      }
+    );
+    assert.equal(missingBody.response.status, 400);
 
     const run = await http.request(
       "/api/v1/acquisition/plans/plan-1/run-now",

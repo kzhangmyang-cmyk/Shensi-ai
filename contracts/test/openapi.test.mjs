@@ -202,6 +202,7 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
     true
   );
   const runNow = document.paths["/api/v1/acquisition/plans/{planId}/run-now"].post;
+  assert.equal(runNow.requestBody.required, true);
   assert.equal(
     runNow.requestBody.content["application/json"].schema.$ref,
     "#/components/schemas/DouyinAutomationRunNowInput"
@@ -222,6 +223,16 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
       false,
       schemaName
     );
+  }
+  for (const schemaName of [
+    "DouyinAutomationPolicyInput",
+    "DouyinAutomationPolicyResource",
+    "DouyinAutomationPolicyVersion"
+  ]) {
+    const disabled = document.components.schemas[schemaName].not;
+    assert.deepEqual(disabled.required.sort(), ["collectCreators", "collectDemandComments"]);
+    assert.deepEqual(disabled.properties.collectCreators.enum, [false]);
+    assert.deepEqual(disabled.properties.collectDemandComments.enum, [false]);
   }
   for (const path of listPaths) {
     assert.equal(document.paths[path].get.responses["200"].content["application/json"].schema.$ref, "#/components/schemas/PagedResult", path);

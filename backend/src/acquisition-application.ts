@@ -287,6 +287,7 @@ import { MysqlAcquisitionSocialAccountRepository, ensureAcquisitionSocialAccount
 import { AcquisitionSocialAccountService } from "./acquisition-social-account-service.js";
 import { createAcquisitionSocialAccountRouter } from "./acquisition-social-account-router.js";
 import {
+  createAcquisitionDouyinAutomationAuthorityValidator,
   InMemoryAcquisitionDouyinAutomationRepository,
   type AcquisitionDouyinAutomationRepository
 } from "./acquisition-douyin-automation-repository.js";
@@ -2092,7 +2093,12 @@ export async function createAcquisitionApplication(
       repository: options.douyinAutomationRepository
         ?? (options.store.mode === "mysql"
           ? new MysqlAcquisitionDouyinAutomationRepository(pool!)
-          : new InMemoryAcquisitionDouyinAutomationRepository()),
+          : new InMemoryAcquisitionDouyinAutomationRepository(
+              createAcquisitionDouyinAutomationAuthorityValidator({
+                plans: repositories.planRun,
+                accounts: socialAccountRepository
+              })
+            )),
       plans: repositories.planRun,
       accounts: socialAccountRepository,
       resolvePlanWorkspace: (scope) => acquisitionWorkspace.resolve(scope),

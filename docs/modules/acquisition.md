@@ -50,10 +50,12 @@ Douyin automation uses the append-only
 `acquisition_douyin_automation_policy_versions` authority, a separately
 mutable policy head, hashed command replays, and
 `acquisition_douyin_run_intents`. Policy publication and run-intent creation
-lock and revalidate the plan version plus the workspace-scoped active account
-and login-state version in the same MySQL transaction. Run intents freeze the
-plan, policy, account, local date, and daily-budget identities consumed by the
-scheduler and crawler.
+use one authority predicate for Memory and MySQL: the current plan/version plus
+the workspace-scoped active account and login-state version must still match at
+commit. MySQL takes the existing plan row lock before checking command replay,
+so concurrent identical new keys yield one write and one exact replay. Run
+intents freeze the plan, policy, account, local date, and daily-budget
+identities consumed by the scheduler and crawler.
 
 ## Public Interfaces
 
@@ -68,9 +70,12 @@ paths remain private.
 The Douyin automation family provides `GET`/`PUT`
 `/plans/{planId}/automation` and `POST /plans/{planId}/run-now`. Policy writes
 require `If-Match` and `Idempotency-Key`; run-now requires
-`Idempotency-Key`. GET returns a non-persisted server default only before the
-first immutable version is published. Exact command replays return the frozen
-original result, while the same key with changed semantics conflicts.
+`Idempotency-Key` and an explicit JSON body (an empty object is valid). At
+least one of creator or demand-comment collection must remain enabled. GET
+returns a non-persisted server default only before the first immutable version
+is published. Exact command replays return the frozen original result, while
+the same key with changed semantics—including a changed normalized
+`If-Match`—conflicts.
 The editable contract is `contracts/openapi/ai-acquisition.v1.yaml`; frontend
 code consumes `frontend/src/generated/ai-acquisition.ts`.
 

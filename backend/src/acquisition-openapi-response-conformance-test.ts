@@ -156,6 +156,22 @@ function assertRequestConforms(
   );
 }
 
+function assertRequestRejects(
+  path: string,
+  method: "put" | "post" | "patch",
+  body: unknown
+) {
+  const operation = openApiPaths[path]?.[method] as Record<string, any> | undefined;
+  const schema = operation?.requestBody?.content?.["application/json"]?.schema;
+  assert.ok(schema, `${method.toUpperCase()} ${path} request schema`);
+  const validate = new Ajv({
+    allErrors: true,
+    strict: false,
+    validateFormats: false
+  }).compile(schema);
+  assert.equal(validate(body), false, `${method.toUpperCase()} ${path} must reject body`);
+}
+
 test("Douyin automation policy and run intent projections conform without private account state", () => {
   const input = {
     keywords: ["工业除尘设备", "工厂环保改造"],
@@ -216,6 +232,11 @@ test("Douyin automation policy and run intent projections conform without privat
     "/api/v1/acquisition/plans/{planId}/automation",
     "put",
     input
+  );
+  assertRequestRejects(
+    "/api/v1/acquisition/plans/{planId}/automation",
+    "put",
+    { ...input, collectCreators: false, collectDemandComments: false }
   );
   assertRequestConforms(
     "/api/v1/acquisition/plans/{planId}/run-now",

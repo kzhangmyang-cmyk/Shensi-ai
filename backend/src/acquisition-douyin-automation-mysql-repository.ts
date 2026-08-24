@@ -4,16 +4,20 @@ import type {
   DouyinAutomationPolicyVersion,
   DouyinAutomationRunIntent
 } from "./acquisition-douyin-automation.js";
-import type {
-  AcquisitionDouyinAutomationRepository,
-  CreateDouyinAutomationRunIntentCommand,
-  CreateDouyinAutomationRunIntentResult,
-  DouyinAutomationCommandOperation,
-  DouyinAutomationReplayLookup,
-  SaveDouyinAutomationPolicyCommand,
-  SaveDouyinAutomationPolicyResult
+import {
+  douyinAutomationAuthorityIsCurrent,
+  type AcquisitionDouyinAutomationRepository,
+  type CreateDouyinAutomationRunIntentCommand,
+  type CreateDouyinAutomationRunIntentResult,
+  type DouyinAutomationCommandOperation,
+  type DouyinAutomationReplayLookup,
+  type SaveDouyinAutomationPolicyCommand,
+  type SaveDouyinAutomationPolicyResult
 } from "./acquisition-douyin-automation-repository.js";
-import type { AcquisitionPlan } from "./acquisition-plan-run-repository.js";
+import type {
+  AcquisitionPlan,
+  AcquisitionPlanVersion
+} from "./acquisition-plan-run-repository.js";
 
 export const acquisitionDouyinAutomationPolicyVersionsDdl = `CREATE TABLE IF NOT EXISTS acquisition_douyin_automation_policy_versions (
   id VARCHAR(255) NOT NULL PRIMARY KEY,
@@ -197,18 +201,13 @@ async function readReplay(
   return replay(result[0], requestHash);
 }
 
-async function bindingIsCurrent(
+async function lockPlanAuthority(
   source: Source,
   command: {
-    workspaceId: string;
     ownerId: string;
     teamId: string;
     planId: string;
-    planVersionId: string;
-    accountId: string;
-    accountLoginStateVersion: number;
-  },
-  requireApproved: boolean
+  }
 ) {
   const planRows = await rows(
     source,
@@ -216,22 +215,27 @@ async function bindingIsCurrent(
      WHERE id=? AND owner_id=? AND team_id=? FOR UPDATE`,
     [command.planId, command.ownerId, command.teamId]
   );
-  const plan = planRows[0]
+  return planRows[0]
     ? parsed(planRows[0].payload_json) as AcquisitionPlan
     : null;
-  if (!plan
-    || plan.currentVersionId !== command.planVersionId
-    || (requireApproved && (
-      plan.status !== "approved"
-      || plan.approvedVersionId !== command.planVersionId
-    ))) return false;
+}
+
+async function bindingIsCurrent(
+  source: Source,
+  command: SaveDouyinAutomationPolicyCommand
+    | CreateDouyinAutomationRunIntentCommand,
+  requireApproved: boolean,
+  plan: AcquisitionPlan | null
+) {
   const versionRows = await rows(
     source,
-    `SELECT id FROM acquisition_plan_versions
+    `SELECT payload_json FROM acquisition_plan_versions
      WHERE id=? AND plan_id=? AND owner_id=? AND team_id=? FOR UPDATE`,
     [command.planVersionId, command.planId, command.ownerId, command.teamId]
   );
-  if (!versionRows[0]) return false;
+  const version = versionRows[0]
+    ? parsed(versionRows[0].payload_json) as AcquisitionPlanVersion
+    : null;
   const accountRows = await rows(
     source,
     `SELECT id,workspace_id,state,login_state_version
@@ -239,13 +243,19 @@ async function bindingIsCurrent(
      WHERE workspace_id=? AND id=? AND platform='douyin' FOR UPDATE`,
     [command.workspaceId, command.accountId]
   );
-  const account = accountRows[0];
-  return Boolean(account
-    && String(account.workspace_id) === command.workspaceId
-    && String(account.id) === command.accountId
-    && account.state === "active"
-    && Number(account.login_state_version)
-      === command.accountLoginStateVersion);
+  const row = accountRows[0];
+  const account = row ? {
+    workspaceId: String(row.workspace_id),
+    id: String(row.id),
+    platform: "douyin" as const,
+    state: row.state as "active" | "login_expired" | "disconnected",
+    loginStateVersion: Number(row.login_state_version)
+  } : null;
+  return douyinAutomationAuthorityIsCurrent(
+    command,
+    { plan, version, account },
+    requireApproved
+  );
 }
 
 export class MysqlAcquisitionDouyinAutomationRepository
@@ -298,6 +308,7 @@ implements AcquisitionDouyinAutomationRepository {
     const connection = await this.pool.getConnection();
     try {
       await connection.beginTransaction();
+      const plan = await lockPlanAuthority(connection, command);
       const existing = await readReplay(
         connection,
         command.workspaceId,
@@ -329,7 +340,7 @@ implements AcquisitionDouyinAutomationRepository {
         await connection.rollback();
         return { kind: "precondition_failed" };
       }
-      if (!await bindingIsCurrent(connection, command, false)) {
+      if (!await bindingIsCurrent(connection, command, false, plan)) {
         await connection.rollback();
         return { kind: "binding_mismatch" };
       }
@@ -406,6 +417,7 @@ implements AcquisitionDouyinAutomationRepository {
     const connection = await this.pool.getConnection();
     try {
       await connection.beginTransaction();
+      const plan = await lockPlanAuthority(connection, command);
       const existing = await readReplay(
         connection,
         command.workspaceId,
@@ -433,7 +445,7 @@ implements AcquisitionDouyinAutomationRepository {
       );
       if (String(heads[0]?.current_version_id ?? "")
         !== command.policyVersionId
-        || !await bindingIsCurrent(connection, command, true)) {
+        || !await bindingIsCurrent(connection, command, true, plan)) {
         await connection.rollback();
         return { kind: "binding_mismatch" };
       }

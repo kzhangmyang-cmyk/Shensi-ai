@@ -6,6 +6,7 @@ import {
   type DouyinAutomationPolicyInput
 } from "./acquisition-douyin-automation.js";
 import {
+  createAcquisitionDouyinAutomationAuthorityValidator,
   InMemoryAcquisitionDouyinAutomationRepository
 } from "./acquisition-douyin-automation-repository.js";
 import {
@@ -154,13 +155,40 @@ async function fixture(options: {
   accounts?: Pick<AcquisitionSocialAccountRepository, "findByWorkspaceAndPlatform">;
   resolvedWorkspaceId?: string;
   payload?: AcquisitionPlanPayload;
+  authorityDrift?: "plan" | "account" | "login";
 } = {}) {
   const plans = new InMemoryAcquisitionPlanRunRepository();
   await seedPlan(plans, options.payload);
   const accountRepository = new InMemoryAcquisitionSocialAccountRepository();
   if (options.seedActiveAccount !== false) await seedAccount(accountRepository);
   let sequence = 0;
-  const repository = new InMemoryAcquisitionDouyinAutomationRepository();
+  const authorityPlans = options.authorityDrift === "plan"
+    ? {
+        getPlan: async (id: string) => {
+          const plan = await plans.getPlan(id);
+          return plan ? { ...plan, currentVersionId: "plan-version-changed" } : null;
+        },
+        getPlanVersion: (id: string) => plans.getPlanVersion(id)
+      }
+    : plans;
+  const authorityAccounts = options.authorityDrift
+    && options.authorityDrift !== "plan"
+    ? {
+        async findByWorkspaceAndPlatform(workspaceId: string, platform: "douyin") {
+          const account = await accountRepository.findByWorkspaceAndPlatform(workspaceId, platform);
+          if (!account) return null;
+          return options.authorityDrift === "account"
+            ? { ...account, state: "login_expired" as const }
+            : { ...account, loginStateVersion: account.loginStateVersion + 1 };
+        }
+      }
+    : accountRepository;
+  const repository = new InMemoryAcquisitionDouyinAutomationRepository(
+    createAcquisitionDouyinAutomationAuthorityValidator({
+      plans: authorityPlans,
+      accounts: authorityAccounts
+    })
+  );
   const service = new AcquisitionDouyinAutomationService({
     repository,
     plans,
@@ -391,6 +419,46 @@ test("policy idempotency replays exactly and rejects a changed request", async (
     ),
     rejectsCode("automation_idempotency_conflict")
   );
+});
+
+test("policy idempotency treats normalized If-Match as request semantics", async () => {
+  const { service } = await fixture();
+  const initial = await service.get(SCOPE, "plan-1");
+  await service.put(SCOPE, "plan-1", initial.etag, "policy-if-match-1", POLICY);
+  const normalizedReplay = await service.put(
+    SCOPE,
+    "plan-1",
+    `  ${initial.etag}  `,
+    "policy-if-match-1",
+    POLICY
+  );
+  assert.equal(normalizedReplay.replayed, true);
+
+  await assert.rejects(
+    service.put(SCOPE, "plan-1", 'W/"changed-etag"', "policy-if-match-1", POLICY),
+    rejectsCode("automation_idempotency_conflict")
+  );
+});
+
+test("memory commit rejects plan, account, and login authority drift after service reads", async () => {
+  for (const authorityDrift of ["plan", "account", "login"] as const) {
+    const { service, repository } = await fixture({ authorityDrift });
+    const initial = await service.get(SCOPE, "plan-1");
+    await assert.rejects(
+      service.put(
+        SCOPE,
+        "plan-1",
+        initial.etag,
+        `policy-authority-${authorityDrift}`,
+        POLICY
+      ),
+      rejectsCode("automation_policy_binding_conflict")
+    );
+    assert.deepEqual(
+      await repository.listVersions(SCOPE.workspaceId, "plan-1"),
+      []
+    );
+  }
 });
 
 test("two writers using one If-Match produce one immutable winner", async () => {

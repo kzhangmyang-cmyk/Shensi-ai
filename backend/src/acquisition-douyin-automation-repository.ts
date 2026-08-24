@@ -3,6 +3,15 @@ import type {
   DouyinAutomationPolicyVersion,
   DouyinAutomationRunIntent
 } from "./acquisition-douyin-automation.js";
+import type {
+  AcquisitionPlan,
+  AcquisitionPlanRunRepository,
+  AcquisitionPlanVersion
+} from "./acquisition-plan-run-repository.js";
+import type {
+  AcquisitionSocialAccountPrivateRecord,
+  AcquisitionSocialAccountRepository
+} from "./acquisition-social-account-repository.js";
 
 export type DouyinAutomationCommandOperation = "put_policy" | "run_now";
 
@@ -59,6 +68,79 @@ export type CreateDouyinAutomationRunIntentResult =
   | { kind: "replay"; value: DouyinAutomationRunIntent }
   | { kind: "conflict" }
   | { kind: "binding_mismatch" };
+
+type AuthorityCommand = SaveDouyinAutomationPolicyCommand
+  | CreateDouyinAutomationRunIntentCommand;
+
+export interface DouyinAutomationAuthorityState {
+  plan: AcquisitionPlan | null;
+  version: AcquisitionPlanVersion | null;
+  account: Pick<
+    AcquisitionSocialAccountPrivateRecord,
+    "workspaceId" | "id" | "platform" | "state" | "loginStateVersion"
+  > | null;
+}
+
+export interface AcquisitionDouyinAutomationAuthorityValidator {
+  isCurrent(command: AuthorityCommand, requireApproved: boolean): Promise<boolean>;
+}
+
+export function douyinAutomationAuthorityIsCurrent(
+  command: AuthorityCommand,
+  authority: DouyinAutomationAuthorityState,
+  requireApproved: boolean
+) {
+  const { plan, version, account } = authority;
+  return Boolean(plan
+    && version
+    && account
+    && plan.id === command.planId
+    && plan.ownerId === command.ownerId
+    && plan.teamId === command.teamId
+    && plan.currentVersionId === command.planVersionId
+    && command.value.workspaceId === command.workspaceId
+    && command.value.planId === command.planId
+    && command.value.planVersionId === command.planVersionId
+    && command.value.accountId === command.accountId
+    && command.value.accountLoginStateVersion
+      === command.accountLoginStateVersion
+    && version.id === command.planVersionId
+    && version.planId === command.planId
+    && version.ownerId === command.ownerId
+    && version.teamId === command.teamId
+    && version.version === command.value.planVersion
+    && version.payloadHash === command.value.planSnapshotHash
+    && account.workspaceId === command.workspaceId
+    && account.id === command.accountId
+    && account.platform === "douyin"
+    && account.state === "active"
+    && account.loginStateVersion === command.accountLoginStateVersion
+    && (!requireApproved || (
+      plan.status === "approved"
+      && plan.approvedVersionId === command.planVersionId
+      && plan.approvedSnapshotHash === version.payloadHash
+    )));
+}
+
+export function createAcquisitionDouyinAutomationAuthorityValidator(options: {
+  plans: Pick<AcquisitionPlanRunRepository, "getPlan" | "getPlanVersion">;
+  accounts: Pick<AcquisitionSocialAccountRepository, "findByWorkspaceAndPlatform">;
+}): AcquisitionDouyinAutomationAuthorityValidator {
+  return {
+    async isCurrent(command, requireApproved) {
+      const [plan, version, account] = await Promise.all([
+        options.plans.getPlan(command.planId),
+        options.plans.getPlanVersion(command.planVersionId),
+        options.accounts.findByWorkspaceAndPlatform(command.workspaceId, "douyin")
+      ]);
+      return douyinAutomationAuthorityIsCurrent(
+        command,
+        { plan, version, account },
+        requireApproved
+      );
+    }
+  };
+}
 
 export interface AcquisitionDouyinAutomationRepository {
   getCurrent(
@@ -153,6 +235,10 @@ implements AcquisitionDouyinAutomationRepository {
   private state = emptyState();
   private tail: Promise<void> = Promise.resolve();
 
+  constructor(
+    private readonly authority: AcquisitionDouyinAutomationAuthorityValidator
+  ) {}
+
   private transaction<T>(work: (state: AutomationState) => T | Promise<T>) {
     const current = this.tail.then(async () => {
       const state = clone(this.state);
@@ -204,7 +290,7 @@ implements AcquisitionDouyinAutomationRepository {
   }
 
   savePolicy(command: SaveDouyinAutomationPolicyCommand) {
-    return this.transaction<SaveDouyinAutomationPolicyResult>((state) => {
+    return this.transaction<SaveDouyinAutomationPolicyResult>(async (state) => {
       const replayIdentity = replayKey(
         command.workspaceId,
         command.planId,
@@ -240,6 +326,9 @@ implements AcquisitionDouyinAutomationRepository {
         || state.versions.has(command.value.id)) {
         return { kind: "binding_mismatch" };
       }
+      if (!await this.authority.isCurrent(command, false)) {
+        return { kind: "binding_mismatch" };
+      }
       state.versions.set(command.value.id, clone(command.value));
       state.heads.set(identity, command.value.id);
       state.replays.set(replayIdentity, {
@@ -256,7 +345,7 @@ implements AcquisitionDouyinAutomationRepository {
   }
 
   createRunIntent(command: CreateDouyinAutomationRunIntentCommand) {
-    return this.transaction<CreateDouyinAutomationRunIntentResult>((state) => {
+    return this.transaction<CreateDouyinAutomationRunIntentResult>(async (state) => {
       const replayIdentity = replayKey(
         command.workspaceId,
         command.planId,
@@ -286,6 +375,9 @@ implements AcquisitionDouyinAutomationRepository {
         || command.value.accountLoginStateVersion
           !== command.accountLoginStateVersion
         || state.runs.has(command.value.id)) {
+        return { kind: "binding_mismatch" };
+      }
+      if (!await this.authority.isCurrent(command, true)) {
         return { kind: "binding_mismatch" };
       }
       state.runs.set(command.value.id, clone(command.value));

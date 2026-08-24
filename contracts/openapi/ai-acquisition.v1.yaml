@@ -180,6 +180,11 @@ components:
       type: object
       additionalProperties: false
       required: [keywords, schedule, collectCreators, collectDemandComments, limits]
+      not:
+        required: [collectCreators, collectDemandComments]
+        properties:
+          collectCreators: { enum: [false] }
+          collectDemandComments: { enum: [false] }
       properties:
         keywords: { type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 } }
         schedule:
@@ -206,6 +211,11 @@ components:
       type: object
       additionalProperties: false
       required: [id, source, workspaceId, planId, planVersionId, planVersion, planSnapshotHash, accountId, accountLoginStateVersion, version, revision, etag, policyHash, keywords, schedule, dailyCandidateLimit, collectCreators, collectDemandComments, limits, createdBy, createdAt]
+      not:
+        required: [collectCreators, collectDemandComments]
+        properties:
+          collectCreators: { enum: [false] }
+          collectDemandComments: { enum: [false] }
       properties:
         id: { type: [string, 'null'] }
         source: { type: string, enum: [default, version] }
@@ -247,6 +257,11 @@ components:
       type: object
       additionalProperties: false
       required: [id, source, workspaceId, planId, planVersionId, planVersion, planSnapshotHash, accountId, accountLoginStateVersion, version, revision, etag, policyHash, keywords, schedule, dailyCandidateLimit, collectCreators, collectDemandComments, limits, createdBy, createdAt]
+      not:
+        required: [collectCreators, collectDemandComments]
+        properties:
+          collectCreators: { enum: [false] }
+          collectDemandComments: { enum: [false] }
       properties:
         id: { type: string }
         source: { type: string, enum: [version] }

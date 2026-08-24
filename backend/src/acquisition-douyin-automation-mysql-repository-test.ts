@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { randomUUID } from "node:crypto";
+import mysql from "mysql2/promise";
+import { ensureAcquisitionMysqlSchema } from "./acquisition-mysql-repositories.js";
+import {
+  ensureAcquisitionSocialAccountsMysqlSchema
+} from "./acquisition-social-account-mysql-repository.js";
 import {
   acquisitionDouyinAutomationCommandReplaysDdl,
   acquisitionDouyinAutomationPolicyHeadsDdl,
@@ -45,33 +51,51 @@ class StatefulAutomationMysqlPool {
   readonly heads = new Map<string, Record<string, unknown>>();
   readonly replays = new Map<string, Record<string, unknown>>();
   readonly runs = new Map<string, Record<string, unknown>>();
-  private snapshot: string | null = null;
+  planCurrentVersionId = "plan-version-1";
+  accountState: "active" | "login_expired" = "active";
+  accountLoginStateVersion = 7;
+  private lockTail: Promise<void> = Promise.resolve();
 
   private key(workspaceId: unknown, planId: unknown) {
     return `${String(workspaceId)}:${String(planId)}`;
   }
 
-  async getConnection() { return this; }
-  async beginTransaction() {
-    this.snapshot = JSON.stringify({
-      versions: [...this.versions], heads: [...this.heads],
-      replays: [...this.replays], runs: [...this.runs]
-    });
+  private async acquirePlanLock() {
+    const previous = this.lockTail;
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    this.lockTail = previous.then(() => current);
+    await previous;
+    return release;
   }
-  async commit() { this.snapshot = null; }
-  async rollback() {
-    if (!this.snapshot) return;
-    const state = JSON.parse(this.snapshot) as Record<string, Array<[string, Record<string, unknown>]>>;
-    for (const [map, rows] of [
-      [this.versions, state.versions], [this.heads, state.heads],
-      [this.replays, state.replays], [this.runs, state.runs]
-    ] as const) {
-      map.clear();
-      for (const [key, value] of rows) map.set(key, value);
-    }
-    this.snapshot = null;
+
+  async getConnection() {
+    const pool = this;
+    let releasePlanLock: (() => void) | null = null;
+    return {
+      async beginTransaction() {},
+      async query(sql: string, values: unknown[] = []) {
+        const normalized = sql.replace(/\s+/gu, " ").trim();
+        if (!releasePlanLock
+          && normalized.startsWith("SELECT payload_json FROM acquisition_plans")) {
+          releasePlanLock = await pool.acquirePlanLock();
+        }
+        return pool.query(sql, values);
+      },
+      async commit() {
+        releasePlanLock?.();
+        releasePlanLock = null;
+      },
+      async rollback() {
+        releasePlanLock?.();
+        releasePlanLock = null;
+      },
+      release() {
+        releasePlanLock?.();
+        releasePlanLock = null;
+      }
+    };
   }
-  release() {}
 
   async query(sql: string, values: unknown[] = []) {
     const normalized = sql.replace(/\s+/gu, " ").trim();
@@ -97,15 +121,24 @@ class StatefulAutomationMysqlPool {
       result = head ? [{ current_version_id: head.current_version_id }] : [];
     } else if (normalized.startsWith("SELECT payload_json FROM acquisition_plans")) {
       result = values[0] === "plan-1" && values[1] === "owner-1" && values[2] === "team-1"
-        ? [{ payload_json: JSON.stringify({ id: "plan-1", currentVersionId: "plan-version-1", status: "approved", approvedVersionId: "plan-version-1" }) }]
+        ? [{ payload_json: JSON.stringify({
+            id: "plan-1", ownerId: "owner-1", teamId: "team-1",
+            currentVersionId: this.planCurrentVersionId, status: "approved",
+            approvedVersionId: "plan-version-1", approvedSnapshotHash: "plan-hash"
+          }) }]
         : [];
-    } else if (normalized.startsWith("SELECT id FROM acquisition_plan_versions")) {
+    } else if (normalized.startsWith("SELECT payload_json FROM acquisition_plan_versions")) {
       result = values[0] === "plan-version-1" && values[1] === "plan-1"
-        ? [{ id: "plan-version-1" }]
+        ? [{ payload_json: JSON.stringify({
+            id: "plan-version-1", planId: "plan-1", ownerId: "owner-1", teamId: "team-1",
+            version: 1, payload: {}, payloadHash: "plan-hash", createdBy: "owner-1",
+            createdAt: "2026-08-25T01:00:00.000Z"
+          }) }]
         : [];
     } else if (normalized.startsWith("SELECT id,workspace_id,state,login_state_version FROM acquisition_social_accounts")) {
       result = values[0] === "workspace-1" && values[1] === "account-1"
-        ? [{ id: "account-1", workspace_id: "workspace-1", state: "active", login_state_version: 7 }]
+        ? [{ id: "account-1", workspace_id: "workspace-1", state: this.accountState,
+            login_state_version: this.accountLoginStateVersion }]
         : [];
     } else if (normalized.startsWith("INSERT INTO acquisition_douyin_automation_policy_versions")) {
       const payload = JSON.parse(String(values[12])) as DouyinAutomationPolicyVersion;
@@ -206,4 +239,156 @@ test("automation MySQL repository matches append, CAS, replay and frozen run beh
     [...pool.replays.values()].some((row) => row.idempotency_key_hash === createHash("sha256").update("run-key-1").digest("hex")),
     true
   );
+});
+
+test("automation MySQL repository serializes identical new policy and run keys", async () => {
+  const pool = new StatefulAutomationMysqlPool();
+  const repository = new MysqlAcquisitionDouyinAutomationRepository(pool as never);
+  const value = policyVersion();
+  const policyCommand = {
+    workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
+    planVersionId: "plan-version-1", accountId: "account-1", accountLoginStateVersion: 7,
+    expectedEtag: '"default"', defaultEtag: '"default"', idempotencyKey: "concurrent-policy-key",
+    requestHash: `sha256:${"b".repeat(64)}`, value
+  };
+  const policyResults = await Promise.all([
+    repository.savePolicy(policyCommand),
+    repository.savePolicy(policyCommand)
+  ]);
+  assert.deepEqual(policyResults.map((result) => result.kind).sort(), ["created", "replay"]);
+  assert.deepEqual(policyResults[0]?.value, policyResults[1]?.value);
+  assert.equal(pool.versions.size, 1);
+
+  const run: DouyinAutomationRunIntent = {
+    id: "run-concurrent", workspaceId: "workspace-1", planId: "plan-1",
+    planVersionId: "plan-version-1", planVersion: 1, planSnapshotHash: "plan-hash",
+    policyVersionId: value.id, policyHash: value.policyHash, accountId: "account-1",
+    accountLoginStateVersion: 7, dailyBudgetId: `sha256:${"d".repeat(64)}`,
+    localDate: "2026-08-25", trigger: "run_now", status: "queued", reason: null,
+    createdBy: "owner-1", createdAt: "2026-08-25T01:01:00.000Z"
+  };
+  const runCommand = {
+    workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
+    planVersionId: "plan-version-1", policyVersionId: value.id, accountId: "account-1",
+    accountLoginStateVersion: 7, idempotencyKey: "concurrent-run-key",
+    requestHash: `sha256:${"e".repeat(64)}`, value: run
+  };
+  const runResults = await Promise.all([
+    repository.createRunIntent(runCommand),
+    repository.createRunIntent(runCommand)
+  ]);
+  assert.deepEqual(runResults.map((result) => result.kind).sort(), ["created", "replay"]);
+  assert.deepEqual(runResults[0]?.value, runResults[1]?.value);
+  assert.equal(pool.runs.size, 1);
+});
+
+test("automation MySQL commit matches memory authority drift rejection", async () => {
+  for (const drift of ["plan", "account", "login"] as const) {
+    const pool = new StatefulAutomationMysqlPool();
+    if (drift === "plan") pool.planCurrentVersionId = "plan-version-changed";
+    if (drift === "account") pool.accountState = "login_expired";
+    if (drift === "login") pool.accountLoginStateVersion = 8;
+    const repository = new MysqlAcquisitionDouyinAutomationRepository(pool as never);
+    const value = policyVersion();
+    const result = await repository.savePolicy({
+      workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
+      planVersionId: "plan-version-1", accountId: "account-1", accountLoginStateVersion: 7,
+      expectedEtag: '"default"', defaultEtag: '"default"', idempotencyKey: `drift-${drift}`,
+      requestHash: `sha256:${"f".repeat(64)}`, value
+    });
+    assert.equal(result.kind, "binding_mismatch", drift);
+    assert.equal(pool.versions.size, 0, drift);
+  }
+});
+
+test("live MySQL serializes identical new policy and run keys into exact replay", {
+  skip: !process.env.MYSQL_TEST_ADMIN_URL
+    ? "MYSQL_TEST_ADMIN_URL is required; no database is provisioned implicitly"
+    : false
+}, async () => {
+  const configured = process.env.MYSQL_TEST_ADMIN_URL!;
+  const adminUrl = new URL(configured);
+  const databaseName = `goodjob_douyin_automation_${randomUUID().replaceAll("-", "")}`;
+  const admin = await mysql.createConnection(adminUrl.toString());
+  const databaseUrl = new URL(adminUrl);
+  databaseUrl.pathname = `/${databaseName}`;
+  await admin.query(
+    `CREATE DATABASE \`${databaseName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+  );
+  const pool = mysql.createPool({ uri: databaseUrl.toString(), connectionLimit: 4 });
+  try {
+    await ensureAcquisitionMysqlSchema(pool);
+    await ensureAcquisitionSocialAccountsMysqlSchema(pool);
+    await ensureAcquisitionDouyinAutomationMysqlSchema(pool);
+    const plan = {
+      id: "plan-1", ownerId: "owner-1", teamId: "team-1", status: "approved",
+      currentVersionId: "plan-version-1", approvedVersionId: "plan-version-1",
+      approvedSnapshotHash: "plan-hash"
+    };
+    const planVersion = {
+      id: "plan-version-1", planId: "plan-1", ownerId: "owner-1", teamId: "team-1",
+      version: 1, payload: {}, payloadHash: "plan-hash", createdBy: "owner-1",
+      createdAt: "2026-08-25T01:00:00.000Z"
+    };
+    await pool.query(
+      `INSERT INTO acquisition_plans
+       (id,owner_id,team_id,revision,payload_json,created_at,updated_at)
+       VALUES (?,?,?,?,?,NOW(3),NOW(3))`,
+      [plan.id, plan.ownerId, plan.teamId, 1, JSON.stringify(plan)]
+    );
+    await pool.query(
+      `INSERT INTO acquisition_plan_versions
+       (id,plan_id,owner_id,team_id,version_no,payload_json,created_at)
+       VALUES (?,?,?,?,?,?,NOW(3))`,
+      [planVersion.id, planVersion.planId, planVersion.ownerId,
+        planVersion.teamId, 1, JSON.stringify(planVersion)]
+    );
+    await pool.query(
+      `INSERT INTO acquisition_social_accounts
+       (id,workspace_id,platform,account_handle,display_name,state,
+        login_state_version,revision,etag,last_validated_at,created_at,updated_at)
+       VALUES (?,?,?,?,?,'active',?,1,?,?,?,?)`,
+      ["account-1", "workspace-1", "douyin", "private", "Douyin", 7,
+        '"account-v1"', "2026-08-25T01:00:00.000Z",
+        "2026-08-25T01:00:00.000Z", "2026-08-25T01:00:00.000Z"]
+    );
+
+    const repository = new MysqlAcquisitionDouyinAutomationRepository(pool);
+    const value = policyVersion();
+    const policyCommand = {
+      workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
+      planVersionId: "plan-version-1", accountId: "account-1", accountLoginStateVersion: 7,
+      expectedEtag: '"default"', defaultEtag: '"default"', idempotencyKey: "live-policy-key",
+      requestHash: `sha256:${"b".repeat(64)}`, value
+    };
+    const policyResults = await Promise.all([
+      repository.savePolicy(policyCommand), repository.savePolicy(policyCommand)
+    ]);
+    assert.deepEqual(policyResults.map((result) => result.kind).sort(), ["created", "replay"]);
+    assert.deepEqual(policyResults[0]?.value, policyResults[1]?.value);
+
+    const run: DouyinAutomationRunIntent = {
+      id: "run-live", workspaceId: "workspace-1", planId: "plan-1",
+      planVersionId: "plan-version-1", planVersion: 1, planSnapshotHash: "plan-hash",
+      policyVersionId: value.id, policyHash: value.policyHash, accountId: "account-1",
+      accountLoginStateVersion: 7, dailyBudgetId: `sha256:${"d".repeat(64)}`,
+      localDate: "2026-08-25", trigger: "run_now", status: "queued", reason: null,
+      createdBy: "owner-1", createdAt: "2026-08-25T01:01:00.000Z"
+    };
+    const runCommand = {
+      workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
+      planVersionId: "plan-version-1", policyVersionId: value.id, accountId: "account-1",
+      accountLoginStateVersion: 7, idempotencyKey: "live-run-key",
+      requestHash: `sha256:${"e".repeat(64)}`, value: run
+    };
+    const runResults = await Promise.all([
+      repository.createRunIntent(runCommand), repository.createRunIntent(runCommand)
+    ]);
+    assert.deepEqual(runResults.map((result) => result.kind).sort(), ["created", "replay"]);
+    assert.deepEqual(runResults[0]?.value, runResults[1]?.value);
+  } finally {
+    await pool.end();
+    await admin.query(`DROP DATABASE IF EXISTS \`${databaseName}\``);
+    await admin.end();
+  }
 });

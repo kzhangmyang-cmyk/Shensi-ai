@@ -161,7 +161,7 @@ export function createAcquisitionDouyinAutomationRouter(
         scope(req),
         idSchema.parse(req.params.planId),
         idempotencyKey(req),
-        runNowSchema.parse(req.body ?? {})
+        runNowSchema.parse(req.is("application/json") ? req.body : undefined)
       );
       replayHeader(res, result.replayed);
       res.status(202).json(result.value);

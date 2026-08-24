@@ -294,7 +294,11 @@ export class AcquisitionDouyinAutomationService {
       throw new AcquisitionDouyinAutomationError(400, code);
     }
     const { plan, version: planVersion } = await this.visiblePlan(scope, planId);
-    const requestHash = douyinAutomationHash({ planId: plan.id, policy });
+    const requestHash = douyinAutomationHash({
+      planId: plan.id,
+      expectedEtag,
+      policy
+    });
     const replay = this.replayResult(
       await this.repository.findCommandReplay(
         scope.workspaceId,
