@@ -22,8 +22,14 @@ const crawlJobStateSchema = z.enum(["queued", "running", "succeeded", "partial",
 const crawlJobResponseSchema = z.object({
   job_id: z.string().min(1), state: crawlJobStateSchema,
   created_at: z.string().datetime(), updated_at: z.string().datetime(),
-  completed_at: z.string().datetime().nullable(), record_count: z.number().int().nonnegative(),
+  completed_at: z.string().datetime().nullable(),
+  acknowledged_at: z.string().datetime().nullable(),
+  record_count: z.number().int().nonnegative(),
   failure_code: z.string().nullable()
+}).strict();
+const crawlJobAcknowledgementSchema = z.object({
+  job_id: z.string().min(1),
+  acknowledged_at: z.string().datetime()
 }).strict();
 const normalizedRecordSchema = z.object({
   record_id: z.string().min(1), kind: z.enum(["video", "creator", "comment"]),
@@ -61,6 +67,10 @@ export interface DouyinMediaCrawlerGateway {
   startCrawlJob(input: DouyinCrawlJobInput, signal?: AbortSignal): Promise<DouyinCrawlJob>;
   getCrawlJob(jobId: string, signal?: AbortSignal): Promise<DouyinCrawlJob>;
   getCrawlResults(jobId: string, cursor: string | null, signal?: AbortSignal): Promise<DouyinCrawlJobPage>;
+  acknowledgeCrawlJob(jobId: string, signal?: AbortSignal): Promise<Readonly<{
+    jobId: string;
+    acknowledgedAt: string;
+  }>>;
   cancelCrawlJob(jobId: string, signal?: AbortSignal): Promise<void>;
 }
 
@@ -259,6 +269,21 @@ export function createDouyinMediaCrawlerGateway(
           textExcerpt: record.text_excerpt, sourceKeyword: record.source_keyword,
           observedAt: record.observed_at, contentHash: record.content_hash
         }))
+      });
+    },
+    async acknowledgeCrawlJob(jobId: string, signal?: AbortSignal) {
+      const parsed = crawlJobAcknowledgementSchema.safeParse(await jsonRequest(
+        "POST",
+        `/internal/v1/douyin/crawl-jobs/${encodeURIComponent(jobId)}/acknowledgement`,
+        null,
+        signal
+      ));
+      if (!parsed.success || parsed.data.job_id !== jobId) {
+        throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
+      }
+      return Object.freeze({
+        jobId: parsed.data.job_id,
+        acknowledgedAt: parsed.data.acknowledged_at
       });
     },
     async cancelCrawlJob(jobId: string, signal?: AbortSignal) {

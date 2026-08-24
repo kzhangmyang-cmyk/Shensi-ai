@@ -24,3 +24,27 @@ test("run candidates route scopes candidates and rejects a cursor reused with a 
     assert.equal(reused.status, 400);
   } finally { server.close(); }
 });
+
+test("run candidates route rejects an automation intent id that is not an authoritative run", async () => {
+  const app = express();
+  app.use((req, _res, next) => {
+    req.user = { id: "owner", teamId: "team" };
+    req.activeWorkspace = {
+      workspaceId: "workspace", actorId: "owner", teamId: "team"
+    };
+    next();
+  });
+  app.use(createAcquisitionRunCandidatesRouter({
+    repository: { async list() { return null; } },
+    cursorSecret: "run-candidates-router-test-secret-at-least-32-bytes"
+  }));
+  const server = app.listen(0);
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/v1/acquisition/runs/automation-intent-1/candidates`
+    );
+    assert.equal(response.status, 404);
+  } finally { server.close(); }
+});

@@ -183,7 +183,7 @@ async function fixture(options: {
     accounts: accountRepository
   });
   const authority: AcquisitionDouyinAutomationAuthorityValidator = options.pauseAuthorityOperation
-    ? {
+      ? {
         async isCurrent(command, requireApproved, token) {
           const current = await baseAuthority.isCurrent(
             command,
@@ -196,8 +196,12 @@ async function fixture(options: {
             await authorityRelease.promise;
           }
           return current;
+          }
+          ,
+          bindRun(command, token) {
+            return baseAuthority.bindRun(command, token);
+          }
         }
-      }
     : baseAuthority;
   const repository = new InMemoryAcquisitionDouyinAutomationRepository(
     memoryTransactions,
@@ -630,8 +634,8 @@ test("every PUT appends a version and never mutates its predecessor", async () =
   assert.equal(versions[0]?.id, first.value.id);
 });
 
-test("run-now freezes plan, policy, account, login and shared daily budget identities", async () => {
-  const { service } = await fixture();
+test("run-now freezes plan, policy, account, login and binds a distinct authoritative run", async () => {
+  const { service, plans } = await fixture();
   const initial = await service.get(SCOPE, "plan-1");
   const saved = await service.put(
     SCOPE,
@@ -658,6 +662,14 @@ test("run-now freezes plan, policy, account, login and shared daily budget ident
   assert.equal(first.value.collectCreators, true);
   assert.equal(first.value.collectDemandComments, true);
   assert.match(first.value.dailyBudgetId, /^sha256:[a-f0-9]{64}$/u);
+  assert.notEqual(first.value.acquisitionRunId, first.value.id);
+  const acquisitionRun = await plans.getRun(first.value.acquisitionRunId);
+  assert.equal(acquisitionRun?.planVersionId, first.value.planVersionId);
+  assert.equal(acquisitionRun?.planSnapshotHash, first.value.planSnapshotHash);
+  assert.deepEqual(
+    await plans.listRunShards(first.value.acquisitionRunId),
+    []
+  );
 
   const replay = await service.runNow(
     SCOPE,

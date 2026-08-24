@@ -272,7 +272,7 @@
           "targetType": { "const": "individual_signal" },
           "sourcePlatform": { "const": "douyin" },
           "accessStatus": { "const": "public_content" },
-          "sourceSnippet": { "maxLength": 500 }
+          "sourceSnippet": { "type": "string", "maxLength": 500 }
         }
       }
     },

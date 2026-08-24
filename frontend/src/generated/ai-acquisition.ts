@@ -1778,6 +1778,7 @@ export interface components {
         };
         DouyinAutomationRunIntent: {
             id: string;
+            acquisitionRunId: string;
             workspaceId: string;
             planId: string;
             planVersionId: string;

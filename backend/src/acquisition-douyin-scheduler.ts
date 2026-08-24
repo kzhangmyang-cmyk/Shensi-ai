@@ -47,7 +47,8 @@ export class AcquisitionDouyinScheduler {
         policyVersionId: policy.policyVersionId, localDate
       });
       const proposedRun: DouyinAutomationRunIntent = {
-        id: idFactory("douyin-run"), workspaceId: policy.workspaceId,
+        id: idFactory("douyin-run"),
+        acquisitionRunId: idFactory("ar"), workspaceId: policy.workspaceId,
         planId: policy.planId, planVersionId: policy.planVersionId,
         planVersion: policy.planVersion,
         planSnapshotHash: policy.planSnapshotHash,
@@ -65,7 +66,9 @@ export class AcquisitionDouyinScheduler {
         : proposedRun;
       const result = await this.options.repository.createOrGet({
         id: idFactory("crawler-job"), workspaceId: policy.workspaceId,
-        runId: run.id, planId: policy.planId,
+        runId: run.acquisitionRunId, automationIntentId: run.id,
+        planId: policy.planId, planVersionId: run.planVersionId,
+        planSnapshotHash: run.planSnapshotHash,
         policyVersionId: policy.policyVersionId, policyHash: policy.policyHash,
         accountId: policy.accountId, accountLoginStateVersion: policy.accountLoginStateVersion,
         dailyBudgetId: run.dailyBudgetId, localDate: run.localDate,
@@ -75,7 +78,7 @@ export class AcquisitionDouyinScheduler {
         collectDemandComments: run.collectDemandComments,
         limits: policy.limits, createdAt: run.createdAt
       });
-      await this.options.repository.enqueue(policy.workspaceId, run.id, now);
+      await this.options.repository.enqueue(policy.workspaceId, run.acquisitionRunId, now);
       if (result.created) created += 1;
     }
     return created;

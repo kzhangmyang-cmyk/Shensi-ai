@@ -117,6 +117,10 @@ export interface AcquisitionDomainRepository {
     evidenceId: string
   ): Promise<DiscoveryEvidence | null>;
   appendEvidence(evidence: DiscoveryEvidence): Promise<void>;
+  deleteEvidenceIfUnlinked(
+    scope: AcquisitionDataScope,
+    evidenceId: string
+  ): Promise<boolean>;
   findCandidate(
     scope: AcquisitionDataScope,
     candidateId: string
@@ -462,6 +466,20 @@ implements AcquisitionDomainRepository {
       throw new Error(`duplicate evidence id: ${evidence.id}`);
     }
     this.evidence.set(evidence.id, copy(evidence));
+  }
+
+  async deleteEvidenceIfUnlinked(
+    scope: AcquisitionDataScope,
+    evidenceId: string
+  ) {
+    const evidence = this.evidence.get(evidenceId);
+    if (!evidence || !belongs(evidence, scope)) return false;
+    if ([...this.candidates.values()].some((candidate) =>
+      belongs(candidate, scope) && candidate.evidenceIds.includes(evidenceId))) {
+      return false;
+    }
+    this.evidence.delete(evidenceId);
+    return true;
   }
 
   async findCandidate(scope: AcquisitionDataScope, candidateId: string) {

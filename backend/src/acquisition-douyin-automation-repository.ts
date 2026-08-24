@@ -4,6 +4,7 @@ import type {
   DouyinAutomationRunIntent
 } from "./acquisition-douyin-automation.js";
 import type {
+  AcquisitionDouyinCollectionRunBinding,
   AcquisitionPlan,
   AcquisitionPlanVersion,
   InMemoryAcquisitionPlanRunRepository
@@ -65,6 +66,7 @@ export interface CreateDouyinAutomationRunIntentCommand {
   idempotencyKey: string;
   requestHash: string;
   value: DouyinAutomationRunIntent;
+  runBinding: AcquisitionDouyinCollectionRunBinding;
 }
 
 export type CreateDouyinAutomationRunIntentResult =
@@ -91,6 +93,10 @@ export interface AcquisitionDouyinAutomationAuthorityValidator {
     requireApproved: boolean,
     token: AcquisitionMemoryTransactionToken
   ): boolean | Promise<boolean>;
+  bindRun(
+    command: CreateDouyinAutomationRunIntentCommand,
+    token: AcquisitionMemoryTransactionToken
+  ): void | Promise<void>;
 }
 
 export function douyinAutomationAuthorityIsCurrent(
@@ -156,6 +162,13 @@ export function createAcquisitionDouyinAutomationAuthorityValidator(options: {
         { plan, version, account },
         requireApproved
       );
+    },
+    bindRun(command, token) {
+      if (command.runBinding.automationIntentId !== command.value.id
+        || command.runBinding.run.id !== command.value.acquisitionRunId) {
+        throw new Error("douyin_collection_run_binding_mismatch");
+      }
+      options.plans.bindDouyinAutomationRun(token, command.runBinding);
     }
   };
 }
@@ -404,12 +417,15 @@ implements AcquisitionDouyinAutomationRepository {
         || command.value.accountId !== command.accountId
         || command.value.accountLoginStateVersion
           !== command.accountLoginStateVersion
+        || command.value.acquisitionRunId !== command.runBinding.run.id
+        || command.runBinding.automationIntentId !== command.value.id
         || state.runs.has(command.value.id)) {
         return { kind: "binding_mismatch" };
       }
       if (!await this.authority.isCurrent(command, true, token)) {
         return { kind: "binding_mismatch" };
       }
+      await this.authority.bindRun(command, token);
       state.runs.set(command.value.id, clone(command.value));
       state.replays.set(replayIdentity, {
         workspaceId: command.workspaceId,

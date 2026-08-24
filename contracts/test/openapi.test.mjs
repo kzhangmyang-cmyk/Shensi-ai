@@ -40,6 +40,7 @@ const section16 = {
   "/api/v1/acquisition/runs/{id}/pause": ["post"],
   "/api/v1/acquisition/runs/{id}/resume": ["post"],
   "/api/v1/acquisition/runs/{id}/cancel": ["post"],
+  "/api/v1/acquisition/runs/{runId}/candidates": ["get"],
   "/api/v1/acquisition/runs/{runId}/crawler-status": ["get"],
   "/api/v1/acquisition/visual-reader-sessions": ["post"],
   "/api/v1/acquisition/visual-reader-sessions/{sessionId}": ["get"],
@@ -212,6 +213,11 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
   assert.equal(
     runNow.responses["202"].content["application/json"].schema.$ref,
     "#/components/schemas/DouyinAutomationRunIntent"
+  );
+  assert.equal(
+    document.components.schemas.DouyinAutomationRunIntent.required
+      .includes("acquisitionRunId"),
+    true
   );
   for (const schemaName of [
     "DouyinAutomationPolicyInput",

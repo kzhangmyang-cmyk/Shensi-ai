@@ -157,6 +157,21 @@ CREATE TABLE acquisition_douyin_run_intents (
     CHECK (status IN ('queued'))
 );
 
+CREATE TABLE acquisition_douyin_run_bindings (
+  automation_intent_id VARCHAR(255) NOT NULL PRIMARY KEY,
+  acquisition_run_id VARCHAR(120) NOT NULL,
+  workspace_id VARCHAR(255) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  plan_version_id VARCHAR(160) NOT NULL,
+  plan_snapshot_hash VARCHAR(200) NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  UNIQUE KEY acquisition_douyin_run_binding_run (acquisition_run_id),
+  CONSTRAINT acquisition_douyin_run_binding_intent FOREIGN KEY (automation_intent_id)
+    REFERENCES acquisition_douyin_run_intents(id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT acquisition_douyin_run_binding_authoritative_run FOREIGN KEY (acquisition_run_id)
+    REFERENCES acquisition_runs(id) ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
 CREATE TABLE customers (
   id VARCHAR(64) PRIMARY KEY,
   company VARCHAR(200) NOT NULL,
@@ -730,11 +745,22 @@ CREATE TABLE acquisition_crawler_jobs (
 
 CREATE TABLE acquisition_crawler_job_runs (
   workspace_id VARCHAR(255) NOT NULL,
-  run_id VARCHAR(255) NOT NULL,
+  run_id VARCHAR(120) NOT NULL,
   job_id VARCHAR(255) NOT NULL,
   created_at DATETIME(3) NOT NULL,
   PRIMARY KEY (workspace_id,run_id),
-  CONSTRAINT acquisition_crawler_job_run_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id)
+  CONSTRAINT acquisition_crawler_job_run_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id),
+  CONSTRAINT acquisition_crawler_job_run_authority FOREIGN KEY (run_id) REFERENCES acquisition_runs(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_crawler_job_intents (
+  workspace_id VARCHAR(255) NOT NULL,
+  automation_intent_id VARCHAR(255) NOT NULL,
+  job_id VARCHAR(255) NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,automation_intent_id),
+  CONSTRAINT acquisition_crawler_job_intent_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id),
+  CONSTRAINT acquisition_crawler_job_intent_authority FOREIGN KEY (automation_intent_id) REFERENCES acquisition_douyin_run_intents(id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE acquisition_crawler_job_records (
@@ -758,4 +784,33 @@ CREATE TABLE acquisition_crawler_job_cursors (
   PRIMARY KEY (job_id,page_sequence),
   UNIQUE KEY acquisition_crawler_cursor_unique (job_id,cursor_value),
   CONSTRAINT acquisition_crawler_cursor_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_douyin_crawler_evidence_index (
+  workspace_id VARCHAR(255) NOT NULL,
+  content_hash CHAR(71) NOT NULL,
+  platform_record_id VARCHAR(255) NOT NULL,
+  evidence_id VARCHAR(255) NOT NULL,
+  job_id VARCHAR(255) NOT NULL,
+  source_url VARCHAR(2000) NOT NULL,
+  observed_at DATETIME(3) NOT NULL,
+  candidate_id VARCHAR(120) NULL,
+  retain_until DATETIME(3) NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,content_hash),
+  UNIQUE KEY acquisition_douyin_crawler_evidence_id (workspace_id,evidence_id),
+  KEY acquisition_douyin_crawler_record_version (workspace_id,platform_record_id,observed_at,evidence_id),
+  KEY acquisition_douyin_crawler_evidence_retention (candidate_id,retain_until),
+  CONSTRAINT acquisition_douyin_crawler_evidence_authority FOREIGN KEY (evidence_id) REFERENCES acquisition_discovery_evidence(id) ON DELETE CASCADE,
+  CONSTRAINT acquisition_douyin_crawler_evidence_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_douyin_do_not_contact (
+  workspace_id VARCHAR(255) NOT NULL,
+  identity_hash CHAR(75) NOT NULL,
+  reason VARCHAR(100) NOT NULL,
+  first_observed_at DATETIME(3) NOT NULL,
+  last_observed_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,identity_hash),
+  CONSTRAINT acquisition_douyin_dnc_hash CHECK (identity_hash REGEXP '^dnc:sha256:[0-9a-f]{64}$')
 ) ENGINE=InnoDB;

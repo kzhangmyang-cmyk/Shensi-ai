@@ -11,7 +11,7 @@ test("scheduler uses policy timezone/local time and deduplicates repeated ticks"
     runIntents: {
       async create(_policy, run) {
         persistedRunIds.push(run.id);
-        return { ...run, id: "persisted-run-1" };
+        return { ...run, acquisitionRunId: "acquisition-run-1" };
       }
     },
     policies: { async listScheduled() { return [{
@@ -28,7 +28,9 @@ test("scheduler uses policy timezone/local time and deduplicates repeated ticks"
   assert.equal(await scheduler.tick(), 1);
   assert.equal(await scheduler.tick(), 0);
   assert.deepEqual(persistedRunIds, ["douyin-run-1", "douyin-run-1"]);
-  const stored = await repository.findByRun("workspace-1", "persisted-run-1");
+  const stored = await repository.findByRun("workspace-1", "acquisition-run-1");
+  assert.deepEqual(stored?.automationIntentIds, ["douyin-run-1"]);
+  assert.deepEqual(stored?.runIds, ["acquisition-run-1"]);
   assert.equal(stored?.localDate, "2026-08-24");
   assert.equal(stored?.trigger, "scheduled");
   assert.equal(stored?.collectCreators, true);

@@ -7,7 +7,9 @@ import { normalizedDouyinContentHash } from "./acquisition-crawler-job.js";
 
 const now = "2026-08-24T00:00:00.000Z";
 const job: AcquisitionCrawlerJobInput = {
-  id: "crawler-1", workspaceId: "workspace-1", runId: "run-1", planId: "plan-1",
+  id: "crawler-1", workspaceId: "workspace-1", runId: "run-1",
+  automationIntentId: "intent-1", planId: "plan-1",
+  planVersionId: "plan-version-1", planSnapshotHash: "plan-hash-1",
   policyVersionId: "policy-1", policyHash: `sha256:${"a".repeat(64)}`,
   accountId: "account-1", accountLoginStateVersion: 2,
   dailyBudgetId: `sha256:${"b".repeat(64)}`, localDate: "2026-08-24", trigger: "run_now",
@@ -68,5 +70,52 @@ test("worker rejects a changed private account binding before sidecar start", as
   assert.equal(await worker.runOnce(), true);
   assert.equal(starts, 0);
   assert.equal((await repository.findByRun("workspace-1", "run-1"))?.state, "paused");
+  await worker.close();
+});
+
+test("worker recovers terminal ingestion and acknowledges only after domain persistence", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(job);
+  await repository.enqueue("workspace-1", "run-1", now);
+  const order: string[] = [];
+  let failFirstIngestion = true;
+  const gateway = {
+    async startCrawlJob() { return { jobId: "crawler-1", state: "running" as const }; },
+    async getCrawlJob() { return { jobId: "crawler-1", state: "succeeded" as const }; },
+    async getCrawlResults() {
+      return { jobId: "crawler-1", cursor: null, nextCursor: null, done: true, records: [] };
+    },
+    async acknowledgeCrawlJob() {
+      order.push("acknowledge");
+      return { jobId: "crawler-1", acknowledgedAt: now };
+    },
+    async cancelCrawlJob() {}
+  };
+  const worker = new AcquisitionCrawlerWorker({
+    repository,
+    gateway,
+    accounts: { async findById() { return {
+      id: "account-1", workspaceId: "workspace-1", platform: "douyin" as const,
+      accountHandle: "private-handle", state: "active" as const, loginStateVersion: 2
+    }; } },
+    workerId: "worker-ingestion",
+    now: () => now,
+    async ingestTerminalJob() {
+      order.push("persist-domain");
+      if (failFirstIngestion) {
+        failFirstIngestion = false;
+        throw new Error("injected_ingestion_failure");
+      }
+    }
+  });
+
+  assert.equal(await worker.runOnce(), true);
+  assert.equal((await repository.findByRun("workspace-1", "run-1"))?.ingestionState, "pending");
+  assert.equal(await worker.runOnce(), true);
+  assert.deepEqual(order, ["persist-domain"]);
+  assert.equal((await repository.findByRun("workspace-1", "run-1"))?.ingestionState, "pending");
+  assert.equal(await worker.runOnce(), true);
+  assert.deepEqual(order, ["persist-domain", "persist-domain", "acknowledge"]);
+  assert.equal((await repository.findByRun("workspace-1", "run-1"))?.ingestionState, "succeeded");
   await worker.close();
 });

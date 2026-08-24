@@ -3,6 +3,10 @@ import test from "node:test";
 import { randomUUID } from "node:crypto";
 import mysql from "mysql2/promise";
 import {
+  ensureAcquisitionDouyinAutomationMysqlSchema
+} from "./acquisition-douyin-automation-mysql-repository.js";
+import { ensureAcquisitionMysqlSchema } from "./acquisition-mysql-repositories.js";
+import {
   acquisitionCrawlerJobDdls,
   ensureAcquisitionCrawlerJobMysqlSchema,
   MysqlAcquisitionCrawlerJobRepository
@@ -23,12 +27,19 @@ test("crawler MySQL schema has durable jobs, daily aliases, append-only records 
   assert.match(ddl, /UNIQUE KEY acquisition_crawler_record_identity/u);
   assert.match(ddl, /acquisition_crawler_job_cursors/u);
   assert.match(ddl, /UNIQUE KEY acquisition_crawler_cursor_unique/u);
+  assert.match(ddl, /REFERENCES acquisition_runs\(id\)/u);
+  assert.match(ddl, /REFERENCES acquisition_douyin_run_intents\(id\)/u);
+  assert.match(ddl, /PRIMARY KEY \(workspace_id,run_id\)/u);
+  assert.match(ddl, /PRIMARY KEY \(workspace_id,automation_intent_id\)/u);
 });
 
 test("MySQL daily creation retries duplicate and deadlock races and returns the committed winner", async () => {
   const winner = {
     id: "winner-job", workspaceId: "workspace-1", runId: "winner-run",
-    runIds: ["winner-run"], planId: "plan-1", policyVersionId: "policy-1",
+    runIds: ["winner-run"], automationIntentId: "winner-intent",
+    automationIntentIds: ["winner-intent"], planId: "plan-1",
+    planVersionId: "plan-version-1", planSnapshotHash: "plan-hash-1",
+    policyVersionId: "policy-1",
     policyHash: `sha256:${"a".repeat(64)}`, accountId: "account-1",
     accountLoginStateVersion: 1, dailyBudgetId: `sha256:${"b".repeat(64)}`,
     localDate: "2026-08-24", trigger: "scheduled" as const,
@@ -67,7 +78,9 @@ test("MySQL daily creation retries duplicate and deadlock races and returns the 
     const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
     const result = await repository.createOrGet({
     id: "loser-job", workspaceId: "workspace-1", runId: "run-now",
-    planId: "plan-1", policyVersionId: "policy-1",
+    automationIntentId: "run-now-intent", planId: "plan-1",
+    planVersionId: "plan-version-1", planSnapshotHash: "plan-hash-1",
+    policyVersionId: "policy-1",
     policyHash: `sha256:${"a".repeat(64)}`, accountId: "account-1",
     accountLoginStateVersion: 1, dailyBudgetId: `sha256:${"b".repeat(64)}`,
     localDate: "2026-08-24", trigger: "run_now", dailyCandidateLimit: 2,
@@ -94,10 +107,64 @@ test("live MySQL preserves lease ABA fencing and cursor/record atomicity", {
   const testUrl = new URL(adminUrl); testUrl.pathname = `/${database}`;
   const pool = mysql.createPool(testUrl.toString());
   try {
+    await ensureAcquisitionMysqlSchema(pool);
+    await ensureAcquisitionDouyinAutomationMysqlSchema(pool);
     await ensureAcquisitionCrawlerJobMysqlSchema(pool);
+    const at = "2026-08-24T00:00:00.000Z";
+    await pool.query(
+      `INSERT INTO acquisition_plans
+       (id,owner_id,team_id,revision,payload_json,created_at,updated_at)
+       VALUES ('plan-1','owner-1','team-1',1,'{}',?,?)`,
+      [at, at]
+    );
+    await pool.query(
+      `INSERT INTO acquisition_plan_versions
+       (id,plan_id,owner_id,team_id,version_no,payload_json,created_at)
+       VALUES ('plan-version-1','plan-1','owner-1','team-1',1,'{}',?)`,
+      [at]
+    );
+    for (const runId of ["run-1", "run-2"]) {
+      await pool.query(
+        `INSERT INTO acquisition_runs
+         (id,plan_id,plan_version_id,owner_id,team_id,revision,
+          plan_snapshot_hash,budget_snapshot_hash,payload_json,
+          created_at,updated_at,completed_at)
+         VALUES (?,'plan-1','plan-version-1','owner-1','team-1',1,?,?, '{}',?,?,NULL)`,
+        [runId, "a".repeat(64), "b".repeat(64), at, at]
+      );
+    }
+    await pool.query(
+      `INSERT INTO acquisition_douyin_automation_policy_versions
+       (id,workspace_id,owner_id,team_id,plan_id,plan_version_id,
+        account_id,account_login_state_version,version_no,revision,etag,
+        policy_hash,payload_json,created_by,created_at)
+       VALUES ('policy-1','workspace-1','owner-1','team-1','plan-1',
+        'plan-version-1','account-1',1,1,1,'"policy-1"',?,'{}','owner-1',?)`,
+      [`sha256:${"a".repeat(64)}`, at]
+    );
+    for (const [intentId, runId] of [["intent-1", "run-1"], ["intent-2", "run-2"]]) {
+      await pool.query(
+        `INSERT INTO acquisition_douyin_run_intents
+         (id,workspace_id,owner_id,team_id,plan_id,plan_version_id,
+          policy_version_id,account_id,account_login_state_version,
+          daily_budget_id,local_date,trigger_kind,status,payload_json,created_at)
+         VALUES (?,'workspace-1','owner-1','team-1','plan-1','plan-version-1',
+          'policy-1','account-1',1,?,'2026-08-24','run_now','queued','{}',?)`,
+        [intentId, `sha256:${"b".repeat(64)}`, at]
+      );
+      await pool.query(
+        `INSERT INTO acquisition_douyin_run_bindings
+         (automation_intent_id,acquisition_run_id,workspace_id,plan_id,
+          plan_version_id,plan_snapshot_hash,created_at)
+         VALUES (?,?,'workspace-1','plan-1','plan-version-1','plan-hash-1',?)`,
+        [intentId, runId, at]
+      );
+    }
     const repository = new MysqlAcquisitionCrawlerJobRepository(pool);
     const scheduledInput = {
-      id: "job-1", workspaceId: "workspace-1", runId: "run-1", planId: "plan-1",
+      id: "job-1", workspaceId: "workspace-1", runId: "run-1",
+      automationIntentId: "intent-1", planId: "plan-1",
+      planVersionId: "plan-version-1", planSnapshotHash: "plan-hash-1",
       policyVersionId: "policy-1", policyHash: `sha256:${"a".repeat(64)}`,
       accountId: "account-1", accountLoginStateVersion: 1,
       dailyBudgetId: `sha256:${"b".repeat(64)}`, localDate: "2026-08-24",
@@ -108,11 +175,25 @@ test("live MySQL preserves lease ABA fencing and cursor/record atomicity", {
     } as const;
     const [scheduled, runNow] = await Promise.all([
       repository.createOrGet(scheduledInput),
-      repository.createOrGet({ ...scheduledInput, id: "job-2", runId: "run-2", trigger: "run_now" })
+      repository.createOrGet({
+        ...scheduledInput,
+        id: "job-2",
+        runId: "run-2",
+        automationIntentId: "intent-2",
+        trigger: "run_now"
+      })
     ]);
     assert.equal(scheduled.job.id, runNow.job.id);
     assert.equal(Number(scheduled.created) + Number(runNow.created), 1);
     assert.equal((await repository.findByRun("workspace-1", "run-2"))?.id, scheduled.job.id);
+    assert.deepEqual(
+      [...scheduled.job.runIds].sort(),
+      ["run-1", "run-2"]
+    );
+    assert.deepEqual(
+      [...scheduled.job.automationIntentIds].sort(),
+      ["intent-1", "intent-2"]
+    );
     assert.equal(scheduled.job.state, "scheduled");
     assert.equal((await repository.enqueue("workspace-1", "run-1", "2026-08-24T00:00:00.000Z"))?.state, "queued");
     const first = await repository.claimNext("worker-A", "2026-08-24T00:00:01.000Z", 1_000);

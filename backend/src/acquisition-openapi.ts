@@ -1364,9 +1364,9 @@ const douyinAutomationRunNowInputSchema = {
 };
 const douyinAutomationRunIntentSchema = {
   type: "object", additionalProperties: false,
-  required: ["id", "workspaceId", "planId", "planVersionId", "planVersion", "planSnapshotHash", "policyVersionId", "policyHash", "accountId", "accountLoginStateVersion", "dailyBudgetId", "localDate", "trigger", "collectCreators", "collectDemandComments", "status", "reason", "createdBy", "createdAt"],
+  required: ["id", "acquisitionRunId", "workspaceId", "planId", "planVersionId", "planVersion", "planSnapshotHash", "policyVersionId", "policyHash", "accountId", "accountLoginStateVersion", "dailyBudgetId", "localDate", "trigger", "collectCreators", "collectDemandComments", "status", "reason", "createdBy", "createdAt"],
   properties: {
-    id: { type: "string" }, workspaceId: { type: "string" }, planId: { type: "string" },
+    id: { type: "string" }, acquisitionRunId: { type: "string" }, workspaceId: { type: "string" }, planId: { type: "string" },
     planVersionId: { type: "string" }, planVersion: { type: "integer", minimum: 1 },
     planSnapshotHash: { type: "string" }, policyVersionId: { type: "string" },
     policyHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" }, accountId: { type: "string" },

@@ -103,3 +103,22 @@ test("gateway accepts bracketed IPv6 loopback and private addresses", () => {
     assert.doesNotThrow(() => createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret }));
   }
 });
+
+test("gateway acknowledges persisted pages and returns the server timestamp", async () => {
+  await withServer((request, response) => {
+    assert.equal(request.method, "POST");
+    assert.equal(request.url, "/internal/v1/douyin/crawl-jobs/job-1/acknowledgement");
+    assert.equal(request.headers.authorization, `Bearer ${serviceSecret}`);
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      job_id: "job-1",
+      acknowledged_at: "2026-08-25T04:00:00.000Z"
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    assert.deepEqual(await gateway.acknowledgeCrawlJob("job-1"), {
+      jobId: "job-1",
+      acknowledgedAt: "2026-08-25T04:00:00.000Z"
+    });
+  });
+});

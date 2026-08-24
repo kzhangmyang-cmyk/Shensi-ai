@@ -16,7 +16,10 @@ export interface AcquisitionCrawlerJobInput {
   id: string;
   workspaceId: string;
   runId: string;
+  automationIntentId: string;
   planId: string;
+  planVersionId: string;
+  planSnapshotHash: string;
   policyVersionId: string;
   policyHash: string;
   accountId: string;
@@ -48,6 +51,7 @@ export interface NormalizedDouyinRecord {
 export interface AcquisitionCrawlerJob extends AcquisitionCrawlerJobInput {
   state: AcquisitionCrawlerJobState;
   runIds: string[];
+  automationIntentIds: string[];
   attempt: number;
   maxAttempts: number;
   cursor: string | null;
@@ -62,6 +66,14 @@ export interface AcquisitionCrawlerJob extends AcquisitionCrawlerJobInput {
   fencingToken: number;
   updatedAt: string;
   completedAt: string | null;
+  ingestionState: "pending" | "running" | "succeeded" | "failed" | null;
+  ingestionAttempt: number;
+  ingestionLeaseWorkerId: string | null;
+  ingestionLeaseToken: string | null;
+  ingestionLeaseExpiresAt: string | null;
+  ingestionFencingToken: number;
+  ingestedAt: string | null;
+  acknowledgedAt: string | null;
 }
 
 export interface AcquisitionCrawlerJobFence {
@@ -74,6 +86,18 @@ export interface AcquisitionCrawlerJobFence {
 export interface AcquisitionCrawlerJobClaim {
   job: AcquisitionCrawlerJob;
   fence: AcquisitionCrawlerJobFence;
+}
+
+export interface AcquisitionCrawlerIngestionFence {
+  jobId: string;
+  workerId: string;
+  leaseToken: string;
+  fencingToken: number;
+}
+
+export interface AcquisitionCrawlerIngestionClaim {
+  job: AcquisitionCrawlerJob;
+  fence: AcquisitionCrawlerIngestionFence;
 }
 
 export interface AcquisitionCrawlerStatus {
@@ -105,7 +129,9 @@ function boundedId(value: unknown, maximum = 255) {
 
 export function assertCrawlerJobInput(input: AcquisitionCrawlerJobInput) {
   if (!boundedId(input.id) || !boundedId(input.workspaceId)
-    || !boundedId(input.runId) || !boundedId(input.planId, 160)
+    || !boundedId(input.runId) || !boundedId(input.automationIntentId)
+    || !boundedId(input.planId, 160) || !boundedId(input.planVersionId, 160)
+    || !boundedId(input.planSnapshotHash, 200)
     || !boundedId(input.policyVersionId) || !boundedId(input.accountId)
     || !/^sha256:[0-9a-f]{64}$/u.test(input.policyHash)
     || !/^sha256:[0-9a-f]{64}$/u.test(input.dailyBudgetId)

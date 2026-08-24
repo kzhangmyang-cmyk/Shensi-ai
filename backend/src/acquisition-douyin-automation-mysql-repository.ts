@@ -18,6 +18,7 @@ import type {
   AcquisitionPlan,
   AcquisitionPlanVersion
 } from "./acquisition-plan-run-repository.js";
+import { assertDouyinCollectionRunBinding } from "./acquisition-plan-run-repository.js";
 
 export const acquisitionDouyinAutomationPolicyVersionsDdl = `CREATE TABLE IF NOT EXISTS acquisition_douyin_automation_policy_versions (
   id VARCHAR(255) NOT NULL PRIMARY KEY,
@@ -99,11 +100,31 @@ export const acquisitionDouyinRunIntentsDdl = `CREATE TABLE IF NOT EXISTS acquis
     CHECK (status IN ('queued'))
 ) ENGINE=InnoDB`;
 
+export const acquisitionDouyinRunBindingsDdl = `CREATE TABLE IF NOT EXISTS acquisition_douyin_run_bindings (
+  automation_intent_id VARCHAR(255) NOT NULL PRIMARY KEY,
+  acquisition_run_id VARCHAR(120) NOT NULL,
+  workspace_id VARCHAR(255) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  plan_version_id VARCHAR(160) NOT NULL,
+  plan_snapshot_hash VARCHAR(200) NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  UNIQUE KEY acquisition_douyin_run_binding_run (acquisition_run_id),
+  CONSTRAINT acquisition_douyin_run_binding_intent
+    FOREIGN KEY (automation_intent_id)
+    REFERENCES acquisition_douyin_run_intents (id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT acquisition_douyin_run_binding_authoritative_run
+    FOREIGN KEY (acquisition_run_id)
+    REFERENCES acquisition_runs (id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB`;
+
 const schemaStatements = [
   acquisitionDouyinAutomationPolicyVersionsDdl,
   acquisitionDouyinAutomationPolicyHeadsDdl,
   acquisitionDouyinAutomationCommandReplaysDdl,
-  acquisitionDouyinRunIntentsDdl
+  acquisitionDouyinRunIntentsDdl,
+  acquisitionDouyinRunBindingsDdl
 ];
 
 export async function ensureAcquisitionDouyinAutomationMysqlSchema(
@@ -167,6 +188,29 @@ function runIntent(row: Row): DouyinAutomationRunIntent {
     throw new Error("acquisition_douyin_run_intent_row_corrupt");
   }
   return structuredClone(value);
+}
+
+async function assertRunBindingCurrent(
+  source: Source,
+  plan: AcquisitionPlan | null,
+  command: CreateDouyinAutomationRunIntentCommand
+) {
+  if (!plan) throw new Error("douyin_collection_run_plan_binding_mismatch");
+  const versionRows = await rows(
+    source,
+    `SELECT payload_json FROM acquisition_plan_versions
+     WHERE id=? AND plan_id=? AND owner_id=? AND team_id=? FOR UPDATE`,
+    [command.planVersionId, command.planId, command.ownerId, command.teamId]
+  );
+  const version = versionRows[0]
+    ? parsed(versionRows[0].payload_json) as AcquisitionPlanVersion
+    : null;
+  if (!version
+    || command.runBinding.automationIntentId !== command.value.id
+    || command.runBinding.run.id !== command.value.acquisitionRunId) {
+    throw new Error("douyin_collection_run_binding_mismatch");
+  }
+  assertDouyinCollectionRunBinding(plan, version, command.runBinding);
 }
 
 function replay(row: Row | undefined, requestHash: string): DouyinAutomationReplayLookup {
@@ -461,6 +505,65 @@ implements AcquisitionDouyinAutomationRepository {
         await connection.rollback();
         return { kind: "binding_mismatch" };
       }
+      await assertRunBindingCurrent(connection, plan, command);
+      const run = command.runBinding.run;
+      await connection.query(
+        `INSERT INTO acquisition_runs
+         (id,plan_id,plan_version_id,owner_id,team_id,revision,
+          plan_snapshot_hash,budget_snapshot_hash,payload_json,
+          created_at,updated_at,completed_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL)`,
+        [run.id, run.planId, run.planVersionId, run.ownerId, run.teamId,
+          run.revision, run.planSnapshotHash, run.budgetSnapshotHash,
+          json(run), run.createdAt, run.updatedAt]
+      );
+      const identityHash = keyHash(command.value.id);
+      const runEvent = {
+        id: `are-douyin-${identityHash.slice(0, 64)}`,
+        runId: run.id,
+        shardId: null,
+        ownerId: run.ownerId,
+        teamId: run.teamId,
+        type: "run.queued",
+        actorId: run.createdBy,
+        revision: run.revision,
+        at: run.createdAt,
+        data: {
+          source: "douyin_automation",
+          automationIntentId: command.value.id,
+          planVersionId: run.planVersionId,
+          planSnapshotHash: run.planSnapshotHash
+        }
+      };
+      await connection.query(
+        `INSERT INTO acquisition_run_events
+         (id,run_id,shard_id,owner_id,team_id,revision,payload_json,
+          occurred_at)
+         VALUES (?,?,NULL,?,?,?,?,?)`,
+        [runEvent.id, run.id, run.ownerId, run.teamId, run.revision,
+          json(runEvent), run.createdAt]
+      );
+      const audit = {
+        id: `apae-douyin-${identityHash.slice(0, 64)}`,
+        ownerId: run.ownerId,
+        teamId: run.teamId,
+        actorId: run.createdBy,
+        action: "run.create.douyin_collection",
+        targetType: "run" as const,
+        targetId: run.id,
+        beforeHash: null,
+        afterHash: keyHash(json(run)),
+        at: run.createdAt,
+        data: { automationIntentId: command.value.id }
+      };
+      await connection.query(
+        `INSERT INTO acquisition_plan_run_audit_events
+         (id,owner_id,team_id,target_type,target_id,payload_json,
+          occurred_at)
+         VALUES (?,?,?,?,?,?,?)`,
+        [audit.id, audit.ownerId, audit.teamId, audit.targetType,
+          audit.targetId, json(audit), audit.at]
+      );
       await connection.query(
         `INSERT INTO acquisition_douyin_run_intents
          (id,workspace_id,owner_id,team_id,plan_id,plan_version_id,
@@ -473,6 +576,14 @@ implements AcquisitionDouyinAutomationRepository {
           command.accountLoginStateVersion, command.value.dailyBudgetId,
           command.value.localDate, command.value.trigger, command.value.status,
           json(command.value), command.value.createdAt]
+      );
+      await connection.query(
+        `INSERT INTO acquisition_douyin_run_bindings
+         (automation_intent_id,acquisition_run_id,workspace_id,plan_id,
+          plan_version_id,plan_snapshot_hash,created_at)
+         VALUES (?,?,?,?,?,?,?)`,
+        [command.value.id, run.id, command.workspaceId, command.planId,
+          command.planVersionId, run.planSnapshotHash, command.value.createdAt]
       );
       await connection.query(
         `INSERT INTO acquisition_douyin_automation_command_replays

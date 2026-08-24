@@ -230,6 +230,7 @@ test("Douyin automation policy and run intent projections conform without privat
   };
   const run = {
     id: "douyin-run-response-contract",
+    acquisitionRunId: "acquisition-run-response-contract",
     workspaceId: TEAM,
     planId: version.planId,
     planVersionId: version.planVersionId,

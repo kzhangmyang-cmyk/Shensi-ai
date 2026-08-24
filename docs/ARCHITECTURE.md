@@ -44,24 +44,34 @@ missing or malformed ephemeral QR metadata does not invalidate a connected
 account.
 The automation service consumes that same workspace account repository without
 exposing its private handle. It publishes immutable policy versions behind a
-compare-and-swap head and creates idempotent run intents that freeze the
+compare-and-swap head and creates idempotent automation intents that freeze the
 approved plan version, policy version, account/login version, local date, and
-daily-budget identity. MySQL transactions revalidate those authorities under
-lock before either write commits. Memory composition uses one shared
-transaction token across plan, account, and automation repositories, keeping
-the same validation-and-append boundary atomic during development and focused
-tests.
+daily-budget identity. Each intent has a distinct authoritative acquisition run
+created from that exact approved plan/version/hash. MySQL commits the run,
+queued run event, audit event, automation intent, binding, and command replay in
+one transaction after locked authority validation. Memory composition uses one
+shared transaction token across plan, account, and automation repositories and
+provides the same all-or-nothing boundary.
 
-Frozen run intents materialize as one crawler job per workspace, plan, policy
-version, and policy-local date. The repository records `scheduled` before an
-idempotent enqueue transition. Node owns random fenced leases and persists each
-bounded normalized record page together with its opaque cursor and unique
-cursor history, rejecting cycles and non-null terminal cursors. Frozen
-creator/comment flags filter disabled record kinds before persistence. The
-sidecar owns only the live process and immutable result pages; reading a page
-does not acknowledge it. Startup and periodic retention sweeps remove pages
-after 24 hours. Restarts therefore resume from the Node cursor, and the
-browser-facing status route never proxies live sidecar state.
+Frozen intents materialize as one crawler job per workspace, plan, policy
+version, and policy-local date. Separate alias tables bind every automation
+intent and authoritative acquisition run to that shared job. The repository
+records `scheduled` before an idempotent enqueue transition. Node owns random
+fenced crawl and terminal-ingestion leases and persists each bounded normalized
+record page together with its opaque cursor and unique cursor history,
+rejecting cycles and non-null terminal cursors. Frozen creator/comment flags
+filter disabled record kinds before persistence.
+
+After a terminal page is durable, the ingestion worker writes evidence,
+candidates, identity aliases, DNC/audit state, acquisition-run status, and
+candidate-discovered run events through the existing domain and plan-run
+repositories in one transaction. A committed retry is a no-op; a failed write
+rolls the whole unit back. Only then does Node acknowledge the sidecar. The
+durable acknowledgement timestamp starts the sidecar's 24-hour page-retention
+clock and is safe to replay after a crash. Backend retention removes only
+unlinked evidence 90 days after ingestion, leaving candidate-linked evidence,
+one-way DNC identity, and audit authority intact. Restarts resume from Node
+cursors and ingestion leases; browser routes never proxy live sidecar state.
 
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a

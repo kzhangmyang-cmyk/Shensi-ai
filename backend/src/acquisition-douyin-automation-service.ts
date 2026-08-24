@@ -23,6 +23,7 @@ import type {
   AcquisitionPlanRunRepository,
   AcquisitionPlanVersion
 } from "./acquisition-plan-run-repository.js";
+import { createDouyinCollectionAcquisitionRun } from "./acquisition-plan-run-repository.js";
 import { acquisitionFrozenPlanVersionIdentity } from "./acquisition-plan-run-repository.js";
 import type {
   AcquisitionSocialAccountPrivateRecord,
@@ -439,8 +440,11 @@ export class AcquisitionDouyinAutomationService {
       createdAt,
       policy.schedule.timeZone
     );
+    const automationIntentId = this.idFactory("douyin-run");
+    const acquisitionRunId = this.idFactory("ar");
     const value: DouyinAutomationRunIntent = Object.freeze({
-      id: this.idFactory("douyin-run"),
+      id: automationIntentId,
+      acquisitionRunId,
       workspaceId: scope.workspaceId,
       planId: plan.id,
       planVersionId: planVersion.id,
@@ -465,6 +469,16 @@ export class AcquisitionDouyinAutomationService {
       createdBy: scope.actorId,
       createdAt
     });
+    const runBinding = createDouyinCollectionAcquisitionRun({
+      id: acquisitionRunId,
+      automationIntentId,
+      plan,
+      version: planVersion,
+      dailyBudgetId: value.dailyBudgetId,
+      reason,
+      actorId: scope.actorId,
+      createdAt
+    });
     const result = await this.repository.createRunIntent({
       workspaceId: scope.workspaceId,
       ownerId: scope.ownerId,
@@ -476,7 +490,8 @@ export class AcquisitionDouyinAutomationService {
       accountLoginStateVersion: account.loginStateVersion,
       idempotencyKey: key,
       requestHash,
-      value
+      value,
+      runBinding
     });
     if (result.kind === "conflict") {
       fail(409, "automation_idempotency_conflict");

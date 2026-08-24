@@ -11,7 +11,9 @@ const at = (second: number) => `2026-08-24T00:00:${String(second).padStart(2, "0
 function input(overrides: Partial<AcquisitionCrawlerJobInput> = {}): AcquisitionCrawlerJobInput {
   return {
     id: "crawler-1", workspaceId: "workspace-1", runId: "run-1",
-    planId: "plan-1", policyVersionId: "policy-1", policyHash: `sha256:${"a".repeat(64)}`,
+    automationIntentId: "intent-1", planId: "plan-1",
+    planVersionId: "plan-version-1", planSnapshotHash: "plan-hash-1",
+    policyVersionId: "policy-1", policyHash: `sha256:${"a".repeat(64)}`,
     accountId: "account-1", accountLoginStateVersion: 4,
     dailyBudgetId: `sha256:${"b".repeat(64)}`, localDate: "2026-08-24",
     trigger: "scheduled", dailyCandidateLimit: 2,
@@ -35,7 +37,10 @@ test("jobs persist scheduled before an idempotent enqueue and claim", async () =
 test("daily scheduled and run-now creation deduplicates to one budget and maps both runs", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   const scheduled = await repository.createOrGet(input());
-  const runNow = await repository.createOrGet(input({ id: "crawler-2", runId: "run-2", trigger: "run_now" }));
+  const runNow = await repository.createOrGet(input({
+    id: "crawler-2", runId: "run-2", automationIntentId: "intent-2",
+    trigger: "run_now"
+  }));
 
   assert.equal(scheduled.created, true);
   assert.equal(runNow.created, false);
@@ -47,11 +52,13 @@ test("a run alias cannot be remapped to another daily job", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   await repository.createOrGet(input());
   await repository.createOrGet(input({
-    id: "crawler-2", runId: "run-2", localDate: "2026-08-25"
+    id: "crawler-2", runId: "run-2", automationIntentId: "intent-2",
+    localDate: "2026-08-25"
   }));
 
   await assert.rejects(repository.createOrGet(input({
-    id: "crawler-3", runId: "run-1", localDate: "2026-08-25"
+    id: "crawler-3", runId: "run-1", automationIntentId: "intent-3",
+    localDate: "2026-08-25"
   })), /crawler_job_identity_conflict/u);
   assert.equal((await repository.findByRun("workspace-1", "run-1"))?.id, "crawler-1");
 });
@@ -204,4 +211,40 @@ test("persistence filters both asymmetric frozen collection policies", async () 
     });
     assert.deepEqual((await repository.listRecords(jobId)).map((record) => record.kind), expected);
   }
+});
+
+test("terminal ingestion claims are fenced, single-winner, and restart recoverable", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  await repository.enqueue("workspace-1", "run-1", at(0));
+  const crawl = await repository.claimNext("crawler-A", at(1), 5_000);
+  assert.ok(crawl);
+  await repository.persistPage(crawl.fence, {
+    expectedCursor: null, nextCursor: null, records: [], done: true, now: at(2)
+  });
+
+  const [winner, loser] = await Promise.all([
+    repository.claimNextIngestion("ingestion-A", at(3), 1_000),
+    repository.claimNextIngestion("ingestion-B", at(3), 1_000)
+  ]);
+  assert.equal([winner, loser].filter(Boolean).length, 1);
+  const claim = winner ?? loser;
+  assert.ok(claim);
+  await repository.sweepExpired(at(5));
+  await assert.rejects(repository.completeIngestion(
+    claim.fence, at(4), at(4), at(5)
+  ), /stale_crawler_ingestion_fence/u);
+
+  const restarted = await repository.claimNextIngestion("ingestion-C", at(6), 5_000);
+  assert.ok(restarted);
+  const completed = await repository.completeIngestion(
+    restarted.fence,
+    at(7),
+    at(8),
+    at(8)
+  );
+  assert.equal(completed.ingestionState, "succeeded");
+  assert.equal(completed.ingestedAt, at(7));
+  assert.equal(completed.acknowledgedAt, at(8));
+  assert.equal(await repository.claimNextIngestion("ingestion-D", at(9), 1_000), null);
 });

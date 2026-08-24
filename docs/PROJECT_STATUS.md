@@ -55,17 +55,27 @@ ledger.
   all passed. No traffic cutover or legacy-process shutdown occurred.
 - Acquisition publishes workspace-bound Douyin automation policy `GET`/`PUT`
   and idempotent run-now commands. Immutable policy versions sit behind a
-  compare-and-swap head, while durable run intents freeze approved plan,
-  policy, active-account/login, local-date, and daily-budget identities. The
-  public contract excludes the private MediaCrawler account handle.
-- Douyin automation run intents now feed durable crawler jobs with daily
-  policy/date deduplication, explicit scheduled/enqueued states, random fenced
-  leases, transactional non-cyclic opaque cursor history, frozen record-kind
-  filters, bounded recovery, and Memory/MySQL repositories. The private sidecar
-  retains append-only normalized pages for 24 hours with startup and periodic
-  cleanup. Connected profiles survive QR-session expiry and restart through
-  independent durable metadata. Browsers read only persisted Node status at
-  `GET /api/v1/acquisition/runs/{runId}/crawler-status`.
+  compare-and-swap head. Each durable automation intent freezes the approved
+  plan, policy, active-account/login, local-date, and daily-budget identities
+  and is transactionally bound to a distinct authoritative `AcquisitionRun`.
+  The public result exposes both identities and never exposes the private
+  MediaCrawler account handle.
+- Authoritative Douyin runs feed one crawler job per workspace/plan/policy/day.
+  Separate run and automation-intent aliases let scheduled and run-now commands
+  share the daily job without mixing their identities. Random fenced crawl and
+  terminal-ingestion leases, transactional non-cyclic opaque cursor history,
+  frozen record-kind filters, and bounded recovery have Memory/MySQL
+  implementations. Terminal ingestion atomically writes the existing evidence,
+  candidate, identity-alias, audit, run-event, and run-candidate authorities.
+  Stable record edits supersede across jobs; content is unique per workspace.
+- The private sidecar keeps result pages until Node durably ingests them and
+  acknowledges the job. The acknowledgement timestamp survives restart and
+  starts the 24-hour page cleanup clock. Unlinked evidence is retained for 90
+  days from backend ingestion; linked evidence, permanent one-way Douyin DNC
+  identities, and audit records are preserved. Default run candidate feeds
+  exclude DNC candidates. Browsers read only persisted Node projections at
+  `GET /api/v1/acquisition/runs/{runId}/crawler-status` and
+  `GET /api/v1/acquisition/runs/{runId}/candidates`.
 
 ## Active
 

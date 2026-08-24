@@ -9,7 +9,7 @@ export interface PublicRunCandidate {
 }
 
 export interface AcquisitionRunCandidatesRepository {
-  list(workspaceId: string, runId: string): Promise<readonly PublicRunCandidate[]>;
+  list(workspaceId: string, runId: string): Promise<readonly PublicRunCandidate[] | null>;
 }
 
 interface CursorPayload {
@@ -73,7 +73,12 @@ export function createAcquisitionRunCandidatesRouter(options: {
     const status = typeof req.query.status === "string" && req.query.status.trim() ? req.query.status.trim() : null;
     const rawLimit = typeof req.query.limit === "string" ? Number(req.query.limit) : 50;
     if (!runId || !Number.isSafeInteger(rawLimit) || rawLimit < 1 || rawLimit > 100) { fail(res, 400, "invalid_request", requestId); return; }
-    const all = (await options.repository.list(workspace.workspaceId, runId)).map(publicItem);
+    const listed = await options.repository.list(workspace.workspaceId, runId);
+    if (listed === null) {
+      fail(res, 404, "acquisition_run_not_found", requestId);
+      return;
+    }
+    const all = listed.map(publicItem);
     // A DNC record is durable suppression state, never part of a default
     // downstream candidate feed. It is visible only through an explicit
     // status filter, which the application can additionally authorize.

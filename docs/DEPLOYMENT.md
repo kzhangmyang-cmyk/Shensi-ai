@@ -105,6 +105,14 @@ The URL validator accepts only private/loopback plain HTTP targets; do not
 publish the sidecar or route browser-state traffic through the public gateway.
 The same secret is supplied to the sidecar as
 `MEDIACRAWLER_SERVICE_SECRET` and must be at least 32 non-whitespace bytes.
+The backend owns the crawler worker, expired-lease recovery, terminal ingestion,
+and evidence-retention lifecycle whenever this gateway is configured. Result
+pages remain in the private sidecar until the backend's authoritative
+evidence/candidate/run-link transaction commits and the acknowledgement call
+succeeds. The persisted acknowledgement starts a 24-hour cleanup clock and is
+idempotent across restarts. Do not add an external cleanup that deletes
+unacknowledged result pages. Backend cleanup removes only unlinked crawler
+evidence after 90 days; DNC and audit authority are not TTL data.
 
 Before starting the sidecar, create and mount an encrypted-at-rest host
 directory. It must already exist, must not be a symlink, and must have exact

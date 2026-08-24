@@ -5,6 +5,8 @@ import {
   type AcquisitionCrawlerJob,
   type AcquisitionCrawlerJobClaim,
   type AcquisitionCrawlerJobFence,
+  type AcquisitionCrawlerIngestionClaim,
+  type AcquisitionCrawlerIngestionFence,
   type AcquisitionCrawlerJobInput,
   type NormalizedDouyinRecord
 } from "./acquisition-crawler-job.js";
@@ -29,6 +31,9 @@ export interface AcquisitionCrawlerJobRepository {
   completeCancelled(fence: AcquisitionCrawlerJobFence, now: string): Promise<AcquisitionCrawlerJob>;
   pause(fence: AcquisitionCrawlerJobFence, errorCode: string, now: string): Promise<AcquisitionCrawlerJob>;
   fail(fence: AcquisitionCrawlerJobFence, errorCode: string, now: string, retryable: boolean): Promise<AcquisitionCrawlerJob>;
+  claimNextIngestion(workerId: string, now: string, leaseDurationMs: number): Promise<AcquisitionCrawlerIngestionClaim | null>;
+  completeIngestion(fence: AcquisitionCrawlerIngestionFence, ingestedAt: string, acknowledgedAt: string, now: string): Promise<AcquisitionCrawlerJob>;
+  failIngestion(fence: AcquisitionCrawlerIngestionFence, errorCode: string, now: string): Promise<AcquisitionCrawlerJob>;
   sweepExpired(now: string): Promise<number>;
 }
 
@@ -36,6 +41,7 @@ interface State {
   jobs: Map<string, AcquisitionCrawlerJob>;
   daily: Map<string, string>;
   runs: Map<string, string>;
+  intents: Map<string, string>;
   records: Map<string, NormalizedDouyinRecord[]>;
 }
 
@@ -52,9 +58,14 @@ function runKey(workspaceId: string, runId: string) { return `${workspaceId}\u00
 function clearLease(job: AcquisitionCrawlerJob) {
   job.leaseWorkerId = null; job.leaseToken = null; job.leaseExpiresAt = null;
 }
+function clearIngestionLease(job: AcquisitionCrawlerJob) {
+  job.ingestionLeaseWorkerId = null;
+  job.ingestionLeaseToken = null;
+  job.ingestionLeaseExpiresAt = null;
+}
 
 export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJobRepository {
-  private state: State = { jobs: new Map(), daily: new Map(), runs: new Map(), records: new Map() };
+  private state: State = { jobs: new Map(), daily: new Map(), runs: new Map(), intents: new Map(), records: new Map() };
   private tail: Promise<void> = Promise.resolve();
 
   private transaction<T>(work: (state: State) => T | Promise<T>): Promise<T> {
@@ -76,28 +87,61 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
       const existingId = state.daily.get(identity);
       if (existingId) {
         const mappedId = state.runs.get(runKey(input.workspaceId, input.runId));
+        const intentMappedId = state.intents.get(runKey(
+          input.workspaceId,
+          input.automationIntentId
+        ));
         if (mappedId && mappedId !== existingId) {
           throw new Error("crawler_job_identity_conflict");
         }
+        if (intentMappedId && intentMappedId !== existingId) {
+          throw new Error("crawler_job_identity_conflict");
+        }
         const existing = state.jobs.get(existingId)!;
+        if (existing.planVersionId !== input.planVersionId
+          || existing.planSnapshotHash !== input.planSnapshotHash
+          || existing.policyHash !== input.policyHash
+          || existing.accountId !== input.accountId
+          || existing.accountLoginStateVersion
+            !== input.accountLoginStateVersion
+          || existing.dailyBudgetId !== input.dailyBudgetId) {
+          throw new Error("crawler_job_binding_conflict");
+        }
         if (!existing.runIds.includes(input.runId)) existing.runIds.push(input.runId);
+        if (!existing.automationIntentIds.includes(input.automationIntentId)) {
+          existing.automationIntentIds.push(input.automationIntentId);
+        }
         state.runs.set(runKey(input.workspaceId, input.runId), existing.id);
+        state.intents.set(
+          runKey(input.workspaceId, input.automationIntentId),
+          existing.id
+        );
         return { created: false, job: existing };
       }
-      if (state.jobs.has(input.id) || state.runs.has(runKey(input.workspaceId, input.runId))) {
+      if (state.jobs.has(input.id)
+        || state.runs.has(runKey(input.workspaceId, input.runId))
+        || state.intents.has(runKey(input.workspaceId, input.automationIntentId))) {
         throw new Error("crawler_job_identity_conflict");
       }
       const job: AcquisitionCrawlerJob = {
         ...clone(input), maxAttempts: input.maxAttempts ?? 3,
-        state: "scheduled", runIds: [input.runId], attempt: 0, cursor: null,
+        state: "scheduled", runIds: [input.runId],
+        automationIntentIds: [input.automationIntentId], attempt: 0, cursor: null,
         cursorHistory: [],
         recordCount: 0, candidateBudgetUsed: 0, cancelRequestedAt: null,
         lastErrorCode: null, leaseWorkerId: null, leaseToken: null,
         leaseExpiresAt: null, fencingToken: 0, updatedAt: input.createdAt,
-        completedAt: null
+        completedAt: null, ingestionState: null, ingestionAttempt: 0,
+        ingestionLeaseWorkerId: null, ingestionLeaseToken: null,
+        ingestionLeaseExpiresAt: null, ingestionFencingToken: 0,
+        ingestedAt: null, acknowledgedAt: null
       };
       state.jobs.set(job.id, job); state.daily.set(identity, job.id);
       state.runs.set(runKey(job.workspaceId, job.runId), job.id);
+      state.intents.set(
+        runKey(job.workspaceId, job.automationIntentId),
+        job.id
+      );
       state.records.set(job.id, []);
       return { created: true, job };
     });
@@ -190,7 +234,9 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
       job.updatedAt = input.now;
       if (input.done) {
         job.state = dropped ? "partial" : "succeeded";
-        job.completedAt = input.now; clearLease(job);
+        job.completedAt = input.now;
+        if (job.ingestionState !== "succeeded") job.ingestionState = "pending";
+        clearLease(job);
       }
       return job;
     });
@@ -235,6 +281,88 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
     });
   }
 
+  claimNextIngestion(workerId: string, now: string, leaseDurationMs: number) {
+    const instant = milliseconds(now);
+    if (!workerId || !Number.isSafeInteger(leaseDurationMs) || leaseDurationMs < 1) {
+      throw new TypeError("invalid_crawler_ingestion_lease");
+    }
+    return this.transaction<AcquisitionCrawlerIngestionClaim | null>((state) => {
+      const job = [...state.jobs.values()]
+        .filter((value) => ["succeeded", "partial"].includes(value.state)
+          && value.ingestionState === "pending")
+        .sort((left, right) => left.completedAt!.localeCompare(right.completedAt!))[0];
+      if (!job) return null;
+      job.ingestionState = "running";
+      job.ingestionAttempt += 1;
+      job.ingestionFencingToken += 1;
+      job.ingestionLeaseWorkerId = workerId;
+      job.ingestionLeaseToken = randomBytes(32).toString("hex");
+      job.ingestionLeaseExpiresAt = new Date(instant + leaseDurationMs).toISOString();
+      job.updatedAt = now;
+      return {
+        job,
+        fence: {
+          jobId: job.id,
+          workerId,
+          leaseToken: job.ingestionLeaseToken,
+          fencingToken: job.ingestionFencingToken
+        }
+      };
+    });
+  }
+
+  private fencedIngestion(
+    state: State,
+    fence: AcquisitionCrawlerIngestionFence,
+    now: string
+  ) {
+    const job = state.jobs.get(fence.jobId);
+    if (!job || job.ingestionState !== "running"
+      || job.ingestionLeaseWorkerId !== fence.workerId
+      || job.ingestionLeaseToken !== fence.leaseToken
+      || job.ingestionFencingToken !== fence.fencingToken
+      || !job.ingestionLeaseExpiresAt
+      || milliseconds(now) >= milliseconds(job.ingestionLeaseExpiresAt)) {
+      throw new Error("stale_crawler_ingestion_fence");
+    }
+    return job;
+  }
+
+  completeIngestion(
+    fence: AcquisitionCrawlerIngestionFence,
+    ingestedAt: string,
+    acknowledgedAt: string,
+    now: string
+  ) {
+    return this.transaction((state) => {
+      const job = this.fencedIngestion(state, fence, now);
+      milliseconds(ingestedAt);
+      milliseconds(acknowledgedAt);
+      job.ingestionState = "succeeded";
+      job.ingestedAt = ingestedAt;
+      job.acknowledgedAt = acknowledgedAt;
+      job.updatedAt = now;
+      clearIngestionLease(job);
+      return job;
+    });
+  }
+
+  failIngestion(
+    fence: AcquisitionCrawlerIngestionFence,
+    errorCode: string,
+    now: string
+  ) {
+    return this.transaction((state) => {
+      const job = this.fencedIngestion(state, fence, now);
+      job.ingestionState = job.ingestionAttempt < job.maxAttempts
+        ? "pending" : "failed";
+      job.lastErrorCode = errorCode.slice(0, 100);
+      job.updatedAt = now;
+      clearIngestionLease(job);
+      return job;
+    });
+  }
+
   sweepExpired(now: string) {
     return this.transaction((state) => {
       const at = milliseconds(now); let count = 0;
@@ -244,6 +372,16 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
         if (job.state === "cancelled") job.completedAt = now;
         job.lastErrorCode = job.state === "cancelled" ? null : "crawler_lease_expired";
         job.updatedAt = now; clearLease(job); count += 1;
+      }
+      for (const job of state.jobs.values()) {
+        if (job.ingestionState !== "running" || !job.ingestionLeaseExpiresAt
+          || at < milliseconds(job.ingestionLeaseExpiresAt)) continue;
+        job.ingestionState = job.ingestionAttempt < job.maxAttempts
+          ? "pending" : "failed";
+        job.lastErrorCode = "crawler_ingestion_lease_expired";
+        job.updatedAt = now;
+        clearIngestionLease(job);
+        count += 1;
       }
       return count;
     });

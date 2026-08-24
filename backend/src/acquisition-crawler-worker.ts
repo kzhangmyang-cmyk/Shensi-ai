@@ -1,16 +1,19 @@
 import type { AcquisitionCrawlerJobRepository } from "./acquisition-crawler-job-repository.js";
+import type { AcquisitionCrawlerJob } from "./acquisition-crawler-job.js";
 import type { DouyinMediaCrawlerGateway } from "./acquisition-mediacrawler-gateway.js";
 import type { AcquisitionSocialAccountPrivateRecord } from "./acquisition-social-account-repository.js";
 
 export interface AcquisitionCrawlerWorkerOptions {
   repository: AcquisitionCrawlerJobRepository;
-  gateway: Pick<DouyinMediaCrawlerGateway, "startCrawlJob" | "getCrawlJob" | "getCrawlResults" | "cancelCrawlJob">;
+  gateway: Pick<DouyinMediaCrawlerGateway, "startCrawlJob" | "getCrawlJob" | "getCrawlResults" | "cancelCrawlJob">
+    & Partial<Pick<DouyinMediaCrawlerGateway, "acknowledgeCrawlJob">>;
   accounts: { findById(workspaceId: string, accountId: string): Promise<Partial<AcquisitionSocialAccountPrivateRecord> | null> };
   workerId: string;
   now?: () => string;
   leaseDurationMs?: number;
   pollIntervalMs?: number;
   maxPageCount?: number;
+  ingestTerminalJob?: (job: AcquisitionCrawlerJob) => Promise<void>;
 }
 
 function delay(durationMs: number, signal: AbortSignal) {
@@ -30,6 +33,7 @@ export class AcquisitionCrawlerWorker {
   private readonly leaseDurationMs: number;
   private readonly pollIntervalMs: number;
   private readonly maxPageCount: number;
+  private readonly ingestTerminalJob: AcquisitionCrawlerWorkerOptions["ingestTerminalJob"];
   private readonly controller = new AbortController();
   private active: Promise<boolean> | null = null;
   private timer: NodeJS.Timeout | null = null;
@@ -41,13 +45,20 @@ export class AcquisitionCrawlerWorker {
     this.leaseDurationMs = options.leaseDurationMs ?? 30_000;
     this.pollIntervalMs = options.pollIntervalMs ?? 250;
     this.maxPageCount = options.maxPageCount ?? 1_000;
+    this.ingestTerminalJob = options.ingestTerminalJob;
+    if (this.ingestTerminalJob && !this.gateway.acknowledgeCrawlJob) {
+      throw new TypeError("crawler_acknowledgement_gateway_required");
+    }
   }
 
   runOnce(): Promise<boolean> {
     if (this.active) return this.active;
     const running = this.execute();
-    this.active = running.finally(() => { if (this.active === running) this.active = null; });
-    return this.active;
+    const tracked = running.finally(() => {
+      if (this.active === tracked) this.active = null;
+    });
+    this.active = tracked;
+    return tracked;
   }
 
   start(intervalMs = 500) {
@@ -59,7 +70,7 @@ export class AcquisitionCrawlerWorker {
 
   private async execute() {
     const claim = await this.repository.claimNext(this.workerId, this.now(), this.leaseDurationMs);
-    if (!claim) return false;
+    if (!claim) return this.executeIngestion();
     const { job, fence } = claim;
     try {
       const account = await this.accounts.findById(job.workspaceId, job.accountId);
@@ -121,6 +132,40 @@ export class AcquisitionCrawlerWorker {
         .catch(() => undefined);
       return true;
     }
+  }
+
+  private async executeIngestion() {
+    if (!this.ingestTerminalJob || !this.gateway.acknowledgeCrawlJob) return false;
+    const claim = await this.repository.claimNextIngestion(
+      this.workerId,
+      this.now(),
+      this.leaseDurationMs
+    );
+    if (!claim) return false;
+    const ingestedAt = this.now();
+    try {
+      await this.ingestTerminalJob(claim.job);
+      const acknowledgement = await this.gateway.acknowledgeCrawlJob(
+        claim.job.id,
+        this.controller.signal
+      );
+      await this.repository.completeIngestion(
+        claim.fence,
+        ingestedAt,
+        acknowledgement.acknowledgedAt,
+        this.now()
+      );
+    } catch (error) {
+      if (!this.controller.signal.aborted) {
+        await this.repository.failIngestion(
+          claim.fence,
+          error instanceof Error
+            ? error.message.slice(0, 100) : "crawler_ingestion_failed",
+          this.now()
+        ).catch(() => undefined);
+      }
+    }
+    return true;
   }
 
   async close() {

@@ -67,6 +67,7 @@ export interface DouyinAutomationRunNowInput {
 
 export interface DouyinAutomationRunIntent {
   id: string;
+  acquisitionRunId: string;
   workspaceId: string;
   planId: string;
   planVersionId: string;

@@ -767,10 +767,12 @@ async function insertOwned(
   record: { id: string; ownerId: string; teamId: string },
   createdAt: string,
   extraColumns: string[] = [],
-  extraValues: unknown[] = []
+  extraValues: unknown[] = [],
+  createdAtColumn: string | null = "created_at"
 ) {
   const columns = [
-    "id", "owner_id", "team_id", ...extraColumns, "payload_json", "created_at"
+    "id", "owner_id", "team_id", ...extraColumns, "payload_json",
+    ...(createdAtColumn ? [createdAtColumn] : [])
   ];
   const placeholders = columns.map(() => "?").join(", ");
   await source.query(
@@ -781,7 +783,7 @@ async function insertOwned(
       record.teamId,
       ...extraValues,
       json(record),
-      mysqlDate(createdAt)
+      ...(createdAtColumn ? [mysqlDate(createdAt)] : [])
     ]
   );
 }
@@ -919,6 +921,27 @@ implements AcquisitionDomainRepository {
       record,
       record.fetchedAt
     );
+  }
+
+  async deleteEvidenceIfUnlinked(
+    scope: AcquisitionDataScope,
+    evidenceId: string
+  ) {
+    const linked = await rows(
+      this.source(),
+      `SELECT id FROM acquisition_candidates
+       WHERE owner_id=? AND team_id=?
+         AND JSON_CONTAINS(payload_json,JSON_QUOTE(?),'$.evidenceIds')
+       LIMIT 1 FOR UPDATE`,
+      [scope.ownerId, scope.teamId, evidenceId]
+    );
+    if (linked.length > 0) return false;
+    const [result] = await this.source().query(
+      `DELETE FROM acquisition_discovery_evidence
+       WHERE id=? AND owner_id=? AND team_id=?`,
+      [evidenceId, scope.ownerId, scope.teamId]
+    );
+    return (result as mysql.ResultSetHeader).affectedRows > 0;
   }
 
   findCandidate(scope: AcquisitionDataScope, candidateId: string) {
@@ -2633,6 +2656,9 @@ function transactionView(
       }
       state.runEvents.set(value.id, clone(value));
     },
+    listRunEvents: (runId) => [...state.runEvents.values()]
+      .filter((value) => value.runId === runId)
+      .map(clone),
     appendAuditEvent: (value) => {
       if (state.audits.has(value.id)) {
         throw new Error(`Audit event already exists: ${value.id}`);
@@ -3043,7 +3069,8 @@ async function appendPlanRunChanges(
       value,
       value.at,
       ["plan_id", "revision", "occurred_at"],
-      [value.planId, value.revision, mysqlDate(value.at)]
+      [value.planId, value.revision, mysqlDate(value.at)],
+      null
     );
   }
   for (const value of newValues(before.runEvents, after.runEvents)) {
@@ -3053,7 +3080,8 @@ async function appendPlanRunChanges(
       value,
       value.at,
       ["run_id", "shard_id", "revision", "occurred_at"],
-      [value.runId, value.shardId, value.revision, mysqlDate(value.at)]
+      [value.runId, value.shardId, value.revision, mysqlDate(value.at)],
+      null
     );
   }
   for (const value of newValues(before.audits, after.audits)) {
@@ -3063,7 +3091,8 @@ async function appendPlanRunChanges(
       value,
       value.at,
       ["target_type", "target_id", "occurred_at"],
-      [value.targetType, value.targetId, mysqlDate(value.at)]
+      [value.targetType, value.targetId, mysqlDate(value.at)],
+      null
     );
   }
   for (const value of newValues(before.idempotency, after.idempotency)) {
@@ -3101,27 +3130,49 @@ async function appendPlanRunChanges(
 
 export class MysqlAcquisitionPlanRunRepository
 implements AcquisitionPlanRunRepository {
+  private readonly transactionContext =
+    new AsyncLocalStorage<mysql.PoolConnection>();
+
   constructor(private readonly pool: mysql.Pool) {}
+
+  withTransactionConnection<T>(
+    connection: mysql.PoolConnection,
+    work: () => Promise<T>
+  ) {
+    const active = this.transactionContext.getStore();
+    if (active && active !== connection) {
+      throw new Error("ACQUISITION_PLAN_RUN_TRANSACTION_CONFLICT");
+    }
+    return active ? work() : this.transactionContext.run(connection, work);
+  }
 
   async transaction<T>(
     work: (
       transaction: AcquisitionPlanRunRepositoryTransaction
     ) => Promise<T> | T
   ): Promise<T> {
-    const connection = await this.pool.getConnection();
-    try {
-      await connection.beginTransaction();
-      await connection.query(
+    const active = this.transactionContext.getStore();
+    if (active) {
+      await active.query(
         `SELECT id FROM acquisition_plan_run_transaction_guard
          WHERE id = 1 FOR UPDATE`
       );
-      const before = await loadPlanRunState(connection);
+      const before = await loadPlanRunState(active);
       const after = clone(before);
       const result = await work(transactionView(after));
-      await appendPlanRunChanges(connection, before, after);
-      await connection.query(
+      await appendPlanRunChanges(active, before, after);
+      await active.query(
         `UPDATE acquisition_plan_run_transaction_guard
          SET updated_at = UTC_TIMESTAMP(3) WHERE id = 1`
+      );
+      return clone(result);
+    }
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const result = await this.withTransactionConnection(
+        connection,
+        () => this.transaction(work)
       );
       await connection.commit();
       return clone(result);

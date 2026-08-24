@@ -39,6 +39,13 @@ export interface DouyinCrawlerCandidate {
 }
 
 export interface DouyinCrawlerEvidenceStore {
+  transaction?<T>(scope: {
+    workspaceId: string;
+    ownerId: string;
+    teamId: string;
+    actorId: string;
+    now?: string;
+  }, work: () => Promise<T>): Promise<T>;
   findEvidenceByContentHash(workspaceId: string, contentHash: string): Promise<DouyinCrawlerEvidence | null>;
   findLatestEvidenceByRecord?(workspaceId: string, jobId: string, recordId: string): Promise<DouyinCrawlerEvidence | null>;
   appendEvidence(evidence: DouyinCrawlerEvidence): Promise<DouyinCrawlerEvidence>;
@@ -46,6 +53,20 @@ export interface DouyinCrawlerEvidenceStore {
   saveCandidate(candidate: DouyinCrawlerCandidate): Promise<DouyinCrawlerCandidate>;
   hasDoNotContact(workspaceId: string, identityHash: string): Promise<boolean>;
   retainDoNotContact(workspaceId: string, identityHash: string, reason?: string): Promise<void>;
+  persistRunLinks?(input: {
+    job: {
+      id: string;
+      workspaceId: string;
+      runIds: string[];
+      planId: string;
+      planVersionId: string;
+      planSnapshotHash: string;
+      state: string;
+    };
+    candidateIds: string[];
+    evidenceCount: number;
+    at: string;
+  }): void | Promise<void>;
 }
 
 export interface DouyinCrawlerIngestionResult {
@@ -60,9 +81,13 @@ function hash(value: string) {
 
 function publicActorKey(record: NormalizedDouyinRecord) {
   const profile = record.publicProfileUrl?.trim();
-  return profile
-    ? `douyin:${new URL(profile).pathname.replace(/\/+$/u, "")}`
-    : "";
+  if (!profile || Buffer.byteLength(profile, "utf8") > 2_000) return "";
+  try {
+    const url = new URL(profile);
+    return url.protocol === "https:" && url.hostname === "www.douyin.com"
+      ? `douyin:${url.pathname.replace(/\/+$/u, "")}`
+      : "";
+  } catch { return ""; }
 }
 
 function doNotContactHash(actorKey: string) {
@@ -86,6 +111,7 @@ export async function ingestDouyinCrawlerPage(input: {
   repository: DouyinCrawlerEvidenceStore;
   workspaceId: string;
   runId: string;
+  scope?: { ownerId: string; teamId: string; actorId: string };
   now?: () => string;
 }): Promise<DouyinCrawlerIngestionResult> {
   const job = await input.crawlerJobs.findByRun(input.workspaceId, input.runId);
@@ -94,62 +120,149 @@ export async function ingestDouyinCrawlerPage(input: {
     throw new Error("untrusted_crawler_page");
   }
   const records = await input.crawlerJobs.listRecords(job.id);
-  const result: DouyinCrawlerIngestionResult = { evidenceCount: 0, candidateCount: 0, suppressedCount: 0 };
-  for (const record of records) {
-    if (record.kind !== "creator" && record.kind !== "comment") continue;
-    const source = classifyDouyinPublicSource(record.canonicalUrl, "", record.textExcerpt);
-    if (!source || !record.canonicalUrl.startsWith("https://")) { result.suppressedCount += 1; continue; }
-    let evidence = await input.repository.findEvidenceByContentHash(input.workspaceId, record.contentHash);
-    if (!evidence) {
-      const previous = await input.repository.findLatestEvidenceByRecord?.(
-        input.workspaceId, job.id, record.recordId
-      ) ?? null;
-      evidence = await input.repository.appendEvidence({
-        id: idFor("evidence", input.workspaceId, record.contentHash), workspaceId: input.workspaceId,
-        contentHash: record.contentHash, platformRecordId: record.recordId,
-        sourceUrl: record.canonicalUrl, sourceKeyword: record.sourceKeyword,
-        observedAt: record.observedAt, sourceSnippet: boundedExcerpt(record.textExcerpt),
-        supersedesEvidenceId: previous?.id ?? null,
-        provenance: { kind: "mediacrawler_public_record", jobId: job.id,
-          recordId: record.recordId, cursor: job.cursor, upstreamCommit: MEDIACRAWLER_PINNED_UPSTREAM_COMMIT }
+  const ingestedAt = input.now?.() ?? new Date().toISOString();
+  const execute = async () => {
+    const result: DouyinCrawlerIngestionResult = { evidenceCount: 0, candidateCount: 0, suppressedCount: 0 };
+    const candidateIds = new Set<string>();
+    const evidenceIds = new Set<string>();
+    for (const record of records) {
+      if (record.kind !== "creator" && record.kind !== "comment") continue;
+      const actorKey = publicActorKey(record);
+      const boundedSourceUrl = record.canonicalUrl.startsWith("https://")
+        && Buffer.byteLength(record.canonicalUrl, "utf8") <= 2_000;
+      const source = boundedSourceUrl
+        ? classifyDouyinPublicSource(record.canonicalUrl, "", record.textExcerpt)
+        : null;
+      const policy = qualifyDouyinCrawlerCandidate({
+        text: record.textExcerpt,
+        kind: record.kind,
+        hasOriginalPublicSource: Boolean(source),
+        hasKnownIdentity: Boolean(actorKey)
       });
-      result.evidenceCount += 1;
-    }
-    const actorKey = publicActorKey(record);
-    if (!actorKey) { result.suppressedCount += 1; continue; }
-    const dncHash = doNotContactHash(actorKey);
-    const policy = qualifyDouyinCrawlerCandidate({
-      text: record.textExcerpt, kind: record.kind, hasOriginalPublicSource: Boolean(source)
-    });
-    if (policy.status === "suppressed") {
-      if (policy.retainDoNotContact) await input.repository.retainDoNotContact(input.workspaceId, dncHash, policy.reason);
+      const dncHash = actorKey ? doNotContactHash(actorKey) : null;
+
+      // A valid public record remains bounded evidence even when its edited
+      // content creates a permanent DNC. This preserves the exact refusal or
+      // complaint that justified suppression without re-admitting the actor.
+      let evidence: DouyinCrawlerEvidence | null = null;
+      if (source && boundedSourceUrl) {
+        evidence = await input.repository.findEvidenceByContentHash(
+          input.workspaceId,
+          record.contentHash
+        );
+        if (!evidence) {
+          const previous = await input.repository.findLatestEvidenceByRecord?.(
+            input.workspaceId, job.id, record.recordId
+          ) ?? null;
+          evidence = await input.repository.appendEvidence({
+            id: idFor("evidence", input.workspaceId, record.contentHash),
+            workspaceId: input.workspaceId,
+            contentHash: record.contentHash,
+            platformRecordId: record.recordId,
+            sourceUrl: record.canonicalUrl,
+            sourceKeyword: record.sourceKeyword,
+            observedAt: record.observedAt,
+            sourceSnippet: boundedExcerpt(record.textExcerpt),
+            supersedesEvidenceId: previous?.id ?? null,
+            provenance: {
+              kind: "mediacrawler_public_record",
+              jobId: job.id,
+              recordId: record.recordId,
+              cursor: job.cursor,
+              upstreamCommit: MEDIACRAWLER_PINNED_UPSTREAM_COMMIT
+            }
+          });
+          result.evidenceCount += 1;
+        }
+        evidenceIds.add(evidence.id);
+      }
+
+      if (policy.status === "suppressed") {
+        if (policy.retainDoNotContact && dncHash) {
+          await input.repository.retainDoNotContact(
+            input.workspaceId,
+            dncHash,
+            policy.reason
+          );
+        }
+        if (actorKey) {
+          const resolved = canonicalSubjectStableKey(input.workspaceId, {
+            kind: "individual", platform: "douyin", publicActorKey: actorKey,
+            canonicalProfileUrl: record.publicProfileUrl
+          });
+          if (resolved.subjectStableKey) {
+            const existing = await input.repository.findCandidateBySubjectKey(
+              input.workspaceId,
+              resolved.subjectStableKey
+            );
+            if (existing && policy.retainDoNotContact) {
+              await input.repository.saveCandidate({
+                ...existing,
+                status: "do_not_contact"
+              });
+            }
+          }
+        }
+        result.suppressedCount += 1;
+        continue;
+      }
+      if (!source || !evidence) { result.suppressedCount += 1; continue; }
+      if (!actorKey) { result.suppressedCount += 1; continue; }
+      if (await input.repository.hasDoNotContact(input.workspaceId, dncHash!)) {
+        result.suppressedCount += 1;
+        continue;
+      }
       const resolved = canonicalSubjectStableKey(input.workspaceId, {
         kind: "individual", platform: "douyin", publicActorKey: actorKey,
         canonicalProfileUrl: record.publicProfileUrl
       });
-      if (resolved.subjectStableKey) {
-        const existing = await input.repository.findCandidateBySubjectKey(input.workspaceId, resolved.subjectStableKey);
-        if (existing && policy.retainDoNotContact) await input.repository.saveCandidate({ ...existing, status: "do_not_contact" });
+      if (!resolved.subjectStableKey || !record.publicProfileUrl) {
+        result.suppressedCount += 1;
+        continue;
       }
-      result.suppressedCount += 1; continue;
+      const existing = await input.repository.findCandidateBySubjectKey(
+        input.workspaceId,
+        resolved.subjectStableKey
+      );
+      if (!existing) {
+        const candidateId = idFor("candidate", input.workspaceId, resolved.subjectStableKey);
+        await input.repository.saveCandidate({
+          id: candidateId,
+          workspaceId: input.workspaceId,
+          subjectStableKey: resolved.subjectStableKey,
+          publicActorKey: actorKey,
+          displayName: record.publicDisplayName,
+          publicProfileUrl: record.publicProfileUrl,
+          buyingStage: policy.buyingStage,
+          evidenceIds: [evidence.id],
+          status: "needs_research"
+        });
+        result.candidateCount += 1;
+        candidateIds.add(candidateId);
+      } else if (!existing.evidenceIds.includes(evidence.id)) {
+        await input.repository.saveCandidate({
+          ...existing,
+          buyingStage: policy.buyingStage,
+          evidenceIds: [...existing.evidenceIds, evidence.id]
+        });
+        candidateIds.add(existing.id);
+      } else {
+        candidateIds.add(existing.id);
+      }
     }
-    if (await input.repository.hasDoNotContact(input.workspaceId, dncHash)) { result.suppressedCount += 1; continue; }
-    const resolved = canonicalSubjectStableKey(input.workspaceId, {
-      kind: "individual", platform: "douyin", publicActorKey: actorKey,
-      canonicalProfileUrl: record.publicProfileUrl
+    await input.repository.persistRunLinks?.({
+      job,
+      candidateIds: [...candidateIds],
+      evidenceCount: evidenceIds.size,
+      at: ingestedAt
     });
-    if (!resolved.subjectStableKey || !record.publicProfileUrl) { result.suppressedCount += 1; continue; }
-    const existing = await input.repository.findCandidateBySubjectKey(input.workspaceId, resolved.subjectStableKey);
-    if (!existing) {
-      await input.repository.saveCandidate({ id: idFor("candidate", input.workspaceId, resolved.subjectStableKey),
-        workspaceId: input.workspaceId, subjectStableKey: resolved.subjectStableKey, publicActorKey: actorKey,
-        displayName: record.publicDisplayName, publicProfileUrl: record.publicProfileUrl,
-        buyingStage: policy.buyingStage, evidenceIds: [evidence.id], status: "needs_research" });
-      result.candidateCount += 1;
-    } else if (!existing.evidenceIds.includes(evidence.id)) {
-      await input.repository.saveCandidate({ ...existing, buyingStage: policy.buyingStage,
-        evidenceIds: [...existing.evidenceIds, evidence.id] });
-    }
-  }
-  return result;
+    return result;
+  };
+  if (!input.repository.transaction) return execute();
+  if (!input.scope) throw new Error("douyin_ingestion_scope_required");
+  return input.repository.transaction({
+    workspaceId: input.workspaceId,
+    ...input.scope,
+    now: ingestedAt
+  }, execute);
 }

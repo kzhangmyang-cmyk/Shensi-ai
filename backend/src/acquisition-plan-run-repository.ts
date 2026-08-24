@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import {
   AcquisitionMemoryTransactionCoordinator,
   type AcquisitionMemoryTransactionToken
 } from "./acquisition-memory-transaction-coordinator.js";
+import { canonicalJsonStringify } from "./canonical-json.js";
 
 export type AcquisitionSubjectChannel = "organization" | "individual";
 export type AcquisitionTargetPlatform = "douyin" | "web";
@@ -208,6 +210,88 @@ export interface AcquisitionRun {
   completedAt: string | null;
 }
 
+export interface AcquisitionDouyinCollectionRunBinding {
+  automationIntentId: string;
+  run: AcquisitionRun;
+}
+
+export function createDouyinCollectionAcquisitionRun(input: {
+  id: string;
+  automationIntentId: string;
+  plan: AcquisitionPlan;
+  version: AcquisitionPlanVersion;
+  dailyBudgetId: string;
+  reason: string | null;
+  actorId: string;
+  createdAt: string;
+}): AcquisitionDouyinCollectionRunBinding {
+  const { plan, version } = input;
+  if (plan.status !== "approved"
+    || plan.currentVersionId !== version.id
+    || plan.approvedVersionId !== version.id
+    || plan.approvedSnapshotHash !== version.payloadHash
+    || version.planId !== plan.id
+    || version.ownerId !== plan.ownerId
+    || version.teamId !== plan.teamId
+    || version.version !== plan.version) {
+    throw new Error("douyin_collection_run_plan_binding_mismatch");
+  }
+  const budgetSnapshot = structuredClone(version.payload.budgetSnapshot);
+  const budgetSnapshotHash = createHash("sha256")
+    .update(canonicalJsonStringify(budgetSnapshot), "utf8")
+    .digest("hex");
+  return Object.freeze({
+    automationIntentId: input.automationIntentId,
+    run: Object.freeze({
+      id: input.id,
+      ownerId: plan.ownerId,
+      teamId: plan.teamId,
+      planId: plan.id,
+      planVersionId: version.id,
+      planVersion: version.version,
+      planSnapshotHash: version.payloadHash,
+      parentRunId: null,
+      status: "queued" as const,
+      terminationIntent: null,
+      revision: 1,
+      etag: `"${input.id}:1"`,
+      budgetSnapshotId: input.dailyBudgetId,
+      budgetSnapshot,
+      budgetSnapshotHash,
+      billingCurrency: budgetSnapshot.billingCurrency,
+      modelSnapshotRef: structuredClone(version.payload.modelSnapshotRef),
+      consumedBudget: { requests: 0, results: 0, amountMinor: 0, durationSeconds: 0 },
+      evidenceCount: 0,
+      reason: input.reason,
+      createdBy: input.actorId,
+      createdAt: input.createdAt,
+      updatedBy: input.actorId,
+      updatedAt: input.createdAt,
+      completedAt: null
+    })
+  });
+}
+
+export function assertDouyinCollectionRunBinding(
+  plan: AcquisitionPlan,
+  version: AcquisitionPlanVersion,
+  binding: AcquisitionDouyinCollectionRunBinding
+) {
+  const expected = createDouyinCollectionAcquisitionRun({
+    id: binding.run.id,
+    automationIntentId: binding.automationIntentId,
+    plan,
+    version,
+    dailyBudgetId: binding.run.budgetSnapshotId,
+    reason: binding.run.reason,
+    actorId: binding.run.createdBy,
+    createdAt: binding.run.createdAt
+  });
+  if (canonicalJsonStringify(expected) !== canonicalJsonStringify(binding)) {
+    throw new Error("douyin_collection_run_binding_mismatch");
+  }
+}
+
 export interface AcquisitionOperationShard {
   id: string;
   runId: string;
@@ -399,6 +483,7 @@ export interface AcquisitionPlanRunRepositoryTransaction {
   listRunShards(runId: string): AcquisitionOperationShard[];
   appendPlanEvent(event: AcquisitionPlanEvent): void;
   appendRunEvent(event: AcquisitionRunEvent): void;
+  listRunEvents(runId: string): AcquisitionRunEvent[];
   appendAuditEvent(event: AcquisitionAuditEvent): void;
   getIdempotency(scopeKey: string): AcquisitionIdempotencyRecord | null;
   putIdempotency(record: AcquisitionIdempotencyRecord): void;
@@ -493,6 +578,9 @@ function transactionFor(
       }
       state.runEvents.push(clone(event));
     },
+    listRunEvents: (runId) => state.runEvents
+      .filter((event) => event.runId === runId)
+      .map(clone),
     appendAuditEvent: (event) => {
       if (state.auditEvents.some((item) => item.id === event.id)) {
         throw new Error(`Audit event already exists: ${event.id}`);
@@ -568,6 +656,63 @@ implements AcquisitionPlanRunRepository {
       plan: clone(this.state.plans.get(planId) ?? null),
       version: clone(this.state.planVersions.get(planVersionId) ?? null)
     };
+  }
+
+  bindDouyinAutomationRun(
+    token: AcquisitionMemoryTransactionToken,
+    binding: AcquisitionDouyinCollectionRunBinding
+  ) {
+    this.memoryTransactions.assertOwns(token);
+    const { run } = binding;
+    const plan = this.state.plans.get(run.planId);
+    const version = this.state.planVersions.get(run.planVersionId);
+    if (!plan || !version) {
+      throw new Error("douyin_collection_run_plan_binding_mismatch");
+    }
+    assertDouyinCollectionRunBinding(plan, version, binding);
+    const existing = this.state.runs.get(run.id);
+    if (existing) {
+      if (canonicalJsonStringify(existing) !== canonicalJsonStringify(run)) {
+        throw new Error("douyin_collection_run_identity_conflict");
+      }
+      return clone(existing);
+    }
+    const identityHash = createHash("sha256")
+      .update(binding.automationIntentId, "utf8")
+      .digest("hex");
+    this.state.runs.set(run.id, clone(run));
+    this.state.runEvents.push({
+      id: `are-douyin-${identityHash}`,
+      runId: run.id,
+      shardId: null,
+      ownerId: run.ownerId,
+      teamId: run.teamId,
+      type: "run.queued",
+      actorId: run.createdBy,
+      revision: run.revision,
+      at: run.createdAt,
+      data: {
+        source: "douyin_automation",
+        automationIntentId: binding.automationIntentId,
+        planVersionId: run.planVersionId,
+        planSnapshotHash: run.planSnapshotHash
+      }
+    });
+    this.state.auditEvents.push({
+      id: `apae-douyin-${identityHash}`,
+      ownerId: run.ownerId,
+      teamId: run.teamId,
+      actorId: run.createdBy,
+      action: "run.create.douyin_collection",
+      targetType: "run",
+      targetId: run.id,
+      beforeHash: null,
+      afterHash: createHash("sha256")
+        .update(canonicalJsonStringify(run), "utf8").digest("hex"),
+      at: run.createdAt,
+      data: { automationIntentId: binding.automationIntentId }
+    });
+    return clone(run);
   }
 
   private async snapshot() {

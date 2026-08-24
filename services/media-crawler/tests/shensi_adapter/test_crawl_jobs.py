@@ -150,7 +150,7 @@ def test_manager_enforces_one_active_job_per_account_and_replays_opaque_cursor(t
     manager.close()
 
 
-def test_manager_cancel_is_safe_and_acknowledged_pages_survive_restart_for_24_hours(tmp_path):
+def test_manager_cancel_is_safe_and_terminal_metadata_survives_restart_for_24_hours(tmp_path):
     entered = threading.Event()
 
     def runner(_request, _profile, cancelled):
@@ -192,6 +192,45 @@ def test_manager_cancel_is_safe_and_acknowledged_pages_survive_restart_for_24_ho
     expired.close()
 
 
+def test_unacknowledged_pages_survive_and_ack_timestamp_drives_restart_cleanup(tmp_path):
+    clock = [NOW]
+    manager = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=lambda *_: [normalize_douyin_records(fixtures(), observed_at=NOW)[0]],
+        now=lambda: clock[0],
+    )
+    manager.start(request("ack-job"))
+    assert wait_terminal(manager, "ack-job").state == "succeeded"
+    clock[0] = NOW + timedelta(days=7)
+    assert manager.sweep_retained() == 0
+    acknowledged_at = manager.acknowledge("ack-job")
+    assert acknowledged_at == clock[0]
+    manager.close()
+
+    clock[0] += timedelta(hours=23, minutes=59)
+    restarted = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=lambda *_: [],
+        now=lambda: clock[0],
+    )
+    assert restarted.get("ack-job").acknowledged_at == acknowledged_at
+    assert restarted.sweep_retained() == 0
+    restarted.close()
+
+    clock[0] += timedelta(minutes=2)
+    expired = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=lambda *_: [],
+        now=lambda: clock[0],
+    )
+    with pytest.raises(KeyError):
+        expired.get("ack-job")
+    expired.close()
+
+
 def test_manager_sweeps_retention_on_startup_and_periodically_and_cleans_maps(tmp_path):
     clock = [NOW]
     manager = CrawlJobManager(
@@ -201,6 +240,7 @@ def test_manager_sweeps_retention_on_startup_and_periodically_and_cleans_maps(tm
     )
     manager.start(request("cleanup-job"))
     assert wait_terminal(manager, "cleanup-job").state == "succeeded"
+    manager.acknowledge("cleanup-job")
     deadline = time.monotonic() + 1
     while ("cleanup-job" in manager._threads or "cleanup-job" in manager._cancel):
         assert time.monotonic() < deadline

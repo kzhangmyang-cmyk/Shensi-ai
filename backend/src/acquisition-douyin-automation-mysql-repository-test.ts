@@ -10,6 +10,7 @@ import {
   acquisitionDouyinAutomationCommandReplaysDdl,
   acquisitionDouyinAutomationPolicyHeadsDdl,
   acquisitionDouyinAutomationPolicyVersionsDdl,
+  acquisitionDouyinRunBindingsDdl,
   acquisitionDouyinRunIntentsDdl,
   ensureAcquisitionDouyinAutomationMysqlSchema,
   MysqlAcquisitionDouyinAutomationRepository
@@ -26,13 +27,20 @@ import {
 import {
   AcquisitionMemoryTransactionCoordinator
 } from "./acquisition-memory-transaction-coordinator.js";
+import {
+  createDouyinCollectionAcquisitionRun,
+  type AcquisitionPlan,
+  type AcquisitionPlanPayload,
+  type AcquisitionPlanVersion
+} from "./acquisition-plan-run-repository.js";
 
 test("automation MySQL schema keeps immutable versions, a mutable head, hashed replay keys and run intents", async () => {
   const statements = [
     acquisitionDouyinAutomationPolicyVersionsDdl,
     acquisitionDouyinAutomationPolicyHeadsDdl,
     acquisitionDouyinAutomationCommandReplaysDdl,
-    acquisitionDouyinRunIntentsDdl
+    acquisitionDouyinRunIntentsDdl,
+    acquisitionDouyinRunBindingsDdl
   ];
   assert.match(statements[0]!, /acquisition_douyin_automation_policy_versions/u);
   assert.match(statements[0]!, /UNIQUE KEY[^\n]+workspace_id[^\n]+plan_id[^\n]+version_no/u);
@@ -42,6 +50,7 @@ test("automation MySQL schema keeps immutable versions, a mutable head, hashed r
   assert.match(statements[3]!, /daily_budget_id CHAR\(71\)/u);
   assert.match(statements[3]!, /policy_version_id/u);
   assert.match(statements[3]!, /account_login_state_version/u);
+  assert.match(statements[4]!, /acquisition_run_id/u);
 
   const executed: string[] = [];
   await ensureAcquisitionDouyinAutomationMysqlSchema({
@@ -52,6 +61,68 @@ test("automation MySQL schema keeps immutable versions, a mutable head, hashed r
   } as never);
   assert.deepEqual(executed, statements);
 });
+
+function acquisitionPlanPayload(): AcquisitionPlanPayload {
+  return {
+    targetPlatform: "douyin",
+    name: "Douyin acquisition",
+    objective: "Find public demand",
+    icp: {
+      industries: [], regions: [], organizationCriteria: [],
+      individualCriteria: [], exclusionRules: []
+    },
+    subjectChannels: { organization: false, individual: true },
+    providerConnections: [], operations: [],
+    budgetSnapshot: {
+      billingCurrency: "CNY", maxRequests: 100, maxResults: 200,
+      maxAmountMinor: 10_000, maxDurationSeconds: 3_600
+    },
+    modelSnapshotRef: {
+      jobSnapshotId: "model-job-1", connectionId: "model-connection-1",
+      credentialVersion: 1, provider: "qwen", model: "qwen-plus",
+      capabilitySnapshotHash: "sha256:capability", promptVersion: "prompt-v1",
+      schemaVersion: "schema-v1", promptHash: "sha256:prompt",
+      schemaHash: "sha256:schema"
+    },
+    stopConditions: {
+      stopWhenBudgetExhausted: true,
+      stopWhenNoMoreResults: true
+    }
+  };
+}
+
+function frozenPlan() {
+  const payload = acquisitionPlanPayload();
+  const version: AcquisitionPlanVersion = {
+    id: "plan-version-1", planId: "plan-1", ownerId: "owner-1",
+    teamId: "team-1", version: 1, payload, payloadHash: "plan-hash",
+    createdBy: "owner-1", createdAt: "2026-08-25T01:00:00.000Z"
+  };
+  const plan: AcquisitionPlan = {
+    id: "plan-1", ownerId: "owner-1", teamId: "team-1",
+    status: "approved", version: 1, revision: 2, etag: '"plan-1:2"',
+    currentVersionId: version.id, approvedVersionId: version.id,
+    approvedSnapshotHash: version.payloadHash, approvedBy: "owner-1",
+    approvedAt: version.createdAt, budgetSnapshot: payload.budgetSnapshot,
+    payload, createdBy: "owner-1", createdAt: version.createdAt,
+    updatedBy: "owner-1", updatedAt: version.createdAt
+  };
+  return { plan, version };
+}
+
+function bindingFor(run: DouyinAutomationRunIntent) {
+  const { plan, version } = frozenPlan();
+  return createDouyinCollectionAcquisitionRun({
+    id: run.acquisitionRunId,
+    automationIntentId: run.id,
+    plan,
+    version,
+    dailyBudgetId: run.dailyBudgetId,
+    reason: run.reason,
+    actorId: run.createdBy,
+    createdAt: run.createdAt
+  });
+}
 
 class StatefulAutomationMysqlPool {
   readonly versions = new Map<string, Record<string, unknown>>();
@@ -129,18 +200,13 @@ class StatefulAutomationMysqlPool {
     } else if (normalized.startsWith("SELECT payload_json FROM acquisition_plans")) {
       result = values[0] === "plan-1" && values[1] === "owner-1" && values[2] === "team-1"
         ? [{ payload_json: JSON.stringify({
-            id: "plan-1", ownerId: "owner-1", teamId: "team-1",
-            currentVersionId: this.planCurrentVersionId, status: "approved",
-            approvedVersionId: "plan-version-1", approvedSnapshotHash: "plan-hash"
+            ...frozenPlan().plan,
+            currentVersionId: this.planCurrentVersionId
           }) }]
         : [];
     } else if (normalized.startsWith("SELECT payload_json FROM acquisition_plan_versions")) {
       result = values[0] === "plan-version-1" && values[1] === "plan-1"
-        ? [{ payload_json: JSON.stringify({
-            id: "plan-version-1", planId: "plan-1", ownerId: "owner-1", teamId: "team-1",
-            version: 1, payload: {}, payloadHash: "plan-hash", createdBy: "owner-1",
-            createdAt: "2026-08-25T01:00:00.000Z"
-          }) }]
+        ? [{ payload_json: JSON.stringify(frozenPlan().version) }]
         : [];
     } else if (normalized.startsWith("SELECT id,workspace_id,state,login_state_version FROM acquisition_social_accounts")) {
       result = values[0] === "workspace-1" && values[1] === "account-1"
@@ -175,6 +241,11 @@ class StatefulAutomationMysqlPool {
         local_date: values[10], trigger_kind: values[11], status: values[12],
         payload_json: payload, created_at: values[14]
       });
+    } else if (normalized.startsWith("INSERT INTO acquisition_runs")
+      || normalized.startsWith("INSERT INTO acquisition_run_events")
+      || normalized.startsWith("INSERT INTO acquisition_plan_run_audit_events")
+      || normalized.startsWith("INSERT INTO acquisition_douyin_run_bindings")) {
+      result = [];
     } else if (normalized.startsWith("INSERT INTO acquisition_douyin_automation_command_replays")) {
       const operation = normalized.includes("'put_policy'") ? "put_policy" : "run_now";
       const resultKind = operation === "put_policy" ? "policy" : "run";
@@ -207,16 +278,10 @@ function policyVersion(): DouyinAutomationPolicyVersion {
 }
 
 function authorityState(): DouyinAutomationAuthorityState {
+  const { plan, version } = frozenPlan();
   return {
-    plan: {
-      id: "plan-1", ownerId: "owner-1", teamId: "team-1", status: "approved",
-      currentVersionId: "plan-version-1", approvedVersionId: "plan-version-1",
-      approvedSnapshotHash: "plan-hash"
-    } as never,
-    version: {
-      id: "plan-version-1", planId: "plan-1", ownerId: "owner-1", teamId: "team-1",
-      version: 1, payloadHash: "plan-hash"
-    } as never,
+    plan,
+    version,
     account: {
       id: "account-1", workspaceId: "workspace-1", platform: "douyin",
       state: "active", loginStateVersion: 7
@@ -249,6 +314,9 @@ function memoryRepository(authority: DouyinAutomationAuthorityState) {
           authority,
           requireApproved
         );
+      },
+      bindRun(_command, token) {
+        memoryTransactions.assertOwns(token);
       }
     }
   );
@@ -271,7 +339,8 @@ test("automation MySQL repository matches append, CAS, replay and frozen run beh
   assert.equal((await repository.savePolicy({ ...command, requestHash: `sha256:${"c".repeat(64)}` })).kind, "conflict");
 
   const run: DouyinAutomationRunIntent = {
-    id: "run-1", workspaceId: "workspace-1", planId: "plan-1", planVersionId: "plan-version-1",
+    id: "run-1", acquisitionRunId: "acquisition-run-1",
+    workspaceId: "workspace-1", planId: "plan-1", planVersionId: "plan-version-1",
     planVersion: 1, planSnapshotHash: "plan-hash", policyVersionId: value.id,
     policyHash: value.policyHash, accountId: "account-1", accountLoginStateVersion: 7,
     dailyBudgetId: `sha256:${"d".repeat(64)}`, localDate: "2026-08-25", trigger: "run_now",
@@ -282,7 +351,8 @@ test("automation MySQL repository matches append, CAS, replay and frozen run beh
     workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
     planVersionId: "plan-version-1", policyVersionId: value.id, accountId: "account-1",
     accountLoginStateVersion: 7, idempotencyKey: "run-key-1",
-    requestHash: `sha256:${"e".repeat(64)}`, value: run
+    requestHash: `sha256:${"e".repeat(64)}`, value: run,
+    runBinding: bindingFor(run)
   };
   assert.equal((await repository.createRunIntent(runCommand)).kind, "created");
   assert.deepEqual(await repository.getRunIntent("workspace-1", "run-1"), run);
@@ -316,7 +386,8 @@ test("automation MySQL repository serializes identical new policy and run keys",
   assert.equal(pool.versions.size, 1);
 
   const run: DouyinAutomationRunIntent = {
-    id: "run-concurrent", workspaceId: "workspace-1", planId: "plan-1",
+    id: "run-concurrent", acquisitionRunId: "acquisition-run-concurrent",
+    workspaceId: "workspace-1", planId: "plan-1",
     planVersionId: "plan-version-1", planVersion: 1, planSnapshotHash: "plan-hash",
     policyVersionId: value.id, policyHash: value.policyHash, accountId: "account-1",
     accountLoginStateVersion: 7, dailyBudgetId: `sha256:${"d".repeat(64)}`,
@@ -329,7 +400,8 @@ test("automation MySQL repository serializes identical new policy and run keys",
     workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
     planVersionId: "plan-version-1", policyVersionId: value.id, accountId: "account-1",
     accountLoginStateVersion: 7, idempotencyKey: "concurrent-run-key",
-    requestHash: `sha256:${"e".repeat(64)}`, value: run
+    requestHash: `sha256:${"e".repeat(64)}`, value: run,
+    runBinding: bindingFor(run)
   };
   const runResults = await Promise.all([
     repository.createRunIntent(runCommand),
@@ -377,7 +449,9 @@ test("Memory and MySQL reject the same policy and run authority drift", async ()
     if (drift === "account") runPool.accountState = "login_expired";
     if (drift === "login") runPool.accountLoginStateVersion = 8;
     const run: DouyinAutomationRunIntent = {
-      id: `run-drift-${drift}`, workspaceId: "workspace-1", planId: "plan-1",
+      id: `run-drift-${drift}`,
+      acquisitionRunId: `acquisition-run-drift-${drift}`,
+      workspaceId: "workspace-1", planId: "plan-1",
       planVersionId: "plan-version-1", planVersion: 1, planSnapshotHash: "plan-hash",
       policyVersionId: value.id, policyHash: value.policyHash, accountId: "account-1",
       accountLoginStateVersion: 7, dailyBudgetId: `sha256:${"d".repeat(64)}`,
@@ -390,7 +464,8 @@ test("Memory and MySQL reject the same policy and run authority drift", async ()
       workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
       planVersionId: "plan-version-1", policyVersionId: value.id, accountId: "account-1",
       accountLoginStateVersion: 7, idempotencyKey: `run-drift-${drift}`,
-      requestHash: `sha256:${"e".repeat(64)}`, value: run
+      requestHash: `sha256:${"e".repeat(64)}`, value: run,
+      runBinding: bindingFor(run)
     };
     const [memoryRun, mysqlRun] = await Promise.all([
       runMemory.createRunIntent(runCommand),
@@ -421,16 +496,7 @@ test("live MySQL serializes identical new policy and run keys into exact replay"
     await ensureAcquisitionMysqlSchema(pool);
     await ensureAcquisitionSocialAccountsMysqlSchema(pool);
     await ensureAcquisitionDouyinAutomationMysqlSchema(pool);
-    const plan = {
-      id: "plan-1", ownerId: "owner-1", teamId: "team-1", status: "approved",
-      currentVersionId: "plan-version-1", approvedVersionId: "plan-version-1",
-      approvedSnapshotHash: "plan-hash"
-    };
-    const planVersion = {
-      id: "plan-version-1", planId: "plan-1", ownerId: "owner-1", teamId: "team-1",
-      version: 1, payload: {}, payloadHash: "plan-hash", createdBy: "owner-1",
-      createdAt: "2026-08-25T01:00:00.000Z"
-    };
+    const { plan, version: planVersion } = frozenPlan();
     await pool.query(
       `INSERT INTO acquisition_plans
        (id,owner_id,team_id,revision,payload_json,created_at,updated_at)
@@ -469,7 +535,8 @@ test("live MySQL serializes identical new policy and run keys into exact replay"
     assert.deepEqual(policyResults[0]?.value, policyResults[1]?.value);
 
     const run: DouyinAutomationRunIntent = {
-      id: "run-live", workspaceId: "workspace-1", planId: "plan-1",
+      id: "run-live", acquisitionRunId: "acquisition-run-live",
+      workspaceId: "workspace-1", planId: "plan-1",
       planVersionId: "plan-version-1", planVersion: 1, planSnapshotHash: "plan-hash",
       policyVersionId: value.id, policyHash: value.policyHash, accountId: "account-1",
       accountLoginStateVersion: 7, dailyBudgetId: `sha256:${"d".repeat(64)}`,
@@ -482,7 +549,8 @@ test("live MySQL serializes identical new policy and run keys into exact replay"
       workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
       planVersionId: "plan-version-1", policyVersionId: value.id, accountId: "account-1",
       accountLoginStateVersion: 7, idempotencyKey: "live-run-key",
-      requestHash: `sha256:${"e".repeat(64)}`, value: run
+      requestHash: `sha256:${"e".repeat(64)}`, value: run,
+      runBinding: bindingFor(run)
     };
     const runResults = await Promise.all([
       repository.createRunIntent(runCommand), repository.createRunIntent(runCommand)

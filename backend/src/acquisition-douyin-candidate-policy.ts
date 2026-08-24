@@ -18,20 +18,21 @@ const STAGES: Array<[RegExp, BuyingStage]> = [
 export function qualifyDouyinCrawlerCandidate(input: {
   text: string;
   hasOriginalPublicSource: boolean;
+  hasKnownIdentity?: boolean;
   kind?: "creator" | "comment";
 }): DouyinCandidatePolicyResult {
   const text = input.text.normalize("NFKC").trim();
   if (!input.hasOriginalPublicSource) {
-    return { status: "suppressed", buyingStage: null, reason: "missing_original_public_source", retainDoNotContact: false };
+    return { status: "suppressed", buyingStage: null, reason: "missing_original_public_source", retainDoNotContact: input.hasKnownIdentity !== false };
   }
   if (REFUSAL.test(text)) {
     return { status: "suppressed", buyingStage: null, reason: "explicit_refusal", retainDoNotContact: true };
   }
   if (COMPLAINT.test(text)) {
-    return { status: "suppressed", buyingStage: null, reason: "complaint_signal", retainDoNotContact: false };
+    return { status: "suppressed", buyingStage: null, reason: "complaint_signal", retainDoNotContact: true };
   }
   if (MINOR.test(text)) {
-    return { status: "suppressed", buyingStage: null, reason: "minor_signal", retainDoNotContact: false };
+    return { status: "suppressed", buyingStage: null, reason: "minor_signal", retainDoNotContact: true };
   }
   if (input.kind === "creator") {
     return { status: "qualified", buyingStage: "awareness", reason: null };

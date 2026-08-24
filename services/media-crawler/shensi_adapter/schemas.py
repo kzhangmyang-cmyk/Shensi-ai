@@ -47,8 +47,16 @@ class CrawlJobView(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+    acknowledged_at: datetime | None
     record_count: int
     failure_code: str | None
+
+
+class CrawlJobAcknowledgement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    acknowledged_at: datetime
 
 
 class NormalizedDouyinRecord(BaseModel):

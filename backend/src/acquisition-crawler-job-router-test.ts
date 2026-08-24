@@ -7,7 +7,9 @@ import { InMemoryAcquisitionCrawlerJobRepository } from "./acquisition-crawler-j
 test("crawler status route is workspace-bound, closed and reads persisted Node state only", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   await repository.createOrGet({
-    id: "crawler-1", workspaceId: "workspace-1", runId: "run-1", planId: "plan-1",
+    id: "crawler-1", workspaceId: "workspace-1", runId: "run-1",
+    automationIntentId: "intent-1", planId: "plan-1",
+    planVersionId: "plan-version-1", planSnapshotHash: "plan-hash-1",
     policyVersionId: "policy-1", policyHash: `sha256:${"a".repeat(64)}`,
     accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: `sha256:${"b".repeat(64)}`,
     localDate: "2026-08-24", trigger: "scheduled", dailyCandidateLimit: 5, keywords: ["pump"],

@@ -49,7 +49,9 @@ replay; an expired lease can be reclaimed after a process crash.
 Douyin automation uses the append-only
 `acquisition_douyin_automation_policy_versions` authority, a separately
 mutable policy head, hashed command replays, and
-`acquisition_douyin_run_intents`. Policy publication and run-intent creation
+`acquisition_douyin_run_intents`. `acquisition_douyin_run_bindings` maps each
+automation intent to a distinct authoritative row in `acquisition_runs` for
+the same frozen approved plan/version/hash. Policy publication and run-intent creation
 use one authority predicate for Memory and MySQL: the current plan/version plus
 the workspace-scoped active account and login-state version must still match at
 commit. Memory composition gives plan, social-account, and automation
@@ -57,19 +59,29 @@ repositories one transaction coordinator: a short-lived token covers authority
 validation and policy/run-intent persistence, so account/login or plan changes
 cannot interleave. MySQL takes the existing plan row lock before checking
 command replay, so concurrent identical new keys yield one write and one exact
-replay. Run intents freeze the plan, policy, account, local date, and
-daily-budget identities consumed by the scheduler and crawler.
+replay. Run creation commits the authoritative run, queued event, audit,
+intent, binding, and replay atomically. Run intents freeze the plan, policy,
+account, local date, and daily-budget identities consumed by the scheduler and
+crawler; intent IDs are never used as acquisition run IDs.
 
-Crawler execution uses `acquisition_crawler_jobs`,
-`acquisition_crawler_job_runs`, and append-only
-`acquisition_crawler_job_records` plus unique cursor-history rows. Jobs are
+Crawler execution uses `acquisition_crawler_jobs`, authoritative
+`acquisition_crawler_job_runs`, separate `acquisition_crawler_job_intents`, and
+append-only `acquisition_crawler_job_records` plus unique cursor-history rows. Jobs are
 persisted as `scheduled` before the idempotent enqueue transition makes them
 claimable. A unique daily key makes scheduled and run-now triggers share one
 candidate budget. Random 64-hex lease tokens and a monotonic fencing token
 reject exact-expiry, stale, and same-worker ABA writes; the result cursor and
 its non-reusable history advance only in the Node transaction that persists
 records. Frozen creator/comment collection flags are enforced at both the
-sidecar normalization boundary and repository persistence boundary.
+sidecar normalization boundary and repository persistence boundary. Terminal
+jobs have a second random fenced ingestion claim. Its transaction writes
+`acquisition_discovery_evidence`, `acquisition_candidates`, candidate identity
+aliases and audits through the existing acquisition domain repository, then
+writes acquisition-run status and `candidate.discovered` events through the
+existing plan-run repository. `acquisition_douyin_crawler_evidence_index`
+enforces workspace content uniqueness and cross-job stable-record
+supersession; `acquisition_douyin_do_not_contact` permanently retains only the
+one-way platform identity hash and minimum policy reason.
 
 ## Public Interfaces
 
@@ -90,6 +102,11 @@ returns a non-persisted server default only before the first immutable version
 is published. Exact command replays return the frozen original result, while
 the same key with changed semantics—including a changed normalized
 `If-Match`—conflicts.
+The run-now response contains `id` for the automation intent and
+`acquisitionRunId` for the authoritative run. Crawler status and candidate
+routes take the latter. `GET /api/v1/acquisition/runs/{runId}/candidates`
+returns 404 for a non-authoritative or foreign run ID and reads only persisted
+run-candidate links. Its default feed excludes permanent DNC candidates.
 The editable contract is `contracts/openapi/ai-acquisition.v1.yaml`; frontend
 code consumes `frontend/src/generated/ai-acquisition.ts`.
 `GET /api/v1/acquisition/runs/{runId}/crawler-status` returns only the closed,
@@ -125,10 +142,15 @@ durable metadata and is removed only by explicit disconnect or replacement.
 Malformed, symlinked, or unreadable durable account metadata is quarantined;
 missing or malformed ephemeral QR metadata does not invalidate a valid
 connected account.
-Terminal crawler pages are immutable and replayable by opaque cursor for 24
-hours, allowing Node to recover persistence without a sidecar acknowledgement.
-The sidecar sweeps retained pages at startup and periodically, and uses one
-bounded deadline to stop its sweeper and all active crawl workers.
+Terminal crawler pages are immutable and replayable by opaque cursor until
+Node atomically persists authoritative evidence/candidates/run links and sends
+a durable acknowledgement. The acknowledgement timestamp, not a read or crawl
+completion, starts the 24-hour cleanup clock. The sidecar sweeps acknowledged
+pages at startup and periodically and uses one bounded deadline to stop its
+sweeper and all active crawl workers. Failed/cancelled terminal metadata with
+no result pages may be removed 24 hours after completion. Backend cleanup
+removes unlinked crawler evidence 90 days after ingestion while preserving
+linked evidence, DNC identity hashes, and audit events.
 
 ## Known Limitations
 

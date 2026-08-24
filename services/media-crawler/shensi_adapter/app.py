@@ -9,7 +9,10 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from .accounts import AccountManager
 from .browser_state import MediaCrawlerDouyinBrowserState
 from .crawl_jobs import CrawlJobManager, CursorConflict
-from .schemas import CrawlJobPage, CrawlJobRequest, CrawlJobView, HealthView, LoginSessionView
+from .schemas import (
+    CrawlJobAcknowledgement, CrawlJobPage, CrawlJobRequest, CrawlJobView,
+    HealthView, LoginSessionView,
+)
 from .security import authorize_bearer, require_service_secret
 
 
@@ -133,6 +136,25 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
             raise HTTPException(status_code=404, detail="crawl_job_not_found") from error
         except CursorConflict as error:
             raise HTTPException(status_code=409, detail="crawl_cursor_conflict") from error
+
+    @application.post(
+        "/internal/v1/douyin/crawl-jobs/{job_id}/acknowledgement",
+        response_model=CrawlJobAcknowledgement,
+    )
+    def acknowledge_crawl_job(
+        job_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> CrawlJobAcknowledgement:
+        authorize_bearer(authorization, require_service_secret(secret_provider()))
+        try:
+            return CrawlJobAcknowledgement(
+                job_id=job_id,
+                acknowledged_at=jobs().acknowledge(job_id),
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="crawl_job_not_found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @application.delete("/internal/v1/douyin/crawl-jobs/{job_id}", status_code=204)
     def cancel_crawl_job(job_id: str, authorization: str | None = Header(default=None)) -> None:

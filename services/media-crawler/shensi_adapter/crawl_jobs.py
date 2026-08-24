@@ -171,7 +171,9 @@ class CrawlJobManager:
     def _view(job: dict) -> CrawlJobView:
         return CrawlJobView(job_id=job["request"]["job_id"], state=job["state"],
                             created_at=job["created_at"], updated_at=job["updated_at"],
-                            completed_at=job.get("completed_at"), record_count=job["record_count"],
+                            completed_at=job.get("completed_at"),
+                            acknowledged_at=job.get("acknowledged_at"),
+                            record_count=job["record_count"],
                             failure_code=job.get("failure_code"))
 
     def start(self, request: CrawlJobRequest) -> CrawlJobView:
@@ -194,6 +196,7 @@ class CrawlJobManager:
             job = existing or {"request": request.model_dump(mode="json"), "created_at": instant,
                                "record_count": 0, "pages": []}
             job.update({"state": "queued", "updated_at": instant, "completed_at": None,
+                        "acknowledged_at": None,
                         "failure_code": None})
             self._jobs[request.job_id] = job
             self._persist(job)
@@ -284,11 +287,31 @@ class CrawlJobManager:
             if job["state"] in {"queued", "paused"}:
                 self._finish(job, "cancelled")
 
+    def acknowledge(self, job_id: str) -> datetime:
+        """Durably starts the 24-hour cleanup clock after backend ingestion."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                raise KeyError(job_id)
+            if job["state"] not in {"succeeded", "partial"}:
+                raise ValueError("crawl_job_not_acknowledgeable")
+            existing = job.get("acknowledged_at")
+            if existing:
+                return _instant(existing)
+            instant = self._now()
+            job["acknowledged_at"] = instant.isoformat()
+            job["updated_at"] = instant.isoformat()
+            self._persist(job)
+            return instant
+
     def sweep_retained(self) -> int:
         import shutil
         with self._lock:
             expired = [job_id for job_id, job in self._jobs.items()
-                       if job.get("completed_at") and self._now() >= _instant(job["completed_at"]) + self._retention]
+                       if (job.get("acknowledged_at")
+                           and self._now() >= _instant(job["acknowledged_at"]) + self._retention)
+                       or (not job.get("pages") and job.get("completed_at")
+                           and self._now() >= _instant(job["completed_at"]) + self._retention)]
             for job_id in expired:
                 shutil.rmtree(self._directory(job_id))
                 self._jobs.pop(job_id, None)

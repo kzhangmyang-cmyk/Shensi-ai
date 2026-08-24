@@ -23,5 +23,24 @@ test("policy fails closed for refusals, complaints, minors, and missing sources"
     const result = qualifyDouyinCrawlerCandidate(input);
     assert.equal(result.status, "suppressed");
     assert.ok(result.reason);
+    assert.equal(result.retainDoNotContact, true);
   }
+});
+
+test("creator discovery and demand comments use separate admission policies", () => {
+  assert.equal(qualifyDouyinCrawlerCandidate({
+    text: "工业除尘设备厂家",
+    kind: "creator",
+    hasOriginalPublicSource: true
+  }).status, "qualified");
+  assert.deepEqual(qualifyDouyinCrawlerCandidate({
+    text: "工业除尘设备厂家",
+    kind: "comment",
+    hasOriginalPublicSource: true
+  }), {
+    status: "suppressed",
+    buyingStage: null,
+    reason: "buying_stage_not_allowed",
+    retainDoNotContact: false
+  });
 });

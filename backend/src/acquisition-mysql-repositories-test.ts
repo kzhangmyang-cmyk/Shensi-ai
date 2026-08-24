@@ -1153,6 +1153,47 @@ async function testPlanRunTransactionCommitsNewRowsWithoutOverwriteUpsert() {
   assert.doesNotMatch(insert.sql, /ON DUPLICATE KEY UPDATE/);
 }
 
+async function testPlanRunEventWritersMatchOccurredAtOnlySchema() {
+  const pool = new FakePool();
+  const connection = pool.connection;
+  connection.enqueue([{ id: 1 }]);
+  for (let index = 0; index < 10; index += 1) connection.enqueue([]);
+  const repository = new MysqlAcquisitionPlanRunRepository(asPool(pool));
+  await repository.transaction((transaction) => {
+    transaction.putPlan(plan());
+    transaction.appendPlanVersion(planVersion());
+    transaction.putRun(acquisitionRun());
+    transaction.appendPlanEvent({
+      id: "plan-event-1", planId: "plan-1", ownerId: "owner-a",
+      teamId: "team-a", type: "plan.created", actorId: "user-1",
+      revision: 1, at: NOW, data: {}
+    });
+    transaction.appendRunEvent({
+      id: "run-event-1", runId: "run-1", shardId: null,
+      ownerId: "owner-a", teamId: "team-a", type: "run.queued",
+      actorId: "user-1", revision: 1, at: NOW, data: {}
+    });
+    transaction.appendAuditEvent({
+      id: "plan-run-audit-1", ownerId: "owner-a", teamId: "team-a",
+      actorId: "user-1", action: "run.create", targetType: "run",
+      targetId: "run-1", beforeHash: null, afterHash: "1".repeat(64),
+      at: NOW, data: {}
+    });
+  });
+  for (const table of [
+    "acquisition_plan_events",
+    "acquisition_run_events",
+    "acquisition_plan_run_audit_events"
+  ]) {
+    const insert = connection.calls.find((call) =>
+      call.sql.startsWith(`INSERT INTO ${table}`)
+    );
+    assert.ok(insert, table);
+    assert.match(insert.sql, /occurred_at/u, table);
+    assert.doesNotMatch(insert.sql, /created_at/u, table);
+  }
+}
+
 async function testPlanRunTransactionLocksAndRollsBack() {
   const pool = new FakePool();
   const connection = pool.connection;
@@ -1603,6 +1644,7 @@ async function run() {
   await testRunListQueryPushesFilteringOrderingAndLimitIntoSql();
   await testPlanRunIdempotencyScopesAreHashedAtRest();
   await testPlanRunTransactionCommitsNewRowsWithoutOverwriteUpsert();
+  await testPlanRunEventWritersMatchOccurredAtOnlySchema();
   await testPlanRunTransactionLocksAndRollsBack();
   await testConversionIntentsAreDurableScopedAndRecoverable();
   await testPresentationReadsAreTenantBoundedPagedAndBatched();
