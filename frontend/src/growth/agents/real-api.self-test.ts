@@ -5,6 +5,9 @@ import {
 } from "./real-api";
 import { GrowthApiError } from "../http";
 import type {
+  FinancialCashForecastSupplementInput
+} from "../contracts";
+import type {
   GrowthHttpClient,
   GrowthHttpRequestOptions
 } from "../http";
@@ -112,8 +115,28 @@ const statementPackage = Object.freeze({
   sourceFiles: sources,
   warningCodes: [],
   createdAt: "2026-08-23T00:00:00.000Z",
-  expiresAt: null
+  expiresAt: null,
+  forecastStatus: "computed",
+  cashForecast: {
+    source: "management_attested", forecastAsOf: "2026-08-16T08:09:00.000Z",
+    currency: "CNY", expectedInflowsNext30DaysMinor: 100_000,
+    expectedOutflowsNext30DaysMinor: 500_000,
+    expectedInflowsNext31To90DaysMinor: 800_000,
+    expectedOutflowsNext31To90DaysMinor: 300_000, receivablesCount: 1,
+    noticeVersion: "financial-cash-forecast.v1",
+    acceptedAt: "2026-08-16T08:10:00.000Z",
+    forecastHash: `sha256:${"d".repeat(64)}`
+  }
 });
+const cashForecast: FinancialCashForecastSupplementInput = {
+  forecastAsOf: "2026-08-16T08:09:00.000Z",
+  expectedInflowsNext30DaysMinor: 100_000,
+  expectedOutflowsNext30DaysMinor: 500_000,
+  expectedInflowsNext31To90DaysMinor: 800_000,
+  expectedOutflowsNext31To90DaysMinor: 300_000,
+  receivables: [{ customer: "客户 A", amountMinor: 1_000_000, daysOutstanding: 120 }],
+  attestation: { accepted: true, noticeVersion: "financial-cash-forecast.v1" }
+};
 const run = Object.freeze({
   runId: "run-1",
   workspaceId: "workspace-1",
@@ -209,7 +232,7 @@ await api.commitStatements("preview / 1", {
     accepted: true,
     noticeVersion: "financial-model-data.v1",
     actorId: "must-not-cross"
-  },
+  }, cashForecast,
   workspaceId: "must-not-cross"
 } as never, "statement-commit-key", signal);
 await api.createRunFromPackage({
@@ -252,7 +275,10 @@ assert.deepEqual(calls, [
     path: "/api/v1/finance/statement-packages/preview%20%2F%201/commit",
     options: {
       method: "POST", idempotencyKey: "statement-commit-key", signal,
-      body: { consent: { accepted: true, noticeVersion: "financial-model-data.v1" } }
+      body: {
+        consent: { accepted: true, noticeVersion: "financial-model-data.v1" },
+        cashForecast
+      }
     }
   },
   {
@@ -316,4 +342,22 @@ await assert.rejects(
     ]
   } as never, "duplicate-key"),
   /financial_council_request_invalid/u
+);
+
+await assert.rejects(
+  createRealAgentCenterApi({
+    async request() {
+      return {
+        status: 201, etag: null,
+        body: {
+          ...statementPackage,
+          cashForecast: { ...statementPackage.cashForecast, customer: "must-not-cross" }
+        }
+      } as never;
+    }
+  }).commitStatements("preview-1", {
+    consent: { accepted: true, noticeVersion: "financial-model-data.v1" },
+    cashForecast
+  }, "key"),
+  /financial_council_response_invalid/u
 );

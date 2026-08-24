@@ -5,6 +5,7 @@ import type {
   FinancialCouncilModelRoutingPolicyVersion,
   FinancialCouncilRun,
   FinancialCouncilRunAgentsView,
+  FinancialCashForecastSupplementInput,
   FinancialStatementKind,
   FinancialStatementPackagePreview,
   FinancialStatementPackagePreviewInput,
@@ -14,6 +15,11 @@ import type {
 import { GrowthApiError } from "../http";
 import type { RealAgentCenterApi } from "./real-api";
 import { RealAgentCenterApiValidationError } from "./real-api";
+import {
+  createFinancialCashForecastDraft,
+  type FinancialCashForecastDraft
+} from "./cash-forecast-draft";
+import { activateFinancialCashForecastDraft } from "./entry";
 
 const STATEMENT_KINDS = [
   "balance_sheet", "income_statement", "cash_flow_statement"
@@ -57,6 +63,7 @@ export interface RealAgentCenterControllerOptions {
   readonly api: RealAgentCenterApi;
   readonly idFactory?: () => string;
   readonly digestSha256?: (bytes: ArrayBuffer) => Promise<`sha256:${string}`>;
+  readonly now?: () => string;
 }
 
 export interface RealAgentCenterController {
@@ -65,11 +72,13 @@ export interface RealAgentCenterController {
   selectStatement(kind: FinancialStatementKind, file: File): Promise<void>;
   previewStatements(): Promise<void>;
   acceptModelDataNotice(accepted: boolean): void;
-  commitStatements(): Promise<void>;
+  commitStatements(input?: FinancialCashForecastSupplementInput): Promise<void>;
   startCouncil(): Promise<void>;
   updateRouting(input: FinancialCouncilModelRoutingPolicyInput): Promise<void>;
   close(): void;
+  logout?(): void;
   destroy(): void;
+  readonly cashForecastDraft?: FinancialCashForecastDraft;
 }
 
 interface PrivateFile {
@@ -152,6 +161,9 @@ export function createRealAgentCenterController(
   const idFactory = options.idFactory
     ?? (() => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
   const digestSha256 = options.digestSha256 ?? browserSha256;
+  const now = options.now ?? (() => new Date().toISOString());
+  const cashForecastDraft = createFinancialCashForecastDraft();
+  const deactivateCashForecastDraft = activateFinancialCashForecastDraft(cashForecastDraft);
   const listeners = new Set<(state: RealAgentCenterControllerState) => void>();
   const semanticKeys = new Map<string, string>();
   const inFlight = new Map<string, Promise<void>>();
@@ -219,6 +231,7 @@ export function createRealAgentCenterController(
 
   function invalidateDownstreamFromFiles(): void {
     for (const kind of ["preview", "commit", "create"]) abortKind(kind);
+    cashForecastDraft.clear();
     publish({
       statementPreview: null,
       statementPackage: null,
@@ -367,6 +380,7 @@ export function createRealAgentCenterController(
     routingEtag = null;
     councilPolicyVersionId = null;
     clearPrivateFiles();
+    cashForecastDraft.clear();
     releaseSensitiveReferences();
     for (const kind of STATEMENT_KINDS) selectionRevisions[kind] += 1;
     state = initialState();
@@ -455,6 +469,7 @@ export function createRealAgentCenterController(
           uploadHolder.value = null;
           if (!stillCurrent(expected, "preview", token) || !fileAuthority(files)) return;
           clearKey();
+          cashForecastDraft.clear();
           publish({
             statementPreview: response.body,
             statementPackage: null,
@@ -479,7 +494,7 @@ export function createRealAgentCenterController(
       if (destroyed) return;
       publish({ consentAccepted: accepted, error: null });
     },
-    commitStatements() {
+    async commitStatements(input) {
       const preview = state.statementPreview;
       if (!preview) {
         publish({ error: "financial_statement_preview_required" });
@@ -487,11 +502,27 @@ export function createRealAgentCenterController(
       }
       if (!state.consentAccepted) {
         publish({ error: "financial_model_data_consent_required" });
-        return Promise.resolve();
+        return;
       }
+      let cashForecast: FinancialCashForecastSupplementInput;
+      try {
+        cashForecast = input ?? cashForecastDraft.toInput(now());
+      } catch {
+        publish({ error: "financial_cash_forecast_incomplete" });
+        return;
+      }
+      const draftRevision = cashForecastDraft.revision();
+      const digestBytes = new TextEncoder().encode(stableValue(cashForecast));
+      const forecastDigest = await digestSha256(
+        digestBytes.buffer.slice(
+          digestBytes.byteOffset,
+          digestBytes.byteOffset + digestBytes.byteLength
+        ) as ArrayBuffer
+      );
       const semantic = {
         previewId: preview.previewId,
-        noticeVersion: "financial-model-data.v1"
+        noticeVersion: "financial-model-data.v1",
+        cashForecastDigest: forecastDigest
       };
       return runOperation("commit", semantic, async (expected, token, signal) => {
         const [idempotencyKey, clearKey] = keyFor("statement-commit", semantic);
@@ -499,15 +530,20 @@ export function createRealAgentCenterController(
         try {
           const response = await options.api.commitStatements(
             preview.previewId,
-            { consent: { accepted: true, noticeVersion: "financial-model-data.v1" } },
+            {
+              consent: { accepted: true, noticeVersion: "financial-model-data.v1" },
+              cashForecast
+            },
             idempotencyKey,
             signal
           );
           if (!stillCurrent(expected, "commit", token)
             || state.statementPreview?.previewId !== preview.previewId
-            || !state.consentAccepted) return;
+            || !state.consentAccepted
+            || cashForecastDraft.revision() !== draftRevision) return;
           clearKey();
           clearPrivateFiles();
+          cashForecastDraft.clear();
           publish({
             statementPackage: response.body,
             busy: null,
@@ -519,6 +555,7 @@ export function createRealAgentCenterController(
         }
       });
     },
+    cashForecastDraft,
     startCouncil() {
       const statementPackage = state.statementPackage;
       const formulaPolicyVersionId = councilPolicyVersionId;
@@ -618,9 +655,14 @@ export function createRealAgentCenterController(
       if (destroyed) return;
       shutdown(false);
     },
+    logout() {
+      if (destroyed) return;
+      shutdown(false);
+    },
     destroy() {
       if (destroyed) return;
       shutdown(true);
+      deactivateCashForecastDraft();
       destroyed = true;
     }
   };

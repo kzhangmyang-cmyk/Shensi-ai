@@ -7,6 +7,7 @@ import type {
   FinancialCouncilPolicyVersion,
   FinancialCouncilRun,
   FinancialCouncilRunAgentsView,
+  FinancialCashForecastSupplementInput,
   FinancialStatementPackageCommitInput,
   FinancialStatementPackagePreview,
   FinancialStatementPackagePreviewInput,
@@ -323,16 +324,83 @@ function validateStatementPreview(value: unknown): FinancialStatementPackagePrev
   return value as FinancialStatementPackagePreview;
 }
 
+function cashForecastBody(
+  value: FinancialCashForecastSupplementInput
+): FinancialCashForecastSupplementInput {
+  const raw = value as unknown as Record<string, unknown>;
+  if (!Array.isArray(raw.receivables) || raw.receivables.length > 100) invalid("request");
+  const receivables = raw.receivables.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) invalid("request");
+    const row = entry as Record<string, unknown>;
+    const closed = {
+      customer: row.customer,
+      amountMinor: row.amountMinor,
+      daysOutstanding: row.daysOutstanding
+    };
+    if (!nonempty(closed.customer) || [...closed.customer.trim()].length > 255
+      || !positiveInteger(closed.amountMinor) || !safeNonNegative(closed.daysOutstanding)
+      || closed.daysOutstanding > 3650) invalid("request");
+    return closed;
+  });
+  const attestation = raw.attestation as Record<string, unknown> | undefined;
+  const closed = {
+    forecastAsOf: raw.forecastAsOf,
+    expectedInflowsNext30DaysMinor: raw.expectedInflowsNext30DaysMinor,
+    expectedOutflowsNext30DaysMinor: raw.expectedOutflowsNext30DaysMinor,
+    expectedInflowsNext31To90DaysMinor: raw.expectedInflowsNext31To90DaysMinor,
+    expectedOutflowsNext31To90DaysMinor: raw.expectedOutflowsNext31To90DaysMinor,
+    receivables,
+    attestation: {
+      accepted: attestation?.accepted,
+      noticeVersion: attestation?.noticeVersion
+    }
+  } as FinancialCashForecastSupplementInput;
+  if (!nonempty(closed.forecastAsOf)
+    || !safeNonNegative(closed.expectedInflowsNext30DaysMinor)
+    || !safeNonNegative(closed.expectedOutflowsNext30DaysMinor)
+    || !safeNonNegative(closed.expectedInflowsNext31To90DaysMinor)
+    || !safeNonNegative(closed.expectedOutflowsNext31To90DaysMinor)
+    || closed.attestation.accepted !== true
+    || closed.attestation.noticeVersion !== "financial-cash-forecast.v1") {
+    invalid("request");
+  }
+  return closed;
+}
+
+function validateCashForecastSummary(value: unknown): void {
+  const row = record(value, [
+    "acceptedAt", "currency", "expectedInflowsNext30DaysMinor",
+    "expectedInflowsNext31To90DaysMinor", "expectedOutflowsNext30DaysMinor",
+    "expectedOutflowsNext31To90DaysMinor", "forecastAsOf", "forecastHash",
+    "noticeVersion", "receivablesCount", "source"
+  ]);
+  if (row.source !== "management_attested" || !nonempty(row.forecastAsOf)
+    || (row.currency !== "CNY" && row.currency !== "USD")
+    || !safeNonNegative(row.expectedInflowsNext30DaysMinor)
+    || !safeNonNegative(row.expectedOutflowsNext30DaysMinor)
+    || !safeNonNegative(row.expectedInflowsNext31To90DaysMinor)
+    || !safeNonNegative(row.expectedOutflowsNext31To90DaysMinor)
+    || !safeNonNegative(row.receivablesCount) || row.receivablesCount > 100
+    || row.noticeVersion !== "financial-cash-forecast.v1"
+    || !nonempty(row.acceptedAt) || typeof row.forecastHash !== "string"
+    || !/^sha256:[0-9a-f]{64}$/u.test(row.forecastHash)) invalid();
+}
+
 function validateStatementPackage(value: unknown): FinancialStatementPackageView {
   const row = record(value, [
-    "companyName", "createdAt", "currency", "expiresAt", "packageId",
-    "parserVersion", "period", "sourceFiles", "status", "warningCodes"
+    "cashForecast", "companyName", "createdAt", "currency", "expiresAt",
+    "forecastStatus", "packageId", "parserVersion", "period", "sourceFiles",
+    "status", "warningCodes"
   ]);
   if (!nonempty(row.companyName) || !nonempty(row.createdAt)
     || (row.currency !== "CNY" && row.currency !== "USD")
     || row.expiresAt !== null || !nonempty(row.packageId)
     || row.parserVersion !== "financial-statements.v2" || !nonempty(row.period)
-    || row.status !== "verified" || !stringArray(row.warningCodes)) invalid();
+    || row.status !== "verified" || !stringArray(row.warningCodes)
+    || (row.forecastStatus !== "computed" && row.forecastStatus !== "not_computable")
+    || (row.forecastStatus === "computed" && row.cashForecast === null)
+    || (row.forecastStatus === "not_computable" && row.cashForecast !== null)) invalid();
+  if (row.cashForecast !== null) validateCashForecastSummary(row.cashForecast);
   validateSourceFiles(row.sourceFiles);
   return value as FinancialStatementPackageView;
 }
@@ -400,8 +468,11 @@ export function createRealAgentCenterApi(http: GrowthHttpClient): RealAgentCente
       const consent = (input as unknown as Record<string, unknown>).consent;
       if (!consent || typeof consent !== "object") invalid("request");
       const raw = consent as Record<string, unknown>;
+      const cashForecast = (input as unknown as Record<string, unknown>).cashForecast;
+      if (!cashForecast || typeof cashForecast !== "object") invalid("request");
       const body = {
-        consent: { accepted: raw.accepted, noticeVersion: raw.noticeVersion }
+        consent: { accepted: raw.accepted, noticeVersion: raw.noticeVersion },
+        cashForecast: cashForecastBody(cashForecast as FinancialCashForecastSupplementInput)
       } as FinancialStatementPackageCommitInput;
       if (body.consent.accepted !== true
         || body.consent.noticeVersion !== "financial-model-data.v1") invalid("request");

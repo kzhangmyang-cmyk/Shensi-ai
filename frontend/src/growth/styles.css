@@ -1971,6 +1971,126 @@
   text-decoration: underline;
 }
 
+:is(.replica-shell, #growthWorkspace) .cash-forecast {
+  margin: 0.9rem 0;
+  padding: clamp(0.85rem, 2vw, 1.15rem);
+  border: 1px solid rgba(24, 237, 120, 0.2);
+  border-radius: var(--replica-radius-sm, 12px);
+  background: rgba(0, 0, 0, 0.24);
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast h4,
+:is(.replica-shell, #growthWorkspace) .cash-forecast h5 {
+  margin: 0.18rem 0 0;
+  color: var(--replica-text, #f1f3f0);
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast-amounts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem 0.75rem;
+  margin-top: 0.9rem;
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast label,
+:is(.replica-shell, #growthWorkspace) .cash-forecast-receivable legend {
+  color: #c6ccc8;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast-money-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  margin-bottom: 0.35rem;
+  border: 1px solid var(--replica-line, rgba(229, 238, 233, 0.18));
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast input[type="text"] {
+  min-width: 0;
+  min-height: 2.6rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--replica-line, rgba(229, 238, 233, 0.18));
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--replica-text, #f1f3f0);
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast-money-control input {
+  border: 0;
+  background: transparent;
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast-money-control span {
+  padding: 0 0.65rem;
+  color: var(--replica-muted, #8c928e);
+  font-size: 0.7rem;
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast-receivables {
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--replica-line-soft, rgba(229, 238, 233, 0.09));
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast-receivables > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast button {
+  min-height: 2.3rem;
+  border: 1px solid rgba(24, 237, 120, 0.25);
+  border-radius: 10px;
+  background: rgba(24, 237, 120, 0.07);
+  color: var(--replica-accent, #18ed78);
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast-receivable {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 0.35rem 0.65rem;
+  margin: 0.7rem 0 0;
+  padding: 0.75rem;
+  border: 1px solid var(--replica-line-soft, rgba(229, 238, 233, 0.09));
+  border-radius: 10px;
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast-receivable label {
+  grid-row: 1;
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast-receivable input {
+  grid-row: 2;
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast-receivable button {
+  grid-column: 4;
+  grid-row: 1 / 3;
+  align-self: end;
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast-attestation {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  margin-top: 0.85rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  line-height: 1.55;
+}
+
+:is(.replica-shell, #growthWorkspace) .cash-forecast :is(input, button):focus-visible {
+  outline: 2px solid var(--replica-accent, #18ed78);
+  outline-offset: 2px;
+}
+
 .replica-shell .routing-fallback-badge {
   display: inline-flex;
   margin: 0.4rem 0;
@@ -2291,6 +2411,26 @@
 
   :is(.replica-shell, #growthWorkspace) .statements-import-fields {
     grid-template-columns: 1fr;
+  }
+
+  :is(.replica-shell, #growthWorkspace) .cash-forecast-amounts,
+  :is(.replica-shell, #growthWorkspace) .cash-forecast-receivable {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :is(.replica-shell, #growthWorkspace) .cash-forecast-receivables > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  :is(.replica-shell, #growthWorkspace) .cash-forecast-receivables > header div {
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  :is(.replica-shell, #growthWorkspace) .cash-forecast-receivable :is(label, input, button) {
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .replica-shell .statement-preview dl,

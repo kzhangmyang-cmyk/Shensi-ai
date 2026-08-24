@@ -8,6 +8,10 @@ import type {
   ParsedCompanyResult
 } from "./api";
 import type { RealAgentCenterControllerState } from "./real-controller";
+import {
+  currentFinancialCashForecastDraftComplete,
+  currentFinancialCashForecastDraftSnapshot
+} from "./entry";
 
 const REAL_ROLES = ["cfo", "finance", "profit", "cost", "cashflow", "tax"] as const;
 const REAL_STATUS_LABELS = {
@@ -190,6 +194,76 @@ function realAgentCard(
   </article>`;
 }
 
+function cashForecastReceivableRows(): string {
+  const snapshot = currentFinancialCashForecastDraftSnapshot();
+  return (snapshot?.receivables ?? []).map((row, index) => {
+    const position = index + 1;
+    return `<fieldset class="cash-forecast-receivable" data-cash-forecast-receivable-row>
+      <legend>应收账款 ${position}</legend>
+      <label for="cash-forecast-customer-${position}">应收客户 ${position}</label>
+      <input id="cash-forecast-customer-${position}" type="text" maxlength="255"
+        autocomplete="off" data-cash-forecast-receivable-field="customer"
+        value="${escapeHtml(row.customer)}">
+      <label for="cash-forecast-amount-${position}">应收金额 ${position}</label>
+      <input id="cash-forecast-amount-${position}" type="text" inputmode="decimal"
+        autocomplete="off" data-cash-forecast-receivable-field="amount"
+        value="${escapeHtml(row.amount)}">
+      <label for="cash-forecast-days-${position}">逾期天数 ${position}</label>
+      <input id="cash-forecast-days-${position}" type="text" inputmode="numeric"
+        autocomplete="off" data-cash-forecast-receivable-field="daysOutstanding"
+        value="${escapeHtml(row.daysOutstanding)}">
+      <button type="button" data-cash-forecast-receivable-remove>
+        删除应收账款 ${position}</button>
+    </fieldset>`;
+  }).join("");
+}
+
+function cashForecastForm(currency: "CNY" | "USD"): string {
+  const snapshot = currentFinancialCashForecastDraftSnapshot();
+  const amounts = snapshot?.amounts ?? {
+    inflow30: "", outflow30: "", inflow31To90: "", outflow31To90: ""
+  };
+  const amount = (
+    field: keyof typeof amounts,
+    label: string
+  ) => `<label for="cash-forecast-${field}">${label}</label>
+    <div class="cash-forecast-money-control">
+      <input id="cash-forecast-${field}" type="text" inputmode="decimal"
+        autocomplete="off" data-cash-forecast-amount="${field}"
+        value="${escapeHtml(amounts[field])}">
+      <span aria-hidden="true">${currency}</span>
+    </div>`;
+  const rows = cashForecastReceivableRows();
+  return `<section class="cash-forecast" aria-labelledby="cash-forecast-title">
+    <header><span class="agents-overline">MANAGEMENT ATTESTATION</span>
+      <h4 id="cash-forecast-title">未来现金预测</h4>
+      <p>金额以 ${currency} 主币单位填写，提交时安全转换为分。</p></header>
+    <div class="cash-forecast-amounts">
+      ${amount("inflow30", "未来 30 天预计流入")}
+      ${amount("outflow30", "未来 30 天预计流出")}
+      ${amount("inflow31To90", "第 31–90 天预计流入")}
+      ${amount("outflow31To90", "第 31–90 天预计流出")}
+    </div>
+    <section class="cash-forecast-receivables" aria-labelledby="cash-forecast-receivables-title">
+      <header><h5 id="cash-forecast-receivables-title">应收账款与账龄</h5>
+        <div><button type="button" data-cash-forecast-receivable-add>添加应收账款</button>
+        <button type="button" data-cash-forecast-receivable-empty>当前没有应收账款</button></div>
+      </header>
+      <p data-cash-forecast-receivables-empty ${
+        snapshot?.receivablesState === "empty" ? "" : "hidden"
+      }>已确认：当前没有应收账款。</p>
+      <div data-cash-forecast-receivables>${rows}</div>
+    </section>
+    <label class="cash-forecast-attestation">
+      <input type="checkbox" data-cash-forecast-attestation ${
+        snapshot?.attestationAccepted ? "checked" : ""
+      }>
+      我确认以上管理层现金预测真实、完整，并接受声明版本
+      <strong>financial-cash-forecast.v1</strong>。
+    </label>
+  </section>`;
+}
+
 export function renderRealAgentsOverview(
   state: RealAgentCenterControllerState
 ): string {
@@ -229,17 +303,24 @@ export function renderRealAgentsOverview(
           `<li>${escapeHtml(warning)}</li>`).join("") || "<li>无警告</li>"}</ul>
         <p>标准化关键金额以服务端验证结果为准；未知项目显示“暂不可计算”。</p>
       </section>` : ""}
+      ${preview && !verified ? cashForecastForm(preview.currency) : ""}
       <label class="financial-consent"><input type="checkbox" data-real-consent
         ${state.consentAccepted ? "checked" : ""} ${preview ? "" : "disabled"}>
         我确认标准化财务数据会传输给所选第三方模型供应商；已阅读
         <button type="button" data-routing-action="open">安全路由摘要</button>。</label>
       <div class="statements-import-actions">
-        <button type="button" data-real-action="commit" ${preview && state.consentAccepted && !state.busy ? "" : "disabled"}>
+        <button type="button" data-real-action="commit" ${preview && state.consentAccepted
+          && currentFinancialCashForecastDraftComplete() && !state.busy ? "" : "disabled"}>
           2. 确认并提交验证</button>
         <button type="button" data-real-action="run" ${verified && state.readiness?.capabilities.canRun && !state.busy ? "" : "disabled"}>
           3. 启动财务委员会</button>
       </div>
-      ${verified ? `<p class="statement-package-ready">已验证：${escapeHtml(verified.companyName)} · ${escapeHtml(verified.period)}</p>` : ""}
+      ${verified ? `<div class="statement-package-ready"><p>已验证：${escapeHtml(verified.companyName)} · ${escapeHtml(verified.period)}</p>${
+        verified.cashForecast
+          ? `<p>现金预测已确认 · 应收 ${verified.cashForecast.receivablesCount} 笔 · ${
+            escapeHtml(verified.cashForecast.forecastAsOf)}</p>`
+          : ""
+      }</div>` : ""}
     </section>
     <section aria-labelledby="real-agents-title"><h3 id="real-agents-title">六角色服务端状态</h3>
       <div class="agents-grid">${REAL_ROLES.map((role) => realAgentCard(state, role)).join("")}</div>

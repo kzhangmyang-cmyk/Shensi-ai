@@ -5,6 +5,7 @@ import {
   type RealAgentCenterControllerOptions
 } from "./real-controller";
 import type { RealAgentCenterApi } from "./real-api";
+import type { FinancialCashForecastSupplementInput } from "../contracts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -50,8 +51,26 @@ const preview = Object.freeze({
 const statementPackage = Object.freeze({
   packageId: "package-1", status: "verified", companyName: "公司", period: "2026-07", currency: "CNY",
   parserVersion: "financial-statements.v2", sourceFiles, warningCodes: ["period_requires_review"],
-  createdAt: "2026-08-23T00:00:00.000Z", expiresAt: null
+  createdAt: "2026-08-23T00:00:00.000Z", expiresAt: null,
+  forecastStatus: "computed", cashForecast: {
+    source: "management_attested", forecastAsOf: "2026-08-16T08:09:00.000Z",
+    currency: "CNY", expectedInflowsNext30DaysMinor: 100_000,
+    expectedOutflowsNext30DaysMinor: 500_000,
+    expectedInflowsNext31To90DaysMinor: 800_000,
+    expectedOutflowsNext31To90DaysMinor: 300_000, receivablesCount: 1,
+    noticeVersion: "financial-cash-forecast.v1",
+    acceptedAt: "2026-08-16T08:10:00.000Z", forecastHash: `sha256:${"d".repeat(64)}`
+  }
 });
+const cashForecast: FinancialCashForecastSupplementInput = {
+  forecastAsOf: "2026-08-16T08:09:00.000Z",
+  expectedInflowsNext30DaysMinor: 100_000,
+  expectedOutflowsNext30DaysMinor: 500_000,
+  expectedInflowsNext31To90DaysMinor: 800_000,
+  expectedOutflowsNext31To90DaysMinor: 300_000,
+  receivables: [{ customer: "客户 A", amountMinor: 1_000_000, daysOutstanding: 120 }],
+  attestation: { accepted: true, noticeVersion: "financial-cash-forecast.v1" }
+};
 const councilRun = Object.freeze({
   runId: "run-1", workspaceId: "workspace-1", currency: "CNY", status: "snapshot_frozen", revision: 1,
   dataAsOf: "2026-08-23T00:00:00.000Z", businessReport: {}, policyVersionId: "policy-1",
@@ -83,7 +102,7 @@ async function settleLoad(): Promise<void> {
 function apiFixture(overrides: Partial<RealAgentCenterApi> = {}) {
   const calls = {
     previewKeys: [] as string[], commitKeys: [] as string[], createKeys: [] as string[],
-    createInputs: [] as unknown[],
+    createInputs: [] as unknown[], commitInputs: [] as unknown[],
     updateKeys: [] as string[], previewStatements: 0, commitStatements: 0,
     createRunFromPackage: 0, updateRouting: 0
   };
@@ -95,7 +114,7 @@ function apiFixture(overrides: Partial<RealAgentCenterApi> = {}) {
     async previewRouting(key) { calls.previewKeys.push(key); return { status: 200, etag: null, body: previews } as never; },
     async updateRouting(_input, _etag, key) { calls.updateRouting += 1; calls.updateKeys.push(key); return { status: 200, etag: '"next-etag"', body: policy } as never; },
     async previewStatements(_input, key) { calls.previewStatements += 1; calls.previewKeys.push(key); return { status: 200, etag: null, body: preview } as never; },
-    async commitStatements(_previewId, _input, key) { calls.commitStatements += 1; calls.commitKeys.push(key); return { status: 201, etag: null, body: statementPackage } as never; },
+    async commitStatements(_previewId, input, key) { calls.commitStatements += 1; calls.commitKeys.push(key); calls.commitInputs.push(input); return { status: 201, etag: null, body: statementPackage } as never; },
     async createRunFromPackage(input, key) {
       calls.createRunFromPackage += 1; calls.createKeys.push(key);
       calls.createInputs.push(input);
@@ -112,6 +131,19 @@ async function selectAll(controller: ReturnType<typeof createRealAgentCenterCont
   await controller.selectStatement("cash_flow_statement", file("cashflow.xlsx", "cashflow"));
 }
 
+function completePrivateForecast(
+  controller: ReturnType<typeof createRealAgentCenterController>,
+  customer = "客户 A"
+): void {
+  const draft = controller.cashForecastDraft!;
+  draft.setAmount("inflow30", "1000.00");
+  draft.setAmount("outflow30", "5000.00");
+  draft.setAmount("inflow31To90", "8000.00");
+  draft.setAmount("outflow31To90", "3000.00");
+  draft.addReceivable({ customer, amount: "10000.00", daysOutstanding: "120" });
+  draft.setAttestation(true);
+}
+
 // End-to-end controller progression catches fallback to legacy businessReport creation.
 {
   const { api, calls } = apiFixture();
@@ -121,7 +153,7 @@ async function selectAll(controller: ReturnType<typeof createRealAgentCenterCont
   await controller.previewStatements();
   assert.deepEqual(controller.getState().statementPreview?.warningCodes, ["period_requires_review"]);
   controller.acceptModelDataNotice(true);
-  await controller.commitStatements();
+  await controller.commitStatements(cashForecast);
   assert.equal(controller.getState().files.balance_sheet?.name, "balance.xlsx");
   await controller.previewStatements();
   assert.equal(calls.previewStatements, 1);
@@ -148,9 +180,58 @@ async function selectAll(controller: ReturnType<typeof createRealAgentCenterCont
   assert.equal(calls.previewStatements, 0);
   await selectAll(controller);
   await controller.previewStatements();
-  await controller.commitStatements();
+  await controller.commitStatements(cashForecast);
   assert.equal(controller.getState().error, "financial_model_data_consent_required");
   assert.equal(calls.commitStatements, 0);
+  controller.destroy();
+}
+
+// A private draft must be complete before commit and is converted to the generated DTO.
+{
+  const { api, calls } = apiFixture();
+  const controller = createRealAgentCenterController({
+    api, now: () => "2026-08-16T08:09:00.000Z"
+  });
+  await settleLoad();
+  await selectAll(controller);
+  await controller.previewStatements();
+  controller.acceptModelDataNotice(true);
+  await controller.commitStatements();
+  assert.equal(controller.getState().error, "financial_cash_forecast_incomplete");
+  assert.equal(calls.commitStatements, 0);
+  completePrivateForecast(controller);
+  await controller.commitStatements();
+  assert.deepEqual(calls.commitInputs, [{
+    consent: { accepted: true, noticeVersion: "financial-model-data.v1" },
+    cashForecast
+  }]);
+  assert.equal(JSON.stringify(controller.cashForecastDraft!.snapshot()).includes("客户 A"), false);
+  controller.destroy();
+}
+
+// 409/412 retain private values and retry uses the same digest-only semantic identity.
+for (const status of [409, 412]) {
+  const { api, calls } = apiFixture({
+    async commitStatements(_previewId, _input, key) {
+      calls.commitStatements += 1;
+      calls.commitKeys.push(key);
+      throw new GrowthApiError(status, `safe_${status}`);
+    }
+  });
+  const controller = createRealAgentCenterController({
+    api, idFactory: sequenceIds(), now: () => "2026-08-16T08:09:00.000Z"
+  });
+  await settleLoad();
+  await selectAll(controller);
+  await controller.previewStatements();
+  controller.acceptModelDataNotice(true);
+  completePrivateForecast(controller, `保留客户 ${status}`);
+  await controller.commitStatements();
+  await controller.commitStatements();
+  assert.equal(JSON.stringify(controller.cashForecastDraft!.snapshot()).includes(`保留客户 ${status}`), true);
+  assert.deepEqual(calls.commitKeys, [calls.commitKeys[0], calls.commitKeys[0]]);
+  assert.equal(calls.commitKeys[0]?.includes("保留客户"), false);
+  assert.equal(calls.commitKeys[0]?.includes("10000.00"), false);
   controller.destroy();
 }
 
@@ -183,8 +264,8 @@ async function selectAll(controller: ReturnType<typeof createRealAgentCenterCont
   assert.equal(controller.getState().statementPackage, null);
   await controller.previewStatements();
   controller.acceptModelDataNotice(true);
-  await controller.commitStatements();
-  await controller.commitStatements();
+  await controller.commitStatements(cashForecast);
+  await controller.commitStatements(cashForecast);
   await controller.startCouncil();
   await controller.startCouncil();
   assert.equal(calls.previewKeys.at(-2), calls.previewKeys.at(-1));
@@ -214,6 +295,45 @@ async function selectAll(controller: ReturnType<typeof createRealAgentCenterCont
   controller.destroy();
 }
 
+// A late commit A cannot overwrite or clear the changed draft committed by request B.
+{
+  const firstResponse = deferred<never>();
+  const signals: AbortSignal[] = [];
+  let request = 0;
+  const newerPackage = { ...statementPackage, packageId: "package-new" };
+  const { api, calls } = apiFixture({
+    async commitStatements(_previewId, _input, key, signal) {
+      request += 1;
+      calls.commitStatements += 1;
+      calls.commitKeys.push(key);
+      if (signal) signals.push(signal);
+      if (request === 1) return firstResponse.promise;
+      return { status: 201, etag: null, body: newerPackage } as never;
+    }
+  });
+  const controller = createRealAgentCenterController({
+    api, idFactory: sequenceIds(), now: () => "2026-08-16T08:09:00.000Z"
+  });
+  await settleLoad();
+  await selectAll(controller);
+  await controller.previewStatements();
+  controller.acceptModelDataNotice(true);
+  completePrivateForecast(controller, "客户 A");
+  const first = controller.commitStatements();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  controller.cashForecastDraft!.updateReceivable(0, {
+    customer: "客户 B", amount: "10000.00", daysOutstanding: "120"
+  });
+  await controller.commitStatements();
+  assert.equal(signals[0]?.aborted, true);
+  assert.equal(controller.getState().statementPackage?.packageId, "package-new");
+  firstResponse.resolve({ status: 201, etag: null, body: statementPackage } as never);
+  await first;
+  assert.equal(controller.getState().statementPackage?.packageId, "package-new");
+  assert.equal(calls.commitKeys.every((key) => !/\u5ba2\u6237|10000/u.test(key)), true);
+  controller.destroy();
+}
+
 // A late preview for replaced files cannot overwrite the newer package preview.
 {
   const oldResponse = deferred<never>();
@@ -232,7 +352,9 @@ async function selectAll(controller: ReturnType<typeof createRealAgentCenterCont
   const old = controller.previewStatements();
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
   assert.equal(request, 1);
+  completePrivateForecast(controller, "替换客户");
   await controller.selectStatement("balance_sheet", file("balance-new.xlsx", "new"));
+  assert.equal(JSON.stringify(controller.cashForecastDraft!.snapshot()).includes("替换客户"), false);
   await controller.previewStatements();
   oldResponse.resolve({ status: 200, etag: null, body: preview } as never);
   await old;
@@ -318,8 +440,8 @@ async function selectAll(controller: ReturnType<typeof createRealAgentCenterCont
   controller.destroy();
 }
 
-// close/destroy abort every command/read, suppress late state, and release private files.
-for (const teardown of ["close", "destroy"] as const) {
+// close/destroy/logout abort every command/read and clear private files and forecast text.
+for (const teardown of ["close", "destroy", "logout"] as const) {
   const pending = deferred<never>();
   let requestSignal: AbortSignal | undefined;
   let fileReads = 0;
@@ -336,15 +458,17 @@ for (const teardown of ["close", "destroy"] as const) {
   await controller.selectStatement("balance_sheet", heldFile);
   await controller.selectStatement("income_statement", file("income.xlsx", "income"));
   await controller.selectStatement("cash_flow_statement", file("cash.xlsx", "cash"));
+  completePrivateForecast(controller, `销毁客户 ${teardown}`);
   const operation = controller.previewStatements();
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
   assert.equal(requestSignal?.aborted, false);
-  controller[teardown]();
+  controller[teardown]!();
   assert.equal(requestSignal?.aborted, true);
   pending.resolve({ status: 200, etag: null, body: preview } as never);
   await operation;
   assert.equal(controller.getState().statementPreview, null);
   assert.equal(controller.getState().files.balance_sheet, null);
+  assert.equal(JSON.stringify(controller.cashForecastDraft!.snapshot()).includes("销毁客户"), false);
   assert.equal(fileReads, 2);
 }
 

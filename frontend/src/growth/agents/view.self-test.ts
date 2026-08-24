@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { parseHTML } from "linkedom";
 import {
   BUSINESS_AGENT_TEAM,
   businessAgentById
@@ -12,6 +13,11 @@ import {
   renderDiagnosisReport
 } from "./view";
 import type { DiagnosisReport } from "./api";
+import { createFinancialCashForecastDraft } from "./cash-forecast-draft";
+import {
+  activateFinancialCashForecastDraft,
+  bindFinancialCashForecastDraft
+} from "./entry";
 
 assert.equal(BUSINESS_AGENT_TEAM.length, 6);
 assert.equal(businessAgentById("profit")?.name, "利润分析");
@@ -124,6 +130,82 @@ assert.match(realOverview, /data-routing-action="save"/u);
 assert.doesNotMatch(realOverview, /<tax>/u);
 assert.match(realOverview, /&lt;tax&gt;/u);
 assert.doesNotMatch(realOverview, /apiKey|prompt|rawWorkbook/u);
+
+const forecastDraft = createFinancialCashForecastDraft();
+forecastDraft.setAmount("inflow30", "1000.00");
+forecastDraft.setAmount("outflow30", "5000.00");
+forecastDraft.setAmount("inflow31To90", "8000.00");
+forecastDraft.setAmount("outflow31To90", "3000.00");
+forecastDraft.addReceivable({
+  customer: "私密客户 A", amount: "10000.00", daysOutstanding: "120"
+});
+forecastDraft.setAttestation(true);
+const deactivateForecast = activateFinancialCashForecastDraft(forecastDraft);
+const forecastOverview = renderRealAgentsOverview({
+  readiness: null, routingPolicy: null, routingPreview: [],
+  files: { balance_sheet: null, income_statement: null, cash_flow_statement: null },
+  statementPreview: {
+    previewId: "preview-1", status: "preview", companyName: "公司", period: "2026-07",
+    currency: "CNY", parserVersion: "financial-statements.v2", sourceFiles: [],
+    warningCodes: [], createdAt: "2026-08-23T00:00:00.000Z",
+    expiresAt: "2026-08-23T00:30:00.000Z"
+  },
+  statementPackage: null, latestRun: null, runAgents: null,
+  consentAccepted: true, busy: null, error: null
+});
+assert.match(forecastOverview, /未来 30 天预计流入/u);
+assert.match(forecastOverview, /第 31–90 天预计流出/u);
+assert.match(forecastOverview, /data-cash-forecast-receivable-add/u);
+assert.match(forecastOverview, /当前没有应收账款/u);
+assert.match(forecastOverview, /financial-cash-forecast\.v1/u);
+assert.match(forecastOverview, /inputmode="decimal"/u);
+assert.match(forecastOverview, /inputmode="numeric"/u);
+assert.doesNotMatch(forecastOverview, /data-[^=\s]+="[^"]*(?:私密客户 A|10000\.00)/u);
+assert.doesNotMatch(forecastOverview, /id="[^"]*(?:私密客户 A|10000\.00)/u);
+const forecastDom = parseHTML(forecastOverview);
+const unbindForecast = bindFinancialCashForecastDraft(forecastDom.document, forecastDraft);
+const forecastEvent = (type: string) => new forecastDom.window.Event(type, { bubbles: true });
+const inflow = forecastDom.document.querySelector<HTMLInputElement>(
+  '[data-cash-forecast-amount="inflow30"]'
+)!;
+const commit = forecastDom.document.querySelector<HTMLButtonElement>('[data-real-action="commit"]')!;
+forecastDom.document.querySelector<HTMLInputElement>("[data-real-consent]")!.checked = true;
+inflow.value = "";
+inflow.dispatchEvent(forecastEvent("input"));
+assert.equal(commit.disabled, true);
+inflow.value = "1000.00";
+inflow.dispatchEvent(forecastEvent("input"));
+assert.equal(commit.disabled, false);
+forecastDom.document.querySelector<HTMLButtonElement>(
+  "[data-cash-forecast-receivable-empty]"
+)!.dispatchEvent(forecastEvent("click"));
+assert.equal(forecastDraft.toInput("2026-08-16T08:09:00.000Z").receivables.length, 0);
+forecastDom.document.querySelector<HTMLButtonElement>(
+  "[data-cash-forecast-receivable-add]"
+)!.dispatchEvent(forecastEvent("click"));
+assert.equal(commit.disabled, true);
+for (const [field, value] of [
+  ["customer", "DOM客户"], ["amount", "12.34"], ["daysOutstanding", "90"]
+] as const) {
+  const input = forecastDom.document.querySelector<HTMLInputElement>(
+    `[data-cash-forecast-receivable-field="${field}"]`
+  )!;
+  input.value = value;
+  input.dispatchEvent(forecastEvent("input"));
+}
+assert.equal(commit.disabled, false);
+assert.deepEqual(forecastDraft.toInput("2026-08-16T08:09:00.000Z").receivables, [{
+  customer: "DOM客户", amountMinor: 1_234, daysOutstanding: 90
+}]);
+unbindForecast();
+forecastDraft.clear();
+assert.doesNotMatch(renderRealAgentsOverview({
+  readiness: null, routingPolicy: null, routingPreview: [],
+  files: { balance_sheet: null, income_statement: null, cash_flow_statement: null },
+  statementPreview: null, statementPackage: null, latestRun: null, runAgents: null,
+  consentAccepted: false, busy: null, error: null
+}), /私密客户 A|10000\.00/u);
+deactivateForecast();
 
 const detail = renderAgentDetail("profit");
 assert.equal(detail.includes("找出钱到底赚在哪"), true);
