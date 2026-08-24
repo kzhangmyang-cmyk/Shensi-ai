@@ -183,6 +183,24 @@ function validMoney(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+function periodEnd(period: string): number | null {
+  const quarter = /^(\d{4})-Q([1-4])$/u.exec(period);
+  if (quarter) {
+    const year = Number(quarter[1]);
+    const month = Number(quarter[2]) * 3;
+    return Date.UTC(year, month, 0, 23, 59, 59, 999);
+  }
+  const date = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(period);
+  if (!date) return null;
+  const year = Number(date[1]);
+  const month = Number(date[2]);
+  const day = Number(date[3]);
+  const end = Date.UTC(year, month - 1, day, 23, 59, 59, 999);
+  const check = new Date(end);
+  return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1
+    && check.getUTCDate() === day ? end : null;
+}
+
 function validateForecastRecord(value: FinancialCashForecastSupplement,
   context: FinancialCashForecastContext): FinancialCashForecastSupplement {
   const record = closedCopy(value);
@@ -228,11 +246,13 @@ export function canonicalFinancialCashForecastSupplement(
     || Object.keys(ctx).sort().join("\0") !== ["acceptedAt", "acceptedBy", "currency", "period"].sort().join("\0")) {
     fail("financial_statement_input_invalid");
   }
+  const end = typeof ctx.period === "string" ? periodEnd(ctx.period) : null;
   if ((ctx.currency !== "CNY" && ctx.currency !== "USD")
     || typeof ctx.acceptedBy !== "string" || ctx.acceptedBy.length === 0
     || !validInstant(ctx.acceptedAt) || typeof ctx.period !== "string"
-    || !validInstant(root.forecastAsOf) || root.forecastAsOf.slice(0, 10) !== ctx.period
-    || Date.parse(root.forecastAsOf) > Date.parse(ctx.acceptedAt)) {
+    || end === null || !validInstant(root.forecastAsOf)
+    || Date.parse(root.forecastAsOf) > Date.parse(ctx.acceptedAt) + 1_000
+    || Date.parse(root.forecastAsOf) < end - 366 * 86_400_000) {
     fail("financial_cash_forecast_invalid");
   }
   const attestation = closedCopy(root.attestation);

@@ -223,6 +223,41 @@ test("management cash forecast rejects open, unsafe and stale inputs", () => {
     /financial_statement_input_invalid|financial_cash_forecast/);
 });
 
+test("forecast period windows accept quarterly and date periods", () => {
+  const context = { currency: "CNY" as const, acceptedBy: "u_admin",
+    acceptedAt: "2026-08-16T08:10:00.000Z", period: "2026-Q2" };
+  const quarterly = canonicalFinancialCashForecastSupplement(forecastInput, context);
+  assert.equal(quarterly.forecastAsOf, forecastInput.forecastAsOf);
+  const datePeriod = canonicalFinancialCashForecastSupplement(forecastInput, {
+    ...context, period: "2026-08-16"
+  });
+  assert.equal(datePeriod.forecastAsOf, forecastInput.forecastAsOf);
+});
+
+test("forecast period windows enforce accepted-at and period-end boundaries", () => {
+  const context = { currency: "CNY" as const, acceptedBy: "u_admin",
+    acceptedAt: "2026-08-16T08:10:00.000Z", period: "2026-Q2" };
+  canonicalFinancialCashForecastSupplement({ ...forecastInput,
+    forecastAsOf: "2026-08-16T08:10:01.000Z" }, context);
+  assert.throws(() => canonicalFinancialCashForecastSupplement({ ...forecastInput,
+    forecastAsOf: "2026-08-16T08:10:01.001Z" }, context),
+  /financial_cash_forecast_invalid/);
+  canonicalFinancialCashForecastSupplement({ ...forecastInput,
+    forecastAsOf: "2025-06-29T23:59:59.999Z" }, context);
+  assert.throws(() => canonicalFinancialCashForecastSupplement({ ...forecastInput,
+    forecastAsOf: "2025-06-29T23:59:59.998Z" }, context),
+  /financial_cash_forecast_invalid/);
+});
+
+test("forecast period windows reject malformed statement periods", () => {
+  for (const period of ["2026-Q5", "2026-13-40", "2026/08/16", "2026"]) {
+    assert.throws(() => canonicalFinancialCashForecastSupplement(forecastInput, {
+      currency: "CNY", acceptedBy: "u_admin",
+      acceptedAt: "2026-08-16T08:10:00.000Z", period
+    }), /financial_cash_forecast_invalid/);
+  }
+});
+
 function consent(acceptedBy = "u_admin") {
   return { accepted: true as const, noticeVersion: "financial-model-data.v1" as const,
     acceptedBy, acceptedAt: "2026-08-16T08:10:00.000Z" };
