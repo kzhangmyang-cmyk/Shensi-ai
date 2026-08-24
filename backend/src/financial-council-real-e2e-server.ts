@@ -94,6 +94,17 @@ export function financialCouncilRealE2eContract(
   });
 }
 
+export function financialCouncilRealE2eReadiness(
+  contract: FinancialCouncilRealE2eContract
+) {
+  return Object.freeze({
+    status: "ok" as const,
+    schemaVersion: contract.schemaVersion,
+    workspaceId: contract.workspaceId,
+    databaseName: contract.databaseName
+  });
+}
+
 function activeWorkspace(req: Request): ActiveWorkspaceContext {
   if (!req.activeWorkspace) throw new Error("E2E_ACTIVE_WORKSPACE_REQUIRED");
   return req.activeWorkspace;
@@ -376,12 +387,7 @@ Promise<FinancialCouncilRealE2eServer> {
     const e2eApp = express();
     e2eApp.get("/healthz", (_req, res) => {
       res.setHeader("Cache-Control", "no-store");
-      res.status(200).json({
-        status: "ok",
-        schemaVersion: contract.schemaVersion,
-        workspaceId: contract.workspaceId,
-        databaseName: contract.databaseName
-      });
+      res.status(200).json(financialCouncilRealE2eReadiness(contract));
     });
     e2eApp.use(serverModule.app);
     httpServer = await new Promise<Server>((resolve, reject) => {

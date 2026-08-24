@@ -49,6 +49,8 @@ import {
 import { FinancialCouncilService } from "./financial-council-service.js";
 import type { FinancialStatementPackageService } from
   "./financial-statement-package-service.js";
+import type { FinancialCashForecastSupplementInput } from
+  "./financial-statement-package.js";
 import { FinancialSnapshotBuilder } from "./financial-council-snapshot.js";
 import { FinancialCouncilSourceVerifier } from
   "./financial-council-source-verifier.js";
@@ -65,6 +67,25 @@ export const FINANCIAL_COUNCIL_INTEGRATION_AS_OF =
   "2026-08-16T08:00:00.000Z";
 
 const HASH = (value: unknown) => financialCouncilCanonicalHash(value);
+
+export function financialCouncilIntegrationForecastInput():
+FinancialCashForecastSupplementInput {
+  return Object.freeze({
+    forecastAsOf: "2026-08-16T08:09:00.000Z",
+    expectedInflowsNext30DaysMinor: 100_000,
+    expectedOutflowsNext30DaysMinor: 500_000,
+    expectedInflowsNext31To90DaysMinor: 800_000,
+    expectedOutflowsNext31To90DaysMinor: 300_000,
+    receivables: Object.freeze([Object.freeze({
+      customer: "验收客户 A", amountMinor: 1_000_000,
+      daysOutstanding: 120
+    })]),
+    attestation: Object.freeze({
+      accepted: true as const,
+      noticeVersion: "financial-cash-forecast.v1" as const
+    })
+  });
+}
 
 export function financialCouncilIntegrationWorkspace():
 ActiveWorkspaceContext {
@@ -98,6 +119,7 @@ export function financialCouncilIntegrationCommand(
 
 export function completeFinancialCouncilIntegrationReport():
 BusinessReportInput {
+  const forecast = financialCouncilIntegrationForecastInput();
   return Object.freeze({
     currency: "CNY",
     companyName: "Council Vertical Co",
@@ -129,14 +151,15 @@ BusinessReportInput {
       period: "2026-08", openingCashMinor: 600_000,
       operatingInflowMinor: 4_500_000, operatingOutflowMinor: 3_900_000,
       investingNetMinor: 0, financingNetMinor: -400_000,
-      receivables: Object.freeze([Object.freeze({
-        customer: "Customer A", amountMinor: 1_000_000,
-        daysOutstanding: 120
-      })]),
-      expectedInflowsNext30DaysMinor: 100_000,
-      expectedOutflowsNext30DaysMinor: 500_000,
-      expectedInflowsNext31To90DaysMinor: 800_000,
-      expectedOutflowsNext31To90DaysMinor: 300_000
+      receivables: forecast.receivables,
+      expectedInflowsNext30DaysMinor:
+        forecast.expectedInflowsNext30DaysMinor,
+      expectedOutflowsNext30DaysMinor:
+        forecast.expectedOutflowsNext30DaysMinor,
+      expectedInflowsNext31To90DaysMinor:
+        forecast.expectedInflowsNext31To90DaysMinor,
+      expectedOutflowsNext31To90DaysMinor:
+        forecast.expectedOutflowsNext31To90DaysMinor
     }),
     costDetail: Object.freeze({
       materialCostRateBps: 4_200, previousMaterialCostRateBps: 3_500,
