@@ -87,10 +87,12 @@ release bytes in place. See `docs/API_INDEX.md`.
   and aggregate ciphertext-identity digests. The authorized restore-boundary
   migration has run: source and target matched at 237 tables and 170 rows. The
   first target-backend start added one deterministic, idempotent
-  `system_migration` model-activation audit event, leaving the current target at
-  237 tables and 171 rows while the preserved source remains at 237 and 170.
-  Task 7 still requires authenticated login and one bounded restored DeepSeek
-  health test before it is complete. No provider call or cutover has run; see
+  `system_migration` model-activation audit event. The completed Task 7
+  credential-health gate added one immutable model job snapshot and one
+  model-call ledger row, leaving the current target at 237 tables and 173 rows
+  while the preserved source remains at 237 and 170. Task 7 authenticated once,
+  loaded the exact restored `deepseek-v4-pro` connection, and completed exactly
+  one bounded provider-health request. No cutover has run; see
   `docs/DATA_MIGRATION.md` and the current status ledger.
 - Source databases are read-only migration inputs. Restore and verification
   must use a distinct target and keep rollback artifacts recoverable.

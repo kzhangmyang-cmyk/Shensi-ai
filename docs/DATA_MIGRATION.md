@@ -8,14 +8,19 @@ restore-boundary migration into the distinct `shensi` database: source and
 target both had 237 base tables and 170 rows when closed verification passed.
 The source remains unchanged at 237 tables and 170 rows. The first isolated
 target-backend start then added one deterministic, idempotent
-`system_migration` model-activation audit event, so the current target has 237
-tables and 171 rows. A second backend restart added no row.
+`system_migration` model-activation audit event. A second backend restart added
+no row. The final bounded credential-health gate added one immutable model job
+snapshot and one model-call ledger row, so the current target has 237 tables
+and 173 rows.
 
-Task 7 is not complete. Its required authenticated login and one bounded
-restored DeepSeek health test remain blocked on an operator-supplied valid test
-credential pair. No provider call or cutover has occurred. Running any command
-in this document requires operator-supplied credentials and explicit
-operational authorization. Dated incident and retry evidence is retained in
+Task 7 is complete. An operator-authorized target-only identity binding kept
+the restored connection's original owner/team and credential AAD intact while
+binding the supplied login to that owner. The isolated verifier authenticated
+once, loaded the exact restored `deepseek-v4-pro` connection, and made exactly
+one successful bounded health call without exposing credentials or provider
+content. No cutover has occurred. Running any command in this document requires
+operator-supplied credentials and explicit operational authorization. Dated
+incident, retry, identity-binding, and health evidence is retained in
 `docs/migration/2026-08-24-live-migration-verification.md`; it is not the
 current execution procedure.
 
@@ -203,7 +208,10 @@ restore-boundary gate. After the first backend start, the target has one
 additional deterministic `ai_model_connection_activation_events` audit row.
 Post-start verification must assert that this is the only count difference,
 that every other closed check still passes, and that a second restart does not
-add another event. It must not delete the audit row to force equality.
+add another event. The completed bounded provider-health gate then adds one
+immutable `ai_job_model_snapshots` row and one `ai_model_call_records` ledger
+row. The current 173-row target is therefore expected after Task 7 runtime
+acceptance and must not be forced back to source equality.
 
 ## Rollback
 

@@ -5,17 +5,20 @@
 The authorized database copy from `shensi_sales` into the distinct `shensi`
 database completed on local MySQL `8.4.11` at port `3307`. The source database
 and legacy runtime were retained. No traffic cutover, legacy-process shutdown,
-GitHub push, or external-provider call was performed.
+or GitHub push was performed.
 
 The restore-boundary closed data verifier passed at repository commit
 `a681c123ad213f44b960b967b9bba1737bbd5657`. The isolated backend then passed
 `/api/health` on `127.0.0.1:4192` with `ok=true` and `store=mysql`. Its first
 startup added one deterministic `system_migration` model-activation audit row;
 a second bounded restart added no further row. Current post-runtime data is
-therefore 237 tables and 171 rows in the target versus 237 tables and 170 rows
-in the retained source. Login and live DeepSeek credential health remain
-unverified because no authorized test email/password pair was present in the
-ignored environment.
+237 tables and 173 rows in the target versus 237 tables and 170 rows in the
+retained source: one target-only activation audit row plus the immutable job
+snapshot and model-call ledger row created by the single bounded health call.
+The supplied login authenticated once, the exact restored DeepSeek connection
+was visible under its preserved owner/team, and the one authorized provider
+health request passed in 1,255 ms. Overall Task 7 is complete; cutover remains
+separately unauthorized.
 
 ## Preflight and controlled retry
 
@@ -94,7 +97,8 @@ The restored default model projection is:
 - default: `true`.
 
 This proves the encrypted row identity and non-secret model projection were
-preserved. It does not claim successful decryption or provider health.
+preserved at the restore boundary. Successful decryption and provider health
+were then proved separately by the bounded runtime gate below.
 
 ## Post-runtime convergence
 
@@ -120,12 +124,52 @@ proves the startup migration is idempotent in the verified runtime. The strict
 verifier remains a restore-boundary comparison and is expected to report the
 one-row count difference after runtime initialization.
 
+## Authorized identity binding and credential health
+
+The operator supplied a login through the ignored mode-`0600` environment and
+authorized target-only account preparation. The initially added empty login
+account authenticated but could not see the restored connection because its
+owner/team did not match; no provider call was made in that state.
+
+A controller ruling then authorized one target transaction that preserved the
+restored connection ID, provider, model, owner ID, team ID, and credential
+version. Before mutation, it locked the exact connection, its existing owner,
+and the empty login account; verified the owner was active in the connection's
+team; proved the supplied email was unique; and dynamically scanned 1,084
+relevant ID/owner/user/actor columns outside `users`, finding zero references
+to the empty account. The transaction changed only the existing target owner's
+name, email, password hash, active status, and incremented authentication
+version, then deleted the exact unreferenced empty account. The source owner
+identity remained unchanged, preserving rollback safety. This cost is limited
+to the authorized target user identity/email/password change and deletion of
+the temporary empty login; connection ownership, team binding, and credential
+AAD did not change.
+
+The final bounded verifier then established:
+
+- backend health: HTTP `200`, `ok=true`, `store=mysql`;
+- login: one successful attempt as owner `u_admin`, team `europe`;
+- restored connection: exact ID
+  `ai_72993f83-e6dc-4164-8ebb-8b9288227030`, provider `deepseek`, model
+  `deepseek-v4-pro`, credential version `1`;
+- provider health: exactly one request, HTTP `200`, result
+  `PROVIDER_HEALTH_PASSED`, duration 1,255 ms;
+- retries: zero.
+
+The successful call created one immutable `ai_job_model_snapshots` row and one
+`ai_model_call_records` ledger row. The target therefore moved from 171 to 173
+rows without altering its 237-table set. The normalized source inventory still
+matched the pre-migration capture exactly at 237 tables and 170 rows. Target
+login uniqueness, the five-user count, connection owner/team/version, and
+`last_test_status=passed` were rechecked after the call.
+
 ## Runtime and account evidence
 
-- Two isolated backend starts returned HTTP `200`, `ok=true`, and `store=mysql`
-  on `127.0.0.1:4192` using the persistent `shensi_app@127.0.0.1` account. The
-  task-owned process was stopped after evidence capture and port `4192` was
-  confirmed released; legacy processes were not touched.
+- Every isolated backend session used the persistent
+  `shensi_app@127.0.0.1` account on `127.0.0.1:4192`; the final session returned
+  HTTP `200`, `ok=true`, and `store=mysql`. The task-owned process was stopped
+  after evidence capture and port `4192` was confirmed released; legacy
+  processes were not touched.
 - `shensi_app` has database-scoped privileges only on `shensi`; its existing
   authorized password was not changed during the retry.
 - Both random temporary migration accounts were database-scoped, had no global
@@ -134,9 +178,9 @@ one-row count difference after runtime initialization.
 - Final `.env.production.local` is ignored and mode `0600`; it points the
   source to `shensi_sales`, the target/runtime to `shensi`, has a blank local
   admin URL, and retains the backup passphrase outside Git.
-- No test login pair was available under `SHENSI_TEST_*`, `INITIAL_ADMIN_*`,
-  or equivalent variables. Consequently no login/session cookie was created
-  and no billable DeepSeek health request was sent.
+- Test login secrets stayed only in the ignored mode-`0600` environment.
+  Cookies, CSRF values, request headers, provider responses, and credential
+  material stayed in memory and were not printed or written to tracked files.
 
 ## Residue and rollback audit
 
@@ -147,6 +191,5 @@ one-row count difference after runtime initialization.
   report remain ignored for rollback and audit.
 - No plaintext dump, password, database URL, API key, provider response,
   cookie, or customer row is included in tracked evidence.
-- Full runtime acceptance remains blocked only on an operator-supplied valid
-  login credential pair, followed by the single bounded restored-connection
-  health test. Cutover still requires separate explicit approval.
+- Task 7 restore and runtime gates are complete. Cutover still requires the
+  separate Task 8 acceptance flow and explicit approval.

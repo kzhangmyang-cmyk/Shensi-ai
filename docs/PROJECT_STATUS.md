@@ -38,42 +38,39 @@ ledger.
   matched 237 tables and 170 rows plus stable identities, model projections,
   and aggregate encrypted-row identities. The first target-backend startup
   added one deterministic `system_migration` model-activation audit row; a
-  second restart added nothing further, leaving the current target at 237
-  tables and 171 rows while the unchanged source remains at 237 and 170. Both
-  isolated starts passed MySQL health on `127.0.0.1:4192`. Authenticated
-  encrypted backups were retained and temporary migration accounts were
-  removed. Current non-secret evidence is in
+  second restart added nothing further. An operator-authorized target-only
+  identity binding then preserved the restored connection owner/team and
+  credential AAD while binding the supplied login to that owner. The bounded
+  Task 7 verifier logged in once, loaded the exact restored
+  `deepseek-v4-pro` connection, and made exactly one successful provider
+  health call. That call added one immutable job snapshot and one model-call
+  ledger row, leaving the current target at 237 tables and 173 rows while the
+  unchanged source remains at 237 and 170. The task-owned backend was stopped
+  and port `4192` released. Authenticated encrypted backups were retained and
+  temporary migration accounts were removed. Current non-secret evidence is in
   `docs/migration/2026-08-24-live-migration-verification.md`.
+- Task 7 is complete: its encrypted backup, distinct-target restore, closed
+  restore-boundary comparison, isolated MySQL health, authenticated login,
+  restored-connection visibility, and single bounded DeepSeek health gates
+  all passed. No traffic cutover or legacy-process shutdown occurred.
 
 ## Active
 
-- Task 7 remains active and incomplete. Its plan Step 6 must authenticate with
-  an already valid operator-supplied login, load the restored
-  `deepseek-v4-pro` connection, and complete one bounded health test before
-  Task 7 can be marked complete. The task-owned isolated backend was stopped
-  after its MySQL health and restart-idempotency evidence was captured. The
-  legacy repository, source database, and user-facing processes remain rollback
-  inputs; no cutover has occurred.
+- Task 8 full-runtime acceptance and cutover planning are next. The legacy
+  repository, source database, and user-facing processes remain rollback
+  inputs; no cutover has occurred and none is authorized by Task 7.
 
 ## Blocked
 
 - Docker Engine and Docker Compose are unavailable in the current execution
   environment (`docker: command not found`), so Compose rendering and image
   builds require verification in a Docker-equipped environment.
-- Task 7 plan Step 6 login/session and restored DeepSeek credential health
-  cannot be verified
-  because the ignored environment contains no authorized test email/password
-  pair. The restored `deepseek-v4-pro` projection and ciphertext identity match,
-  but no external provider call was made. This blocks overall Task 7
-  acceptance; cutover remains separately unauthorized.
 
 ## Next
 
-1. Supply a valid test login pair through the ignored operator secret boundary,
-   then complete Task 7 plan Step 6 with the bounded login/session and restored
-   DeepSeek health check.
-2. Only after Task 7 passes, run Task 8 full-runtime acceptance and request
-   explicit cutover approval.
+1. Run Task 8 full-runtime acceptance in a Docker-equipped environment.
+2. Request explicit cutover approval only after Task 8 passes; Task 7 did not
+   authorize cutover.
 
 The two executing design/plan documents are retained under
 `docs/superpowers/` until final acceptance, but they are not progress authority.
