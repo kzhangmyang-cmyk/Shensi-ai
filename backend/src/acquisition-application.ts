@@ -282,7 +282,7 @@ import {
   createAcquisitionVisualReaderRouter
 } from "./acquisition-visual-reader-router.js";
 import type { DouyinMediaCrawlerGateway } from "./acquisition-mediacrawler-gateway.js";
-import { InMemoryAcquisitionSocialAccountRepository } from "./acquisition-social-account-repository.js";
+import { InMemoryAcquisitionSocialAccountRepository, type AcquisitionSocialAccountRepository } from "./acquisition-social-account-repository.js";
 import { MysqlAcquisitionSocialAccountRepository, ensureAcquisitionSocialAccountsMysqlSchema } from "./acquisition-social-account-mysql-repository.js";
 import { AcquisitionSocialAccountService } from "./acquisition-social-account-service.js";
 import { createAcquisitionSocialAccountRouter } from "./acquisition-social-account-router.js";
@@ -482,6 +482,8 @@ export interface CreateAcquisitionApplicationOptions {
   nowMs?: () => number;
   /** The internal-only MediaCrawler transport; account HTTP routes mount when configured. */
   douyinMediaCrawlerGateway?: DouyinMediaCrawlerGateway;
+  /** Test/runtime override; production selects Memory or MySQL from the store mode. */
+  socialAccountRepository?: AcquisitionSocialAccountRepository;
 }
 
 export interface AcquisitionApplicationRuntime
@@ -1917,6 +1919,7 @@ export async function createAcquisitionApplication(
     await planExecutionRecoverySweeper.start();
 
     const activeCopilotTasks = new Set<Promise<void>>();
+    const activeCopilotControllers = new Set<AbortController>();
     const activeDiscoveryTasks = new Set<Promise<void>>();
     const activeCandidateIntelligenceTasks = new Set<Promise<void>>();
     const activeDouyinIdentityTasks = new Set<Promise<void>>();
@@ -1928,9 +1931,15 @@ export async function createAcquisitionApplication(
       if (closing) {
         throw new Error("ACQUISITION_APPLICATION_CLOSING");
       }
-      const task = copilotService.runTask(scope, taskId).then(
-        () => undefined
-      );
+      const controller = new AbortController();
+      activeCopilotControllers.add(controller);
+      const task = copilotService.runTask(
+        scope,
+        taskId,
+        controller.signal
+      ).then(() => undefined).finally(() => {
+        activeCopilotControllers.delete(controller);
+      });
       return trackAcquisitionBackgroundTask(activeCopilotTasks, task);
     };
     const dispatchDiscoveryTask = (
@@ -2052,14 +2061,14 @@ export async function createAcquisitionApplication(
     const router = Router();
     if (options.douyinMediaCrawlerGateway) {
       const socialAccounts = new AcquisitionSocialAccountService({
-        repository: options.store.mode === "mysql"
+        repository: options.socialAccountRepository ?? (options.store.mode === "mysql"
           ? new MysqlAcquisitionSocialAccountRepository(pool!)
-          : new InMemoryAcquisitionSocialAccountRepository(),
+          : new InMemoryAcquisitionSocialAccountRepository()),
         gateway: options.douyinMediaCrawlerGateway,
         idFactory: () => idFactory("social_account"),
         now
       });
-      router.use(createAcquisitionSocialAccountRouter({
+      router.use("/api/v1/acquisition", createAcquisitionSocialAccountRouter({
         service: socialAccounts,
         requestIdFactory: () => idFactory("request")
       }));
@@ -2345,6 +2354,15 @@ export async function createAcquisitionApplication(
             );
           } catch (error) {
             gracefulFailure = error;
+            for (const controller of activeCopilotControllers) {
+              controller.abort("ACQUISITION_APPLICATION_SHUTDOWN_TIMEOUT");
+            }
+            await waitWithTimeout(
+              Promise.allSettled([...activeCopilotTasks]).then(
+                () => undefined
+              ),
+              closeTimeoutMs
+            ).catch(() => undefined);
           }
           let poolFailure: unknown;
           if (pool) {

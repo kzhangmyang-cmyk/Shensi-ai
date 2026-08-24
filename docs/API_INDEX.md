@@ -18,8 +18,9 @@ Do not add parallel handwritten DTOs.
 - `/api/customers`, `/api/leads`, `/api/deals`, `/api/todos`,
   `/api/commission`: CRM and operating routes in `backend/src/server.ts`.
 - `/api/v1/acquisition`: plans, runs, shards, candidates, evidence, reviews,
-  provider connections, visual reader, copilot, outcomes, performance, advisor,
-  and ROI-related acquisition projections.
+  provider connections, Douyin QR login/workspace accounts, visual reader,
+  copilot, outcomes, performance, advisor, and ROI-related acquisition
+  projections.
 - `/api/v1/catalog`: catalog items, package versions, and pricing policies.
 - `/api/v1/quotes`: quote cases, versions, approvals, publication, and deal
   decisions.

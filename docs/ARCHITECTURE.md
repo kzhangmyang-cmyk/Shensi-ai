@@ -32,6 +32,13 @@ the composition registry rather than exposed as frontend DTOs. The
 acquisition application follows the same domain/service/repository pattern and
 is mounted under `/api/v1/acquisition`.
 
+When configured, Douyin QR login crosses one private boundary: Express stores
+workspace-scoped account/session/replay records, while the pinned
+MediaCrawler sidecar owns raw browser profiles and Playwright in a killable
+child process. Public DTOs expose neither the opaque upstream handle nor raw
+browser state. Graceful sidecar restarts retain encrypted active profiles;
+expiry and explicit disconnect remove them.
+
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a
 development and focused-test implementation; MySQL mode is required for

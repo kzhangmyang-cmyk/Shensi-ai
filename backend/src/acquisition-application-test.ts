@@ -3075,6 +3075,7 @@ test("application runs and exposes a durable candidate intelligence workflow aft
 });
 
 test("application shutdown is bounded when a model call never returns", async () => {
+  const beforeResources = process.getActiveResourcesInfo();
   const fixture = isolatedMemoryStore();
   let enteredGateway!: () => void;
   const gatewayEntered = new Promise<void>((resolve) => {
@@ -3117,6 +3118,15 @@ test("application shutdown is bounded when a model call never returns", async ()
     /ACQUISITION_APPLICATION_SHUTDOWN_TIMEOUT/u
   );
   await server.close();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const afterResources = process.getActiveResourcesInfo();
+  for (const resource of ["Timeout", "PipeWrap"]) {
+    assert.ok(
+      afterResources.filter((value) => value === resource).length
+        <= beforeResources.filter((value) => value === resource).length,
+      `${resource} leaked: before=${beforeResources.join(",")} after=${afterResources.join(",")}`
+    );
+  }
 });
 
 test("application validates the plan execution recovery interval", async () => {
@@ -3338,7 +3348,7 @@ test("mysql acquisition application owns schema setup and pool lifecycle", async
   let visualRecoveryStartCount = 0;
   let visualRecoveryCloseCount = 0;
   let composedVisualRepository: AcquisitionVisualReaderRepository | null = null;
-  const query = async (statement: unknown) => {
+  const query = async (statement: unknown, values: unknown[] = []) => {
     const sql = String(statement);
     statements.push(sql);
     if (/SELECT GET_LOCK/u.test(sql)) return [[{ lock_acquired: 1 }], []];
@@ -3351,6 +3361,27 @@ test("mysql acquisition application owns schema setup and pool lifecycle", async
         index_name: "idx_douyin_comment_ingestion_saga_pending",
         column_name,
         seq_in_index: index + 1
+      })), []];
+    }
+    if (sql.includes("information_schema.COLUMNS")
+      && values[0] === "acquisition_social_accounts") {
+      return [["id", "workspace_id", "platform", "account_handle",
+        "upstream_session_id", "display_name", "state",
+        "login_state_version", "revision", "etag", "last_validated_at",
+        "created_at", "updated_at"].map((COLUMN_NAME) => ({
+        COLUMN_NAME, IS_NULLABLE: COLUMN_NAME === "upstream_session_id"
+          ? "YES" : "NO"
+      })), []];
+    }
+    if (sql.includes("information_schema.COLUMNS")
+      && values[0] === "acquisition_social_account_replays") {
+      return [["workspace_id", "operation_name", "idempotency_key_hash",
+        "request_hash", "state", "response_json", "response_status",
+        "response_headers_json", "lease_owner", "lease_expires_at",
+        "fencing_token", "expires_at", "created_at", "updated_at",
+        "completed_at"].map((COLUMN_NAME) => ({
+        COLUMN_NAME, IS_NULLABLE: COLUMN_NAME === "response_json"
+          ? "YES" : "NO"
       })), []];
     }
     return [[], []];

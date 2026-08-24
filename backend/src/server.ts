@@ -101,7 +101,8 @@ import {
   resolveAcquisitionMasterSecret
 } from "./acquisition-master-secret.js";
 import {
-  AcquisitionRuntimeBridge
+  AcquisitionRuntimeBridge,
+  type AcquisitionHttpRuntime
 } from "./acquisition-runtime-bridge.js";
 import {
   createGrowthCommercialApplication
@@ -278,6 +279,36 @@ let acquisitionWorkspaceMiddleware: RequestHandler | null = null;
 let activeProspectWorkerService: ProspectWorkerService | null = null;
 const acquisitionRuntimeBridge = new AcquisitionRuntimeBridge();
 const growthRuntimeBridge = new GrowthCommercialRuntimeBridge();
+
+function installAcquisitionHttpRuntime(input: {
+  workspaceMiddleware: RequestHandler;
+  runtime: AcquisitionHttpRuntime;
+}) {
+  acquisitionWorkspaceMiddleware = input.workspaceMiddleware;
+  acquisitionRuntimeBridge.install(input.runtime);
+  let installed = true;
+  return async () => {
+    if (!installed) return;
+    installed = false;
+    try {
+      await acquisitionRuntimeBridge.close();
+    } finally {
+      if (acquisitionWorkspaceMiddleware === input.workspaceMiddleware) {
+        acquisitionWorkspaceMiddleware = null;
+      }
+    }
+  };
+}
+
+export function installTestAcquisitionHttpRuntime(input: {
+  workspaceMiddleware: RequestHandler;
+  runtime: AcquisitionHttpRuntime;
+}) {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("TEST_ACQUISITION_RUNTIME_INSTALL_FORBIDDEN");
+  }
+  return installAcquisitionHttpRuntime(input);
+}
 
 export function installTestGrowthCommercialRuntime(
   runtime: Parameters<GrowthCommercialRuntimeBridge["install"]>[0]
@@ -12303,7 +12334,6 @@ async function startServer() {
       store,
       databaseUrl: process.env.DATABASE_URL || process.env.MYSQL_URL
     });
-    acquisitionWorkspaceMiddleware = foundation.workspaceMiddleware;
     const growthRuntime = await createGrowthCommercialApplication({
       manifest: loadGrowthContractRelease().manifest,
       requireAuth,
@@ -12355,7 +12385,10 @@ async function startServer() {
           }) }
         : {})
     });
-    acquisitionRuntimeBridge.install(acquisitionRuntime);
+    installAcquisitionHttpRuntime({
+      workspaceMiddleware: foundation.workspaceMiddleware,
+      runtime: acquisitionRuntime
+    });
   } catch (error) {
     console.error(
       `GoodJob CRM acquisition runtime startup failed: ${

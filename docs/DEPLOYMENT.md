@@ -88,6 +88,42 @@ Set `SHENSI_MYSQL_APP_PASSWORD` in `.env.production.local` to the exact
 newline-free content of `deploy/secrets/mysql_app_password`; the wrapper uses
 it only for consistency validation and never prints it.
 
+### Optional Douyin QR-login sidecar
+
+The current canonical four-service Compose topology does not include the
+MediaCrawler sidecar. Consequently, production does not publish the four
+Douyin account routes unless an operator separately provisions the pinned
+`services/media-crawler` service on a private network and configures the
+backend with both of these values:
+
+```dotenv
+MEDIACRAWLER_BASE_URL=http://private-mediacrawler-host:port
+MEDIACRAWLER_SERVICE_SECRET=replace_with_a_shared_32_plus_character_secret
+```
+
+The URL validator accepts only private/loopback plain HTTP targets; do not
+publish the sidecar or route browser-state traffic through the public gateway.
+The same secret is supplied to the sidecar as
+`MEDIACRAWLER_SERVICE_SECRET` and must be at least 32 non-whitespace bytes.
+
+Before starting the sidecar, create and mount an encrypted-at-rest host
+directory. It must already exist, must not be a symlink, and must have exact
+POSIX mode `0700`. The profile root must remain beneath that mount:
+
+```dotenv
+MEDIACRAWLER_ENCRYPTED_VOLUME=/run/shensi-encrypted/mediacrawler
+MEDIACRAWLER_PROFILE_ROOT=/run/shensi-encrypted/mediacrawler/profiles
+```
+
+Every owned directory is enforced as `0700` and metadata as `0600`. Browser
+commands execute in an owned child process group with bounded startup, command, and
+shutdown waits; timeout or protocol loss terminates that process and fails
+closed. A graceful ASGI restart closes live browser handles while retaining
+the protected profile and safe active metadata. Expiry and an authenticated
+explicit disconnect are the only deletion owners. The backend's MySQL replay
+rows preserve POST/DELETE results and reclaim abandoned pending leases after
+a crash; memory mode is not a production substitute.
+
 ### Deploy and operate
 
 From the repository root, validate the rendered configuration and build/start

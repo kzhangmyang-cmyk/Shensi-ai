@@ -118,6 +118,20 @@ test("acquisition OpenAPI publishes the complete agent control surface", () => {
   }
 });
 
+test("social-account create and disconnect publish exact replay headers", () => {
+  const paths = createAcquisitionOpenApiPaths();
+  for (const [path, method] of [
+    ["/api/v1/acquisition/social-accounts/douyin/login-sessions", "post"],
+    ["/api/v1/acquisition/social-accounts/{accountId}", "delete"]
+  ] as const) {
+    const operation = paths[path]?.[method] as Record<string, any>;
+    assert.deepEqual(
+      operation.responses["200"].headers["Idempotency-Replayed"].schema.enum,
+      ["true"]
+    );
+  }
+});
+
 test("acquisition OpenAPI exposes only the safe Douyin identity operation DTO", () => {
   const paths = createAcquisitionOpenApiPaths();
   const latest = paths[

@@ -64,7 +64,12 @@ class AccountManager:
             if not profile.is_dir() or profile.is_symlink():
                 continue
             try:
-                value = json.loads(self._metadata_path(profile).read_text(encoding="utf-8"))
+                os.chmod(profile, 0o700)
+                metadata = self._metadata_path(profile)
+                if metadata.is_symlink() or not metadata.is_file():
+                    raise ValueError("invalid metadata")
+                os.chmod(metadata, 0o600)
+                value = json.loads(metadata.read_text(encoding="utf-8"))
                 session_id, expires_at = value["session_id"], self._as_datetime(value["expires_at"])
                 if not isinstance(session_id, str) or not session_id:
                     raise ValueError("invalid session")
@@ -78,6 +83,7 @@ class AccountManager:
     def _close_session(self, session: dict[str, Any]) -> None:
         if not session["closed"] and session["context"] is not None:
             self._browser.close(session["context"])
+        session["context"] = None
         session["closed"] = True
 
     def _remove_session(self, session_id: str, session: dict[str, Any]) -> None:
@@ -152,13 +158,28 @@ class AccountManager:
             self._remove_session(session_id, session)
 
     def close(self) -> None:
+        if self._closed.is_set():
+            return
         self._closed.set()
         self._sweeper.join(timeout=2)
         if self._sweeper.is_alive():
             raise RuntimeError("account_sweeper_shutdown_timeout")
+        failure: BaseException | None = None
         with self._lock:
-            for session_id, session in list(self._sessions.items()):
-                self._remove_session(session_id, session)
+            self.sweep_expired()
+            for session in self._sessions.values():
+                try:
+                    self._close_session(session)
+                except BaseException as error:
+                    failure = failure or error
+                    session["context"] = None
+                    session["closed"] = True
+                self._persist(session)
         close_browser = getattr(self._browser, "close_browser", None)
         if close_browser:
-            close_browser()
+            try:
+                close_browser()
+            except BaseException as error:
+                failure = failure or error
+        if failure is not None:
+            raise failure

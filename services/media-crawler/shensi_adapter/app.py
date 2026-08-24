@@ -1,4 +1,5 @@
 import os
+import stat
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,6 +13,23 @@ from .security import authorize_bearer, require_service_secret
 
 
 UPSTREAM_COMMIT = "d6f7c5bb906b6dac40ddf343ef9e26438a3de092"
+
+
+def validate_encrypted_profile_root(volume: Path, root: Path) -> Path:
+    """Validate the deployment mount before any browser process starts."""
+    if not volume.exists():
+        raise RuntimeError("MEDIACRAWLER_ENCRYPTED_VOLUME must exist")
+    if volume.is_symlink() or not volume.is_dir():
+        raise RuntimeError("MEDIACRAWLER_ENCRYPTED_VOLUME must be a directory")
+    if stat.S_IMODE(volume.stat().st_mode) != 0o700:
+        raise RuntimeError("MEDIACRAWLER_ENCRYPTED_VOLUME must have mode 0700")
+    volume_path = volume.resolve(strict=True)
+    root_path = root.resolve()
+    if not root_path.is_relative_to(volume_path):
+        raise RuntimeError("MEDIACRAWLER_PROFILE_ROOT must be inside MEDIACRAWLER_ENCRYPTED_VOLUME")
+    if root.exists() and (root.is_symlink() or not root.is_dir()):
+        raise RuntimeError("MEDIACRAWLER_PROFILE_ROOT must be a directory")
+    return root_path
 
 
 def _build_app(secret_provider: Callable[[], str], account_manager: AccountManager | None = None,
@@ -83,9 +101,7 @@ def create_deployment_account_manager() -> AccountManager:
     root = os.environ.get("MEDIACRAWLER_PROFILE_ROOT", "").strip()
     if not volume or not root:
         raise RuntimeError("MEDIACRAWLER_ENCRYPTED_VOLUME and MEDIACRAWLER_PROFILE_ROOT are required")
-    root_path, volume_path = Path(root).resolve(), Path(volume).resolve()
-    if not root_path.is_relative_to(volume_path):
-        raise RuntimeError("MEDIACRAWLER_PROFILE_ROOT must be inside MEDIACRAWLER_ENCRYPTED_VOLUME")
+    root_path = validate_encrypted_profile_root(Path(volume), Path(root))
     # Validate containment before the Playwright owner thread is even created.
     return AccountManager(root_path, MediaCrawlerDouyinBrowserState())
 

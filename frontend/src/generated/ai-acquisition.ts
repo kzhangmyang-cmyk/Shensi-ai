@@ -4603,6 +4603,7 @@ export interface operations {
             /** @description Disconnected account */
             200: {
                 headers: {
+                    "Idempotency-Replayed"?: "true";
                     [name: string]: unknown;
                 };
                 content: {

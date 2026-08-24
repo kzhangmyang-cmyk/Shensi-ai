@@ -1,9 +1,19 @@
 import type mysql from "mysql2/promise";
 import type { RowDataPacket } from "mysql2";
-import { assertValidAcquisitionSocialAccountPrivateRecord, type AcquisitionSocialAccountPrivateRecord, type AcquisitionSocialAccountRepository, type AcquisitionSocialAccountReplayClaim } from "./acquisition-social-account-repository.js";
+import { createHash } from "node:crypto";
+import {
+  assertValidAcquisitionSocialAccountPrivateRecord,
+  type AcquisitionSocialAccountPrivateRecord,
+  type AcquisitionSocialAccountReplay,
+  type AcquisitionSocialAccountReplayClaim,
+  type AcquisitionSocialAccountReplayCompletion,
+  type AcquisitionSocialAccountReplayFence,
+  type AcquisitionSocialAccountReplayReservationInput,
+  type AcquisitionSocialAccountRepository,
+  type AcquisitionSocialLoginSessionPrivateRecord
+} from "./acquisition-social-account-repository.js";
 
-export const acquisitionSocialAccountsDdl = `
-CREATE TABLE IF NOT EXISTS acquisition_social_accounts (
+export const acquisitionSocialAccountsDdl = `CREATE TABLE IF NOT EXISTS acquisition_social_accounts (
   id VARCHAR(255) NOT NULL PRIMARY KEY,
   workspace_id VARCHAR(255) NOT NULL,
   platform VARCHAR(32) NOT NULL,
@@ -18,35 +28,172 @@ CREATE TABLE IF NOT EXISTS acquisition_social_accounts (
   created_at VARCHAR(40) NOT NULL,
   updated_at VARCHAR(40) NOT NULL,
   UNIQUE KEY acquisition_social_accounts_workspace_platform (workspace_id, platform)
-)`;
-const acquisitionSocialAccountSessionsDdl = `CREATE TABLE IF NOT EXISTS acquisition_social_account_sessions (
-  id VARCHAR(255) NOT NULL PRIMARY KEY, workspace_id VARCHAR(255) NOT NULL,
-  upstream_id VARCHAR(512) NOT NULL, expires_at VARCHAR(40) NOT NULL, created_at VARCHAR(40) NOT NULL,
+) ENGINE=InnoDB`;
+
+export const acquisitionSocialAccountSessionsDdl = `CREATE TABLE IF NOT EXISTS acquisition_social_account_sessions (
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) NOT NULL,
+  upstream_id VARCHAR(512) NOT NULL,
+  expires_at VARCHAR(40) NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
   INDEX acquisition_social_account_sessions_expiry (expires_at),
   UNIQUE KEY acquisition_social_account_sessions_workspace_id (workspace_id, id)
-)`;
-const acquisitionSocialAccountReplaysDdl = `CREATE TABLE IF NOT EXISTS acquisition_social_account_replays (
-  workspace_id VARCHAR(255) NOT NULL, operation_name VARCHAR(120) NOT NULL, idempotency_key VARCHAR(200) NOT NULL,
-  request_hash CHAR(64) NOT NULL, response_json JSON NULL, response_status INT NOT NULL,
-  expires_at VARCHAR(40) NOT NULL, created_at VARCHAR(40) NOT NULL,
-  PRIMARY KEY (workspace_id, operation_name, idempotency_key)
-)`;
+) ENGINE=InnoDB`;
+
+export const acquisitionSocialAccountReplaysDdl = `CREATE TABLE IF NOT EXISTS acquisition_social_account_replays (
+  workspace_id VARCHAR(255) NOT NULL,
+  operation_name VARCHAR(120) NOT NULL,
+  idempotency_key_hash CHAR(64) NOT NULL,
+  request_hash CHAR(64) NOT NULL,
+  state VARCHAR(16) NOT NULL,
+  response_json JSON NULL,
+  response_status INT NOT NULL DEFAULT 0,
+  response_headers_json JSON NULL,
+  lease_owner VARCHAR(128) NULL,
+  lease_expires_at VARCHAR(40) NULL,
+  fencing_token BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  expires_at VARCHAR(40) NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  updated_at VARCHAR(40) NOT NULL,
+  completed_at VARCHAR(40) NULL,
+  PRIMARY KEY (workspace_id, operation_name, idempotency_key_hash),
+  INDEX acquisition_social_account_replays_expiry (expires_at),
+  CONSTRAINT acquisition_social_account_replays_state CHECK (state IN ('pending', 'completed'))
+) ENGINE=InnoDB`;
+
+const schemaStatements = [acquisitionSocialAccountsDdl, acquisitionSocialAccountSessionsDdl, acquisitionSocialAccountReplaysDdl] as const;
+const accountUpgradeColumns = new Map<string, string>([
+  ["upstream_session_id", "ALTER TABLE acquisition_social_accounts ADD COLUMN upstream_session_id VARCHAR(512) NULL AFTER account_handle"]
+]);
+const replayUpgradeColumns = new Map<string, string>([
+  ["state", "ALTER TABLE acquisition_social_account_replays ADD COLUMN state VARCHAR(16) NOT NULL DEFAULT 'pending' AFTER request_hash"],
+  ["response_headers_json", "ALTER TABLE acquisition_social_account_replays ADD COLUMN response_headers_json JSON NULL AFTER response_status"],
+  ["lease_owner", "ALTER TABLE acquisition_social_account_replays ADD COLUMN lease_owner VARCHAR(128) NULL AFTER response_headers_json"],
+  ["lease_expires_at", "ALTER TABLE acquisition_social_account_replays ADD COLUMN lease_expires_at VARCHAR(40) NULL AFTER lease_owner"],
+  ["fencing_token", "ALTER TABLE acquisition_social_account_replays ADD COLUMN fencing_token BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER lease_expires_at"],
+  ["expires_at", "ALTER TABLE acquisition_social_account_replays ADD COLUMN expires_at VARCHAR(40) NOT NULL DEFAULT '9999-12-31T23:59:59.999Z' AFTER fencing_token"],
+  ["created_at", "ALTER TABLE acquisition_social_account_replays ADD COLUMN created_at VARCHAR(40) NOT NULL DEFAULT '1970-01-01T00:00:00.000Z' AFTER expires_at"],
+  ["updated_at", "ALTER TABLE acquisition_social_account_replays ADD COLUMN updated_at VARCHAR(40) NOT NULL DEFAULT '1970-01-01T00:00:00.000Z' AFTER created_at"],
+  ["completed_at", "ALTER TABLE acquisition_social_account_replays ADD COLUMN completed_at VARCHAR(40) NULL AFTER updated_at"]
+]);
 
 type Row = RowDataPacket & Record<string, unknown>;
-function record(row: Row): AcquisitionSocialAccountPrivateRecord {
-  return { id: String(row.id), workspaceId: String(row.workspace_id), platform: "douyin", accountHandle: row.account_handle === null ? null : String(row.account_handle), upstreamSessionId: row.upstream_session_id === null || row.upstream_session_id === undefined ? null : String(row.upstream_session_id),
-    displayName: row.display_name === null ? null : String(row.display_name), state: row.state as AcquisitionSocialAccountPrivateRecord["state"],
-    loginStateVersion: row.login_state_version === null ? null : Number(row.login_state_version), revision: Number(row.revision), etag: String(row.etag),
-    lastValidatedAt: row.last_validated_at === null ? null : String(row.last_validated_at), createdAt: String(row.created_at), updatedAt: String(row.updated_at) };
+
+function affectedRows(result: unknown) {
+  return Number((result as { affectedRows?: unknown } | null)?.affectedRows ?? 0);
 }
-export async function ensureAcquisitionSocialAccountsMysqlSchema(pool: mysql.Pool) { await pool.query(acquisitionSocialAccountsDdl); await pool.query(acquisitionSocialAccountSessionsDdl); await pool.query(acquisitionSocialAccountReplaysDdl); }
+function keyHash(key: string) {
+  return createHash("sha256").update(key, "utf8").digest("hex");
+}
+function json(value: unknown): unknown {
+  return typeof value === "string" ? JSON.parse(value) : value;
+}
+function record(row: Row): AcquisitionSocialAccountPrivateRecord {
+  return {
+    id: String(row.id), workspaceId: String(row.workspace_id), platform: "douyin",
+    accountHandle: row.account_handle == null ? null : String(row.account_handle),
+    upstreamSessionId: row.upstream_session_id == null ? null : String(row.upstream_session_id),
+    displayName: row.display_name == null ? null : String(row.display_name),
+    state: row.state as AcquisitionSocialAccountPrivateRecord["state"],
+    loginStateVersion: row.login_state_version == null ? null : Number(row.login_state_version),
+    revision: Number(row.revision), etag: String(row.etag),
+    lastValidatedAt: row.last_validated_at == null ? null : String(row.last_validated_at),
+    createdAt: String(row.created_at), updatedAt: String(row.updated_at)
+  };
+}
+function loginSession(row: Row): AcquisitionSocialLoginSessionPrivateRecord {
+  return { id: String(row.id), workspaceId: String(row.workspace_id), upstreamId: String(row.upstream_id), expiresAt: String(row.expires_at), createdAt: String(row.created_at) };
+}
+function replay(row: Row): AcquisitionSocialAccountReplay {
+  if (row.state !== "completed" || row.completed_at == null) throw new Error("invalid_social_account_replay_row");
+  const headers = json(row.response_headers_json ?? {}) as Record<string, string>;
+  return Object.freeze({
+    requestHash: String(row.request_hash), response: json(row.response_json), status: Number(row.response_status),
+    headers: Object.freeze({ ...headers }), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
+    expiresAt: String(row.expires_at), completedAt: String(row.completed_at)
+  });
+}
+function instant(value: string, code: string) {
+  const result = Date.parse(value);
+  if (!Number.isFinite(result)) throw new TypeError(code);
+  return result;
+}
+function validateReservation(input: AcquisitionSocialAccountReplayReservationInput) {
+  const attemptedAt = instant(input.attemptedAt, "invalid_replay_attempted_at");
+  const replayExpiresAt = instant(input.replayExpiresAt, "invalid_replay_expires_at");
+  if (!Number.isSafeInteger(input.leaseDurationMs) || input.leaseDurationMs < 1 || replayExpiresAt <= attemptedAt) throw new TypeError("invalid_replay_reservation");
+  return { attemptedAt, leaseExpiresAt: new Date(attemptedAt + input.leaseDurationMs).toISOString() };
+}
+async function columns(pool: mysql.Pool, table: string) {
+  const [rows] = await pool.query<Row[]>(
+    "SELECT COLUMN_NAME, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?", [table]
+  );
+  return new Map(rows.map((row) => [String(row.COLUMN_NAME ?? row.column_name), String(row.IS_NULLABLE ?? row.is_nullable)]));
+}
+
+export async function ensureAcquisitionSocialAccountsMysqlSchema(pool: mysql.Pool) {
+  for (const statement of schemaStatements) await pool.query(statement);
+  const accountColumns = await columns(pool, "acquisition_social_accounts");
+  for (const [name, statement] of accountUpgradeColumns) if (!accountColumns.has(name)) await pool.query(statement);
+  const replayColumns = await columns(pool, "acquisition_social_account_replays");
+  if (!replayColumns.has("idempotency_key_hash")) {
+    if (!replayColumns.has("idempotency_key")) throw new Error("acquisition_social_account_replay_key_column_missing");
+    await pool.query("ALTER TABLE acquisition_social_account_replays ADD COLUMN idempotency_key_hash CHAR(64) NULL AFTER operation_name");
+  }
+  if (replayColumns.has("idempotency_key")) {
+    await pool.query("UPDATE acquisition_social_account_replays SET idempotency_key_hash=SHA2(idempotency_key, 256) WHERE idempotency_key_hash IS NULL");
+    await pool.query("ALTER TABLE acquisition_social_account_replays MODIFY COLUMN idempotency_key_hash CHAR(64) NOT NULL");
+    await pool.query(`ALTER TABLE acquisition_social_account_replays
+      DROP PRIMARY KEY,
+      ADD PRIMARY KEY (workspace_id, operation_name, idempotency_key_hash),
+      DROP COLUMN idempotency_key`);
+  }
+  for (const [name, statement] of replayUpgradeColumns) if (!replayColumns.has(name)) await pool.query(statement);
+  if (replayColumns.get("response_json") === "NO") await pool.query("ALTER TABLE acquisition_social_account_replays MODIFY COLUMN response_json JSON NULL");
+  await pool.query(`UPDATE acquisition_social_account_replays
+    SET state = IF(response_status = 0, 'pending', 'completed'),
+        response_headers_json = IF(response_status = 0, response_headers_json, COALESCE(response_headers_json, JSON_OBJECT())),
+        completed_at = IF(response_status = 0, NULL, COALESCE(completed_at, updated_at))`);
+}
+
+const accountUpsertSql = `INSERT INTO acquisition_social_accounts
+  (id,workspace_id,platform,account_handle,upstream_session_id,display_name,state,login_state_version,revision,etag,last_validated_at,created_at,updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=VALUES(id),account_handle=VALUES(account_handle),
+  upstream_session_id=VALUES(upstream_session_id),display_name=VALUES(display_name),state=VALUES(state),
+  login_state_version=VALUES(login_state_version),revision=VALUES(revision),etag=VALUES(etag),
+  last_validated_at=VALUES(last_validated_at),updated_at=VALUES(updated_at)`;
+function accountValues(value: AcquisitionSocialAccountPrivateRecord) {
+  return [value.id, value.workspaceId, value.platform, value.accountHandle, value.upstreamSessionId ?? null,
+    value.displayName, value.state, value.loginStateVersion, value.revision, value.etag,
+    value.lastValidatedAt, value.createdAt, value.updatedAt];
+}
+function fenceValues(fence: AcquisitionSocialAccountReplayFence) {
+  return [fence.workspaceId, fence.operation, keyHash(fence.key), fence.leaseOwner, fence.fencingToken];
+}
+const completeReplaySql = `UPDATE acquisition_social_account_replays
+  SET state='completed', response_json=?, response_status=?, response_headers_json=?, lease_owner=NULL,
+      lease_expires_at=NULL, updated_at=?, completed_at=?
+  WHERE workspace_id=? AND operation_name=? AND idempotency_key_hash=? AND lease_owner=? AND fencing_token=?
+    AND request_hash=? AND state='pending'`;
+function completeValues(fence: AcquisitionSocialAccountReplayFence, completion: AcquisitionSocialAccountReplayCompletion) {
+  return [JSON.stringify(completion.response), completion.status, JSON.stringify(completion.headers),
+    completion.completedAt, completion.completedAt, ...fenceValues(fence), completion.requestHash];
+}
+
 export class MysqlAcquisitionSocialAccountRepository implements AcquisitionSocialAccountRepository {
   constructor(private readonly pool: mysql.Pool) {}
-  async findByWorkspaceAndPlatform(workspaceId: string, platform: "douyin") { const [rows] = await this.pool.execute<Row[]>("SELECT * FROM acquisition_social_accounts WHERE workspace_id = ? AND platform = ?", [workspaceId, platform]); return rows[0] ? record(rows[0]) : null; }
-  async findById(workspaceId: string, id: string) { const [rows] = await this.pool.execute<Row[]>("SELECT * FROM acquisition_social_accounts WHERE workspace_id = ? AND id = ?", [workspaceId, id]); return rows[0] ? record(rows[0]) : null; }
+
+  async findByWorkspaceAndPlatform(workspaceId: string, platform: "douyin") {
+    const [rows] = await this.pool.execute<Row[]>("SELECT * FROM acquisition_social_accounts WHERE workspace_id = ? AND platform = ?", [workspaceId, platform]);
+    return rows[0] ? record(rows[0]) : null;
+  }
+  async findById(workspaceId: string, id: string) {
+    const [rows] = await this.pool.execute<Row[]>("SELECT * FROM acquisition_social_accounts WHERE workspace_id = ? AND id = ?", [workspaceId, id]);
+    return rows[0] ? record(rows[0]) : null;
+  }
   async upsert(value: AcquisitionSocialAccountPrivateRecord) {
     assertValidAcquisitionSocialAccountPrivateRecord(value);
-    await this.pool.execute(`INSERT INTO acquisition_social_accounts (id,workspace_id,platform,account_handle,upstream_session_id,display_name,state,login_state_version,revision,etag,last_validated_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=VALUES(id),account_handle=VALUES(account_handle),upstream_session_id=VALUES(upstream_session_id),display_name=VALUES(display_name),state=VALUES(state),login_state_version=VALUES(login_state_version),revision=VALUES(revision),etag=VALUES(etag),last_validated_at=VALUES(last_validated_at),updated_at=VALUES(updated_at)`, [value.id,value.workspaceId,value.platform,value.accountHandle,value.upstreamSessionId ?? null,value.displayName,value.state,value.loginStateVersion,value.revision,value.etag,value.lastValidatedAt,value.createdAt,value.updatedAt]);
+    await this.pool.execute(accountUpsertSql, accountValues(value));
     return value;
   }
   async bindActive(value: AcquisitionSocialAccountPrivateRecord) {
@@ -54,10 +201,7 @@ export class MysqlAcquisitionSocialAccountRepository implements AcquisitionSocia
     const connection = await this.pool.getConnection();
     try {
       await connection.beginTransaction();
-      const [rows] = await connection.execute<Row[]>(
-        "SELECT * FROM acquisition_social_accounts WHERE workspace_id=? AND platform=? FOR UPDATE",
-        [value.workspaceId, value.platform]
-      );
+      const [rows] = await connection.execute<Row[]>("SELECT * FROM acquisition_social_accounts WHERE workspace_id=? AND platform=? FOR UPDATE", [value.workspaceId, value.platform]);
       const current = rows[0] ? record(rows[0]) : null;
       if (current?.state === "active" && current.accountHandle !== value.accountHandle) {
         await connection.rollback();
@@ -67,10 +211,7 @@ export class MysqlAcquisitionSocialAccountRepository implements AcquisitionSocia
         await connection.commit();
         return current;
       }
-      await connection.execute(
-        `INSERT INTO acquisition_social_accounts (id,workspace_id,platform,account_handle,upstream_session_id,display_name,state,login_state_version,revision,etag,last_validated_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=VALUES(id),account_handle=VALUES(account_handle),upstream_session_id=VALUES(upstream_session_id),display_name=VALUES(display_name),state=VALUES(state),login_state_version=VALUES(login_state_version),revision=VALUES(revision),etag=VALUES(etag),last_validated_at=VALUES(last_validated_at),updated_at=VALUES(updated_at)`,
-        [value.id,value.workspaceId,value.platform,value.accountHandle,value.upstreamSessionId ?? null,value.displayName,value.state,value.loginStateVersion,value.revision,value.etag,value.lastValidatedAt,value.createdAt,value.updatedAt]
-      );
+      await connection.execute(accountUpsertSql, accountValues(value));
       await connection.commit();
       return value;
     } catch (error) {
@@ -79,28 +220,129 @@ export class MysqlAcquisitionSocialAccountRepository implements AcquisitionSocia
     } finally { connection.release(); }
   }
   async disconnect(workspaceId: string, id: string, etag: string, updatedAt: string) {
-    const current = await this.findById(workspaceId, id); if (!current || current.etag !== etag) return null;
+    const current = await this.findById(workspaceId, id);
+    if (!current || current.etag !== etag) return null;
     const revision = current.revision + 1;
     const nextEtag = `\"account-v${revision}\"`;
     const [result] = await this.pool.execute<mysql.ResultSetHeader>(
       "UPDATE acquisition_social_accounts SET state='disconnected', account_handle=NULL, upstream_session_id=NULL, login_state_version=NULL, revision=?, etag=?, updated_at=? WHERE workspace_id=? AND id=? AND etag=?",
-      [revision,nextEtag,updatedAt,workspaceId,id,etag]
+      [revision, nextEtag, updatedAt, workspaceId, id, etag]
     );
     if (result.affectedRows !== 1) return null;
     return { ...current, state: "disconnected" as const, accountHandle: null, upstreamSessionId: null, loginStateVersion: null, revision, etag: nextEtag, updatedAt };
   }
-  async saveLoginSession(value: import("./acquisition-social-account-repository.js").AcquisitionSocialLoginSessionPrivateRecord) { await this.pool.execute("INSERT INTO acquisition_social_account_sessions (id,workspace_id,upstream_id,expires_at,created_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE upstream_id=VALUES(upstream_id),expires_at=VALUES(expires_at)", [value.id,value.workspaceId,value.upstreamId,value.expiresAt,value.createdAt]); }
-  async findLoginSession(workspaceId: string, id: string) { const [rows] = await this.pool.execute<Row[]>("SELECT * FROM acquisition_social_account_sessions WHERE workspace_id=? AND id=?", [workspaceId,id]); const row = rows[0]; return row ? { id: String(row.id), workspaceId: String(row.workspace_id), upstreamId: String(row.upstream_id), expiresAt: String(row.expires_at), createdAt: String(row.created_at) } : null; }
-  async deleteExpiredLoginSessions(now: string) { await this.pool.execute("DELETE FROM acquisition_social_account_sessions WHERE expires_at <= ?", [now]); }
-  async findReplay(workspaceId: string, operation: string, key: string) { const [rows] = await this.pool.execute<Row[]>("SELECT * FROM acquisition_social_account_replays WHERE workspace_id=? AND operation_name=? AND idempotency_key=? AND response_status <> 0", [workspaceId,operation,key]); const row = rows[0]; return row ? { requestHash: String(row.request_hash), response: typeof row.response_json === "string" ? JSON.parse(row.response_json) : row.response_json, status: Number(row.response_status) } : null; }
-  async saveReplay(workspaceId: string, operation: string, key: string, replay: import("./acquisition-social-account-repository.js").AcquisitionSocialAccountReplay) { await this.pool.execute("UPDATE acquisition_social_account_replays SET response_json=?,response_status=? WHERE workspace_id=? AND operation_name=? AND idempotency_key=? AND request_hash=?", [JSON.stringify(replay.response),replay.status,workspaceId,operation,key,replay.requestHash]); }
-  async claimReplay(workspaceId: string, operation: string, key: string, requestHash: string, expiresAt: string): Promise<AcquisitionSocialAccountReplayClaim> {
-    const [insert] = await this.pool.execute<mysql.ResultSetHeader>("INSERT IGNORE INTO acquisition_social_account_replays (workspace_id,operation_name,idempotency_key,request_hash,response_json,response_status,expires_at,created_at) VALUES (?,?,?,?,NULL,0,?,?)", [workspaceId,operation,key,requestHash,expiresAt,new Date().toISOString()]);
-    const [rows] = await this.pool.execute<Row[]>("SELECT * FROM acquisition_social_account_replays WHERE workspace_id=? AND operation_name=? AND idempotency_key=?", [workspaceId,operation,key]);
-    const row = rows[0];
-    if (!row) throw new Error("idempotency_claim_missing");
-    if (String(row.request_hash) !== requestHash) return { kind: "conflict" };
-    if (Number(row.response_status) === 0) return insert.affectedRows === 1 ? { kind: "claimed" } : { kind: "pending" };
-    return { kind: "completed", replay: { requestHash, response: typeof row.response_json === "string" ? JSON.parse(row.response_json) : row.response_json, status: Number(row.response_status) } };
+  async saveLoginSession(value: AcquisitionSocialLoginSessionPrivateRecord) {
+    await this.pool.execute("INSERT INTO acquisition_social_account_sessions (id,workspace_id,upstream_id,expires_at,created_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE upstream_id=VALUES(upstream_id),expires_at=VALUES(expires_at)", [value.id, value.workspaceId, value.upstreamId, value.expiresAt, value.createdAt]);
+  }
+  async findLoginSession(workspaceId: string, id: string) {
+    const [rows] = await this.pool.execute<Row[]>("SELECT * FROM acquisition_social_account_sessions WHERE workspace_id=? AND id=?", [workspaceId, id]);
+    return rows[0] ? loginSession(rows[0]) : null;
+  }
+  async deleteExpiredLoginSessions(now: string) {
+    await this.pool.execute("DELETE FROM acquisition_social_account_sessions WHERE expires_at <= ?", [now]);
+  }
+
+  async claimReplay(input: AcquisitionSocialAccountReplayReservationInput): Promise<AcquisitionSocialAccountReplayClaim> {
+    const { attemptedAt, leaseExpiresAt } = validateReservation(input);
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [inserted] = await connection.execute<mysql.ResultSetHeader>(`INSERT IGNORE INTO acquisition_social_account_replays
+        (workspace_id,operation_name,idempotency_key_hash,request_hash,state,response_json,response_status,response_headers_json,
+         lease_owner,lease_expires_at,fencing_token,expires_at,created_at,updated_at,completed_at)
+        VALUES (?,?,?,?,'pending',NULL,0,NULL,?,?,1,?,?,?,NULL)`,
+        [input.workspaceId, input.operation, keyHash(input.key), input.requestHash, input.leaseOwner, leaseExpiresAt,
+          input.replayExpiresAt, input.attemptedAt, input.attemptedAt]);
+      const [rows] = await connection.execute<Row[]>(`SELECT * FROM acquisition_social_account_replays
+        WHERE workspace_id=? AND operation_name=? AND idempotency_key_hash=? FOR UPDATE`, [input.workspaceId, input.operation, keyHash(input.key)]);
+      const row = rows[0];
+      if (!row) throw new Error("idempotency_claim_missing");
+      let result: AcquisitionSocialAccountReplayClaim;
+      if (affectedRows(inserted) === 1) {
+        result = { kind: "claimed", workspaceId: input.workspaceId, operation: input.operation, key: input.key, leaseOwner: input.leaseOwner, leaseExpiresAt, fencingToken: 1 };
+      } else if (instant(String(row.expires_at), "invalid_replay_expires_at") <= attemptedAt) {
+        const currentFence = Number(row.fencing_token);
+        if (!Number.isSafeInteger(currentFence) || currentFence < 0) throw new Error("invalid_social_account_replay_fence");
+        const [updated] = await connection.execute<mysql.ResultSetHeader>(`UPDATE acquisition_social_account_replays
+          SET request_hash=?,state='pending',response_json=NULL,response_status=0,response_headers_json=NULL,
+              lease_owner=?,lease_expires_at=?,fencing_token=fencing_token+1,expires_at=?,created_at=?,updated_at=?,completed_at=NULL
+          WHERE workspace_id=? AND operation_name=? AND idempotency_key_hash=? AND fencing_token=?`,
+          [input.requestHash, input.leaseOwner, leaseExpiresAt, input.replayExpiresAt, input.attemptedAt, input.attemptedAt,
+            input.workspaceId, input.operation, keyHash(input.key), currentFence]);
+        if (affectedRows(updated) !== 1) throw new Error("stale_social_account_replay_fence");
+        result = { kind: "claimed", workspaceId: input.workspaceId, operation: input.operation, key: input.key, leaseOwner: input.leaseOwner, leaseExpiresAt, fencingToken: currentFence + 1 };
+      } else if (String(row.request_hash) !== input.requestHash) {
+        result = { kind: "conflict" };
+      } else if (row.state === "completed") {
+        result = { kind: "completed", replay: replay(row) };
+      } else {
+        const existingLease = row.lease_expires_at == null ? 0 : instant(String(row.lease_expires_at), "invalid_replay_lease_expiry");
+        if (attemptedAt < existingLease) {
+          result = { kind: "pending", retryAfterMs: existingLease - attemptedAt };
+        } else {
+          const currentFence = Number(row.fencing_token);
+          if (!Number.isSafeInteger(currentFence) || currentFence < 1) throw new Error("invalid_social_account_replay_fence");
+          const [updated] = await connection.execute<mysql.ResultSetHeader>(`UPDATE acquisition_social_account_replays
+            SET lease_owner=?,lease_expires_at=?,fencing_token=fencing_token+1,updated_at=?,expires_at=?
+            WHERE workspace_id=? AND operation_name=? AND idempotency_key_hash=? AND state='pending' AND fencing_token=?
+              AND (lease_expires_at IS NULL OR lease_expires_at<=?)`,
+            [input.leaseOwner, leaseExpiresAt, input.attemptedAt, input.replayExpiresAt,
+              input.workspaceId, input.operation, keyHash(input.key), currentFence, input.attemptedAt]);
+          if (affectedRows(updated) !== 1) throw new Error("stale_social_account_replay_fence");
+          result = { kind: "claimed", workspaceId: input.workspaceId, operation: input.operation, key: input.key, leaseOwner: input.leaseOwner, leaseExpiresAt, fencingToken: currentFence + 1 };
+        }
+      }
+      await connection.commit();
+      return result;
+    } catch (error) {
+      await connection.rollback().catch(() => undefined);
+      throw error;
+    } finally { connection.release(); }
+  }
+
+  async completeReplay(fence: AcquisitionSocialAccountReplayFence, completion: AcquisitionSocialAccountReplayCompletion) {
+    const [updated] = await this.pool.execute<mysql.ResultSetHeader>(completeReplaySql, completeValues(fence, completion));
+    if (updated.affectedRows !== 1) throw new Error("stale_social_account_replay_fence");
+  }
+  async releaseReplay(fence: AcquisitionSocialAccountReplayFence) {
+    const [deleted] = await this.pool.execute<mysql.ResultSetHeader>(`DELETE FROM acquisition_social_account_replays
+      WHERE workspace_id=? AND operation_name=? AND idempotency_key_hash=? AND lease_owner=? AND fencing_token=? AND state='pending'`, fenceValues(fence));
+    if (deleted.affectedRows !== 1) throw new Error("stale_social_account_replay_fence");
+  }
+  async saveLoginSessionAndCompleteReplay(value: AcquisitionSocialLoginSessionPrivateRecord, fence: AcquisitionSocialAccountReplayFence, completion: AcquisitionSocialAccountReplayCompletion) {
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute("INSERT INTO acquisition_social_account_sessions (id,workspace_id,upstream_id,expires_at,created_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE upstream_id=VALUES(upstream_id),expires_at=VALUES(expires_at)", [value.id, value.workspaceId, value.upstreamId, value.expiresAt, value.createdAt]);
+      const [updated] = await connection.execute<mysql.ResultSetHeader>(completeReplaySql, completeValues(fence, completion));
+      if (updated.affectedRows !== 1) throw new Error("stale_social_account_replay_fence");
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback().catch(() => undefined);
+      throw error;
+    } finally { connection.release(); }
+  }
+  async disconnectAndCompleteReplay(workspaceId: string, id: string, etag: string, updatedAt: string, fence: AcquisitionSocialAccountReplayFence, completion: AcquisitionSocialAccountReplayCompletion) {
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [rows] = await connection.execute<Row[]>("SELECT * FROM acquisition_social_accounts WHERE workspace_id=? AND id=? FOR UPDATE", [workspaceId, id]);
+      const current = rows[0] ? record(rows[0]) : null;
+      if (!current || current.etag !== etag) {
+        await connection.rollback();
+        return null;
+      }
+      const revision = current.revision + 1;
+      const nextEtag = `\"account-v${revision}\"`;
+      const [accountUpdated] = await connection.execute<mysql.ResultSetHeader>("UPDATE acquisition_social_accounts SET state='disconnected',account_handle=NULL,upstream_session_id=NULL,login_state_version=NULL,revision=?,etag=?,updated_at=? WHERE workspace_id=? AND id=? AND etag=?", [revision, nextEtag, updatedAt, workspaceId, id, etag]);
+      if (accountUpdated.affectedRows !== 1) throw new Error("stale_social_account_etag");
+      const [replayUpdated] = await connection.execute<mysql.ResultSetHeader>(completeReplaySql, completeValues(fence, completion));
+      if (replayUpdated.affectedRows !== 1) throw new Error("stale_social_account_replay_fence");
+      await connection.commit();
+      return { ...current, state: "disconnected" as const, accountHandle: null, upstreamSessionId: null, loginStateVersion: null, revision, etag: nextEtag, updatedAt };
+    } catch (error) {
+      await connection.rollback().catch(() => undefined);
+      throw error;
+    } finally { connection.release(); }
   }
 }

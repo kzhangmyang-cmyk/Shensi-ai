@@ -564,7 +564,7 @@ paths:
       parameters: [{ $ref: '#/components/parameters/idempotencyKey' }, { $ref: '#/components/parameters/ifMatch' }]
       responses:
         <<: *acquisitionStandardResponses
-        '200': { description: Disconnected account, content: { application/json: { schema: *socialAccountSchema } } }
+        '200': { description: Disconnected account, headers: { Idempotency-Replayed: { schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: *socialAccountSchema } } }
         '412': *apiError
         '428': *apiError
   /api/v1/acquisition/providers:

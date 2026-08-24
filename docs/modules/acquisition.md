@@ -23,7 +23,10 @@ ROI projections.
 Provider catalog/connections and public-source adapters, model gateway/tool
 ports, tenant workspace context, CRM conversion ports, encrypted credential
 services, MySQL repositories/named locks, Growth finance and ROI projections,
-and generated acquisition contract types.
+generated acquisition contract types, and the optional private
+`services/media-crawler` Douyin login sidecar. The sidecar is enabled only when
+the backend receives both `MEDIACRAWLER_BASE_URL` and
+`MEDIACRAWLER_SERVICE_SECRET`.
 
 ## Database Tables
 
@@ -35,11 +38,24 @@ comment/visual reader tables, and acquisition cohort/cost/allocation/ROI
 tables. DDL is split across `acquisition-mysql-repositories.ts`, focused
 `*-mysql-repository.ts` modules, and `mysql-store.ts`.
 
+Douyin account login additionally uses `acquisition_social_accounts`,
+`acquisition_social_account_sessions`, and
+`acquisition_social_account_replays`. Replay rows are a durable leased,
+fenced `pending`/`completed` state machine containing the semantic request
+hash, exact response status/body/headers, timestamps, and expiry. MySQL
+transactions commit a login session or disconnect together with its completed
+replay; an expired lease can be reclaimed after a process crash.
+
 ## Public Interfaces
 
 Authenticated `/api/v1/acquisition/*` routes cover plans, runs, presentation,
 candidates, evidence, reviews, outcomes, performance, providers/connections,
 operations, visual-reader sessions/artifacts, copilot, and advisor projections.
+The Douyin account family provides QR-session create/poll, workspace account
+list, and disconnect. POST and DELETE require authentication, the browser CSRF
+cookie/header pair, and semantic `Idempotency-Key`; DELETE also requires the
+current `If-Match`. Account handles, browser contexts, cookies, and profile
+paths remain private.
 The editable contract is `contracts/openapi/ai-acquisition.v1.yaml`; frontend
 code consumes `frontend/src/generated/ai-acquisition.ts`.
 
@@ -58,9 +74,22 @@ smokes require explicit local credentials; the Douyin live smoke is
 after any route or DTO change and inspect logs for identifiers only, never raw
 customer/comment text or credentials.
 
+For QR login, provision an encrypted-at-rest directory before starting the
+sidecar. `MEDIACRAWLER_ENCRYPTED_VOLUME` must name an existing, non-symlink
+directory with exact mode `0700`; `MEDIACRAWLER_PROFILE_ROOT` must be inside
+it. The sidecar corrects owned profile directories to `0700` and metadata to
+`0600`. Playwright and every browser context live in one owned child process
+group;
+startup, commands, and shutdown are bounded, and a timed-out command hard
+terminates that process. Graceful ASGI shutdown closes live browser handles
+but retains safe active metadata/profile state for restart. Only explicit
+disconnect or expiry deletes it.
+
 ## Known Limitations
 
-Memory mode does not prove durable recovery. Generic search is not guaranteed
+Memory mode coordinates replays only inside one application process and does
+not prove crash/restart recovery; production account idempotency requires
+MySQL. Generic search is not guaranteed
 to provide Douyin coverage, and authorized visual reading is intentionally
 bounded to the visible, consented surface. Live-provider success cannot be
 claimed without configured provider connections. Reserved schemas without

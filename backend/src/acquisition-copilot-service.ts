@@ -744,12 +744,16 @@ export class AcquisitionCopilotService {
     return failed;
   }
 
-  runTask(scope: AcquisitionCopilotScope, taskId: string) {
+  runTask(
+    scope: AcquisitionCopilotScope,
+    taskId: string,
+    signal?: AbortSignal
+  ) {
     validScope(scope);
     const normalizedTaskId = requiredText(taskId, "taskId", 255);
     const inFlight = this.#inFlightTasks.get(normalizedTaskId);
     if (inFlight) return inFlight.then(clone);
-    const run = this.#executeTask(scope, normalizedTaskId);
+    const run = this.#executeTask(scope, normalizedTaskId, signal);
     this.#inFlightTasks.set(normalizedTaskId, run);
     void run.finally(() => {
       this.#inFlightTasks.delete(normalizedTaskId);
@@ -815,7 +819,8 @@ export class AcquisitionCopilotService {
 
   async #executeTask(
     scope: AcquisitionCopilotScope,
-    taskId: string
+    taskId: string,
+    signal?: AbortSignal
   ): Promise<AcquisitionCopilotTask> {
     let task = await this.#requireTask(scope, taskId);
     if (["succeeded", "failed", "cancelled"].includes(task.status)) {
@@ -878,7 +883,8 @@ export class AcquisitionCopilotService {
           .map((record) => clone(record.message)),
         prompt: task.prompt,
         responseMode: task.responseMode ?? "assistant",
-        targetPlatform: task.targetPlatform ?? "web"
+        targetPlatform: task.targetPlatform ?? "web",
+        signal
       });
       this.#validateNewMessages(response.newMessages, task.prompt);
       const startSequence = existing.length;

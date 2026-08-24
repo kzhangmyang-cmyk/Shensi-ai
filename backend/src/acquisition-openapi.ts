@@ -238,7 +238,7 @@ const errorSchema = {
       properties: {
         code: { type: "string" },
         message: { type: "string" },
-        details: { nullable: true },
+        details: {},
         requestId: { type: "string" },
         retryable: { type: "boolean" }
       },
@@ -254,7 +254,7 @@ const errorSchema = {
           properties: {
             code: { type: "string" },
             message: { type: "string" },
-            details: { nullable: true },
+            details: {},
             requestId: { type: "string" }
           },
           additionalProperties: false
@@ -1286,7 +1286,7 @@ function addSocialAccountPaths(paths: AcquisitionOpenApiPaths) {
   add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions", "post", operation("post", "开始抖音二维码登录", { parameters: [idempotencyParameter(1)], requestBody: jsonBody({ type: "object", required: ["platform"], properties: { platform: { type: "string", enum: ["douyin"] } }, additionalProperties: false }), responses: { ...standardResponses(201, "二维码登录会话", socialLoginSessionSchema), "200": { ...response("幂等重放", socialLoginSessionSchema), headers: { "Idempotency-Replayed": { schema: { type: "string", enum: ["true"] } } } } } }));
   add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}", "get", operation("get", "查询抖音二维码登录", { parameters: [idParameter(255, "sessionId")], responses: standardResponses(200, "二维码登录会话", socialLoginSessionSchema) }));
   add(paths, "/api/v1/acquisition/social-accounts/douyin", "get", operation("get", "列出抖音账号", { responses: standardResponses(200, "抖音账号", { type: "object", additionalProperties: false, required: ["items"], properties: { items: { type: "array", items: socialAccountSchema } } }) }));
-  add(paths, "/api/v1/acquisition/social-accounts/{accountId}", "delete", operation("delete", "断开抖音账号", { parameters: [idParameter(255, "accountId"), idempotencyParameter(1), ifMatchParameter()], responses: { ...standardResponses(200, "已断开账号", socialAccountSchema), "412": response("资源版本不匹配", errorSchema), "428": response("缺少 If-Match 版本条件", errorSchema) } }));
+  add(paths, "/api/v1/acquisition/social-accounts/{accountId}", "delete", operation("delete", "断开抖音账号", { parameters: [idParameter(255, "accountId"), idempotencyParameter(1), ifMatchParameter()], responses: { ...standardResponses(200, "已断开账号", socialAccountSchema), "200": { ...response("已断开账号", socialAccountSchema), headers: { "Idempotency-Replayed": { schema: { type: "string", enum: ["true"] } } } }, "412": response("资源版本不匹配", errorSchema), "428": response("缺少 If-Match 版本条件", errorSchema) } }));
 }
 function addProviderPaths(paths: AcquisitionOpenApiPaths) {
   add(paths, "/api/v1/acquisition/providers", "get", operation(

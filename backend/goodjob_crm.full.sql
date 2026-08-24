@@ -33,6 +33,7 @@ CREATE TABLE acquisition_social_accounts (
   workspace_id VARCHAR(255) NOT NULL,
   platform VARCHAR(32) NOT NULL,
   account_handle VARCHAR(512) NULL,
+  upstream_session_id VARCHAR(512) NULL,
   display_name VARCHAR(512) NULL,
   state VARCHAR(32) NOT NULL,
   login_state_version BIGINT NULL,
@@ -57,11 +58,23 @@ CREATE TABLE acquisition_social_account_sessions (
 CREATE TABLE acquisition_social_account_replays (
   workspace_id VARCHAR(255) NOT NULL,
   operation_name VARCHAR(120) NOT NULL,
-  idempotency_key VARCHAR(200) NOT NULL,
+  idempotency_key_hash CHAR(64) NOT NULL,
   request_hash CHAR(64) NOT NULL,
-  response_json JSON NOT NULL,
-  response_status INT NOT NULL,
-  PRIMARY KEY (workspace_id, operation_name, idempotency_key)
+  state VARCHAR(16) NOT NULL,
+  response_json JSON NULL,
+  response_status INT NOT NULL DEFAULT 0,
+  response_headers_json JSON NULL,
+  lease_owner VARCHAR(128) NULL,
+  lease_expires_at VARCHAR(40) NULL,
+  fencing_token BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  expires_at VARCHAR(40) NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  updated_at VARCHAR(40) NOT NULL,
+  completed_at VARCHAR(40) NULL,
+  PRIMARY KEY (workspace_id, operation_name, idempotency_key_hash),
+  INDEX acquisition_social_account_replays_expiry (expires_at),
+  CONSTRAINT acquisition_social_account_replays_state
+    CHECK (state IN ('pending', 'completed'))
 );
 
 CREATE TABLE customers (

@@ -19,6 +19,7 @@ import type {
   ToolCallingResult
 } from "./model-providers/gateway.js";
 import { GROWTH_QUOTE_TOOL_NAMES } from "./growth-advisor-quote-tools.js";
+import { ADVISOR_TOOL_NAMES } from "./growth-advisor-tools.js";
 
 export { ACQUISITION_FINAL_ANSWER_TOOL };
 
@@ -155,10 +156,12 @@ implements AcquisitionPiTurnRuntime {
     const exactTools = canonical(businessTools)
       === canonical(this.#expectedBusinessTools);
     const quoteToolNames = new Set<string>(GROWTH_QUOTE_TOOL_NAMES);
+    const advisorToolNames = new Set<string>(ADVISOR_TOOL_NAMES);
     const legacyCompatible = this.#legacyOutcomeAdapter
       && canonical(businessTools.filter((tool) =>
         tool.name !== "get_acquisition_performance"
-        && !quoteToolNames.has(tool.name)))
+        && !quoteToolNames.has(tool.name)
+        && !advisorToolNames.has(tool.name)))
         === canonical(this.#expectedBusinessTools.filter((tool) =>
           tool.name !== "record_outcome"));
     if (!exactTools && !legacyCompatible) {

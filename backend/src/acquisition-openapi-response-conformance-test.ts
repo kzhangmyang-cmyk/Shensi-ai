@@ -34,21 +34,45 @@ const TEAM = "response-contract-team";
 const NOW = "2026-08-05T00:00:00.000Z";
 const openApiPaths = createAcquisitionOpenApiPaths();
 
-test("social-account responses conform without private browser state", async () => {
+test("actual social-account HTTP replays and 404/412 errors conform without private browser state", async () => {
   const service = new AcquisitionSocialAccountService({
     repository: new InMemoryAcquisitionSocialAccountRepository(),
     gateway: {
       async createLoginSession() { return { sessionId: "upstream-session", state: "awaiting_scan", qrImageDataUrl: "data:image/png;base64,cXI=", expiresAt: NOW, accountHandle: null, accountDisplayName: null, loginStateVersion: null }; },
-      async getLoginSession() { return { sessionId: "upstream-session", state: "active", qrImageDataUrl: null, expiresAt: NOW, accountHandle: "private", accountDisplayName: null, loginStateVersion: 1 }; }
+      async getLoginSession() { return { sessionId: "upstream-session", state: "active", qrImageDataUrl: null, expiresAt: NOW, accountHandle: "private", accountDisplayName: null, loginStateVersion: 1 }; },
+      async disconnectLoginSession() {}
     }, idFactory: () => "social-account-response", now: () => NOW
   });
-  const session = await service.createLoginSession({ workspaceId: TEAM }, { platform: "douyin" });
-  assert.equal("accountHandle" in session, false);
-  assertResponseConforms("/api/v1/acquisition/social-accounts/douyin/login-sessions", "post", 201, session);
-  const account = await service.bindActiveSession({ workspaceId: TEAM }, session.id);
-  assert.equal("accountHandle" in account, false);
-  assertResponseConforms("/api/v1/acquisition/social-accounts/{accountId}", "delete", 200, account);
-  assert.equal(typeof createAcquisitionSocialAccountRouter, "function");
+  const router = express.Router();
+  router.use("/api/v1/acquisition", createAcquisitionSocialAccountRouter({ service, requestIdFactory: () => "social-request" }));
+  const http = await mount(router);
+  try {
+    const path = "/api/v1/acquisition/social-accounts/douyin/login-sessions";
+    const init = { method: "POST", headers: { "Idempotency-Key": "social-create" }, body: JSON.stringify({ platform: "douyin" }) };
+    const first = await http.request(path, init);
+    const replay = await http.request(path, init);
+    assert.equal(first.response.status, 201);
+    assert.equal(replay.response.status, 200);
+    assert.equal(replay.response.headers.get("idempotency-replayed"), "true");
+    assert.deepEqual(replay.body, first.body);
+    assert.equal("accountHandle" in (first.body as object), false);
+    assertResponseConforms(path, "post", 201, first.body);
+    assertResponseConforms(path, "post", 200, replay.body);
+
+    const account = await service.bindActiveSession({ workspaceId: TEAM }, (first.body as { id: string }).id);
+    const missing = await http.request("/api/v1/acquisition/social-accounts/missing", { method: "DELETE", headers: { "Idempotency-Key": "social-missing", "If-Match": account.etag } });
+    assert.equal(missing.response.status, 404);
+    assertResponseConforms("/api/v1/acquisition/social-accounts/{accountId}", "delete", 404, missing.body);
+    const stale = await http.request(`/api/v1/acquisition/social-accounts/${account.id}`, { method: "DELETE", headers: { "Idempotency-Key": "social-stale", "If-Match": '"account-v999"' } });
+    assert.equal(stale.response.status, 412);
+    assertResponseConforms("/api/v1/acquisition/social-accounts/{accountId}", "delete", 412, stale.body);
+    const deleted = await http.request(`/api/v1/acquisition/social-accounts/${account.id}`, { method: "DELETE", headers: { "Idempotency-Key": "social-delete", "If-Match": account.etag } });
+    assert.equal(deleted.response.status, 200);
+    assert.equal("accountHandle" in (deleted.body as object), false);
+    assertResponseConforms("/api/v1/acquisition/social-accounts/{accountId}", "delete", 200, deleted.body);
+  } finally {
+    await http.close();
+  }
 });
 
 function openApi30SchemaForAjv(value: any): any {
@@ -230,6 +254,15 @@ async function mount(...routers: Router[]) {
       role: "sales",
       avatar: "",
       authVersion: 1
+    };
+    req.activeWorkspace = {
+      workspaceId: TEAM,
+      kind: "team",
+      actorId: OWNER,
+      role: "sales",
+      teamId: TEAM,
+      capabilities: [],
+      capabilityRegistryVersion: "growth-capabilities.v1"
     };
     next();
   });
