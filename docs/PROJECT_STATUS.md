@@ -33,13 +33,25 @@ ledger.
   create a plaintext dump or provide a database-drop path. Verification uses
   allowlisted non-sensitive digests and aggregate ciphertext-row identities;
   password hashes and raw credential bytes are excluded.
+- The authorized live database copy from `shensi_sales` into the distinct
+  `shensi` database completed at `a681c123`. Restore-boundary verification
+  matched 237 tables and 170 rows plus stable identities, model projections,
+  and aggregate encrypted-row identities. The first target-backend startup
+  added one deterministic `system_migration` model-activation audit row; a
+  second restart added nothing further, leaving the current target at 237
+  tables and 171 rows while the unchanged source remains at 237 and 170. Both
+  isolated starts passed MySQL health on `127.0.0.1:4192`. Authenticated
+  encrypted backups were retained and temporary migration accounts were
+  removed. Current non-secret evidence is in
+  `docs/migration/2026-08-24-live-migration-verification.md`.
 
 ## Active
 
-- The clean-repository program is establishing a single AI-readable,
-  deployable Shensi runtime while preserving the legacy repository and source
-  database as rollback inputs. Repository gates, not historical completion
-  prose, determine its status.
+- The restored `shensi` database is awaiting authenticated login and
+  restored-provider runtime acceptance. The task-owned isolated backend was
+  stopped after its MySQL health evidence was captured. The legacy repository,
+  source database, and user-facing processes remain rollback inputs; no
+  cutover has occurred.
 
 ## Blocked
 
@@ -47,15 +59,18 @@ ledger.
 - Docker Engine and Docker Compose are unavailable in the current execution
   environment (`docker: command not found`), so Compose rendering and image
   builds require verification in a Docker-equipped environment.
-- Live data migration, credential verification, and cutover cannot be claimed
-  until an operator supplies the required local secrets and authorizes those
-  later operational steps.
+- Login/session and restored DeepSeek credential health cannot be verified
+  because the ignored environment contains no authorized test email/password
+  pair. The restored `deepseek-v4-pro` projection and ciphertext identity match,
+  but no external provider call was made. Cutover remains separately
+  unauthorized.
 
 ## Next
 
-1. Have an authorized operator migrate into a distinct `shensi` target using
-   the documented secret boundary.
-2. Run full runtime acceptance and request explicit cutover approval.
+1. Supply a valid test login pair through the ignored operator secret boundary,
+   then run the bounded login/session and restored DeepSeek health check.
+2. Run the remaining full-runtime acceptance gates and request explicit
+   cutover approval.
 
 The two executing design/plan documents are retained under
 `docs/superpowers/` until final acceptance, but they are not progress authority.
