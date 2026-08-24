@@ -115,3 +115,55 @@ server-owned MediaCrawler environment values are present.
 Focused GREEN: `uv run --directory services/media-crawler pytest
 tests/shensi_adapter/test_accounts.py tests/shensi_adapter/test_contracts.py -q`
 reported 4 passed; Node account tests reported 7 passed; backend build passed.
+
+## Fix round 3/5 (partial; blocked before completion)
+
+RED evidence:
+
+```text
+pytest tests/shensi_adapter/test_accounts.py:
+KeyError on a fresh AccountManager after an active QR session (metadata was not durable).
+
+tsx src/acquisition-social-account-test.ts:
+concurrent idempotent creates issued 2 upstream QR sessions (expected 1).
+
+tsx src/acquisition-social-account-router-test.ts:
+second DELETE with the same key returned 412 (expected exact 200 replay).
+```
+
+GREEN evidence:
+
+```text
+uv run --directory services/media-crawler pytest tests/shensi_adapter/test_accounts.py -q
+3 passed
+
+pnpm --dir backend exec tsx --test --test-concurrency=1 \
+  src/acquisition-social-account-test.ts \
+  src/acquisition-social-account-router-test.ts \
+  src/acquisition-social-account-mysql-repository-test.ts
+8 passed
+
+pnpm --dir backend run build
+passed
+
+pnpm --dir backend run test:security
+passed
+
+pnpm --dir backend exec tsx --test --test-concurrency=1 \
+  src/acquisition-openapi-response-conformance-test.ts
+8 passed
+```
+
+Implemented in this partial pass: persistent protected account-session metadata
+with immediate profile cleanup and a periodic sweeper; bounded browser-thread
+startup/command/shutdown handoff; ASGI lifespan ownership; in-memory semantic
+reservation for concurrent POST and frozen DELETE replay; and service-side
+gateway disconnect using the private upstream session id.
+
+Not completed: real production authentication/CSRF composition coverage,
+complete cross-process MySQL pending/reclaim state machine, the full browser
+route/lifecycle failure matrix, docs update, and a clean acquisition aggregate.
+The aggregate still emits every `acquisition-application-test.ts` assertion but
+the Node worker remains alive with `Timeout`/pipe resources after the final
+test. This was reproduced independently of the account tests and requires an
+owner-level change to the existing acquisition runtime/test harness lifecycle.

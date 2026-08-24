@@ -26,5 +26,9 @@ test("router binds accounts to active workspace, replays creates, and returns 41
     assert.equal(foreign.status, 404);
     const stale = await request(`/social-accounts/${bound.id}`, { method: "DELETE", headers: { "Idempotency-Key": "delete-key", "If-Match": '"account-v999"' } });
     assert.equal(stale.status, 412);
+    const deleted = await request(`/social-accounts/${bound.id}`, { method: "DELETE", headers: { "Idempotency-Key": "delete-ok", "If-Match": bound.etag } });
+    const deletedReplay = await request(`/social-accounts/${bound.id}`, { method: "DELETE", headers: { "Idempotency-Key": "delete-ok", "If-Match": bound.etag } });
+    assert.equal(deleted.status, 200); assert.equal(deletedReplay.status, 200);
+    assert.equal(deletedReplay.headers.get("idempotency-replayed"), "true");
   } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
 });

@@ -69,3 +69,19 @@ test("persists an exact create-session replay by workspace and semantic hash", a
   assert.equal(gateway.createLoginSessionCalls, 1);
   await assert.rejects(restarted.createLoginSessionIdempotently(context, { platform: "douyin" }, "key", "different"), { code: "idempotency_key_conflict" });
 });
+
+test("reserves a create key before upstream work so concurrent calls issue one QR session", async () => {
+  const gateway = new Gateway();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  gateway.createLoginSession = async () => { gateway.createLoginSessionCalls += 1; await gate; return { sessionId: "session-a", state: "awaiting_scan", qrImageDataUrl: "data:image/png;base64,cXI=", expiresAt: "2026-08-24T00:01:00.000Z", accountHandle: null, accountDisplayName: null, loginStateVersion: null }; };
+  const service = new AcquisitionSocialAccountService({ repository: new InMemoryAcquisitionSocialAccountRepository(), gateway, idFactory: () => "session", now: () => "2026-08-24T00:00:00.000Z" });
+  const first = service.createLoginSessionIdempotently(context, { platform: "douyin" }, "key", "hash");
+  const second = service.createLoginSessionIdempotently(context, { platform: "douyin" }, "key", "hash");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(gateway.createLoginSessionCalls, 1);
+  release();
+  const [created, replayed] = await Promise.all([first, second]);
+  assert.equal(created.replayed, false);
+  assert.equal(replayed.replayed, true);
+});

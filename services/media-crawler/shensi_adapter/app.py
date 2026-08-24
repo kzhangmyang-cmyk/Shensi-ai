@@ -1,5 +1,6 @@
 import os
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
@@ -13,8 +14,21 @@ from .security import authorize_bearer, require_service_secret
 UPSTREAM_COMMIT = "d6f7c5bb906b6dac40ddf343ef9e26438a3de092"
 
 
-def _build_app(secret_provider: Callable[[], str], account_manager: AccountManager | None = None) -> FastAPI:
-    application = FastAPI(docs_url=None, openapi_url=None, redoc_url=None)
+def _build_app(secret_provider: Callable[[], str], account_manager: AccountManager | None = None,
+               deployment_manager_factory: Callable[[], AccountManager] | None = None) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        if application.state.account_manager is None and deployment_manager_factory is not None:
+            application.state.account_manager = deployment_manager_factory()
+        try:
+            yield
+        finally:
+            manager = application.state.account_manager
+            if manager is not None:
+                manager.close()
+                application.state.account_manager = None
+
+    application = FastAPI(docs_url=None, openapi_url=None, redoc_url=None, lifespan=lifespan)
     application.state.account_manager = account_manager
 
     @application.get("/internal/v1/health", response_model=HealthView)
@@ -69,14 +83,14 @@ def create_deployment_account_manager() -> AccountManager:
     root = os.environ.get("MEDIACRAWLER_PROFILE_ROOT", "").strip()
     if not volume or not root:
         raise RuntimeError("MEDIACRAWLER_ENCRYPTED_VOLUME and MEDIACRAWLER_PROFILE_ROOT are required")
-    return AccountManager(Path(root), MediaCrawlerDouyinBrowserState())
+    root_path, volume_path = Path(root).resolve(), Path(volume).resolve()
+    if not root_path.is_relative_to(volume_path):
+        raise RuntimeError("MEDIACRAWLER_PROFILE_ROOT must be inside MEDIACRAWLER_ENCRYPTED_VOLUME")
+    # Validate containment before the Playwright owner thread is even created.
+    return AccountManager(root_path, MediaCrawlerDouyinBrowserState())
 
 
 # Deployment entry point: fail closed rather than placing browser state on an
 # unencrypted/default filesystem. Unit tests use create_app with an injected manager.
-app = _build_app(lambda: os.environ.get("MEDIACRAWLER_SERVICE_SECRET", ""))
-
-
-@app.on_event("startup")
-def configure_deployment_account_manager() -> None:
-    app.state.account_manager = create_deployment_account_manager()
+app = _build_app(lambda: os.environ.get("MEDIACRAWLER_SERVICE_SECRET", ""),
+                 deployment_manager_factory=create_deployment_account_manager)

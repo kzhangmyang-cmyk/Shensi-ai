@@ -16,6 +16,8 @@ export class AcquisitionSocialAccountService {
   private readonly gateway: AcquisitionSocialAccountServiceOptions["gateway"];
   private readonly idFactory: () => string;
   private readonly now: () => string;
+  private readonly inFlight = new Map<string, Promise<{ view: AcquisitionSocialAccountLoginSession; status: number }>>();
+  private readonly disconnectInFlight = new Map<string, Promise<{ view: AcquisitionSocialAccount; status: number }>>();
   constructor(options: AcquisitionSocialAccountServiceOptions) { this.repository = options.repository; this.gateway = options.gateway; this.idFactory = options.idFactory ?? (() => crypto.randomUUID()); this.now = options.now ?? (() => new Date().toISOString()); }
   async createLoginSession(scope: AcquisitionSocialAccountScope, input: { platform: "douyin" }): Promise<AcquisitionSocialAccountLoginSession> {
     if (input.platform !== "douyin") throw new SocialAccountError("unsupported_social_platform");
@@ -26,14 +28,25 @@ export class AcquisitionSocialAccountService {
   }
   async createLoginSessionIdempotently(scope: AcquisitionSocialAccountScope, input: { platform: "douyin" }, key: string, requestHash: string) {
     const operation = "create_douyin_login_session";
-    const replay = await this.repository.findReplay(scope.workspaceId, operation, key);
-    if (replay) {
-      if (replay.requestHash !== requestHash) throw new SocialAccountError("idempotency_key_conflict");
-      return { view: replay.response as AcquisitionSocialAccountLoginSession, status: replay.status, replayed: true };
+    const replayKey = `${scope.workspaceId}\u0000${operation}\u0000${key}`;
+    const claim = await this.repository.claimReplay(scope.workspaceId, operation, key, requestHash, new Date(Date.parse(this.now()) + 24 * 60 * 60 * 1000).toISOString());
+    if (claim.kind === "conflict") throw new SocialAccountError("idempotency_key_conflict");
+    if (claim.kind === "completed") return { view: claim.replay.response as AcquisitionSocialAccountLoginSession, status: claim.replay.status, replayed: true };
+    if (claim.kind === "pending") {
+      const pending = this.inFlight.get(replayKey);
+      if (!pending) throw new SocialAccountError("idempotency_operation_pending");
+      const completed = await pending;
+      return { ...completed, replayed: true };
     }
-    const view = await this.createLoginSession(scope, input);
-    await this.repository.saveReplay(scope.workspaceId, operation, key, { requestHash, response: view, status: 201 });
-    return { view, status: 201, replayed: false };
+    const pending = (async () => {
+      const view = await this.createLoginSession(scope, input);
+      const completed = { view, status: 201 };
+      await this.repository.saveReplay(scope.workspaceId, operation, key, { requestHash, response: view, status: 201 });
+      return completed;
+    })();
+    this.inFlight.set(replayKey, pending);
+    try { return { ...(await pending), replayed: false }; }
+    finally { this.inFlight.delete(replayKey); }
   }
   private async session(scope: AcquisitionSocialAccountScope, id: string) { const session = await this.repository.findLoginSession(scope.workspaceId, id); if (!session) throw new SocialAccountError("douyin_login_session_not_found"); return session; }
   async getLoginSession(scope: AcquisitionSocialAccountScope, id: string): Promise<AcquisitionSocialAccountLoginSession> {
@@ -47,12 +60,28 @@ export class AcquisitionSocialAccountService {
     const current = await this.repository.findByWorkspaceAndPlatform(scope.workspaceId, "douyin");
     if (current?.accountHandle === upstream.accountHandle && current.state === "active") return publicSocialAccount(current);
     const now = this.now(); const revision = (current?.revision ?? 0) + 1;
-    const account: AcquisitionSocialAccountPrivateRecord = { id: current?.id ?? this.idFactory(), workspaceId: scope.workspaceId, platform: "douyin", displayName: upstream.accountDisplayName, state: "active", loginStateVersion: upstream.loginStateVersion, accountHandle: upstream.accountHandle, revision, etag: `\"account-v${revision}\"`, lastValidatedAt: now, createdAt: current?.createdAt ?? now, updatedAt: now };
+    const account: AcquisitionSocialAccountPrivateRecord = { id: current?.id ?? this.idFactory(), workspaceId: scope.workspaceId, platform: "douyin", displayName: upstream.accountDisplayName, state: "active", loginStateVersion: upstream.loginStateVersion, accountHandle: upstream.accountHandle, upstreamSessionId: upstream.sessionId, revision, etag: `\"account-v${revision}\"`, lastValidatedAt: now, createdAt: current?.createdAt ?? now, updatedAt: now };
     const bound = await this.repository.bindActive(account);
     if (bound === "active_handle_conflict") throw new SocialAccountError("douyin_active_account_conflict");
     return publicSocialAccount(bound);
   }
   async list(scope: AcquisitionSocialAccountScope): Promise<{ items: AcquisitionSocialAccount[] }> { const account = await this.repository.findByWorkspaceAndPlatform(scope.workspaceId, "douyin"); return { items: account ? [publicSocialAccount(account)] : [] }; }
-  async disconnect(scope: AcquisitionSocialAccountScope, id: string, etag: string): Promise<AcquisitionSocialAccount> { if (!await this.repository.findById(scope.workspaceId, id)) throw new SocialAccountError("social_account_not_found"); const account = await this.repository.disconnect(scope.workspaceId, id, etag, this.now()); if (!account) throw new SocialAccountError("social_account_precondition_failed"); return publicSocialAccount(account); }
+  async disconnect(scope: AcquisitionSocialAccountScope, id: string, etag: string): Promise<AcquisitionSocialAccount> { const current = await this.repository.findById(scope.workspaceId, id); if (!current) throw new SocialAccountError("social_account_not_found"); const account = await this.repository.disconnect(scope.workspaceId, id, etag, this.now()); if (!account) throw new SocialAccountError("social_account_precondition_failed"); if (current.upstreamSessionId && this.gateway.disconnectLoginSession) await this.gateway.disconnectLoginSession(current.upstreamSessionId); return publicSocialAccount(account); }
+  async disconnectIdempotently(scope: AcquisitionSocialAccountScope, id: string, etag: string, key: string, requestHash: string) {
+    const operation = "disconnect_douyin_social_account";
+    const replayKey = `${scope.workspaceId}\u0000${operation}\u0000${key}`;
+    const claim = await this.repository.claimReplay(scope.workspaceId, operation, key, requestHash, new Date(Date.parse(this.now()) + 24 * 60 * 60 * 1000).toISOString());
+    if (claim.kind === "conflict") throw new SocialAccountError("idempotency_key_conflict");
+    if (claim.kind === "completed") return { view: claim.replay.response as AcquisitionSocialAccount, status: claim.replay.status, replayed: true };
+    if (claim.kind === "pending") {
+      const pending = this.disconnectInFlight.get(replayKey);
+      if (!pending) throw new SocialAccountError("idempotency_operation_pending");
+      return { ...(await pending), replayed: true };
+    }
+    const pending = (async () => { const view = await this.disconnect(scope, id, etag); const completed = { view, status: 200 }; await this.repository.saveReplay(scope.workspaceId, operation, key, { requestHash, response: view, status: 200 }); return completed; })();
+    this.disconnectInFlight.set(replayKey, pending);
+    try { return { ...(await pending), replayed: false }; }
+    finally { this.disconnectInFlight.delete(replayKey); }
+  }
 }
 export { SocialAccountError };
