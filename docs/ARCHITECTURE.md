@@ -76,7 +76,9 @@ release bytes in place. See `docs/API_INDEX.md`.
   gateway topology. Only the gateway publishes HTTP; MySQL, frontend, and the
   gateway use the internal Compose network only, while the backend also has a
   separate egress network for outbound integrations.
-- Canonical live-data migration tooling is not present yet; it remains an
-  explicit next task, not an implicit capability.
+- `scripts/backup`, `scripts/restore`, `scripts/migrate-data`, and
+  `scripts/verify-data.mjs` provide encrypted source-to-new-target migration
+  tooling. Their presence does not mean a live migration or cutover has run;
+  those remain operator-authorized operations under `docs/DATA_MIGRATION.md`.
 - Source databases are read-only migration inputs. Restore and verification
   must use a distinct target and keep rollback artifacts recoverable.

@@ -23,6 +23,7 @@ backups/
 *.backup
 *.sql.enc
 *.migration-manifest.json
+*-verification.json
 /migration-exports/raw/
 **/provider-keys/
 deploy/secrets/

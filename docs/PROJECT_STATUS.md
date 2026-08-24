@@ -25,6 +25,10 @@ ledger.
   wrappers validate real MySQL/security configuration, fail closed for ports
   and production secret-file permissions, use file-only production settings,
   and keep verification output free of environment values.
+- Encrypted backup, empty-target restore, source-to-`shensi` orchestration, and
+  closed non-secret data-verification tooling are present. The tools stream
+  through explicit child-process argument arrays and never create a plaintext
+  dump or provide a database-drop path.
 
 ## Active
 
@@ -45,9 +49,9 @@ ledger.
 
 ## Next
 
-1. Add encrypted backup, restore, migration, and verification tooling.
-2. Migrate into a distinct target database, run full acceptance, and request
-   explicit cutover approval.
+1. Have an authorized operator migrate into a distinct `shensi` target using
+   the documented secret boundary.
+2. Run full runtime acceptance and request explicit cutover approval.
 
 The two executing design/plan documents are retained under
 `docs/superpowers/` until final acceptance, but they are not progress authority.
