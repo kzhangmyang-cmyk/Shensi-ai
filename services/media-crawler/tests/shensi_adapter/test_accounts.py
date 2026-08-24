@@ -29,6 +29,63 @@ class FakeBrowser:
     def poll_douyin_login(self, _context):
         return {"active": True, "display_name": "Douyin"}
 
+    def close_browser(self):
+        return None
+
+
+class FailingCloseBrowser(FakeBrowser):
+    def __init__(self, *, fail_shutdown=False):
+        super().__init__()
+        self.close_browser_calls = 0
+        self.fail_shutdown = fail_shutdown
+
+    def close(self, _context):
+        self.closed += 1
+        raise RuntimeError("context close failed")
+
+    def close_browser(self):
+        self.close_browser_calls += 1
+        if self.fail_shutdown:
+            raise RuntimeError("browser shutdown failed")
+
+
+class _TimeoutConnection:
+    def __init__(self):
+        self.closed = False
+
+    def send(self, _command):
+        return None
+
+    def poll(self, _timeout):
+        return False
+
+    def close(self):
+        self.closed = True
+
+
+class _SlowExitProcess:
+    pid = None
+
+    def __init__(self):
+        self.alive = True
+        self.kill_calls = 0
+        self.close_calls = 0
+
+    def is_alive(self):
+        return self.alive
+
+    def kill(self):
+        self.kill_calls += 1
+        if self.kill_calls >= 2:
+            self.alive = False
+
+    def join(self, timeout=None):
+        assert timeout is not None
+
+    def close(self):
+        assert not self.alive, "Process.close called while the worker was alive"
+        self.close_calls += 1
+
 
 class _FakeImage:
     def click(self, **_kwargs):
@@ -184,6 +241,86 @@ def test_account_manager_reloads_durable_active_metadata_and_removes_expired_pro
     restarted.close()
 
 
+def test_expiry_evicts_session_and_profile_even_when_context_close_fails(tmp_path):
+    now = datetime(2026, 8, 24, tzinfo=UTC)
+    manager = AccountManager(
+        tmp_path,
+        FailingCloseBrowser(),
+        now=lambda: now,
+        session_ttl=timedelta(minutes=1),
+    )
+    session = manager.create_login_session()
+    profile = next((tmp_path / "profiles").iterdir())
+
+    with pytest.raises(RuntimeError, match="context close failed"):
+        manager.get_login_session(session.session_id, now + timedelta(minutes=2))
+
+    assert not profile.exists()
+    with pytest.raises(KeyError):
+        manager.get_login_session(session.session_id)
+    manager.close()
+
+
+def test_disconnect_evicts_session_and_profile_even_when_context_close_fails(tmp_path):
+    manager = AccountManager(tmp_path, FailingCloseBrowser())
+    session = manager.create_login_session()
+    profile = next((tmp_path / "profiles").iterdir())
+
+    with pytest.raises(RuntimeError, match="context close failed"):
+        manager.disconnect(session.session_id)
+
+    assert not profile.exists()
+    with pytest.raises(KeyError):
+        manager.disconnect(session.session_id)
+    manager.close()
+
+
+def test_sweeper_survives_per_session_close_failures(tmp_path):
+    clock = [datetime(2026, 8, 24, tzinfo=UTC)]
+    manager = AccountManager(
+        tmp_path,
+        FailingCloseBrowser(),
+        now=lambda: clock[0],
+        session_ttl=timedelta(milliseconds=20),
+        sweep_interval=timedelta(milliseconds=10),
+    )
+
+    manager.create_login_session()
+    clock[0] += timedelta(seconds=1)
+    deadline = time.monotonic() + 1
+    while any((tmp_path / "profiles").iterdir()) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not any((tmp_path / "profiles").iterdir())
+
+    manager.create_login_session()
+    clock[0] += timedelta(seconds=1)
+    deadline = time.monotonic() + 1
+    while any((tmp_path / "profiles").iterdir()) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not any((tmp_path / "profiles").iterdir())
+    manager.close()
+
+
+def test_persistence_failure_after_browser_creation_removes_all_owned_state(
+    tmp_path, monkeypatch
+):
+    browser = FakeBrowser()
+    manager = AccountManager(tmp_path, browser)
+    monkeypatch.setattr(
+        manager,
+        "_persist",
+        lambda _session: (_ for _ in ()).throw(RuntimeError("metadata write failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="metadata write failed"):
+        manager.create_login_session()
+
+    assert browser.closed == 1
+    assert not any((tmp_path / "profiles").iterdir())
+    assert manager._sessions == {}
+    manager.close()
+
+
 def test_browser_startup_error_is_returned_without_leaking_worker_thread():
     before = {thread.ident for thread in __import__("threading").enumerate()}
 
@@ -210,6 +347,42 @@ def test_browser_process_routes_create_poll_disconnect_without_exposing_context(
         browser.close(opened)
     finally:
         browser.close_browser()
+
+
+def test_unknown_poll_and_close_handles_return_stable_closed_errors(tmp_path):
+    browser = MediaCrawlerDouyinBrowserState(
+        playwright_factory=_working_playwright_factory,
+        startup_timeout=2,
+        command_timeout=2,
+    )
+    try:
+        opened = browser.open_douyin_login(tmp_path)
+        browser.close(opened)
+        for operation in (browser.poll_douyin_login, browser.close):
+            with pytest.raises(RuntimeError) as failure:
+                operation(opened)
+            assert str(failure.value) == "douyin_browser_context_closed"
+            assert opened["handle"] not in str(failure.value)
+    finally:
+        browser.close_browser()
+
+
+def test_hard_stop_retries_exit_before_closing_process_and_preserves_timeout_error():
+    browser = object.__new__(MediaCrawlerDouyinBrowserState)
+    browser._connection = _TimeoutConnection()
+    browser._process = _SlowExitProcess()
+    browser._timeout = 0.01
+    browser._lock = threading.Lock()
+    browser._closed = False
+    browser._shutdown_failed = False
+    browser._next_command_id = 1
+
+    with pytest.raises(RuntimeError) as failure:
+        browser._call("open", profile_path="unused")
+
+    assert str(failure.value) == "douyin_browser_command_timeout"
+    assert browser._process.alive is False
+    assert browser._process.close_calls == 1
 
 
 def test_timed_out_browser_command_hard_stops_owned_process(tmp_path):
@@ -264,6 +437,48 @@ def test_browser_shutdown_failure_is_bounded_and_leak_free():
         browser.close_browser()
 
     assert {child.pid for child in multiprocessing.active_children()} == before
+
+
+def test_graceful_close_aggregates_failures_and_always_attempts_browser_shutdown(
+    tmp_path, monkeypatch
+):
+    browser = FailingCloseBrowser(fail_shutdown=True)
+    manager = AccountManager(tmp_path, browser)
+    manager.create_login_session()
+
+    class _StuckSweeper:
+        def join(self, timeout=None):
+            assert timeout == 2
+
+        def is_alive(self):
+            return True
+
+    manager._sweeper = _StuckSweeper()
+    monkeypatch.setattr(
+        manager,
+        "sweep_expired",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("expiry sweep failed")
+        ),
+    )
+    monkeypatch.setattr(
+        manager,
+        "_persist",
+        lambda _session: (_ for _ in ()).throw(RuntimeError("metadata write failed")),
+    )
+
+    with pytest.raises(ExceptionGroup) as failure:
+        manager.close()
+
+    messages = [str(error) for error in failure.value.exceptions]
+    assert messages == [
+        "account_sweeper_shutdown_timeout",
+        "expiry sweep failed",
+        "context close failed",
+        "metadata write failed",
+        "browser shutdown failed",
+    ]
+    assert browser.close_browser_calls == 1
 
 
 def test_deployment_profile_root_requires_an_owner_only_existing_encrypted_directory(tmp_path):

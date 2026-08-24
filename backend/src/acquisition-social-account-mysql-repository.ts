@@ -76,6 +76,28 @@ const replayUpgradeColumns = new Map<string, string>([
   ["updated_at", "ALTER TABLE acquisition_social_account_replays ADD COLUMN updated_at VARCHAR(40) NOT NULL DEFAULT '1970-01-01T00:00:00.000Z' AFTER created_at"],
   ["completed_at", "ALTER TABLE acquisition_social_account_replays ADD COLUMN completed_at VARCHAR(40) NULL AFTER updated_at"]
 ]);
+const replayColumnSchema = new Map<string, {
+  definition: string;
+  columnType: string;
+  nullable: "YES" | "NO";
+  defaultValue: string | null;
+}>([
+  ["workspace_id", { definition: "VARCHAR(255) NOT NULL", columnType: "varchar(255)", nullable: "NO", defaultValue: null }],
+  ["operation_name", { definition: "VARCHAR(120) NOT NULL", columnType: "varchar(120)", nullable: "NO", defaultValue: null }],
+  ["idempotency_key_hash", { definition: "CHAR(64) NOT NULL", columnType: "char(64)", nullable: "NO", defaultValue: null }],
+  ["request_hash", { definition: "CHAR(64) NOT NULL", columnType: "char(64)", nullable: "NO", defaultValue: null }],
+  ["state", { definition: "VARCHAR(16) NOT NULL", columnType: "varchar(16)", nullable: "NO", defaultValue: null }],
+  ["response_json", { definition: "JSON NULL", columnType: "json", nullable: "YES", defaultValue: null }],
+  ["response_status", { definition: "INT NOT NULL DEFAULT 0", columnType: "int", nullable: "NO", defaultValue: "0" }],
+  ["response_headers_json", { definition: "JSON NULL", columnType: "json", nullable: "YES", defaultValue: null }],
+  ["lease_owner", { definition: "VARCHAR(128) NULL", columnType: "varchar(128)", nullable: "YES", defaultValue: null }],
+  ["lease_expires_at", { definition: "VARCHAR(40) NULL", columnType: "varchar(40)", nullable: "YES", defaultValue: null }],
+  ["fencing_token", { definition: "BIGINT UNSIGNED NOT NULL DEFAULT 0", columnType: "bigint unsigned", nullable: "NO", defaultValue: "0" }],
+  ["expires_at", { definition: "VARCHAR(40) NOT NULL", columnType: "varchar(40)", nullable: "NO", defaultValue: null }],
+  ["created_at", { definition: "VARCHAR(40) NOT NULL", columnType: "varchar(40)", nullable: "NO", defaultValue: null }],
+  ["updated_at", { definition: "VARCHAR(40) NOT NULL", columnType: "varchar(40)", nullable: "NO", defaultValue: null }],
+  ["completed_at", { definition: "VARCHAR(40) NULL", columnType: "varchar(40)", nullable: "YES", defaultValue: null }]
+]);
 
 type Row = RowDataPacket & Record<string, unknown>;
 
@@ -124,11 +146,63 @@ function validateReservation(input: AcquisitionSocialAccountReplayReservationInp
   if (!Number.isSafeInteger(input.leaseDurationMs) || input.leaseDurationMs < 1 || replayExpiresAt <= attemptedAt) throw new TypeError("invalid_replay_reservation");
   return { attemptedAt, leaseExpiresAt: new Date(attemptedAt + input.leaseDurationMs).toISOString() };
 }
+type ColumnDescription = { columnType: string; nullable: string; defaultValue: string | null };
+
 async function columns(pool: mysql.Pool, table: string) {
   const [rows] = await pool.query<Row[]>(
-    "SELECT COLUMN_NAME, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?", [table]
+    "SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?", [table]
   );
-  return new Map(rows.map((row) => [String(row.COLUMN_NAME ?? row.column_name), String(row.IS_NULLABLE ?? row.is_nullable)]));
+  return new Map<string, ColumnDescription>(rows.map((row) => {
+    const defaultValue = row.COLUMN_DEFAULT ?? row.column_default;
+    return [String(row.COLUMN_NAME ?? row.column_name), {
+      columnType: String(row.COLUMN_TYPE ?? row.column_type ?? "").toLowerCase(),
+      nullable: String(row.IS_NULLABLE ?? row.is_nullable),
+      defaultValue: defaultValue == null ? null : String(defaultValue)
+    }];
+  }));
+}
+
+function columnMatches(actual: ColumnDescription | undefined, expected: (typeof replayColumnSchema extends Map<string, infer Value> ? Value : never)) {
+  return actual?.columnType === expected.columnType
+    && actual.nullable === expected.nullable
+    && actual.defaultValue === expected.defaultValue;
+}
+
+async function ensureReplayExpiryIndex(pool: mysql.Pool) {
+  const [rows] = await pool.query<Row[]>(`SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, NON_UNIQUE
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='acquisition_social_account_replays'
+      AND INDEX_NAME='acquisition_social_account_replays_expiry'
+    ORDER BY SEQ_IN_INDEX`);
+  const exact = rows.length === 1
+    && String(rows[0]?.COLUMN_NAME ?? rows[0]?.column_name) === "expires_at"
+    && Number(rows[0]?.SEQ_IN_INDEX ?? rows[0]?.seq_in_index) === 1
+    && Number(rows[0]?.NON_UNIQUE ?? rows[0]?.non_unique) === 1;
+  if (exact) return;
+  if (rows.length > 0) {
+    await pool.query("ALTER TABLE acquisition_social_account_replays DROP INDEX acquisition_social_account_replays_expiry");
+  }
+  await pool.query("ALTER TABLE acquisition_social_account_replays ADD INDEX acquisition_social_account_replays_expiry (expires_at)");
+}
+
+function exactReplayStateCheck(value: unknown) {
+  const normalized = String(value ?? "").toLowerCase().replaceAll("`", "")
+    .replaceAll("_utf8mb4", "").replace(/\s+/gu, "");
+  return /^\(*statein\(+'pending','completed'\)\)*$/u.test(normalized);
+}
+
+async function prepareReplayStateCheck(pool: mysql.Pool) {
+  const [rows] = await pool.query<Row[]>(`SELECT tc.CONSTRAINT_NAME, cc.CHECK_CLAUSE
+    FROM information_schema.TABLE_CONSTRAINTS tc
+    JOIN information_schema.CHECK_CONSTRAINTS cc
+      ON cc.CONSTRAINT_SCHEMA=tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME=tc.CONSTRAINT_NAME
+    WHERE tc.TABLE_SCHEMA=DATABASE() AND tc.TABLE_NAME='acquisition_social_account_replays'
+      AND tc.CONSTRAINT_TYPE='CHECK' AND tc.CONSTRAINT_NAME='acquisition_social_account_replays_state'`);
+  if (rows.length === 1 && exactReplayStateCheck(rows[0]?.CHECK_CLAUSE ?? rows[0]?.check_clause)) return true;
+  if (rows.length > 0) {
+    await pool.query("ALTER TABLE acquisition_social_account_replays DROP CHECK acquisition_social_account_replays_state");
+  }
+  return false;
 }
 
 export async function ensureAcquisitionSocialAccountsMysqlSchema(pool: mysql.Pool) {
@@ -149,11 +223,28 @@ export async function ensureAcquisitionSocialAccountsMysqlSchema(pool: mysql.Poo
       DROP COLUMN idempotency_key`);
   }
   for (const [name, statement] of replayUpgradeColumns) if (!replayColumns.has(name)) await pool.query(statement);
-  if (replayColumns.get("response_json") === "NO") await pool.query("ALTER TABLE acquisition_social_account_replays MODIFY COLUMN response_json JSON NULL");
+  const replayStateCheckPresent = await prepareReplayStateCheck(pool);
   await pool.query(`UPDATE acquisition_social_account_replays
-    SET state = IF(response_status = 0, 'pending', 'completed'),
+    SET response_status = COALESCE(response_status, 0),
+        state = IF(COALESCE(response_status, 0) = 0, 'pending', 'completed'),
         response_headers_json = IF(response_status = 0, response_headers_json, COALESCE(response_headers_json, JSON_OBJECT())),
+        fencing_token = COALESCE(fencing_token, 0),
+        expires_at = COALESCE(expires_at, '9999-12-31T23:59:59.999Z'),
+        created_at = COALESCE(created_at, '1970-01-01T00:00:00.000Z'),
+        updated_at = COALESCE(updated_at, created_at, '1970-01-01T00:00:00.000Z'),
         completed_at = IF(response_status = 0, NULL, COALESCE(completed_at, updated_at))`);
+  const upgradedReplayColumns = await columns(pool, "acquisition_social_account_replays");
+  for (const [name, expected] of replayColumnSchema) {
+    if (!upgradedReplayColumns.has(name)) throw new Error(`acquisition_social_account_replay_column_missing:${name}`);
+    if (!columnMatches(upgradedReplayColumns.get(name), expected)) {
+      await pool.query(`ALTER TABLE acquisition_social_account_replays MODIFY COLUMN ${name} ${expected.definition}`);
+    }
+  }
+  await ensureReplayExpiryIndex(pool);
+  if (!replayStateCheckPresent) {
+    await pool.query(`ALTER TABLE acquisition_social_account_replays
+      ADD CONSTRAINT acquisition_social_account_replays_state CHECK (state IN ('pending', 'completed'))`);
+  }
 }
 
 const accountUpsertSql = `INSERT INTO acquisition_social_accounts

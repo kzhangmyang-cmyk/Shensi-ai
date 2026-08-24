@@ -37,7 +37,9 @@ workspace-scoped account/session/replay records, while the pinned
 MediaCrawler sidecar owns raw browser profiles and Playwright in a killable
 child process. Public DTOs expose neither the opaque upstream handle nor raw
 browser state. Graceful sidecar restarts retain encrypted active profiles;
-expiry and explicit disconnect remove them.
+expiry and explicit disconnect delete valid profile state. During reload, a
+profile whose metadata is invalid, missing, malformed, symlinked, or unreadable
+is treated as quarantined and deleted rather than loaded into the session map.
 
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a

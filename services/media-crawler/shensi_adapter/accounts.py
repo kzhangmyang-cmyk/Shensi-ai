@@ -78,7 +78,17 @@ class AccountManager:
                     "account_display_name": value.get("account_display_name"), "login_state_version": value.get("login_state_version"),
                     "profile": profile}
             except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
-                shutil.rmtree(profile, ignore_errors=True)
+                self._delete_profile(profile)
+
+    @staticmethod
+    def _delete_profile(profile: Path) -> None:
+        if profile.is_symlink() or not profile.is_dir():
+            try:
+                profile.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+        shutil.rmtree(profile, ignore_errors=True)
 
     def _close_session(self, session: dict[str, Any]) -> None:
         if not session["closed"] and session["context"] is not None:
@@ -87,20 +97,43 @@ class AccountManager:
         session["closed"] = True
 
     def _remove_session(self, session_id: str, session: dict[str, Any]) -> None:
-        self._close_session(session)
-        shutil.rmtree(session["profile"], ignore_errors=True)
-        self._sessions.pop(session_id, None)
+        try:
+            self._close_session(session)
+        finally:
+            self._delete_profile(session["profile"])
+            self._sessions.pop(session_id, None)
+
+    def _persist_or_remove(
+        self, session_id: str, session: dict[str, Any]
+    ) -> None:
+        try:
+            self._persist(session)
+        except BaseException as persistence_error:
+            try:
+                self._remove_session(session_id, session)
+            except BaseException as cleanup_error:
+                raise BaseExceptionGroup(
+                    "douyin_session_persistence_cleanup_failed",
+                    [persistence_error, cleanup_error],
+                )
+            raise
 
     def _sweep_loop(self, interval: float) -> None:
         while not self._closed.wait(interval):
-            self.sweep_expired()
+            try:
+                self.sweep_expired()
+            except Exception:
+                continue
 
     def sweep_expired(self, now: datetime | None = None) -> int:
         current = now or self._now()
         with self._lock:
             expired = [session_id for session_id, session in self._sessions.items() if current >= session["expires_at"]]
             for session_id in expired:
-                self._remove_session(session_id, self._sessions[session_id])
+                try:
+                    self._remove_session(session_id, self._sessions[session_id])
+                except Exception:
+                    continue
             return len(expired)
 
     def create_login_session(self) -> LoginSessionView:
@@ -120,7 +153,7 @@ class AccountManager:
                 "closed": False, "account_handle": None, "account_display_name": None,
                 "login_state_version": None, "profile": profile}
             self._sessions[session_id] = session
-            self._persist(session)
+            self._persist_or_remove(session_id, session)
             return LoginSessionView(session_id=session_id, state="awaiting_scan", qr_image_data_url=context.get("qr_image_data_url"),
                 expires_at=session["expires_at"], account_handle=None, account_display_name=None, login_state_version=None)
 
@@ -144,7 +177,7 @@ class AccountManager:
                     session["account_handle"] = session["account_handle"] or secrets.token_urlsafe(24)
                     session["account_display_name"] = result.get("display_name")
                     session["login_state_version"] = 1
-                    self._persist(session)
+                    self._persist_or_remove(session_id, session)
             return LoginSessionView(session_id=session_id, state="active" if session["account_handle"] else "awaiting_scan",
                 qr_image_data_url=None if session["account_handle"] else session["context"].get("qr_image_data_url") if session["context"] else None,
                 expires_at=session["expires_at"], account_handle=session["account_handle"],
@@ -161,25 +194,51 @@ class AccountManager:
         if self._closed.is_set():
             return
         self._closed.set()
-        self._sweeper.join(timeout=2)
-        if self._sweeper.is_alive():
-            raise RuntimeError("account_sweeper_shutdown_timeout")
-        failure: BaseException | None = None
-        with self._lock:
-            self.sweep_expired()
-            for session in self._sessions.values():
+        failures: list[BaseException] = []
+        try:
+            self._sweeper.join(timeout=2)
+        except BaseException as error:
+            failures.append(error)
+        try:
+            if self._sweeper.is_alive():
+                failures.append(RuntimeError("account_sweeper_shutdown_timeout"))
+        except BaseException as error:
+            failures.append(error)
+
+        acquired = False
+        try:
+            acquired = self._lock.acquire(timeout=2)
+            if not acquired:
+                failures.append(RuntimeError("account_manager_shutdown_lock_timeout"))
+            else:
                 try:
-                    self._close_session(session)
+                    self.sweep_expired()
                 except BaseException as error:
-                    failure = failure or error
-                    session["context"] = None
-                    session["closed"] = True
-                self._persist(session)
+                    failures.append(error)
+                for session in list(self._sessions.values()):
+                    try:
+                        self._close_session(session)
+                    except BaseException as error:
+                        failures.append(error)
+                        session["context"] = None
+                        session["closed"] = True
+                    try:
+                        self._persist(session)
+                    except BaseException as error:
+                        failures.append(error)
+        except BaseException as error:
+            failures.append(error)
+        finally:
+            if acquired:
+                self._lock.release()
+
         close_browser = getattr(self._browser, "close_browser", None)
-        if close_browser:
+        if close_browser is not None:
             try:
                 close_browser()
             except BaseException as error:
-                failure = failure or error
-        if failure is not None:
-            raise failure
+                failures.append(error)
+        if len(failures) == 1:
+            raise failures[0]
+        if failures:
+            raise BaseExceptionGroup("douyin_account_manager_shutdown_failed", failures)

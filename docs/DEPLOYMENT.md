@@ -120,9 +120,11 @@ commands execute in an owned child process group with bounded startup, command, 
 shutdown waits; timeout or protocol loss terminates that process and fails
 closed. A graceful ASGI restart closes live browser handles while retaining
 the protected profile and safe active metadata. Expiry and an authenticated
-explicit disconnect are the only deletion owners. The backend's MySQL replay
-rows preserve POST/DELETE results and reclaim abandoned pending leases after
-a crash; memory mode is not a production substitute.
+explicit disconnect delete valid profile state. On reload, invalid, missing,
+malformed, symlinked, or unreadable session metadata is treated as quarantined
+and its profile is deleted; it is never accepted as restart state. The
+backend's MySQL replay rows preserve POST/DELETE results and reclaim abandoned
+pending leases after a crash; memory mode is not a production substitute.
 
 ### Deploy and operate
 

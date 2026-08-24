@@ -103,7 +103,9 @@ def _browser_worker(connection: Connection, factory: Callable[[], object] | None
                         "qr_image_data_url": qr_image_data_url,
                     }
                 elif operation == "poll":
-                    context = contexts[str(command["handle"])]
+                    context = contexts.get(str(command["handle"]))
+                    if context is None:
+                        raise RuntimeError("douyin_browser_context_closed")
                     active = False
                     for page in context.pages:
                         try:
@@ -117,7 +119,9 @@ def _browser_worker(connection: Connection, factory: Callable[[], object] | None
                     value = {"active": active}
                 elif operation == "close":
                     handle = str(command["handle"])
-                    context = contexts[handle]
+                    context = contexts.get(handle)
+                    if context is None:
+                        raise RuntimeError("douyin_browser_context_closed")
                     context.close()
                     contexts.pop(handle, None)
                     value = None
@@ -209,19 +213,48 @@ class MediaCrawlerDouyinBrowserState:
         if os.name == "posix" and self._process.pid is not None:
             try:
                 owned_process_group = os.getpgid(self._process.pid) == self._process.pid
-            except ProcessLookupError:
+            except OSError:
                 pass
         grace = min(max(self._timeout, 0.1), 1.0)
-        if owned_process_group:
+
+        for _attempt in range(2):
             try:
-                os.killpg(self._process.pid, signal.SIGKILL)
-            except ProcessLookupError:
+                alive = self._process.is_alive()
+            except (AssertionError, OSError, ValueError):
+                alive = False
+            if not alive:
+                break
+            try:
+                if owned_process_group and self._process.pid is not None:
+                    os.killpg(self._process.pid, signal.SIGKILL)
+                else:
+                    self._process.kill()
+            except (OSError, ValueError):
                 pass
-        elif self._process.is_alive():
-            self._process.kill()
-        if self._process.is_alive():
-            self._process.join(timeout=grace)
-        self._process.close()
+            try:
+                self._process.join(timeout=grace)
+            except (AssertionError, OSError, ValueError):
+                pass
+
+        try:
+            alive = self._process.is_alive()
+        except (AssertionError, OSError, ValueError):
+            alive = False
+        if alive and owned_process_group:
+            try:
+                self._process.kill()
+                self._process.join(timeout=grace)
+            except (AssertionError, OSError, ValueError):
+                pass
+            try:
+                alive = self._process.is_alive()
+            except (AssertionError, OSError, ValueError):
+                alive = False
+        if not alive:
+            try:
+                self._process.close()
+            except (OSError, ValueError):
+                pass
 
     def _call(self, operation: str, **payload: object) -> object:
         with self._lock:

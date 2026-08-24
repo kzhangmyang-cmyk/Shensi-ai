@@ -83,7 +83,9 @@ group;
 startup, commands, and shutdown are bounded, and a timed-out command hard
 terminates that process. Graceful ASGI shutdown closes live browser handles
 but retains safe active metadata/profile state for restart. Only explicit
-disconnect or expiry deletes it.
+disconnect or expiry deletes valid state. During reload, the sidecar treats
+invalid, missing, malformed, symlinked, or unreadable metadata as quarantined
+and deletes the affected profile instead of reconstructing a session.
 
 ## Known Limitations
 

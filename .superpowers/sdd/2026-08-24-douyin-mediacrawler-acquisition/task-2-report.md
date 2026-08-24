@@ -356,3 +356,220 @@ transaction/restart parity ran for every build. A real Douyin/Playwright login
 was also not live-smoked; all browser lifecycle regressions use a process-owned
 fake Playwright boundary. No Growth 1.0.11/1.0.12 release file or lockfile was
 modified.
+
+## Fix round 5/5 (complete)
+
+### RED evidence and root causes
+
+The Python lifecycle regressions were added before their fixes:
+
+```bash
+uv run --directory services/media-crawler pytest tests/shensi_adapter/test_accounts.py -q
+```
+
+```text
+FAILED test_expiry_evicts_session_and_profile_even_when_context_close_fails
+FAILED test_disconnect_evicts_session_and_profile_even_when_context_close_fails
+FAILED test_sweeper_survives_per_session_close_failures
+FAILED test_persistence_failure_after_browser_creation_removes_all_owned_state
+FAILED test_unknown_poll_and_close_handles_return_stable_closed_errors
+FAILED test_hard_stop_retries_exit_before_closing_process_and_preserves_timeout_error
+FAILED test_graceful_close_aggregates_failures_and_always_attempts_browser_shutdown
+7 failed, 9 passed, 1 warning in 3.84s
+```
+
+These failures showed that session deletion followed browser close instead of
+living in a `finally` boundary, the sweeper allowed one close exception to end
+its thread, persistence failure retained a browser/profile/session, unknown
+handles leaked `KeyError` text, hard-stop called `Process.close()` while the
+fake worker was still alive and replaced the timeout with `ValueError`-shaped
+failure, and graceful shutdown returned after the first failure without
+calling the browser-wide close.
+
+The stateful MySQL/migration RED command was:
+
+```bash
+NODE_ENV=test TZ=UTC \
+JWT_SECRET=goodjob-acquisition-test-secret-at-least-32-characters \
+ACQUISITION_MASTER_SECRET=goodjob-acquisition-master-test-secret-at-least-32-bytes \
+pnpm --dir backend exec tsx --test --test-concurrency=1 \
+  src/acquisition-social-account-mysql-repository-test.ts
+```
+
+```text
+not ok 3 - runtime migration makes a legacy replay table statefully identical to fresh DDL
+not ok 6 - stateful fake MySQL isolates replay keys and gives one concurrent claimant the lease
+not ok 7 - stateful fake MySQL rejects a stale replay fence and deletes only the fenced row
+1..10
+# tests 10
+# pass 6
+# fail 3
+# skipped 1
+# duration_ms 298.571
+```
+
+The fake stored one global replay row, so a second key produced
+`idempotency_claim_missing`, rollback could restore unrelated global state,
+and deletion ignored the fence. The migration only proved emitted SQL and
+left legacy defaults different from fresh DDL. A further stateful constraint
+case was watched RED before ordering the migration correctly:
+
+```bash
+NODE_ENV=test TZ=UTC \
+JWT_SECRET=goodjob-acquisition-test-secret-at-least-32-characters \
+ACQUISITION_MASTER_SECRET=goodjob-acquisition-master-test-secret-at-least-32-bytes \
+pnpm --dir backend exec tsx --test --test-concurrency=1 \
+  --test-name-pattern='runtime migration' \
+  src/acquisition-social-account-mysql-repository-test.ts
+```
+
+```text
+not ok 1 - runtime migration makes a legacy replay table statefully identical to fresh DDL
+error: legacy replay state check rejected pending backfill
+1..1
+# tests 1
+# pass 0
+# fail 1
+# duration_ms 286.9605
+```
+
+### Implemented result
+
+- Hard-stop now repeatedly sends the owned process-group kill, joins after
+  each attempt, falls back to the owned worker kill only when needed, and
+  closes the `multiprocessing.Process` descriptor only after `is_alive()` is
+  false. Cleanup errors cannot replace the stable startup/command/shutdown
+  codes. Unknown poll and close handles both return the fixed private code
+  `douyin_browser_context_closed` without echoing the opaque handle.
+- Session removal always evicts the in-memory entry and deletes its metadata
+  and profile in `finally`. Expiry, disconnect, and polling failures therefore
+  cannot strand owned state. The sweeper isolates per-session failures and
+  continues subsequent cycles. A metadata write failure after browser creation
+  immediately closes that context and removes all newly owned state.
+- Graceful manager close collects sweeper, expiry sweep, per-session close,
+  metadata persistence, lock, and browser shutdown failures. It still attempts
+  every retained session and the browser-wide close, then raises the single
+  error or one `BaseExceptionGroup` containing all failures.
+- The stateful MySQL fake now stores replay rows in a map keyed by
+  workspace/operation/key hash, serializes isolated transaction snapshots,
+  commits or discards them atomically, and implements the SQL predicates for
+  lease reclaim, fencing-token completion, and fenced deletion. Tests exercise
+  a real concurrent winner/pending loser, independent keys/workspaces,
+  expiry/reclaim, rollback, stale completion, and stale deletion.
+- Legacy migration now introspects type, nullability, and defaults; backfills
+  data safely; removes an incompatible state check before backfill; normalizes
+  every replay column to the fresh DDL; replaces a malformed expiry index; and
+  installs the exact `pending|completed` check after valid data exists. The
+  stateful migration test starts with raw idempotency keys, wrong defaults,
+  non-null response JSON, a wrong index, a restrictive check, and both pending
+  and completed legacy rows, then compares resulting metadata and invariants
+  with a fresh table.
+- Architecture, deployment, and acquisition-module documentation now states
+  that expiry and explicit disconnect delete valid state, while invalid,
+  missing, malformed, symlinked, or unreadable metadata is treated as
+  quarantined and deleted during reload.
+
+### Exact GREEN verification
+
+```bash
+uv run --directory services/media-crawler pytest tests/shensi_adapter -q
+```
+
+```text
+...................                                                      [100%]
+19 passed in 2.84s
+```
+
+```bash
+NODE_ENV=test TZ=UTC \
+JWT_SECRET=goodjob-acquisition-test-secret-at-least-32-characters \
+ACQUISITION_MASTER_SECRET=goodjob-acquisition-master-test-secret-at-least-32-bytes \
+pnpm --dir backend exec tsx --test --test-concurrency=1 \
+  src/acquisition-social-account-test.ts \
+  src/acquisition-social-account-mysql-repository-test.ts \
+  src/acquisition-social-account-router-test.ts
+```
+
+```text
+1..19
+# tests 19
+# pass 18
+# fail 0
+# cancelled 0
+# skipped 1
+# todo 0
+# duration_ms 2655.770542
+```
+
+The one explicit skip remains:
+
+```text
+MYSQL_TEST_ADMIN_URL is required; no database is provisioned implicitly
+```
+
+The two hard-stop regressions were repeated five times:
+
+```bash
+for run in 1 2 3 4 5; do uv run --directory services/media-crawler \
+  pytest tests/shensi_adapter/test_accounts.py -q \
+  -k 'timed_out_browser_command_kills_playwright_descendants or hard_stop_retries_exit_before_closing_process_and_preserves_timeout_error' \
+  || exit 1; done
+```
+
+```text
+2 passed, 14 deselected in 1.18s
+2 passed, 14 deselected in 1.10s
+2 passed, 14 deselected in 1.12s
+2 passed, 14 deselected in 1.07s
+2 passed, 14 deselected in 1.19s
+```
+
+```bash
+pnpm --dir backend run test:acquisition
+```
+
+```text
+1..964
+# tests 1010
+# suites 0
+# pass 1008
+# fail 0
+# cancelled 0
+# skipped 2
+# todo 0
+# duration_ms 48084.964375
+```
+
+```bash
+pnpm check:acquisition-contracts
+```
+
+```text
+contract tests: 91 passed, 0 failed
+contract drift tests: 18 passed, 0 failed
+security: { "ok": true }
+acquisition OpenAPI: 32 passed, 0 failed
+generated acquisition types: current
+frontend production build: passed (existing chunk-size warning only)
+frontend self-test: { "ok": true, "checked": 56 }
+Baota package: 2 passed, 0 failed
+exit 0
+```
+
+```bash
+pnpm --dir backend run build
+git diff --check
+```
+
+```text
+$ tsc -p tsconfig.json
+git diff --check: no output
+both exit 0
+```
+
+The conditional live-MySQL case remains implemented but skipped because this
+environment still has no `MYSQL_TEST_ADMIN_URL`. No real Douyin login was
+performed; spawned fake Playwright workers cover process ownership, timeout,
+descendant kill, stable handle errors, and multi-failure shutdown. No contract,
+generated frontend, schema snapshot, Growth release, or lockfile needed a
+round-5 change.
