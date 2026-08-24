@@ -14,3 +14,10 @@ playwright-report/
 test-results/
 .superpowers/
 .worktrees/
+.env.local
+.env.production.local
+backups/
+*.sql
+*.sql.enc
+*.migration-manifest.json
+deploy/secrets/
