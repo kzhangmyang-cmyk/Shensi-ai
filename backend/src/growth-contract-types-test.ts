@@ -20,6 +20,9 @@ import type {
   FinancialCouncilAgentCenterView,
   FinancialCouncilModelRoutingPolicyInput,
   FinancialCouncilRunAgentsView,
+  FinancialCashForecastSupplementInput,
+  FinancialStatementConsentInput,
+  FinancialStatementPackageView,
   FinancialStatementPackagePreviewInput,
   FinancialCouncilRun,
   FinancialCouncilRunStatus,
@@ -114,11 +117,41 @@ const routingInput = {} as FinancialCouncilModelRoutingPolicyInput;
 const previewInput = {} as FinancialStatementPackagePreviewInput;
 const center = {} as FinancialCouncilAgentCenterView;
 const runAgents = {} as FinancialCouncilRunAgentsView;
+const cashForecastInput = {
+  forecastAsOf: "2026-08-23T07:59:00.000Z",
+  expectedInflowsNext30DaysMinor: 100_000,
+  expectedOutflowsNext30DaysMinor: 500_000,
+  expectedInflowsNext31To90DaysMinor: 800_000,
+  expectedOutflowsNext31To90DaysMinor: 300_000,
+  receivables: [{ customer: "customer-a", amountMinor: 1_000_000,
+    daysOutstanding: 120 }],
+  attestation: { accepted: true,
+    noticeVersion: "financial-cash-forecast.v1" }
+} satisfies FinancialCashForecastSupplementInput;
+const statementCommitInput = { consent: { accepted: true,
+  noticeVersion: "financial-model-data.v1" },
+cashForecast: cashForecastInput } satisfies FinancialStatementConsentInput;
+const statementPackageView = { packageId: "package-1", status: "verified",
+  expiresAt: null, companyName: "ACME", currency: "CNY", period: "2026-07",
+  sourceFiles: [], parserVersion: "financial-statements.v2", warningCodes: [],
+  forecastStatus: "computed", cashForecast: {
+    source: "management_attested", forecastAsOf: cashForecastInput.forecastAsOf,
+    currency: "CNY", expectedInflowsNext30DaysMinor: 100_000,
+    expectedOutflowsNext30DaysMinor: 500_000,
+    expectedInflowsNext31To90DaysMinor: 800_000,
+    expectedOutflowsNext31To90DaysMinor: 300_000, receivablesCount: 1,
+    noticeVersion: "financial-cash-forecast.v1",
+    acceptedAt: "2026-08-23T08:00:00.000Z", forecastHash: hash
+  }, createdAt: "2026-08-23T08:00:00.000Z" } satisfies FinancialStatementPackageView;
+// @ts-expect-error browser forecast input cannot supply server authority
+const invalidForecastAuthority: FinancialCashForecastSupplementInput = { ...cashForecastInput, acceptedBy: "attacker" };
+// @ts-expect-error public package response never exposes receivable rows
+const invalidPublicReceivables: FinancialStatementPackageView = { ...statementPackageView, cashForecast: { ...statementPackageView.cashForecast!, receivables: [] } };
 // @ts-expect-error run-from-package never accepts browser-normalized financial data
 const invalidPackageInput: CreateCouncilRunFromPackageInput = { ...packageInput, businessReport: {} };
 // @ts-expect-error a statement tuple has one fixed order
 const invalidPreviewInput: FinancialStatementPackagePreviewInput = { statements: [] };
-void [invalidSlice, invalidGapCode, invalidEntity, invalidFinancialCouncilAction, invalidApproval, invalidConsensusInRun, invalidEvidenceSource, invalidSnapshotSource, invalidConflictKind, packageInput, routingInput, previewInput, center, runAgents, invalidPackageInput, invalidPreviewInput];
+void [invalidSlice, invalidGapCode, invalidEntity, invalidFinancialCouncilAction, invalidApproval, invalidConsensusInRun, invalidEvidenceSource, invalidSnapshotSource, invalidConflictKind, packageInput, routingInput, previewInput, center, runAgents, cashForecastInput, statementCommitInput, statementPackageView, invalidForecastAuthority, invalidPublicReceivables, invalidPackageInput, invalidPreviewInput];
 
 test("canonical Growth union fixtures compile with closed negative branches", () => {
   execFileSync(fileURLToPath(new URL(

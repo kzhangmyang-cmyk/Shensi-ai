@@ -477,9 +477,9 @@ test("P4 route payloads conform to the closed financial council runtime schemas"
   }), true, JSON.stringify(dispatches.errors));
 });
 
-test("real mounted P4 responses conform to the immutable 1.0.11 release", async () => {
+test("real mounted P4 responses conform to the immutable 1.0.12 release", async () => {
   const release = loadGrowthContractRelease();
-  assert.equal(release.manifest.contractVersion, "1.0.11");
+  assert.equal(release.manifest.contractVersion, "1.0.12");
   const components = structuredClone((release.document as {
     components: { schemas: Record<string, Record<string, unknown>> };
   }).components);

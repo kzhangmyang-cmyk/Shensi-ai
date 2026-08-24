@@ -4,6 +4,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  financialCashForecastInputFixture,
+  financialCashForecastPublicViewFixture,
   financialCouncilFixture,
   growthContractScenario
 } from "./growth-contract";
@@ -20,8 +22,17 @@ const pinnedManifest = JSON.parse(await readFile(
   "utf8"
 )) as { contractVersion: string; contractHash: string };
 
-test("financial council fixtures pin immutable release 1.0.11", () => {
-  assert.equal(pinnedManifest.contractVersion, "1.0.11");
+test("financial council fixtures pin immutable release 1.0.12", () => {
+  assert.equal(pinnedManifest.contractVersion, "1.0.12");
+});
+
+test("cash forecast fixtures separate browser input from the sanitized public view", () => {
+  assert.equal("currency" in financialCashForecastInputFixture, false);
+  assert.equal("acceptedBy" in financialCashForecastInputFixture, false);
+  assert.equal("receivables" in financialCashForecastPublicViewFixture, false);
+  assert.equal(financialCashForecastPublicViewFixture.receivablesCount, 1);
+  assert.equal(JSON.stringify(financialCashForecastPublicViewFixture)
+    .includes("客户 A"), false);
 });
 
 test("financial council fixtures cover every required public state", () => {

@@ -49,7 +49,89 @@ function statementUploads(value: unknown) {
       mediaType: upload.mediaType, contentBase64: upload.contentBase64 });
   }));
 }
+function cashForecastInput(value: unknown, now: string) {
+  const forecast = exact(value, ["forecastAsOf",
+    "expectedInflowsNext30DaysMinor", "expectedOutflowsNext30DaysMinor",
+    "expectedInflowsNext31To90DaysMinor", "expectedOutflowsNext31To90DaysMinor",
+    "receivables", "attestation"]);
+  if (typeof forecast.forecastAsOf !== "string"
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(
+      forecast.forecastAsOf)
+    || !Number.isFinite(Date.parse(forecast.forecastAsOf))) {
+    throw new GrowthHttpError(422, "financial_cash_forecast_invalid");
+  }
+  if (Date.parse(forecast.forecastAsOf) > Date.parse(now) + 1_000) {
+    throw new GrowthHttpError(422, "financial_cash_forecast_future");
+  }
+  const moneyKeys = ["expectedInflowsNext30DaysMinor",
+    "expectedOutflowsNext30DaysMinor", "expectedInflowsNext31To90DaysMinor",
+    "expectedOutflowsNext31To90DaysMinor"] as const;
+  for (const key of moneyKeys) {
+    if (!Number.isSafeInteger(forecast[key]) || (forecast[key] as number) < 0) {
+      throw new GrowthHttpError(422, "financial_cash_forecast_invalid");
+    }
+  }
+  if (!Array.isArray(forecast.receivables)
+    || forecast.receivables.length > 100) {
+    throw new GrowthHttpError(422, "financial_cash_forecast_invalid");
+  }
+  const customers = new Set<string>();
+  const receivables = Object.freeze(forecast.receivables.map((raw, index) => {
+    if (!(index in (forecast.receivables as unknown[]))) {
+      throw new GrowthHttpError(422, "financial_cash_forecast_invalid");
+    }
+    const row = exact(raw, ["customer", "amountMinor", "daysOutstanding"]);
+    const customer = typeof row.customer === "string"
+      ? row.customer.normalize("NFC").trim() : "";
+    if ([...customer].length < 1 || [...customer].length > 255
+      || customers.has(customer)
+      || !Number.isSafeInteger(row.amountMinor) || (row.amountMinor as number) <= 0
+      || !Number.isSafeInteger(row.daysOutstanding)
+      || (row.daysOutstanding as number) < 0
+      || (row.daysOutstanding as number) > 3650) {
+      throw new GrowthHttpError(422, "financial_cash_forecast_invalid");
+    }
+    customers.add(customer);
+    return Object.freeze({ customer: row.customer as string,
+      amountMinor: row.amountMinor as number,
+      daysOutstanding: row.daysOutstanding as number });
+  }));
+  const attestation = exact(forecast.attestation,
+    ["accepted", "noticeVersion"]);
+  if (attestation.accepted !== true
+    || attestation.noticeVersion !== "financial-cash-forecast.v1") {
+    throw new GrowthHttpError(422, "financial_cash_forecast_invalid");
+  }
+  return Object.freeze({ forecastAsOf: forecast.forecastAsOf,
+    expectedInflowsNext30DaysMinor:
+      forecast.expectedInflowsNext30DaysMinor as number,
+    expectedOutflowsNext30DaysMinor:
+      forecast.expectedOutflowsNext30DaysMinor as number,
+    expectedInflowsNext31To90DaysMinor:
+      forecast.expectedInflowsNext31To90DaysMinor as number,
+    expectedOutflowsNext31To90DaysMinor:
+      forecast.expectedOutflowsNext31To90DaysMinor as number,
+    receivables, attestation: Object.freeze({ accepted: true as const,
+      noticeVersion: "financial-cash-forecast.v1" as const }) });
+}
 function project(value: any) {
+  const cashForecast = value.cashForecast == null ? null : Object.freeze({
+    source: value.cashForecast.source,
+    forecastAsOf: value.cashForecast.forecastAsOf,
+    currency: value.cashForecast.currency,
+    expectedInflowsNext30DaysMinor:
+      value.cashForecast.expectedInflowsNext30DaysMinor,
+    expectedOutflowsNext30DaysMinor:
+      value.cashForecast.expectedOutflowsNext30DaysMinor,
+    expectedInflowsNext31To90DaysMinor:
+      value.cashForecast.expectedInflowsNext31To90DaysMinor,
+    expectedOutflowsNext31To90DaysMinor:
+      value.cashForecast.expectedOutflowsNext31To90DaysMinor,
+    receivablesCount: value.cashForecast.receivables.length,
+    noticeVersion: value.cashForecast.noticeVersion,
+    acceptedAt: value.cashForecast.acceptedAt,
+    forecastHash: value.cashForecast.forecastHash
+  });
   return Object.freeze({
     ...(value.previewId ? { previewId: value.previewId } : {}),
     ...(value.packageId ? { packageId: value.packageId } : {}),
@@ -57,6 +139,8 @@ function project(value: any) {
     companyName: value.companyName, currency: value.currency, period: value.period,
     sourceFiles: value.sourceFiles, parserVersion: value.parserVersion,
     warningCodes: value.warnings.map((item: { code: string }) => item.code),
+    ...(value.packageId ? { forecastStatus: value.forecastStatus
+      ?? "not_computable", cashForecast } : {}),
     createdAt: value.createdAt
   });
 }
@@ -120,7 +204,13 @@ export function createFinancialStatementPackageRouter(dependencies: {
     if (!previewId?.trim() || previewId.length > 191) {
       throw new GrowthHttpError(422, "financial_statement_input_invalid");
     }
-    const body = exact(req.body, ["consent"]);
+    const rootKeys = req.body && typeof req.body === "object"
+      && !Array.isArray(req.body) && Object.getPrototypeOf(req.body) === Object.prototype
+      ? Object.keys(req.body).sort().join("\0") : "";
+    if (rootKeys !== "consent" && rootKeys !== "cashForecast\0consent") {
+      throw new GrowthHttpError(422, "financial_statement_input_invalid");
+    }
+    const body = req.body as Record<string, unknown>;
     const consent = exact(body.consent, ["accepted", "noticeVersion"]);
     if (consent.accepted !== true
       || consent.noticeVersion !== "financial-model-data.v1") {
@@ -128,8 +218,12 @@ export function createFinancialStatementPackageRouter(dependencies: {
     }
     const context = dependencies.workspaceContext(req);
     requireGrowthCapabilities(context, ["ledger.pending.create"]);
+    const requestNow = now();
+    const cashForecast = "cashForecast" in body
+      ? cashForecastInput(body.cashForecast, requestNow) : undefined;
     const payload = Object.freeze({ consent: Object.freeze({ accepted: true,
-      noticeVersion: "financial-model-data.v1" }) });
+      noticeVersion: "financial-model-data.v1" }),
+      ...(cashForecast === undefined ? {} : { cashForecast }) });
     const command = dependencies.commandContextFactory(req, { canonicalPath: COMMIT,
       pathParams: Object.freeze({ previewId }), payload, expectedRevision: null });
     const result = await dependencies.service.commit({ workspaceId: context.workspaceId,
@@ -137,7 +231,8 @@ export function createFinancialStatementPackageRouter(dependencies: {
       requestHash: command.requestHash as `sha256:${string}` }, {
       previewId, consent: Object.freeze({ accepted: true,
         noticeVersion: "financial-model-data.v1", acceptedBy: context.actorId,
-        acceptedAt: now() })
+        acceptedAt: requestNow }),
+      ...(cashForecast === undefined ? {} : { cashForecast })
     });
     if (result.replayed) res.setHeader("Idempotency-Replayed", "true");
     res.status(201).json(project(result.value));

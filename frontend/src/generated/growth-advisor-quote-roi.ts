@@ -2298,7 +2298,46 @@ export interface components {
                 };
                 /** @enum {unknown} */
                 FinanceImportRowErrorCode: "spreadsheet_formula_forbidden" | "verified_import_forbidden" | "required_field_missing" | "money_invalid" | "currency_invalid" | "business_time_invalid" | "commercial_binding_invalid" | "row_identity_conflict" | "financial_fact_conflict" | "financial_fact_amount_invalid" | "amount_out_of_range";
+                FinancialCashForecastPublicView: {
+                    /** Format: date-time */
+                    acceptedAt: string;
+                    /** @enum {unknown} */
+                    currency: "CNY" | "USD";
+                    expectedInflowsNext30DaysMinor: number;
+                    expectedInflowsNext31To90DaysMinor: number;
+                    expectedOutflowsNext30DaysMinor: number;
+                    expectedOutflowsNext31To90DaysMinor: number;
+                    /** Format: date-time */
+                    forecastAsOf: string;
+                    forecastHash: string;
+                    /** @constant */
+                    noticeVersion: "financial-cash-forecast.v1";
+                    receivablesCount: number;
+                    /** @constant */
+                    source: "management_attested";
+                };
+                FinancialCashForecastReceivableInput: {
+                    amountMinor: number;
+                    customer: string;
+                    daysOutstanding: number;
+                };
+                FinancialCashForecastSupplementInput: {
+                    attestation: {
+                        /** @constant */
+                        accepted: true;
+                        /** @constant */
+                        noticeVersion: "financial-cash-forecast.v1";
+                    };
+                    expectedInflowsNext30DaysMinor: number;
+                    expectedInflowsNext31To90DaysMinor: number;
+                    expectedOutflowsNext30DaysMinor: number;
+                    expectedOutflowsNext31To90DaysMinor: number;
+                    /** Format: date-time */
+                    forecastAsOf: string;
+                    receivables: components["schemas"]["FinanceImportOperation_FinancialCashForecastReceivableInput"][];
+                };
                 FinancialStatementConsentInput: {
+                    cashForecast?: components["schemas"]["FinanceImportOperation_FinancialCashForecastSupplementInput"];
                     consent: {
                         /** @constant */
                         accepted: true;
@@ -2340,12 +2379,15 @@ export interface components {
                     warningCodes: string[];
                 };
                 FinancialStatementPackageView: {
+                    cashForecast: components["schemas"]["FinanceImportOperation_FinancialCashForecastPublicView"] | null;
                     companyName: string;
                     /** Format: date-time */
                     createdAt: string;
                     /** @enum {unknown} */
                     currency: "CNY" | "USD";
                     expiresAt: null;
+                    /** @enum {unknown} */
+                    forecastStatus: "computed" | "not_computable";
                     packageId: string;
                     /** @constant */
                     parserVersion: "financial-statements.v2";
@@ -2381,6 +2423,9 @@ export interface components {
             items: components["schemas"]["FinanceImportOperation_FinanceImportRowError"][];
             nextAfter: string | null;
         };
+        FinancialCashForecastPublicView: components["schemas"]["FinanceImportOperation_FinancialCashForecastPublicView"];
+        FinancialCashForecastReceivableInput: components["schemas"]["FinanceImportOperation_FinancialCashForecastReceivableInput"];
+        FinancialCashForecastSupplementInput: components["schemas"]["FinanceImportOperation_FinancialCashForecastSupplementInput"];
         FinancialCouncilAgentCenterView: components["schemas"]["FinancialCouncilRun_FinancialCouncilAgentCenterView"];
         FinancialCouncilApproval: components["schemas"]["FinancialCouncilRun_FinancialCouncilApproval"];
         FinancialCouncilDispatchPagedResult: components["schemas"]["FinancialCouncilRun_FinancialCouncilDispatchPagedResult"];
@@ -4413,7 +4458,46 @@ export interface components {
         };
         /** @enum {unknown} */
         FinanceImportOperation_FinanceImportRowErrorCode: "spreadsheet_formula_forbidden" | "verified_import_forbidden" | "required_field_missing" | "money_invalid" | "currency_invalid" | "business_time_invalid" | "commercial_binding_invalid" | "row_identity_conflict" | "financial_fact_conflict" | "financial_fact_amount_invalid" | "amount_out_of_range";
+        FinanceImportOperation_FinancialCashForecastPublicView: {
+            /** Format: date-time */
+            acceptedAt: string;
+            /** @enum {unknown} */
+            currency: "CNY" | "USD";
+            expectedInflowsNext30DaysMinor: number;
+            expectedInflowsNext31To90DaysMinor: number;
+            expectedOutflowsNext30DaysMinor: number;
+            expectedOutflowsNext31To90DaysMinor: number;
+            /** Format: date-time */
+            forecastAsOf: string;
+            forecastHash: string;
+            /** @constant */
+            noticeVersion: "financial-cash-forecast.v1";
+            receivablesCount: number;
+            /** @constant */
+            source: "management_attested";
+        };
+        FinanceImportOperation_FinancialCashForecastReceivableInput: {
+            amountMinor: number;
+            customer: string;
+            daysOutstanding: number;
+        };
+        FinanceImportOperation_FinancialCashForecastSupplementInput: {
+            attestation: {
+                /** @constant */
+                accepted: true;
+                /** @constant */
+                noticeVersion: "financial-cash-forecast.v1";
+            };
+            expectedInflowsNext30DaysMinor: number;
+            expectedInflowsNext31To90DaysMinor: number;
+            expectedOutflowsNext30DaysMinor: number;
+            expectedOutflowsNext31To90DaysMinor: number;
+            /** Format: date-time */
+            forecastAsOf: string;
+            receivables: components["schemas"]["FinanceImportOperation_FinancialCashForecastReceivableInput"][];
+        };
         FinanceImportOperation_FinancialStatementConsentInput: {
+            cashForecast?: components["schemas"]["FinanceImportOperation_FinancialCashForecastSupplementInput"];
             consent: {
                 /** @constant */
                 accepted: true;
@@ -4455,12 +4539,15 @@ export interface components {
             warningCodes: string[];
         };
         FinanceImportOperation_FinancialStatementPackageView: {
+            cashForecast: components["schemas"]["FinanceImportOperation_FinancialCashForecastPublicView"] | null;
             companyName: string;
             /** Format: date-time */
             createdAt: string;
             /** @enum {unknown} */
             currency: "CNY" | "USD";
             expiresAt: null;
+            /** @enum {unknown} */
+            forecastStatus: "computed" | "not_computable";
             packageId: string;
             /** @constant */
             parserVersion: "financial-statements.v2";

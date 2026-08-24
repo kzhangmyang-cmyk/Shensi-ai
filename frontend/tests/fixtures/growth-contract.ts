@@ -47,6 +47,29 @@ type FinancialCouncilAgentRole =
 type FinancialCouncilCandidateAction = Schema<"CandidateAction">;
 type FinancialCouncilActionPortfolio = Schema<"ActionPortfolio">;
 
+export const financialCashForecastInputFixture = Object.freeze({
+  forecastAsOf: "2026-08-16T07:59:00.000Z",
+  expectedInflowsNext30DaysMinor: 100_000,
+  expectedOutflowsNext30DaysMinor: 500_000,
+  expectedInflowsNext31To90DaysMinor: 800_000,
+  expectedOutflowsNext31To90DaysMinor: 300_000,
+  receivables: [{ customer: "客户 A", amountMinor: 1_000_000,
+    daysOutstanding: 120 }],
+  attestation: { accepted: true,
+    noticeVersion: "financial-cash-forecast.v1" }
+} satisfies Schema<"FinancialCashForecastSupplementInput">);
+
+export const financialCashForecastPublicViewFixture = Object.freeze({
+  source: "management_attested", forecastAsOf: "2026-08-16T07:59:00.000Z",
+  currency: "CNY", expectedInflowsNext30DaysMinor: 100_000,
+  expectedOutflowsNext30DaysMinor: 500_000,
+  expectedInflowsNext31To90DaysMinor: 800_000,
+  expectedOutflowsNext31To90DaysMinor: 300_000, receivablesCount: 1,
+  noticeVersion: "financial-cash-forecast.v1",
+  acceptedAt: "2026-08-16T08:00:00.000Z",
+  forecastHash: `sha256:${"a".repeat(64)}`
+} satisfies Schema<"FinancialCashForecastPublicView">);
+
 const COUNCIL_NOW = "2026-08-16T08:00:00.000Z";
 const COUNCIL_EXPIRES_AT = "2026-08-23T08:00:00.000Z";
 const councilHash = (character: string) =>

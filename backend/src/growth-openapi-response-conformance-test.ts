@@ -91,7 +91,7 @@ test(
 
 test("advisor today runtime response conforms to the released schema", async () => {
   const release = loadGrowthContractRelease();
-  assert.equal(release.manifest.contractVersion, "1.0.11");
+  assert.equal(release.manifest.contractVersion, "1.0.12");
   const schema = JSON.parse(await readFile(new URL(
     "../../contracts/json-schema/advisor-today.v1.schema.json",
     import.meta.url

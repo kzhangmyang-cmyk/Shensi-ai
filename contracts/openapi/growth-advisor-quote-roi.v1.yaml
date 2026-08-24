@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GoodJob Growth Advisor, Quote and ROI API
-  version: 1.0.11
+  version: 1.0.12
 servers:
   - url: /
 
@@ -1576,6 +1576,9 @@ components:
     FinancialCouncilRunAgentsView: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilRunAgentsView' }
     FinancialStatementPackagePreviewInput: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialStatementPackagePreviewInput' }
     FinancialStatementConsentInput: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialStatementConsentInput' }
+    FinancialCashForecastReceivableInput: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialCashForecastReceivableInput' }
+    FinancialCashForecastSupplementInput: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialCashForecastSupplementInput' }
+    FinancialCashForecastPublicView: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialCashForecastPublicView' }
     FinancialStatementPackagePreviewView: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialStatementPackagePreviewView' }
     FinancialStatementPackageView: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinancialStatementPackageView' }
     GrowthBootstrapResponse: { $ref: ../json-schema/growth-bootstrap.v1.schema.json }

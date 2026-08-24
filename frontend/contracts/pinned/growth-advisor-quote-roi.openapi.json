@@ -4659,9 +4659,168 @@
               "amount_out_of_range"
             ]
           },
+          "FinancialCashForecastPublicView": {
+            "additionalProperties": false,
+            "properties": {
+              "acceptedAt": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "currency": {
+                "enum": [
+                  "CNY",
+                  "USD"
+                ]
+              },
+              "expectedInflowsNext30DaysMinor": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "expectedInflowsNext31To90DaysMinor": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "expectedOutflowsNext30DaysMinor": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "expectedOutflowsNext31To90DaysMinor": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "forecastAsOf": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "forecastHash": {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "noticeVersion": {
+                "const": "financial-cash-forecast.v1"
+              },
+              "receivablesCount": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "source": {
+                "const": "management_attested"
+              }
+            },
+            "required": [
+              "source",
+              "forecastAsOf",
+              "currency",
+              "expectedInflowsNext30DaysMinor",
+              "expectedOutflowsNext30DaysMinor",
+              "expectedInflowsNext31To90DaysMinor",
+              "expectedOutflowsNext31To90DaysMinor",
+              "receivablesCount",
+              "noticeVersion",
+              "acceptedAt",
+              "forecastHash"
+            ],
+            "type": "object"
+          },
+          "FinancialCashForecastReceivableInput": {
+            "additionalProperties": false,
+            "properties": {
+              "amountMinor": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "customer": {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              "daysOutstanding": {
+                "maximum": 3650,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "customer",
+              "amountMinor",
+              "daysOutstanding"
+            ],
+            "type": "object"
+          },
+          "FinancialCashForecastSupplementInput": {
+            "additionalProperties": false,
+            "properties": {
+              "attestation": {
+                "additionalProperties": false,
+                "properties": {
+                  "accepted": {
+                    "const": true
+                  },
+                  "noticeVersion": {
+                    "const": "financial-cash-forecast.v1"
+                  }
+                },
+                "required": [
+                  "accepted",
+                  "noticeVersion"
+                ],
+                "type": "object"
+              },
+              "expectedInflowsNext30DaysMinor": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "expectedInflowsNext31To90DaysMinor": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "expectedOutflowsNext30DaysMinor": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "expectedOutflowsNext31To90DaysMinor": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "forecastAsOf": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "receivables": {
+                "items": {
+                  "$ref": "#/components/schemas/FinanceImportOperation/%24defs/FinancialCashForecastReceivableInput"
+                },
+                "maxItems": 100,
+                "type": "array"
+              }
+            },
+            "required": [
+              "forecastAsOf",
+              "expectedInflowsNext30DaysMinor",
+              "expectedOutflowsNext30DaysMinor",
+              "expectedInflowsNext31To90DaysMinor",
+              "expectedOutflowsNext31To90DaysMinor",
+              "receivables",
+              "attestation"
+            ],
+            "type": "object"
+          },
           "FinancialStatementConsentInput": {
             "additionalProperties": false,
             "properties": {
+              "cashForecast": {
+                "$ref": "#/components/schemas/FinanceImportOperation/%24defs/FinancialCashForecastSupplementInput"
+              },
               "consent": {
                 "additionalProperties": false,
                 "properties": {
@@ -4812,6 +4971,16 @@
           "FinancialStatementPackageView": {
             "additionalProperties": false,
             "properties": {
+              "cashForecast": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/FinanceImportOperation/%24defs/FinancialCashForecastPublicView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "companyName": {
                 "minLength": 1,
                 "type": "string"
@@ -4828,6 +4997,12 @@
               },
               "expiresAt": {
                 "type": "null"
+              },
+              "forecastStatus": {
+                "enum": [
+                  "computed",
+                  "not_computable"
+                ]
               },
               "packageId": {
                 "minLength": 1,
@@ -4870,6 +5045,8 @@
               "sourceFiles",
               "parserVersion",
               "warningCodes",
+              "forecastStatus",
+              "cashForecast",
               "createdAt"
             ],
             "type": "object"
@@ -5048,6 +5225,15 @@
           "hasMore"
         ],
         "type": "object"
+      },
+      "FinancialCashForecastPublicView": {
+        "$ref": "#/components/schemas/FinanceImportOperation/%24defs/FinancialCashForecastPublicView"
+      },
+      "FinancialCashForecastReceivableInput": {
+        "$ref": "#/components/schemas/FinanceImportOperation/%24defs/FinancialCashForecastReceivableInput"
+      },
+      "FinancialCashForecastSupplementInput": {
+        "$ref": "#/components/schemas/FinanceImportOperation/%24defs/FinancialCashForecastSupplementInput"
       },
       "FinancialCouncilAgentCenterView": {
         "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilAgentCenterView"
@@ -11774,7 +11960,7 @@
   },
   "info": {
     "title": "GoodJob Growth Advisor, Quote and ROI API",
-    "version": "1.0.11"
+    "version": "1.0.12"
   },
   "openapi": "3.1.0",
   "paths": {

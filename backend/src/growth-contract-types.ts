@@ -511,8 +511,39 @@ export interface FinancialStatementPackagePreviewInput {
     FinancialStatementUpload<"income_statement">,
     FinancialStatementUpload<"cash_flow_statement">];
 }
+export interface FinancialCashForecastReceivableInput {
+  customer: string;
+  amountMinor: number;
+  daysOutstanding: number;
+}
+export interface FinancialCashForecastSupplementInput {
+  forecastAsOf: string;
+  expectedInflowsNext30DaysMinor: number;
+  expectedOutflowsNext30DaysMinor: number;
+  expectedInflowsNext31To90DaysMinor: number;
+  expectedOutflowsNext31To90DaysMinor: number;
+  receivables: readonly FinancialCashForecastReceivableInput[];
+  attestation: {
+    accepted: true;
+    noticeVersion: "financial-cash-forecast.v1";
+  };
+}
+export interface FinancialCashForecastPublicView {
+  source: "management_attested";
+  forecastAsOf: string;
+  currency: BusinessCurrency;
+  expectedInflowsNext30DaysMinor: number;
+  expectedOutflowsNext30DaysMinor: number;
+  expectedInflowsNext31To90DaysMinor: number;
+  expectedOutflowsNext31To90DaysMinor: number;
+  receivablesCount: number;
+  noticeVersion: "financial-cash-forecast.v1";
+  acceptedAt: string;
+  forecastHash: Sha256;
+}
 export interface FinancialStatementConsentInput {
   consent: { accepted: true; noticeVersion: "financial-model-data.v1" };
+  cashForecast?: FinancialCashForecastSupplementInput;
 }
 export interface FinancialStatementSourceView {
   kind: FinancialStatementKind;
@@ -541,6 +572,8 @@ extends FinancialStatementPackageCommonView {
   packageId: string;
   status: "verified";
   expiresAt: null;
+  forecastStatus: "computed" | "not_computable";
+  cashForecast: FinancialCashForecastPublicView | null;
 }
 
 export interface FinancialCouncilAgentRoleView {

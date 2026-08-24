@@ -4,9 +4,9 @@ This workspace is the normative, executable boundary for the AI acquisition
 agent. JSON Schemas use Draft 2020-12 and OpenAPI describes authenticated
 `/api/v1` operations.
 
-## Growth Financial Council 1.0.11
+## Growth Financial Council 1.0.12
 
-Growth `1.0.11` publishes the closed council onboarding boundary: routing
+Growth `1.0.12` publishes the closed council onboarding boundary: routing
 policy GET/PUT/POST-preview, statement package POST-preview/commit,
 run-from-statement-package, agent-center, and per-run agent reads. Reads and
 routing preview require `finance.council.run`; routing PUT requires
@@ -15,10 +15,20 @@ routing preview require `finance.council.run`; routing PUT requires
 PUT also requires `If-Match`, and the routing GET returns `ETag`. Exact replay
 alone returns `Idempotency-Replayed: true`.
 
+Statement commit accepts either the legacy consent-only body or consent plus a
+closed `cashForecast`. The forecast contains four non-negative minor-unit
+30/90-day totals, at most 100 explicit receivable rows, and the
+`financial-cash-forecast.v1` management attestation. Currency, source,
+accepting actor/time, and hashes remain server-owned. Consent-only commits stay
+valid and return `forecastStatus: not_computable` with `cashForecast: null`.
+Forecast-backed responses return only the attested totals, receivable count,
+authority timestamps, and hash; customer-level receivable rows are never part
+of the public projection.
+
 All request and response DTOs reject unknown properties. Statement responses
 exclude workbook bytes, base64, raw cells, and normalized business reports;
 agent projections exclude credentials, prompts, provider bodies, and business
-data. The immutable `1.0.10` release remains byte-for-byte unchanged.
+data. The immutable `1.0.11` release remains byte-for-byte unchanged.
 
 ## Single-source workflow
 

@@ -493,6 +493,24 @@ test("council onboarding DTOs reject browser authority and secret-bearing fields
   }
 });
 
+test("1.0.12 exposes a closed management cash forecast", async () => {
+  const registry = await loadSchemaRegistry();
+  const schema = registry.schemaDocuments.get("finance-import-operation");
+  assert.ok(schema);
+  const commit = schema.$defs.FinancialStatementConsentInput;
+  assert.deepEqual(commit.required, ["consent"]);
+  assert.equal(commit.properties.cashForecast.$ref,
+    "#/$defs/FinancialCashForecastSupplementInput");
+  assert.equal(schema.$defs.FinancialCashForecastSupplementInput
+    .properties.receivables.maxItems, 100);
+  assert.equal(schema.$defs.FinancialCashForecastSupplementInput
+    .additionalProperties, false);
+  assert.equal(schema.$defs.FinancialCashForecastReceivableInput
+    .additionalProperties, false);
+  assert.equal(schema.$defs.FinancialCashForecastPublicView
+    .properties.receivables, undefined);
+});
+
 test("growth bootstrap accepts the public financial council capabilities", async () => {
   const raw = JSON.parse(await readFile(new URL(
     "../json-schema/growth-bootstrap.v1.schema.json", import.meta.url

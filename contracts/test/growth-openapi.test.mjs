@@ -92,11 +92,11 @@ const operations = {
   "/api/v1/finance/council-runs/{runId}/agents": ["get"]
 };
 
-test("1.0.11 exposes closed real council onboarding routes", async () => {
+test("1.0.12 exposes closed real council onboarding routes", async () => {
   const document = await loadNamedOpenApiSource(
     "growth-advisor-quote-roi.v1.yaml"
   );
-  assert.equal(document.info.version, "1.0.11");
+  assert.equal(document.info.version, "1.0.12");
   for (const path of [
     "/api/v1/finance/council-model-routing-policy",
     "/api/v1/finance/council-model-routing-policy/preview",

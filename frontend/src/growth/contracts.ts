@@ -5,7 +5,7 @@ import type {
 } from "../generated/growth-advisor-quote-roi.js";
 
 export const GROWTH_CONTRACT_NAME = "growth-advisor-quote-roi";
-export const GROWTH_CONTRACT_VERSION = "1.0.11";
+export const GROWTH_CONTRACT_VERSION = "1.0.12";
 
 export type GrowthPaths = paths;
 export type GrowthOperations = operations;
@@ -86,6 +86,12 @@ export type FinancialStatementPackageView =
   components["schemas"]["FinancialStatementPackageView"];
 export type FinancialStatementPackageCommitInput =
   components["schemas"]["FinancialStatementConsentInput"];
+export type FinancialCashForecastReceivableInput =
+  components["schemas"]["FinancialCashForecastReceivableInput"];
+export type FinancialCashForecastSupplementInput =
+  components["schemas"]["FinancialCashForecastSupplementInput"];
+export type FinancialCashForecastPublicView =
+  components["schemas"]["FinancialCashForecastPublicView"];
 export type FinancialStatementUpload =
   components["schemas"]["FinanceImportOperation_FinancialStatementUpload"];
 export type FinancialStatementKind = FinancialStatementUpload["kind"];
