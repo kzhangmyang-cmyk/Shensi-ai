@@ -5,9 +5,14 @@ import { MysqlFinancialStatementPackageRepository,
   "./financial-statement-package-mysql-repository.js";
 import { previewFixture } from
   "./financial-statement-package-repository-contract-test.js";
+import { commitFixture, forecastRecordFixture } from
+  "./financial-statement-package-repository-contract-test.js";
+import { canonicalFinancialCashForecastSupplement } from
+  "./financial-statement-package.js";
+import { financialCouncilCanonicalHash } from
+  "./financial-council-domain.js";
 import { requireFinancialCouncilMysqlTestAdminUrl,
-  createFinancialCouncilMysqlTestDatabase,
-  withFinancialCouncilMysqlTestDatabase } from
+  createFinancialCouncilMysqlTestDatabase } from
   "./financial-council-mysql-test-support.js";
 
 requireFinancialCouncilMysqlTestAdminUrl("financial-council-real-runtime");
@@ -37,37 +42,82 @@ test("real MySQL statement schema upgrades a pre-package database", async () => 
   }
 });
 
-test("real MySQL package commit has one winner and exact replay across two connections", async () => {
-  await withFinancialCouncilMysqlTestDatabase(async ({ pool, connectionA,
-    connectionB }) => {
-    assert.notEqual(connectionA.threadId, connectionB.threadId);
+test("real MySQL forecast commits serialize exact replay and changed conflict",
+  async () => {
+  const database = await createFinancialCouncilMysqlTestDatabase();
+  try {
+    const { pool } = database;
     await ensureFinancialStatementPackageMysqlSchema(pool);
+    const connectionA = await pool.getConnection();
+    const connectionB = await pool.getConnection();
+    try {
+      const [idsA] = await connectionA.query("SELECT CONNECTION_ID() AS id");
+      const [idsB] = await connectionB.query("SELECT CONNECTION_ID() AS id");
+      assert.notEqual((idsA as Array<{ id: number }>)[0]?.id,
+        (idsB as Array<{ id: number }>)[0]?.id);
+    } finally {
+      connectionB.release();
+      connectionA.release();
+    }
     const first = new MysqlFinancialStatementPackageRepository(pool);
     const second = new MysqlFinancialStatementPackageRepository(pool);
     const preview = previewFixture();
     await first.appendPreview(preview);
-    const input = (suffix: string) => ({ workspaceId: preview.workspaceId,
-      previewId: preview.previewId, packageId: `package-${suffix}`,
-      consent: { accepted: true as const,
-        noticeVersion: "financial-model-data.v1" as const,
-        acceptedBy: "actor-a", acceptedAt: "2026-08-23T12:11:00.000Z" },
-      idempotencyKeyHash: `sha256:${suffix.repeat(64)}`,
-      requestHash: `sha256:${suffix.repeat(64)}`,
-      createdAt: "2026-08-23T12:11:00.000Z" });
-    const contenders = await Promise.allSettled([
-      first.commitPreview(input("1")), second.commitPreview(input("2"))
+    const exactInput = commitFixture({ packageId: "package-exact",
+      cashForecast: forecastRecordFixture() });
+    const exact = await Promise.all([
+      first.commitPreview(exactInput), second.commitPreview(exactInput)
     ]);
-    assert.equal(contenders.filter((row) => row.status === "fulfilled").length,
-      1);
-    assert.equal(contenders.filter((row) => row.status === "rejected").length,
-      1);
-    const winner = contenders.find((row): row is PromiseFulfilledResult<
-      Awaited<ReturnType<typeof first.commitPreview>>> =>
-      row.status === "fulfilled")!.value;
-    const replayInput = winner.value.packageId === "package-1"
-      ? input("1") : input("2");
-    const replay = await second.commitPreview(replayInput);
-    assert.equal(replay.replayed, true);
-    assert.deepEqual(replay.value, winner.value);
-  });
+    assert.deepEqual(exact.map((row) => row.replayed).sort(), [false, true]);
+    assert.equal(exact[0].value.packageHash, exact[1].value.packageHash);
+
+    const { previewHash: _previewHash, ...previewPreimage } = previewFixture();
+    const changedPreviewPreimage = { ...previewPreimage,
+      previewId: "preview-changed" };
+    const changedPreview = { ...changedPreviewPreimage,
+      previewHash: financialCouncilCanonicalHash(changedPreviewPreimage) };
+    await first.appendPreview(changedPreview);
+    const changedForecast = canonicalFinancialCashForecastSupplement({
+      forecastAsOf: "2026-08-23T12:10:00.000Z",
+      expectedInflowsNext30DaysMinor: 100_001,
+      expectedOutflowsNext30DaysMinor: 500_000,
+      expectedInflowsNext31To90DaysMinor: 800_000,
+      expectedOutflowsNext31To90DaysMinor: 300_000,
+      receivables: [], attestation: { accepted: true,
+        noticeVersion: "financial-cash-forecast.v1" }
+    }, { currency: "CNY", acceptedBy: "actor-a",
+      acceptedAt: "2026-08-23T12:11:00.000Z", period: "2026-08-23" });
+    const sameKey = `sha256:${"9".repeat(64)}` as const;
+    const changed = await Promise.allSettled([
+      first.commitPreview({ ...commitFixture({ packageId: "package-changed-a",
+        idempotencyKeyHash: sameKey, requestHash: `sha256:${"3".repeat(64)}`,
+        cashForecast: forecastRecordFixture() }), previewId: "preview-changed" }),
+      second.commitPreview({ ...commitFixture({ packageId: "package-changed-b",
+        idempotencyKeyHash: sameKey, requestHash: `sha256:${"4".repeat(64)}`,
+        cashForecast: changedForecast }), previewId: "preview-changed" })
+    ]);
+    assert.equal(changed.filter((row) => row.status === "fulfilled").length, 1);
+    const rejected = changed.find((row) => row.status === "rejected") as
+      PromiseRejectedResult;
+    assert.equal((rejected.reason as { code?: string }).code,
+      "financial_statement_idempotency_conflict");
+
+    const reopenedPool = database.openPool();
+    try {
+      const reopened = new MysqlFinancialStatementPackageRepository(reopenedPool);
+      const persisted = await reopened.getVerified("workspace-a", "package-exact");
+      assert.ok(persisted);
+      assert.equal(persisted.packageHash, exact[0].value.packageHash);
+      assert.equal(persisted.reportInputHash, exact[0].value.reportInputHash);
+      assert.equal(persisted.cashForecast?.forecastHash,
+        exact[0].value.cashForecast?.forecastHash);
+      assert.equal(persisted.cashForecast?.acceptedBy, "actor-a");
+      assert.equal(persisted.cashForecast?.acceptedAt,
+        "2026-08-23T12:11:00.000Z");
+    } finally {
+      await reopenedPool.end();
+    }
+  } finally {
+    await database.close();
+  }
 });

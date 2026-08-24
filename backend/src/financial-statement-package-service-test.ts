@@ -3,8 +3,12 @@ import test from "node:test";
 import XLSX from "xlsx-js-style";
 import { InMemoryFinancialStatementPackageRepository } from
   "./financial-statement-package-repository.js";
+import type { CommitFinancialStatementPackageInput } from
+  "./financial-statement-package-repository.js";
 import { FinancialStatementPackageService } from
   "./financial-statement-package-service.js";
+import { previewFixture } from
+  "./financial-statement-package-repository-contract-test.js";
 import {
   createFinancialCouncilIntegrationFixture,
   financialCouncilIntegrationCommand,
@@ -58,6 +62,20 @@ function uploads() {
 const command = { workspaceId: "workspace-a", actorId: "actor-a",
   idempotencyKey: "key-1", requestHash: `sha256:${"1".repeat(64)}` as const };
 
+const cashForecast = {
+  forecastAsOf: "2026-08-23T12:10:00.000Z",
+  expectedInflowsNext30DaysMinor: 100_000,
+  expectedOutflowsNext30DaysMinor: 500_000,
+  expectedInflowsNext31To90DaysMinor: 800_000,
+  expectedOutflowsNext31To90DaysMinor: 300_000,
+  receivables: [
+    { customer: "客户 B", amountMinor: 300_000, daysOutstanding: 30 },
+    { customer: "客户 A", amountMinor: 1_000_000, daysOutstanding: 120 }
+  ],
+  attestation: { accepted: true as const,
+    noticeVersion: "financial-cash-forecast.v1" as const }
+};
+
 test("preview is non-authoritative and commit requires consent", async () => {
   const repository = new InMemoryFinancialStatementPackageRepository();
   const service = new FinancialStatementPackageService({ repository,
@@ -79,6 +97,67 @@ test("preview is non-authoritative and commit requires consent", async () => {
       acceptedBy: "actor-a", acceptedAt: "2026-08-23T12:11:00.000Z" } });
   assert.equal(committed.value.businessReport.cashFlow?.forecast.status,
     "not_computable");
+  assert.equal(committed.value.forecastStatus, "not_computable");
+  assert.equal(committed.value.cashForecast, null);
+});
+
+test("commit stamps and forwards one canonical forecast with preview authority",
+  async () => {
+  const repository = new InMemoryFinancialStatementPackageRepository();
+  await repository.appendPreview(previewFixture());
+  let commits = 0;
+  let recorded: CommitFinancialStatementPackageInput | undefined;
+  const realCommit = repository.commitPreview.bind(repository);
+  repository.commitPreview = async (input) => {
+    commits += 1;
+    recorded = input;
+    return realCommit(input);
+  };
+  const service = new FinancialStatementPackageService({ repository,
+    now: () => "2026-08-23T12:11:00.000Z" });
+  const result = await service.commit(command, {
+    previewId: "preview-1",
+    consent: { accepted: true, noticeVersion: "financial-model-data.v1",
+      acceptedBy: "actor-a", acceptedAt: "2026-08-23T12:10:30.000Z" },
+    cashForecast
+  });
+  assert.equal(commits, 1);
+  assert.equal(recorded?.cashForecast?.acceptedBy, "actor-a");
+  assert.equal(recorded?.cashForecast?.acceptedAt,
+    "2026-08-23T12:11:00.000Z");
+  assert.equal(recorded?.cashForecast?.currency, "CNY");
+  assert.equal(recorded?.cashForecast?.forecastAsOf.slice(0, 10),
+    "2026-08-23");
+  assert.deepEqual(recorded?.cashForecast?.receivables.map((row) => row.customer),
+    ["客户 A", "客户 B"]);
+  assert.equal(result.value.forecastStatus, "computed");
+  assert.equal(result.value.cashForecast?.forecastHash,
+    recorded?.cashForecast?.forecastHash);
+  assert.equal((await repository.getVerified("workspace-a",
+    result.value.packageId))?.cashForecast?.acceptedAt,
+  "2026-08-23T12:11:00.000Z");
+});
+
+test("invalid forecast input causes zero repository writes", async () => {
+  const repository = new InMemoryFinancialStatementPackageRepository();
+  await repository.appendPreview(previewFixture());
+  let commits = 0;
+  const realCommit = repository.commitPreview.bind(repository);
+  repository.commitPreview = async (input) => {
+    commits += 1;
+    return realCommit(input);
+  };
+  const service = new FinancialStatementPackageService({ repository,
+    now: () => "2026-08-23T12:11:00.000Z" });
+  await assert.rejects(service.commit(command, {
+    previewId: "preview-1",
+    consent: { accepted: true, noticeVersion: "financial-model-data.v1",
+      acceptedBy: "actor-a", acceptedAt: "2026-08-23T12:11:00.000Z" },
+    cashForecast: { ...cashForecast, acceptedBy: "attacker" } as never
+  }), (error: unknown) => (error as { code?: string }).code ===
+    "financial_statement_input_invalid");
+  assert.equal(commits, 0);
+  assert.equal(await repository.getVerified("workspace-a", "package-1"), null);
 });
 
 test("secure upload parser rejects formulas", async () => {

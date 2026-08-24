@@ -3,7 +3,9 @@ import {
   FINANCIAL_STATEMENT_MEDIA_TYPE,
   FINANCIAL_STATEMENT_PARSER_VERSION,
   FinancialStatementPackageError,
+  canonicalFinancialCashForecastSupplement,
   normalizeFinancialStatementPackage,
+  type FinancialCashForecastSupplementInput,
   type FinancialModelDataConsent,
   type FinancialStatementKind,
   type FinancialStatementPackagePreview,
@@ -144,11 +146,13 @@ export class FinancialStatementPackageService {
   async commit(context: FinancialStatementPackageCommandContext, input: {
     readonly previewId: string;
     readonly consent: FinancialModelDataConsent | null;
+    readonly cashForecast?: FinancialCashForecastSupplementInput | null;
   }) {
     command(context);
     const consent = input?.consent;
-    if (!input || Object.keys(input).sort().join("\0") !==
-      ["previewId", "consent"].sort().join("\0")
+    const keys = input && Object.keys(input).sort().join("\0");
+    if (!input || (keys !== ["previewId", "consent"].sort().join("\0")
+      && keys !== ["previewId", "consent", "cashForecast"].sort().join("\0"))
       || !consent || Object.keys(consent).sort().join("\0") !==
       ["accepted", "noticeVersion", "acceptedBy", "acceptedAt"]
         .sort().join("\0")
@@ -158,14 +162,25 @@ export class FinancialStatementPackageService {
       || Number.isNaN(Date.parse(consent.acceptedAt))) {
       fail("financial_statement_consent_required");
     }
+    const createdAt = this.now();
+    let cashForecast = null;
+    if (input.cashForecast !== undefined && input.cashForecast !== null) {
+      const preview = await this.dependencies.repository.getPreview(
+        context.workspaceId, input.previewId);
+      if (!preview) fail("financial_statement_preview_not_found");
+      cashForecast = canonicalFinancialCashForecastSupplement(
+        input.cashForecast, { currency: preview.currency,
+          acceptedBy: context.actorId, acceptedAt: createdAt,
+          period: preview.period });
+    }
     const packageId = `financial-statement-package:${
       financialCouncilCanonicalHash({ workspaceId: context.workspaceId,
         previewId: input.previewId, requestHash: context.requestHash })}`;
     return this.dependencies.repository.commitPreview({
       workspaceId: context.workspaceId, previewId: input.previewId, packageId,
-      consent, idempotencyKeyHash: financialCouncilCanonicalHash(
+      consent, cashForecast, idempotencyKeyHash: financialCouncilCanonicalHash(
         context.idempotencyKey), requestHash: context.requestHash,
-      createdAt: this.now()
+      createdAt
     });
   }
 

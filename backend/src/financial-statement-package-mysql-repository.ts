@@ -1,6 +1,6 @@
 import type mysql from "mysql2/promise";
 import {
-  financialStatementPackageHash,
+  buildVerifiedFinancialStatementPackage,
   type FinancialStatementPackage,
   type FinancialStatementPackagePreview
 } from "./financial-statement-package.js";
@@ -8,6 +8,7 @@ import { financialCouncilCanonicalHash,
   financialCouncilCanonicalJson } from "./financial-council-domain.js";
 import {
   FinancialStatementPackageRepositoryError,
+  assertFinancialStatementPackage,
   type CommitFinancialStatementPackageInput,
   type FinancialStatementPackageRepository
 } from "./financial-statement-package-repository.js";
@@ -89,11 +90,10 @@ function parsePreview(row: Record<string, unknown>): FinancialStatementPackagePr
 function parsePackage(row: Record<string, unknown>): FinancialStatementPackage {
   try {
     const value = JSON.parse(text(row.package_json)) as FinancialStatementPackage;
-    const { packageHash, ...preimage } = value;
-    if (financialStatementPackageHash(preimage) !== packageHash
-      || packageHash !== text(row.package_hash)) {
+    if (value.packageHash !== text(row.package_hash)) {
       fail("financial_statement_package_tampered");
     }
+    assertFinancialStatementPackage(value);
     return Object.freeze(value);
   } catch (error) {
     if (error instanceof FinancialStatementPackageRepositoryError) throw error;
@@ -148,6 +148,21 @@ implements FinancialStatementPackageRepository {
   }
 
   async commitPreview(input: CommitFinancialStatementPackageInput) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await this.commitPreviewOnce(input);
+      } catch (error) {
+        if (attempt === 0
+          && (error as { code?: string }).code === "ER_LOCK_DEADLOCK") {
+          continue;
+        }
+        throw error;
+      }
+    }
+    fail("financial_statement_package_integrity");
+  }
+
+  private async commitPreviewOnce(input: CommitFinancialStatementPackageInput) {
     const connection = await this.pool.getConnection();
     try {
       await connection.beginTransaction();
@@ -185,16 +200,10 @@ implements FinancialStatementPackageRepository {
       if (Date.parse(input.createdAt) >= Date.parse(preview.expiresAt)) {
         fail("financial_statement_preview_expired");
       }
-      const preimage = { packageId: input.packageId,
-        workspaceId: input.workspaceId, status: "verified" as const,
-        companyName: preview.companyName, currency: preview.currency,
-        period: preview.period, sourceFiles: preview.sourceFiles,
-        parserVersion: preview.parserVersion,
-        businessReport: preview.businessReport,
-        reportInputHash: preview.reportInputHash, warnings: preview.warnings,
-        consent: input.consent, createdAt: input.createdAt };
-      const value = Object.freeze({ ...preimage,
-        packageHash: financialStatementPackageHash(preimage) });
+      const value = buildVerifiedFinancialStatementPackage(preview, {
+        packageId: input.packageId, consent: input.consent,
+        cashForecast: input.cashForecast, createdAt: input.createdAt
+      });
       await connection.query(
         `INSERT INTO financial_statement_packages
          (workspace_id, package_id, package_hash, package_json, created_at)

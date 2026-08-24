@@ -1,5 +1,8 @@
 import {
+  buildVerifiedFinancialStatementPackage,
+  canonicalFinancialCashForecastSupplement,
   financialStatementPackageHash,
+  type FinancialCashForecastSupplement,
   type FinancialModelDataConsent,
   type FinancialStatementPackage,
   type FinancialStatementPackagePreview
@@ -11,6 +14,7 @@ export interface CommitFinancialStatementPackageInput {
   readonly previewId: string;
   readonly packageId: string;
   readonly consent: FinancialModelDataConsent;
+  readonly cashForecast: FinancialCashForecastSupplement | null;
   readonly idempotencyKeyHash: `sha256:${string}`;
   readonly requestHash: `sha256:${string}`;
   readonly createdAt: string;
@@ -52,10 +56,86 @@ function assertPreview(preview: FinancialStatementPackagePreview): void {
     || preview.status !== "preview") fail("financial_statement_preview_tampered");
 }
 
-function assertPackage(value: FinancialStatementPackage): void {
-  const { packageHash, ...preimage } = value;
-  if (financialStatementPackageHash(preimage) !== packageHash
-    || value.status !== "verified") fail("financial_statement_package_tampered");
+export function assertFinancialStatementPackage(
+  value: FinancialStatementPackage
+): void {
+  try {
+    if (!value || Object.getPrototypeOf(value) !== Object.prototype
+      || Object.keys(value).sort().join("\0") !== ["businessReport",
+        "cashForecast", "companyName", "consent", "createdAt", "currency",
+        "forecastStatus", "packageHash", "packageId", "parserVersion",
+        "period", "reportInputHash", "sourceFiles", "status", "warnings",
+        "workspaceId"].sort().join("\0")) {
+      fail("financial_statement_package_integrity");
+    }
+    const { packageHash, ...preimage } = value;
+    if (financialStatementPackageHash(preimage) !== packageHash
+      || value.status !== "verified") fail("financial_statement_package_tampered");
+    let historicalBusinessReport = value.businessReport;
+    if (value.forecastStatus === "computed") {
+      if (!value.cashForecast) fail("financial_statement_package_integrity");
+      const forecast = value.cashForecast;
+      const canonical = canonicalFinancialCashForecastSupplement({
+        forecastAsOf: forecast.forecastAsOf,
+        expectedInflowsNext30DaysMinor:
+          forecast.expectedInflowsNext30DaysMinor,
+        expectedOutflowsNext30DaysMinor:
+          forecast.expectedOutflowsNext30DaysMinor,
+        expectedInflowsNext31To90DaysMinor:
+          forecast.expectedInflowsNext31To90DaysMinor,
+        expectedOutflowsNext31To90DaysMinor:
+          forecast.expectedOutflowsNext31To90DaysMinor,
+        receivables: forecast.receivables,
+        attestation: { accepted: true,
+          noticeVersion: "financial-cash-forecast.v1" }
+      }, { currency: value.currency, acceptedBy: value.consent.acceptedBy,
+        acceptedAt: forecast.acceptedAt,
+        period: forecast.forecastAsOf.slice(0, 10) });
+      if (forecast.acceptedBy !== value.consent.acceptedBy
+        || forecast.acceptedAt !== value.createdAt) {
+        fail("financial_statement_package_integrity");
+      }
+      if (financialCouncilCanonicalHash(canonical) !==
+        financialCouncilCanonicalHash(forecast)) {
+        fail("financial_statement_package_integrity");
+      }
+      const cashFlow = value.businessReport.cashFlow;
+      if (!cashFlow) fail("financial_statement_package_integrity");
+      const { receivables: _receivables,
+        expectedInflowsNext30DaysMinor: _inflows30,
+        expectedOutflowsNext30DaysMinor: _outflows30,
+        expectedInflowsNext31To90DaysMinor: _inflows90,
+        expectedOutflowsNext31To90DaysMinor: _outflows90,
+        ...historicalCashFlow } = cashFlow;
+      historicalBusinessReport = { ...value.businessReport,
+        cashFlow: { ...historicalCashFlow,
+          forecast: { status: "not_computable" as const,
+            reason: "source_statements_do_not_provide_forecast" as const } } };
+    } else if (value.forecastStatus !== "not_computable"
+      || value.cashForecast !== null
+      || value.businessReport.cashFlow?.forecast?.status !== "not_computable") {
+      fail("financial_statement_package_integrity");
+    }
+    const rebuilt = buildVerifiedFinancialStatementPackage({
+      previewId: "integrity-check", workspaceId: value.workspaceId,
+      status: "preview", expiresAt: value.createdAt,
+      companyName: value.companyName, currency: value.currency,
+      period: value.period, sourceFiles: value.sourceFiles,
+      parserVersion: value.parserVersion,
+      businessReport: historicalBusinessReport,
+      reportInputHash: financialCouncilCanonicalHash(historicalBusinessReport),
+      warnings: value.warnings,
+      previewHash: `sha256:${"0".repeat(64)}`, createdAt: value.createdAt
+    }, { packageId: value.packageId, consent: value.consent,
+      cashForecast: value.cashForecast ?? null, createdAt: value.createdAt });
+    if (financialCouncilCanonicalHash(rebuilt) !==
+      financialCouncilCanonicalHash(value)) {
+      fail("financial_statement_package_integrity");
+    }
+  } catch (error) {
+    if (error instanceof FinancialStatementPackageRepositoryError) throw error;
+    fail("financial_statement_package_integrity");
+  }
 }
 
 interface IdempotencyRecord {
@@ -105,7 +185,7 @@ implements FinancialStatementPackageRepository {
         const replay = this.packages.get(this.key(input.workspaceId,
           existingIdempotency.packageId));
         if (!replay) fail("financial_statement_package_integrity");
-        assertPackage(replay);
+        assertFinancialStatementPackage(replay);
         return { value: clone(replay), replayed: true };
       }
       const previewKey = this.key(input.workspaceId, input.previewId);
@@ -118,17 +198,10 @@ implements FinancialStatementPackageRepository {
       if (this.committedPreviews.has(previewKey)) {
         fail("financial_statement_preview_committed");
       }
-      const preimage = {
-        packageId: input.packageId, workspaceId: input.workspaceId,
-        status: "verified" as const, companyName: preview.companyName,
-        currency: preview.currency, period: preview.period,
-        sourceFiles: preview.sourceFiles, parserVersion: preview.parserVersion,
-        businessReport: preview.businessReport,
-        reportInputHash: preview.reportInputHash, warnings: preview.warnings,
-        consent: input.consent, createdAt: input.createdAt
-      };
-      const value = Object.freeze({ ...clone(preimage),
-        packageHash: financialStatementPackageHash(preimage) });
+      const value = buildVerifiedFinancialStatementPackage(preview, {
+        packageId: input.packageId, consent: input.consent,
+        cashForecast: input.cashForecast, createdAt: input.createdAt
+      });
       const packageKey = this.key(input.workspaceId, input.packageId);
       if (this.packages.has(packageKey)) fail("financial_statement_package_conflict");
       this.packages.set(packageKey, value);
@@ -145,7 +218,7 @@ implements FinancialStatementPackageRepository {
   async getVerified(workspaceId: string, packageId: string) {
     const value = this.packages.get(this.key(workspaceId, packageId));
     if (!value) return null;
-    assertPackage(value);
+    assertFinancialStatementPackage(value);
     return clone(value);
   }
 
@@ -163,7 +236,7 @@ implements FinancialStatementPackageRepository {
         Buffer.from(left.packageId, "utf8"));
     })[0];
     if (!latest) return null;
-    assertPackage(latest);
+    assertFinancialStatementPackage(latest);
     return clone(latest);
   }
 
