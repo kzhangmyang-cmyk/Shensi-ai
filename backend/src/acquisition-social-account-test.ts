@@ -43,3 +43,29 @@ test("binds exactly once, replaces the active account, and disconnects safely", 
   assert.equal(disconnected.state, "disconnected");
   assert.equal((await service.list(context)).items[0]?.state, "disconnected");
 });
+
+test("rejects a different active handle instead of silently replacing it", async () => {
+  const gateway = new Gateway();
+  const service = new AcquisitionSocialAccountService({ repository: new InMemoryAcquisitionSocialAccountRepository(), gateway,
+    idFactory: (() => { let n = 0; return () => `account-${++n}`; })(), now: () => "2026-08-24T00:00:00.000Z" });
+  const first = await service.createLoginSession(context, { platform: "douyin" });
+  await service.bindActiveSession(context, first.id);
+  gateway.getLoginSession = async () => ({ sessionId: "session-b", state: "active" as const, qrImageDataUrl: null,
+    expiresAt: "2026-08-24T00:01:00.000Z", accountHandle: "another-private-handle", accountDisplayName: null, loginStateVersion: 1 });
+  const second = await service.createLoginSession(context, { platform: "douyin" });
+  await assert.rejects(service.bindActiveSession(context, second.id), { code: "douyin_active_account_conflict" });
+});
+
+test("persists an exact create-session replay by workspace and semantic hash", async () => {
+  const gateway = new Gateway();
+  const repository = new InMemoryAcquisitionSocialAccountRepository();
+  const service = new AcquisitionSocialAccountService({ repository, gateway, idFactory: () => "session-replay", now: () => "2026-08-24T00:00:00.000Z" });
+  const first = await service.createLoginSessionIdempotently(context, { platform: "douyin" }, "key", "hash");
+  const restarted = new AcquisitionSocialAccountService({ repository, gateway, idFactory: () => "different", now: () => "2026-08-24T00:00:00.000Z" });
+  const replay = await restarted.createLoginSessionIdempotently(context, { platform: "douyin" }, "key", "hash");
+  assert.equal(first.replayed, false);
+  assert.equal(replay.replayed, true);
+  assert.deepEqual(replay.view, first.view);
+  assert.equal(gateway.createLoginSessionCalls, 1);
+  await assert.rejects(restarted.createLoginSessionIdempotently(context, { platform: "douyin" }, "key", "different"), { code: "idempotency_key_conflict" });
+});

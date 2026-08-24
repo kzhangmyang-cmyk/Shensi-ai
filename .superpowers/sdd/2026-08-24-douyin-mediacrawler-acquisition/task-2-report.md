@@ -69,3 +69,28 @@ The real browser adapter remains an injected private deployment seam; this is
 intentional because the pinned upstream login implementation is asynchronous
 and licensed separately. Operators must provide the encrypted deployment
 volume and the browser adapter implementation at deployment time.
+
+## Fix round 1/5
+
+RED evidence: the added different-active-handle test failed with `Missing
+expected rejection`; the router integration test initially returned `412`
+instead of the required cross-workspace `404`; and the contract gate initially
+failed its security check because workspace resolution was placed before
+authentication (`expected 401, got 503`).
+
+GREEN evidence: account binding now uses an atomic repository transaction and
+returns `douyin_active_account_conflict`; router integration passes workspace
+isolation, POST replay (`200`, `Idempotency-Replayed: true`), and stale delete
+(`412`); `pnpm --dir backend run test:security` passes; `pnpm --dir backend
+run build` passes. The private service now has a pinned Playwright adapter,
+encrypted-volume validation, locking/sweeping/disconnect cleanup, and server
+composition installs authenticated workspace middleware before acquisition
+routes. Repository session and replay records are durable across service
+instances, with MySQL session/replay tables and fake-transaction rollback
+coverage.
+
+The requested aggregate was retried after these fixes. It completed all 34
+`acquisition-application-test.ts` subtests successfully, including the final
+runtime close test, but its Node test worker retained an idle handle for more
+than 100 seconds and was terminated. This is the remaining aggregate-runner
+blocker; all focused, security, contract, and build checks are green.

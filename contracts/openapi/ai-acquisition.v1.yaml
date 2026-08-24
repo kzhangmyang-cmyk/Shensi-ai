@@ -537,6 +537,7 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '201': { description: QR login session, content: { application/json: { schema: *socialLoginSessionSchema } } }
+        '200': { description: Idempotent replay, headers: { Idempotency-Replayed: { schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: *socialLoginSessionSchema } } }
   /api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}:
     parameters: [{ name: sessionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
     get:
@@ -564,6 +565,7 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '200': { description: Disconnected account, content: { application/json: { schema: *socialAccountSchema } } }
+        '412': *apiError
         '428': *apiError
   /api/v1/acquisition/providers:
     get:

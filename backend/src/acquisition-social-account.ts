@@ -26,6 +26,17 @@ export interface AcquisitionSocialAccountLoginSession {
 }
 
 export function publicSocialAccount(record: AcquisitionSocialAccount & { accountHandle: string | null }): AcquisitionSocialAccount {
-  const { accountHandle: _accountHandle, ...account } = record;
-  return Object.freeze({ ...account });
+  return Object.freeze({
+    id: record.id,
+    workspaceId: record.workspaceId,
+    platform: record.platform,
+    displayName: record.displayName,
+    state: record.state,
+    loginStateVersion: record.loginStateVersion,
+    revision: record.revision,
+    etag: record.etag,
+    lastValidatedAt: record.lastValidatedAt,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt
+  });
 }

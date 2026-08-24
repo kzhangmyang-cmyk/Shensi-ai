@@ -1,9 +1,11 @@
 import os
 from collections.abc import Callable
+from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
 
 from .accounts import AccountManager
+from .browser_state import MediaCrawlerDouyinBrowserState
 from .schemas import HealthView, LoginSessionView
 from .security import authorize_bearer, require_service_secret
 
@@ -47,4 +49,28 @@ def create_app(service_secret: str, account_manager: AccountManager | None = Non
     return _build_app(lambda: normalized_secret, account_manager)
 
 
-app = _build_app(lambda: os.environ.get("MEDIACRAWLER_SERVICE_SECRET", ""))
+def _default_account_manager() -> AccountManager:
+    volume = os.environ.get("MEDIACRAWLER_ENCRYPTED_VOLUME", "").strip()
+    root = os.environ.get("MEDIACRAWLER_PROFILE_ROOT", "").strip()
+    if not volume or not root:
+        return AccountManager(Path("/tmp/shensi-mediacrawler-unconfigured"), _UnavailableBrowser())
+    return AccountManager(Path(root), MediaCrawlerDouyinBrowserState())
+
+
+class _UnavailableBrowser:
+    def open_douyin_login(self, _profile: Path) -> dict[str, str]:
+        raise RuntimeError("encrypted MediaCrawler profile volume is not configured")
+
+    def poll_douyin_login(self, _context: object) -> dict[str, bool]:
+        return {"active": False}
+
+    def close(self, _context: object) -> None:
+        return None
+
+
+# Deployment entry point: fail closed rather than placing browser state on an
+# unencrypted/default filesystem. Unit tests use create_app with an injected manager.
+app = _build_app(
+    lambda: os.environ.get("MEDIACRAWLER_SERVICE_SECRET", ""),
+    _default_account_manager(),
+)

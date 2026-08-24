@@ -1955,6 +1955,26 @@ CREATE TABLE acquisition_social_accounts (
   UNIQUE KEY acquisition_social_accounts_workspace_platform (workspace_id, platform)
 ) ENGINE=InnoDB;
 
+CREATE TABLE acquisition_social_account_sessions (
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) NOT NULL,
+  upstream_id VARCHAR(512) NOT NULL,
+  expires_at VARCHAR(40) NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  INDEX acquisition_social_account_sessions_expiry (expires_at),
+  UNIQUE KEY acquisition_social_account_sessions_workspace_id (workspace_id, id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_social_account_replays (
+  workspace_id VARCHAR(255) NOT NULL,
+  operation_name VARCHAR(120) NOT NULL,
+  idempotency_key VARCHAR(200) NOT NULL,
+  request_hash CHAR(64) NOT NULL,
+  response_json JSON NOT NULL,
+  response_status INT NOT NULL,
+  PRIMARY KEY (workspace_id, operation_name, idempotency_key)
+) ENGINE=InnoDB;
+
 CREATE TABLE prospect_source_raw_batches (
   id VARCHAR(90) PRIMARY KEY,
   team_id VARCHAR(64) NOT NULL,

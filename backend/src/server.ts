@@ -96,6 +96,7 @@ import { resolveBackendHost, resolveTrustedProxy } from "./server-network.js";
 import {
   createAcquisitionApplication
 } from "./acquisition-application.js";
+import { createDouyinMediaCrawlerGateway } from "./acquisition-mediacrawler-gateway.js";
 import {
   resolveAcquisitionMasterSecret
 } from "./acquisition-master-secret.js";
@@ -273,6 +274,7 @@ import type { CompanyProfile } from "./types.js";
 loadLocalEnv();
 
 export const app = express();
+let acquisitionWorkspaceMiddleware: RequestHandler | null = null;
 let activeProspectWorkerService: ProspectWorkerService | null = null;
 const acquisitionRuntimeBridge = new AcquisitionRuntimeBridge();
 const growthRuntimeBridge = new GrowthCommercialRuntimeBridge();
@@ -12173,6 +12175,14 @@ app.patch("/api/reports/executive/note", requireAuth, asyncRoute(async (req, res
 
 app.use(growthRuntimeBridge.middleware());
 app.use("/api/v1/acquisition", requireAuth);
+app.use("/api/v1/acquisition", (req, res, next) => {
+  const middleware = acquisitionWorkspaceMiddleware;
+  if (!middleware) {
+    res.status(503).json({ code: "acquisition_workspace_runtime_unavailable" });
+    return;
+  }
+  middleware(req, res, next);
+});
 app.use(acquisitionRuntimeBridge.middleware());
 
 registerSwagger(app);
@@ -12293,6 +12303,7 @@ async function startServer() {
       store,
       databaseUrl: process.env.DATABASE_URL || process.env.MYSQL_URL
     });
+    acquisitionWorkspaceMiddleware = foundation.workspaceMiddleware;
     const growthRuntime = await createGrowthCommercialApplication({
       manifest: loadGrowthContractRelease().manifest,
       requireAuth,
@@ -12336,7 +12347,11 @@ async function startServer() {
       probabilityAssessments:
         growthRuntime.integrations.probabilityAssessments,
       quoteProjectedDocumentAuthority:
-        growthRuntime.integrations.quoteProjectedDocumentAuthority
+        growthRuntime.integrations.quoteProjectedDocumentAuthority,
+      douyinMediaCrawlerGateway: createDouyinMediaCrawlerGateway({
+        baseUrl: process.env.MEDIACRAWLER_BASE_URL ?? "http://127.0.0.1:8010",
+        serviceSecret: process.env.MEDIACRAWLER_SERVICE_SECRET ?? "mediacrawler-unconfigured-secret-at-least-32-bytes"
+      })
     });
     acquisitionRuntimeBridge.install(acquisitionRuntime);
   } catch (error) {

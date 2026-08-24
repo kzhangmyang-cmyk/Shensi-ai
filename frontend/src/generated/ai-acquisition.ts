@@ -4288,6 +4288,43 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Idempotent replay */
+            200: {
+                headers: {
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {string} */
+                        platform: "douyin";
+                        /** @enum {string} */
+                        state: "awaiting_scan" | "active" | "login_expired";
+                        qrImageDataUrl: string | null;
+                        /** Format: date-time */
+                        expiresAt: string;
+                        account: {
+                            id: string;
+                            workspaceId: string;
+                            /** @enum {string} */
+                            platform: "douyin";
+                            displayName: string | null;
+                            /** @enum {string} */
+                            state: "awaiting_scan" | "active" | "login_expired" | "risk_paused" | "disconnected";
+                            loginStateVersion: number | null;
+                            revision: number;
+                            etag: string;
+                            /** Format: date-time */
+                            lastValidatedAt: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** Format: date-time */
+                            updatedAt: string;
+                        } | null;
+                    };
+                };
+            };
             /** @description QR login session */
             201: {
                 headers: {
@@ -4618,6 +4655,15 @@ export interface operations {
             };
             /** @description Unified API error */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            412: {
                 headers: {
                     [name: string]: unknown;
                 };
