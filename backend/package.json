@@ -18,6 +18,7 @@
     "provision:beta-admins": "tsx src/provision-beta-admins.ts",
     "test": "NODE_ENV=test tsx src/self-test.ts && npm run test:provider:web-search",
     "test:model-gateway": "NODE_ENV=test tsx src/model-gateway-test.ts",
+    "test:mediacrawler-gateway": "node --import tsx --test src/acquisition-mediacrawler-gateway-test.ts",
     "smoke:douyin-public-comments": "tsx src/douyin-public-comment-live-smoke.ts",
     "test:providers": "NODE_ENV=test JWT_SECRET=goodjob-provider-test-secret-at-least-32-characters tsx src/provider-runtime-test.ts",
     "test:provider:un-comtrade": "NODE_ENV=test JWT_SECRET=goodjob-provider-test-secret-at-least-32-characters tsx src/un-comtrade-provider-test.ts",
