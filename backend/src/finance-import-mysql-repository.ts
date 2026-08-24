@@ -246,9 +246,9 @@ export const FINANCE_IMPORT_MYSQL_SCHEMA_STATEMENTS = Object.freeze([
     id VARCHAR(191) NOT NULL,
     workspace_id VARCHAR(191) NOT NULL,
     created_by VARCHAR(191) NOT NULL,
-    preview_request_hash VARCHAR(255) NOT NULL,
-    file_hash VARCHAR(255) NOT NULL,
-    template_version VARCHAR(64) NOT NULL,
+    preview_request_hash VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    file_hash VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    template_version VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     kind VARCHAR(32) NOT NULL,
     resolved_time_zone VARCHAR(64) NOT NULL,
     workspace_settings_revision VARCHAR(191) NOT NULL,
@@ -270,10 +270,10 @@ export const FINANCE_IMPORT_MYSQL_SCHEMA_STATEMENTS = Object.freeze([
     workspace_id VARCHAR(191) NOT NULL,
     requesting_actor_id VARCHAR(191) NOT NULL,
     idempotency_key VARCHAR(191) NOT NULL,
-    request_hash VARCHAR(255) NOT NULL,
-    preview_request_hash VARCHAR(255) NOT NULL,
-    file_hash VARCHAR(255) NOT NULL,
-    template_version VARCHAR(64) NOT NULL,
+    request_hash VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    preview_request_hash VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    file_hash VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    template_version VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     status VARCHAR(32) NOT NULL,
     valid_rows BIGINT UNSIGNED NOT NULL,
     invalid_rows BIGINT UNSIGNED NOT NULL,
@@ -302,7 +302,7 @@ export const FINANCE_IMPORT_MYSQL_SCHEMA_STATEMENTS = Object.freeze([
   `CREATE TABLE IF NOT EXISTS finance_import_rows (
     id VARCHAR(191) NOT NULL,
     preview_id VARCHAR(191) NOT NULL,
-    row_number BIGINT UNSIGNED NOT NULL,
+    \`row_number\` BIGINT UNSIGNED NOT NULL,
     sheet_name VARCHAR(191) NOT NULL,
     status VARCHAR(32) NOT NULL,
     source_identity_root VARCHAR(512) NOT NULL,
@@ -310,7 +310,7 @@ export const FINANCE_IMPORT_MYSQL_SCHEMA_STATEMENTS = Object.freeze([
     errors_json JSON NOT NULL,
     recorded_at DATETIME(3) NOT NULL,
     temporal_sequence BIGINT UNSIGNED NOT NULL,
-    PRIMARY KEY (preview_id, row_number),
+    PRIMARY KEY (preview_id, \`row_number\`),
     CONSTRAINT fk_finance_import_row_preview
       FOREIGN KEY (preview_id) REFERENCES finance_import_previews (id)
   ) ENGINE=InnoDB`,
@@ -533,7 +533,7 @@ implements FinanceImportExecutionRepository {
         );
         await this.query().query(
           `INSERT INTO finance_import_rows (
-            id, preview_id, row_number, sheet_name, status,
+            id, preview_id, \`row_number\`, sheet_name, status,
             source_identity_root, normalized_json, errors_json,
             recorded_at, temporal_sequence
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -561,7 +561,7 @@ implements FinanceImportExecutionRepository {
     const row = await one(
       this.query(),
       `SELECT * FROM finance_import_rows
-       WHERE preview_id = ? AND row_number = ?`,
+       WHERE preview_id = ? AND \`row_number\` = ?`,
       [previewId, rowNumber]
     );
     return row ? storedRow(row) : null;
@@ -570,7 +570,7 @@ implements FinanceImportExecutionRepository {
   async listStoredRows(previewId: string): Promise<FinanceImportStoredRow[]> {
     const [rows] = await this.query().query(
       `SELECT * FROM finance_import_rows
-       WHERE preview_id = ? ORDER BY row_number ASC`,
+       WHERE preview_id = ? ORDER BY \`row_number\` ASC`,
       [previewId]
     );
     return (rows as MysqlRow[]).map(storedRow);

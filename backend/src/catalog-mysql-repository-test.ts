@@ -54,9 +54,18 @@ class ExistingSchemaPool extends FakePool {
     this.calls.push({ sql: normalized, values });
     if (/FROM information_schema\.columns/u.test(normalized)) {
       const table = String(values[0]);
-      return [[...(this.columns.get(table) ?? new Map()).entries()].map(
-        ([column_name, is_nullable]) => ({ column_name, is_nullable })
-      ), []];
+      const rows = [...(this.columns.get(table) ?? new Map()).entries()];
+      if (/column_name AS column_name/is.test(normalized)
+        && /is_nullable AS is_nullable/is.test(normalized)) {
+        return [rows.map(([column_name, is_nullable]) => ({
+          column_name,
+          is_nullable
+        })), []];
+      }
+      return [rows.map(([columnName, isNullable]) => ({
+        COLUMN_NAME: columnName,
+        IS_NULLABLE: isNullable
+      })), []];
     }
     const add = /^ALTER TABLE (\w+) ADD COLUMN (recorded_at|temporal_sequence)/u
       .exec(normalized);

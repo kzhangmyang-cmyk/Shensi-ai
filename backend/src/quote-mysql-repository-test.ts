@@ -10,6 +10,31 @@ import { createCommercialBindingSnapshot } from "./commercial-binding-snapshot.j
 import { bindingInputFixture, probabilityRecordFixture } from "./growth-quote-test-fixtures.js";
 import type { QuoteCase } from "./quote-repository.js";
 
+class Mysql84QuoteSchemaPool {
+  readonly calls: string[] = [];
+  private readonly columns = new Map<string, Set<string>>([
+    ["deal_events", new Set()],
+    ["quote_publication_operations", new Set(["operation_json"])]
+  ]);
+
+  async query(sql: string, values: unknown[] = []) {
+    const normalized = sql.replace(/\s+/gu, " ").trim();
+    this.calls.push(normalized);
+    if (/ADD COLUMN IF NOT EXISTS/u.test(normalized)) {
+      throw new Error("mysql_8_4_add_column_if_not_exists_syntax");
+    }
+    if (/FROM information_schema\.columns/u.test(normalized)) {
+      const table = String(values[0]);
+      return [[...(this.columns.get(table) ?? new Set())].map(
+        (column_name) => ({ column_name })
+      ), []];
+    }
+    const added = /^ALTER TABLE (\w+) ADD COLUMN (\w+)/u.exec(normalized);
+    if (added) this.columns.get(added[1]!)?.add(added[2]!);
+    return [{ affectedRows: 1 }, []];
+  }
+}
+
 test("MySQL schema owns all quote streams, closed version authority, and concurrency uniqueness", () => {
   const schema = QUOTE_MYSQL_SCHEMA_STATEMENTS.join("\n").toLowerCase();
   for (const table of [
@@ -25,6 +50,23 @@ test("MySQL schema owns all quote streams, closed version authority, and concurr
   assert.match(schema, /unique key uk_quote_formal_source_draft/u);
   assert.match(schema, /check \(\(version_kind = 'draft'/u);
   assert.doesNotMatch(schema, /quote.*clock|quote_workspace_temporal/u);
+});
+
+test("MySQL 8.4 upgrades legacy quote columns without MariaDB-only DDL", async () => {
+  const pool = new Mysql84QuoteSchemaPool();
+  await ensureQuoteMysqlSchema(pool as never);
+  const firstRunCount = pool.calls.length;
+  await ensureQuoteMysqlSchema(pool as never);
+
+  assert.equal(pool.calls.some((sql) =>
+    /ADD COLUMN IF NOT EXISTS/u.test(sql)), false);
+  assert.equal(pool.calls.some((sql) =>
+    /^ALTER TABLE deal_events ADD COLUMN commercial_binding_evidence_json/u
+      .test(sql)), true);
+  assert.equal(pool.calls.some((sql) =>
+    /^ALTER TABLE quote_publication_operations ADD COLUMN status/u.test(sql)), true);
+  assert.equal(pool.calls.slice(firstRunCount).some((sql) =>
+    / ADD COLUMN /u.test(sql)), false);
 });
 
 test("two physical MySQL connections produce exactly one open-Deal bind winner", {

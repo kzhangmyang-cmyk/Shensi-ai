@@ -92,9 +92,16 @@ class MigrationSchemaPool {
       return [[{ lock_released: 1 }], []] as [unknown, unknown];
     }
     if (normalized.includes("FROM information_schema.columns")) {
-      return [[...this.columns].map(([column_name, is_nullable]) => ({
-        column_name,
-        is_nullable
+      const rows = [...this.columns];
+      if (/column_name AS column_name/iu.test(normalized)) {
+        return [rows.map(([column_name, is_nullable]) => ({
+          column_name,
+          is_nullable
+        })), []] as [unknown, unknown];
+      }
+      return [rows.map(([columnName, isNullable]) => ({
+        COLUMN_NAME: columnName,
+        IS_NULLABLE: isNullable
       })), []] as [unknown, unknown];
     }
     if (normalized.includes("FROM information_schema.statistics")) {

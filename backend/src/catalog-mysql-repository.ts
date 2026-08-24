@@ -294,7 +294,8 @@ export const CATALOG_MYSQL_SCHEMA_STATEMENTS = [
 export async function ensureCatalogMysqlSchema(pool: mysql.Pool): Promise<void> {
   for (const statement of CATALOG_MYSQL_SCHEMA_STATEMENTS) await pool.query(statement);
   const [descriptionRows] = await pool.query(
-    `SELECT column_name,is_nullable FROM information_schema.columns
+    `SELECT column_name AS column_name,is_nullable AS is_nullable
+     FROM information_schema.columns
      WHERE table_schema = DATABASE() AND table_name = ?
        AND column_name = 'description'`,
     ["catalog_items"]
@@ -316,7 +317,8 @@ export async function ensureCatalogMysqlSchema(pool: mysql.Pool): Promise<void> 
   ] as const;
   for (const { table, fallback } of upgrades) {
     const [rows] = await pool.query(
-      `SELECT column_name,is_nullable FROM information_schema.columns
+      `SELECT column_name AS column_name,is_nullable AS is_nullable
+       FROM information_schema.columns
        WHERE table_schema = DATABASE() AND table_name = ?
          AND column_name IN ('recorded_at','temporal_sequence')`,
       [table]
@@ -361,7 +363,8 @@ export async function ensureCatalogMysqlSchema(pool: mysql.Pool): Promise<void> 
     }
   }
   const [receiptColumnRows] = await pool.query(
-    `SELECT column_name,is_nullable FROM information_schema.columns
+    `SELECT column_name AS column_name,is_nullable AS is_nullable
+     FROM information_schema.columns
      WHERE table_schema = DATABASE() AND table_name = ?
        AND column_name IN ('idempotency_key','idempotency_key_hash')`,
     ["catalog_command_receipts"]

@@ -1,4 +1,5 @@
 import type mysql from "mysql2/promise";
+import { createHash } from "node:crypto";
 import {
   MysqlGrowthTemporalTransaction,
   growthMysqlDate,
@@ -13,6 +14,7 @@ import {
   normalizeProbabilityAssessment,
   assertProbabilityAssessmentReplay,
   probabilityAssessmentId,
+  probabilityAssessmentStableIdentity,
   type ProbabilityAssessmentHash,
   type ProbabilityAssessmentPersistence,
   type ProbabilityAssessmentQualificationInput,
@@ -34,15 +36,15 @@ export const PROBABILITY_ASSESSMENT_MYSQL_SCHEMA_STATEMENTS = [
     rule_version VARCHAR(191) NOT NULL,
     model_snapshot_ref VARCHAR(255) NULL,
     input_snapshot_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    stable_identity_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     assessed_at DATETIME(3) NOT NULL,
     recorded_at DATETIME(3) NOT NULL,
     temporal_sequence BIGINT UNSIGNED NOT NULL,
-    precision ENUM('bps') NOT NULL,
+    \`precision\` ENUM('bps') NOT NULL,
     deal_binding_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
     PRIMARY KEY (workspace_id, id),
     UNIQUE KEY uk_probability_assessment_identity (
-      workspace_id,candidate_id,qualification_decision_id,
-      qualification_decision_version,input_snapshot_hash
+      workspace_id,stable_identity_hash
     ),
     KEY idx_probability_assessment_candidate (
       workspace_id,candidate_id,temporal_sequence
@@ -102,6 +104,12 @@ function parse(row: MysqlRow): ProbabilityAssessmentV2 {
     temporalSequence: safeSequence(row.temporal_sequence),
     precision: String(row.precision) as "bps"
   });
+}
+
+function stableIdentityHash(record: ProbabilityAssessmentV2): string {
+  return createHash("sha256")
+    .update(probabilityAssessmentStableIdentity(record))
+    .digest("hex");
 }
 
 export class MysqlProbabilityAssessmentRepository
@@ -165,12 +173,14 @@ implements ProbabilityAssessmentPersistence {
           workspace_id,id,candidate_id,deal_id,close_probability_bps,
           qualification_decision_id,qualification_decision_version,
           evidence_refs_json,rule_version,model_snapshot_ref,input_snapshot_hash,
-          assessed_at,recorded_at,temporal_sequence,precision,deal_binding_hash
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`,
+          stable_identity_hash,
+          assessed_at,recorded_at,temporal_sequence,\`precision\`,deal_binding_hash
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`,
         [stored.workspaceId, stored.id, stored.candidateId, stored.dealId,
           stored.closeProbabilityBps, stored.qualificationDecisionId,
           stored.qualificationDecisionVersion, JSON.stringify(stored.evidenceRefs),
           stored.ruleVersion, stored.modelSnapshotRef, stored.inputSnapshotHash,
+          stableIdentityHash(stored),
           growthMysqlDate(stored.assessedAt), growthMysqlDate(stored.recordedAt),
           stored.temporalSequence, stored.precision]
       );

@@ -275,7 +275,8 @@ async function ensureDouyinCommentPendingSagaIndex(
   connection: mysql.PoolConnection
 ) {
   const [indexResult] = await connection.query(
-    `SELECT index_name, column_name, seq_in_index
+    `SELECT index_name AS index_name, column_name AS column_name,
+            seq_in_index AS seq_in_index
      FROM information_schema.statistics
      WHERE table_schema = DATABASE()
        AND table_name = 'acquisition_douyin_comment_ingestion_sagas'
@@ -314,7 +315,7 @@ export async function ensureAcquisitionDouyinCommentEventsMysqlSchema(
       await connection.query(statement);
     }
     const [columnResult] = await connection.query(
-      `SELECT column_name, is_nullable
+      `SELECT column_name AS column_name, is_nullable AS is_nullable
        FROM information_schema.columns
        WHERE table_schema = DATABASE()
          AND table_name = 'acquisition_douyin_comment_ingestion_sagas'
@@ -350,7 +351,7 @@ export async function ensureAcquisitionDouyinCommentEventsMysqlSchema(
       );
     }
     const [fetchAttemptColumnResult] = await connection.query(
-      `SELECT column_name
+      `SELECT column_name AS column_name
        FROM information_schema.columns
        WHERE table_schema = DATABASE()
          AND table_name = 'acquisition_douyin_comment_fetch_attempts'

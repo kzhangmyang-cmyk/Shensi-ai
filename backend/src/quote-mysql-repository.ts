@@ -291,23 +291,30 @@ export const QUOTE_MYSQL_SCHEMA_STATEMENTS = [
     CONSTRAINT chk_deal_commercial_decision_json CHECK (
       JSON_VALID(decision_json)
     )
-  ) ENGINE=InnoDB`,
-  `ALTER TABLE deal_events
-    ADD COLUMN IF NOT EXISTS commercial_binding_evidence_json JSON NULL,
-    ADD COLUMN IF NOT EXISTS commercial_binding_snapshot_json JSON NULL,
-    ADD COLUMN IF NOT EXISTS decision_reason_code VARCHAR(191) NULL,
-    ADD COLUMN IF NOT EXISTS decision_reason_text TEXT NULL,
-    ADD COLUMN IF NOT EXISTS decision_occurred_at DATETIME(3) NULL,
-    ADD COLUMN IF NOT EXISTS decision_authority_revision BIGINT UNSIGNED NULL`,
-  `ALTER TABLE quote_publication_operations
-    ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'queued',
-    ADD COLUMN IF NOT EXISTS authority_revision BIGINT UNSIGNED NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS lease_owner VARCHAR(191) NULL,
-    ADD COLUMN IF NOT EXISTS fencing_token BIGINT UNSIGNED NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS lease_expires_at DATETIME(3) NULL,
-    ADD COLUMN IF NOT EXISTS pi_document_id VARCHAR(191) NULL,
-    ADD COLUMN IF NOT EXISTS deal_event_id VARCHAR(191) NULL`,
-  `UPDATE quote_publication_operations SET
+  ) ENGINE=InnoDB`
+] as const;
+
+const QUOTE_MYSQL_COLUMN_UPGRADES = Object.freeze({
+  deal_events: Object.freeze([
+    ["commercial_binding_evidence_json", "JSON NULL"],
+    ["commercial_binding_snapshot_json", "JSON NULL"],
+    ["decision_reason_code", "VARCHAR(191) NULL"],
+    ["decision_reason_text", "TEXT NULL"],
+    ["decision_occurred_at", "DATETIME(3) NULL"],
+    ["decision_authority_revision", "BIGINT UNSIGNED NULL"]
+  ] as const),
+  quote_publication_operations: Object.freeze([
+    ["status", "VARCHAR(32) NOT NULL DEFAULT 'queued'"],
+    ["authority_revision", "BIGINT UNSIGNED NOT NULL DEFAULT 0"],
+    ["lease_owner", "VARCHAR(191) NULL"],
+    ["fencing_token", "BIGINT UNSIGNED NOT NULL DEFAULT 0"],
+    ["lease_expires_at", "DATETIME(3) NULL"],
+    ["pi_document_id", "VARCHAR(191) NULL"],
+    ["deal_event_id", "VARCHAR(191) NULL"]
+  ] as const)
+});
+
+const QUOTE_PUBLICATION_OPERATION_BACKFILL = `UPDATE quote_publication_operations SET
      status = JSON_UNQUOTE(JSON_EXTRACT(operation_json,'$.status')),
      authority_revision = CAST(JSON_UNQUOTE(JSON_EXTRACT(
        operation_json,'$.dealAuthorityRevision')) AS UNSIGNED),
@@ -321,13 +328,33 @@ export const QUOTE_MYSQL_SCHEMA_STATEMENTS = [
        operation_json,'$.piDocumentId')),'null'),
      deal_event_id = NULLIF(JSON_UNQUOTE(JSON_EXTRACT(
        operation_json,'$.dealEventId')),'null')
-   WHERE authority_revision = 0`
-] as const;
+   WHERE authority_revision = 0`;
+
+async function ensureQuoteMysqlColumns(
+  pool: mysql.Pool,
+  table: keyof typeof QUOTE_MYSQL_COLUMN_UPGRADES
+): Promise<void> {
+  const [rows] = await pool.query(
+    `SELECT column_name AS column_name
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = ?`,
+    [table]
+  );
+  const existing = new Set((rows as MysqlRow[]).map((row) =>
+    String(row.column_name)));
+  for (const [column, definition] of QUOTE_MYSQL_COLUMN_UPGRADES[table]) {
+    if (existing.has(column)) continue;
+    await pool.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
 
 export async function ensureQuoteMysqlSchema(pool: mysql.Pool): Promise<void> {
   for (const statement of QUOTE_MYSQL_SCHEMA_STATEMENTS) {
     await pool.query(statement);
   }
+  await ensureQuoteMysqlColumns(pool, "deal_events");
+  await ensureQuoteMysqlColumns(pool, "quote_publication_operations");
+  await pool.query(QUOTE_PUBLICATION_OPERATION_BACKFILL);
 }
 
 function quoteError(code: string): Error & { code: string } {

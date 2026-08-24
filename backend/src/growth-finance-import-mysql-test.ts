@@ -1,6 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { withGrowthFinanceMysqlTestDatabase } from "./growth-finance-mysql-test-support.js";
+import {
+  FINANCE_IMPORT_MYSQL_SCHEMA_STATEMENTS
+} from "./finance-import-mysql-repository.js";
+
+test("MySQL 8.4 finance import identity indexes keep hashes in ASCII", () => {
+  const schema = FINANCE_IMPORT_MYSQL_SCHEMA_STATEMENTS.join("\n");
+  for (const column of [
+    "preview_request_hash",
+    "file_hash",
+    "request_hash"
+  ]) {
+    assert.match(
+      schema,
+      new RegExp(`${column} VARCHAR\\(255\\) CHARACTER SET ascii COLLATE ascii_bin`, "u")
+    );
+  }
+  assert.match(
+    schema,
+    /template_version VARCHAR\(64\) CHARACTER SET ascii COLLATE ascii_bin/u
+  );
+  assert.match(schema, /`row_number` BIGINT UNSIGNED NOT NULL/u);
+  assert.match(schema, /PRIMARY KEY \(preview_id, `row_number`\)/u);
+});
 
 test("MySQL expired owner cannot renew or save after a higher-fence reclaim", async () => {
   await withGrowthFinanceMysqlTestDatabase(async (fixture) => {
