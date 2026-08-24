@@ -14,6 +14,8 @@ prevents cross-tenant access to CRM, acquisition, model, and finance data.
   `backend/src/growth-workspace-context.ts`.
 - Frontend session lifecycle: `frontend/src/app-session.ts`; application boot
   begins in `frontend/src/app-entry.ts`.
+- Frontend login markup and styling: `frontend/index.html` and
+  `frontend/src/app-shell.css`.
 
 ## Dependencies
 
@@ -39,6 +41,15 @@ DDL.
 authentication and active-workspace middleware before their routers. Browser
 writes send the CSRF cookie value in `X-CSRF-Token`.
 
+The current unauthenticated entry is the dark Shensi enterprise login. Its
+email and password fields are empty by default and use a semantic submit form.
+While login is pending, the form publishes `aria-busy`, disables the submit
+button, and restores controls only for the current authentication generation.
+The frontend keeps `gj_user` only as a local session hint; real-mode startup
+must validate it through `GET /api/auth/me` before exposing the authenticated
+shell. Session and CSRF authority remain the server-issued `gj_session` and
+`gj_csrf` cookies.
+
 ## Tests
 
 - Login, visibility, role, account, and CRM boundaries:
@@ -47,19 +58,23 @@ writes send the CSRF cookie value in `X-CSRF-Token`.
 - Growth capability/workspace tests:
   `pnpm --filter ./backend test:growth-foundation`
 - Frontend session state: `pnpm --filter ./frontend test`
+- Shensi login and affected browser flows:
+  `pnpm --filter ./frontend exec playwright test shensi-login.spec.ts agent-center-shell.spec.ts demo-auth.spec.ts --project=chromium`
+- Frontend types and production build:
+  `pnpm --filter ./frontend run test:types` and
+  `pnpm --filter ./frontend build`
 
 ## Operational Checks
 
 Production requires strong `JWT_SECRET`, secure cookies behind HTTPS, explicit
-CORS origins, MySQL persistence, and no development seed credentials. Verify
-login/logout/session restoration, disabled-account rejection, sales/manager/
-admin visibility, CSRF failure behavior, and workspace capability checks after
-identity or proxy changes.
+CORS origins, MySQL persistence, and no development seed credentials. The
+Shensi form must remain empty in deployed HTML. Verify login/logout/session
+restoration, disabled-account rejection, sales/manager/admin visibility, CSRF
+failure behavior, and workspace capability checks after identity or proxy
+changes.
 
 ## Known Limitations
 
-The current frontend login is an obsolete surface scheduled for replacement;
-backend authentication remains authoritative during that work. Memory mode
-does not provide durable production identities. Swagger availability does not
-bypass authentication/authorization, and frontend hiding is never a permission
-boundary.
+Memory mode does not provide durable production identities. Swagger
+availability does not bypass authentication/authorization, and frontend
+hiding is never a permission boundary.

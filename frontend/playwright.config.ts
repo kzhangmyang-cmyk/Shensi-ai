@@ -5,6 +5,7 @@ export default defineConfig({
   testMatch: [
     "agent-center-shell.spec.ts",
     "demo-auth.spec.ts",
+    "shensi-login.spec.ts",
     "acquisition-performance.spec.ts",
     "acquisition-identity-resolution.spec.ts",
     "acquisition-comment-automation.spec.ts",

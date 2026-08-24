@@ -62,6 +62,8 @@ test("settings exposes the customer-owned AI model connection center", async ({ 
 
 test("standalone frontend login enters the demo workspace without an API server", async ({ page }) => {
   await page.goto("/#acquisition");
+  await page.locator("#loginEmail").fill("admin@goodjob.com");
+  await page.locator("#loginPassword").fill("goodjob123");
   await page.locator("#loginButton").click();
 
   await expect(page.locator("body")).toHaveClass(/is-authenticated/);
@@ -74,6 +76,7 @@ test("login rejection is announced safely and clears on a successful retry", asy
   const error = page.locator("#loginError");
   await expect(error).toHaveAttribute("aria-live", "polite");
 
+  await page.locator("#loginEmail").fill("admin@goodjob.com");
   await page.locator("#loginPassword").fill("wrong-password");
   await page.locator("#loginButton").click();
   await expect(page.locator("body")).not.toHaveClass(/is-authenticated/u);
@@ -114,6 +117,8 @@ test("standalone frontend does not poll backend dashboards in demo mode", async 
   });
 
   await page.goto("/#acquisition");
+  await page.locator("#loginEmail").fill("admin@goodjob.com");
+  await page.locator("#loginPassword").fill("goodjob123");
   await page.locator("#loginButton").click();
   await expect(page.locator("body")).toHaveClass(/is-authenticated/);
   await page.waitForTimeout(10_250);

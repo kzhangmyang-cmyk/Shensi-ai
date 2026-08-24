@@ -19,6 +19,8 @@ async function useSavedDemoSession(page: Page): Promise<void> {
 
 test("root and same-page legacy hashes normalize to the agent center only", async ({ page }) => {
   await page.goto("/");
+  await page.locator("#loginEmail").fill("admin@goodjob.com");
+  await page.locator("#loginPassword").fill("goodjob123");
   await page.locator("#loginButton").click();
 
   await expect(page).toHaveURL(/#agents$/u);
