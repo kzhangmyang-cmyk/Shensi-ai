@@ -498,6 +498,10 @@ x-content-fetch-write-schema: &contentFetchWriteSchema
   { type: object, required: [sourceUrl, subjectChannel], properties: { sourceUrl: { type: string, format: uri, pattern: '^[Hh][Tt][Tt][Pp][Ss]://', minLength: 1, maxLength: 4096, description: 仅允许公开 HTTPS URL。 运行时还会拒绝凭据、非默认端口、内网地址和敏感查询参数。 }, subjectChannel: { type: string, enum: [organization, individual] } }, additionalProperties: false }
 x-import-binary-schema: &importBinarySchema
   { type: string, format: binary, maxLength: 5242880 }
+x-social-account-schema: &socialAccountSchema
+  { type: object, additionalProperties: false, required: [id, workspaceId, platform, displayName, state, loginStateVersion, revision, etag, lastValidatedAt, createdAt, updatedAt], properties: { id: { type: string }, workspaceId: { type: string }, platform: { type: string, enum: [douyin] }, displayName: { type: string, nullable: true }, state: { type: string, enum: [awaiting_scan, active, login_expired, risk_paused, disconnected] }, loginStateVersion: { type: integer, nullable: true }, revision: { type: integer, minimum: 1 }, etag: { type: string }, lastValidatedAt: { type: string, nullable: true, format: date-time }, createdAt: { type: string, format: date-time }, updatedAt: { type: string, format: date-time } } }
+x-social-login-session-schema: &socialLoginSessionSchema
+  { type: object, additionalProperties: false, required: [id, platform, state, qrImageDataUrl, expiresAt, account], properties: { id: { type: string }, platform: { type: string, enum: [douyin] }, state: { type: string, enum: [awaiting_scan, active, login_expired] }, qrImageDataUrl: { type: string, nullable: true, pattern: '^data:image/' }, expiresAt: { type: string, format: date-time }, account: { oneOf: [*socialAccountSchema, { type: 'null' }] } } }
 paths:
   /api/v1/ai/providers:
     get: { <<: *list, summary: List model providers }
@@ -523,6 +527,44 @@ paths:
   /api/v1/ai/calls/{id}:
     parameters: [{ $ref: '#/components/parameters/id' }]
     get: { <<: *read, summary: Get model call record, responses: { '200': { description: Model call record, content: { application/json: { schema: { $ref: '#/components/schemas/ModelCallRecord' } } } }, '401': *apiError } }
+  /api/v1/acquisition/social-accounts/douyin/login-sessions:
+    post:
+      operationId: createAcquisitionDouyinLoginSession
+      summary: Start Douyin QR login
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [platform], properties: { platform: { type: string, enum: [douyin] } } } } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '201': { description: QR login session, content: { application/json: { schema: *socialLoginSessionSchema } } }
+  /api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}:
+    parameters: [{ name: sessionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    get:
+      operationId: getAcquisitionDouyinLoginSession
+      summary: Poll Douyin QR login
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: QR login session, content: { application/json: { schema: *socialLoginSessionSchema } } }
+  /api/v1/acquisition/social-accounts/douyin:
+    get:
+      operationId: listAcquisitionDouyinSocialAccounts
+      summary: List workspace Douyin account
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Social accounts, content: { application/json: { schema: { type: object, additionalProperties: false, required: [items], properties: { items: { type: array, items: *socialAccountSchema } } } } } }
+  /api/v1/acquisition/social-accounts/{accountId}:
+    parameters: [{ name: accountId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    delete:
+      operationId: disconnectAcquisitionSocialAccount
+      summary: Disconnect workspace social account
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }, { $ref: '#/components/parameters/ifMatch' }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Disconnected account, content: { application/json: { schema: *socialAccountSchema } } }
+        '428': *apiError
   /api/v1/acquisition/providers:
     get:
       operationId: listAcquisitionProviders

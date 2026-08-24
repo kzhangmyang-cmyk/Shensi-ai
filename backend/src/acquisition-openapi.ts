@@ -1112,6 +1112,10 @@ function add(
 }
 
 const acquisitionOperationIds: Record<string, string> = {
+  "post /api/v1/acquisition/social-accounts/douyin/login-sessions": "createAcquisitionDouyinLoginSession",
+  "get /api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}": "getAcquisitionDouyinLoginSession",
+  "get /api/v1/acquisition/social-accounts/douyin": "listAcquisitionDouyinSocialAccounts",
+  "delete /api/v1/acquisition/social-accounts/{accountId}": "disconnectAcquisitionSocialAccount",
   "get /api/v1/acquisition/providers": "listAcquisitionProviders",
   "get /api/v1/acquisition/provider-connections":
     "listAcquisitionProviderConnections",
@@ -1272,6 +1276,18 @@ const providerConnectionWriteSchema = {
   additionalProperties: false
 };
 
+const socialAccountSchema = {
+  type: "object", additionalProperties: false,
+  required: ["id", "workspaceId", "platform", "displayName", "state", "loginStateVersion", "revision", "etag", "lastValidatedAt", "createdAt", "updatedAt"],
+  properties: { id: { type: "string" }, workspaceId: { type: "string" }, platform: { type: "string", enum: ["douyin"] }, displayName: { type: "string", nullable: true }, state: { type: "string", enum: ["awaiting_scan", "active", "login_expired", "risk_paused", "disconnected"] }, loginStateVersion: { type: "integer", nullable: true }, revision: { type: "integer", minimum: 1 }, etag: { type: "string" }, lastValidatedAt: { type: "string", nullable: true }, createdAt: { type: "string" }, updatedAt: { type: "string" } }
+};
+const socialLoginSessionSchema = { type: "object", additionalProperties: false, required: ["id", "platform", "state", "qrImageDataUrl", "expiresAt", "account"], properties: { id: { type: "string" }, platform: { type: "string", enum: ["douyin"] }, state: { type: "string", enum: ["awaiting_scan", "active", "login_expired"] }, qrImageDataUrl: { type: "string", nullable: true, pattern: "^data:image/" }, expiresAt: { type: "string" }, account: { ...socialAccountSchema, nullable: true } } };
+function addSocialAccountPaths(paths: AcquisitionOpenApiPaths) {
+  add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions", "post", operation("post", "开始抖音二维码登录", { parameters: [idempotencyParameter(1)], requestBody: jsonBody({ type: "object", required: ["platform"], properties: { platform: { type: "string", enum: ["douyin"] } }, additionalProperties: false }), responses: standardResponses(201, "二维码登录会话", socialLoginSessionSchema) }));
+  add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}", "get", operation("get", "查询抖音二维码登录", { parameters: [idParameter(255, "sessionId")], responses: standardResponses(200, "二维码登录会话", socialLoginSessionSchema) }));
+  add(paths, "/api/v1/acquisition/social-accounts/douyin", "get", operation("get", "列出抖音账号", { responses: standardResponses(200, "抖音账号", { type: "object", additionalProperties: false, required: ["items"], properties: { items: { type: "array", items: socialAccountSchema } } }) }));
+  add(paths, "/api/v1/acquisition/social-accounts/{accountId}", "delete", operation("delete", "断开抖音账号", { parameters: [idParameter(255, "accountId"), idempotencyParameter(1), ifMatchParameter()], responses: standardResponses(200, "已断开账号", socialAccountSchema) }));
+}
 function addProviderPaths(paths: AcquisitionOpenApiPaths) {
   add(paths, "/api/v1/acquisition/providers", "get", operation(
     "get",
@@ -3550,6 +3566,7 @@ function addCoreAgentPaths(paths: AcquisitionOpenApiPaths) {
 export function createAcquisitionOpenApiPaths():
 AcquisitionOpenApiPaths {
   const paths: AcquisitionOpenApiPaths = {};
+  addSocialAccountPaths(paths);
   addProviderPaths(paths);
   addDiscoveryOperationPaths(paths);
   addVisualReaderPaths(paths);

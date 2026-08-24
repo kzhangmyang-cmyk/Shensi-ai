@@ -9,6 +9,15 @@ const healthResponseSchema = z.object({
   service: z.literal("shensi-mediacrawler"),
   upstream_commit: z.literal(upstreamCommit)
 }).strict();
+const loginSessionResponseSchema = z.object({
+  session_id: z.string().min(1),
+  state: z.enum(["awaiting_scan", "active", "expired", "failed"]),
+  qr_image_data_url: z.string().startsWith("data:image/").nullable(),
+  expires_at: z.string().datetime(),
+  account_handle: z.string().min(1).nullable(),
+  account_display_name: z.string().nullable(),
+  login_state_version: z.number().int().positive().nullable()
+}).strict();
 
 type GatewayCode = "mediacrawler_unavailable" | "mediacrawler_invalid_response";
 
@@ -28,6 +37,18 @@ export interface DouyinMediaCrawlerGateway {
     service: "shensi-mediacrawler";
     upstreamCommit: "d6f7c5bb906b6dac40ddf343ef9e26438a3de092";
   }>>;
+  createLoginSession(signal?: AbortSignal): Promise<DouyinLoginSession>;
+  getLoginSession(sessionId: string, signal?: AbortSignal): Promise<DouyinLoginSession>;
+}
+
+export interface DouyinLoginSession {
+  sessionId: string;
+  state: "awaiting_scan" | "active" | "expired" | "failed";
+  qrImageDataUrl: string | null;
+  expiresAt: string;
+  accountHandle: string | null;
+  accountDisplayName: string | null;
+  loginStateVersion: number | null;
 }
 
 export interface DouyinMediaCrawlerGatewayOptions {
@@ -112,7 +133,45 @@ export function createDouyinMediaCrawlerGateway(
   }
   const fetchImpl = options.fetchImpl ?? fetch;
 
+  async function loginSessionRequest(
+    method: "GET" | "POST", path: string, signal?: AbortSignal
+  ): Promise<DouyinLoginSession> {
+    const request = requestAbortSignal(signal, timeoutMs);
+    try {
+      if (request.signal.aborted) throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
+      const response = await fetchImpl(new URL(path, baseUrl), {
+        method,
+        headers: { authorization: `Bearer ${serviceSecret}` },
+        signal: request.signal
+      });
+      if (!response.ok) throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
+      let body: unknown;
+      try { body = JSON.parse(await responseText(response)); } catch (error) {
+        if (error instanceof MediaCrawlerGatewayError) throw error;
+        throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
+      }
+      const parsed = loginSessionResponseSchema.safeParse(body);
+      if (!parsed.success) throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
+      return Object.freeze({
+        sessionId: parsed.data.session_id, state: parsed.data.state,
+        qrImageDataUrl: parsed.data.qr_image_data_url, expiresAt: parsed.data.expires_at,
+        accountHandle: parsed.data.account_handle,
+        accountDisplayName: parsed.data.account_display_name,
+        loginStateVersion: parsed.data.login_state_version
+      });
+    } catch (error) {
+      if (error instanceof MediaCrawlerGatewayError) throw error;
+      throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
+    } finally { request.dispose(); }
+  }
+
   return Object.freeze({
+    createLoginSession(signal?: AbortSignal) {
+      return loginSessionRequest("POST", "/internal/v1/douyin/login-sessions", signal);
+    },
+    getLoginSession(sessionId: string, signal?: AbortSignal) {
+      return loginSessionRequest("GET", `/internal/v1/douyin/login-sessions/${encodeURIComponent(sessionId)}`, signal);
+    },
     async health(signal?: AbortSignal) {
       const request = requestAbortSignal(signal, timeoutMs);
       try {

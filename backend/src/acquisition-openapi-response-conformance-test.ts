@@ -25,11 +25,31 @@ import { createAcquisitionV1Router } from "./acquisition-v1-router.js";
 import {
   createAcquisitionDouyinIdentityResolutionRouter
 } from "./acquisition-douyin-identity-resolution-router.js";
+import { AcquisitionSocialAccountService } from "./acquisition-social-account-service.js";
+import { InMemoryAcquisitionSocialAccountRepository } from "./acquisition-social-account-repository.js";
+import { createAcquisitionSocialAccountRouter } from "./acquisition-social-account-router.js";
 
 const OWNER = "response-contract-owner";
 const TEAM = "response-contract-team";
 const NOW = "2026-08-05T00:00:00.000Z";
 const openApiPaths = createAcquisitionOpenApiPaths();
+
+test("social-account responses conform without private browser state", async () => {
+  const service = new AcquisitionSocialAccountService({
+    repository: new InMemoryAcquisitionSocialAccountRepository(),
+    gateway: {
+      async createLoginSession() { return { sessionId: "upstream-session", state: "awaiting_scan", qrImageDataUrl: "data:image/png;base64,cXI=", expiresAt: NOW, accountHandle: null, accountDisplayName: null, loginStateVersion: null }; },
+      async getLoginSession() { return { sessionId: "upstream-session", state: "active", qrImageDataUrl: null, expiresAt: NOW, accountHandle: "private", accountDisplayName: null, loginStateVersion: 1 }; }
+    }, idFactory: () => "social-account-response", now: () => NOW
+  });
+  const session = await service.createLoginSession({ workspaceId: TEAM }, { platform: "douyin" });
+  assert.equal("accountHandle" in session, false);
+  assertResponseConforms("/api/v1/acquisition/social-accounts/douyin/login-sessions", "post", 201, session);
+  const account = await service.bindActiveSession({ workspaceId: TEAM }, session.id);
+  assert.equal("accountHandle" in account, false);
+  assertResponseConforms("/api/v1/acquisition/social-accounts/{accountId}", "delete", 200, account);
+  assert.equal(typeof createAcquisitionSocialAccountRouter, "function");
+});
 
 function openApi30SchemaForAjv(value: any): any {
   if (Array.isArray(value)) return value.map(openApi30SchemaForAjv);

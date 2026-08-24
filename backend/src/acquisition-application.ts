@@ -281,6 +281,11 @@ import {
 import {
   createAcquisitionVisualReaderRouter
 } from "./acquisition-visual-reader-router.js";
+import type { DouyinMediaCrawlerGateway } from "./acquisition-mediacrawler-gateway.js";
+import { InMemoryAcquisitionSocialAccountRepository } from "./acquisition-social-account-repository.js";
+import { MysqlAcquisitionSocialAccountRepository, ensureAcquisitionSocialAccountsMysqlSchema } from "./acquisition-social-account-mysql-repository.js";
+import { AcquisitionSocialAccountService } from "./acquisition-social-account-service.js";
+import { createAcquisitionSocialAccountRouter } from "./acquisition-social-account-router.js";
 import {
   AcquisitionVisualCommentIngestionService
 } from "./acquisition-visual-comment-ingestion.js";
@@ -475,6 +480,8 @@ export interface CreateAcquisitionApplicationOptions {
   idFactory?: IdFactory;
   now?: () => string;
   nowMs?: () => number;
+  /** The internal-only MediaCrawler transport; account HTTP routes mount when configured. */
+  douyinMediaCrawlerGateway?: DouyinMediaCrawlerGateway;
 }
 
 export interface AcquisitionApplicationRuntime
@@ -1195,6 +1202,7 @@ export async function createAcquisitionApplication(
       await ensureAcquisitionDouyinIdentityResolutionMysqlSchema(pool);
       await ensureAcquisitionDouyinCommentEventsMysqlSchema(pool);
       await ensureAcquisitionVisualReaderMysqlSchema(pool);
+      await ensureAcquisitionSocialAccountsMysqlSchema(pool);
       await ensureAdvisorCandidateAuthorityMysqlSchema(pool);
       const mysqlAuthority = options.advisorCandidateAuthority
         instanceof MysqlAdvisorCandidateAuthorityRepository
@@ -2042,6 +2050,20 @@ export async function createAcquisitionApplication(
       return completed;
     };
     const router = Router();
+    if (options.douyinMediaCrawlerGateway) {
+      const socialAccounts = new AcquisitionSocialAccountService({
+        repository: options.store.mode === "mysql"
+          ? new MysqlAcquisitionSocialAccountRepository(pool!)
+          : new InMemoryAcquisitionSocialAccountRepository(),
+        gateway: options.douyinMediaCrawlerGateway,
+        idFactory: () => idFactory("social_account"),
+        now
+      });
+      router.use(createAcquisitionSocialAccountRouter({
+        service: socialAccounts,
+        requestIdFactory: () => idFactory("request")
+      }));
+    }
     const visualReaderService = new AcquisitionVisualReaderService({
       repository: repositories.visualReader,
       planRunRepository: repositories.planRun,

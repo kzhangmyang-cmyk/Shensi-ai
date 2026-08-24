@@ -13,3 +13,8 @@ git subtree pull --prefix=services/media-crawler https://github.com/NanmiCoder/M
 ```
 
 Shensi-owned code is isolated in `shensi_adapter/` and `tests/shensi_adapter/`; it provides the private service boundary without modifying upstream source files.
+
+The adapter's authenticated internal Douyin QR endpoints keep browser profiles
+and cookies inside the configured encrypted deployment volume.  They return an
+opaque account handle only to the trusted acquisition backend; public account
+API responses are deliberately sanitized and never include browser state.

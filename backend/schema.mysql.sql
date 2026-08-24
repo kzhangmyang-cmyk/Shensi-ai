@@ -1939,6 +1939,22 @@ CREATE TABLE prospect_source_raw_records (
     CHECK (envelope_version = 'provider-raw-v1')
 ) ENGINE=InnoDB;
 
+CREATE TABLE acquisition_social_accounts (
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) NOT NULL,
+  platform VARCHAR(32) NOT NULL,
+  account_handle VARCHAR(512) NULL,
+  display_name VARCHAR(512) NULL,
+  state VARCHAR(32) NOT NULL,
+  login_state_version BIGINT NULL,
+  revision BIGINT NOT NULL,
+  etag VARCHAR(64) NOT NULL,
+  last_validated_at VARCHAR(40) NULL,
+  created_at VARCHAR(40) NOT NULL,
+  updated_at VARCHAR(40) NOT NULL,
+  UNIQUE KEY acquisition_social_accounts_workspace_platform (workspace_id, platform)
+) ENGINE=InnoDB;
+
 CREATE TABLE prospect_source_raw_batches (
   id VARCHAR(90) PRIMARY KEY,
   team_id VARCHAR(64) NOT NULL,
