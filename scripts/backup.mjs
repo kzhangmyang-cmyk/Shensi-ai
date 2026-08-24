@@ -21,10 +21,11 @@ function required(env, name) {
   return env[name];
 }
 
-async function currentCommit(root) {
+async function currentCommit(root, env) {
   const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
     cwd: root,
-    encoding: "utf8"
+    encoding: "utf8",
+    env: safeChildEnvironment(env)
   });
   return stdout.trim();
 }
@@ -58,6 +59,13 @@ export async function backupDatabase({
   const backupPath = resolve(directory, `${timestamp(now)}-${safeDatabase}.sql.enc`);
   const manifestPath = `${backupPath}.migration-manifest.json`;
   const snapshot = await databaseSnapshot(parsed);
+  const unsupported = Object.entries(snapshot.unsupportedSchemaObjects ?? {})
+    .filter(([, count]) => Number(count) > 0)
+    .map(([name]) => name)
+    .sort();
+  if (unsupported.length > 0) {
+    throw new Error(`SOURCE_SCHEMA_OBJECTS_UNSUPPORTED:${unsupported.join(",")}`);
+  }
   const handle = await open(backupPath, "wx", 0o600);
   let complete = false;
   try {
@@ -65,10 +73,10 @@ export async function backupDatabase({
       source: {
         command: env.MYSQLDUMP_BIN || DEFAULT_MYSQLDUMP,
         args: [
-          "--single-transaction", "--routines", "--triggers", "--events",
+          "--single-transaction", "--triggers", "--skip-routines", "--skip-events",
           "--hex-blob", "--default-character-set=utf8mb4", "--set-gtid-purged=OFF",
           "--skip-add-drop-database", "--skip-add-drop-table",
-          "--skip-add-drop-trigger", "--skip-replace",
+          "--skip-add-drop-trigger", "--skip-replace", "--ignore-views", "--no-tablespaces",
           "--host", parsed.host, "--port", String(parsed.port), "--user", parsed.user,
           parsed.database
         ],
@@ -92,7 +100,7 @@ export async function backupDatabase({
     const manifest = authenticatedManifest({
       encryptedFile: basename(backupPath),
       sha256: await sha256File(backupPath),
-      sourceCommit: sourceCommit ?? await currentCommit(root),
+      sourceCommit: sourceCommit ?? await currentCommit(root, env),
       mysqlVersion: snapshot.mysqlVersion,
       sourceDatabase: parsed.database,
       createdAt: now.toISOString(),

@@ -8,7 +8,7 @@ function spawnStage(stage, stdout) {
   return spawn(stage.command, stage.args ?? [], {
     cwd: stage.cwd,
     env: stage.env,
-    stdio: ["pipe", stdout, "ignore"]
+    stdio: [stage.input ?? "pipe", stdout, "ignore"]
   });
 }
 

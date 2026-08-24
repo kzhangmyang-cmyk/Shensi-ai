@@ -1,7 +1,9 @@
-import { access } from "node:fs/promises";
+import { chmod, mkdtemp, open, rm, rmdir, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { basename } from "node:path";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseCliArguments } from "./lib/cli-arguments.mjs";
 import {
   mysqlCliEnvironment, parseMysqlUrl, requireDistinctDatabases, safeChildEnvironment
 } from "./lib/database-url.mjs";
@@ -14,6 +16,47 @@ const DEFAULT_OPENSSL = "/usr/bin/openssl";
 function required(env, name) {
   if (!env[name]) throw new Error(`ENV_REQUIRED:${name}`);
   return env[name];
+}
+
+async function copyCiphertext(source, destination) {
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let position = 0;
+  while (true) {
+    const { bytesRead } = await source.read(buffer, 0, buffer.length, position);
+    if (bytesRead === 0) break;
+    let written = 0;
+    while (written < bytesRead) {
+      const result = await destination.write(
+        buffer, written, bytesRead - written, position + written
+      );
+      written += result.bytesWritten;
+    }
+    position += bytesRead;
+  }
+}
+
+async function frozenCiphertextSnapshot(encryptedBackup) {
+  const directory = await mkdtemp(join(tmpdir(), "shensi-restore-"));
+  const snapshotPath = join(directory, "ciphertext.snapshot");
+  let source;
+  let snapshot;
+  try {
+    await chmod(directory, 0o700);
+    source = await open(encryptedBackup, "r");
+    snapshot = await open(snapshotPath, "wx+", 0o600);
+    await snapshot.chmod(0o600);
+    await copyCiphertext(source, snapshot);
+    await snapshot.sync();
+    await source.close();
+    source = undefined;
+    await unlink(snapshotPath);
+    await rmdir(directory);
+    return snapshot;
+  } catch (error) {
+    await Promise.allSettled([source?.close(), snapshot?.close()]);
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 async function inspectTargetDatabase(parsed) {
@@ -42,6 +85,10 @@ async function inspectTargetDatabase(parsed) {
   }
 }
 
+export function parseRestoreArguments(argv) {
+  return parseCliArguments(argv, {});
+}
+
 export async function restoreDatabase({
   env = process.env,
   targetState = inspectTargetDatabase,
@@ -54,41 +101,51 @@ export async function restoreDatabase({
   const passphrase = required(env, "SHENSI_BACKUP_PASSPHRASE");
   const encryptedBackup = required(env, "ENCRYPTED_BACKUP");
   const manifestPath = env.BACKUP_MANIFEST || `${encryptedBackup}.migration-manifest.json`;
-  await artifactVerifier({
-    backupPath: encryptedBackup,
-    manifestPath,
-    passphrase
-  });
-  const state = await targetState(target);
-  if (Number(state.objectCount) !== 0) {
-    throw new Error("TARGET_DATABASE_NOT_EMPTY");
-  }
-  await access(encryptedBackup);
-  await runPipeline({
-    source: {
-      command: env.OPENSSL_BIN || DEFAULT_OPENSSL,
-      args: [
-        "enc", "-d", "-aes-256-cbc", "-pbkdf2",
-        "-pass", "env:SHENSI_BACKUP_PASSPHRASE", "-in", encryptedBackup
-      ],
-      env: {
-        ...safeChildEnvironment(env),
-        SHENSI_BACKUP_PASSPHRASE: passphrase
-      }
-    },
-    destination: {
-      command: env.MYSQL_BIN || DEFAULT_MYSQL,
-      args: [
-        "--host", target.host, "--port", String(target.port),
-        "--user", target.user, target.database
-      ],
-      env: mysqlCliEnvironment(target, env)
+  const snapshot = await frozenCiphertextSnapshot(encryptedBackup);
+  try {
+    const manifest = await artifactVerifier({
+      backupPath: encryptedBackup,
+      backupHandle: snapshot,
+      manifestPath,
+      passphrase
+    });
+    if (manifest?.sourceDatabase !== source.database) {
+      throw new Error("BACKUP_SOURCE_DATABASE_MISMATCH");
     }
-  });
-  return { targetDatabase: target.database, encryptedBackup, manifestPath };
+    const state = await targetState(target);
+    if (Number(state.objectCount) !== 0) {
+      throw new Error("TARGET_DATABASE_NOT_EMPTY");
+    }
+    await runPipeline({
+      source: {
+        command: env.OPENSSL_BIN || DEFAULT_OPENSSL,
+        args: [
+          "enc", "-d", "-aes-256-cbc", "-pbkdf2",
+          "-pass", "env:SHENSI_BACKUP_PASSPHRASE"
+        ],
+        input: snapshot.fd,
+        env: {
+          ...safeChildEnvironment(env),
+          SHENSI_BACKUP_PASSPHRASE: passphrase
+        }
+      },
+      destination: {
+        command: env.MYSQL_BIN || DEFAULT_MYSQL,
+        args: [
+          "--host", target.host, "--port", String(target.port),
+          "--user", target.user, target.database
+        ],
+        env: mysqlCliEnvironment(target, env)
+      }
+    });
+    return { targetDatabase: target.database, encryptedBackup, manifestPath };
+  } finally {
+    await snapshot.close();
+  }
 }
 
 async function main() {
+  parseRestoreArguments(process.argv.slice(2));
   const result = await restoreDatabase();
   console.log(JSON.stringify({
     code: "SHENSI_RESTORE_OK",

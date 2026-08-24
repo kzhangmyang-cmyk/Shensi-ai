@@ -59,7 +59,9 @@ The ignored `.env.local` and `.env.production.local` files are not loaded by
 the shell wrappers. Environment injection is the operator's explicit boundary;
 the documented `node --env-file` commands load the named file explicitly.
 `scripts/backup` and `scripts/migrate-data` pass their documented flags through
-unchanged, and every migration CLI rejects unknown flags.
+unchanged, and every migration CLI rejects unknown flags. Direct restore is
+intentionally env-only: `./scripts/restore` accepts an empty argument list and
+rejects every command-line token.
 
 ## Encrypted backup
 
@@ -70,14 +72,20 @@ node --env-file=.env.production.local scripts/backup.mjs \
   --source-env SOURCE_DATABASE_URL --output-dir backups
 ```
 
-The command streams a single-transaction `mysqldump` directly into OpenSSL
-AES-256-CBC with PBKDF2 and salt. It creates no plaintext dump. The encrypted
-file is opened with mode `0600`; an incomplete encrypted file is deleted when
-either pipeline stage fails or the process receives `SIGINT`/`SIGTERM`.
-The dump explicitly omits database/table/trigger DROP statements and REPLACE
-statements. Child processes receive only a small safe base environment plus
-`MYSQL_PWD` for MySQL programs or `SHENSI_BACKUP_PASSPHRASE` for OpenSSL;
-database URLs, provider keys, and unrelated secrets are not forwarded.
+Before starting `mysqldump`, the command fails closed if the source contains a
+view, stored routine, or event. Those object forms cannot be reproduced by this
+empty-target workflow while retaining the absolute no-DROP rule. Base tables,
+data, and triggers are streamed from a single-transaction `mysqldump` directly
+into OpenSSL AES-256-CBC with PBKDF2 and salt. The dump explicitly skips views,
+routines, events, tablespaces, database/table/trigger DROP statements, and
+REPLACE statements. It creates no plaintext dump. The encrypted file is opened
+with mode `0600`; an incomplete encrypted file is deleted when either pipeline
+stage fails or the process receives `SIGINT`/`SIGTERM`.
+
+Child processes receive only a small safe base environment plus `MYSQL_PWD`
+for MySQL programs or `SHENSI_BACKUP_PASSPHRASE` for OpenSSL. The Git source-
+commit lookup receives only the same safe base. Database URLs, passphrases,
+provider keys, agent-job keys, and unrelated secrets are not forwarded to Git.
 
 The adjacent ignored mode-`0600` `*.migration-manifest.json` is an authenticated
 encrypt-then-MAC sidecar. It binds the artifact basename, full encrypted-file
@@ -98,15 +106,22 @@ its sidecar with `ENCRYPTED_BACKUP` and optionally `BACKUP_MANIFEST`, then run:
 ./scripts/restore
 ```
 
-The command authenticates the complete ciphertext and manifest before starting
-OpenSSL or the MySQL client. A missing or modified sidecar, wrong passphrase,
-or corrupt ciphertext therefore cannot feed bytes to MySQL. It then rejects a
-target other than `shensi`, equal source/target database names, and any target
-containing a table, view, routine, trigger, or event. Authenticated ciphertext
-is streamed from OpenSSL directly into the MySQL client. Either child failure
-or a signal fails the command; cleanup sends `SIGTERM`, escalates to `SIGKILL`
-after a bounded wait, and awaits both children. If a restore fails after MySQL
-has begun reading, do not retry into that database: isolate it, provision a new
+The command copies ciphertext into a private mode-`0700` temporary directory,
+opens the snapshot mode `0600`, unlinks its path, and removes the empty
+directory. It authenticates the complete anonymous snapshot FD and manifest,
+requires the authenticated `sourceDatabase` to equal `SOURCE_DATABASE_URL`,
+then gives that same open FD to OpenSSL as stdin. It never reopens the mutable
+original artifact path. A missing or modified sidecar, wrong passphrase, or
+corrupt snapshot therefore cannot start or feed MySQL; later changes to the
+original path cannot change the already authenticated restore bytes.
+
+The command then rejects a target other than `shensi`, equal source/target
+database names, and any target containing a table, view, routine, trigger, or
+event. Authenticated ciphertext is streamed from OpenSSL directly into the
+MySQL client. Either child failure or a signal fails the command; cleanup sends
+`SIGTERM`, escalates to `SIGKILL` after a bounded wait, awaits both children,
+and closes all anonymous temporary state. If a restore fails after MySQL has
+begun reading, do not retry into that database: isolate it, provision a new
 empty `shensi` target under incident control, and start again from the retained
 ciphertext. Never drop or clean the source database.
 

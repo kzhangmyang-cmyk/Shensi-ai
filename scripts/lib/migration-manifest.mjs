@@ -1,8 +1,7 @@
 import {
   createHash, createHmac, pbkdf2Sync, randomBytes, timingSafeEqual
 } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { open, readFile } from "node:fs/promises";
 import { basename } from "node:path";
 
 const MANIFEST_FORMAT = "shensi-encrypted-backup-manifest.v2";
@@ -32,8 +31,24 @@ export function safeManifest(value) {
 }
 
 export async function sha256File(filePath) {
+  const handle = await open(filePath, "r");
+  try {
+    return await sha256Handle(handle);
+  } finally {
+    await handle.close();
+  }
+}
+
+export async function sha256Handle(handle) {
   const hash = createHash("sha256");
-  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let position = 0;
+  while (true) {
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+    if (bytesRead === 0) break;
+    hash.update(buffer.subarray(0, bytesRead));
+    position += bytesRead;
+  }
   return hash.digest("hex");
 }
 
@@ -68,7 +83,7 @@ export function authenticatedManifest(fields, passphrase, { salt = randomBytes(1
   return { ...unsigned, authentication: { ...unsigned.authentication, tag } };
 }
 
-export async function verifyEncryptedBackup({ backupPath, manifestPath, passphrase }) {
+export async function verifyEncryptedBackup({ backupPath, backupHandle, manifestPath, passphrase }) {
   let manifest;
   try {
     manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -84,7 +99,9 @@ export async function verifyEncryptedBackup({ backupPath, manifestPath, passphra
     || !/^[a-f0-9]{64}$/u.test(manifest.authentication?.tag ?? "")) {
     throw new Error("BACKUP_MANIFEST_INVALID");
   }
-  const digest = await sha256File(backupPath);
+  const digest = backupHandle
+    ? await sha256Handle(backupHandle)
+    : await sha256File(backupPath);
   if (digest !== manifest.sha256) throw new Error("BACKUP_SHA256_MISMATCH");
   const { tag, ...authentication } = manifest.authentication;
   const unsigned = { ...manifest, authentication };
@@ -116,6 +133,13 @@ export async function collectBackupDatabaseSnapshot(parsed, { createConnection }
         ORDER BY TABLE_NAME`,
       [parsed.database]
     );
+    const [[objectRow]] = await connection.query(
+      `SELECT
+         (SELECT COUNT(*) FROM information_schema.views WHERE table_schema = ?) AS view_count,
+         (SELECT COUNT(*) FROM information_schema.routines WHERE routine_schema = ?) AS routine_count,
+         (SELECT COUNT(*) FROM information_schema.events WHERE event_schema = ?) AS event_count`,
+      [parsed.database, parsed.database, parsed.database]
+    );
     const tableCounts = {};
     for (const row of tables) {
       const [[countRow]] = await connection.query(
@@ -124,7 +148,15 @@ export async function collectBackupDatabaseSnapshot(parsed, { createConnection }
       );
       tableCounts[String(row.table_name)] = Number(countRow.row_count);
     }
-    return { mysqlVersion: String(versionRow.version), tableCounts };
+    return {
+      mysqlVersion: String(versionRow.version),
+      tableCounts,
+      unsupportedSchemaObjects: {
+        views: Number(objectRow.view_count),
+        routines: Number(objectRow.routine_count),
+        events: Number(objectRow.event_count)
+      }
+    };
   } finally {
     await connection.end();
   }
