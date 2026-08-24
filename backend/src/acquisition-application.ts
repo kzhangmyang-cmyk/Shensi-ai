@@ -2162,9 +2162,13 @@ export async function createAcquisitionApplication(
         accountLoginStateVersion: run.accountLoginStateVersion,
         dailyBudgetId: run.dailyBudgetId, localDate: run.localDate,
         trigger: run.trigger, dailyCandidateLimit: policy.dailyCandidateLimit,
-        keywords: [...policy.keywords], limits: { ...policy.limits },
+        keywords: [...policy.keywords],
+        collectCreators: run.collectCreators,
+        collectDemandComments: run.collectDemandComments,
+        limits: { ...policy.limits },
         createdAt: run.createdAt
       });
+      await crawlerJobs.enqueue(run.workspaceId, run.id, run.createdAt);
     };
     const douyinAutomation = new AcquisitionDouyinAutomationService({
       repository: douyinAutomationRepository,
@@ -2232,6 +2236,8 @@ export async function createAcquisitionApplication(
               accountLoginStateVersion: policy.accountLoginStateVersion,
               createdBy: policy.createdBy, keywords: [...policy.keywords],
               dailyCandidateLimit: policy.dailyCandidateLimit,
+              collectCreators: policy.collectCreators,
+              collectDemandComments: policy.collectDemandComments,
               schedule: { ...policy.schedule }, limits: { ...policy.limits }
             })
           );

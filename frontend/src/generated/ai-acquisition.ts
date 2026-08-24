@@ -1769,6 +1769,8 @@ export interface components {
             localDate: string;
             /** @enum {string} */
             trigger: "run_now" | "scheduled";
+            collectCreators: boolean;
+            collectDemandComments: boolean;
             /** @enum {string} */
             status: "queued";
             reason: string | null;

@@ -26,6 +26,8 @@ export interface AcquisitionCrawlerJobInput {
   trigger: "scheduled" | "run_now";
   dailyCandidateLimit: number;
   keywords: string[];
+  collectCreators: boolean;
+  collectDemandComments: boolean;
   limits: AcquisitionCrawlerLimits;
   createdAt: string;
   maxAttempts?: number;
@@ -49,6 +51,7 @@ export interface AcquisitionCrawlerJob extends AcquisitionCrawlerJobInput {
   attempt: number;
   maxAttempts: number;
   cursor: string | null;
+  cursorHistory: string[];
   recordCount: number;
   candidateBudgetUsed: number;
   cancelRequestedAt: string | null;
@@ -115,6 +118,9 @@ export function assertCrawlerJobInput(input: AcquisitionCrawlerJobInput) {
     || input.keywords.length > 20 || input.keywords.some((value) =>
       typeof value !== "string" || !value.trim() || [...value].length > 100)
     || !["scheduled", "run_now"].includes(input.trigger)
+    || typeof input.collectCreators !== "boolean"
+    || typeof input.collectDemandComments !== "boolean"
+    || (!input.collectCreators && !input.collectDemandComments)
     || !integerBetween(input.limits?.maxVideos, 1, 200)
     || !integerBetween(input.limits?.maxCommentsPerVideo, 1, 200)
     || !integerBetween(input.limits?.maxPagesPerVideo, 1, 20)

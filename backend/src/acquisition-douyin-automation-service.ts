@@ -458,6 +458,8 @@ export class AcquisitionDouyinAutomationService {
       }),
       localDate,
       trigger: "run_now",
+      collectCreators: policy.collectCreators,
+      collectDemandComments: policy.collectDemandComments,
       status: "queued",
       reason,
       createdBy: scope.actorId,

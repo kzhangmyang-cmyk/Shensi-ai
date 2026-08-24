@@ -67,6 +67,7 @@ export interface DouyinMediaCrawlerGateway {
 export interface DouyinCrawlJobInput {
   jobId: string; accountHandle: string; loginStateVersion: number; keywords: string[];
   maxVideos: number; maxCommentsPerVideo: number; maxPagesPerVideo: number; deadlineAt: string;
+  collectCreators: boolean; collectDemandComments: boolean;
 }
 export interface DouyinCrawlJob { jobId: string; state: z.infer<typeof crawlJobStateSchema>; }
 export interface DouyinCrawlJobPage {
@@ -237,7 +238,10 @@ export function createDouyinMediaCrawlerGateway(
         job_id: input.jobId, account_handle: input.accountHandle,
         login_state_version: input.loginStateVersion, keywords: input.keywords,
         max_videos: input.maxVideos, max_comments_per_video: input.maxCommentsPerVideo,
-        max_pages_per_video: input.maxPagesPerVideo, deadline_at: input.deadlineAt
+        max_pages_per_video: input.maxPagesPerVideo,
+        collect_creators: input.collectCreators,
+        collect_demand_comments: input.collectDemandComments,
+        deadline_at: input.deadlineAt
       }, signal));
     },
     async getCrawlJob(jobId: string, signal?: AbortSignal) {

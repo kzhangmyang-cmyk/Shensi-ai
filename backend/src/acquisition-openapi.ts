@@ -1363,7 +1363,7 @@ const douyinAutomationRunNowInputSchema = {
 };
 const douyinAutomationRunIntentSchema = {
   type: "object", additionalProperties: false,
-  required: ["id", "workspaceId", "planId", "planVersionId", "planVersion", "planSnapshotHash", "policyVersionId", "policyHash", "accountId", "accountLoginStateVersion", "dailyBudgetId", "localDate", "trigger", "status", "reason", "createdBy", "createdAt"],
+  required: ["id", "workspaceId", "planId", "planVersionId", "planVersion", "planSnapshotHash", "policyVersionId", "policyHash", "accountId", "accountLoginStateVersion", "dailyBudgetId", "localDate", "trigger", "collectCreators", "collectDemandComments", "status", "reason", "createdBy", "createdAt"],
   properties: {
     id: { type: "string" }, workspaceId: { type: "string" }, planId: { type: "string" },
     planVersionId: { type: "string" }, planVersion: { type: "integer", minimum: 1 },
@@ -1373,6 +1373,7 @@ const douyinAutomationRunIntentSchema = {
     dailyBudgetId: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
     localDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
     trigger: { type: "string", enum: ["run_now", "scheduled"] }, status: { type: "string", enum: ["queued"] },
+    collectCreators: { type: "boolean" }, collectDemandComments: { type: "boolean" },
     reason: { type: "string", nullable: true, maxLength: 2_000 }, createdBy: { type: "string" },
     createdAt: { type: "string", format: "date-time" }
   }

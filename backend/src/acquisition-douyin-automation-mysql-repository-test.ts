@@ -275,6 +275,7 @@ test("automation MySQL repository matches append, CAS, replay and frozen run beh
     planVersion: 1, planSnapshotHash: "plan-hash", policyVersionId: value.id,
     policyHash: value.policyHash, accountId: "account-1", accountLoginStateVersion: 7,
     dailyBudgetId: `sha256:${"d".repeat(64)}`, localDate: "2026-08-25", trigger: "run_now",
+    collectCreators: true, collectDemandComments: true,
     status: "queued", reason: null, createdBy: "owner-1", createdAt: "2026-08-25T01:01:00.000Z"
   };
   const runCommand = {
@@ -319,7 +320,9 @@ test("automation MySQL repository serializes identical new policy and run keys",
     planVersionId: "plan-version-1", planVersion: 1, planSnapshotHash: "plan-hash",
     policyVersionId: value.id, policyHash: value.policyHash, accountId: "account-1",
     accountLoginStateVersion: 7, dailyBudgetId: `sha256:${"d".repeat(64)}`,
-    localDate: "2026-08-25", trigger: "run_now", status: "queued", reason: null,
+    localDate: "2026-08-25", trigger: "run_now",
+    collectCreators: true, collectDemandComments: true,
+    status: "queued", reason: null,
     createdBy: "owner-1", createdAt: "2026-08-25T01:01:00.000Z"
   };
   const runCommand = {
@@ -378,7 +381,9 @@ test("Memory and MySQL reject the same policy and run authority drift", async ()
       planVersionId: "plan-version-1", planVersion: 1, planSnapshotHash: "plan-hash",
       policyVersionId: value.id, policyHash: value.policyHash, accountId: "account-1",
       accountLoginStateVersion: 7, dailyBudgetId: `sha256:${"d".repeat(64)}`,
-      localDate: "2026-08-25", trigger: "run_now", status: "queued", reason: null,
+      localDate: "2026-08-25", trigger: "run_now",
+      collectCreators: true, collectDemandComments: true,
+      status: "queued", reason: null,
       createdBy: "owner-1", createdAt: "2026-08-25T01:01:00.000Z"
     };
     const runCommand = {
@@ -468,7 +473,9 @@ test("live MySQL serializes identical new policy and run keys into exact replay"
       planVersionId: "plan-version-1", planVersion: 1, planSnapshotHash: "plan-hash",
       policyVersionId: value.id, policyHash: value.policyHash, accountId: "account-1",
       accountLoginStateVersion: 7, dailyBudgetId: `sha256:${"d".repeat(64)}`,
-      localDate: "2026-08-25", trigger: "run_now", status: "queued", reason: null,
+      localDate: "2026-08-25", trigger: "run_now",
+      collectCreators: true, collectDemandComments: true,
+      status: "queued", reason: null,
       createdBy: "owner-1", createdAt: "2026-08-25T01:01:00.000Z"
     };
     const runCommand = {

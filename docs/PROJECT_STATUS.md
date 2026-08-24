@@ -59,10 +59,13 @@ ledger.
   policy, active-account/login, local-date, and daily-budget identities. The
   public contract excludes the private MediaCrawler account handle.
 - Douyin automation run intents now feed durable crawler jobs with daily
-  policy/date deduplication, random fenced leases, transactional opaque cursor
-  persistence, bounded recovery, and Memory/MySQL repositories. The private
-  sidecar retains append-only normalized pages for 24 hours. Browsers read only
-  persisted Node status at `GET /api/v1/acquisition/runs/{runId}/crawler-status`.
+  policy/date deduplication, explicit scheduled/enqueued states, random fenced
+  leases, transactional non-cyclic opaque cursor history, frozen record-kind
+  filters, bounded recovery, and Memory/MySQL repositories. The private sidecar
+  retains append-only normalized pages for 24 hours with startup and periodic
+  cleanup. Connected profiles survive QR-session expiry and restart through
+  independent durable metadata. Browsers read only persisted Node status at
+  `GET /api/v1/acquisition/runs/{runId}/crawler-status`.
 
 ## Active
 

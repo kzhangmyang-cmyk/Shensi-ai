@@ -34,6 +34,8 @@ class CrawlJobRequest(BaseModel):
     max_videos: int
     max_comments_per_video: int
     max_pages_per_video: int
+    collect_creators: bool
+    collect_demand_comments: bool
     deadline_at: datetime
 
 

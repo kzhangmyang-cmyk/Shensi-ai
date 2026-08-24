@@ -37,9 +37,11 @@ workspace-scoped account/session/replay records, while the pinned
 MediaCrawler sidecar owns raw browser profiles and Playwright in a killable
 child process. Public DTOs expose neither the opaque upstream handle nor raw
 browser state. Graceful sidecar restarts retain encrypted active profiles;
-expiry and explicit disconnect delete valid profile state. During reload, a
-profile whose metadata is invalid, missing, malformed, symlinked, or unreadable
-is treated as quarantined and deleted rather than loaded into the session map.
+QR expiry removes only unconnected login attempts, while connected-account
+metadata and profiles survive independently until explicit disconnect or
+replacement. During reload, invalid durable account metadata is quarantined;
+missing or malformed ephemeral QR metadata does not invalidate a connected
+account.
 The automation service consumes that same workspace account repository without
 exposing its private handle. It publishes immutable policy versions behind a
 compare-and-swap head and creates idempotent run intents that freeze the
@@ -51,11 +53,15 @@ the same validation-and-append boundary atomic during development and focused
 tests.
 
 Frozen run intents materialize as one crawler job per workspace, plan, policy
-version, and policy-local date. Node owns random fenced leases and persists
-each bounded normalized record page together with its opaque cursor. The
+version, and policy-local date. The repository records `scheduled` before an
+idempotent enqueue transition. Node owns random fenced leases and persists each
+bounded normalized record page together with its opaque cursor and unique
+cursor history, rejecting cycles and non-null terminal cursors. Frozen
+creator/comment flags filter disabled record kinds before persistence. The
 sidecar owns only the live process and immutable result pages; reading a page
-does not acknowledge it. Restarts therefore resume from the Node cursor, and
-the browser-facing status route never proxies live sidecar state.
+does not acknowledge it. Startup and periodic retention sweeps remove pages
+after 24 hours. Restarts therefore resume from the Node cursor, and the
+browser-facing status route never proxies live sidecar state.
 
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a

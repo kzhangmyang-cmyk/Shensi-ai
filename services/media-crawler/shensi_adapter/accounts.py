@@ -32,6 +32,7 @@ class AccountManager:
         os.chmod(self._profiles, 0o700)
         self._browser, self._now, self._ttl = browser, now, session_ttl
         self._sessions: dict[str, dict[str, Any]] = {}
+        self._accounts: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
         self._closed = threading.Event()
         self._reload_metadata()
@@ -47,17 +48,37 @@ class AccountManager:
     def _metadata_path(profile: Path) -> Path:
         return profile / ".shensi-login-session.json"
 
-    def _persist(self, session: dict[str, Any]) -> None:
-        profile = session["profile"]
-        value = {"session_id": session["id"], "expires_at": session["expires_at"].isoformat(),
-                 "account_handle": session["account_handle"], "account_display_name": session["account_display_name"],
-                 "login_state_version": session["login_state_version"], "closed": bool(session["closed"])}
-        target = self._metadata_path(profile)
+    @staticmethod
+    def _account_metadata_path(profile: Path) -> Path:
+        return profile / ".shensi-connected-account.json"
+
+    @staticmethod
+    def _write_metadata(target: Path, value: dict[str, Any]) -> None:
         temporary = target.with_suffix(".tmp")
         temporary.write_text(json.dumps(value, separators=(",", ":")), encoding="utf-8")
         os.chmod(temporary, 0o600)
         os.replace(temporary, target)
         os.chmod(target, 0o600)
+
+    def _persist(self, session: dict[str, Any]) -> None:
+        profile = session["profile"]
+        value = {"session_id": session["id"], "expires_at": session["expires_at"].isoformat(),
+                 "account_handle": session["account_handle"], "account_display_name": session["account_display_name"],
+                 "login_state_version": session["login_state_version"], "closed": bool(session["closed"]),
+                 "qr_expired": bool(session["qr_expired"])}
+        target = self._metadata_path(profile)
+        self._write_metadata(target, value)
+
+    def _persist_account(self, session: dict[str, Any]) -> None:
+        if not session["account_handle"]:
+            return
+        self._write_metadata(self._account_metadata_path(session["profile"]), {
+            "session_id": session["id"],
+            "account_handle": session["account_handle"],
+            "account_display_name": session["account_display_name"],
+            "login_state_version": session["login_state_version"],
+        })
+        self._accounts[session["account_handle"]] = session
 
     def _reload_metadata(self) -> None:
         for profile in self._profiles.iterdir():
@@ -66,17 +87,64 @@ class AccountManager:
             try:
                 os.chmod(profile, 0o700)
                 metadata = self._metadata_path(profile)
-                if metadata.is_symlink() or not metadata.is_file():
-                    raise ValueError("invalid metadata")
-                os.chmod(metadata, 0o600)
-                value = json.loads(metadata.read_text(encoding="utf-8"))
-                session_id, expires_at = value["session_id"], self._as_datetime(value["expires_at"])
+                account_metadata = self._account_metadata_path(profile)
+                account: dict[str, Any] | None = None
+                if account_metadata.exists():
+                    if account_metadata.is_symlink() or not account_metadata.is_file():
+                        raise ValueError("invalid account metadata")
+                    os.chmod(account_metadata, 0o600)
+                    account = json.loads(account_metadata.read_text(encoding="utf-8"))
+                    if (not isinstance(account.get("session_id"), str)
+                            or not isinstance(account.get("account_handle"), str)
+                            or not account["account_handle"]
+                            or not isinstance(account.get("login_state_version"), int)):
+                        raise ValueError("invalid account metadata")
+
+                value: dict[str, Any] = {}
+                if metadata.exists():
+                    try:
+                        if metadata.is_symlink() or not metadata.is_file():
+                            raise ValueError("invalid metadata")
+                        os.chmod(metadata, 0o600)
+                        loaded = json.loads(metadata.read_text(encoding="utf-8"))
+                        if not isinstance(loaded, dict):
+                            raise ValueError("invalid metadata")
+                        value = loaded
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                        if account is None:
+                            raise
+                elif account is None:
+                    raise ValueError("missing metadata")
+
+                if account is not None:
+                    session_id = account["session_id"]
+                    expires_at = self._now()
+                    try:
+                        if value.get("session_id") == session_id:
+                            expires_at = self._as_datetime(value["expires_at"])
+                    except (TypeError, KeyError, ValueError):
+                        pass
+                    account_handle = account["account_handle"]
+                    account_display_name = account.get("account_display_name")
+                    login_state_version = account["login_state_version"]
+                else:
+                    session_id = value["session_id"]
+                    expires_at = self._as_datetime(value["expires_at"])
+                    account_handle = value.get("account_handle")
+                    account_display_name = value.get("account_display_name")
+                    login_state_version = value.get("login_state_version")
                 if not isinstance(session_id, str) or not session_id:
                     raise ValueError("invalid session")
                 self._sessions[session_id] = {"id": session_id, "context": None, "expires_at": expires_at,
-                    "closed": bool(value.get("closed", False)), "account_handle": value.get("account_handle"),
-                    "account_display_name": value.get("account_display_name"), "login_state_version": value.get("login_state_version"),
+                    "closed": True, "account_handle": account_handle,
+                    "account_display_name": account_display_name, "login_state_version": login_state_version,
+                    "qr_expired": bool(value.get("qr_expired", False)) if value else account is not None,
                     "profile": profile}
+                session = self._sessions[session_id]
+                if session["account_handle"]:
+                    if account is None:
+                        self._persist_account(session)
+                    self._accounts[session["account_handle"]] = session
             except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
                 self._delete_profile(profile)
 
@@ -100,6 +168,8 @@ class AccountManager:
         try:
             self._close_session(session)
         finally:
+            if session.get("account_handle"):
+                self._accounts.pop(session["account_handle"], None)
             self._delete_profile(session["profile"])
             self._sessions.pop(session_id, None)
 
@@ -107,6 +177,7 @@ class AccountManager:
         self, session_id: str, session: dict[str, Any]
     ) -> None:
         try:
+            self._persist_account(session)
             self._persist(session)
         except BaseException as persistence_error:
             try:
@@ -128,10 +199,17 @@ class AccountManager:
     def sweep_expired(self, now: datetime | None = None) -> int:
         current = now or self._now()
         with self._lock:
-            expired = [session_id for session_id, session in self._sessions.items() if current >= session["expires_at"]]
+            expired = [session_id for session_id, session in self._sessions.items()
+                       if current >= session["expires_at"] and not session["qr_expired"]]
             for session_id in expired:
                 try:
-                    self._remove_session(session_id, self._sessions[session_id])
+                    session = self._sessions[session_id]
+                    if session["account_handle"]:
+                        self._close_session(session)
+                        session["qr_expired"] = True
+                        self._persist_or_remove(session_id, session)
+                    else:
+                        self._remove_session(session_id, session)
                 except Exception:
                     continue
             return len(expired)
@@ -151,7 +229,7 @@ class AccountManager:
             now = self._now()
             session: dict[str, Any] = {"id": session_id, "context": context, "expires_at": now + self._ttl,
                 "closed": False, "account_handle": None, "account_display_name": None,
-                "login_state_version": None, "profile": profile}
+                "login_state_version": None, "qr_expired": False, "profile": profile}
             self._sessions[session_id] = session
             self._persist_or_remove(session_id, session)
             return LoginSessionView(session_id=session_id, state="awaiting_scan", qr_image_data_url=context.get("qr_image_data_url"),
@@ -164,6 +242,17 @@ class AccountManager:
                 raise KeyError(session_id)
             current = now or self._now()
             if current >= session["expires_at"]:
+                if session["account_handle"]:
+                    if not session["qr_expired"]:
+                        self._close_session(session)
+                        session["qr_expired"] = True
+                        self._persist_or_remove(session_id, session)
+                    return LoginSessionView(
+                        session_id=session_id, state="active", qr_image_data_url=None,
+                        expires_at=session["expires_at"], account_handle=session["account_handle"],
+                        account_display_name=session["account_display_name"],
+                        login_state_version=session["login_state_version"],
+                    )
                 self._remove_session(session_id, session)
                 return LoginSessionView(session_id=session_id, state="expired", qr_image_data_url=None, expires_at=session["expires_at"],
                     account_handle=None, account_display_name=None, login_state_version=None)
@@ -194,8 +283,7 @@ class AccountManager:
         """Resolve private crawl authority without exposing it through HTTP."""
         with self._lock:
             self.sweep_expired()
-            session = next((value for value in self._sessions.values()
-                            if value["account_handle"] == account_handle), None)
+            session = self._accounts.get(account_handle)
             if (session is None or session["login_state_version"] != login_state_version
                     or not account_handle):
                 raise KeyError("active_account_not_found")
@@ -236,6 +324,7 @@ class AccountManager:
                         session["context"] = None
                         session["closed"] = True
                     try:
+                        self._persist_account(session)
                         self._persist(session)
                     except BaseException as error:
                         failures.append(error)

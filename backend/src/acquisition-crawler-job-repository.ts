@@ -19,6 +19,7 @@ export interface PersistCrawlerPageInput {
 
 export interface AcquisitionCrawlerJobRepository {
   createOrGet(input: AcquisitionCrawlerJobInput): Promise<{ created: boolean; job: AcquisitionCrawlerJob }>;
+  enqueue(workspaceId: string, runId: string, now: string): Promise<AcquisitionCrawlerJob | null>;
   findByRun(workspaceId: string, runId: string): Promise<AcquisitionCrawlerJob | null>;
   claimNext(workerId: string, now: string, leaseDurationMs: number): Promise<AcquisitionCrawlerJobClaim | null>;
   renew(fence: AcquisitionCrawlerJobFence, now: string, leaseDurationMs: number): Promise<AcquisitionCrawlerJob>;
@@ -88,7 +89,8 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
       }
       const job: AcquisitionCrawlerJob = {
         ...clone(input), maxAttempts: input.maxAttempts ?? 3,
-        state: "queued", runIds: [input.runId], attempt: 0, cursor: null,
+        state: "scheduled", runIds: [input.runId], attempt: 0, cursor: null,
+        cursorHistory: [],
         recordCount: 0, candidateBudgetUsed: 0, cancelRequestedAt: null,
         lastErrorCode: null, leaseWorkerId: null, leaseToken: null,
         leaseExpiresAt: null, fencingToken: 0, updatedAt: input.createdAt,
@@ -98,6 +100,20 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
       state.runs.set(runKey(job.workspaceId, job.runId), job.id);
       state.records.set(job.id, []);
       return { created: true, job };
+    });
+  }
+
+  enqueue(workspaceId: string, runId: string, now: string) {
+    milliseconds(now);
+    return this.transaction((state) => {
+      const id = state.runs.get(runKey(workspaceId, runId));
+      const job = id ? state.jobs.get(id) : null;
+      if (!job) return null;
+      if (job.state === "scheduled") {
+        job.state = "queued";
+        job.updatedAt = now;
+      }
+      return job;
     });
   }
 
@@ -147,14 +163,21 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
       const job = this.fenced(state, fence, input.now);
       if (job.cancelRequestedAt) throw new Error("crawler_job_cancelled");
       if (job.cursor !== input.expectedCursor) throw new Error("crawler_cursor_conflict");
-      if (!input.done && (!input.nextCursor || input.nextCursor === input.expectedCursor)) {
+      if ((input.done && input.nextCursor !== null)
+        || (!input.done && (!input.nextCursor || input.nextCursor === input.expectedCursor))
+        || (input.nextCursor !== null && Buffer.byteLength(input.nextCursor, "utf8") > 512)) {
         throw new TypeError("invalid_crawler_next_cursor");
+      }
+      if (input.nextCursor !== null && job.cursorHistory.includes(input.nextCursor)) {
+        throw new Error("crawler_cursor_cycle");
       }
       input.records.forEach(assertNormalizedDouyinRecord);
       const stored = state.records.get(job.id)!;
       const identities = new Set(stored.map((record) => record.recordId));
       let dropped = false;
       for (const record of input.records) {
+        if ((record.kind === "creator" && !job.collectCreators)
+          || (record.kind === "comment" && !job.collectDemandComments)) continue;
         const candidate = record.kind !== "video";
         if (identities.has(record.recordId)) continue;
         if (candidate && job.candidateBudgetUsed >= job.dailyCandidateLimit) { dropped = true; continue; }
@@ -162,7 +185,9 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
         job.recordCount += 1;
         if (candidate) job.candidateBudgetUsed += 1;
       }
-      job.cursor = input.nextCursor; job.updatedAt = input.now;
+      job.cursor = input.nextCursor;
+      if (input.nextCursor !== null) job.cursorHistory.push(input.nextCursor);
+      job.updatedAt = input.now;
       if (input.done) {
         job.state = dropped ? "partial" : "succeeded";
         job.completedAt = input.now; clearLease(job);

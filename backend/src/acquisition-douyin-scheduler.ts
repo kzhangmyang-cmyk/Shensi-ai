@@ -8,6 +8,7 @@ export interface ScheduledDouyinPolicy {
   planSnapshotHash: string; policyVersionId: string; policyHash: string;
   accountId: string; accountLoginStateVersion: number; createdBy: string;
   keywords: string[]; dailyCandidateLimit: number;
+  collectCreators: boolean; collectDemandComments: boolean;
   schedule: { enabled: boolean; localTime: string; timeZone: string };
   limits: AcquisitionCrawlerLimits;
 }
@@ -53,7 +54,10 @@ export class AcquisitionDouyinScheduler {
         policyVersionId: policy.policyVersionId, policyHash: policy.policyHash,
         accountId: policy.accountId,
         accountLoginStateVersion: policy.accountLoginStateVersion,
-        dailyBudgetId, localDate, trigger: "scheduled", status: "queued",
+        dailyBudgetId, localDate, trigger: "scheduled",
+        collectCreators: policy.collectCreators,
+        collectDemandComments: policy.collectDemandComments,
+        status: "queued",
         reason: null, createdBy: policy.createdBy, createdAt: now
       };
       const run = this.options.runIntents
@@ -67,8 +71,11 @@ export class AcquisitionDouyinScheduler {
         dailyBudgetId: run.dailyBudgetId, localDate: run.localDate,
         trigger: run.trigger,
         dailyCandidateLimit: policy.dailyCandidateLimit, keywords: policy.keywords,
+        collectCreators: run.collectCreators,
+        collectDemandComments: run.collectDemandComments,
         limits: policy.limits, createdAt: run.createdAt
       });
+      await this.options.repository.enqueue(policy.workspaceId, run.id, now);
       if (result.created) created += 1;
     }
     return created;

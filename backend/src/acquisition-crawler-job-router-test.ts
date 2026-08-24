@@ -11,6 +11,7 @@ test("crawler status route is workspace-bound, closed and reads persisted Node s
     policyVersionId: "policy-1", policyHash: `sha256:${"a".repeat(64)}`,
     accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: `sha256:${"b".repeat(64)}`,
     localDate: "2026-08-24", trigger: "scheduled", dailyCandidateLimit: 5, keywords: ["pump"],
+    collectCreators: true, collectDemandComments: true,
     limits: { maxVideos: 1, maxCommentsPerVideo: 1, maxPagesPerVideo: 1, maxDurationSeconds: 60 },
     createdAt: "2026-08-24T00:00:00.000Z"
   });

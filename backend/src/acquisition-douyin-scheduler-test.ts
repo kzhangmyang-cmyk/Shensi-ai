@@ -19,6 +19,7 @@ test("scheduler uses policy timezone/local time and deduplicates repeated ticks"
       planSnapshotHash: `sha256:${"d".repeat(64)}`, policyVersionId: "policy-1",
       policyHash: `sha256:${"a".repeat(64)}`, accountId: "account-1", accountLoginStateVersion: 2,
       createdBy: "user-1", keywords: ["pump"], dailyCandidateLimit: 5,
+      collectCreators: true, collectDemandComments: false,
       schedule: { enabled: true, localTime: "09:30", timeZone: "Asia/Shanghai" },
       limits: { maxVideos: 1, maxCommentsPerVideo: 1, maxPagesPerVideo: 1, maxDurationSeconds: 60 }
     }]; } },
@@ -30,4 +31,6 @@ test("scheduler uses policy timezone/local time and deduplicates repeated ticks"
   const stored = await repository.findByRun("workspace-1", "persisted-run-1");
   assert.equal(stored?.localDate, "2026-08-24");
   assert.equal(stored?.trigger, "scheduled");
+  assert.equal(stored?.collectCreators, true);
+  assert.equal(stored?.collectDemandComments, false);
 });

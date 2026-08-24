@@ -242,6 +242,10 @@ test("Douyin automation OpenAPI closes policy and run-now inputs and outputs", (
       .additionalProperties,
     false
   );
+  assert.ok(runNow.responses["202"].content["application/json"].schema
+    .required.includes("collectCreators"));
+  assert.ok(runNow.responses["202"].content["application/json"].schema
+    .required.includes("collectDemandComments"));
   assert.ok(automation.put.responses["200"].headers.ETag);
   assert.ok(automation.put.responses["200"].headers["Idempotency-Replayed"]);
   assert.ok(runNow.responses["202"].headers["Idempotency-Replayed"]);

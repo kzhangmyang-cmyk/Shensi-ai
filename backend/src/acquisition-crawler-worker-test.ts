@@ -12,15 +12,18 @@ const job: AcquisitionCrawlerJobInput = {
   accountId: "account-1", accountLoginStateVersion: 2,
   dailyBudgetId: `sha256:${"b".repeat(64)}`, localDate: "2026-08-24", trigger: "run_now",
   dailyCandidateLimit: 10, keywords: ["pump"],
+  collectCreators: true, collectDemandComments: false,
   limits: { maxVideos: 1, maxCommentsPerVideo: 1, maxPagesPerVideo: 1, maxDurationSeconds: 60 }, createdAt: now
 };
 
 test("worker resumes from persisted cursor and never acknowledges sidecar pages", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   await repository.createOrGet(job);
+  await repository.enqueue("workspace-1", "run-1", now);
   const cursors: Array<string | null> = [];
+  const starts: unknown[] = [];
   const gateway = {
-    async startCrawlJob() { return { jobId: "crawler-1", state: "running" as const }; },
+    async startCrawlJob(input: unknown) { starts.push(input); return { jobId: "crawler-1", state: "running" as const }; },
     async getCrawlJob() { return { jobId: "crawler-1", state: "succeeded" as const }; },
     async getCrawlResults(_jobId: string, cursor: string | null) {
       cursors.push(cursor);
@@ -45,6 +48,8 @@ test("worker resumes from persisted cursor and never acknowledges sidecar pages"
   });
   assert.equal(await worker.runOnce(), true);
   assert.deepEqual(cursors, [null, "opaque-1"]);
+  assert.equal((starts[0] as { collectCreators: boolean }).collectCreators, true);
+  assert.equal((starts[0] as { collectDemandComments: boolean }).collectDemandComments, false);
   assert.equal((await repository.findByRun("workspace-1", "run-1"))?.state, "succeeded");
   await worker.close();
 });
@@ -52,6 +57,7 @@ test("worker resumes from persisted cursor and never acknowledges sidecar pages"
 test("worker rejects a changed private account binding before sidecar start", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   await repository.createOrGet(job);
+  await repository.enqueue("workspace-1", "run-1", now);
   let starts = 0;
   const worker = new AcquisitionCrawlerWorker({
     repository,

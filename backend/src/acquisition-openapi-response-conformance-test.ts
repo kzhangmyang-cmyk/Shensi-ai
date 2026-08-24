@@ -222,6 +222,8 @@ test("Douyin automation policy and run intent projections conform without privat
     dailyBudgetId: `sha256:${"b".repeat(64)}`,
     localDate: "2026-08-25",
     trigger: "run_now",
+    collectCreators: true,
+    collectDemandComments: true,
     status: "queued",
     reason: "人工立即采集",
     createdBy: OWNER,

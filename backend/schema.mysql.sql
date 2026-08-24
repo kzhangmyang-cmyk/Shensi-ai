@@ -2789,3 +2789,13 @@ CREATE TABLE acquisition_crawler_job_records (
   CONSTRAINT acquisition_crawler_record_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id),
   CONSTRAINT acquisition_crawler_record_hash CHECK (content_hash REGEXP '^sha256:[0-9a-f]{64}$')
 ) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_crawler_job_cursors (
+  job_id VARCHAR(255) NOT NULL,
+  page_sequence BIGINT UNSIGNED NOT NULL,
+  cursor_value VARBINARY(512) NOT NULL,
+  persisted_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (job_id,page_sequence),
+  UNIQUE KEY acquisition_crawler_cursor_unique (job_id,cursor_value),
+  CONSTRAINT acquisition_crawler_cursor_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id)
+) ENGINE=InnoDB;

@@ -1,4 +1,5 @@
 import multiprocessing
+import json
 import os
 import signal
 import subprocess
@@ -14,6 +15,8 @@ from fastapi.testclient import TestClient
 from shensi_adapter.accounts import AccountManager
 from shensi_adapter.browser_state import MediaCrawlerDouyinBrowserState
 from shensi_adapter.app import create_app, validate_encrypted_profile_root
+from shensi_adapter.crawl_jobs import CrawlJobManager
+from shensi_adapter.schemas import CrawlJobRequest
 
 
 class FakeBrowser:
@@ -260,7 +263,7 @@ def test_account_manager_emits_only_short_lived_safe_login_view_and_closes_expir
     assert browser.closed == 1
 
 
-def test_account_manager_reloads_durable_active_metadata_and_removes_expired_profile(tmp_path):
+def test_account_manager_reloads_durable_active_metadata_and_retains_it_after_qr_expiry(tmp_path):
     now = datetime(2026, 8, 24, tzinfo=UTC)
     browser = FakeBrowser()
     manager = AccountManager(tmp_path, browser, now=lambda: now, session_ttl=timedelta(minutes=1))
@@ -268,6 +271,9 @@ def test_account_manager_reloads_durable_active_metadata_and_removes_expired_pro
     session = manager.create_login_session()
     active = manager.get_login_session(session.session_id)
     profile_dirs = list((tmp_path / "profiles").iterdir())
+    account_metadata = profile_dirs[0] / ".shensi-connected-account.json"
+    assert account_metadata.is_file()
+    assert "expires_at" not in json.loads(account_metadata.read_text(encoding="utf-8"))
     manager.close()
 
     metadata = profile_dirs[0] / ".shensi-login-session.json"
@@ -285,7 +291,59 @@ def test_account_manager_reloads_durable_active_metadata_and_removes_expired_pro
     assert oct(profile_dirs[0].stat().st_mode & 0o777) == "0o700"
     assert oct(metadata.stat().st_mode & 0o777) == "0o600"
     assert restarted.sweep_expired(now + timedelta(minutes=2)) == 1
-    assert not profile_dirs[0].exists()
+    assert profile_dirs[0].exists()
+    assert restarted.resolve_crawl_profile(active.account_handle, 1) == profile_dirs[0]
+    restarted.close()
+
+
+@pytest.mark.parametrize("ephemeral", ["missing", "malformed"])
+def test_durable_active_account_can_crawl_after_qr_ttl_and_fresh_manager_restart(
+    tmp_path, ephemeral
+):
+    clock = [datetime(2026, 8, 24, tzinfo=UTC)]
+    manager = AccountManager(
+        tmp_path, FakeBrowser(), now=lambda: clock[0],
+        session_ttl=timedelta(minutes=1),
+    )
+    session = manager.create_login_session()
+    active = manager.get_login_session(session.session_id)
+    assert active.account_handle is not None
+    manager.close()
+
+    clock[0] += timedelta(minutes=2)
+    ephemeral_metadata = next((tmp_path / "profiles").iterdir()).joinpath(
+        ".shensi-login-session.json"
+    )
+    if ephemeral == "missing":
+        ephemeral_metadata.unlink()
+    else:
+        ephemeral_metadata.write_text("not-json", encoding="utf-8")
+    restarted = AccountManager(
+        tmp_path, FakeBrowser(), now=lambda: clock[0],
+        session_ttl=timedelta(minutes=1),
+    )
+    crawl = CrawlJobManager(
+        tmp_path,
+        account_resolver=restarted.resolve_crawl_profile,
+        runner=lambda *_: [],
+        now=lambda: clock[0],
+    )
+    crawl.start(CrawlJobRequest(
+        job_id="post-ttl-job", account_handle=active.account_handle,
+        login_state_version=1, keywords=["pump"], max_videos=1,
+        max_comments_per_video=1, max_pages_per_video=1,
+        collect_creators=True, collect_demand_comments=True,
+        deadline_at=clock[0] + timedelta(minutes=1),
+    ))
+
+    deadline = time.monotonic() + 1
+    while crawl.get("post-ttl-job").state not in {"succeeded", "failed"}:
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    assert crawl.get("post-ttl-job").state == "succeeded"
+    crawl.close()
+    restarted.disconnect(session.session_id)
+    assert not any((tmp_path / "profiles").iterdir())
     restarted.close()
 
 

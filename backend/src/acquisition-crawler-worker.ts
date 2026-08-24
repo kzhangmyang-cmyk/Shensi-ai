@@ -75,7 +75,10 @@ export class AcquisitionCrawlerWorker {
         loginStateVersion: job.accountLoginStateVersion, keywords: [...job.keywords],
         maxVideos: job.limits.maxVideos,
         maxCommentsPerVideo: job.limits.maxCommentsPerVideo,
-        maxPagesPerVideo: job.limits.maxPagesPerVideo, deadlineAt
+        maxPagesPerVideo: job.limits.maxPagesPerVideo,
+        deadlineAt,
+        collectCreators: job.collectCreators,
+        collectDemandComments: job.collectDemandComments
       }, this.controller.signal);
       while (true) {
         const persisted = await this.repository.findByRun(job.workspaceId, job.runId);

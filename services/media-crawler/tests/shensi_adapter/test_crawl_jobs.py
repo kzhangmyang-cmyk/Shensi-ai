@@ -15,7 +15,8 @@ from shensi_adapter.schemas import CrawlJobRequest
 NOW = datetime(2026, 8, 24, 1, 2, 3, tzinfo=UTC)
 
 
-def request(job_id="job-1", account_handle="account-private-1"):
+def request(job_id="job-1", account_handle="account-private-1", *,
+            collect_creators=True, collect_demand_comments=True):
     return CrawlJobRequest(
         job_id=job_id,
         account_handle=account_handle,
@@ -24,6 +25,8 @@ def request(job_id="job-1", account_handle="account-private-1"):
         max_videos=2,
         max_comments_per_video=2,
         max_pages_per_video=1,
+        collect_creators=collect_creators,
+        collect_demand_comments=collect_demand_comments,
         deadline_at=NOW + timedelta(minutes=5),
     )
 
@@ -87,6 +90,26 @@ def test_normalizer_emits_closed_bounded_records_with_stable_hashes():
     assert "cookie" not in encoded.lower()
     assert "raw_response" not in encoded.lower()
     assert normalize_douyin_records(fixtures(), observed_at=NOW)[0].content_hash == records[0].content_hash
+
+
+@pytest.mark.parametrize(("creators", "comments", "expected"), [
+    (True, False, ["video", "creator"]),
+    (False, True, ["video", "comment"]),
+])
+def test_manager_filters_disabled_frozen_record_kinds(tmp_path, creators, comments, expected):
+    manager = CrawlJobManager(
+        tmp_path, account_resolver=lambda *_: tmp_path / "profile",
+        runner=lambda *_: fixtures(), now=lambda: NOW,
+    )
+    manager.start(request(
+        f"flags-{int(creators)}-{int(comments)}",
+        collect_creators=creators,
+        collect_demand_comments=comments,
+    ))
+    job_id = f"flags-{int(creators)}-{int(comments)}"
+    assert wait_terminal(manager, job_id).state == "succeeded"
+    assert [record.kind for record in manager.page(job_id, None).records] == expected
+    manager.close()
 
 
 def test_manager_enforces_one_active_job_per_account_and_replays_opaque_cursor(tmp_path):
@@ -163,7 +186,64 @@ def test_manager_cancel_is_safe_and_acknowledged_pages_survive_restart_for_24_ho
         runner=lambda *_: [],
         now=lambda: NOW + timedelta(hours=24, seconds=1),
     )
-    assert expired.sweep_retained() == 1
+    assert expired.sweep_retained() == 0
     with pytest.raises(KeyError):
         expired.get("job-1")
     expired.close()
+
+
+def test_manager_sweeps_retention_on_startup_and_periodically_and_cleans_maps(tmp_path):
+    clock = [NOW]
+    manager = CrawlJobManager(
+        tmp_path, account_resolver=lambda *_: tmp_path / "profile",
+        runner=lambda *_: [], now=lambda: clock[0],
+        sweep_interval=timedelta(milliseconds=10),
+    )
+    manager.start(request("cleanup-job"))
+    assert wait_terminal(manager, "cleanup-job").state == "succeeded"
+    deadline = time.monotonic() + 1
+    while ("cleanup-job" in manager._threads or "cleanup-job" in manager._cancel):
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+
+    clock[0] += timedelta(hours=24, seconds=1)
+    deadline = time.monotonic() + 1
+    while (tmp_path / "crawl-jobs" / "cleanup-job").exists():
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    assert "cleanup-job" not in manager._jobs
+    manager.close()
+
+    restarted = CrawlJobManager(
+        tmp_path, account_resolver=lambda *_: tmp_path / "profile",
+        runner=lambda *_: [], now=lambda: clock[0],
+        sweep_interval=timedelta(hours=1),
+    )
+    with pytest.raises(KeyError):
+        restarted.get("cleanup-job")
+    restarted.close()
+
+
+def test_manager_close_uses_one_global_deadline_for_all_workers(tmp_path):
+    release = threading.Event()
+    entered = [threading.Event(), threading.Event()]
+
+    def blocking_runner(job, _profile, _cancelled):
+        entered[int(job.job_id[-1]) - 1].set()
+        release.wait(2)
+        return []
+
+    manager = CrawlJobManager(
+        tmp_path, account_resolver=lambda *_: tmp_path / "profile",
+        runner=blocking_runner, now=lambda: NOW,
+        shutdown_timeout=0.05,
+    )
+    manager.start(request("worker-1", "account-1"))
+    manager.start(request("worker-2", "account-2"))
+    assert all(event.wait(1) for event in entered)
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="crawl_job_shutdown_timeout"):
+        manager.close()
+    assert time.monotonic() - started < 0.15
+    release.set()

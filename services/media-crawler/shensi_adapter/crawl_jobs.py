@@ -80,6 +80,8 @@ class MediaCrawlerRunner:
             "keywords": request.keywords, "max_videos": request.max_videos,
             "max_comments_per_video": request.max_comments_per_video,
             "max_pages_per_video": request.max_pages_per_video,
+            "collect_creators": request.collect_creators,
+            "collect_demand_comments": request.collect_demand_comments,
         })
         command = [sys.executable, "-m", "shensi_adapter.crawl_jobs", "--execute", str(spec)]
         process = subprocess.Popen(command, cwd=self._service_root, start_new_session=True,
@@ -105,9 +107,13 @@ class MediaCrawlerRunner:
 class CrawlJobManager:
     def __init__(self, root: Path, *, account_resolver: Callable[[str, int], Path],
                  runner: Runner | None = None, now: Callable[[], datetime] | None = None,
-                 page_size: int = 25, retention: timedelta = timedelta(hours=24)) -> None:
+                 page_size: int = 25, retention: timedelta = timedelta(hours=24),
+                 sweep_interval: timedelta = timedelta(minutes=5),
+                 shutdown_timeout: float = 3.0) -> None:
         if page_size < 1 or page_size > 200:
             raise ValueError("invalid_crawl_page_size")
+        if sweep_interval.total_seconds() <= 0 or shutdown_timeout <= 0:
+            raise ValueError("invalid_crawl_lifecycle_bounds")
         self._root = root.resolve() / "crawl-jobs"
         self._root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self._root, 0o700)
@@ -115,12 +121,27 @@ class CrawlJobManager:
         self._runner = runner or MediaCrawlerRunner()
         self._now = now or (lambda: datetime.now(UTC))
         self._page_size, self._retention = page_size, retention
+        self._sweep_interval = sweep_interval.total_seconds()
+        self._shutdown_timeout = shutdown_timeout
         self._lock = threading.RLock()
         self._jobs: dict[str, dict] = {}
         self._cancel: dict[str, threading.Event] = {}
         self._threads: dict[str, threading.Thread] = {}
-        self._closed = False
+        self._closed = threading.Event()
         self._load()
+        self.sweep_retained()
+        self._sweeper = threading.Thread(
+            target=self._sweep_loop, name="douyin-crawl-retention-sweeper",
+            daemon=True,
+        )
+        self._sweeper.start()
+
+    def _sweep_loop(self) -> None:
+        while not self._closed.wait(self._sweep_interval):
+            try:
+                self.sweep_retained()
+            except Exception:
+                continue
 
     def _directory(self, job_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,254}", job_id):
@@ -155,7 +176,7 @@ class CrawlJobManager:
 
     def start(self, request: CrawlJobRequest) -> CrawlJobView:
         with self._lock:
-            if self._closed:
+            if self._closed.is_set():
                 raise RuntimeError("crawl_job_manager_closed")
             existing = self._jobs.get(request.job_id)
             if existing and existing["request"] != request.model_dump(mode="json"):
@@ -192,6 +213,11 @@ class CrawlJobManager:
                 self._persist(job)
             values = list(self._runner(request, profile, cancelled))
             records = values if all(isinstance(value, NormalizedDouyinRecord) for value in values) else normalize_douyin_records(values, observed_at=self._now())
+            records = [record for record in records if (
+                record.kind == "video"
+                or (record.kind == "creator" and request.collect_creators)
+                or (record.kind == "comment" and request.collect_demand_comments)
+            )]
             with self._lock:
                 job = self._jobs[request.job_id]
                 if cancelled.is_set():
@@ -217,6 +243,11 @@ class CrawlJobManager:
                 if job:
                     job["failure_code"] = "crawl_failed"
                     self._finish(job, "failed")
+        finally:
+            with self._lock:
+                if self._threads.get(request.job_id) is threading.current_thread():
+                    self._threads.pop(request.job_id, None)
+                    self._cancel.pop(request.job_id, None)
 
     def _finish(self, job: dict, state: str) -> None:
         instant = self._now().isoformat()
@@ -261,20 +292,23 @@ class CrawlJobManager:
             for job_id in expired:
                 shutil.rmtree(self._directory(job_id))
                 self._jobs.pop(job_id, None)
+                self._cancel.pop(job_id, None)
+                self._threads.pop(job_id, None)
             return len(expired)
 
     def close(self) -> None:
         with self._lock:
-            if self._closed:
+            if self._closed.is_set():
                 return
-            self._closed = True
+            self._closed.set()
             for event in self._cancel.values():
                 event.set()
             threads = list(self._threads.values())
-        for thread in threads:
-            thread.join(timeout=3)
-            if thread.is_alive():
-                raise RuntimeError("crawl_job_shutdown_timeout")
+        deadline = time.monotonic() + self._shutdown_timeout
+        for thread in [self._sweeper, *threads]:
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        if self._sweeper.is_alive() or any(thread.is_alive() for thread in threads):
+            raise RuntimeError("crawl_job_shutdown_timeout")
 
 
 def _execute_upstream(spec_path: Path) -> None:
@@ -285,7 +319,7 @@ def _execute_upstream(spec_path: Path) -> None:
     config.LOGIN_TYPE = "qrcode"
     config.CRAWLER_TYPE = "search"
     config.KEYWORDS = ",".join(value["keywords"])
-    config.ENABLE_GET_COMMENTS = True
+    config.ENABLE_GET_COMMENTS = bool(value["collect_demand_comments"])
     config.ENABLE_GET_SUB_COMMENTS = False
     config.SAVE_DATA_OPTION = "jsonl"
     config.SAVE_DATA_PATH = value["output"]

@@ -79,6 +79,8 @@ export interface DouyinAutomationRunIntent {
   dailyBudgetId: string;
   localDate: string;
   trigger: "run_now" | "scheduled";
+  collectCreators: boolean;
+  collectDemandComments: boolean;
   status: "queued";
   reason: string | null;
   createdBy: string;

@@ -655,6 +655,8 @@ test("run-now freezes plan, policy, account, login and shared daily budget ident
   assert.equal(first.value.accountId, "account-1");
   assert.equal(first.value.accountLoginStateVersion, 7);
   assert.equal(first.value.localDate, "2026-08-25");
+  assert.equal(first.value.collectCreators, true);
+  assert.equal(first.value.collectDemandComments, true);
   assert.match(first.value.dailyBudgetId, /^sha256:[a-f0-9]{64}$/u);
 
   const replay = await service.runNow(

@@ -43,6 +43,8 @@ def test_service_schemas_are_closed():
             max_videos=1,
             max_comments_per_video=1,
             max_pages_per_video=1,
+            collect_creators=True,
+            collect_demand_comments=True,
             deadline_at=NOW,
         ),
         NormalizedDouyinRecord(

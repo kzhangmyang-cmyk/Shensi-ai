@@ -49,7 +49,16 @@ export const acquisitionCrawlerJobRecordsDdl = `CREATE TABLE IF NOT EXISTS acqui
   CONSTRAINT acquisition_crawler_record_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id),
   CONSTRAINT acquisition_crawler_record_hash CHECK (content_hash REGEXP '^sha256:[0-9a-f]{64}$')
 ) ENGINE=InnoDB`;
-export const acquisitionCrawlerJobDdls = [acquisitionCrawlerJobsDdl, acquisitionCrawlerJobRunsDdl, acquisitionCrawlerJobRecordsDdl] as const;
+export const acquisitionCrawlerJobCursorsDdl = `CREATE TABLE IF NOT EXISTS acquisition_crawler_job_cursors (
+  job_id VARCHAR(255) NOT NULL,
+  page_sequence BIGINT UNSIGNED NOT NULL,
+  cursor_value VARBINARY(512) NOT NULL,
+  persisted_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (job_id,page_sequence),
+  UNIQUE KEY acquisition_crawler_cursor_unique (job_id,cursor_value),
+  CONSTRAINT acquisition_crawler_cursor_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id)
+) ENGINE=InnoDB`;
+export const acquisitionCrawlerJobDdls = [acquisitionCrawlerJobsDdl, acquisitionCrawlerJobRunsDdl, acquisitionCrawlerJobRecordsDdl, acquisitionCrawlerJobCursorsDdl] as const;
 
 export async function ensureAcquisitionCrawlerJobMysqlSchema(pool: Pick<mysql.Pool, "query">) {
   for (const ddl of acquisitionCrawlerJobDdls) await pool.query(ddl);
@@ -78,13 +87,29 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
   private async locked(connection: mysql.PoolConnection, fence: AcquisitionCrawlerJobFence, now: string) {
     const result = rows(await connection.query(`SELECT payload_json FROM acquisition_crawler_jobs WHERE id=? FOR UPDATE`, [fence.jobId]));
     const job = result[0] ? parsed<AcquisitionCrawlerJob>(result[0].payload_json) : null;
+    if (job && !Array.isArray(job.cursorHistory)) job.cursorHistory = [];
     if (!job || job.state !== "running" || job.leaseWorkerId !== fence.workerId || job.leaseToken !== fence.leaseToken
       || job.fencingToken !== fence.fencingToken || !job.leaseExpiresAt || at(now) >= at(job.leaseExpiresAt)) throw new Error("stale_crawler_job_fence");
     return job;
   }
 
-  createOrGet(input: AcquisitionCrawlerJobInput) {
+  async createOrGet(input: AcquisitionCrawlerJobInput) {
     assertCrawlerJobInput(input);
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.createOrGetOnce(input);
+      } catch (error) {
+        lastError = error;
+        const mysqlError = error as { code?: string; errno?: number };
+        if (!["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT", "ER_DUP_ENTRY"].includes(mysqlError.code ?? "")
+          && ![1213, 1205, 1062].includes(mysqlError.errno ?? -1)) throw error;
+      }
+    }
+    throw lastError;
+  }
+
+  private createOrGetOnce(input: AcquisitionCrawlerJobInput) {
     return this.transaction(async (connection) => {
       const aliases = rows(await connection.query(
         `SELECT job_id FROM acquisition_crawler_job_runs WHERE workspace_id=? AND run_id=? FOR UPDATE`,
@@ -102,13 +127,33 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
         await this.save(connection, job); return { created: false, job };
       }
       if (aliases[0]) throw new Error("crawler_job_identity_conflict");
-      const job: AcquisitionCrawlerJob = { ...structuredClone(input), maxAttempts: input.maxAttempts ?? 3, state: "queued", runIds: [input.runId], attempt: 0,
-        cursor: null, recordCount: 0, candidateBudgetUsed: 0, cancelRequestedAt: null, lastErrorCode: null,
+      const job: AcquisitionCrawlerJob = { ...structuredClone(input), maxAttempts: input.maxAttempts ?? 3, state: "scheduled", runIds: [input.runId], attempt: 0,
+        cursor: null, cursorHistory: [], recordCount: 0, candidateBudgetUsed: 0, cancelRequestedAt: null, lastErrorCode: null,
         leaseWorkerId: null, leaseToken: null, leaseExpiresAt: null, fencingToken: 0, updatedAt: input.createdAt, completedAt: null };
       await connection.query(`INSERT INTO acquisition_crawler_jobs (id,workspace_id,plan_id,policy_version_id,local_date,state,payload_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
         [job.id, job.workspaceId, job.planId, job.policyVersionId, job.localDate, job.state, json(job), job.createdAt, job.updatedAt]);
       await connection.query(`INSERT INTO acquisition_crawler_job_runs (workspace_id,run_id,job_id,created_at) VALUES (?,?,?,?)`, [job.workspaceId, job.runId, job.id, job.createdAt]);
       return { created: true, job };
+    });
+  }
+
+  enqueue(workspaceId: string, runId: string, now: string) {
+    at(now);
+    return this.transaction(async (connection) => {
+      const result = rows(await connection.query(
+        `SELECT j.payload_json FROM acquisition_crawler_job_runs r
+         INNER JOIN acquisition_crawler_jobs j ON j.id=r.job_id
+         WHERE r.workspace_id=? AND r.run_id=? FOR UPDATE`,
+        [workspaceId, runId]
+      ));
+      if (!result[0]) return null;
+      const job = parsed<AcquisitionCrawlerJob>(result[0].payload_json);
+      if (job.state === "scheduled") {
+        job.state = "queued";
+        job.updatedAt = now;
+        await this.save(connection, job);
+      }
+      return job;
     });
   }
 
@@ -140,8 +185,13 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
       const job = await this.locked(connection, fence, input.now);
       if (job.cancelRequestedAt) throw new Error("crawler_job_cancelled");
       if (job.cursor !== input.expectedCursor) throw new Error("crawler_cursor_conflict");
-      if (!input.done && (!input.nextCursor || input.nextCursor === input.expectedCursor)) {
+      if ((input.done && input.nextCursor !== null)
+        || (!input.done && (!input.nextCursor || input.nextCursor === input.expectedCursor))
+        || (input.nextCursor !== null && Buffer.byteLength(input.nextCursor, "utf8") > 512)) {
         throw new TypeError("invalid_crawler_next_cursor");
+      }
+      if (input.nextCursor !== null && job.cursorHistory.includes(input.nextCursor)) {
+        throw new Error("crawler_cursor_cycle");
       }
       input.records.forEach(assertNormalizedDouyinRecord);
       const countRows = rows(await connection.query(`SELECT COALESCE(MAX(sequence_no),0) AS sequence_no FROM acquisition_crawler_job_records WHERE job_id=? FOR UPDATE`, [job.id]));
@@ -152,6 +202,8 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
       ));
       const identities = new Set(prior.map((row) => String(row.record_id)));
       for (const record of input.records) {
+        if ((record.kind === "creator" && !job.collectCreators)
+          || (record.kind === "comment" && !job.collectDemandComments)) continue;
         if (identities.has(record.recordId)) continue;
         if (record.kind !== "video" && job.candidateBudgetUsed >= job.dailyCandidateLimit) { dropped = true; continue; }
         const [result] = await connection.query(`INSERT INTO acquisition_crawler_job_records (job_id,sequence_no,record_id,content_hash,payload_json,persisted_at) VALUES (?,?,?,?,?,?)`,
@@ -161,7 +213,15 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
           if (record.kind !== "video") job.candidateBudgetUsed += 1;
         }
       }
-      job.cursor = input.nextCursor; job.updatedAt = input.now;
+      job.cursor = input.nextCursor;
+      if (input.nextCursor !== null) {
+        await connection.query(
+          `INSERT INTO acquisition_crawler_job_cursors (job_id,page_sequence,cursor_value,persisted_at) VALUES (?,?,?,?)`,
+          [job.id, job.cursorHistory.length + 1, input.nextCursor, input.now]
+        );
+        job.cursorHistory.push(input.nextCursor);
+      }
+      job.updatedAt = input.now;
       if (input.done) { job.state = dropped ? "partial" : "succeeded"; job.completedAt = input.now; clearLease(job); }
       await this.save(connection, job); return job;
     });

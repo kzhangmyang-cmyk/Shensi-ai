@@ -62,10 +62,14 @@ daily-budget identities consumed by the scheduler and crawler.
 
 Crawler execution uses `acquisition_crawler_jobs`,
 `acquisition_crawler_job_runs`, and append-only
-`acquisition_crawler_job_records`. A unique daily key makes scheduled and
-run-now triggers share one candidate budget. Random 64-hex lease tokens and a
-monotonic fencing token reject exact-expiry, stale, and same-worker ABA writes;
-the result cursor advances only in the Node transaction that persists records.
+`acquisition_crawler_job_records` plus unique cursor-history rows. Jobs are
+persisted as `scheduled` before the idempotent enqueue transition makes them
+claimable. A unique daily key makes scheduled and run-now triggers share one
+candidate budget. Random 64-hex lease tokens and a monotonic fencing token
+reject exact-expiry, stale, and same-worker ABA writes; the result cursor and
+its non-reusable history advance only in the Node transaction that persists
+records. Frozen creator/comment collection flags are enforced at both the
+sidecar normalization boundary and repository persistence boundary.
 
 ## Public Interfaces
 
@@ -115,12 +119,16 @@ it. The sidecar corrects owned profile directories to `0700` and metadata to
 group;
 startup, commands, and shutdown are bounded, and a timed-out command hard
 terminates that process. Graceful ASGI shutdown closes live browser handles
-but retains safe active metadata/profile state for restart. Only explicit
-disconnect or expiry deletes valid state. During reload, the sidecar treats
-invalid, missing, malformed, symlinked, or unreadable metadata as quarantined
-and deletes the affected profile instead of reconstructing a session.
+but retains safe active metadata/profile state for restart. QR-session expiry
+deletes only an unconnected login attempt; a connected account has independent
+durable metadata and is removed only by explicit disconnect or replacement.
+Malformed, symlinked, or unreadable durable account metadata is quarantined;
+missing or malformed ephemeral QR metadata does not invalidate a valid
+connected account.
 Terminal crawler pages are immutable and replayable by opaque cursor for 24
 hours, allowing Node to recover persistence without a sidecar acknowledgement.
+The sidecar sweeps retained pages at startup and periodically, and uses one
+bounded deadline to stop its sweeper and all active crawl workers.
 
 ## Known Limitations
 
