@@ -64,6 +64,7 @@ class NormalizedDouyinRecord(BaseModel):
 
     record_id: str
     kind: Literal["video", "creator", "comment"]
+    actor_kind: Literal["creator", "commenter"] | None
     canonical_url: AnyHttpUrl
     public_display_name: str
     public_profile_url: AnyHttpUrl | None

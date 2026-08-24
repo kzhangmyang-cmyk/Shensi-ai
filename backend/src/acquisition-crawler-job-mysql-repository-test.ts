@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import mysql from "mysql2/promise";
 import {
   ensureAcquisitionDouyinAutomationMysqlSchema
@@ -8,18 +9,31 @@ import {
 import { ensureAcquisitionMysqlSchema } from "./acquisition-mysql-repositories.js";
 import {
   acquisitionCrawlerJobDdls,
+  acquisitionCrawlerJobMigrationStatements,
   ensureAcquisitionCrawlerJobMysqlSchema,
   MysqlAcquisitionCrawlerJobRepository
 } from "./acquisition-crawler-job-mysql-repository.js";
 import { normalizedDouyinContentHash } from "./acquisition-crawler-job.js";
+import { canonicalJsonStringify } from "./canonical-json.js";
 
 test("crawler MySQL schema has durable jobs, daily aliases, append-only records and fencing", async () => {
   const sql: string[] = [];
   await ensureAcquisitionCrawlerJobMysqlSchema({
     async query(statement: string) { sql.push(statement); return [[], []]; }
   } as never);
-  assert.equal(sql.length, acquisitionCrawlerJobDdls.length);
-  const ddl = sql.join("\n");
+  assert.deepEqual(
+    sql.slice(0, acquisitionCrawlerJobDdls.length),
+    acquisitionCrawlerJobDdls
+  );
+  assert.deepEqual(
+    sql.slice(
+      acquisitionCrawlerJobDdls.length,
+      acquisitionCrawlerJobDdls.length
+        + acquisitionCrawlerJobMigrationStatements.length
+    ),
+    acquisitionCrawlerJobMigrationStatements
+  );
+  const ddl = acquisitionCrawlerJobDdls.join("\n");
   assert.match(ddl, /UNIQUE KEY acquisition_crawler_job_daily/u);
   assert.match(ddl, /lease_token CHAR\(64\)/u);
   assert.match(ddl, /fencing_token BIGINT UNSIGNED/u);
@@ -31,6 +45,105 @@ test("crawler MySQL schema has durable jobs, daily aliases, append-only records 
   assert.match(ddl, /REFERENCES acquisition_douyin_run_intents\(id\)/u);
   assert.match(ddl, /PRIMARY KEY \(workspace_id,run_id\)/u);
   assert.match(ddl, /PRIMARY KEY \(workspace_id,automation_intent_id\)/u);
+  assert.match(ddl, /run_id VARCHAR\(160\)/u);
+  const migration = acquisitionCrawlerJobMigrationStatements.join("\n");
+  assert.match(migration, /b\.acquisition_run_id <> r\.run_id/u);
+});
+
+test("checked-in schemas define authoritative runs before alias foreign keys", () => {
+  for (const name of ["schema.mysql.sql", "goodjob_crm.full.sql"]) {
+    const sql = readFileSync(new URL(`../${name}`, import.meta.url), "utf8");
+    const runTable = sql.indexOf("CREATE TABLE acquisition_runs (");
+    const binding = sql.indexOf("CREATE TABLE acquisition_douyin_run_bindings (");
+    const crawlerAlias = sql.indexOf("CREATE TABLE acquisition_crawler_job_runs (");
+    assert.ok(runTable >= 0, `${name}: acquisition_runs missing`);
+    assert.ok(runTable < binding, `${name}: run binding import order`);
+    assert.ok(runTable < crawlerAlias, `${name}: crawler alias import order`);
+    assert.match(sql, /acquisition_run_id VARCHAR\(160\)/u);
+    assert.match(sql, /run_id VARCHAR\(160\) NOT NULL,[\s\S]*acquisition_crawler_job_run_job/u);
+  }
+});
+
+test("restart fails closed on an unmigrated Task-4 mixed alias payload", async () => {
+  const legacy = {
+    id: "legacy-job", workspaceId: "workspace-1",
+    runId: "legacy-automation-intent", planId: "plan-1",
+    planVersionId: "plan-version-1", planSnapshotHash: "plan-hash-1",
+    policyVersionId: "policy-1", policyHash: `sha256:${"a".repeat(64)}`,
+    accountId: "account-1", accountLoginStateVersion: 1,
+    dailyBudgetId: `sha256:${"b".repeat(64)}`, localDate: "2026-08-24",
+    trigger: "scheduled", dailyCandidateLimit: 2, keywords: ["pump"],
+    collectCreators: true, collectDemandComments: true,
+    limits: { maxVideos: 1, maxCommentsPerVideo: 1, maxPagesPerVideo: 1,
+      maxDurationSeconds: 60 }, createdAt: "2026-08-24T00:00:00.000Z",
+    maxAttempts: 3, state: "succeeded", attempt: 1, cursor: null,
+    recordCount: 0, candidateBudgetUsed: 0, cancelRequestedAt: null,
+    lastErrorCode: null, leaseWorkerId: null, leaseToken: null,
+    leaseExpiresAt: null, fencingToken: 1, updatedAt: "2026-08-24T00:00:01.000Z",
+    completedAt: "2026-08-24T00:00:01.000Z"
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository({
+    async query(sql: string) {
+      return [sql.includes("acquisition_crawler_job_runs")
+        ? [{ payload_json: legacy }] : [], []];
+    }
+  } as never);
+  await assert.rejects(
+    repository.findByRun("workspace-1", "authoritative-run"),
+    /crawler_job_alias_migration_required:legacy-job/u
+  );
+});
+
+test("restart derives a legacy record discriminator only after its Task-4 hash validates", async () => {
+  const legacyRecord = {
+    recordId: "comment-1", kind: "comment" as const,
+    canonicalUrl: "https://www.douyin.com/video/video-1?cid=comment-1",
+    publicDisplayName: "Commenter",
+    publicProfileUrl: "https://www.douyin.com/user/sec-commenter-1",
+    textExcerpt: "need this pump", sourceKeyword: "pump",
+    observedAt: "2026-08-24T00:00:03.000Z", pageCursor: "cursor-1",
+    contentHash: ""
+  };
+  legacyRecord.contentHash = `sha256:${createHash("sha256").update(
+    canonicalJsonStringify({
+      canonical_url: legacyRecord.canonicalUrl,
+      kind: legacyRecord.kind,
+      public_display_name: legacyRecord.publicDisplayName,
+      public_profile_url: legacyRecord.publicProfileUrl,
+      record_id: legacyRecord.recordId,
+      source_keyword: legacyRecord.sourceKeyword,
+      text_excerpt: legacyRecord.textExcerpt
+    }), "utf8"
+  ).digest("hex")}`;
+  const repository = new MysqlAcquisitionCrawlerJobRepository({
+    async query() { return [[{ payload_json: JSON.stringify(legacyRecord) }], []]; }
+  } as never);
+
+  const [record] = await repository.listRecords("legacy-job");
+  assert.equal(record?.actorKind, "commenter");
+  assert.equal(record?.pageCursor, "cursor-1");
+  assert.equal(record?.contentHash, legacyRecord.contentHash);
+});
+
+test("restart rejects a legacy record whose pre-discriminator hash was altered", async () => {
+  const repository = new MysqlAcquisitionCrawlerJobRepository({
+    async query() {
+      return [[{ payload_json: JSON.stringify({
+        recordId: "creator-1", kind: "creator",
+        canonicalUrl: "https://www.douyin.com/user/sec-creator-1",
+        publicDisplayName: "Creator",
+        publicProfileUrl: "https://www.douyin.com/user/sec-creator-1",
+        textExcerpt: "pump", sourceKeyword: "pump",
+        observedAt: "2026-08-24T00:00:03.000Z", pageCursor: null,
+        contentHash: `sha256:${"0".repeat(64)}`
+      }) }], []];
+    }
+  } as never);
+
+  await assert.rejects(
+    repository.listRecords("legacy-job"),
+    /normalized_douyin_legacy_content_hash_mismatch/u
+  );
 });
 
 test("MySQL daily creation retries duplicate and deadlock races and returns the committed winner", async () => {
@@ -203,7 +316,8 @@ test("live MySQL preserves lease ABA fencing and cursor/record atomicity", {
     assert.equal(await repository.sweepExpired("2026-08-24T00:00:02.000Z"), 1);
     const second = await repository.claimNext("worker-A", "2026-08-24T00:00:03.000Z", 5_000);
     assert.ok(second); assert.notEqual(second.fence.leaseToken, first.fence.leaseToken);
-    const record = { recordId: "video-1", kind: "video" as const, canonicalUrl: "https://www.douyin.com/video/1",
+    const record = { recordId: "video-1", kind: "video" as const, actorKind: null,
+      canonicalUrl: "https://www.douyin.com/video/1",
       publicDisplayName: "Maker", publicProfileUrl: null, textExcerpt: "pump", sourceKeyword: "pump",
       observedAt: "2026-08-24T00:00:03.000Z", contentHash: "" };
     record.contentHash = normalizedDouyinContentHash(record);

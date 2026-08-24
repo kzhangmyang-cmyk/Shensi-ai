@@ -22,7 +22,8 @@ export interface DouyinCrawlerEvidence {
   supersedesEvidenceId: string | null;
   provenance: {
     kind: "mediacrawler_public_record";
-    jobId: string; recordId: string; cursor: string | null; upstreamCommit: string;
+    jobId: string; recordId: string; actorKind: "creator" | "commenter";
+    cursor: string | null; upstreamCommit: string;
   };
 }
 
@@ -84,9 +85,10 @@ function publicActorKey(record: NormalizedDouyinRecord) {
   if (!profile || Buffer.byteLength(profile, "utf8") > 2_000) return "";
   try {
     const url = new URL(profile);
+    const match = /^\/user\/([A-Za-z0-9_-]{1,300})$/u.exec(url.pathname);
     return url.protocol === "https:" && url.hostname === "www.douyin.com"
-      ? `douyin:${url.pathname.replace(/\/+$/u, "")}`
-      : "";
+      && url.port === "" && url.search === "" && url.hash === "" && match
+      ? `douyin:/user/${match[1]}` : "";
   } catch { return ""; }
 }
 
@@ -168,7 +170,8 @@ export async function ingestDouyinCrawlerPage(input: {
               kind: "mediacrawler_public_record",
               jobId: job.id,
               recordId: record.recordId,
-              cursor: job.cursor,
+              actorKind: record.actorKind!,
+              cursor: record.pageCursor,
               upstreamCommit: MEDIACRAWLER_PINNED_UPSTREAM_COMMIT
             }
           });

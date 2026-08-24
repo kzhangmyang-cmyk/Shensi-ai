@@ -74,6 +74,17 @@ reject exact-expiry, stale, and same-worker ABA writes; the result cursor and
 its non-reusable history advance only in the Node transaction that persists
 records. Frozen creator/comment collection flags are enforced at both the
 sidecar normalization boundary and repository persistence boundary. Terminal
+records retain their own input page cursor even after the terminal job cursor
+becomes null. Comment records derive a stable public actor from real
+MediaCrawler author fields and persist `commenter`, while creator records
+persist `creator`; an empty or root Douyin identity is invalid. The private
+runner captures only these bounded public actor fields before upstream's
+general JSONL anonymization, and never turns `creator_hash` into a profile URL.
+Late same-day aliases reopen only terminal ingestion and project already
+persisted facts into the newly bound authoritative run without recrawling.
+Crawler and ingestion claims alternate under load and prefer another workspace
+when one is ready.
+Terminal
 jobs have a second random fenced ingestion claim. Its transaction writes
 `acquisition_discovery_evidence`, `acquisition_candidates`, candidate identity
 aliases and audits through the existing acquisition domain repository, then
@@ -106,7 +117,10 @@ The run-now response contains `id` for the automation intent and
 `acquisitionRunId` for the authoritative run. Crawler status and candidate
 routes take the latter. `GET /api/v1/acquisition/runs/{runId}/candidates`
 returns 404 for a non-authoritative or foreign run ID and reads only persisted
-run-candidate links. Its default feed excludes permanent DNC candidates.
+run-candidate links. Run IDs are bounded to the authoritative 160-character
+storage width. Its default feed excludes permanent DNC candidates, as do the
+general candidate and priority-candidate feeds; explicit DNC-status reads are
+reserved for audit/review paths.
 The editable contract is `contracts/openapi/ai-acquisition.v1.yaml`; frontend
 code consumes `frontend/src/generated/ai-acquisition.ts`.
 `GET /api/v1/acquisition/runs/{runId}/crawler-status` returns only the closed,
@@ -146,9 +160,10 @@ Terminal crawler pages are immutable and replayable by opaque cursor until
 Node atomically persists authoritative evidence/candidates/run links and sends
 a durable acknowledgement. The acknowledgement timestamp, not a read or crawl
 completion, starts the 24-hour cleanup clock. The sidecar sweeps acknowledged
-pages at startup and periodically and uses one bounded deadline to stop its
-sweeper and all active crawl workers. Failed/cancelled terminal metadata with
-no result pages may be removed 24 hours after completion. Backend cleanup
+pages and the corresponding private upstream capture at startup and
+periodically, and uses one bounded deadline to stop its sweeper and all active
+crawl workers. Failed/cancelled terminal metadata with no result pages may be
+removed 24 hours after completion. Backend cleanup
 removes unlinked crawler evidence 90 days after ingestion while preserving
 linked evidence, DNC identity hashes, and audit events.
 

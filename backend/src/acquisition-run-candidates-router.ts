@@ -69,10 +69,24 @@ export function createAcquisitionRunCandidatesRouter(options: {
     if (!user?.id || !user.teamId || !workspace || workspace.actorId !== user.id || workspace.teamId !== user.teamId) {
       fail(res, 401, "workspace_context_invalid", requestId); return;
     }
-    const runId = String(req.params.runId ?? "").trim();
-    const status = typeof req.query.status === "string" && req.query.status.trim() ? req.query.status.trim() : null;
+    const rawRunId = String(req.params.runId ?? "");
+    const runId = rawRunId.trim();
+    const statusQuery = req.query.status;
+    const cursorQuery = req.query.cursor;
+    const rawStatus = typeof statusQuery === "string" ? statusQuery : null;
+    const status = rawStatus?.trim() ?? null;
+    const rawCursor = typeof cursorQuery === "string" ? cursorQuery : null;
     const rawLimit = typeof req.query.limit === "string" ? Number(req.query.limit) : 50;
-    if (!runId || !Number.isSafeInteger(rawLimit) || rawLimit < 1 || rawLimit > 100) { fail(res, 400, "invalid_request", requestId); return; }
+    if (!runId || [...rawRunId].length > 160
+      || (statusQuery !== undefined
+        && (typeof statusQuery !== "string" || !status))
+      || (cursorQuery !== undefined
+        && (typeof cursorQuery !== "string" || cursorQuery.length === 0))
+      || (rawStatus ? [...rawStatus].length : 0) > 100
+      || (rawCursor ? [...rawCursor].length : 0) > 8_192
+      || !Number.isSafeInteger(rawLimit) || rawLimit < 1 || rawLimit > 100) {
+      fail(res, 400, "invalid_request", requestId); return;
+    }
     const listed = await options.repository.list(workspace.workspaceId, runId);
     if (listed === null) {
       fail(res, 404, "acquisition_run_not_found", requestId);
@@ -87,8 +101,8 @@ export function createAcquisitionRunCandidatesRouter(options: {
       : all.filter((item) => item.status !== "do_not_contact");
     const hash = filterHash(status); const currentSnapshot = snapshot(filtered);
     let offset = 0;
-    if (typeof req.query.cursor === "string") {
-      const cursor = decode(req.query.cursor, options.cursorSecret);
+    if (rawCursor !== null) {
+      const cursor = decode(rawCursor, options.cursorSecret);
       if (!cursor || cursor.workspaceId !== workspace.workspaceId || cursor.runId !== runId
         || cursor.filterHash !== hash || cursor.snapshot !== currentSnapshot) {
         fail(res, 400, "invalid_cursor", requestId); return;

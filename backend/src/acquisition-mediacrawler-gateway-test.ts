@@ -122,3 +122,34 @@ test("gateway acknowledges persisted pages and returns the server timestamp", as
     });
   });
 });
+
+test("gateway accepts a real-shaped commenter identity and rejects a root actor", async () => {
+  for (const [profile, accepted] of [
+    ["https://www.douyin.com/user/MS4wLjABCommenter", true],
+    ["https://www.douyin.com/", false]
+  ] as const) {
+    await withServer((_request, response) => {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({
+        job_id: "job-1", cursor: null, next_cursor: null, done: true,
+        records: [{
+          record_id: "comment-1", kind: "comment", actor_kind: "commenter",
+          canonical_url: "https://www.douyin.com/video/1",
+          public_display_name: "Buyer", public_profile_url: profile,
+          text_excerpt: "需要报价", source_keyword: "报价",
+          observed_at: "2026-08-25T04:00:00.000Z",
+          content_hash: `sha256:${"a".repeat(64)}`
+        }]
+      }));
+    }, async (baseUrl) => {
+      const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+      if (accepted) {
+        assert.equal((await gateway.getCrawlResults("job-1", null)).records[0]?.actorKind, "commenter");
+      } else {
+        await assert.rejects(gateway.getCrawlResults("job-1", null), {
+          code: "mediacrawler_invalid_response"
+        });
+      }
+    });
+  }
+});

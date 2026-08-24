@@ -21,9 +21,15 @@ export function createAcquisitionCrawlerJobRouter(options: {
     const id = requestId(); res.setHeader("X-Request-Id", id); res.setHeader("Cache-Control", "no-store");
     const scope = workspace(req);
     if ("error" in scope) { fail(res, scope.error, "workspace_context_invalid", id); return; }
-    void options.repository.findByRun(scope.id, req.params.runId ?? "").then((job) => {
+    const rawRunId = String(req.params.runId ?? "");
+    const runId = rawRunId.trim();
+    if (!runId || [...rawRunId].length > 160) {
+      fail(res, 400, "invalid_request", id);
+      return;
+    }
+    void options.repository.findByRun(scope.id, runId).then((job) => {
       if (!job) { fail(res, 404, "crawler_status_not_found", id); return; }
-      res.json(crawlerStatus(job, req.params.runId ?? ""));
+      res.json(crawlerStatus(job, runId));
     }).catch(() => fail(res, 500, "crawler_status_unavailable", id));
   });
   return router;

@@ -77,6 +77,74 @@ CREATE TABLE acquisition_social_account_replays (
     CHECK (state IN ('pending', 'completed'))
 );
 
+CREATE TABLE acquisition_plans (
+  id VARCHAR(160) PRIMARY KEY,
+  owner_id VARCHAR(100) NOT NULL,
+  team_id VARCHAR(100) NOT NULL,
+  revision BIGINT UNSIGNED NOT NULL,
+  payload_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  UNIQUE KEY uk_acquisition_plan_scope (owner_id,team_id,id),
+  KEY idx_acquisition_plan_scope (owner_id,team_id,updated_at,id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_plan_versions (
+  id VARCHAR(160) PRIMARY KEY,
+  plan_id VARCHAR(160) NOT NULL,
+  owner_id VARCHAR(100) NOT NULL,
+  team_id VARCHAR(100) NOT NULL,
+  version_no BIGINT UNSIGNED NOT NULL,
+  payload_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  UNIQUE KEY uk_acquisition_plan_version_scope (owner_id,team_id,id),
+  UNIQUE KEY uk_acquisition_plan_version_number
+    (owner_id,team_id,plan_id,version_no),
+  UNIQUE KEY uk_acquisition_plan_version_identity (owner_id,team_id,plan_id,id),
+  KEY idx_acquisition_plan_version_plan
+    (owner_id,team_id,plan_id,version_no,id),
+  CONSTRAINT fk_acquisition_plan_version_plan
+    FOREIGN KEY (owner_id,team_id,plan_id)
+    REFERENCES acquisition_plans(owner_id,team_id,id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_runs (
+  id VARCHAR(160) PRIMARY KEY,
+  plan_id VARCHAR(160) NOT NULL,
+  plan_version_id VARCHAR(160) NOT NULL,
+  owner_id VARCHAR(100) NOT NULL,
+  team_id VARCHAR(100) NOT NULL,
+  revision BIGINT UNSIGNED NOT NULL,
+  plan_snapshot_hash CHAR(64) NOT NULL,
+  budget_snapshot_hash CHAR(64) NOT NULL,
+  payload_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  completed_at DATETIME(3) NULL,
+  UNIQUE KEY uk_acquisition_run_scope (owner_id,team_id,id),
+  KEY idx_acquisition_run_plan (owner_id,team_id,plan_id,created_at,id),
+  CONSTRAINT fk_acquisition_run_plan
+    FOREIGN KEY (owner_id,team_id,plan_id)
+    REFERENCES acquisition_plans(owner_id,team_id,id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT fk_acquisition_run_plan_version
+    FOREIGN KEY (owner_id,team_id,plan_id,plan_version_id)
+    REFERENCES acquisition_plan_versions(owner_id,team_id,plan_id,id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_discovery_evidence (
+  id VARCHAR(255) PRIMARY KEY,
+  owner_id VARCHAR(100) NOT NULL,
+  team_id VARCHAR(100) NOT NULL,
+  payload_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  UNIQUE KEY uk_acquisition_evidence_scope (owner_id,team_id,id),
+  KEY idx_acquisition_evidence_scope_time (owner_id,team_id,created_at,id)
+) ENGINE=InnoDB;
+
+
 CREATE TABLE acquisition_douyin_automation_policy_versions (
   id VARCHAR(255) NOT NULL PRIMARY KEY,
   workspace_id VARCHAR(255) NOT NULL,
@@ -159,7 +227,7 @@ CREATE TABLE acquisition_douyin_run_intents (
 
 CREATE TABLE acquisition_douyin_run_bindings (
   automation_intent_id VARCHAR(255) NOT NULL PRIMARY KEY,
-  acquisition_run_id VARCHAR(120) NOT NULL,
+  acquisition_run_id VARCHAR(160) NOT NULL,
   workspace_id VARCHAR(255) NOT NULL,
   plan_id VARCHAR(160) NOT NULL,
   plan_version_id VARCHAR(160) NOT NULL,
@@ -745,7 +813,7 @@ CREATE TABLE acquisition_crawler_jobs (
 
 CREATE TABLE acquisition_crawler_job_runs (
   workspace_id VARCHAR(255) NOT NULL,
-  run_id VARCHAR(120) NOT NULL,
+  run_id VARCHAR(160) NOT NULL,
   job_id VARCHAR(255) NOT NULL,
   created_at DATETIME(3) NOT NULL,
   PRIMARY KEY (workspace_id,run_id),

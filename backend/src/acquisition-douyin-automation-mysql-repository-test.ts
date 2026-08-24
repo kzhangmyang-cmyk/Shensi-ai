@@ -8,6 +8,7 @@ import {
 } from "./acquisition-social-account-mysql-repository.js";
 import {
   acquisitionDouyinAutomationCommandReplaysDdl,
+  acquisitionDouyinAutomationMigrationStatements,
   acquisitionDouyinAutomationPolicyHeadsDdl,
   acquisitionDouyinAutomationPolicyVersionsDdl,
   acquisitionDouyinRunBindingsDdl,
@@ -59,7 +60,45 @@ test("automation MySQL schema keeps immutable versions, a mutable head, hashed r
       return [[], []];
     }
   } as never);
-  assert.deepEqual(executed, statements);
+  assert.deepEqual(executed.slice(0, statements.length), statements);
+  assert.deepEqual(
+    executed.slice(statements.length, -1),
+    acquisitionDouyinAutomationMigrationStatements
+  );
+  assert.match(executed.at(-1)!, /SELECT i\.id/u);
+});
+
+test("legacy run-intent JSON safely backfills from the authoritative binding", async () => {
+  const current: DouyinAutomationRunIntent = {
+    id: "legacy-intent", acquisitionRunId: "authoritative-run",
+    workspaceId: "workspace-1", planId: "plan-1",
+    planVersionId: "plan-version-1", planVersion: 1,
+    planSnapshotHash: "plan-hash", policyVersionId: "policy-1",
+    policyHash: `sha256:${"a".repeat(64)}`, accountId: "account-1",
+    accountLoginStateVersion: 7, dailyBudgetId: `sha256:${"b".repeat(64)}`,
+    localDate: "2026-08-25", trigger: "run_now",
+    collectCreators: true, collectDemandComments: true, status: "queued",
+    reason: null, createdBy: "owner-1", createdAt: "2026-08-25T01:00:00.000Z"
+  };
+  const { acquisitionRunId: _omitted, ...legacy } = current;
+  const row = {
+    id: current.id, workspace_id: current.workspaceId,
+    plan_id: current.planId, plan_version_id: current.planVersionId,
+    policy_version_id: current.policyVersionId, account_id: current.accountId,
+    account_login_state_version: current.accountLoginStateVersion,
+    daily_budget_id: current.dailyBudgetId, local_date: current.localDate,
+    trigger_kind: current.trigger, status: current.status,
+    payload_json: legacy, acquisition_run_id: current.acquisitionRunId
+  };
+  const repository = new MysqlAcquisitionDouyinAutomationRepository({
+    async query(sql: string) {
+      return [sql.includes("acquisition_douyin_run_intents") ? [row] : [], []];
+    }
+  } as never);
+  assert.deepEqual(
+    await repository.getRunIntent(current.workspaceId, current.id),
+    current
+  );
 });
 
 function acquisitionPlanPayload(): AcquisitionPlanPayload {
@@ -129,6 +168,7 @@ class StatefulAutomationMysqlPool {
   readonly heads = new Map<string, Record<string, unknown>>();
   readonly replays = new Map<string, Record<string, unknown>>();
   readonly runs = new Map<string, Record<string, unknown>>();
+  readonly bindings = new Map<string, string>();
   planCurrentVersionId = "plan-version-1";
   accountState: "active" | "login_expired" = "active";
   accountLoginStateVersion = 7;
@@ -178,11 +218,14 @@ class StatefulAutomationMysqlPool {
   async query(sql: string, values: unknown[] = []) {
     const normalized = sql.replace(/\s+/gu, " ").trim();
     let result: unknown[] = [];
-    if (normalized.startsWith("SELECT * FROM acquisition_douyin_automation_command_replays")) {
+    if (normalized.startsWith("SELECT r.*,b.acquisition_run_id FROM acquisition_douyin_automation_command_replays")) {
       result = [...this.replays.values()].filter((row) =>
         row.workspace_id === values[0] && row.plan_id === values[1]
         && row.operation_name === values[2]
-        && row.idempotency_key_hash === values[3]);
+        && row.idempotency_key_hash === values[3]).map((row) => ({
+          ...row,
+          acquisition_run_id: this.bindings.get(String(row.result_id)) ?? null
+        }));
     } else if (normalized.startsWith("SELECT v.* FROM acquisition_douyin_automation_policy_heads")) {
       const head = this.heads.get(this.key(values[0], values[1]));
       const version = head && this.versions.get(String(head.current_version_id));
@@ -241,10 +284,11 @@ class StatefulAutomationMysqlPool {
         local_date: values[10], trigger_kind: values[11], status: values[12],
         payload_json: payload, created_at: values[14]
       });
+    } else if (normalized.startsWith("INSERT INTO acquisition_douyin_run_bindings")) {
+      this.bindings.set(String(values[0]), String(values[1]));
     } else if (normalized.startsWith("INSERT INTO acquisition_runs")
       || normalized.startsWith("INSERT INTO acquisition_run_events")
-      || normalized.startsWith("INSERT INTO acquisition_plan_run_audit_events")
-      || normalized.startsWith("INSERT INTO acquisition_douyin_run_bindings")) {
+      || normalized.startsWith("INSERT INTO acquisition_plan_run_audit_events")) {
       result = [];
     } else if (normalized.startsWith("INSERT INTO acquisition_douyin_automation_command_replays")) {
       const operation = normalized.includes("'put_policy'") ? "put_policy" : "run_now";
@@ -254,9 +298,12 @@ class StatefulAutomationMysqlPool {
         idempotency_key_hash: values[2], request_hash: values[3], result_kind: resultKind,
         result_id: values[4], response_json: JSON.parse(String(values[5])), created_at: values[6]
       });
-    } else if (normalized.startsWith("SELECT * FROM acquisition_douyin_run_intents")) {
+    } else if (normalized.startsWith("SELECT i.*,b.acquisition_run_id FROM acquisition_douyin_run_intents")) {
       const run = this.runs.get(String(values[1]));
-      result = run && run.workspace_id === values[0] ? [run] : [];
+      result = run && run.workspace_id === values[0] ? [{
+        ...run,
+        acquisition_run_id: this.bindings.get(String(run.id)) ?? null
+      }] : [];
     } else {
       throw new Error(`unexpected automation SQL: ${normalized}`);
     }
@@ -364,6 +411,12 @@ test("automation MySQL repository matches append, CAS, replay and frozen run beh
   assert.equal(
     [...pool.replays.values()].some((row) => row.idempotency_key_hash === createHash("sha256").update("run-key-1").digest("hex")),
     true
+  );
+  const runReplay = [...pool.replays.values()].find((row) => row.result_kind === "run")!;
+  (runReplay.response_json as DouyinAutomationRunIntent).acquisitionRunId = "wrong-run";
+  await assert.rejects(
+    repository.createRunIntent(runCommand),
+    /acquisition_douyin_run_intent_binding_corrupt/u
   );
 });
 

@@ -110,9 +110,21 @@ and evidence-retention lifecycle whenever this gateway is configured. Result
 pages remain in the private sidecar until the backend's authoritative
 evidence/candidate/run-link transaction commits and the acknowledgement call
 succeeds. The persisted acknowledgement starts a 24-hour cleanup clock and is
-idempotent across restarts. Do not add an external cleanup that deletes
-unacknowledged result pages. Backend cleanup removes only unlinked crawler
-evidence after 90 days; DNC and audit authority are not TTL data.
+idempotent across restarts. That sweep removes both normalized pages and the
+bounded private upstream actor capture; it never treats upstream's anonymous
+`creator_hash` as a public profile identity. Do not add an external cleanup
+that deletes unacknowledged result pages. Backend cleanup removes only unlinked
+crawler evidence after 90 days; DNC and audit authority are not TTL data.
+
+On an existing MySQL installation, backend schema setup must complete before
+workers start. It widens Douyin authoritative-run alias columns to 160
+characters, backfills legacy automation JSON from
+`acquisition_douyin_run_bindings`, separates legacy intent aliases from crawler
+run aliases, and rebuilds the job alias projection. An unbound or ambiguous
+legacy row stops startup with `acquisition_douyin_run_binding_migration_required`
+or `crawler_job_alias_migration_required`; do not bypass that error or relabel
+an intent ID as a run ID. Take the normal encrypted backup before applying the
+migration.
 
 Before starting the sidecar, create and mount an encrypted-at-rest host
 directory. It must already exist, must not be a symlink, and must have exact

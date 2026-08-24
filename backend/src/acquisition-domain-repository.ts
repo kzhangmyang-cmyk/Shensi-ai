@@ -497,6 +497,7 @@ implements AcquisitionDomainRepository {
     const candidates = [...this.candidates.values()]
       .filter((candidate) =>
         belongs(candidate, scope)
+        && (query.status !== undefined || candidate.status !== "do_not_contact")
         && (!query.subjectKind || candidate.profile.kind === query.subjectKind)
         && (!query.status || candidate.status === query.status)
       )

@@ -1457,11 +1457,11 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
     }
   }));
   add(paths, "/api/v1/acquisition/runs/{runId}/crawler-status", "get", operation("get", "读取已持久化的抖音采集状态", {
-    parameters: [idParameter(255, "runId")],
+    parameters: [idParameter(160, "runId")],
     responses: standardResponses(200, "采集状态", acquisitionCrawlerStatusSchema)
   }));
   add(paths, "/api/v1/acquisition/runs/{runId}/candidates", "get", operation("get", "读取运行的证据候选", {
-    parameters: [idParameter(255, "runId"),
+    parameters: [idParameter(160, "runId"),
       { name: "status", in: "query", required: false, schema: { type: "string", minLength: 1, maxLength: 100 } },
       { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
       { name: "cursor", in: "query", required: false, schema: { type: "string", minLength: 1, maxLength: 8192 } }],

@@ -6,7 +6,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from shensi_adapter.crawl_jobs import (
-    CrawlJobManager, CursorConflict, _browser_profile_template, _read_output_rows,
+    CrawlJobManager, CursorConflict, _browser_profile_template,
+    _public_comment_capture, _public_creator_capture, _read_output_rows,
 )
 from shensi_adapter.douyin_normalizer import normalize_douyin_records
 from shensi_adapter.schemas import CrawlJobRequest
@@ -45,6 +46,7 @@ def fixtures():
         }),
         ("comment", {
             "comment_id": "c-1", "aweme_id": "73001", "nickname": "Buyer",
+            "sec_uid": "MS4wLjABCommenter",
             "content": "Need 200 replacement seals by Friday", "source_keyword": "replacement seal",
             "create_time": 1_724_550_500, "cookies": ["must-not-leak"],
         }),
@@ -57,8 +59,21 @@ def test_pinned_runner_reads_the_actual_douyin_jsonl_output_directory(tmp_path):
     (directory / "search_contents_2026-08-24.jsonl").write_text(
         json.dumps({"aweme_id": "73001"}) + "\n", encoding="utf-8"
     )
+    public_comment = {
+        "comment_id": "c-1", "aweme_id": "73001",
+        "sec_uid": "MS4wLjABCommenter", "content": "Need seals",
+    }
+    (directory / "000-shensi-comments.jsonl").write_text(
+        json.dumps(public_comment) + "\n", encoding="utf-8"
+    )
+    (directory / "search_comments_2026-08-24.jsonl").write_text(
+        json.dumps({"comment_id": "c-1", "creator_hash": "not-public"}) + "\n",
+        encoding="utf-8",
+    )
 
-    assert _read_output_rows(tmp_path) == [("video", {"aweme_id": "73001"})]
+    assert _read_output_rows(tmp_path) == [
+        ("video", {"aweme_id": "73001"}), ("comment", public_comment),
+    ]
 
 
 def test_pinned_runner_preserves_the_exact_private_browser_profile_path(tmp_path):
@@ -85,11 +100,51 @@ def test_normalizer_emits_closed_bounded_records_with_stable_hashes():
     assert len(records[0].text_excerpt) == 500
     assert str(records[1].canonical_url) == "https://www.douyin.com/user/MS4wLjABAAAA"
     assert str(records[2].canonical_url) == "https://www.douyin.com/video/73001"
+    assert records[1].actor_kind == "creator"
+    assert records[2].actor_kind == "commenter"
+    assert str(records[2].public_profile_url) == "https://www.douyin.com/user/MS4wLjABCommenter"
     assert all(record.content_hash.startswith("sha256:") and len(record.content_hash) == 71 for record in records)
     encoded = json.dumps([record.model_dump(mode="json") for record in records])
     assert "cookie" not in encoded.lower()
     assert "raw_response" not in encoded.lower()
     assert normalize_douyin_records(fixtures(), observed_at=NOW)[0].content_hash == records[0].content_hash
+
+
+def test_capture_derives_bounded_sidecar_rows_from_real_mediacrawler_authors():
+    comment = _public_comment_capture("73001", {
+        "aweme_id": "73001", "cid": "c-1", "text": "Need seals",
+        "create_time": 1_724_550_500,
+        "user": {
+            "sec_uid": "MS4wLjABCommenter", "uid": "commenter-uid",
+            "nickname": "Buyer", "avatar_medium": {"url_list": ["secret"]},
+        },
+    }, "replacement seal")
+    assert comment == {
+        "comment_id": "c-1", "aweme_id": "73001",
+        "sec_uid": "MS4wLjABCommenter", "nickname": "Buyer",
+        "content": "Need seals", "source_keyword": "replacement seal",
+        "create_time": 1_724_550_500,
+    }
+    creator = _public_creator_capture({
+        "aweme_id": "73001", "desc": "industrial pump",
+        "author": {"sec_uid": "MS4wLjABCreator", "nickname": "Maker"},
+    }, "industrial pump")
+    assert creator == {
+        "sec_uid": "MS4wLjABCreator", "nickname": "Maker",
+        "desc": "industrial pump", "source_keyword": "industrial pump",
+    }
+
+
+def test_normalizer_rejects_commenters_without_a_non_root_public_identity():
+    missing_actor = fixtures()
+    missing_actor[-1][1].pop("sec_uid")
+    with pytest.raises(ValueError, match="invalid_douyin_actor"):
+        normalize_douyin_records(missing_actor, observed_at=NOW)
+
+    root_actor = fixtures()
+    root_actor[-1][1]["sec_uid"] = "/"
+    with pytest.raises(ValueError, match="invalid_douyin_actor"):
+        normalize_douyin_records(root_actor, observed_at=NOW)
 
 
 @pytest.mark.parametrize(("creators", "comments", "expected"), [
@@ -229,6 +284,64 @@ def test_unacknowledged_pages_survive_and_ack_timestamp_drives_restart_cleanup(t
     with pytest.raises(KeyError):
         expired.get("ack-job")
     expired.close()
+
+
+def test_acknowledgement_persist_failure_does_not_mutate_live_or_restart_state(tmp_path):
+    manager = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=lambda *_: [normalize_douyin_records(fixtures(), observed_at=NOW)[0]],
+        now=lambda: NOW,
+    )
+    manager.start(request("ack-failure"))
+    assert wait_terminal(manager, "ack-failure").state == "succeeded"
+    persist = manager._persist
+
+    def fail_persist(_job):
+        raise OSError("disk-full")
+
+    manager._persist = fail_persist
+    with pytest.raises(OSError, match="disk-full"):
+        manager.acknowledge("ack-failure")
+    assert manager.get("ack-failure").acknowledged_at is None
+    manager._persist = persist
+    manager.close()
+
+    restarted = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=lambda *_: [],
+        now=lambda: NOW + timedelta(hours=25),
+    )
+    assert restarted.get("ack-failure").acknowledged_at is None
+    restarted.close()
+
+
+def test_retention_sweep_removes_the_private_upstream_capture(tmp_path):
+    clock = [NOW]
+
+    class Runner:
+        def __init__(self):
+            self.cleaned = []
+
+        def __call__(self, *_args):
+            return [normalize_douyin_records(fixtures(), observed_at=NOW)[0]]
+
+        def cleanup(self, job_id):
+            self.cleaned.append(job_id)
+
+    runner = Runner()
+    manager = CrawlJobManager(
+        tmp_path, account_resolver=lambda *_: tmp_path / "profile",
+        runner=runner, now=lambda: clock[0],
+    )
+    manager.start(request("capture-retention"))
+    assert wait_terminal(manager, "capture-retention").state == "succeeded"
+    manager.acknowledge("capture-retention")
+    clock[0] += timedelta(hours=24, seconds=1)
+    assert manager.sweep_retained() == 1
+    assert runner.cleaned == ["capture-retention"]
+    manager.close()
 
 
 def test_manager_sweeps_retention_on_startup_and_periodically_and_cleans_maps(tmp_path):

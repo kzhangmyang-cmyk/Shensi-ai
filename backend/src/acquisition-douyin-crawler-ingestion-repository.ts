@@ -237,6 +237,7 @@ implements DouyinCrawlerEvidenceStore {
         kind: "mediacrawler_public_record",
         jobId: evidence.provenance.jobId,
         recordId: evidence.provenance.recordId,
+        actorKind: evidence.provenance.actorKind,
         cursor: evidence.provenance.cursor,
         upstreamCommit: evidence.provenance.upstreamCommit
       }

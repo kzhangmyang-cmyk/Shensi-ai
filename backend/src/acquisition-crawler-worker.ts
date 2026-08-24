@@ -37,6 +37,8 @@ export class AcquisitionCrawlerWorker {
   private readonly controller = new AbortController();
   private active: Promise<boolean> | null = null;
   private timer: NodeJS.Timeout | null = null;
+  private nextLane: "crawl" | "ingestion" = "crawl";
+  private lastWorkspaceId: string | undefined;
 
   constructor(options: AcquisitionCrawlerWorkerOptions) {
     this.repository = options.repository; this.gateway = options.gateway;
@@ -69,9 +71,19 @@ export class AcquisitionCrawlerWorker {
   }
 
   private async execute() {
-    const claim = await this.repository.claimNext(this.workerId, this.now(), this.leaseDurationMs);
+    if (this.nextLane === "ingestion" && await this.executeIngestion()) {
+      return true;
+    }
+    const claim = await this.repository.claimNext(
+      this.workerId,
+      this.now(),
+      this.leaseDurationMs,
+      this.lastWorkspaceId
+    );
     if (!claim) return this.executeIngestion();
     const { job, fence } = claim;
+    this.lastWorkspaceId = job.workspaceId;
+    this.nextLane = "ingestion";
     try {
       const account = await this.accounts.findById(job.workspaceId, job.accountId);
       if (!account || account.workspaceId !== job.workspaceId || account.id !== job.accountId
@@ -139,9 +151,12 @@ export class AcquisitionCrawlerWorker {
     const claim = await this.repository.claimNextIngestion(
       this.workerId,
       this.now(),
-      this.leaseDurationMs
+      this.leaseDurationMs,
+      this.lastWorkspaceId
     );
     if (!claim) return false;
+    this.lastWorkspaceId = claim.job.workspaceId;
+    this.nextLane = "crawl";
     const ingestedAt = this.now();
     try {
       await this.ingestTerminalJob(claim.job);

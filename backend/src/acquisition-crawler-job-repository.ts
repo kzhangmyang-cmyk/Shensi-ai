@@ -8,7 +8,8 @@ import {
   type AcquisitionCrawlerIngestionClaim,
   type AcquisitionCrawlerIngestionFence,
   type AcquisitionCrawlerJobInput,
-  type NormalizedDouyinRecord
+  type NormalizedDouyinRecord,
+  type PersistedNormalizedDouyinRecord
 } from "./acquisition-crawler-job.js";
 
 export interface PersistCrawlerPageInput {
@@ -23,15 +24,15 @@ export interface AcquisitionCrawlerJobRepository {
   createOrGet(input: AcquisitionCrawlerJobInput): Promise<{ created: boolean; job: AcquisitionCrawlerJob }>;
   enqueue(workspaceId: string, runId: string, now: string): Promise<AcquisitionCrawlerJob | null>;
   findByRun(workspaceId: string, runId: string): Promise<AcquisitionCrawlerJob | null>;
-  claimNext(workerId: string, now: string, leaseDurationMs: number): Promise<AcquisitionCrawlerJobClaim | null>;
+  claimNext(workerId: string, now: string, leaseDurationMs: number, avoidWorkspaceId?: string): Promise<AcquisitionCrawlerJobClaim | null>;
   renew(fence: AcquisitionCrawlerJobFence, now: string, leaseDurationMs: number): Promise<AcquisitionCrawlerJob>;
   persistPage(fence: AcquisitionCrawlerJobFence, input: PersistCrawlerPageInput): Promise<AcquisitionCrawlerJob>;
-  listRecords(jobId: string): Promise<NormalizedDouyinRecord[]>;
+  listRecords(jobId: string): Promise<PersistedNormalizedDouyinRecord[]>;
   requestCancel(workspaceId: string, runId: string, now: string): Promise<AcquisitionCrawlerJob | null>;
   completeCancelled(fence: AcquisitionCrawlerJobFence, now: string): Promise<AcquisitionCrawlerJob>;
   pause(fence: AcquisitionCrawlerJobFence, errorCode: string, now: string): Promise<AcquisitionCrawlerJob>;
   fail(fence: AcquisitionCrawlerJobFence, errorCode: string, now: string, retryable: boolean): Promise<AcquisitionCrawlerJob>;
-  claimNextIngestion(workerId: string, now: string, leaseDurationMs: number): Promise<AcquisitionCrawlerIngestionClaim | null>;
+  claimNextIngestion(workerId: string, now: string, leaseDurationMs: number, avoidWorkspaceId?: string): Promise<AcquisitionCrawlerIngestionClaim | null>;
   completeIngestion(fence: AcquisitionCrawlerIngestionFence, ingestedAt: string, acknowledgedAt: string, now: string): Promise<AcquisitionCrawlerJob>;
   failIngestion(fence: AcquisitionCrawlerIngestionFence, errorCode: string, now: string): Promise<AcquisitionCrawlerJob>;
   sweepExpired(now: string): Promise<number>;
@@ -42,7 +43,7 @@ interface State {
   daily: Map<string, string>;
   runs: Map<string, string>;
   intents: Map<string, string>;
-  records: Map<string, NormalizedDouyinRecord[]>;
+  records: Map<string, PersistedNormalizedDouyinRecord[]>;
 }
 
 function clone<T>(value: T): T { return structuredClone(value); }
@@ -111,6 +112,10 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
         if (!existing.automationIntentIds.includes(input.automationIntentId)) {
           existing.automationIntentIds.push(input.automationIntentId);
         }
+        if (existing.ingestionState === "succeeded") {
+          existing.ingestionState = "pending";
+          existing.ingestedAt = null;
+        }
         state.runs.set(runKey(input.workspaceId, input.runId), existing.id);
         state.intents.set(
           runKey(input.workspaceId, input.automationIntentId),
@@ -167,14 +172,19 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
     return id ? state.jobs.get(id) ?? null : null;
   }
 
-  claimNext(workerId: string, now: string, leaseDurationMs: number) {
+  claimNext(workerId: string, now: string, leaseDurationMs: number, avoidWorkspaceId?: string) {
     const at = milliseconds(now);
     if (!workerId || !Number.isSafeInteger(leaseDurationMs) || leaseDurationMs < 1) {
       throw new TypeError("invalid_crawler_lease");
     }
     return this.transaction<AcquisitionCrawlerJobClaim | null>((state) => {
       const job = [...state.jobs.values()].filter((value) => value.state === "queued")
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
+        .sort((left, right) => {
+          const workspacePreference = Number(left.workspaceId === avoidWorkspaceId)
+            - Number(right.workspaceId === avoidWorkspaceId);
+          return workspacePreference || left.createdAt.localeCompare(right.createdAt)
+            || left.id.localeCompare(right.id);
+        })[0];
       if (!job) return null;
       job.state = "running"; job.attempt += 1; job.fencingToken += 1;
       job.leaseWorkerId = workerId; job.leaseToken = randomBytes(32).toString("hex");
@@ -225,7 +235,8 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
         const candidate = record.kind !== "video";
         if (identities.has(record.recordId)) continue;
         if (candidate && job.candidateBudgetUsed >= job.dailyCandidateLimit) { dropped = true; continue; }
-        stored.push(clone(record)); identities.add(record.recordId);
+        stored.push({ ...clone(record), pageCursor: input.expectedCursor });
+        identities.add(record.recordId);
         job.recordCount += 1;
         if (candidate) job.candidateBudgetUsed += 1;
       }
@@ -281,7 +292,7 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
     });
   }
 
-  claimNextIngestion(workerId: string, now: string, leaseDurationMs: number) {
+  claimNextIngestion(workerId: string, now: string, leaseDurationMs: number, avoidWorkspaceId?: string) {
     const instant = milliseconds(now);
     if (!workerId || !Number.isSafeInteger(leaseDurationMs) || leaseDurationMs < 1) {
       throw new TypeError("invalid_crawler_ingestion_lease");
@@ -290,7 +301,12 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
       const job = [...state.jobs.values()]
         .filter((value) => ["succeeded", "partial"].includes(value.state)
           && value.ingestionState === "pending")
-        .sort((left, right) => left.completedAt!.localeCompare(right.completedAt!))[0];
+        .sort((left, right) => {
+          const workspacePreference = Number(left.workspaceId === avoidWorkspaceId)
+            - Number(right.workspaceId === avoidWorkspaceId);
+          return workspacePreference || left.completedAt!.localeCompare(right.completedAt!)
+            || left.id.localeCompare(right.id);
+        })[0];
       if (!job) return null;
       job.ingestionState = "running";
       job.ingestionAttempt += 1;

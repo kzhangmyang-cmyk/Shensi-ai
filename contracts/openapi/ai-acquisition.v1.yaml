@@ -786,7 +786,7 @@ paths:
         <<: *acquisitionStandardResponses
         '202': { description: Frozen queued run intent, headers: { Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/DouyinAutomationRunIntent' } } } }
   /api/v1/acquisition/runs/{runId}/crawler-status:
-    parameters: [{ name: runId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    parameters: [{ name: runId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }]
     get:
       operationId: getAcquisitionCrawlerStatus
       summary: Read persisted Douyin crawler status
@@ -796,7 +796,7 @@ paths:
         <<: *acquisitionStandardResponses
         '200': { description: Persisted crawler status, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionCrawlerStatus' } } } }
   /api/v1/acquisition/runs/{runId}/candidates:
-    parameters: [{ name: runId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    parameters: [{ name: runId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }]
     get:
       operationId: listAcquisitionRunCandidates
       summary: List evidence-bound candidates for an acquisition run

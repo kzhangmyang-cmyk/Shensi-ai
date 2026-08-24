@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import UTC, datetime
 from typing import Iterable, Mapping
 from urllib.parse import quote
@@ -28,10 +29,33 @@ def _hash(payload: Mapping[str, object]) -> str:
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
+def _mapping(value: object) -> Mapping[str, object]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _actor_id(raw: Mapping[str, object], nested_key: str) -> str:
+    nested = _mapping(raw.get(nested_key))
+    value = _text(
+        raw.get("sec_uid") or raw.get("sec_user_id")
+        or raw.get("user_id") or raw.get("uid")
+        or nested.get("sec_uid") or nested.get("sec_user_id")
+        or nested.get("user_id") or nested.get("uid"),
+        300,
+    )
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,300}", value):
+        raise ValueError("invalid_douyin_actor")
+    return value
+
+
 def _record(kind: str, raw: Mapping[str, object], observed_at: datetime):
     keyword = _text(raw.get("source_keyword"), 100)
-    display_name = _text(raw.get("nickname") or raw.get("display_name") or "Douyin", 200)
+    nested_actor = _mapping(raw.get("user") if kind == "comment" else raw.get("author"))
+    display_name = _text(
+        raw.get("nickname") or raw.get("display_name")
+        or nested_actor.get("nickname") or "Douyin", 200,
+    )
     profile_url = None
+    actor_kind = None
     if kind == "video":
         upstream_id = _text(raw.get("aweme_id"), 160)
         url = _text(raw.get("aweme_url"), 2_000) or f"https://www.douyin.com/video/{quote(upstream_id)}"
@@ -40,11 +64,15 @@ def _record(kind: str, raw: Mapping[str, object], observed_at: datetime):
         upstream_id = _text(raw.get("comment_id") or raw.get("cid"), 160)
         aweme_id = _text(raw.get("aweme_id"), 160)
         url = f"https://www.douyin.com/video/{quote(aweme_id)}"
+        actor_id = _actor_id(raw, "user")
+        profile_url = f"https://www.douyin.com/user/{quote(actor_id, safe='')}"
+        actor_kind = "commenter"
         excerpt = _text(raw.get("content") or raw.get("text"), 500)
     elif kind == "creator":
-        upstream_id = _text(raw.get("sec_user_id") or raw.get("creator_hash") or raw.get("uid"), 300)
+        upstream_id = _actor_id(raw, "author")
         url = f"https://www.douyin.com/user/{quote(upstream_id, safe='')}"
         profile_url = url
+        actor_kind = "creator"
         excerpt = _text(raw.get("signature") or raw.get("desc"), 500)
     else:
         raise ValueError("unsupported_douyin_record_kind")
@@ -53,6 +81,7 @@ def _record(kind: str, raw: Mapping[str, object], observed_at: datetime):
     identity = _hash({"kind": kind, "upstream_id": upstream_id})
     content = {
         "record_id": f"{kind}:{identity[7:]}", "kind": kind,
+        "actor_kind": actor_kind,
         "canonical_url": url, "public_display_name": display_name,
         "public_profile_url": profile_url, "text_excerpt": excerpt,
         "source_keyword": keyword,

@@ -102,7 +102,7 @@ export const acquisitionDouyinRunIntentsDdl = `CREATE TABLE IF NOT EXISTS acquis
 
 export const acquisitionDouyinRunBindingsDdl = `CREATE TABLE IF NOT EXISTS acquisition_douyin_run_bindings (
   automation_intent_id VARCHAR(255) NOT NULL PRIMARY KEY,
-  acquisition_run_id VARCHAR(120) NOT NULL,
+  acquisition_run_id VARCHAR(160) NOT NULL,
   workspace_id VARCHAR(255) NOT NULL,
   plan_id VARCHAR(160) NOT NULL,
   plan_version_id VARCHAR(160) NOT NULL,
@@ -127,10 +127,44 @@ const schemaStatements = [
   acquisitionDouyinRunBindingsDdl
 ];
 
+export const acquisitionDouyinAutomationMigrationStatements = [
+  `ALTER TABLE acquisition_douyin_run_bindings
+     MODIFY COLUMN acquisition_run_id VARCHAR(160) NOT NULL`,
+  `UPDATE acquisition_douyin_run_intents i
+     INNER JOIN acquisition_douyin_run_bindings b
+       ON b.automation_intent_id=i.id
+     SET i.payload_json=JSON_SET(
+       i.payload_json,'$.acquisitionRunId',b.acquisition_run_id)
+     WHERE JSON_EXTRACT(i.payload_json,'$.acquisitionRunId') IS NULL`,
+  `UPDATE acquisition_douyin_automation_command_replays r
+     INNER JOIN acquisition_douyin_run_bindings b
+       ON r.result_kind='run' AND b.automation_intent_id=r.result_id
+     SET r.response_json=JSON_SET(
+       r.response_json,'$.acquisitionRunId',b.acquisition_run_id)
+     WHERE JSON_EXTRACT(r.response_json,'$.acquisitionRunId') IS NULL`
+] as const;
+
 export async function ensureAcquisitionDouyinAutomationMysqlSchema(
   pool: Pick<mysql.Pool, "query">
 ) {
   for (const statement of schemaStatements) await pool.query(statement);
+  for (const statement of acquisitionDouyinAutomationMigrationStatements) {
+    await pool.query(statement);
+  }
+  const [unbound] = await pool.query(
+    `SELECT i.id FROM acquisition_douyin_run_intents i
+     LEFT JOIN acquisition_douyin_run_bindings b
+       ON b.automation_intent_id=i.id
+     WHERE JSON_EXTRACT(i.payload_json,'$.acquisitionRunId') IS NULL
+       OR b.acquisition_run_id IS NULL
+     LIMIT 1`
+  );
+  if (Array.isArray(unbound) && unbound.length > 0) {
+    const row = unbound[0] as Record<string, unknown>;
+    throw new Error(
+      `acquisition_douyin_run_binding_migration_required:${String(row.id)}`
+    );
+  }
 }
 
 type Source = Pick<mysql.Pool | mysql.PoolConnection, "query">;
@@ -172,7 +206,21 @@ function policy(row: Row): DouyinAutomationPolicyVersion {
 }
 
 function runIntent(row: Row): DouyinAutomationRunIntent {
-  const value = parsed(row.payload_json) as DouyinAutomationRunIntent;
+  const stored = parsed(row.payload_json) as Partial<DouyinAutomationRunIntent>;
+  const boundRunId = typeof row.acquisition_run_id === "string"
+    ? row.acquisition_run_id : null;
+  const acquisitionRunId = typeof stored.acquisitionRunId === "string"
+    ? stored.acquisitionRunId : boundRunId;
+  if (!acquisitionRunId) {
+    throw new Error(
+      `acquisition_douyin_run_binding_migration_required:${String(row.id)}`
+    );
+  }
+  if (boundRunId && stored.acquisitionRunId
+    && stored.acquisitionRunId !== boundRunId) {
+    throw new Error("acquisition_douyin_run_intent_binding_corrupt");
+  }
+  const value = { ...stored, acquisitionRunId } as DouyinAutomationRunIntent;
   if (value.id !== String(row.id)
     || value.workspaceId !== String(row.workspace_id)
     || value.planId !== String(row.plan_id)
@@ -221,7 +269,24 @@ function replay(row: Row | undefined, requestHash: string): DouyinAutomationRepl
     return { kind: "policy", value: structuredClone(value) as DouyinAutomationPolicyVersion };
   }
   if (row.result_kind === "run") {
-    return { kind: "run", value: structuredClone(value) as DouyinAutomationRunIntent };
+    const stored = value as Partial<DouyinAutomationRunIntent>;
+    const boundRunId = typeof row.acquisition_run_id === "string"
+      ? row.acquisition_run_id : null;
+    const acquisitionRunId = typeof stored.acquisitionRunId === "string"
+      ? stored.acquisitionRunId : boundRunId;
+    if (!acquisitionRunId) {
+      throw new Error(
+        `acquisition_douyin_run_binding_migration_required:${String(row.result_id)}`
+      );
+    }
+    if (boundRunId && stored.acquisitionRunId
+      && stored.acquisitionRunId !== boundRunId) {
+      throw new Error("acquisition_douyin_run_intent_binding_corrupt");
+    }
+    return {
+      kind: "run",
+      value: structuredClone({ ...stored, acquisitionRunId }) as DouyinAutomationRunIntent
+    };
   }
   throw new Error("acquisition_douyin_automation_replay_corrupt");
 }
@@ -237,9 +302,12 @@ async function readReplay(
 ) {
   const result = await rows(
     source,
-    `SELECT * FROM acquisition_douyin_automation_command_replays
-     WHERE workspace_id=? AND plan_id=? AND operation_name=?
-       AND idempotency_key_hash=?${forUpdate ? " FOR UPDATE" : ""}`,
+    `SELECT r.*,b.acquisition_run_id
+     FROM acquisition_douyin_automation_command_replays r
+     LEFT JOIN acquisition_douyin_run_bindings b
+       ON r.result_kind='run' AND b.automation_intent_id=r.result_id
+     WHERE r.workspace_id=? AND r.plan_id=? AND r.operation_name=?
+       AND r.idempotency_key_hash=?${forUpdate ? " FOR UPDATE" : ""}`,
     [workspaceId, planId, operation, keyHash(idempotencyKey)]
   );
   return replay(result[0], requestHash);
@@ -607,8 +675,11 @@ implements AcquisitionDouyinAutomationRepository {
   async getRunIntent(workspaceId: string, runId: string) {
     const result = await rows(
       this.pool,
-      `SELECT * FROM acquisition_douyin_run_intents
-       WHERE workspace_id=? AND id=?`,
+      `SELECT i.*,b.acquisition_run_id
+       FROM acquisition_douyin_run_intents i
+       LEFT JOIN acquisition_douyin_run_bindings b
+         ON b.automation_intent_id=i.id
+       WHERE i.workspace_id=? AND i.id=?`,
       [workspaceId, runId]
     );
     return result[0] ? runIntent(result[0]) : null;

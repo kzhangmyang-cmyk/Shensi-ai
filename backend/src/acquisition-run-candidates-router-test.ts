@@ -22,6 +22,15 @@ test("run candidates route scopes candidates and rejects a cursor reused with a 
     assert.ok(firstJson.nextCursor);
     const reused = await fetch(`${base}?status=qualified&cursor=${encodeURIComponent(firstJson.nextCursor)}`);
     assert.equal(reused.status, 400);
+    assert.equal((await fetch(`${base}?status=${"s".repeat(101)}`)).status, 400);
+    assert.equal((await fetch(
+      `${base}?status=${encodeURIComponent(`${" ".repeat(100)}x`)}`
+    )).status, 400);
+    assert.equal((await fetch(`${base}?status=`)).status, 400);
+    assert.equal((await fetch(`${base}?cursor=${"c".repeat(8193)}`)).status, 400);
+    assert.equal((await fetch(`${base}?cursor=`)).status, 400);
+    const longRun = `http://127.0.0.1:${address.port}/api/v1/acquisition/runs/${"r".repeat(161)}/candidates`;
+    assert.equal((await fetch(longRun)).status, 400);
   } finally { server.close(); }
 });
 

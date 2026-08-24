@@ -576,6 +576,7 @@ for (const invalidReleaseResult of [0, null] as const) {
   assert.match(query.sql, /acquisition_qualification_decisions/i);
   assert.match(query.sql, /acquisition_financial_values/i);
   assert.match(query.sql, /JSON_EXTRACT\(c\.payload_json, '\$\.partyType'\)/i);
+  assert.match(query.sql, /JSON_EXTRACT\(c\.payload_json, '\$\.status'\)[^\n]+<> 'do_not_contact'/i);
   assert.match(query.sql, /CASE qualification_grade/i);
   assert.match(query.sql, /LIMIT \?/i);
   assert.equal(query.values.at(-1), 7);

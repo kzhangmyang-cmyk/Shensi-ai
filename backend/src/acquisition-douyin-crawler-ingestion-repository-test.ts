@@ -4,7 +4,8 @@ import test from "node:test";
 import mysql from "mysql2/promise";
 import type {
   AcquisitionCrawlerJob,
-  NormalizedDouyinRecord
+  NormalizedDouyinRecord,
+  PersistedNormalizedDouyinRecord
 } from "./acquisition-crawler-job.js";
 import { normalizedDouyinContentHash } from "./acquisition-crawler-job.js";
 import {
@@ -79,16 +80,18 @@ function payload(): AcquisitionPlanPayload {
   };
 }
 
-function normalized(overrides: Partial<Omit<NormalizedDouyinRecord, "contentHash">> = {}) {
+function normalized(overrides: Partial<Omit<PersistedNormalizedDouyinRecord, "contentHash">> = {}) {
   const value = {
     recordId: "comment-stable-1",
     kind: "comment" as const,
+    actorKind: "commenter" as const,
     canonicalUrl: "https://www.douyin.com/video/7350000000000000001",
     publicDisplayName: "Public actor",
     publicProfileUrl: "https://www.douyin.com/user/actor-1",
     textExcerpt: "正在寻找门店获客方案，想咨询报价。",
     sourceKeyword: "门店获客",
     observedAt: NOW,
+    pageCursor: "opaque-page-cursor-1",
     ...overrides
   };
   return { ...value, contentHash: normalizedDouyinContentHash(value) };
@@ -167,6 +170,7 @@ async function fixture(runIds = ["run-1", "run-2"]) {
 test("authoritative ingestion links every real run alias and keeps cross-job DNC permanent", async () => {
   const { planRuns, domain, repository } = await fixture();
   let job = crawlerJob("job-1", ["run-1", "run-2"]);
+  job = { ...job, cursor: null };
   let records = [normalized()];
   const crawlerJobs = {
     async findByRun(_workspaceId: string, runId: string) {
@@ -191,6 +195,8 @@ test("authoritative ingestion links every real run alias and keeps cross-job DNC
   assert.equal(firstEvidence?.provenance.kind, "mediacrawler_public_record");
   if (firstEvidence?.provenance.kind === "mediacrawler_public_record") {
     assert.equal(firstEvidence.provenance.upstreamCommit, MEDIACRAWLER_PINNED_UPSTREAM_COMMIT);
+    assert.equal(firstEvidence.provenance.cursor, "opaque-page-cursor-1");
+    assert.equal(firstEvidence.provenance.actorKind, "commenter");
   }
   const firstRun = await planRuns.getRun("run-1");
   const firstEvents = await planRuns.listRunEvents("run-1");
@@ -265,6 +271,47 @@ test("authoritative ingestion rolls evidence, candidates, and run links back tog
   assert.equal((await domain.listCandidates(SCOPE, { limit: 10 })).items.length, 0);
   assert.equal((await planRuns.listRunCandidateLinks("run-1")).length, 0);
   assert.equal((await planRuns.getRun("run-1"))?.status, "queued");
+});
+
+test("a late same-day run alias projects prior ingestion without duplicate records", async () => {
+  const { planRuns, domain, repository } = await fixture(["run-1"]);
+  let job = crawlerJob("job-late-alias", ["run-1"]);
+  const records = [normalized()];
+  const crawlerJobs = {
+    async findByRun(_workspaceId: string, runId: string) {
+      return job.runIds.includes(runId) ? job : null;
+    },
+    async listRecords() { return records; }
+  };
+  await ingestDouyinCrawlerPage({
+    crawlerJobs, repository, workspaceId: SCOPE.workspaceId, runId: "run-1",
+    scope: SCOPE, now: () => NOW
+  });
+  const run1Events = await planRuns.listRunEvents("run-1");
+  const plan = await planRuns.getPlan("plan-1");
+  const version = await planRuns.getPlanVersion("plan-version-1");
+  assert.ok(plan && version);
+  await planRuns.transaction((transaction) => {
+    transaction.putRun(createDouyinCollectionAcquisitionRun({
+      id: "run-2", automationIntentId: "intent-run-2", plan, version,
+      dailyBudgetId: `sha256:${"b".repeat(64)}`, reason: null,
+      actorId: SCOPE.actorId, createdAt: "2026-08-25T01:05:00.000Z"
+    }).run);
+  });
+  job = crawlerJob("job-late-alias", ["run-1", "run-2"]);
+  await ingestDouyinCrawlerPage({
+    crawlerJobs, repository, workspaceId: SCOPE.workspaceId, runId: "run-1",
+    scope: SCOPE, now: () => "2026-08-25T01:05:00.000Z"
+  });
+  const candidates = await domain.listCandidates(SCOPE, { limit: 10 });
+  assert.equal(candidates.items.length, 1);
+  assert.deepEqual(await planRuns.listRunEvents("run-1"), run1Events);
+  assert.equal((await planRuns.getRun("run-2"))?.status, "succeeded");
+  assert.deepEqual(
+    (await planRuns.listRunCandidateLinks("run-2"))
+      .map((value) => value.candidateId),
+    [candidates.items[0]!.id]
+  );
 });
 
 test("90-day evidence retention starts at ingestion, not an old publication date", async () => {

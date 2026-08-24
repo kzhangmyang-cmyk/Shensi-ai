@@ -50,6 +50,7 @@ def test_service_schemas_are_closed():
         NormalizedDouyinRecord(
             record_id="record_1",
             kind="video",
+            actor_kind=None,
             canonical_url="https://www.douyin.com/video/1",
             public_display_name="Display",
             public_profile_url=None,

@@ -213,6 +213,38 @@ immutable `ai_job_model_snapshots` row and one `ai_model_call_records` ledger
 row. The current 173-row target is therefore expected after Task 7 runtime
 acceptance and must not be forced back to source equality.
 
+## Douyin acquisition schema upgrade
+
+Before enabling the MediaCrawler worker against an existing target, take the
+normal encrypted backup and let backend schema setup finish with no worker
+traffic. The upgrade widens `acquisition_douyin_run_bindings.acquisition_run_id`
+and `acquisition_crawler_job_runs.run_id` from 120 to the authoritative
+160-character `acquisition_runs.id` boundary. It then:
+
+1. backfills old run-intent and run-now replay JSON with `acquisitionRunId`
+   from `acquisition_douyin_run_bindings`;
+2. identifies old crawler aliases whose value is an automation intent and
+   differs from that intent's bound run, moves them to
+   `acquisition_crawler_job_intents`, and inserts the bound authoritative run
+   alias;
+3. rebuilds the job payload's separate intent/run primary IDs and alias arrays;
+4. validates every crawler run alias and installs the authoritative run FK on
+   legacy tables that predate it.
+
+The migration never guesses an `AcquisitionRun` from an intent string. An old
+intent without an authoritative binding fails with
+`acquisition_douyin_run_binding_migration_required:<intentId>`; an invalid
+crawler alias fails with
+`crawler_job_alias_migration_required:<jobId>:<alias>`. Resolve such a row by
+recovering its exact approved-plan binding or quarantining the affected job
+under an operator-reviewed migration; do not copy the intent ID into a run
+column. Old crawler record JSON that lacks an exact page cursor is likewise
+unusable for authoritative evidence and fails closed with
+`crawler_record_cursor_migration_required:<jobId>`. A record from the previous
+shape that has a page cursor but no discriminator derives the discriminator
+only after its exact legacy content hash validates; a changed legacy hash is
+rejected.
+
 ## Rollback
 
 The source database and source runtime remain untouched and available through

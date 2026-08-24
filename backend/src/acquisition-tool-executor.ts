@@ -2045,6 +2045,7 @@ implements AcquisitionAgentToolExecutor {
           scope,
           stored.candidateId
         );
+        if (candidate.status === "do_not_contact") continue;
         if (payload.subjectKinds
           && !payload.subjectKinds.includes(candidate.partyType)) {
           continue;

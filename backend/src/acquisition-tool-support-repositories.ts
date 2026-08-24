@@ -667,7 +667,8 @@ implements AcquisitionPriorityCandidatePort {
       "c.team_id = ?",
       "d.owner_id = c.owner_id",
       "d.team_id = c.team_id",
-      "d.candidate_id = c.id"
+      "d.candidate_id = c.id",
+      "JSON_UNQUOTE(JSON_EXTRACT(c.payload_json, '$.status')) <> 'do_not_contact'"
     ];
     const values: unknown[] = [input.ownerId, input.teamId];
     if (input.subjectKinds) {

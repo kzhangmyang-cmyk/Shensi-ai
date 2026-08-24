@@ -38,5 +38,7 @@ test("crawler status route is workspace-bound, closed and reads persisted Node s
       method: "DELETE"
     });
     assert.equal(unpublishedMutation.status, 404);
+    const overlong = await fetch(`http://127.0.0.1:${address.port}/runs/${"r".repeat(161)}/crawler-status`);
+    assert.equal(overlong.status, 400);
   } finally { server.close(); }
 });

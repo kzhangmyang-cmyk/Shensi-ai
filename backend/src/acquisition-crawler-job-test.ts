@@ -4,7 +4,10 @@ import {
   InMemoryAcquisitionCrawlerJobRepository
 } from "./acquisition-crawler-job-repository.js";
 import type { AcquisitionCrawlerJobInput } from "./acquisition-crawler-job.js";
-import { normalizedDouyinContentHash } from "./acquisition-crawler-job.js";
+import {
+  assertNormalizedDouyinRecord,
+  normalizedDouyinContentHash
+} from "./acquisition-crawler-job.js";
 
 const at = (second: number) => `2026-08-24T00:00:${String(second).padStart(2, "0")}.000Z`;
 
@@ -93,9 +96,10 @@ test("cursor and normalized records commit atomically, reject replay order and l
   const claim = await repository.claimNext("worker-A", at(1), 5_000);
   assert.ok(claim);
   const record = {
-    recordId: "comment-1", kind: "comment" as const,
+    recordId: "comment-1", kind: "comment" as const, actorKind: "commenter" as const,
     canonicalUrl: "https://www.douyin.com/video/1", publicDisplayName: "Buyer",
-    publicProfileUrl: null, textExcerpt: "need pump", sourceKeyword: "pump",
+    publicProfileUrl: "https://www.douyin.com/user/commenter-1",
+    textExcerpt: "need pump", sourceKeyword: "pump",
     observedAt: at(1), contentHash: ""
   };
   record.contentHash = normalizedDouyinContentHash(record);
@@ -103,7 +107,9 @@ test("cursor and normalized records commit atomically, reject replay order and l
     expectedCursor: null, nextCursor: "opaque-1", records: [record], done: false, now: at(2)
   });
   assert.equal(committed.cursor, "opaque-1");
-  assert.equal((await repository.listRecords("crawler-1")).length, 1);
+  const persisted = await repository.listRecords("crawler-1");
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0]?.pageCursor, null);
   await assert.rejects(repository.persistPage(claim.fence, {
     expectedCursor: null, nextCursor: "opaque-2", records: [], done: false, now: at(2)
   }), /crawler_cursor_conflict/u);
@@ -145,6 +151,7 @@ test("persist rejects a well-shaped but tampered normalized content hash", async
   await assert.rejects(repository.persistPage(claim.fence, {
     expectedCursor: null, nextCursor: null, done: true, now: at(2), records: [{
       recordId: "video-1", kind: "video", canonicalUrl: "https://www.douyin.com/video/1",
+      actorKind: null,
       publicDisplayName: "Maker", publicProfileUrl: null, textExcerpt: "changed",
       sourceKeyword: "pump", observedAt: at(1), contentHash: `sha256:${"c".repeat(64)}`
     }]
@@ -158,13 +165,16 @@ test("job and record persistence reject values beyond frozen storage bounds", as
     limits: { maxVideos: 201, maxCommentsPerVideo: 1, maxPagesPerVideo: 1, maxDurationSeconds: 60 }
   })), /invalid_crawler_job_input/u);
   assert.throws(() => repository.createOrGet(input({ maxAttempts: 0 })), /invalid_crawler_job_input/u);
+  assert.throws(() => repository.createOrGet(input({
+    runId: "r".repeat(161)
+  })), /invalid_crawler_job_input/u);
 
   await repository.createOrGet(input());
   await repository.enqueue("workspace-1", "run-1", at(0));
   const claim = await repository.claimNext("worker-A", at(1), 5_000);
   assert.ok(claim);
   const record = {
-    recordId: "r".repeat(256), kind: "video" as const,
+    recordId: "r".repeat(256), kind: "video" as const, actorKind: null,
     canonicalUrl: "https://www.douyin.com/video/1", publicDisplayName: "Maker",
     publicProfileUrl: null, textExcerpt: "pump", sourceKeyword: "pump",
     observedAt: at(1), contentHash: ""
@@ -196,11 +206,14 @@ test("persistence filters both asymmetric frozen collection policies", async () 
     const records = (["video", "creator", "comment"] as const).map((kind) => {
       const record = {
         recordId: `${kind}-1`, kind,
+        actorKind: kind === "creator" ? "creator" as const
+          : kind === "comment" ? "commenter" as const : null,
         canonicalUrl: kind === "creator"
           ? "https://www.douyin.com/user/1"
           : "https://www.douyin.com/video/1",
         publicDisplayName: "Maker",
-        publicProfileUrl: kind === "creator" ? "https://www.douyin.com/user/1" : null,
+        publicProfileUrl: kind === "video" ? null
+          : `https://www.douyin.com/user/${kind}-1`,
         textExcerpt: "pump", sourceKeyword: "pump", observedAt: at(1), contentHash: ""
       };
       record.contentHash = normalizedDouyinContentHash(record);
@@ -211,6 +224,41 @@ test("persistence filters both asymmetric frozen collection policies", async () 
     });
     assert.deepEqual((await repository.listRecords(jobId)).map((record) => record.kind), expected);
   }
+});
+
+test("normalization rejects root Douyin actor identities", () => {
+  const record = {
+    recordId: "comment-root", kind: "comment" as const,
+    actorKind: "commenter" as const,
+    canonicalUrl: "https://www.douyin.com/video/1",
+    publicDisplayName: "Unknown", publicProfileUrl: "https://www.douyin.com/",
+    textExcerpt: "勿扰", sourceKeyword: "pump", observedAt: at(1), contentHash: ""
+  };
+  record.contentHash = normalizedDouyinContentHash(record);
+  assert.throws(() => assertNormalizedDouyinRecord(record), /invalid_normalized_douyin_record/u);
+});
+
+test("late same-day alias requeues projection without recrawling or duplicating records", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  await repository.enqueue("workspace-1", "run-1", at(0));
+  const crawl = await repository.claimNext("crawler", at(1), 10_000);
+  assert.ok(crawl);
+  await repository.persistPage(crawl.fence, {
+    expectedCursor: null, nextCursor: null, records: [], done: true, now: at(2)
+  });
+  const ingestion = await repository.claimNextIngestion("ingester", at(3), 10_000);
+  assert.ok(ingestion);
+  await repository.completeIngestion(ingestion.fence, at(3), at(3), at(3));
+
+  const attached = await repository.createOrGet(input({
+    id: "crawler-2", runId: "run-2", automationIntentId: "intent-2",
+    trigger: "run_now"
+  }));
+  assert.equal(attached.created, false);
+  assert.equal(attached.job.state, "succeeded");
+  assert.equal(attached.job.ingestionState, "pending");
+  assert.equal((await repository.listRecords(attached.job.id)).length, 0);
 });
 
 test("terminal ingestion claims are fenced, single-winner, and restart recoverable", async () => {

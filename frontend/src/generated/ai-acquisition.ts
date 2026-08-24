@@ -2691,6 +2691,8 @@ export interface components {
                 sourceUrl: string;
                 jobId: string;
                 recordId: string;
+                /** @enum {unknown} */
+                actorKind: "creator" | "commenter";
                 cursor: string | null;
                 upstreamCommit: string;
             } | {

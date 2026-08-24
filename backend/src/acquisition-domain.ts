@@ -73,6 +73,7 @@ export type EvidenceProvenance =
       sourceUrl: string;
       jobId: string;
       recordId: string;
+      actorKind: "creator" | "commenter";
       cursor: string | null;
       upstreamCommit: string;
     }

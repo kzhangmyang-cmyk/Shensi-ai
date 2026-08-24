@@ -133,12 +133,13 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "sourceUrl", "jobId", "recordId", "cursor", "upstreamCommit"],
+          "required": ["kind", "sourceUrl", "jobId", "recordId", "actorKind", "cursor", "upstreamCommit"],
           "properties": {
             "kind": { "const": "mediacrawler_public_record" },
             "sourceUrl": { "type": "string", "format": "uri", "maxLength": 2000, "pattern": "^https://" },
             "jobId": { "type": "string", "minLength": 1, "maxLength": 255 },
             "recordId": { "type": "string", "minLength": 1, "maxLength": 255 },
+            "actorKind": { "enum": ["creator", "commenter"] },
             "cursor": { "type": ["string", "null"], "minLength": 1, "maxLength": 512 },
             "upstreamCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
           }

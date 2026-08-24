@@ -60,7 +60,14 @@ records `scheduled` before an idempotent enqueue transition. Node owns random
 fenced crawl and terminal-ingestion leases and persists each bounded normalized
 record page together with its opaque cursor and unique cursor history,
 rejecting cycles and non-null terminal cursors. Frozen creator/comment flags
-filter disabled record kinds before persistence.
+filter disabled record kinds before persistence. Each stored record also keeps
+the exact cursor of the page that produced it, so a terminal null job cursor
+cannot erase evidence provenance. Real comment authors are normalized to a
+bounded Douyin public profile and an explicit commenter discriminator; root or
+empty actor identities are rejected. A private runner hook copies only the
+bounded public actor fields from MediaCrawler's real author object before its
+general-purpose JSONL privacy transform; an anonymous hash is not treated as a
+public profile identity.
 
 After a terminal page is durable, the ingestion worker writes evidence,
 candidates, identity aliases, DNC/audit state, acquisition-run status, and
@@ -68,10 +75,14 @@ candidate-discovered run events through the existing domain and plan-run
 repositories in one transaction. A committed retry is a no-op; a failed write
 rolls the whole unit back. Only then does Node acknowledge the sidecar. The
 durable acknowledgement timestamp starts the sidecar's 24-hour page-retention
-clock and is safe to replay after a crash. Backend retention removes only
+clock and is safe to replay after a crash. The same sweep removes the runner's
+private upstream capture directory. Backend retention removes only
 unlinked evidence 90 days after ingestion, leaving candidate-linked evidence,
 one-way DNC identity, and audit authority intact. Restarts resume from Node
-cursors and ingestion leases; browser routes never proxy live sidecar state.
+cursors and ingestion leases; a late run alias replays only this projection,
+not the crawl. Fair lane alternation and cross-workspace claim preference keep
+queued crawl work from starving ingestion or another tenant. Browser routes
+never proxy live sidecar state.
 
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a

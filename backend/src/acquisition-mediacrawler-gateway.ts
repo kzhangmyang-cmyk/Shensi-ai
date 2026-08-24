@@ -31,13 +31,27 @@ const crawlJobAcknowledgementSchema = z.object({
   job_id: z.string().min(1),
   acknowledged_at: z.string().datetime()
 }).strict();
+const douyinActorProfileSchema = z.string().url().refine((value) => {
+  const url = new URL(value);
+  return url.protocol === "https:" && url.hostname === "www.douyin.com"
+    && url.port === "" && url.search === "" && url.hash === ""
+    && /^\/user\/[A-Za-z0-9_-]{1,300}$/u.test(url.pathname);
+}, "invalid_douyin_actor_profile");
 const normalizedRecordSchema = z.object({
   record_id: z.string().min(1), kind: z.enum(["video", "creator", "comment"]),
+  actor_kind: z.enum(["creator", "commenter"]).nullable(),
   canonical_url: z.string().url().startsWith("https://www.douyin.com/"),
-  public_display_name: z.string().max(200), public_profile_url: z.string().url().nullable(),
+  public_display_name: z.string().max(200), public_profile_url: douyinActorProfileSchema.nullable(),
   text_excerpt: z.string().max(500), source_keyword: z.string().max(100),
   observed_at: z.string().datetime(), content_hash: z.string().regex(/^sha256:[0-9a-f]{64}$/u)
-}).strict();
+}).strict().superRefine((record, context) => {
+  const valid = record.kind === "video"
+    ? record.actor_kind === null
+    : record.kind === "creator"
+      ? record.actor_kind === "creator" && record.public_profile_url !== null
+      : record.actor_kind === "commenter" && record.public_profile_url !== null;
+  if (!valid) context.addIssue({ code: "custom", message: "invalid_douyin_actor_binding" });
+});
 const crawlPageResponseSchema = z.object({
   job_id: z.string().min(1), cursor: z.string().nullable(), next_cursor: z.string().nullable(),
   done: z.boolean(), records: z.array(normalizedRecordSchema).max(200)
@@ -264,7 +278,8 @@ export function createDouyinMediaCrawlerGateway(
       return Object.freeze({
         jobId: parsed.data.job_id, cursor: parsed.data.cursor, nextCursor: parsed.data.next_cursor,
         done: parsed.data.done, records: parsed.data.records.map((record) => Object.freeze({
-          recordId: record.record_id, kind: record.kind, canonicalUrl: record.canonical_url,
+          recordId: record.record_id, kind: record.kind, actorKind: record.actor_kind,
+          canonicalUrl: record.canonical_url,
           publicDisplayName: record.public_display_name, publicProfileUrl: record.public_profile_url,
           textExcerpt: record.text_excerpt, sourceKeyword: record.source_keyword,
           observedAt: record.observed_at, contentHash: record.content_hash

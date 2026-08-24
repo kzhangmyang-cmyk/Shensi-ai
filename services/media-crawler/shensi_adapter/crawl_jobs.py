@@ -8,6 +8,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -47,6 +48,7 @@ def _instant(value: str) -> datetime:
 
 def _read_output_rows(output: Path) -> list[tuple[str, Mapping[str, object]]]:
     rows: list[tuple[str, Mapping[str, object]]] = []
+    seen: set[tuple[str, str]] = set()
     for kind, pattern in (("video", "*contents*.jsonl"),
                           ("creator", "*creators*.jsonl"),
                           ("comment", "*comments*.jsonl")):
@@ -54,8 +56,103 @@ def _read_output_rows(output: Path) -> list[tuple[str, Mapping[str, object]]]:
             for line in path.read_text(encoding="utf-8").splitlines():
                 value = json.loads(line)
                 if isinstance(value, dict):
+                    identity = str(
+                        value.get("aweme_id") if kind == "video"
+                        else value.get("sec_uid") or value.get("sec_user_id")
+                        or value.get("user_id") or value.get("uid")
+                        if kind == "creator"
+                        else value.get("comment_id") or value.get("cid")
+                        or ""
+                    )
+                    key = (kind, identity)
+                    if identity and key in seen:
+                        continue
+                    if identity:
+                        seen.add(key)
                     rows.append((kind, value))
     return rows
+
+
+def _capture_text(value: object, maximum: int) -> str:
+    return "" if value is None else "".join(list(str(value).strip())[:maximum])
+
+
+def _capture_actor(value: Mapping[str, object]) -> str:
+    actor = _capture_text(
+        value.get("sec_uid") or value.get("sec_user_id")
+        or value.get("user_id") or value.get("uid"),
+        300,
+    )
+    return actor if re.fullmatch(r"[A-Za-z0-9_-]{1,300}", actor) else ""
+
+
+def _public_comment_capture(aweme_id: str, raw: Mapping[str, object],
+                            source_keyword: str) -> dict[str, object] | None:
+    user = raw.get("user") if isinstance(raw.get("user"), Mapping) else {}
+    actor = _capture_actor(user)
+    comment_id = _capture_text(raw.get("cid") or raw.get("comment_id"), 160)
+    video_id = _capture_text(raw.get("aweme_id") or aweme_id, 160)
+    if not actor or not comment_id or not video_id:
+        return None
+    return {
+        "comment_id": comment_id,
+        "aweme_id": video_id,
+        "sec_uid": actor,
+        "nickname": _capture_text(user.get("nickname"), 200),
+        "content": _capture_text(raw.get("text") or raw.get("content"), 500),
+        "source_keyword": _capture_text(source_keyword, 100),
+        "create_time": raw.get("create_time"),
+    }
+
+
+def _public_creator_capture(raw: Mapping[str, object],
+                            source_keyword: str) -> dict[str, object] | None:
+    author = raw.get("author") if isinstance(raw.get("author"), Mapping) else {}
+    actor = _capture_actor(author)
+    if not actor:
+        return None
+    return {
+        "sec_uid": actor,
+        "nickname": _capture_text(author.get("nickname"), 200),
+        "desc": _capture_text(raw.get("desc"), 500),
+        "source_keyword": _capture_text(source_keyword, 100),
+    }
+
+
+def _append_public_capture(path: Path, value: Mapping[str, object]) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(path.parent, 0o700)
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n")
+    os.chmod(path, 0o600)
+
+
+def _install_public_actor_capture(output: Path, collect_creators: bool) -> None:
+    from store import douyin as douyin_store
+
+    original_comment = douyin_store.update_dy_aweme_comment
+    original_aweme = douyin_store.update_douyin_aweme
+    capture_root = output / "douyin" / "jsonl"
+
+    async def capture_comment(aweme_id: str, comment_item: Mapping[str, object]):
+        row = _public_comment_capture(
+            aweme_id, comment_item, douyin_store.source_keyword_var.get(),
+        )
+        if row:
+            _append_public_capture(capture_root / "000-shensi-comments.jsonl", row)
+        await original_comment(aweme_id, comment_item)
+
+    async def capture_aweme(aweme_item: Mapping[str, object]):
+        if collect_creators:
+            row = _public_creator_capture(
+                aweme_item, douyin_store.source_keyword_var.get(),
+            )
+            if row:
+                _append_public_capture(capture_root / "000-shensi-creators.jsonl", row)
+        await original_aweme(aweme_item)
+
+    douyin_store.update_dy_aweme_comment = capture_comment
+    douyin_store.update_douyin_aweme = capture_aweme
 
 
 def _browser_profile_template(profile: Path) -> str:
@@ -102,6 +199,12 @@ class MediaCrawlerRunner:
         if process.returncode != 0:
             raise RuntimeError("mediacrawler_job_failed")
         return _read_output_rows(output)
+
+    def cleanup(self, job_id: str) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,254}", job_id):
+            raise ValueError("invalid_crawl_job_id")
+        shutil.rmtree(self._service_root / ".shensi-crawl-output" / job_id,
+                      ignore_errors=True)
 
 
 class CrawlJobManager:
@@ -299,13 +402,14 @@ class CrawlJobManager:
             if existing:
                 return _instant(existing)
             instant = self._now()
-            job["acknowledged_at"] = instant.isoformat()
-            job["updated_at"] = instant.isoformat()
-            self._persist(job)
+            persisted = dict(job)
+            persisted["acknowledged_at"] = instant.isoformat()
+            persisted["updated_at"] = instant.isoformat()
+            self._persist(persisted)
+            self._jobs[job_id] = persisted
             return instant
 
     def sweep_retained(self) -> int:
-        import shutil
         with self._lock:
             expired = [job_id for job_id, job in self._jobs.items()
                        if (job.get("acknowledged_at")
@@ -313,6 +417,9 @@ class CrawlJobManager:
                        or (not job.get("pages") and job.get("completed_at")
                            and self._now() >= _instant(job["completed_at"]) + self._retention)]
             for job_id in expired:
+                cleanup = getattr(self._runner, "cleanup", None)
+                if callable(cleanup):
+                    cleanup(job_id)
                 shutil.rmtree(self._directory(job_id))
                 self._jobs.pop(job_id, None)
                 self._cancel.pop(job_id, None)
@@ -355,6 +462,9 @@ def _execute_upstream(spec_path: Path) -> None:
     )
     config.MAX_CONCURRENCY_NUM = 1
     config.ENABLE_GET_WORDCLOUD = False
+    _install_public_actor_capture(
+        Path(value["output"]), bool(value["collect_creators"]),
+    )
     asyncio.run(DouYinCrawler().start())
 
 

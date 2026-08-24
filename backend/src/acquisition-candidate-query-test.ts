@@ -80,6 +80,12 @@ await repository.insertCandidate(candidate({
   updatedAt: "2026-07-23T01:00:00.000Z"
 }));
 await repository.insertCandidate(candidate({
+  id: "candidate-dnc",
+  subject: "individual",
+  status: "do_not_contact",
+  updatedAt: "2026-07-23T06:00:00.000Z"
+}));
+await repository.insertCandidate(candidate({
   id: "candidate-new",
   subject: "organization",
   status: "qualified",
@@ -120,6 +126,12 @@ assert.deepEqual(
 );
 assert.equal(second.nextCursor, null);
 assert.equal(second.snapshot, first.snapshot);
+
+const explicitDnc = await repository.listCandidates(scope, {
+  limit: 10,
+  status: "do_not_contact"
+});
+assert.deepEqual(explicitDnc.items.map((item) => item.id), ["candidate-dnc"]);
 
 const organizations = await repository.listCandidates(scope, {
   limit: 10,

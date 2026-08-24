@@ -970,6 +970,9 @@ implements AcquisitionDomainRepository {
     }
     const where = ["owner_id = ?", "team_id = ?"];
     const values: unknown[] = [scope.ownerId, scope.teamId];
+    if (query.status === undefined) {
+      where.push("JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.status')) <> 'do_not_contact'");
+    }
     if (query.subjectKind) {
       where.push(
         "JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.profile.kind')) = ?"

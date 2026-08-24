@@ -68,12 +68,23 @@ ledger.
   implementations. Terminal ingestion atomically writes the existing evidence,
   candidate, identity-alias, audit, run-event, and run-candidate authorities.
   Stable record edits supersede across jobs; content is unique per workspace.
+  Each record and evidence row retains its exact page cursor and explicit
+  creator/commenter discriminator. Late same-day aliases re-run only the
+  idempotent ingestion projection and complete the added authoritative run.
+  Fair cross-workspace claims and alternating crawl/ingest lanes bound tenant
+  and ingestion starvation.
 - The private sidecar keeps result pages until Node durably ingests them and
   acknowledges the job. The acknowledgement timestamp survives restart and
-  starts the 24-hour page cleanup clock. Unlinked evidence is retained for 90
+  starts the 24-hour page and bounded upstream-capture cleanup clock. Public
+  actor identity comes from the real author fields, never from the anonymous
+  upstream `creator_hash`. Unlinked evidence is retained for 90
   days from backend ingestion; linked evidence, permanent one-way Douyin DNC
   identities, and audit records are preserved. Default run candidate feeds
-  exclude DNC candidates. Browsers read only persisted Node projections at
+  exclude DNC candidates; the same default exclusion applies to general and
+  priority candidate readers. Existing MySQL installs backfill bound legacy
+  intent JSON, separate old mixed aliases, widen run aliases to the core
+  160-character run-ID boundary, and fail closed on unmappable rows. Browsers
+  read only persisted Node projections at
   `GET /api/v1/acquisition/runs/{runId}/crawler-status` and
   `GET /api/v1/acquisition/runs/{runId}/candidates`.
 

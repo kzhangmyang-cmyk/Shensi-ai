@@ -31,7 +31,8 @@ test("worker resumes from persisted cursor and never acknowledges sidecar pages"
       cursors.push(cursor);
       if (cursor === null) {
         const record = {
-        recordId: "video-1", kind: "video" as const, canonicalUrl: "https://www.douyin.com/video/1",
+        recordId: "video-1", kind: "video" as const, actorKind: null,
+        canonicalUrl: "https://www.douyin.com/video/1",
         publicDisplayName: "Maker", publicProfileUrl: null, textExcerpt: "pump", sourceKeyword: "pump",
         observedAt: now, contentHash: ""
         };
@@ -53,6 +54,88 @@ test("worker resumes from persisted cursor and never acknowledges sidecar pages"
   assert.equal((starts[0] as { collectCreators: boolean }).collectCreators, true);
   assert.equal((starts[0] as { collectDemandComments: boolean }).collectDemandComments, false);
   assert.equal((await repository.findByRun("workspace-1", "run-1"))?.state, "succeeded");
+  await worker.close();
+});
+
+test("claims stay bounded-fair across workspaces", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  const workspaceA1 = { ...job, id: "crawler-a1", runId: "run-a1",
+    automationIntentId: "intent-a1", planId: "plan-a1" };
+  const workspaceA2 = { ...job, id: "crawler-a2", runId: "run-a2",
+    automationIntentId: "intent-a2", planId: "plan-a2",
+    createdAt: "2026-08-24T00:00:01.000Z" };
+  const workspaceB = { ...job, id: "crawler-b", workspaceId: "workspace-2",
+    runId: "run-b", automationIntentId: "intent-b", planId: "plan-b",
+    createdAt: "2026-08-24T00:00:02.000Z" };
+  for (const input of [workspaceA1, workspaceA2, workspaceB]) {
+    await repository.createOrGet(input);
+    await repository.enqueue(input.workspaceId, input.runId, now);
+  }
+  const first = await repository.claimNext("fair-worker", now, 30_000);
+  assert.equal(first?.job.id, "crawler-a1");
+  const second = await repository.claimNext(
+    "fair-worker", now, 30_000, first?.job.workspaceId
+  );
+  assert.equal(second?.job.id, "crawler-b");
+});
+
+test("worker alternates crawl and ingestion lanes under sustained crawl load", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  const terminal = { ...job, id: "crawler-terminal", workspaceId: "workspace-2",
+    runId: "run-terminal", automationIntentId: "intent-terminal",
+    planId: "plan-terminal" };
+  await repository.createOrGet(terminal);
+  await repository.enqueue(terminal.workspaceId, terminal.runId, now);
+  const terminalClaim = await repository.claimNext("setup-worker", now, 30_000);
+  assert.ok(terminalClaim);
+  await repository.persistPage(terminalClaim.fence, {
+    expectedCursor: null, nextCursor: null, records: [], done: true, now
+  });
+  for (const input of [
+    { ...job, id: "crawler-load-1", runId: "run-load-1",
+      automationIntentId: "intent-load-1", planId: "plan-load-1" },
+    { ...job, id: "crawler-load-2", runId: "run-load-2",
+      automationIntentId: "intent-load-2", planId: "plan-load-2" }
+  ]) {
+    await repository.createOrGet(input);
+    await repository.enqueue(input.workspaceId, input.runId, now);
+  }
+  const order: string[] = [];
+  const worker = new AcquisitionCrawlerWorker({
+    repository,
+    gateway: {
+      async startCrawlJob(input) {
+        order.push(`crawl:${input.jobId}`);
+        return { jobId: input.jobId, state: "running" as const };
+      },
+      async getCrawlJob(jobId) {
+        return { jobId, state: "succeeded" as const };
+      },
+      async getCrawlResults(jobId, cursor) {
+        return { jobId, cursor, nextCursor: null, done: true, records: [] };
+      },
+      async acknowledgeCrawlJob(jobId) {
+        order.push(`ack:${jobId}`);
+        return { jobId, acknowledgedAt: now };
+      },
+      async cancelCrawlJob() {}
+    },
+    accounts: { async findById(workspaceId) { return {
+      id: "account-1", workspaceId, platform: "douyin" as const,
+      accountHandle: "private-handle", state: "active" as const,
+      loginStateVersion: 2
+    }; } },
+    workerId: "fair-worker",
+    now: () => now,
+    async ingestTerminalJob(job) { order.push(`ingest:${job.id}`); }
+  });
+  assert.equal(await worker.runOnce(), true);
+  assert.equal(await worker.runOnce(), true);
+  assert.deepEqual(order, [
+    "crawl:crawler-load-1",
+    "ingest:crawler-terminal",
+    "ack:crawler-terminal"
+  ]);
   await worker.close();
 });
 

@@ -39,6 +39,7 @@ export interface AcquisitionCrawlerJobInput {
 export interface NormalizedDouyinRecord {
   recordId: string;
   kind: "video" | "creator" | "comment";
+  actorKind: "creator" | "commenter" | null;
   canonicalUrl: string;
   publicDisplayName: string;
   publicProfileUrl: string | null;
@@ -46,6 +47,11 @@ export interface NormalizedDouyinRecord {
   sourceKeyword: string;
   observedAt: string;
   contentHash: string;
+}
+
+export interface PersistedNormalizedDouyinRecord
+extends NormalizedDouyinRecord {
+  pageCursor: string | null;
 }
 
 export interface AcquisitionCrawlerJob extends AcquisitionCrawlerJobInput {
@@ -129,7 +135,7 @@ function boundedId(value: unknown, maximum = 255) {
 
 export function assertCrawlerJobInput(input: AcquisitionCrawlerJobInput) {
   if (!boundedId(input.id) || !boundedId(input.workspaceId)
-    || !boundedId(input.runId) || !boundedId(input.automationIntentId)
+    || !boundedId(input.runId, 160) || !boundedId(input.automationIntentId)
     || !boundedId(input.planId, 160) || !boundedId(input.planVersionId, 160)
     || !boundedId(input.planSnapshotHash, 200)
     || !boundedId(input.policyVersionId) || !boundedId(input.accountId)
@@ -159,11 +165,24 @@ export function assertCrawlerJobInput(input: AcquisitionCrawlerJobInput) {
 }
 
 export function assertNormalizedDouyinRecord(record: NormalizedDouyinRecord) {
-  const keys = ["recordId", "kind", "canonicalUrl", "publicDisplayName",
+  const keys = ["recordId", "kind", "actorKind", "canonicalUrl", "publicDisplayName",
     "publicProfileUrl", "textExcerpt", "sourceKeyword", "observedAt", "contentHash"];
+  const actorProfile = (() => {
+    if (!record.publicProfileUrl) return false;
+    try {
+      const url = new URL(record.publicProfileUrl);
+      return url.protocol === "https:" && url.hostname === "www.douyin.com"
+        && url.port === "" && url.search === "" && url.hash === ""
+        && /^\/user\/[A-Za-z0-9_-]{1,300}$/u.test(url.pathname);
+    } catch { return false; }
+  })();
   if (Object.keys(record).some((key) => !keys.includes(key))
     || !boundedId(record.recordId)
     || !["video", "creator", "comment"].includes(record.kind)
+    || (record.kind === "video" && record.actorKind !== null)
+    || (record.kind === "creator" && record.actorKind !== "creator")
+    || (record.kind === "comment" && record.actorKind !== "commenter")
+    || (record.kind !== "video" && !actorProfile)
     || record.canonicalUrl.length > 2_000
     || !record.canonicalUrl.startsWith("https://www.douyin.com/")
     || record.publicDisplayName.length > 200
@@ -182,6 +201,21 @@ export function assertNormalizedDouyinRecord(record: NormalizedDouyinRecord) {
 
 export function normalizedDouyinContentHash(
   record: Omit<NormalizedDouyinRecord, "contentHash" | "observedAt">
+) {
+  return `sha256:${createHash("sha256").update(canonicalJsonStringify({
+    canonical_url: record.canonicalUrl,
+    kind: record.kind,
+    actor_kind: record.actorKind,
+    public_display_name: record.publicDisplayName,
+    public_profile_url: record.publicProfileUrl,
+    record_id: record.recordId,
+    source_keyword: record.sourceKeyword,
+    text_excerpt: record.textExcerpt
+  }), "utf8").digest("hex")}`;
+}
+
+export function normalizedDouyinLegacyContentHash(
+  record: Omit<NormalizedDouyinRecord, "actorKind" | "contentHash" | "observedAt">
 ) {
   return `sha256:${createHash("sha256").update(canonicalJsonStringify({
     canonical_url: record.canonicalUrl,
