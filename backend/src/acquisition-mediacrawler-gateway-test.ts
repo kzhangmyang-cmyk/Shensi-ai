@@ -70,3 +70,36 @@ test("health maps timeouts to mediacrawler_unavailable without exposing the secr
     });
   });
 });
+
+test("gateway rejects a secret with fewer than 32 non-whitespace bytes", () => {
+  assert.throws(
+    () => createDouyinMediaCrawlerGateway({
+      baseUrl: "http://127.0.0.1:8000",
+      serviceSecret: "a" + " ".repeat(64) + "b",
+    }),
+    { code: "mediacrawler_unavailable" },
+  );
+});
+
+test("health honors an already-aborted caller signal before fetch", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let fetchCalls = 0;
+  const gateway = createDouyinMediaCrawlerGateway({
+    baseUrl: "http://127.0.0.1:8000",
+    serviceSecret,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify(validHealth));
+    },
+  });
+
+  await assert.rejects(gateway.health(controller.signal), { code: "mediacrawler_unavailable" });
+  assert.equal(fetchCalls, 0);
+});
+
+test("gateway accepts bracketed IPv6 loopback and private addresses", () => {
+  for (const baseUrl of ["http://[::1]:8000", "http://[fc00::1]:8000", "http://[fe80::1]:8000"]) {
+    assert.doesNotThrow(() => createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret }));
+  }
+});

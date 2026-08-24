@@ -45,7 +45,7 @@ function isPrivateHttpUrl(value: string): URL {
     throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
   }
 
-  const host = url.hostname.toLowerCase();
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/gu, "");
   const privateIpv4 = /^(?:127(?:\.\d{1,3}){3}|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})$/u.test(host);
   const privateIpv6 = host === "::1" || /^f[cd][0-9a-f:]*$/u.test(host) || /^fe[89ab][0-9a-f:]*$/u.test(host);
   if (url.protocol !== "http:" || url.username || url.password || !(host === "localhost" || privateIpv4 || privateIpv6)) {
@@ -55,17 +55,20 @@ function isPrivateHttpUrl(value: string): URL {
 }
 
 function normalizedSecret(value: string): string {
-  const secret = value.trim();
-  if (Buffer.byteLength(secret, "utf8") < 32) {
+  if (/\s/u.test(value) || Buffer.byteLength(value, "utf8") < 32) {
     throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
   }
-  return secret;
+  return value;
 }
 
 function requestAbortSignal(signal: AbortSignal | undefined, timeoutMs: number) {
   const controller = new AbortController();
   const abort = () => controller.abort();
-  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) {
+    abort();
+  } else {
+    signal?.addEventListener("abort", abort, { once: true });
+  }
   const timeout = setTimeout(abort, timeoutMs);
   return {
     signal: controller.signal,
@@ -113,6 +116,9 @@ export function createDouyinMediaCrawlerGateway(
     async health(signal?: AbortSignal) {
       const request = requestAbortSignal(signal, timeoutMs);
       try {
+        if (request.signal.aborted) {
+          throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
+        }
         const response = await fetchImpl(new URL("/internal/v1/health", baseUrl), {
           headers: { authorization: `Bearer ${serviceSecret}` },
           signal: request.signal

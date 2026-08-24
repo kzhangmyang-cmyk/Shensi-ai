@@ -4,12 +4,13 @@ from fastapi import HTTPException, status
 
 
 def require_service_secret(value: str) -> str:
-    normalized = value.strip()
-    if len(normalized.encode("utf-8")) < 32:
+    if any(character.isspace() for character in value) or len(
+        value.encode("utf-8")
+    ) < 32:
         raise ValueError(
             "MEDIACRAWLER_SERVICE_SECRET must contain at least 32 non-whitespace bytes"
         )
-    return normalized
+    return value
 
 
 def authorize_bearer(authorization: str | None, service_secret: str) -> None:

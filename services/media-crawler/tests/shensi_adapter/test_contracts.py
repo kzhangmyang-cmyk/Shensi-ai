@@ -104,3 +104,6 @@ def test_health_requires_valid_bearer_authentication_without_echoing_header():
 def test_service_secret_requires_32_non_whitespace_bytes():
     with pytest.raises(ValueError, match="32 non-whitespace bytes"):
         create_app(" " * 32)
+
+    with pytest.raises(ValueError, match="32 non-whitespace bytes"):
+        create_app("a" + (" " * 64) + "b")
