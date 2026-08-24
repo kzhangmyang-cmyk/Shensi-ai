@@ -16,6 +16,14 @@ export function requireDistinctDatabases(source, target) {
   if (source === target) throw new Error("SOURCE_TARGET_DATABASE_MATCH");
 }
 
+export function safeChildEnvironment(baseEnv = process.env) {
+  const safe = {};
+  for (const name of ["PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR"]) {
+    if (baseEnv[name]) safe[name] = baseEnv[name];
+  }
+  return safe;
+}
+
 export function mysqlCliEnvironment(parsed, baseEnv = process.env) {
-  return { ...baseEnv, MYSQL_PWD: parsed.password };
+  return { ...safeChildEnvironment(baseEnv), MYSQL_PWD: parsed.password };
 }

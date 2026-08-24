@@ -78,7 +78,10 @@ release bytes in place. See `docs/API_INDEX.md`.
   separate egress network for outbound integrations.
 - `scripts/backup`, `scripts/restore`, `scripts/migrate-data`, and
   `scripts/verify-data.mjs` provide encrypted source-to-new-target migration
-  tooling. Their presence does not mean a live migration or cutover has run;
+  tooling. Restore authenticates the complete encrypted artifact and its
+  manifest before any decrypt-to-MySQL pipeline starts; verification reports
+  only allowlisted non-sensitive integrity and aggregate ciphertext-identity
+  digests. Their presence does not mean a live migration or cutover has run;
   those remain operator-authorized operations under `docs/DATA_MIGRATION.md`.
 - Source databases are read-only migration inputs. Restore and verification
   must use a distinct target and keep rollback artifacts recoverable.

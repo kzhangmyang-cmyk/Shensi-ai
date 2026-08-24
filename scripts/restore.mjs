@@ -3,8 +3,9 @@ import { createRequire } from "node:module";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  mysqlCliEnvironment, parseMysqlUrl, requireDistinctDatabases
+  mysqlCliEnvironment, parseMysqlUrl, requireDistinctDatabases, safeChildEnvironment
 } from "./lib/database-url.mjs";
+import { verifyEncryptedBackup } from "./lib/migration-manifest.mjs";
 import { runPipeline } from "./lib/process-pipeline.mjs";
 
 const DEFAULT_MYSQL = "/Users/mac/.local/mysql-8.4.11-macos15-arm64/bin/mysql";
@@ -27,12 +28,15 @@ async function inspectTargetDatabase(parsed) {
   });
   try {
     const [[row]] = await connection.query(
-      `SELECT COUNT(*) AS table_count
-         FROM information_schema.tables
-        WHERE table_schema = ? AND table_type = 'BASE TABLE'`,
-      [parsed.database]
+      `SELECT
+         (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ?)
+       + (SELECT COUNT(*) FROM information_schema.routines WHERE routine_schema = ?)
+       + (SELECT COUNT(*) FROM information_schema.triggers WHERE trigger_schema = ?)
+       + (SELECT COUNT(*) FROM information_schema.events WHERE event_schema = ?)
+         AS object_count`,
+      [parsed.database, parsed.database, parsed.database, parsed.database]
     );
-    return { tableCount: Number(row.table_count) };
+    return { objectCount: Number(row.object_count) };
   } finally {
     await connection.end();
   }
@@ -40,16 +44,23 @@ async function inspectTargetDatabase(parsed) {
 
 export async function restoreDatabase({
   env = process.env,
-  targetState = inspectTargetDatabase
+  targetState = inspectTargetDatabase,
+  artifactVerifier = verifyEncryptedBackup
 } = {}) {
   const source = parseMysqlUrl(required(env, "SOURCE_DATABASE_URL"));
   const target = parseMysqlUrl(required(env, "TARGET_DATABASE_URL"));
   if (target.database !== "shensi") throw new Error("TARGET_DATABASE_MUST_BE_SHENSI");
   requireDistinctDatabases(source.database, target.database);
-  required(env, "SHENSI_BACKUP_PASSPHRASE");
+  const passphrase = required(env, "SHENSI_BACKUP_PASSPHRASE");
   const encryptedBackup = required(env, "ENCRYPTED_BACKUP");
+  const manifestPath = env.BACKUP_MANIFEST || `${encryptedBackup}.migration-manifest.json`;
+  await artifactVerifier({
+    backupPath: encryptedBackup,
+    manifestPath,
+    passphrase
+  });
   const state = await targetState(target);
-  if (Number(state.tableCount) !== 0) {
+  if (Number(state.objectCount) !== 0) {
     throw new Error("TARGET_DATABASE_NOT_EMPTY");
   }
   await access(encryptedBackup);
@@ -60,7 +71,10 @@ export async function restoreDatabase({
         "enc", "-d", "-aes-256-cbc", "-pbkdf2",
         "-pass", "env:SHENSI_BACKUP_PASSPHRASE", "-in", encryptedBackup
       ],
-      env
+      env: {
+        ...safeChildEnvironment(env),
+        SHENSI_BACKUP_PASSPHRASE: passphrase
+      }
     },
     destination: {
       command: env.MYSQL_BIN || DEFAULT_MYSQL,
@@ -71,7 +85,7 @@ export async function restoreDatabase({
       env: mysqlCliEnvironment(target, env)
     }
   });
-  return { targetDatabase: target.database, encryptedBackup };
+  return { targetDatabase: target.database, encryptedBackup, manifestPath };
 }
 
 async function main() {

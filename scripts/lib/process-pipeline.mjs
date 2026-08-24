@@ -17,17 +17,26 @@ export async function runPipeline({
   destination,
   output = "ignore",
   signalEmitter = process,
-  signals = ["SIGINT", "SIGTERM"]
+  signals = ["SIGINT", "SIGTERM"],
+  killAfterMs = 5_000
 }) {
   const left = spawnStage(source, "pipe");
   const right = spawnStage(destination, output);
   const children = [left, right];
+  const terminationTimers = new Map();
   let failure;
 
   const terminate = (except) => {
     for (const child of children) {
       if (child !== except && child.exitCode === null && child.signalCode === null) {
         child.kill("SIGTERM");
+        if (!terminationTimers.has(child)) {
+          const timer = setTimeout(() => {
+            if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+          }, killAfterMs);
+          timer.unref();
+          terminationTimers.set(child, timer);
+        }
       }
     }
   };
@@ -44,6 +53,8 @@ export async function runPipeline({
       fail(stageError(stage, "SPAWN"), child);
     });
     child.once("close", (code, signal) => {
+      clearTimeout(terminationTimers.get(child));
+      terminationTimers.delete(child);
       if (code !== 0 && !failure) {
         fail(stageError(stage, signal ? `SIGNAL:${signal}` : `EXIT:${code}`), child);
       }
@@ -65,6 +76,7 @@ export async function runPipeline({
     ]);
   } finally {
     for (const [signal, handler] of signalHandlers) signalEmitter.off(signal, handler);
+    for (const timer of terminationTimers.values()) clearTimeout(timer);
   }
   if (failure) throw failure;
 }

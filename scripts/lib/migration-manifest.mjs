@@ -1,3 +1,13 @@
+import {
+  createHash, createHmac, pbkdf2Sync, randomBytes, timingSafeEqual
+} from "node:crypto";
+import { createReadStream } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { basename } from "node:path";
+
+const MANIFEST_FORMAT = "shensi-encrypted-backup-manifest.v2";
+const MAC_ITERATIONS = 210_000;
+
 function isSecretField(key) {
   const normalized = key.replace(/[^a-z0-9]/giu, "").toLowerCase();
   return normalized.includes("password")
@@ -19,6 +29,73 @@ export function safeManifest(value) {
   return Object.fromEntries(Object.entries(value)
     .filter(([key]) => !isSecretField(key))
     .map(([key, entry]) => [key, safeManifest(entry)]));
+}
+
+export async function sha256File(filePath) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+function authenticatedBytes(manifest) {
+  return Buffer.from(`shensi-backup-manifest-v2\n${JSON.stringify(manifest)}`, "utf8");
+}
+
+function macKey(passphrase, authentication) {
+  return pbkdf2Sync(
+    passphrase,
+    Buffer.from(authentication.salt, "base64"),
+    authentication.iterations,
+    32,
+    "sha256"
+  );
+}
+
+export function authenticatedManifest(fields, passphrase, { salt = randomBytes(16) } = {}) {
+  const unsigned = safeManifest({
+    ...fields,
+    format: MANIFEST_FORMAT,
+    authentication: {
+      algorithm: "hmac-sha256",
+      kdf: "pbkdf2-sha256",
+      iterations: MAC_ITERATIONS,
+      salt: Buffer.from(salt).toString("base64")
+    }
+  });
+  const tag = createHmac("sha256", macKey(passphrase, unsigned.authentication))
+    .update(authenticatedBytes(unsigned))
+    .digest("hex");
+  return { ...unsigned, authentication: { ...unsigned.authentication, tag } };
+}
+
+export async function verifyEncryptedBackup({ backupPath, manifestPath, passphrase }) {
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  } catch {
+    throw new Error("BACKUP_MANIFEST_INVALID");
+  }
+  if (manifest.format !== MANIFEST_FORMAT
+    || manifest.encryptedFile !== basename(backupPath)
+    || manifest.authentication?.algorithm !== "hmac-sha256"
+    || manifest.authentication?.kdf !== "pbkdf2-sha256"
+    || manifest.authentication?.iterations !== MAC_ITERATIONS
+    || !/^[A-Za-z0-9+/]+={0,2}$/u.test(manifest.authentication?.salt ?? "")
+    || !/^[a-f0-9]{64}$/u.test(manifest.authentication?.tag ?? "")) {
+    throw new Error("BACKUP_MANIFEST_INVALID");
+  }
+  const digest = await sha256File(backupPath);
+  if (digest !== manifest.sha256) throw new Error("BACKUP_SHA256_MISMATCH");
+  const { tag, ...authentication } = manifest.authentication;
+  const unsigned = { ...manifest, authentication };
+  const expected = createHmac("sha256", macKey(passphrase, authentication))
+    .update(authenticatedBytes(unsigned))
+    .digest();
+  const actual = Buffer.from(tag, "hex");
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+    throw new Error("BACKUP_AUTHENTICATION_FAILED");
+  }
+  return manifest;
 }
 
 export async function collectBackupDatabaseSnapshot(parsed, { createConnection } = {}) {

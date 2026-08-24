@@ -43,6 +43,7 @@ Required values:
 | `MYSQL_LOCAL_ADMIN_URL` | migrate | `mysql:` URL with a concrete database (normally `mysql`) on the same host and port as the target |
 | `SHENSI_BACKUP_PASSPHRASE` | backup, restore, migrate | OpenSSL passphrase; never logged or written to a manifest |
 | `ENCRYPTED_BACKUP` | direct restore | Path to the selected `*.sql.enc` file |
+| `BACKUP_MANIFEST` | direct restore | Optional path to the selected authenticated manifest; defaults to `<ENCRYPTED_BACKUP>.migration-manifest.json` |
 
 Optional overrides:
 
@@ -55,49 +56,68 @@ Optional overrides:
 | `VERIFICATION_REPORT` | timestamped non-secret report under `backups/` |
 
 The ignored `.env.local` and `.env.production.local` files are not loaded by
-these wrappers. Environment injection is the operator's explicit boundary.
+the shell wrappers. Environment injection is the operator's explicit boundary;
+the documented `node --env-file` commands load the named file explicitly.
+`scripts/backup` and `scripts/migrate-data` pass their documented flags through
+unchanged, and every migration CLI rejects unknown flags.
 
 ## Encrypted backup
 
 Run:
 
 ```bash
-./scripts/backup
+node --env-file=.env.production.local scripts/backup.mjs \
+  --source-env SOURCE_DATABASE_URL --output-dir backups
 ```
 
 The command streams a single-transaction `mysqldump` directly into OpenSSL
 AES-256-CBC with PBKDF2 and salt. It creates no plaintext dump. The encrypted
 file is opened with mode `0600`; an incomplete encrypted file is deleted when
 either pipeline stage fails or the process receives `SIGINT`/`SIGTERM`.
+The dump explicitly omits database/table/trigger DROP statements and REPLACE
+statements. Child processes receive only a small safe base environment plus
+`MYSQL_PWD` for MySQL programs or `SHENSI_BACKUP_PASSPHRASE` for OpenSSL;
+database URLs, provider keys, and unrelated secrets are not forwarded.
 
-The adjacent ignored `*.migration-manifest.json` contains the encrypted-file
+The adjacent ignored mode-`0600` `*.migration-manifest.json` is an authenticated
+encrypt-then-MAC sidecar. It binds the artifact basename, full encrypted-file
 SHA-256, source commit, MySQL version, source database name, UTC creation time,
-and exact per-table counts. It contains no password, passphrase, full URL,
-customer row, encrypted provider value, or provider key.
+and all other manifest fields with HMAC-SHA256 under an independently salted
+PBKDF2-derived key. Its `observedTableCounts` are a non-transactional source
+observation, not counts from the exact dump transaction; exact source/target
+counts are established by post-restore verification. The manifest contains no
+password, passphrase, full URL, customer row, encrypted provider value, or
+provider key.
 
 ## Direct restore
 
-Provision an existing empty `shensi` target, select the encrypted artifact by
-setting `ENCRYPTED_BACKUP`, then run:
+Provision an existing empty `shensi` target, select the encrypted artifact and
+its sidecar with `ENCRYPTED_BACKUP` and optionally `BACKUP_MANIFEST`, then run:
 
 ```bash
 ./scripts/restore
 ```
 
-The command rejects a target other than `shensi`, equal source/target database
-names, and a non-empty target. It streams OpenSSL decryption directly into the
-MySQL client. A wrong passphrase, corrupt ciphertext, either child failure, or
-a signal fails the command. If a restore fails after MySQL has begun reading,
-do not retry into that database: isolate it, provision a new empty `shensi`
-target under incident control, and start again from the retained ciphertext.
-Never drop or clean the source database.
+The command authenticates the complete ciphertext and manifest before starting
+OpenSSL or the MySQL client. A missing or modified sidecar, wrong passphrase,
+or corrupt ciphertext therefore cannot feed bytes to MySQL. It then rejects a
+target other than `shensi`, equal source/target database names, and any target
+containing a table, view, routine, trigger, or event. Authenticated ciphertext
+is streamed from OpenSSL directly into the MySQL client. Either child failure
+or a signal fails the command; cleanup sends `SIGTERM`, escalates to `SIGKILL`
+after a bounded wait, and awaits both children. If a restore fails after MySQL
+has begun reading, do not retry into that database: isolate it, provision a new
+empty `shensi` target under incident control, and start again from the retained
+ciphertext. Never drop or clean the source database.
 
 ## Orchestrated migration
 
 After a reviewed preflight and operator authorization, run:
 
 ```bash
-./scripts/migrate-data
+node --env-file=.env.production.local scripts/migrate-data.mjs \
+  --source-env SOURCE_DATABASE_URL \
+  --target-env TARGET_DATABASE_URL --target-database shensi
 ```
 
 The orchestrator validates all URLs and the target administrator server,
@@ -114,17 +134,32 @@ For a restored target, run:
 node scripts/verify-data.mjs
 ```
 
+Before migration, capture a source-only inventory without requiring a target:
+
+```bash
+node --env-file=.env.production.local scripts/verify-data.mjs \
+  --source-env SOURCE_DATABASE_URL --inventory-only \
+  --output backups/source-inventory.json
+```
+
 Verification compares the complete table set and exact row counts, column and
 schema/migration-version metadata, stable user/workspace IDs, acquisition run
 IDs/statuses, financial-council run IDs/statuses, model connection
 ID/provider/model/credential-version/default state, and a bounded sample of
-stored integrity hashes. Core identity, acquisition, council, model config,
-and credential-version tables are mandatory.
+explicitly allowlisted non-sensitive integrity digests. It also compares
+nonreversible aggregate digests derived from complete rows in model credential
+versions, provider connections, and agent jobs, so ciphertext identity is
+checked without returning ciphertext bytes to the report. Core identity,
+acquisition, council, model config, credential-version, provider-connection,
+and agent-job tables are mandatory.
 
 The mode-`0600` JSON report is intentionally limited to counts, schema
 metadata, explicitly classified non-sensitive IDs, provider/model labels,
-credential version numbers, states, hashes, and closed pass/fail codes. It
-must not be supplemented with customer rows or credential material.
+credential version numbers, states, allowlisted integrity digests, aggregate
+ciphertext-identity digests, and closed pass/fail codes. Password hashes,
+idempotency hashes, and arbitrary columns merely ending in `_hash` are
+explicitly excluded. The report must not be supplemented with customer rows,
+raw ciphertext, or credential material.
 
 Encrypted provider rows remain unusable and operationally unverified without
 the original `PROVIDER_CREDENTIAL_KEY` and `AGENT_JOB_ENCRYPTION_KEY`. After

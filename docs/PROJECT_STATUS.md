@@ -27,8 +27,11 @@ ledger.
   and keep verification output free of environment values.
 - Encrypted backup, empty-target restore, source-to-`shensi` orchestration, and
   closed non-secret data-verification tooling are present. The tools stream
-  through explicit child-process argument arrays and never create a plaintext
-  dump or provide a database-drop path.
+  through explicit child-process argument arrays, authenticate the complete
+  artifact before restore, reject every target schema-object type, and never
+  create a plaintext dump or provide a database-drop path. Verification uses
+  allowlisted non-sensitive digests and aggregate ciphertext-row identities;
+  password hashes and raw credential bytes are excluded.
 
 ## Active
 

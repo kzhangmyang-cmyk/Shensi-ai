@@ -1,12 +1,15 @@
-import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { createReadStream } from "node:fs";
 import { mkdir, open, unlink } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
-import { mysqlCliEnvironment, parseMysqlUrl } from "./lib/database-url.mjs";
-import { collectBackupDatabaseSnapshot, safeManifest } from "./lib/migration-manifest.mjs";
+import { parseCliArguments, requireEnvironmentName } from "./lib/cli-arguments.mjs";
+import {
+  mysqlCliEnvironment, parseMysqlUrl, safeChildEnvironment
+} from "./lib/database-url.mjs";
+import {
+  authenticatedManifest, collectBackupDatabaseSnapshot, sha256File
+} from "./lib/migration-manifest.mjs";
 import { runPipeline } from "./lib/process-pipeline.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -26,14 +29,15 @@ async function currentCommit(root) {
   return stdout.trim();
 }
 
-async function sha256File(path) {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(path)) hash.update(chunk);
-  return hash.digest("hex");
-}
-
 function timestamp(value) {
   return value.toISOString().replace(/[.:]/gu, "-");
+}
+
+export function parseBackupArguments(argv) {
+  return parseCliArguments(argv, {
+    "--source-env": { key: "sourceEnv" },
+    "--output-dir": { key: "outputDir" }
+  });
 }
 
 export async function backupDatabase({
@@ -41,11 +45,14 @@ export async function backupDatabase({
   now = new Date(),
   root = resolve(import.meta.dirname, ".."),
   sourceCommit,
-  databaseSnapshot = collectBackupDatabaseSnapshot
+  databaseSnapshot = collectBackupDatabaseSnapshot,
+  sourceEnvName = "SOURCE_DATABASE_URL",
+  outputDirectory
 } = {}) {
-  const parsed = parseMysqlUrl(required(env, "SOURCE_DATABASE_URL"));
-  required(env, "SHENSI_BACKUP_PASSPHRASE");
-  const directory = resolve(env.BACKUP_DIRECTORY || resolve(root, "backups"));
+  const sourceName = requireEnvironmentName(sourceEnvName, "SOURCE_DATABASE_URL");
+  const parsed = parseMysqlUrl(required(env, sourceName));
+  const passphrase = required(env, "SHENSI_BACKUP_PASSPHRASE");
+  const directory = resolve(outputDirectory || env.BACKUP_DIRECTORY || resolve(root, "backups"));
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const safeDatabase = parsed.database.replace(/[^A-Za-z0-9_.-]/gu, "_");
   const backupPath = resolve(directory, `${timestamp(now)}-${safeDatabase}.sql.enc`);
@@ -60,6 +67,8 @@ export async function backupDatabase({
         args: [
           "--single-transaction", "--routines", "--triggers", "--events",
           "--hex-blob", "--default-character-set=utf8mb4", "--set-gtid-purged=OFF",
+          "--skip-add-drop-database", "--skip-add-drop-table",
+          "--skip-add-drop-trigger", "--skip-replace",
           "--host", parsed.host, "--port", String(parsed.port), "--user", parsed.user,
           parsed.database
         ],
@@ -71,22 +80,25 @@ export async function backupDatabase({
           "enc", "-aes-256-cbc", "-pbkdf2", "-salt",
           "-pass", "env:SHENSI_BACKUP_PASSPHRASE"
         ],
-        env
+        env: {
+          ...safeChildEnvironment(env),
+          SHENSI_BACKUP_PASSPHRASE: passphrase
+        }
       },
       output: handle.fd
     });
     await handle.sync();
     await handle.close();
-    const manifest = safeManifest({
-      format: "shensi-encrypted-backup-manifest.v1",
+    const manifest = authenticatedManifest({
       encryptedFile: basename(backupPath),
       sha256: await sha256File(backupPath),
       sourceCommit: sourceCommit ?? await currentCommit(root),
       mysqlVersion: snapshot.mysqlVersion,
       sourceDatabase: parsed.database,
       createdAt: now.toISOString(),
-      tableCounts: snapshot.tableCounts
-    });
+      countConsistency: "non-transactional-source-observation",
+      observedTableCounts: snapshot.tableCounts
+    }, passphrase);
     const manifestHandle = await open(manifestPath, "wx", 0o600);
     try {
       await manifestHandle.writeFile(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
@@ -105,7 +117,11 @@ export async function backupDatabase({
 }
 
 async function main() {
-  const result = await backupDatabase();
+  const options = parseBackupArguments(process.argv.slice(2));
+  const result = await backupDatabase({
+    sourceEnvName: options.sourceEnv,
+    outputDirectory: options.outputDir
+  });
   console.log(JSON.stringify({
     code: "SHENSI_BACKUP_OK",
     backupFile: basename(result.backupPath),

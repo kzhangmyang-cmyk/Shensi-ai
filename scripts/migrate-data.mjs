@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { backupDatabase } from "./backup.mjs";
+import { parseCliArguments, requireEnvironmentName } from "./lib/cli-arguments.mjs";
 import { parseMysqlUrl, requireDistinctDatabases } from "./lib/database-url.mjs";
 import { restoreDatabase } from "./restore.mjs";
 import { verifyData } from "./verify-data.mjs";
@@ -29,13 +30,24 @@ async function targetState(connection) {
        FROM information_schema.schemata
       WHERE schema_name = 'shensi'`
   );
-  if (schemas.length === 0) return { exists: false, tableCount: 0 };
+  if (schemas.length === 0) return { exists: false, objectCount: 0 };
   const [[row]] = await connection.query(
-    `SELECT COUNT(*) AS table_count
-       FROM information_schema.tables
-      WHERE table_schema = 'shensi' AND table_type = 'BASE TABLE'`
+    `SELECT
+       (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'shensi')
+     + (SELECT COUNT(*) FROM information_schema.routines WHERE routine_schema = 'shensi')
+     + (SELECT COUNT(*) FROM information_schema.triggers WHERE trigger_schema = 'shensi')
+     + (SELECT COUNT(*) FROM information_schema.events WHERE event_schema = 'shensi')
+       AS object_count`
   );
-  return { exists: true, tableCount: Number(row.table_count) };
+  return { exists: true, objectCount: Number(row.object_count) };
+}
+
+export function parseMigrationArguments(argv) {
+  return parseCliArguments(argv, {
+    "--source-env": { key: "sourceEnv" },
+    "--target-env": { key: "targetEnv" },
+    "--target-database": { key: "targetDatabase" }
+  });
 }
 
 export async function migrateData({
@@ -43,24 +55,38 @@ export async function migrateData({
   adminConnectionFactory = connectAdmin,
   backup = backupDatabase,
   restore = restoreDatabase,
-  verify = verifyData
+  verify = verifyData,
+  sourceEnvName = "SOURCE_DATABASE_URL",
+  targetEnvName = "TARGET_DATABASE_URL",
+  targetDatabase = "shensi"
 } = {}) {
-  const source = parseMysqlUrl(required(env, "SOURCE_DATABASE_URL"));
-  const target = parseMysqlUrl(required(env, "TARGET_DATABASE_URL"));
+  const sourceName = requireEnvironmentName(sourceEnvName, "SOURCE_DATABASE_URL");
+  const targetName = requireEnvironmentName(targetEnvName, "TARGET_DATABASE_URL");
+  const sourceUrl = required(env, sourceName);
+  const targetUrl = required(env, targetName);
+  const source = parseMysqlUrl(sourceUrl);
+  const target = parseMysqlUrl(targetUrl);
   const admin = parseMysqlUrl(required(env, "MYSQL_LOCAL_ADMIN_URL"));
   required(env, "SHENSI_BACKUP_PASSPHRASE");
-  if (target.database !== "shensi") throw new Error("TARGET_DATABASE_MUST_BE_SHENSI");
+  if (targetDatabase !== "shensi" || target.database !== targetDatabase) {
+    throw new Error("TARGET_DATABASE_MUST_BE_SHENSI");
+  }
   requireDistinctDatabases(source.database, target.database);
   if (admin.host !== target.host || admin.port !== target.port) {
     throw new Error("ADMIN_TARGET_SERVER_MISMATCH");
   }
   const connection = await adminConnectionFactory(admin);
+  const effectiveEnv = {
+    ...env,
+    SOURCE_DATABASE_URL: sourceUrl,
+    TARGET_DATABASE_URL: targetUrl
+  };
   try {
     const initial = await targetState(connection);
-    if (initial.tableCount !== 0) throw new Error("TARGET_DATABASE_NOT_EMPTY");
-    const backupResult = await backup({ env });
+    if (initial.objectCount !== 0) throw new Error("TARGET_DATABASE_NOT_EMPTY");
+    const backupResult = await backup({ env: effectiveEnv });
     const current = await targetState(connection);
-    if (current.tableCount !== 0) throw new Error("TARGET_DATABASE_NOT_EMPTY");
+    if (current.objectCount !== 0) throw new Error("TARGET_DATABASE_NOT_EMPTY");
     let createdByMigration = false;
     if (!current.exists) {
       await connection.query(
@@ -68,7 +94,11 @@ export async function migrateData({
       );
       createdByMigration = true;
     }
-    const migrationEnv = { ...env, ENCRYPTED_BACKUP: backupResult.backupPath };
+    const migrationEnv = {
+      ...effectiveEnv,
+      ENCRYPTED_BACKUP: backupResult.backupPath,
+      BACKUP_MANIFEST: backupResult.manifestPath
+    };
     await restore({ env: migrationEnv, createdByMigration });
     const verification = await verify({ env: migrationEnv });
     if (!verification.report.passed) {
@@ -86,7 +116,12 @@ export async function migrateData({
 }
 
 async function main() {
-  const result = await migrateData();
+  const options = parseMigrationArguments(process.argv.slice(2));
+  const result = await migrateData({
+    sourceEnvName: options.sourceEnv,
+    targetEnvName: options.targetEnv,
+    targetDatabase: options.targetDatabase
+  });
   console.log(JSON.stringify({
     code: "SHENSI_DATA_MIGRATION_OK",
     targetDatabase: result.targetDatabase,
