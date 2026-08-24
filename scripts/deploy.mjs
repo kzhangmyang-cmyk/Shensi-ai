@@ -58,24 +58,25 @@ export function publicOrigin(environment) {
   return origin.origin;
 }
 
-export function assertDockerAvailable(binary = "docker") {
-  const result = spawnSync(binary, ["compose", "version"], { stdio: "ignore" });
+export function assertDockerAvailable(binary = "docker", options = {}) {
+  const { spawnProcess = spawnSync, environment = composeOperationalEnvironment() } = options;
+  const result = spawnProcess(binary, ["compose", "version"], { stdio: "ignore", env: environment });
   if (result.error || result.status !== 0) throw new Error("DOCKER_UNAVAILABLE: Docker Engine with Docker Compose v2 is required");
 }
 
 export function composeOperationalEnvironment(source = process.env) {
   const environment = {};
-  for (const name of ["PATH", "HOME", "SystemRoot", "WINDIR", "LANG", "LC_ALL", "DOCKER_CONFIG"]) if (source[name]) environment[name] = source[name];
+  for (const name of ["PATH", "HOME", "SystemRoot", "WINDIR", "LANG", "LC_ALL", "DOCKER_CONFIG", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"]) if (source[name]) environment[name] = source[name];
   return environment;
 }
 
-function docker(root, argumentsList) {
-  const result = spawnSync("docker", argumentsList, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: composeOperationalEnvironment() });
+function docker(root, argumentsList, environment) {
+  const result = spawnSync("docker", argumentsList, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: environment });
   if (result.error || result.status !== 0) throw new Error(`DOCKER_COMMAND_FAILED:${argumentsList[1] ?? argumentsList[0]}`);
   return result.stdout;
 }
 
-function compose(root, argumentsList) { return docker(root, ["compose", "-f", "deploy/compose.yaml", "--env-file", ".env.production.local", ...argumentsList]); }
+function compose(root, argumentsList, environment) { return docker(root, ["compose", "-f", "deploy/compose.yaml", "--env-file", ".env.production.local", ...argumentsList], environment); }
 
 function parseServiceStates(output) {
   const text = output.trim();
@@ -96,30 +97,31 @@ async function pollHealth(origin, attempts = 30) {
   throw new Error("DEPLOYMENT_HEALTHCHECK_TIMEOUT");
 }
 
-function gatewayOwnsPort(port, runCompose, inspectContainer) {
-  const containerId = runCompose(["ps", "-q", "gateway"]).trim();
+function gatewayOwnsPort(port, runCompose, inspectContainer, environment) {
+  const containerId = runCompose(["ps", "-q", "gateway"], environment).trim();
   if (!containerId) return false;
-  try { return (JSON.parse(inspectContainer(containerId))["8080/tcp"] ?? []).some(({ HostPort }) => HostPort === String(port)); } catch { return false; }
+  try { return (JSON.parse(inspectContainer(containerId, environment))["8080/tcp"] ?? []).some(({ HostPort }) => HostPort === String(port)); } catch { return false; }
 }
 
 export async function deployProduction(root, environment, options = {}) {
-  const { assertDocker = assertDockerAvailable, runCompose = (argumentsList) => compose(root, argumentsList), inspectContainer = (containerId) => docker(root, ["inspect", "--format", "{{json .NetworkSettings.Ports}}", containerId]), assertPort = assertPortAvailable, poll = pollHealth, emit = (line) => console.log(line) } = options;
+  const dockerEnvironment = options.dockerEnvironment ?? composeOperationalEnvironment();
+  const { assertDocker = assertDockerAvailable, runCompose = (argumentsList, selectedEnvironment) => compose(root, argumentsList, selectedEnvironment), inspectContainer = (containerId, selectedEnvironment) => docker(root, ["inspect", "--format", "{{json .NetworkSettings.Ports}}", containerId], selectedEnvironment), assertPort = assertPortAvailable, poll = pollHealth, emit = (line) => console.log(line) } = options;
   const origin = publicOrigin(environment);
   const port = Number(environment.SHENSI_HTTP_PORT ?? 8080);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT_INVALID:gateway");
-  assertDocker();
-  runCompose(["config", "--quiet"]);
-  if (!gatewayOwnsPort(port, runCompose, inspectContainer)) await assertPort(port, "0.0.0.0");
-  runCompose(["build"]);
-  runCompose(["up", "-d"]);
+  assertDocker("docker", { environment: dockerEnvironment });
+  runCompose(["config", "--quiet"], dockerEnvironment);
+  if (!gatewayOwnsPort(port, runCompose, inspectContainer, dockerEnvironment)) await assertPort(port, "0.0.0.0");
+  runCompose(["build"], dockerEnvironment);
+  runCompose(["up", "-d"], dockerEnvironment);
   try { await poll(`http://127.0.0.1:${port}`); } catch {
-    try { runCompose(["down", "--remove-orphans"]); throw new Error("DEPLOYMENT_HEALTHCHECK_FAILED:CLEANUP_OK"); }
+    try { runCompose(["down", "--remove-orphans"], dockerEnvironment); throw new Error("DEPLOYMENT_HEALTHCHECK_FAILED:CLEANUP_OK"); }
     catch (error) {
       if (error.message === "DEPLOYMENT_HEALTHCHECK_FAILED:CLEANUP_OK") throw error;
       throw new Error("DEPLOYMENT_HEALTHCHECK_FAILED:CLEANUP_FAILED");
     }
   }
-  for (const { name, state } of parseServiceStates(runCompose(["ps", "--format", "json"]))) emit(`SERVICE:${name} STATE:${state}`);
+  for (const { name, state } of parseServiceStates(runCompose(["ps", "--format", "json"], dockerEnvironment))) emit(`SERVICE:${name} STATE:${state}`);
   emit(`PUBLIC_ORIGIN:${origin}`);
 }
 

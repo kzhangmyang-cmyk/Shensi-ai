@@ -159,6 +159,34 @@ test("Compose receives only named operational environment values, never deployme
   });
 });
 
+test("Docker availability and every deployment command share explicit endpoint selectors", async () => {
+  const selectors = {
+    PATH: "/fixture/bin",
+    HOME: "/fixture/home",
+    DOCKER_CONFIG: "/fixture/docker-config",
+    DOCKER_HOST: "ssh://fixture-daemon",
+    DOCKER_CONTEXT: "fixture-context",
+    DOCKER_TLS_VERIFY: "1",
+    DOCKER_CERT_PATH: "/fixture/certs"
+  };
+  assert.deepEqual(composeOperationalEnvironment({ ...selectors, DATABASE_URL: "mysql://password" }), selectors);
+  assert.equal("DOCKER_HOST" in composeOperationalEnvironment({ PATH: "/fixture/bin" }), false);
+  const received = [];
+  await assert.rejects(deployProduction("/workspace", productionEnvironment, {
+    dockerEnvironment: selectors,
+    assertDocker(_binary, { environment }) { received.push(["availability", environment]); },
+    runCompose(argumentsList, environment) {
+      received.push([argumentsList[0], environment]);
+      if (argumentsList.join(" ") === "ps -q gateway") return "";
+      return "";
+    },
+    assertPort: async () => {},
+    poll: async () => { throw new Error("fixture failure"); },
+    emit: () => {}
+  }), /DEPLOYMENT_HEALTHCHECK_FAILED:CLEANUP_OK/u);
+  for (const [, environment] of received) assert.deepEqual(environment, selectors);
+});
+
 test("production requires canonical encoded database passwords and strong secret files", () => {
   const directory = mkdtempSync(join(tmpdir(), "shensi-runtime-"));
   try {
