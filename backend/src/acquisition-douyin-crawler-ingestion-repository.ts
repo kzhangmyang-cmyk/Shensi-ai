@@ -400,8 +400,8 @@ implements DouyinCrawlerEvidenceStore {
           payload: { identityHash, reason },
           createdAt: now
         };
-        const prior = await this.domain.listAuditEvents(scope, null);
-        if (!prior.some((item) => item.id === event.id)) {
+        const prior = await this.domain.findAuditEvent(scope, event.id);
+        if (!prior) {
           await this.domain.appendAuditEvent(event);
         }
       });

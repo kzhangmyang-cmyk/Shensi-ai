@@ -1639,6 +1639,19 @@ implements AcquisitionDomainRepository {
     );
   }
 
+  async findAuditEvent(scope: AcquisitionDataScope, eventId: string) {
+    const result = await rows(
+      this.source(),
+      `SELECT *
+       FROM acquisition_domain_audit_events
+       WHERE id = ? AND owner_id = ? AND team_id = ?
+       LIMIT 1`,
+      [eventId, scope.ownerId, scope.teamId]
+    );
+    const row = result[0];
+    return row ? ownedPayload<DomainAuditEvent>(row, "domain_audit") : null;
+  }
+
   async listAuditEvents(
     scope: AcquisitionDataScope,
     candidateId: string | null

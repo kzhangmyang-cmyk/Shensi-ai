@@ -301,6 +301,18 @@ test("persisted crawler status fixture conforms without sidecar or lease state",
   );
 });
 
+test("keyword suggestions conform and expose no caller-selected authority", () => {
+  const body = { keywords: ["工业除尘", "工厂获客"], modelSnapshotId: "snapshot-response-contract" };
+  assertResponseConforms(
+    "/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions",
+    "post",
+    200,
+    body
+  );
+  assert.equal("workspaceId" in body, false);
+  assert.equal("model" in body, false);
+});
+
 function visualReaderSessionFixture() {
   return {
     sessionId: "visual-session-response-contract",

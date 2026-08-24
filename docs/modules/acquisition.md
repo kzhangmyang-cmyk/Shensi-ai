@@ -105,7 +105,11 @@ cookie/header pair, and semantic `Idempotency-Key`; DELETE also requires the
 current `If-Match`. Account handles, browser contexts, cookies, and profile
 paths remain private.
 The Douyin automation family provides `GET`/`PUT`
-`/plans/{planId}/automation` and `POST /plans/{planId}/run-now`. Policy writes
+`/plans/{planId}/automation`, `POST /plans/{planId}/automation/keyword-suggestions`,
+and `POST /plans/{planId}/run-now`. Keyword suggestions take no caller business,
+workspace, or model authority: the server derives the current plan objective/ICP,
+resolves the active official model snapshot, and returns at most twenty NFKC-canonical
+editable keywords plus that frozen snapshot identity. Policy writes
 require `If-Match` and `Idempotency-Key`; run-now requires
 `Idempotency-Key` and an explicit JSON body (an empty object is valid). At
 least one of creator or demand-comment collection must remain enabled. GET
@@ -126,6 +130,15 @@ code consumes `frontend/src/generated/ai-acquisition.ts`.
 `GET /api/v1/acquisition/runs/{runId}/crawler-status` returns only the closed,
 workspace-bound persisted projection. It excludes the private account handle,
 lease, raw cursor, records, and live sidecar state.
+
+Outreach generation is a private service boundary until Task 7 creates a batch.
+It loads only persisted workspace-owned candidates and their exact evidence,
+rejects DNC/refusal/complaint/minor signals again before any model call, uses the
+active official snapshot with closed structured output, and validates one-line,
+bounded, evidence-grounded comment/direct-message text. URLs, phone numbers,
+forbidden claims/words, unsupported claims, and malformed output are rejected.
+The server recomputes the immutable content hash and discards raw model output;
+Task 6 does not persist drafts or create a competing revision ledger.
 
 ## Tests
 

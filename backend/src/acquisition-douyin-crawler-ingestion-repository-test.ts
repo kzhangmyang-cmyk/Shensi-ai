@@ -253,6 +253,31 @@ test("authoritative ingestion links every real run alias and keeps cross-job DNC
     .some((event) => event.eventType === "douyin_do_not_contact_retained"), true);
 });
 
+test("DNC audit dedupe uses an exact event lookup instead of reading every workspace audit", async () => {
+  const { domain, repository } = await fixture(["run-1"]);
+  let listAuditCalls = 0;
+  const original = domain.listAuditEvents.bind(domain);
+  domain.listAuditEvents = async (...input) => {
+    listAuditCalls += 1;
+    return original(...input);
+  };
+  await repository.transaction(SCOPE, async () => {
+    await repository.retainDoNotContact(
+      SCOPE.workspaceId,
+      `dnc:sha256:${"a".repeat(64)}`,
+      "explicit_refusal"
+    );
+    await repository.retainDoNotContact(
+      SCOPE.workspaceId,
+      `dnc:sha256:${"a".repeat(64)}`,
+      "explicit_refusal"
+    );
+  });
+  assert.equal(listAuditCalls, 0);
+  assert.equal((await domain.listAuditEvents(SCOPE, null))
+    .filter((event) => event.eventType === "douyin_do_not_contact_retained").length, 1);
+});
+
 test("authoritative ingestion rolls evidence, candidates, and run links back together", async () => {
   const { planRuns, domain, repository } = await fixture(["run-1"]);
   const job = crawlerJob("job-rollback", ["run-1", "missing-run"]);

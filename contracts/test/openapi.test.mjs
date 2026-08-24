@@ -23,6 +23,7 @@ const section16 = {
   "/api/v1/acquisition/social-accounts/douyin": ["get"],
   "/api/v1/acquisition/social-accounts/{accountId}": ["delete"],
   "/api/v1/acquisition/plans/{planId}/automation": ["get", "put"],
+  "/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions": ["post"],
   "/api/v1/acquisition/plans/{planId}/run-now": ["post"],
   "/api/v1/acquisition/content-fetch-operations": ["get", "post"],
   "/api/v1/acquisition/content-fetch-operations/{id}": ["get"],
@@ -214,6 +215,12 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
     runNow.responses["202"].content["application/json"].schema.$ref,
     "#/components/schemas/DouyinAutomationRunIntent"
   );
+  const suggestions = document.paths["/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions"].post;
+  assert.equal(suggestions.requestBody, undefined);
+  assert.equal(
+    suggestions.responses["200"].content["application/json"].schema.$ref,
+    "#/components/schemas/DouyinKeywordSuggestions"
+  );
   assert.equal(
     document.components.schemas.DouyinAutomationRunIntent.required
       .includes("acquisitionRunId"),
@@ -224,7 +231,8 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
     "DouyinAutomationPolicyResource",
     "DouyinAutomationPolicyVersion",
     "DouyinAutomationRunNowInput",
-    "DouyinAutomationRunIntent"
+    "DouyinAutomationRunIntent",
+    "DouyinKeywordSuggestions"
   ]) {
     assert.equal(
       document.components.schemas[schemaName].additionalProperties,

@@ -1119,6 +1119,7 @@ const acquisitionOperationIds: Record<string, string> = {
   "delete /api/v1/acquisition/social-accounts/{accountId}": "disconnectAcquisitionSocialAccount",
   "get /api/v1/acquisition/plans/{planId}/automation": "getAcquisitionDouyinAutomation",
   "put /api/v1/acquisition/plans/{planId}/automation": "putAcquisitionDouyinAutomation",
+  "post /api/v1/acquisition/plans/{planId}/automation/keyword-suggestions": "suggestAcquisitionDouyinKeywords",
   "post /api/v1/acquisition/plans/{planId}/run-now": "runAcquisitionDouyinAutomationNow",
   "get /api/v1/acquisition/runs/{runId}/crawler-status": "getAcquisitionCrawlerStatus",
   "get /api/v1/acquisition/runs/{runId}/candidates": "listAcquisitionRunCandidates",
@@ -1362,6 +1363,15 @@ const douyinAutomationRunNowInputSchema = {
   type: "object", additionalProperties: false,
   properties: { reason: { type: "string", maxLength: 2_000 } }
 };
+const douyinKeywordSuggestionsSchema = {
+  type: "object", additionalProperties: false,
+  required: ["keywords", "modelSnapshotId"],
+  properties: {
+    keywords: { type: "array", minItems: 1, maxItems: 20, uniqueItems: true,
+      items: { type: "string", minLength: 1, maxLength: 100 } },
+    modelSnapshotId: { type: "string", minLength: 1, maxLength: 255 }
+  }
+};
 const douyinAutomationRunIntentSchema = {
   type: "object", additionalProperties: false,
   required: ["id", "acquisitionRunId", "workspaceId", "planId", "planVersionId", "planVersion", "planSnapshotHash", "policyVersionId", "policyHash", "accountId", "accountLoginStateVersion", "dailyBudgetId", "localDate", "trigger", "collectCreators", "collectDemandComments", "status", "reason", "createdBy", "createdAt"],
@@ -1455,6 +1465,10 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
       ...standardResponses(202, "已冻结并排队运行意图", douyinAutomationRunIntentSchema),
       "202": automationSuccessResponse("已冻结并排队运行意图", douyinAutomationRunIntentSchema, true)
     }
+  }));
+  add(paths, "/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions", "post", operation("post", "生成可编辑抖音搜索关键词", {
+    parameters: [planParameter],
+    responses: standardResponses(200, "服务端业务与 ICP 上下文生成的关键词", douyinKeywordSuggestionsSchema)
   }));
   add(paths, "/api/v1/acquisition/runs/{runId}/crawler-status", "get", operation("get", "读取已持久化的抖音采集状态", {
     parameters: [idParameter(160, "runId")],

@@ -658,6 +658,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate editable Douyin search keywords from server-owned plan business and ICP context
+         * @description The active official model snapshot and workspace context are selected on the server; the command accepts no model, workspace, or business authority from callers.
+         */
+        post: operations["suggestAcquisitionDouyinKeywords"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/acquisition/runs/{runId}/crawler-status": {
         parameters: {
             query?: never;
@@ -1775,6 +1797,10 @@ export interface components {
         };
         DouyinAutomationRunNowInput: {
             reason?: string;
+        };
+        DouyinKeywordSuggestions: {
+            keywords: string[];
+            modelSnapshotId: string;
         };
         DouyinAutomationRunIntent: {
             id: string;
@@ -5120,6 +5146,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DouyinAutomationRunIntent"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    suggestAcquisitionDouyinKeywords: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded editable keyword suggestions and the frozen active model snapshot identity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DouyinKeywordSuggestions"];
                 };
             };
             /** @description Unified API error */

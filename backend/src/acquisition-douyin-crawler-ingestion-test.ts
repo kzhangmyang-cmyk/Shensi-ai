@@ -5,6 +5,7 @@ import {
   ingestDouyinCrawlerPage,
   type DouyinCrawlerEvidenceStore
 } from "./acquisition-douyin-crawler-ingestion.js";
+import { qualifyDouyinCrawlerCandidate } from "./acquisition-douyin-candidate-policy.js";
 
 const sha = (value: string) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
@@ -90,4 +91,24 @@ test("ingestion rejects a forged page and suppresses a record without public pro
   const result = await ingestDouyinCrawlerPage({ ...input, crawlerJobs: crawlerJobs([record({ publicProfileUrl: null })]) });
   assert.deepEqual(result, { evidenceCount: 1, candidateCount: 0, suppressedCount: 1 });
   assert.equal(repository.candidates.length, 0);
+});
+
+test("numeric Chinese minor ages are suppressed despite punctuation or spacing", () => {
+  for (const text of [
+    "我今年17岁，想学习。现在需要获客方案",
+    "我今年 17 岁，想学习。现在需要获客方案",
+    "我今年１７岁！现在需要获客方案"
+  ]) {
+    assert.deepEqual(qualifyDouyinCrawlerCandidate({
+      text,
+      kind: "comment",
+      hasOriginalPublicSource: true,
+      hasKnownIdentity: true
+    }), {
+      status: "suppressed",
+      buyingStage: null,
+      reason: "minor_signal",
+      retainDoNotContact: true
+    });
+  }
 });

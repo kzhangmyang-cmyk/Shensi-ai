@@ -87,6 +87,13 @@ ledger.
   read only persisted Node projections at
   `GET /api/v1/acquisition/runs/{runId}/crawler-status` and
   `GET /api/v1/acquisition/runs/{runId}/candidates`.
+- Douyin keyword suggestions now derive business and ICP context, workspace,
+  and the active official model snapshot on the server. Draft generation is a
+  private validated boundary: it rechecks DNC and negative policy signals,
+  binds candidate revision/evidence hashes to the snapshot, rejects unsafe or
+  unsupported one-line content, recomputes immutable content hashes, and
+  discards raw model output. Draft persistence remains exclusively with the
+  later outreach-batch revision authority.
 
 ## Active
 

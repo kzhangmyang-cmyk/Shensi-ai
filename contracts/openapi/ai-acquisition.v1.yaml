@@ -304,6 +304,13 @@ components:
       additionalProperties: false
       properties:
         reason: { type: string, maxLength: 2000 }
+    DouyinKeywordSuggestions:
+      type: object
+      additionalProperties: false
+      required: [keywords, modelSnapshotId]
+      properties:
+        keywords: { type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 } }
+        modelSnapshotId: { type: string, minLength: 1, maxLength: 255 }
     DouyinAutomationRunIntent:
       type: object
       additionalProperties: false
@@ -785,6 +792,16 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '202': { description: Frozen queued run intent, headers: { Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/DouyinAutomationRunIntent' } } } }
+  /api/v1/acquisition/plans/{planId}/automation/keyword-suggestions:
+    parameters: [{ name: planId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }]
+    post:
+      operationId: suggestAcquisitionDouyinKeywords
+      summary: Generate editable Douyin search keywords from server-owned plan business and ICP context
+      description: The active official model snapshot and workspace context are selected on the server; the command accepts no model, workspace, or business authority from callers.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Bounded editable keyword suggestions and the frozen active model snapshot identity, content: { application/json: { schema: { $ref: '#/components/schemas/DouyinKeywordSuggestions' } } } }
   /api/v1/acquisition/runs/{runId}/crawler-status:
     parameters: [{ name: runId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }]
     get:

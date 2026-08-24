@@ -193,6 +193,10 @@ export interface AcquisitionDomainRepository {
     candidateId: string
   ): Promise<OutcomeFeedbackEvent[]>;
   appendAuditEvent(event: AcquisitionAuditEvent): Promise<void>;
+  findAuditEvent(
+    scope: AcquisitionDataScope,
+    eventId: string
+  ): Promise<AcquisitionAuditEvent | null>;
   listAuditEvents(
     scope: AcquisitionDataScope,
     candidateId: string | null
@@ -811,6 +815,13 @@ implements AcquisitionDomainRepository {
 
   async appendAuditEvent(event: AcquisitionAuditEvent) {
     this.auditEvents.push(copy(event));
+  }
+
+  async findAuditEvent(scope: AcquisitionDataScope, eventId: string) {
+    const event = this.auditEvents.find((item) =>
+      item.id === eventId && belongs(item, scope)
+    );
+    return event ? copy(event) : null;
   }
 
   async listAuditEvents(

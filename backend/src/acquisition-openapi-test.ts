@@ -66,6 +66,7 @@ test("acquisition OpenAPI publishes the complete agent control surface", () => {
     "/api/v1/acquisition/social-accounts/douyin",
     "/api/v1/acquisition/social-accounts/{accountId}",
     "/api/v1/acquisition/plans/{planId}/automation",
+    "/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions",
     "/api/v1/acquisition/plans/{planId}/run-now",
     "/api/v1/acquisition/runs/{runId}/crawler-status",
     "/api/v1/acquisition/runs/{runId}/candidates",
@@ -213,7 +214,7 @@ test("every published acquisition operation has a unique stable camelCase id", (
     }
   }
 
-  assert.equal(ids.length, 67);
+  assert.equal(ids.length, 68);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(
     paths["/api/v1/acquisition/plans/{id}/approval"]?.post?.operationId,
@@ -229,10 +230,17 @@ test("Douyin automation OpenAPI closes policy and run-now inputs and outputs", (
   const runNow = paths[
     "/api/v1/acquisition/plans/{planId}/run-now"
   ]!.post as Record<string, any>;
+  const suggestions = paths[
+    "/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions"
+  ]!.post as Record<string, any>;
 
   assert.equal(automation.get.operationId, "getAcquisitionDouyinAutomation");
   assert.equal(automation.put.operationId, "putAcquisitionDouyinAutomation");
   assert.equal(runNow.operationId, "runAcquisitionDouyinAutomationNow");
+  assert.equal(suggestions.operationId, "suggestAcquisitionDouyinKeywords");
+  assert.equal(suggestions.requestBody, undefined);
+  assert.equal(suggestions.responses["200"].content["application/json"].schema.additionalProperties, false);
+  assert.deepEqual(suggestions.responses["200"].content["application/json"].schema.required, ["keywords", "modelSnapshotId"]);
   assert.equal(
     automation.put.requestBody.content["application/json"].schema
       .additionalProperties,

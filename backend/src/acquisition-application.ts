@@ -188,6 +188,12 @@ import {
   type AcquisitionPlanDraftGenerator
 } from "./acquisition-plan-draft.js";
 import {
+  generateDouyinKeywords
+} from "./acquisition-douyin-keyword-generator.js";
+import {
+  createAcquisitionDouyinKeywordRouter
+} from "./acquisition-douyin-keyword-router.js";
+import {
   acquisitionProviderConnectionVersion
 } from "./acquisition-provider-connection-version.js";
 import {
@@ -2222,10 +2228,54 @@ export async function createAcquisitionApplication(
       now,
       onRunIntent: enqueueCrawlerJob
     });
+    const douyinKeywordSuggestions = {
+      async generate(scope: {
+        workspaceId: string; ownerId: string; teamId: string; actorId: string;
+      }, planId: string) {
+        const plan = await repositories.planRun.getPlan(planId);
+        const workspace = await acquisitionWorkspace.resolve({
+          ownerId: scope.ownerId,
+          teamId: scope.teamId
+        });
+        if (!plan || plan.ownerId !== scope.ownerId || plan.teamId !== scope.teamId
+          || !workspace || workspace.workspaceId !== scope.workspaceId) {
+          throw new Error("automation_plan_not_found");
+        }
+        const snapshot = await resolveModelSnapshot(scope, {
+          connectionId: null,
+          idempotencyKey: `douyin-keywords:${plan.id}`
+        });
+        const stored = options.store.aiJobModelSnapshots.find((item) =>
+          item.jobId === snapshot.jobId
+          && item.ownerId === scope.ownerId
+          && item.teamId === scope.teamId
+        );
+        if (!stored) throw new Error("MODEL_SNAPSHOT_UNAVAILABLE");
+        const gateway = options.modelGatewayFactory
+          ? options.modelGatewayFactory(
+              stored,
+              acquisitionModelContentForSnapshot(stored)
+            )
+          : createAcquisitionModelGatewayForSnapshot(options.store, stored);
+        return generateDouyinKeywords({
+          gateway,
+          modelSnapshotId: snapshot.jobId,
+          business: plan.payload.objective,
+          icp: plan.payload.icp
+        });
+      }
+    };
     router.use(
       "/api/v1/acquisition",
       createAcquisitionDouyinAutomationRouter({
         service: douyinAutomation,
+        requestIdFactory: () => idFactory("request")
+      })
+    );
+    router.use(
+      "/api/v1/acquisition",
+      createAcquisitionDouyinKeywordRouter({
+        service: douyinKeywordSuggestions,
         requestIdFactory: () => idFactory("request")
       })
     );
