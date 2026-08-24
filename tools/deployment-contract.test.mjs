@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
@@ -40,4 +41,20 @@ test("only the backend has egress and trusts the fixed gateway hop", () => {
   for (const name of ["mysql", "frontend", "gateway"]) {
     assert.doesNotMatch(service(compose, name), /shensi_egress/u);
   }
+});
+
+test("deployment secret commands handle real line endings", () => {
+  const deployment = read("docs/DEPLOYMENT.md");
+  assert.match(deployment, /tr -d '\\n'/u);
+  assert.doesNotMatch(deployment, /tr -d '\\\\n'/u);
+  assert.match(deployment, /\/\[\\r\\n\]\//u);
+  assert.doesNotMatch(deployment, /\/\[\\\\r\\\\n\]\//u);
+
+  const newlineFree = execFileSync(
+    "sh",
+    ["-c", "printf 'alpha\\nbeta\\n' | tr -d '\\n'"],
+    { encoding: "utf8" }
+  );
+  assert.equal(newlineFree, "alphabeta");
+  assert.equal(/[\r\n]/u.test("alpha\r\nbeta"), true);
 });

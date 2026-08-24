@@ -52,8 +52,8 @@ generated values into shell history, tracked files, or logs.
 ```bash
 umask 077
 mkdir -p deploy/secrets
-openssl rand -base64 36 | tr -d '\\n' > deploy/secrets/mysql_app_password
-openssl rand -base64 36 | tr -d '\\n' > deploy/secrets/mysql_root_password
+openssl rand -base64 36 | tr -d '\n' > deploy/secrets/mysql_app_password
+openssl rand -base64 36 | tr -d '\n' > deploy/secrets/mysql_root_password
 ```
 
 Set `DATABASE_URL` in `.env.production.local` to a URL whose user is
@@ -65,7 +65,7 @@ deterministic command to update `DATABASE_URL` in the ignored production file
 without printing the password or its encoded form:
 
 ```bash
-node -e 'const fs=require("node:fs"); const envPath=".env.production.local"; const password=fs.readFileSync("deploy/secrets/mysql_app_password","utf8"); if (!password || /[\\r\\n]/.test(password)) throw new Error("MYSQL_APP_PASSWORD_MUST_BE_NEWLINE_FREE"); const url=`mysql://shensi_app:${encodeURIComponent(password)}@mysql:3306/shensi`; const env=fs.readFileSync(envPath,"utf8"); if (!/^DATABASE_URL=.*$/m.test(env)) throw new Error("DATABASE_URL_REQUIRED"); fs.writeFileSync(envPath,env.replace(/^DATABASE_URL=.*$/m,`DATABASE_URL=${url}`));'
+node -e 'const fs=require("node:fs"); const envPath=".env.production.local"; const password=fs.readFileSync("deploy/secrets/mysql_app_password","utf8"); if (!password || /[\r\n]/.test(password)) throw new Error("MYSQL_APP_PASSWORD_MUST_BE_NEWLINE_FREE"); const url=`mysql://shensi_app:${encodeURIComponent(password)}@mysql:3306/shensi`; const env=fs.readFileSync(envPath,"utf8"); if (!/^DATABASE_URL=.*$/m.test(env)) throw new Error("DATABASE_URL_REQUIRED"); fs.writeFileSync(envPath,env.replace(/^DATABASE_URL=.*$/m,`DATABASE_URL=${url}`));'
 ```
 
 `SHENSI_HTTP_PORT` is optional and defaults to `8080`.
