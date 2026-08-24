@@ -304,7 +304,7 @@ test("AI draft creation preserves the complete server plan through approval and 
   });
   await page.goto("/#acquisition");
   await page.locator('[data-acquisition-mode="real"]').click();
-  await page.locator("#replicaNewTaskButton").click();
+  await page.locator('[data-acquisition-import-action="start-auto-acquisition"]').click();
   const dialog = page.locator("#replicaRealTaskModal");
   await expect(dialog).toBeVisible();
   await expect(dialog.locator("#replicaRealTaskModeAi")).toHaveAttribute("aria-pressed", "true");

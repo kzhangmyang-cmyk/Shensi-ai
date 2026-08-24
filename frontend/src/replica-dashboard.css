@@ -1037,6 +1037,63 @@ body.is-authenticated .replica-shell {
   line-height: 1.55;
 }
 
+.replica-auto-acquisition-entry {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.replica-auto-acquisition-entry span {
+  color: #8b948e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.replica-auto-acquisition-action {
+  min-height: 44px;
+  padding: 0 20px;
+  color: #06100a;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #79ff98, #39d967);
+  box-shadow: 0 10px 30px rgba(24, 237, 120, 0.16);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.replica-auto-acquisition-action:hover {
+  filter: brightness(1.06);
+}
+
+.replica-auto-acquisition-action:focus-visible {
+  outline: 3px solid rgba(112, 245, 141, 0.3);
+  outline-offset: 3px;
+}
+
+.replica-public-import-manual {
+  margin-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.replica-public-import-manual summary {
+  width: fit-content;
+  padding-top: 14px;
+  color: #b6beb8;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.replica-public-import-manual-body > p:first-child {
+  margin: 12px 0 0;
+  color: #8b948e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .replica-public-import-message {
   color: #d8f8e2;
   border-color: rgba(24, 237, 120, 0.18);

@@ -50,9 +50,10 @@ const importPanel = renderPublicDouyinImportPanel({
 });
 
 for (const text of [
-  "导入公开抖音线索",
-  "仅支持公开页面",
-  "导入后先形成用户提交证据",
+  "启动抖音自动获客",
+  "自动搜索公开页面",
+  "创建自动获客任务",
+  "已有链接？补充导入",
   "粘贴公开链接",
   "导入公开链接",
   "导入完成",
@@ -60,8 +61,13 @@ for (const text of [
 ]) {
   assert.match(importPanel, new RegExp(text));
 }
+assert.match(importPanel, /data-acquisition-import-action="start-auto-acquisition"/);
 assert.match(importPanel, /data-acquisition-import-action="submit-urls"/);
 assert.match(importPanel, /data-acquisition-import-url-input/);
 assert.match(importPanel, /data-acquisition-import-action="verify-identity"/);
 assert.match(importPanel, /data-candidate-id="candidate-&lt;unsafe&gt;"/);
 assert.doesNotMatch(importPanel, /candidate-<unsafe>/);
+assert.ok(
+  importPanel.indexOf("start-auto-acquisition") < importPanel.indexOf("submit-urls"),
+  "automatic acquisition must be the primary action before manual link import"
+);

@@ -944,6 +944,10 @@ function initialiseRuntime(): void {
     );
     if (!target || !publicImportHost.contains(target)) return;
     const action = target.dataset.acquisitionImportAction;
+    if (action === "start-auto-acquisition") {
+      document.dispatchEvent(new CustomEvent("goodjob:acquisition-create-requested"));
+      return;
+    }
     if (action === "submit-urls") {
       const input = publicImportHost.querySelector<HTMLTextAreaElement>(
         "[data-acquisition-import-url-input]"

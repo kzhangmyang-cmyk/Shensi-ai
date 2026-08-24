@@ -156,6 +156,11 @@ export function renderPublicDouyinImportPanel(
   state: PublicDouyinImportPanelState
 ): string {
   const busy = state.status === "uploading";
+  const manualImportOpen = busy
+    || state.urlText.trim().length > 0
+    || state.message !== null
+    || state.results.length > 0
+    || state.outcome !== null;
   return `
     <section
       class="replica-public-import"
@@ -164,37 +169,51 @@ export function renderPublicDouyinImportPanel(
     >
       <header class="replica-public-import-header">
         <div>
-          <p>已有公开线索</p>
-          <h2 id="replicaPublicImportTitle">导入公开抖音线索</h2>
-          <span>粘贴抖音公开页面，每行一个链接。导入后先形成用户提交证据，主体仍需核验。</span>
+          <p>自动发现客户</p>
+          <h2 id="replicaPublicImportTitle">启动抖音自动获客</h2>
+          <span>描述目标客户后，系统自动搜索公开页面，AI 筛选需求信号，交由你批准后运行。</span>
         </div>
-        <strong>仅支持公开页面</strong>
+        <strong>真实自动运行</strong>
       </header>
-      <div class="replica-public-import-notice" role="note">
-        支持抖音视频、公开主页和短链；不会自动认定客户身份，也不会自动触达客户。
-      </div>
-      ${state.message
-        ? `<p class="replica-public-import-message" role="status" aria-live="polite">${escapeHtml(state.message)}</p>`
-        : ""}
-      <label class="replica-public-import-field">
-        <span>粘贴公开链接</span>
-        <textarea
-          rows="4"
-          data-acquisition-import-url-input
-          placeholder="https://www.douyin.com/video/...&#10;https://v.douyin.com/..."
-          ${busy ? "disabled" : ""}
-        >${escapeHtml(state.urlText)}</textarea>
-      </label>
-      <div class="replica-public-import-actions">
+      <div class="replica-auto-acquisition-entry">
         <button
           type="button"
-          data-acquisition-import-action="submit-urls"
-          ${busy || state.urlText.trim().length === 0 ? "disabled" : ""}
-        >${busy ? "正在导入" : "导入公开链接"}</button>
-        <span>导入完成后，可从候选入口进入主体核验和 AI 研判。</span>
+          class="replica-auto-acquisition-action"
+          data-acquisition-import-action="start-auto-acquisition"
+        >创建自动获客任务</button>
+        <span>无需先粘贴链接 · 需要已启用的搜索 API 和支持工具调用的 AI 模型</span>
       </div>
-      ${importResultsHtml(state.results)}
-      ${outcomeHtml(state.outcome)}
+      <div class="replica-public-import-notice" role="note">
+        系统只处理公开信息，不会自动认定客户身份，也不会自动私信、关注或触达客户。
+      </div>
+      <details class="replica-public-import-manual" ${manualImportOpen ? "open" : ""}>
+        <summary>已有链接？补充导入</summary>
+        <div class="replica-public-import-manual-body">
+          <p>可补充抖音视频、公开主页或短链，每行一个。导入后仍需主体核验。</p>
+          ${state.message
+            ? `<p class="replica-public-import-message" role="status" aria-live="polite">${escapeHtml(state.message)}</p>`
+            : ""}
+          <label class="replica-public-import-field">
+            <span>粘贴公开链接</span>
+            <textarea
+              rows="4"
+              data-acquisition-import-url-input
+              placeholder="https://www.douyin.com/video/...&#10;https://v.douyin.com/..."
+              ${busy ? "disabled" : ""}
+            >${escapeHtml(state.urlText)}</textarea>
+          </label>
+          <div class="replica-public-import-actions">
+            <button
+              type="button"
+              data-acquisition-import-action="submit-urls"
+              ${busy || state.urlText.trim().length === 0 ? "disabled" : ""}
+            >${busy ? "正在导入" : "导入公开链接"}</button>
+            <span>导入完成后，可从候选入口进入主体核验和 AI 研判。</span>
+          </div>
+          ${importResultsHtml(state.results)}
+          ${outcomeHtml(state.outcome)}
+        </div>
+      </details>
     </section>
   `;
 }
