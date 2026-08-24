@@ -262,6 +262,7 @@ interface AttemptContext {
 }
 
 interface ResolvedToolCallingRequest {
+  systemPrompt: string | undefined;
   prompt: string;
   tools: ToolDefinition[];
   parallelToolCalls: boolean;
@@ -357,13 +358,12 @@ function validatedContentBundle(
   return cloneContentBundle(bundle);
 }
 
-function boundPrompt(template: string, dynamicData: unknown) {
+function boundPrompt(dynamicData: unknown) {
   const serialized = canonicalJsonStringify(dynamicData);
   if (typeof serialized !== "string") {
     throw new ModelGatewayError("MODEL_RESPONSE_INVALID", false);
   }
   return [
-    template,
     "BEGIN_UNTRUSTED_DYNAMIC_DATA",
     serialized,
     "END_UNTRUSTED_DYNAMIC_DATA"
@@ -656,6 +656,7 @@ export class ActiveModelGateway {
     const result = await this.#runAttempt(
       {
         operation: "call_tools",
+        systemPrompt: resolved.systemPrompt,
         prompt: resolved.prompt,
         tools: resolved.tools,
         parallelToolCalls: resolved.parallelToolCalls,
@@ -668,6 +669,7 @@ export class ActiveModelGateway {
           snapshot: this.#snapshot,
           credential,
           requestId,
+          systemPrompt: resolved.systemPrompt,
           prompt: resolved.prompt,
           tools: resolved.tools,
           toolChoice: "required",
@@ -723,7 +725,8 @@ export class ActiveModelGateway {
         throw new ModelGatewayError("MODEL_CONTENT_HASH_MISMATCH", false);
       }
       return {
-        prompt: boundPrompt(template, binding.dynamicData),
+        systemPrompt: template,
+        prompt: boundPrompt(binding.dynamicData),
         tools: tools.map((tool) => ({
           name: tool.name,
           description: tool.description,
@@ -738,6 +741,7 @@ export class ActiveModelGateway {
       };
     }
     return {
+      systemPrompt: undefined,
       prompt: request.prompt,
       tools: request.tools,
       parallelToolCalls: request.parallelToolCalls ?? false,

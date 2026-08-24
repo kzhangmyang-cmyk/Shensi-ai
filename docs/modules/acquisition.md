@@ -109,7 +109,9 @@ The Douyin automation family provides `GET`/`PUT`
 and `POST /plans/{planId}/run-now`. Keyword suggestions take no caller business,
 workspace, or model authority: the server derives the current plan objective/ICP,
 resolves the active official model snapshot, and returns at most twenty NFKC-canonical
-editable keywords plus that frozen snapshot identity. Policy writes
+editable keywords plus that frozen snapshot identity. Keyword suggestions require an
+empty JSON object and `Idempotency-Key`: exact retries replay the durable result,
+while a changed server-derived plan revision conflicts. Policy writes
 require `If-Match` and `Idempotency-Key`; run-now requires
 `Idempotency-Key` and an explicit JSON body (an empty object is valid). At
 least one of creator or demand-comment collection must remain enabled. GET

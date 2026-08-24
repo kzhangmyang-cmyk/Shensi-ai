@@ -5198,17 +5198,25 @@ export interface operations {
     suggestAcquisitionDouyinKeywords: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
             path: {
                 planId: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
         responses: {
             /** @description Bounded editable keyword suggestions and the frozen active model snapshot identity */
             200: {
                 headers: {
+                    "Idempotency-Replayed"?: "true";
                     [name: string]: unknown;
                 };
                 content: {

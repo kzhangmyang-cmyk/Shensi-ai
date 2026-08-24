@@ -12,16 +12,22 @@ export interface AcquisitionOutreachDraft {
   contentHash: string;
 }
 
-const forbidden = /(?:保证|承诺|第一名|最(?:好|低|快)|免费|加(?:微|微信)|微信|电话|联系方式|稳赚|官方认证)/u;
+const forbidden = /(?:保证|承诺|第一名|最(?:好|低|快)|免费|加(?:微|微信)|微信|电话|联系方式|稳赚|官方认证|转化率|成交率|服务了|客户数)/u;
 const url = /(?:https?:\/\/|www\.|(?:douyin|抖音)\.com)/iu;
-const phone = /(?:\+?\d[\s-]*){7,}\d/u;
+const phone = /(?:\+?\d[\s\-().]*){7,}\d/u;
 
 function fail(): never { throw new Error("OUTREACH_DRAFT_INVALID"); }
+function safetyProjection(value: string) {
+  return value.normalize("NFKC").replace(/[\p{Cf}\p{Zs}\p{Zl}\p{Zp}]/gu, "");
+}
 function singleLine(value: unknown, maximum: number) {
   if (typeof value !== "string") fail();
   const text = value.normalize("NFKC").trim();
-  if (!text || [...text].length > maximum || /[\r\n\u2028\u2029]/u.test(text)
-    || forbidden.test(text) || url.test(text) || phone.test(text)) fail();
+  const projected = safetyProjection(text);
+  if (!text || [...text].length > maximum
+    || /[\p{Cc}\p{Zl}\p{Zp}]/u.test(text)
+    || forbidden.test(projected) || url.test(projected) || phone.test(projected)
+    || /(?:\d+(?:\.\d+)?\s*%|百分之[零一二三四五六七八九十百千万]+)/u.test(projected)) fail();
   return text;
 }
 function hashes(value: unknown) {
@@ -55,9 +61,13 @@ export function validateAcquisitionOutreachDraft(
   if (canonicalJsonStringify(evidenceHashes) !== canonicalJsonStringify([...authority.evidenceHashes].sort())) fail();
   const comment = singleLine(value.comment, 300);
   const directMessage = singleLine(value.directMessage, 800);
-  const evidence = authority.evidenceText.join(" ").normalize("NFKC");
-  const asserted = `${comment} ${directMessage}`.match(/(?:我们|本(?:公司|产品)|专业|已经|可以保证)[^，。；！？]{0,30}/gu) ?? [];
-  if (asserted.some((claim) => !evidence.includes(claim))) fail();
+  const evidence = safetyProjection(authority.evidenceText.join(" "));
+  const messages = [comment, directMessage].map(safetyProjection);
+  const meaningful = (text: string) => text.split(/[，。；！？,.;!?\s]+/u)
+    .map((part) => part.trim()).filter((part) => [...part].length >= 6);
+  for (const sentence of messages.flatMap(meaningful)) {
+    if (!evidence.includes(sentence) && /(?:我们|本(?:公司|产品)|专业|已经|可以|提供|服务|客户|效果|提升|降低)/u.test(sentence)) fail();
+  }
   const draft = Object.freeze({ candidateId: authority.candidateId, candidateRevision: authority.candidateRevision,
     evidenceHashes: Object.freeze(evidenceHashes), comment, directMessage,
     rationaleCodes: Object.freeze(codes(value.rationaleCodes)), modelSnapshotId: authority.modelSnapshotId,

@@ -193,6 +193,7 @@ import {
 import {
   createAcquisitionDouyinKeywordRouter
 } from "./acquisition-douyin-keyword-router.js";
+import { executeModelConnectionWriteIdempotently } from "./model-providers/idempotency.js";
 import {
   acquisitionProviderConnectionVersion
 } from "./acquisition-provider-connection-version.js";
@@ -2231,7 +2232,7 @@ export async function createAcquisitionApplication(
     const douyinKeywordSuggestions = {
       async generate(scope: {
         workspaceId: string; ownerId: string; teamId: string; actorId: string;
-      }, planId: string) {
+      }, planId: string, idempotencyKey: string) {
         const plan = await repositories.planRun.getPlan(planId);
         const workspace = await acquisitionWorkspace.resolve({
           ownerId: scope.ownerId,
@@ -2241,28 +2242,22 @@ export async function createAcquisitionApplication(
           || !workspace || workspace.workspaceId !== scope.workspaceId) {
           throw new Error("automation_plan_not_found");
         }
-        const snapshot = await resolveModelSnapshot(scope, {
-          connectionId: null,
-          idempotencyKey: `douyin-keywords:${plan.id}`
+        const outcome = await executeModelConnectionWriteIdempotently(options.store, {
+          ownerId: scope.ownerId, teamId: scope.teamId, idempotencyKey,
+          method: "POST", path: `/api/v1/acquisition/plans/${plan.id}/automation/keyword-suggestions`,
+          body: { operation: "douyin_keyword_suggestions", workspaceId: scope.workspaceId, planId: plan.id, planRevision: plan.updatedAt, objective: plan.payload.objective, icp: plan.payload.icp }
+        }, async () => {
+          // Deliberately no caller idempotency key here: a new command must bind
+          // the currently active credential/model/content snapshot. The replay
+          // repository, not the snapshot resolver, owns replay identity.
+          const snapshot = await resolveModelSnapshot(scope, { connectionId: null });
+          const stored = options.store.aiJobModelSnapshots.find((item) => item.jobId === snapshot.jobId && item.ownerId === scope.ownerId && item.teamId === scope.teamId);
+          if (!stored) throw new Error("MODEL_SNAPSHOT_UNAVAILABLE");
+          const gateway = options.modelGatewayFactory ? options.modelGatewayFactory(stored, acquisitionModelContentForSnapshot(stored)) : createAcquisitionModelGatewayForSnapshot(options.store, stored);
+          const value = await generateDouyinKeywords({ gateway, modelSnapshotId: snapshot.jobId, business: plan.payload.objective, icp: plan.payload.icp });
+          return { status: 200, body: value };
         });
-        const stored = options.store.aiJobModelSnapshots.find((item) =>
-          item.jobId === snapshot.jobId
-          && item.ownerId === scope.ownerId
-          && item.teamId === scope.teamId
-        );
-        if (!stored) throw new Error("MODEL_SNAPSHOT_UNAVAILABLE");
-        const gateway = options.modelGatewayFactory
-          ? options.modelGatewayFactory(
-              stored,
-              acquisitionModelContentForSnapshot(stored)
-            )
-          : createAcquisitionModelGatewayForSnapshot(options.store, stored);
-        return generateDouyinKeywords({
-          gateway,
-          modelSnapshotId: snapshot.jobId,
-          business: plan.payload.objective,
-          icp: plan.payload.icp
-        });
+        return { ...(outcome.body as { keywords: readonly string[]; modelSnapshotId: string }), replayed: outcome.replayed };
       }
     };
     router.use(

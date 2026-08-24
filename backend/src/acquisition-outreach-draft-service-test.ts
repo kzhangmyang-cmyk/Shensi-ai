@@ -34,3 +34,32 @@ test("minor evidence cannot reach the Task 6 model gateway", async () => {
   }), /OUTREACH_CANDIDATE_NOT_DRAFTABLE/u);
   assert.equal(gatewayCalls, 0);
 });
+
+test("natural-language minor and refusal evidence cannot reach the Task 6 model gateway", async () => {
+  for (const sourceSnippet of ["17岁想学习，现在需要获客方案", "我今年十七岁，想学习", "不要联系我，我需要获客方案"]) {
+    let gatewayCalls = 0;
+    const service = new AcquisitionOutreachDraftService({
+      domain: {
+        async findCandidate() { return { id: "candidate-1", version: 1, status: "needs_research", evidenceIds: ["evidence-1"], profile: { kind: "individual", sourcePlatform: "douyin" } }; },
+        async findEvidence() { return { id: "evidence-1", contentHash: `sha256:${"a".repeat(64)}`, sourceSnippet, sourcePlatform: "douyin", provenance: { kind: "mediacrawler_public_record", sourceUrl: "https://www.douyin.com/video/7350000000000000001" } }; }
+      } as any,
+      async resolveSnapshot() { return { jobId: "snapshot-1" }; },
+      async gateway() { return { async callTools() { gatewayCalls += 1; throw new Error("must not call"); } }; }
+    });
+    await assert.rejects(service.generate({ scope: { ownerId: "owner", teamId: "team" }, candidateId: "candidate-1" }), /OUTREACH_CANDIDATE_NOT_DRAFTABLE/u);
+    assert.equal(gatewayCalls, 0);
+  }
+});
+
+test("rejects a candidate that becomes DNC after model traffic", async () => {
+  let reads = 0;
+  const service = new AcquisitionOutreachDraftService({
+    domain: {
+      async findCandidate() { reads += 1; return { id: "candidate-1", version: 1, status: reads > 1 ? "do_not_contact" : "needs_research", evidenceIds: ["evidence-1"], profile: { kind: "individual", sourcePlatform: "douyin" } }; },
+      async findEvidence() { return { id: "evidence-1", contentHash: `sha256:${"a".repeat(64)}`, sourceSnippet: "公开提到正在寻找获客方案", sourcePlatform: "douyin", provenance: { kind: "mediacrawler_public_record", sourceUrl: "https://www.douyin.com/video/7350000000000000001" } }; }
+    } as any,
+    async resolveSnapshot() { return { jobId: "snapshot-1" }; },
+    async gateway() { return { async callTools() { return { toolCalls: [{ id: "call-1", name: "__goodjob_submit_douyin_outreach_draft", arguments: { comment: "看到你公开提到正在寻找获客方案", directMessage: "公开提到正在寻找获客方案", rationaleCodes: ["evidence_grounded"] } }], usage: {}, providerRequestId: null }; } }; }
+  });
+  await assert.rejects(service.generate({ scope: { ownerId: "owner", teamId: "team" }, candidateId: "candidate-1" }), /OUTREACH_CANDIDATE_AUTHORITY_CHANGED/u);
+});

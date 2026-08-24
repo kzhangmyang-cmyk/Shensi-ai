@@ -522,11 +522,13 @@ test("bound tool calls use only server-registered prompt and schema content", as
       };
     }>;
   };
+  assert.deepEqual(body.messages.map((message) => message.role), ["system", "user"]);
   assert.match(body.messages[0]?.content ?? "", /^FIXED_SERVER_POLICY_V1/);
   assert.match(
-    body.messages[0]?.content ?? "",
+    body.messages[1]?.content ?? "",
     /UNTRUSTED_DYNAMIC_DATA[\s\S]*UNTRUSTED_DYNAMIC_MESSAGE/
   );
+  assert.doesNotMatch(body.messages[0]?.content ?? "", /UNTRUSTED_DYNAMIC_MESSAGE/);
   assert.deepEqual(body.tools.map((item) => item.function.name), [
     "submit_fixture"
   ]);

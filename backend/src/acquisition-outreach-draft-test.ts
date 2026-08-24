@@ -15,7 +15,7 @@ test("rejects unsafe, unsupported, multiline, and forged draft fields while hash
     evidenceText: ["公开提到正在寻找获客方案"], modelSnapshotId: "snapshot-1"
   });
   assert.equal(accepted.contentHash.startsWith("sha256:"), true);
-  for (const comment of ["", "请访问 https://bad.example", "联系电话 13800138000", "第一名保证成交", "第一行\n第二行"]) {
+  for (const comment of ["", "请访问 https://bad.example", "联系电话 13800138000", "第一名保证成交", "第一行\n第二行", "第一行\u0085第二行", "加\u200b微信", "保证\u200b成交", "转化率100%", "我们已经服务了上万客户"]) {
     assert.throws(() => validateAcquisitionOutreachDraft({ ...base, comment }, {
       candidateId: "candidate-1", candidateRevision: 2, evidenceHashes: [`sha256:${"a".repeat(64)}`],
       evidenceText: ["公开提到正在寻找获客方案"], modelSnapshotId: "snapshot-1"

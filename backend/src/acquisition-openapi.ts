@@ -1467,8 +1467,12 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
     }
   }));
   add(paths, "/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions", "post", operation("post", "生成可编辑抖音搜索关键词", {
-    parameters: [planParameter],
-    responses: standardResponses(200, "服务端业务与 ICP 上下文生成的关键词", douyinKeywordSuggestionsSchema)
+    parameters: [planParameter, idempotencyParameter(8)],
+    requestBody: jsonBody({ type: "object", properties: {}, additionalProperties: false }),
+    responses: {
+      ...standardResponses(200, "服务端业务与 ICP 上下文生成的关键词", douyinKeywordSuggestionsSchema),
+      "200": { ...response("服务端业务与 ICP 上下文生成的关键词", douyinKeywordSuggestionsSchema), headers: { "Idempotency-Replayed": { required: false, schema: { type: "string", enum: ["true"] } } } }
+    }
   }));
   add(paths, "/api/v1/acquisition/runs/{runId}/crawler-status", "get", operation("get", "读取已持久化的抖音采集状态", {
     parameters: [idParameter(160, "runId")],

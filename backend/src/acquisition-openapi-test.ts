@@ -238,7 +238,8 @@ test("Douyin automation OpenAPI closes policy and run-now inputs and outputs", (
   assert.equal(automation.put.operationId, "putAcquisitionDouyinAutomation");
   assert.equal(runNow.operationId, "runAcquisitionDouyinAutomationNow");
   assert.equal(suggestions.operationId, "suggestAcquisitionDouyinKeywords");
-  assert.equal(suggestions.requestBody, undefined);
+  assert.equal(suggestions.requestBody.required, true);
+  assert.equal(suggestions.requestBody.content["application/json"].schema.additionalProperties, false);
   assert.equal(suggestions.responses["200"].content["application/json"].schema.additionalProperties, false);
   assert.deepEqual(suggestions.responses["200"].content["application/json"].schema.required, ["keywords", "modelSnapshotId"]);
   assert.equal(

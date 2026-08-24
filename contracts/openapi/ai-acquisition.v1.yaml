@@ -799,9 +799,11 @@ paths:
       summary: Generate editable Douyin search keywords from server-owned plan business and ICP context
       description: The active official model snapshot and workspace context are selected on the server; the command accepts no model, workspace, or business authority from callers.
       security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: {}, additionalProperties: false } } } }
       responses:
         <<: *acquisitionStandardResponses
-        '200': { description: Bounded editable keyword suggestions and the frozen active model snapshot identity, content: { application/json: { schema: { $ref: '#/components/schemas/DouyinKeywordSuggestions' } } } }
+        '200': { description: Bounded editable keyword suggestions and the frozen active model snapshot identity, headers: { Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/DouyinKeywordSuggestions' } } } }
   /api/v1/acquisition/runs/{runId}/crawler-status:
     parameters: [{ name: runId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }]
     get:

@@ -4,7 +4,6 @@ import { qualifyDouyinCrawlerCandidate } from "./acquisition-douyin-candidate-po
 import type { AcquisitionPiGatewayPort } from "./acquisition-pi-gateway-runtime.js";
 import {
   ACQUISITION_OUTREACH_DRAFT_TOOL,
-  acquisitionOutreachDraftTool,
   acquisitionOutreachModelRequest
 } from "./acquisition-outreach-model-content.js";
 import { validateAcquisitionOutreachDraft, type AcquisitionOutreachDraft } from "./acquisition-outreach-draft.js";
@@ -20,6 +19,19 @@ export function assertDraftableDouyinCandidate(input: { id: string; version: num
       throw new Error("OUTREACH_CANDIDATE_NOT_DRAFTABLE");
     }
   }
+}
+
+export function parseOutreachDraftToolArguments(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("OUTREACH_MODEL_RESPONSE_INVALID");
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  if (JSON.stringify(keys) !== JSON.stringify(["comment", "directMessage", "rationaleCodes"])
+    || typeof record.comment !== "string" || typeof record.directMessage !== "string"
+    || !Array.isArray(record.rationaleCodes) || !record.rationaleCodes.length
+    || record.rationaleCodes.length > 5 || record.rationaleCodes.some((item) => typeof item !== "string")) {
+    throw new Error("OUTREACH_MODEL_RESPONSE_INVALID");
+  }
+  return { comment: record.comment, directMessage: record.directMessage, rationaleCodes: record.rationaleCodes as string[] };
 }
 
 export class AcquisitionOutreachDraftService {
@@ -45,12 +57,28 @@ export class AcquisitionOutreachDraftService {
     const snapshot = await this.options.resolveSnapshot(input.scope);
     if (!snapshot.jobId) throw new Error("MODEL_SNAPSHOT_UNAVAILABLE");
     const request = acquisitionOutreachModelRequest({ operation: "draft", payload: { candidate: publicCandidate(candidate), evidence: trusted.map((item) => ({ id: item.id, contentHash: item.contentHash, excerpt: item.sourceSnippet, sourceUrl: publicUrl(item) })) } });
-    const result = await (await this.options.gateway(snapshot.jobId)).callTools({ prompt: `${request.systemPrompt}\n${request.userPrompt}`, tools: [acquisitionOutreachDraftTool()], parallelToolCalls: false });
+    const result = await (await this.options.gateway(snapshot.jobId)).callTools({ contentBinding: request.contentBinding, parallelToolCalls: false });
     if (result.toolCalls.length !== 1 || result.toolCalls[0]?.name !== ACQUISITION_OUTREACH_DRAFT_TOOL) throw new Error("OUTREACH_MODEL_RESPONSE_INVALID");
-    const args = result.toolCalls[0].arguments;
+    const args = parseOutreachDraftToolArguments(result.toolCalls[0].arguments);
+    // Model traffic is outside the transaction boundary. Re-read all server
+    // authority before returning so a concurrent DNC/refusal/revision change
+    // can never be turned into a usable immutable draft.
+    const current = await this.options.domain.findCandidate(input.scope, input.candidateId);
+    if (!current || current.id !== candidate.id || current.version !== candidate.version
+      || current.status !== candidate.status || canonicalIds(current.evidenceIds) !== canonicalIds(expected)) {
+      throw new Error("OUTREACH_CANDIDATE_AUTHORITY_CHANGED");
+    }
+    const currentEvidence = await Promise.all(expected.map((id) => this.options.domain.findEvidence(input.scope, id)));
+    if (currentEvidence.some((item) => !item)
+      || currentEvidence.some((item, index) => item?.contentHash !== trusted[index]?.contentHash
+        || item?.sourceSnippet !== trusted[index]?.sourceSnippet)) {
+      throw new Error("OUTREACH_CANDIDATE_AUTHORITY_CHANGED");
+    }
+    assertDraftableDouyinCandidate({ id: current.id, version: current.version, status: current.status,
+      evidence: (currentEvidence as DiscoveryEvidence[]).map((item) => ({ id: item.id, contentHash: item.contentHash, text: item.sourceSnippet })) });
     return validateAcquisitionOutreachDraft({ candidateId: candidate.id, candidateRevision: candidate.version,
-      evidenceHashes: trusted.map((item) => item.contentHash), comment: args.comment as string,
-      directMessage: args.directMessage as string, rationaleCodes: args.rationaleCodes as string[], modelSnapshotId: snapshot.jobId }, {
+      evidenceHashes: trusted.map((item) => item.contentHash), comment: args.comment,
+      directMessage: args.directMessage, rationaleCodes: args.rationaleCodes, modelSnapshotId: snapshot.jobId }, {
       candidateId: candidate.id, candidateRevision: candidate.version, evidenceHashes: trusted.map((item) => item.contentHash), evidenceText: trusted.map((item) => item.sourceSnippet), modelSnapshotId: snapshot.jobId
     });
   }

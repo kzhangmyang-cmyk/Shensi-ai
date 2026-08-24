@@ -180,6 +180,7 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
             ? requiresDiscoveryIdempotency
             : path === "/api/v1/acquisition/plans/{planId}/automation"
               || path === "/api/v1/acquisition/plans/{planId}/run-now"
+              || path === "/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions"
               || !isPlanRunOperation
               || path === "/api/v1/acquisition/plans"
               || path === "/api/v1/acquisition/plans/{id}/runs"
@@ -216,7 +217,8 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
     "#/components/schemas/DouyinAutomationRunIntent"
   );
   const suggestions = document.paths["/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions"].post;
-  assert.equal(suggestions.requestBody, undefined);
+  assert.equal(suggestions.requestBody.required, true);
+  assert.equal(suggestions.parameters.some((parameter) => parameter.$ref === "#/components/parameters/planIdempotencyKey"), true);
   assert.equal(
     suggestions.responses["200"].content["application/json"].schema.$ref,
     "#/components/schemas/DouyinKeywordSuggestions"

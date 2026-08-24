@@ -7,6 +7,10 @@ import {
   acquisitionAgentToolDefinitions,
   legacyAcquisitionAgentToolDefinitions
 } from "./acquisition-pi-tools.js";
+import {
+  acquisitionOutreachPromptTemplates,
+  acquisitionOutreachToolSchemas
+} from "./acquisition-outreach-model-content.js";
 
 export const ACQUISITION_PI_PROMPT_ID = "acquisition.pi.turn.v1";
 export const ACQUISITION_PI_TOOL_SCHEMA_ID = "acquisition.pi.turn.v1";
@@ -33,9 +37,9 @@ export const ACQUISITION_PREVIOUS_MODEL_PROMPT_VERSION =
 export const ACQUISITION_PREVIOUS_MODEL_SCHEMA_VERSION =
   "acquisition-model-schema-bundle.v3";
 export const ACQUISITION_MODEL_PROMPT_VERSION =
-  "acquisition-model-prompt-bundle.v5";
+  "acquisition-model-prompt-bundle.v6";
 export const ACQUISITION_MODEL_SCHEMA_VERSION =
-  "acquisition-model-schema-bundle.v6";
+  "acquisition-model-schema-bundle.v7";
 
 const ACQUISITION_RETIRED_MODEL_PROMPT_VERSION =
   "acquisition-model-prompt-bundle.v5";
@@ -705,6 +709,10 @@ function modelContentBundle(
       planDraftPromptTemplate();
     toolSchemas[ACQUISITION_PLAN_DRAFT_TOOL_SCHEMA_ID] =
       Object.freeze([acquisitionPlanDraftTool()]);
+  }
+  if (battleCardVersion === "battle-card.v2") {
+    Object.assign(promptTemplates, acquisitionOutreachPromptTemplates());
+    Object.assign(toolSchemas, acquisitionOutreachToolSchemas());
   }
   return Object.freeze({
     promptTemplates: Object.freeze(promptTemplates),

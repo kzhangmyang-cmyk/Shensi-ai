@@ -33,11 +33,11 @@ const judgmentTools =
 
 assert.equal(
   ACQUISITION_MODEL_PROMPT_VERSION,
-  "acquisition-model-prompt-bundle.v5"
+  "acquisition-model-prompt-bundle.v6"
 );
 assert.equal(
   ACQUISITION_MODEL_SCHEMA_VERSION,
-  "acquisition-model-schema-bundle.v6"
+  "acquisition-model-schema-bundle.v7"
 );
 assert.equal(
   ACQUISITION_PREVIOUS_MODEL_PROMPT_VERSION,
@@ -55,6 +55,10 @@ assert.equal(
   ACQUISITION_LEGACY_MODEL_SCHEMA_VERSION,
   "acquisition-model-schema-bundle.v2"
 );
+assert.ok(ACQUISITION_MODEL_CONTENT_BUNDLE.promptTemplates["acquisition.douyin.keyword-suggestions.v1"]);
+assert.ok(ACQUISITION_MODEL_CONTENT_BUNDLE.toolSchemas["acquisition.douyin.keyword-suggestions.v1"]);
+assert.ok(ACQUISITION_MODEL_CONTENT_BUNDLE.promptTemplates["acquisition.douyin.outreach-draft.v1"]);
+assert.ok(ACQUISITION_MODEL_CONTENT_BUNDLE.toolSchemas["acquisition.douyin.outreach-draft.v1"]);
 assert.deepEqual(ACQUISITION_LEGACY_MODEL_CONTENT_HASHES, {
   promptHash:
     "sha256:5c840bb642766df13767c21139ccd8ed0709d60b5aeac04d4736e39e383b519b",
