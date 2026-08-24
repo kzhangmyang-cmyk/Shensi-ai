@@ -4,24 +4,11 @@ import {
 } from "./acquisition-canonical-subject.js";
 import type { BuyingStage } from "./acquisition-domain.js";
 import type { NormalizedDouyinRecord } from "./acquisition-crawler-job.js";
+import type { AcquisitionCrawlerJobRepository } from "./acquisition-crawler-job-repository.js";
+import { MEDIACRAWLER_PINNED_UPSTREAM_COMMIT } from "./acquisition-mediacrawler-gateway.js";
 import { classifyDouyinPublicSource } from "./acquisition-douyin-public-source.js";
 import { qualifyDouyinCrawlerCandidate } from "./acquisition-douyin-candidate-policy.js";
 
-export interface PersistedDouyinCrawlerPage {
-  workspaceId: string;
-  jobId: string;
-  runId: string;
-  cursor: string | null;
-  upstreamCommit: string;
-  records: readonly NormalizedDouyinRecord[];
-}
-
-/** Task 4 is the only source of crawler records; live sidecar state is never accepted. */
-export interface DouyinCrawlerPageRepository {
-  getValidatedPage(input: {
-    workspaceId: string; jobId: string; runId: string; cursor: string | null;
-  }): Promise<PersistedDouyinCrawlerPage | null>;
-}
 
 export interface DouyinCrawlerEvidence {
   id: string;
@@ -95,32 +82,27 @@ function idFor(prefix: string, workspaceId: string, value: string) {
  * identity-stable individual candidate. It deliberately has no model port.
  */
 export async function ingestDouyinCrawlerPage(input: {
-  pages: DouyinCrawlerPageRepository;
+  crawlerJobs: Pick<AcquisitionCrawlerJobRepository, "findByRun" | "listRecords">;
   repository: DouyinCrawlerEvidenceStore;
   workspaceId: string;
-  jobId: string;
   runId: string;
-  cursor: string | null;
   now?: () => string;
 }): Promise<DouyinCrawlerIngestionResult> {
-  const page = await input.pages.getValidatedPage({
-    workspaceId: input.workspaceId, jobId: input.jobId, runId: input.runId,
-    cursor: input.cursor
-  });
-  if (!page || page.workspaceId !== input.workspaceId || page.jobId !== input.jobId
-    || page.runId !== input.runId || page.cursor !== input.cursor
-    || !/^[a-f0-9]{40}$/u.test(page.upstreamCommit)) {
+  const job = await input.crawlerJobs.findByRun(input.workspaceId, input.runId);
+  if (!job || job.workspaceId !== input.workspaceId || !job.runIds.includes(input.runId)
+    || !["succeeded", "partial"].includes(job.state)) {
     throw new Error("untrusted_crawler_page");
   }
+  const records = await input.crawlerJobs.listRecords(job.id);
   const result: DouyinCrawlerIngestionResult = { evidenceCount: 0, candidateCount: 0, suppressedCount: 0 };
-  for (const record of page.records) {
+  for (const record of records) {
     if (record.kind !== "creator" && record.kind !== "comment") continue;
     const source = classifyDouyinPublicSource(record.canonicalUrl, "", record.textExcerpt);
     if (!source || !record.canonicalUrl.startsWith("https://")) { result.suppressedCount += 1; continue; }
     let evidence = await input.repository.findEvidenceByContentHash(input.workspaceId, record.contentHash);
     if (!evidence) {
       const previous = await input.repository.findLatestEvidenceByRecord?.(
-        input.workspaceId, page.jobId, record.recordId
+        input.workspaceId, job.id, record.recordId
       ) ?? null;
       evidence = await input.repository.appendEvidence({
         id: idFor("evidence", input.workspaceId, record.contentHash), workspaceId: input.workspaceId,
@@ -128,8 +110,8 @@ export async function ingestDouyinCrawlerPage(input: {
         sourceUrl: record.canonicalUrl, sourceKeyword: record.sourceKeyword,
         observedAt: record.observedAt, sourceSnippet: boundedExcerpt(record.textExcerpt),
         supersedesEvidenceId: previous?.id ?? null,
-        provenance: { kind: "mediacrawler_public_record", jobId: page.jobId,
-          recordId: record.recordId, cursor: page.cursor, upstreamCommit: page.upstreamCommit }
+        provenance: { kind: "mediacrawler_public_record", jobId: job.id,
+          recordId: record.recordId, cursor: job.cursor, upstreamCommit: MEDIACRAWLER_PINNED_UPSTREAM_COMMIT }
       });
       result.evidenceCount += 1;
     }
@@ -137,7 +119,7 @@ export async function ingestDouyinCrawlerPage(input: {
     if (!actorKey) { result.suppressedCount += 1; continue; }
     const dncHash = doNotContactHash(actorKey);
     const policy = qualifyDouyinCrawlerCandidate({
-      text: record.textExcerpt, hasOriginalPublicSource: Boolean(source)
+      text: record.textExcerpt, kind: record.kind, hasOriginalPublicSource: Boolean(source)
     });
     if (policy.status === "suppressed") {
       if (policy.retainDoNotContact) await input.repository.retainDoNotContact(input.workspaceId, dncHash, policy.reason);

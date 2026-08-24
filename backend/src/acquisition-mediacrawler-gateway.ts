@@ -2,12 +2,12 @@ import { z } from "zod";
 
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 5_000;
-const upstreamCommit = "d6f7c5bb906b6dac40ddf343ef9e26438a3de092" as const;
+export const MEDIACRAWLER_PINNED_UPSTREAM_COMMIT = "d6f7c5bb906b6dac40ddf343ef9e26438a3de092" as const;
 
 const healthResponseSchema = z.object({
   ok: z.literal(true),
   service: z.literal("shensi-mediacrawler"),
-  upstream_commit: z.literal(upstreamCommit)
+  upstream_commit: z.literal(MEDIACRAWLER_PINNED_UPSTREAM_COMMIT)
 }).strict();
 const loginSessionResponseSchema = z.object({
   session_id: z.string().min(1),
@@ -53,7 +53,7 @@ export interface DouyinMediaCrawlerGateway {
   health(signal?: AbortSignal): Promise<Readonly<{
     ok: true;
     service: "shensi-mediacrawler";
-    upstreamCommit: "d6f7c5bb906b6dac40ddf343ef9e26438a3de092";
+    upstreamCommit: typeof MEDIACRAWLER_PINNED_UPSTREAM_COMMIT;
   }>>;
   createLoginSession(signal?: AbortSignal): Promise<DouyinLoginSession>;
   getLoginSession(sessionId: string, signal?: AbortSignal): Promise<DouyinLoginSession>;

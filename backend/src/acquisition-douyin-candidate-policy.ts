@@ -18,6 +18,7 @@ const STAGES: Array<[RegExp, BuyingStage]> = [
 export function qualifyDouyinCrawlerCandidate(input: {
   text: string;
   hasOriginalPublicSource: boolean;
+  kind?: "creator" | "comment";
 }): DouyinCandidatePolicyResult {
   const text = input.text.normalize("NFKC").trim();
   if (!input.hasOriginalPublicSource) {
@@ -31,6 +32,9 @@ export function qualifyDouyinCrawlerCandidate(input: {
   }
   if (MINOR.test(text)) {
     return { status: "suppressed", buyingStage: null, reason: "minor_signal", retainDoNotContact: false };
+  }
+  if (input.kind === "creator") {
+    return { status: "qualified", buyingStage: "awareness", reason: null };
   }
   const stage = STAGES.find(([matcher]) => matcher.test(text))?.[1];
   return stage

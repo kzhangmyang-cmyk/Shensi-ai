@@ -43,12 +43,24 @@ function store(): DouyinCrawlerEvidenceStore & { evidence: unknown[]; candidates
   };
 }
 
+function crawlerJobs(records: ReturnType<typeof record>[], workspaceId = "workspace-1") {
+  return {
+    async findByRun(workspace: string, runId: string) {
+      return workspace === workspaceId && runId === "run-1" ? {
+        id: "job-1", workspaceId, runId, runIds: ["run-1"], state: "succeeded" as const,
+        cursor: "cursor-1", completedAt: "2026-08-24T01:00:00.000Z"
+      } : null;
+    },
+    async listRecords(jobId: string) { return jobId === "job-1" ? records : []; }
+  };
+}
+
 test("ingestion creates one bounded evidence row and one stable candidate for duplicate records", async () => {
   const repository = store();
-  const input = { workspaceId: "workspace-1", jobId: "job-1", runId: "run-1", cursor: "cursor-1" as string | null };
-  const pages = { async getValidatedPage() { return { ...input, upstreamCommit: "a".repeat(40), records: [record(), record()] }; } };
-  const first = await ingestDouyinCrawlerPage({ repository, pages, ...input, now: () => "2026-08-24T01:00:00.000Z" });
-  const replay = await ingestDouyinCrawlerPage({ repository, pages, ...input, now: () => "2026-08-24T01:00:00.000Z" });
+  const input = { workspaceId: "workspace-1", runId: "run-1" };
+  const crawler = crawlerJobs([record(), record()]);
+  const first = await ingestDouyinCrawlerPage({ repository, crawlerJobs: crawler, ...input, now: () => "2026-08-24T01:00:00.000Z" });
+  const replay = await ingestDouyinCrawlerPage({ repository, crawlerJobs: crawler, ...input, now: () => "2026-08-24T01:00:00.000Z" });
   assert.deepEqual(first, { evidenceCount: 1, candidateCount: 1, suppressedCount: 0 });
   assert.deepEqual(replay, { evidenceCount: 0, candidateCount: 0, suppressedCount: 0 });
   assert.equal(repository.evidence.length, 1);
@@ -59,7 +71,7 @@ test("ingestion creates one bounded evidence row and one stable candidate for du
 test("edited comments supersede the previous record evidence and refusals are retained as DNC", async () => {
   const repository = store();
   let records = [record()];
-  const common = { repository, pages: { async getValidatedPage() { return { workspaceId: "workspace-1", jobId: "job-1", runId: "run-1", cursor: "cursor-1", upstreamCommit: "a".repeat(40), records }; } }, workspaceId: "workspace-1", jobId: "job-1", runId: "run-1", cursor: "cursor-1" as string | null, now: () => "2026-08-24T01:00:00.000Z" };
+  const common = { repository, crawlerJobs: { async findByRun() { return { id: "job-1", workspaceId: "workspace-1", runId: "run-1", runIds: ["run-1"], state: "succeeded" as const, cursor: "cursor-1" }; }, async listRecords() { return records; } }, workspaceId: "workspace-1", runId: "run-1", now: () => "2026-08-24T01:00:00.000Z" };
   await ingestDouyinCrawlerPage(common);
   records = [record({ textExcerpt: "请勿联系，拒绝推销", contentHash: sha("comment-1-edited") })];
   await ingestDouyinCrawlerPage(common);
@@ -70,16 +82,12 @@ test("edited comments supersede the previous record evidence and refusals are re
 
 test("ingestion rejects a forged page and suppresses a record without public profile identity", async () => {
   const repository = store();
-  const input = { repository, workspaceId: "workspace-1", jobId: "job-1", runId: "run-1", cursor: null as string | null };
+  const input = { repository, workspaceId: "workspace-1", runId: "run-1" };
   await assert.rejects(
-    ingestDouyinCrawlerPage({ ...input, pages: { async getValidatedPage() {
-      return { workspaceId: "workspace-2", jobId: "job-1", runId: "run-1", cursor: null, upstreamCommit: "a".repeat(40), records: [record()] };
-    } } }),
+    ingestDouyinCrawlerPage({ ...input, crawlerJobs: crawlerJobs([record()], "workspace-2") }),
     /untrusted_crawler_page/u
   );
-  const result = await ingestDouyinCrawlerPage({ ...input, pages: { async getValidatedPage() {
-    return { workspaceId: "workspace-1", jobId: "job-1", runId: "run-1", cursor: null, upstreamCommit: "a".repeat(40), records: [record({ publicProfileUrl: null })] };
-  } } });
+  const result = await ingestDouyinCrawlerPage({ ...input, crawlerJobs: crawlerJobs([record({ publicProfileUrl: null })]) });
   assert.deepEqual(result, { evidenceCount: 1, candidateCount: 0, suppressedCount: 1 });
   assert.equal(repository.candidates.length, 0);
 });
