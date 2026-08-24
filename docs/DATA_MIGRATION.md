@@ -3,9 +3,13 @@
 ## Current state
 
 This repository contains fail-closed tooling for an encrypted, source-to-new-
-target MySQL migration. The tooling has not run a live migration. Running any
-command in this document requires operator-supplied credentials and explicit
-operational authorization.
+target MySQL migration. An authorized Task 7 live integration attempt stopped
+during restore when the prior dump requested target `LOCK TABLES` privilege;
+the source remained unchanged, no cutover occurred, and the failed target has
+one empty table. That target is contaminated and must not be reused. The
+lock-free dump change documented below has not yet been rerun against a live
+database. Running any command in this document requires operator-supplied
+credentials and explicit operational authorization.
 
 The source database remains `shensi_sales`. The only accepted restore target
 database is a distinct database named `shensi`. The tools accept `mysql:` URLs
@@ -21,7 +25,8 @@ keys.
   - `mysql`: `/Users/mac/.local/mysql-8.4.11-macos15-arm64/bin/mysql`
 - OpenSSL default: `/usr/bin/openssl`.
 - A source account with consistent-dump and metadata/count read access only.
-- A target account for the empty `shensi` database.
+- A target account with schema/data restore privileges for the empty `shensi`
+  database. `LOCK TABLES` privilege is not required.
 - For `./scripts/migrate-data`, a local target-server administrator account
   that can inspect and create `shensi`. Its host and port must equal the target
   URL host and port.
@@ -78,9 +83,12 @@ empty-target workflow while retaining the absolute no-DROP rule. Base tables,
 data, and triggers are streamed from a single-transaction `mysqldump` directly
 into OpenSSL AES-256-CBC with PBKDF2 and salt. The dump explicitly skips views,
 routines, events, tablespaces, database/table/trigger DROP statements, and
-REPLACE statements. It creates no plaintext dump. The encrypted file is opened
-with mode `0600`; an incomplete encrypted file is deleted when either pipeline
-stage fails or the process receives `SIGINT`/`SIGTERM`.
+REPLACE statements. It also uses `--skip-lock-tables` and `--skip-add-locks`,
+so the source is not explicitly table-locked and the restore stream contains
+no `LOCK TABLES` or `UNLOCK TABLES` statements. It creates no plaintext dump.
+The encrypted file is opened with mode `0600`; an incomplete encrypted file is
+deleted when either pipeline stage fails or the process receives
+`SIGINT`/`SIGTERM`.
 
 Child processes receive only a small safe base environment plus `MYSQL_PWD`
 for MySQL programs or `SHENSI_BACKUP_PASSPHRASE` for OpenSSL. The Git source-

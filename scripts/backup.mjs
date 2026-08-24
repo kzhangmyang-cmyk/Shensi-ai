@@ -76,7 +76,8 @@ export async function backupDatabase({
           "--single-transaction", "--triggers", "--skip-routines", "--skip-events",
           "--hex-blob", "--default-character-set=utf8mb4", "--set-gtid-purged=OFF",
           "--skip-add-drop-database", "--skip-add-drop-table",
-          "--skip-add-drop-trigger", "--skip-replace", "--ignore-views", "--no-tablespaces",
+          "--skip-add-drop-trigger", "--skip-replace", "--skip-add-locks",
+          "--skip-lock-tables", "--ignore-views", "--no-tablespaces",
           "--host", parsed.host, "--port", String(parsed.port), "--user", parsed.user,
           parsed.database
         ],

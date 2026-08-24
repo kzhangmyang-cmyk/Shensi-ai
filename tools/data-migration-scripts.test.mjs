@@ -210,11 +210,16 @@ test("authenticated backup rejects wrong passphrases and corruption before mysql
 const fs = require("node:fs");
 const argv = process.argv.slice(2);
 fs.writeFileSync(${JSON.stringify(dumpCapture)}, JSON.stringify({ argv, env: process.env }));
-const unsafe = argv.includes("--routines") || argv.includes("--events")
+const unsafeDrop = argv.includes("--routines") || argv.includes("--events")
   || !argv.includes("--skip-routines") || !argv.includes("--skip-events");
-process.stdout.write(unsafe
+const unsafeLock = !argv.includes("--skip-add-locks")
+  || !argv.includes("--skip-lock-tables");
+process.stdout.write(unsafeDrop
   ? "DROP PROCEDURE IF EXISTS unsafe_fixture;\\n"
-  : "CREATE TABLE safe_fixture (id INT);\\nINSERT INTO safe_fixture VALUES (1);\\n");
+  : "CREATE TABLE safe_fixture (id INT);\\n"
+    + (unsafeLock ? "LOCK TABLES safe_fixture WRITE;\\n" : "")
+    + "INSERT INTO safe_fixture VALUES (1);\\n"
+    + (unsafeLock ? "UNLOCK TABLES;\\n" : ""));
 `);
   writeExecutable(mysql, `
 const fs = require("node:fs");
@@ -256,7 +261,8 @@ process.stdin.on("end", () => {
   for (const flag of [
     "--skip-add-drop-database", "--skip-add-drop-table",
     "--skip-add-drop-trigger", "--skip-replace", "--skip-routines",
-    "--skip-events", "--ignore-views", "--no-tablespaces"
+    "--skip-events", "--ignore-views", "--no-tablespaces",
+    "--skip-add-locks", "--skip-lock-tables"
   ]) assert.ok(dumpProcess.argv.includes(flag), flag);
   assert.equal(dumpProcess.argv.includes("--routines"), false);
   assert.equal(dumpProcess.argv.includes("--events"), false);
@@ -303,6 +309,7 @@ process.stdin.on("end", () => {
   const restoredSql = readFileSync(restored, "utf8");
   assert.match(restoredSql, /CREATE TABLE safe_fixture/u);
   assert.doesNotMatch(restoredSql, /^\s*DROP\s/imu);
+  assert.doesNotMatch(restoredSql, /^\s*(?:UN)?LOCK TABLES\b/imu);
   const mysqlEnvironment = JSON.parse(readFileSync(mysqlCapture, "utf8"));
   assert.equal(mysqlEnvironment.MYSQL_PWD, "target-password");
   for (const forbidden of [
@@ -343,6 +350,23 @@ test("backup rejects schema objects that cannot be reproduced without DROP", asy
     }), /SOURCE_SCHEMA_OBJECTS_UNSUPPORTED/u);
   }
   assert.equal(existsSync(spawned), false, "dump must not start for unsupported objects");
+});
+
+test("installed MySQL 8.4 mysqldump accepts the lock-suppression contract", (context) => {
+  const mysqldump = "/Users/mac/.local/mysql-8.4.11-macos15-arm64/bin/mysqldump";
+  if (!existsSync(mysqldump)) {
+    context.skip("the documented MySQL 8.4 client is not installed");
+    return;
+  }
+  const result = spawnSync(mysqldump, [
+    "--no-defaults", "--skip-add-locks", "--skip-lock-tables", "--help"
+  ], {
+    env: { PATH: process.env.PATH, LANG: "C" },
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /--add-locks/u);
+  assert.match(result.stdout, /--lock-tables/u);
 });
 
 test("backup resolves the source commit with a minimal Git environment", async (context) => {
