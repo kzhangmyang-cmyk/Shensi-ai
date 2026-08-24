@@ -175,7 +175,7 @@ pnpm --filter goodjob-crm-frontend run test:e2e -- acquisition-visual-reader.spe
 
 ## Growth 真实模式（Real Mode）
 
-前端钉住了 Growth 合同消费快照（`contracts/pinned/`，当前 1.0.11）；可编辑合同的唯一来源是 Monorepo 根目录 `../contracts/`，合同门禁会验证两者身份与哈希一致。
+前端钉住了 Growth 合同消费快照（`contracts/pinned/`，当前 1.0.12）；可编辑合同的唯一来源是 Monorepo 根目录 `../contracts/`，合同门禁会验证两者身份与哈希一致。
 `src/growth/` 提供由同一黑色前端壳承载的真实业务界面：
 
 - `#growth/advisor` 增长参谋今日视图与受控建议
@@ -187,7 +187,7 @@ pnpm --filter goodjob-crm-frontend run test:e2e -- acquisition-visual-reader.spe
 - `#financial-council` 财务委员会入口；真实运行必须先从 `#agents` 完成三表 package 流程
 - `#financial-council/run/<runId>` 财务委员会工作台。它和 `#agents` 共用同一 `.replica-shell`，不会切换到旧白色 Growth 页面。
 
-`1.0.11` 类型还覆盖闭合的三表 package preview/commit、run-from-package、六角色模型路由与脱敏 agent-center API。workspace、连接归属与 capabilities 由服务端认证上下文决定；前端不能提交 workspace、凭据、prompt 或标准化业务数据。
+`1.0.12` 类型还覆盖闭合的三表 package preview/commit、管理层现金预测、run-from-package、六角色模型路由与脱敏 agent-center API。workspace、连接归属与 capabilities 由服务端认证上下文决定；前端不能提交 workspace、凭据、prompt、服务端声明权威或标准化业务数据。
 
 进入真实模式前，前端会调用 `GET /api/v1/growth/bootstrap` 做合同门禁：
 合同大版本或哈希与钉住 manifest 不一致时显示
@@ -206,8 +206,7 @@ Growth API 与主应用共用同源 Cookie 登录态和 `gj_csrf` CSRF Cookie。
 authority 变化会销毁旧 controller、终止未完成请求并清空主内容/检查器，然后只挂载一个
 匹配新 authority 的实例。真实模式不读取示例报告、本地演示会话或浏览器端旧报表权威。
 
-真实三表流程固定为资产负债表、利润表和现金流量表：`0/3 → 服务端预览 → 第三方模型
-数据传输授权 → commit 形成 verified package → 创建 Council run`。浏览器状态只保留
+真实三表流程固定为资产负债表、利润表和现金流量表：`0/3 → 服务端预览 → 填写未来 30 天流入/流出与 31–90 天流入/流出 → 明确填写应收账款列表（可为空）→ 管理层预测声明与第三方模型数据传输授权 → commit 形成 verified package → 创建 Council run`。浏览器状态只保留
 文件名、大小、时间与哈希等元数据；原始内容仅在发起预览请求所需的短生命周期内存在，
 不会写入页面、URL、localStorage 或 sessionStorage。服务端未返回或无法计算的字段显示
 “暂不可计算”，不能用 `0` 或演示数据补齐。
@@ -245,4 +244,4 @@ pnpm --filter goodjob-crm-frontend run test:e2e:financial-council:real
 
 可通过 `FINANCIAL_COUNCIL_E2E_USER`、`FINANCIAL_COUNCIL_E2E_PASSWORD` 和
 `FINANCIAL_COUNCIL_E2E_DATA_AS_OF` 覆盖 test-only server 的默认账号与数据截止时间。
-未提供 `MYSQL_TEST_ADMIN_URL` 时，不能将真实 MySQL/browser 验收记为通过。Task 8 的随机库迁移/竞态和跨 runtime 恢复已真实通过，真实双供应商门禁因凭据缺失 BLOCKED。三表 parser 会如实标记 30/90 天 forecast `not_computable`，而 `cashflow` 是 critical hard constraint；因此三表-only run 必须稳定进入 `not_computable`。在有可信预测输入合同前，无 route-intercept Chromium 不可声称 `awaiting_approval` 或审批闭环通过。
+未提供 `MYSQL_TEST_ADMIN_URL` 时，不能将真实 MySQL/browser 验收记为通过。随机库迁移/竞态和跨 runtime 恢复已真实通过；`1.0.12` forecast-backed 链路也已在两个独立随机 MySQL 数据库中连续通过无 route-intercept Chromium，覆盖五专家、恰好一次反驳、三组合、revision 2、balanced 审批、成功回执与 reload identity。三表 parser 对 consent-only 调用仍如实标记 30/90 天 forecast `not_computable`，不能用历史数据补齐。真实双供应商门禁因凭据缺失保持 BLOCKED。

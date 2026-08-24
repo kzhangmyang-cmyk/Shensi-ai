@@ -1,6 +1,6 @@
 # 财务现金预测补充输入设计
 
-**状态：** 已批准，实施计划已生成
+**状态：** 已实施，真实供应商验收待凭据
 
 **日期：** 2026-08-23
 
@@ -223,6 +223,8 @@ Memory 与 MySQL 必须使用同一验证器、同一 canonical preimage 和同�
 9. 重启后 package/forecast/run/snapshot/portfolio/approval/receipt identity 不变。
 
 真实双供应商 smoke 与上述确定性浏览器链分开记账。没有真实供应商凭据时，功能实施可以完成，但整体状态必须保持“真实供应商验收待凭据”。
+
+当前无网络拦截 Chromium 已在两个独立随机 MySQL 数据库中连续通过上述链路；两次均为零 retry、零 skip，并在结束后确认临时账号和随机数据库无残留。真实供应商验证仍因缺少外部配置保持 BLOCKED。
 
 ## 12. 文档同步
 

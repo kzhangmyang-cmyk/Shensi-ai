@@ -15,7 +15,7 @@ docs/       当前设计、开发与运维文档
 tools/      跨 workspace 工程门禁
 ```
 
-`contracts/` 是可编辑合同的唯一来源。`frontend/contracts/pinned/` 是前端消费的不可变快照，`contract:check` 会验证它与根合同发布 `1.0.11` 的身份和哈希一致。
+`contracts/` 是可编辑合同的唯一来源。`frontend/contracts/pinned/` 是前端消费的不可变快照，`contract:check` 会验证它与根合同发布 `1.0.12` 的身份和哈希一致。
 
 ## 环境要求
 
@@ -85,7 +85,7 @@ pnpm test:e2e:financial-council:real
 
 没有 `MYSQL_TEST_ADMIN_URL` 时，该真实验收属于阻塞，不能以 Memory 或 fake MySQL 结果替代。
 
-当前 Task 8 状态为“实施完成，真实供应商验收待凭据”：隔离 MySQL 的并发竞态与跨 runtime 恢复已通过；真实双供应商因未配置连接 ID/解密环境而 BLOCKED。仅三表输入按安全合同必须稳定进入 `not_computable`：三表不能证明 30/90 天现金预测，而 `cashflow` 是 critical hard constraint。在新增可信预测输入合同前，无拦截 Chromium 不可到达 `awaiting_approval`。详见 [真实财务委员会运行手册](docs/operations/financial-council-real-runtime.md)。
+当前状态为“实施完成，真实供应商验收待凭据”：隔离 MySQL 的并发竞态与跨 runtime 恢复已通过；真实双供应商因未配置连接 ID/解密环境而 BLOCKED。`1.0.12` 真实前端在三表预览后要求管理层明确填写未来 30 天现金流入/流出、31–90 天现金流入/流出、显式应收账款列表（可明确为空）并确认预测声明；完整 forecast package 可计算现金硬约束。无拦截 Chromium 已在两个独立随机 MySQL 数据库中连续完成五专家、一次反驳、三组合、revision 2、balanced 审批、成功回执与 reload identity。旧 consent-only 调用仍安全进入 `not_computable`，不得用历史数据伪造预测。详见 [真实财务委员会运行手册](docs/operations/financial-council-real-runtime.md)。
 
 ## 主要能力
 

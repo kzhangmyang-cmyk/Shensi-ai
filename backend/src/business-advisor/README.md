@@ -100,7 +100,7 @@ revision 1 是独立不可变记录，同时绑定 run/snapshot/audit/policy/con
 
 委员会公开 API 使用认证的 active workspace；浏览器和客户端不得发送 `X-Workspace-Id`。`POST /api/v1/finance/council-runs/{runId}/portfolio-revisions` 只接受严格闭合的 edit operations，并返回新的 revision 中三套重新计算组合。该命令以及 approve/reject 都需要 `Idempotency-Key` 和对应 run 的 `If-Match`：缺失 `If-Match` 返回 428，缺失或格式错误的幂等键返回 400，过期 revision 返回 412，重复但不同请求返回 409；相同请求重放会标记 `Idempotency-Replayed: true`。
 
-`POST /api/v1/finance/council-runs/{runId}/portfolio-revisions/{revision}/approve` 需要 `finance.council.approve`，显式绑定 `portfolioKind`，以 202 只创建受控草案、待办或后续审批任务，绝不直接写权威财务、报价或 CRM 数据。`POST /api/v1/finance/council-runs/{runId}/reject` 同样绑定 revision、portfolio kind 与原因。`GET /api/v1/finance/council-runs/{runId}/dispatches` 返回 no-store 的公共操作投影；`queued`、`running`、`retry` 均表示非终态，且永不暴露 proof、hash、lease 或 fence。发布消费者应导入不可变 Growth contract `1.0.11`。
+`POST /api/v1/finance/council-runs/{runId}/portfolio-revisions/{revision}/approve` 需要 `finance.council.approve`，显式绑定 `portfolioKind`，以 202 只创建受控草案、待办或后续审批任务，绝不直接写权威财务、报价或 CRM 数据。`POST /api/v1/finance/council-runs/{runId}/reject` 同样绑定 revision、portfolio kind 与原因。`GET /api/v1/finance/council-runs/{runId}/dispatches` 返回 no-store 的公共操作投影；`queued`、`running`、`retry` 均表示非终态，且永不暴露 proof、hash、lease 或 fence。发布消费者应导入不可变 Growth contract `1.0.12`。
 
 生产 composition 为 Memory/MySQL 各自装配 draft repository、approved-action loader、进程内 approval proof issuer、dispatch worker 与 recovery sweeper。消费者必须从已批准的确切 portfolio revision 重读 action 并核对 action/portfolio hash，才能创建非权威 draft；进程重启后通过 dispatch hash probe 继续，不重复产生副作用。同角色、portfolio-level 的不同行动风险偏好以 `role:<role>` 形成真实 `risk_preference` 冲突，每个角色仍最多一次 rebuttal。
 
@@ -108,9 +108,9 @@ revision 1 是独立不可变记录，同时绑定 run/snapshot/audit/policy/con
 
 财务委员会的当前真实输入必须同时包含同一企业、同一期间、同一显式币种的资产负债表、利润表和现金流量表。三份 XLSX 先通过统一的 secure spreadsheet artifact 边界，公式、宏、外部链接、重复 sheet、压缩炸弹和超限内容均闭合失败；币种只接受工作簿 metadata/statement field 中明确写出的 `CNY` 或 `USD`，不从文件名推测。
 
-公开 `POST /api/v1/finance/statement-packages/preview` 精确接收按资产负债表、利润表、现金流量表排序的三个 XLSX upload；`POST .../{previewId}/commit` 只接受固定同意对象。预览只保存一小时有效的非权威标准化记录，不写 financial fact ledger、不创建 verified package 或 council run，也不保存 workbook bytes、base64 或 raw cells。用户确认第三方模型数据提示后，commit 在单事务中锁定 preview，写入不可变 `financial-statements.v2` package 与幂等响应，再标记 preview committed。公开响应只含脱敏文件元数据、期间、币种和 warning code。`POST /api/v1/finance/council-runs/from-statement-package` 只接受 `statementPackageId` 与 `policyVersionId`，package 内部保存的 canonical `BusinessReportInput`、输入哈希、同意审计和 package hash 不进入 public DTO。
+公开 `POST /api/v1/finance/statement-packages/preview` 精确接收按资产负债表、利润表、现金流量表排序的三个 XLSX upload；`POST .../{previewId}/commit` 接受 consent-only，或同时携带闭合的 `cashForecast`。当前真实前端要求四个预测总额（未来 30 天流入/流出、31–90 天流入/流出）、显式应收账款列表（可明确为空）和管理层预测声明完整后才可 commit；金额经严格十进制解析为安全整数 minor。预览只保存一小时有效的非权威标准化记录，不写 financial fact ledger、不创建 verified package 或 council run，也不保存 workbook bytes、base64 或 raw cells。commit 在单事务中锁定 preview，由服务端写入 actor、acceptedAt、currency 和声明权威，形成不可变 `financial-statements.v2` package 与幂等响应，再标记 preview committed。公开响应只含脱敏文件元数据、期间、币种和 warning code，不返回应收客户或金额行。`POST /api/v1/finance/council-runs/from-statement-package` 只接受 `statementPackageId` 与 `policyVersionId`，package 内部保存的 canonical `BusinessReportInput`、输入哈希、同意审计和 package hash 不进入 public DTO。
 
-现金流量表提供期初现金、经营流入/流出、投资净额和筹资净额，并与期末现金及资产负债表货币资金双重勾稽。三表无法证明 30/90 天预测，因此 package 将 forecast 明确记录为 `not_computable/source_statements_do_not_provide_forecast`；snapshot 保留相应 data gap，绝不填零或拿历史现金流冒充预测。Council run 与 snapshot 内部必须绑定 package ID/hash，真实 package 的来源引用固定为 `{kind: financial_statement_package, sourceId, sourceVersion: financial-statements.v2, snapshotHash}`。公开路由与 UI 接线属于后续任务，本阶段未更改 OpenAPI。
+现金流量表提供期初现金、经营流入/流出、投资净额和筹资净额，并与期末现金及资产负债表货币资金双重勾稽。consent-only package 仍将 forecast 明确记录为 `not_computable/source_statements_do_not_provide_forecast`，绝不填零或拿历史现金流冒充预测；携带完整管理层 forecast 的 package 删除该 marker，并由四个总额和显式应收账款账龄计算确定性现金公式。Council run 与 snapshot 内部必须绑定 package ID/hash，真实 package 的来源引用固定为 `{kind: financial_statement_package, sourceId, sourceVersion: financial-statements.v2, snapshotHash}`。
 
 支持两类标准格式：
 
@@ -137,6 +137,6 @@ MYSQL_TEST_ADMIN_URL="mysql://..." npm run test:financial-council:mysql --worksp
 
 `test:financial-council:mysql` 是真实 InnoDB 发布门禁；未配置 `MYSQL_TEST_ADMIN_URL` 时必须显式失败，不得将缺少证据记为通过。
 
-当前实现状态：财务委员会 P1–P5、工作区模型路由、三表 package onboarding 与脱敏 agent-center public surface 已实现，Growth contract 固定为 `1.0.11`（`sha256:bf569b15d0ecadd36a925e9e13d82c595489580904cce5cd9f8131a5586e68c1`）。Task 8 的隔离 InnoDB 迁移/竞态（4/4）与跨两 runtime 恢复（1/1）已真实通过，真实双供应商因凭据环境缺失必须 BLOCKED。三表-only package 按既有安全设计不提供 30/90 天预测，因此 critical `cashflow` 会使 run 稳定进入 `not_computable`；新增可信预测输入合同前，无 route-intercept Chromium 不可到达审批闭环。当前仍不宣称全量真实验收通过。
+当前实现状态：财务委员会 P1–P5、工作区模型路由、三表与管理层现金预测 onboarding、脱敏 agent-center public surface 均已实现，Growth contract 固定为 `1.0.12`。隔离 InnoDB 的迁移/竞态（4/4）与跨两 runtime 恢复（1/1）已真实通过；无 route-intercept Chromium 已在两个独立随机 MySQL 数据库中连续完成 forecast-backed 五专家、恰好一次反驳、三组合、revision 2、balanced 审批、成功回执和 reload identity。consent-only package 仍按安全设计进入 `not_computable`。真实双供应商因凭据环境缺失必须 BLOCKED，因此整体状态仍是“实施完成，真实供应商验收待凭据”。
 
 覆盖：金额换算、勾稽校验、指标计算、假利润/客户 ABC/现金流预警、知识库条目、诊断阈值（负债率/应收天数/利息保障/净现比）、两种报表格式解析与勾稽错误。

@@ -1,6 +1,6 @@
 # 真实财务委员会运行手册
 
-当前状态：实施完成，真实供应商验收待凭据。本地隔离 MySQL 的迁移、并发竞态与跨实例恢复已验证；当前无真实双供应商连接凭据。仅三表输入无法证明 30/90 天现金预测，必须稳定进入 `not_computable`；新增可信预测输入合同前，无拦截 Chromium 不可记为审批闭环通过。
+当前状态：实施完成，真实供应商验收待凭据。本地隔离 MySQL 的迁移、并发竞态与跨实例恢复已验证；当前无真实双供应商连接凭据。`1.0.12` 真实前端要求三表预览后补充四个现金预测总额、显式应收账款列表（可明确为空）和管理层预测声明；无拦截 Chromium 已在两个独立随机数据库中连续完成审批闭环与 reload identity。consent-only 调用仍安全进入 `not_computable`。
 
 ## MySQL 8.4（3307）
 
@@ -18,17 +18,18 @@
 
 1. 在 `#agents` 检查六角色模型就绪状态。
 2. 上传同企业、同期间、显式 CNY/USD 的资产负债表、利润表和现金流量表。
-3. 检查 preview 告警，接受 `financial-model-data.v1` 数据传输告知后 commit verified package。
-4. 启动 run，核对 package、公式 policy 和模型 routing policy 的不可变绑定。
-5. 审核五专家、异议/复议、CFO 共识与三个组合；修订后只审批最新 revision。
-6. 审批只创建内部 draft/todo 与确定性 receipt，不付款、不申报税务、不记账、不发邮件或 webhook。
+3. 检查 preview 告警，填写未来 30 天流入/流出、31–90 天流入/流出和显式应收账款列表（可明确为空）。
+4. 确认管理层预测声明与 `financial-model-data.v1` 数据传输告知后 commit verified package。
+5. 启动 run，核对 package、forecast、公式 policy 和模型 routing policy 的不可变绑定。
+6. 审核五专家、一次复议、CFO 共识与三个组合；修订后只审批最新 revision。
+7. 审批只创建内部 draft/todo 与确定性 receipt，不付款、不申报税务、不记账、不发邮件或 webhook。
 
 ## 错误与恢复
 
 - `MYSQL_TEST_ADMIN_URL_REQUIRED:financial-council-real-runtime`：未提供隔离测试管理连接；非零退出，不能 skip。
 - `LIVE_PROVIDER_*_REQUIRED`、`LIVE_PROVIDER_PAIR_MUST_USE_DISTINCT_PROVIDERS`、`LIVE_PROVIDER_*_NOT_READY`：补齐环境或连接中心状态后重跑，不得在日志打印 cause/body/URL/secret。
 - `financial_council_lease_stale`：旧 lease 或精确过期时刻写入被正常拒绝；由新 runtime 重新 claim，不要手工改 token。
-- `not_computable`：三表-only package 的预期安全状态。package 保留 `source_statements_do_not_provide_forecast` 缺口，snapshot/formula catalog 不得用历史现金流伪造预测；在可信 forecast 输入合同上线前不可审批。
+- `not_computable`：consent-only package 的预期安全状态。package 保留 `source_statements_do_not_provide_forecast` 缺口，snapshot/formula catalog 不得用历史现金流伪造预测；当前前端会在 forecast 或声明不完整时阻止 commit。
 
 ## 门禁与回滚
 
