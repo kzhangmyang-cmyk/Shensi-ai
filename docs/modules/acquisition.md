@@ -46,6 +46,15 @@ hash, exact response status/body/headers, timestamps, and expiry. MySQL
 transactions commit a login session or disconnect together with its completed
 replay; an expired lease can be reclaimed after a process crash.
 
+Douyin automation uses the append-only
+`acquisition_douyin_automation_policy_versions` authority, a separately
+mutable policy head, hashed command replays, and
+`acquisition_douyin_run_intents`. Policy publication and run-intent creation
+lock and revalidate the plan version plus the workspace-scoped active account
+and login-state version in the same MySQL transaction. Run intents freeze the
+plan, policy, account, local date, and daily-budget identities consumed by the
+scheduler and crawler.
+
 ## Public Interfaces
 
 Authenticated `/api/v1/acquisition/*` routes cover plans, runs, presentation,
@@ -56,6 +65,12 @@ list, and disconnect. POST and DELETE require authentication, the browser CSRF
 cookie/header pair, and semantic `Idempotency-Key`; DELETE also requires the
 current `If-Match`. Account handles, browser contexts, cookies, and profile
 paths remain private.
+The Douyin automation family provides `GET`/`PUT`
+`/plans/{planId}/automation` and `POST /plans/{planId}/run-now`. Policy writes
+require `If-Match` and `Idempotency-Key`; run-now requires
+`Idempotency-Key`. GET returns a non-persisted server default only before the
+first immutable version is published. Exact command replays return the frozen
+original result, while the same key with changed semantics conflicts.
 The editable contract is `contracts/openapi/ai-acquisition.v1.yaml`; frontend
 code consumes `frontend/src/generated/ai-acquisition.ts`.
 
@@ -89,9 +104,9 @@ and deletes the affected profile instead of reconstructing a session.
 
 ## Known Limitations
 
-Memory mode coordinates replays only inside one application process and does
-not prove crash/restart recovery; production account idempotency requires
-MySQL. Generic search is not guaranteed
+Memory mode coordinates account and automation replays only inside one
+application process and does not prove crash/restart recovery; production
+account and automation idempotency require MySQL. Generic search is not guaranteed
 to provide Douyin coverage, and authorized visual reading is intentionally
 bounded to the visible, consented surface. Live-provider success cannot be
 claimed without configured provider connections. Reserved schemas without

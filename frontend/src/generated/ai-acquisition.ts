@@ -619,6 +619,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/acquisition/plans/{planId}/automation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        /** Get current Douyin automation policy */
+        get: operations["getAcquisitionDouyinAutomation"];
+        /** Publish immutable Douyin automation policy version */
+        put: operations["putAcquisitionDouyinAutomation"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/plans/{planId}/run-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Freeze and enqueue a Douyin run intent now */
+        post: operations["runAcquisitionDouyinAutomationNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/acquisition/providers": {
         parameters: {
             query?: never;
@@ -1602,6 +1641,121 @@ export interface components {
         CopilotSession: components["schemas"]["copilot-session.v1.schema"];
         CopilotMessage: components["schemas"]["copilot-message.v1.schema"];
         CopilotTask: components["schemas"]["copilot-task.v1.schema"];
+        DouyinAutomationPolicyInput: {
+            keywords: string[];
+            schedule: {
+                enabled: boolean;
+                localTime: string;
+                timeZone: string;
+            };
+            /** @default 50 */
+            dailyCandidateLimit: number;
+            collectCreators: boolean;
+            collectDemandComments: boolean;
+            limits: {
+                maxVideos: number;
+                maxCommentsPerVideo: number;
+                maxPagesPerVideo: number;
+                maxDurationSeconds: number;
+            };
+        };
+        DouyinAutomationPolicyResource: {
+            id: string | null;
+            /** @enum {string} */
+            source: "default" | "version";
+            workspaceId: string;
+            planId: string;
+            planVersionId: string;
+            planVersion: number;
+            planSnapshotHash: string;
+            accountId: string | null;
+            accountLoginStateVersion: number | null;
+            version: number;
+            revision: number;
+            etag: string;
+            policyHash: string;
+            keywords: string[];
+            schedule: {
+                enabled: boolean;
+                localTime: string;
+                timeZone: string;
+            };
+            /** @default 50 */
+            dailyCandidateLimit: number;
+            collectCreators: boolean;
+            collectDemandComments: boolean;
+            limits: {
+                maxVideos: number;
+                maxCommentsPerVideo: number;
+                maxPagesPerVideo: number;
+                maxDurationSeconds: number;
+            };
+            createdBy: string | null;
+            /** Format: date-time */
+            createdAt: string | null;
+        };
+        DouyinAutomationPolicyVersion: {
+            id: string;
+            /** @enum {string} */
+            source: "version";
+            workspaceId: string;
+            planId: string;
+            planVersionId: string;
+            planVersion: number;
+            planSnapshotHash: string;
+            accountId: string;
+            accountLoginStateVersion: number;
+            version: number;
+            revision: number;
+            etag: string;
+            policyHash: string;
+            keywords: string[];
+            schedule: {
+                enabled: boolean;
+                localTime: string;
+                timeZone: string;
+            };
+            /** @default 50 */
+            dailyCandidateLimit: number;
+            collectCreators: boolean;
+            collectDemandComments: boolean;
+            limits: {
+                maxVideos: number;
+                maxCommentsPerVideo: number;
+                maxPagesPerVideo: number;
+                maxDurationSeconds: number;
+            };
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        DouyinAutomationRunNowInput: {
+            reason?: string;
+        };
+        DouyinAutomationRunIntent: {
+            id: string;
+            workspaceId: string;
+            planId: string;
+            planVersionId: string;
+            planVersion: number;
+            planSnapshotHash: string;
+            policyVersionId: string;
+            policyHash: string;
+            accountId: string;
+            accountLoginStateVersion: number;
+            dailyBudgetId: string;
+            localDate: string;
+            /** @enum {string} */
+            trigger: "run_now" | "scheduled";
+            /** @enum {string} */
+            status: "queued";
+            reason: string | null;
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        /** @enum {string} */
+        DouyinAutomationFailureCode: "unauthorized" | "workspace_required" | "workspace_context_invalid" | "invalid_request" | "invalid_automation_scope" | "invalid_automation_policy" | "invalid_automation_keywords" | "invalid_automation_schedule" | "invalid_automation_local_time" | "invalid_automation_time_zone" | "invalid_automation_collection" | "automation_collection_required" | "invalid_automation_limits" | "invalid_daily_candidate_limit" | "invalid_run_now_input" | "invalid_idempotency_key" | "invalid_if_match" | "if_match_required" | "automation_plan_not_found" | "automation_plan_snapshot_corrupt" | "active_douyin_account_required" | "active_douyin_account_workspace_mismatch" | "automation_policy_required" | "approved_automation_plan_required" | "automation_policy_plan_version_mismatch" | "automation_account_login_state_changed" | "automation_idempotency_conflict" | "automation_precondition_failed" | "automation_policy_binding_conflict" | "automation_run_binding_conflict" | "automation_policy_binding_corrupt" | "automation_idempotency_record_corrupt" | "automation_internal_error";
         PlatformConnection: components["schemas"]["platform-connection.v1.schema"];
         PlatformCapabilitySnapshot: components["schemas"]["platform-capability-snapshot.v1.schema"];
         PlatformEvent: components["schemas"]["platform-event.v1.schema"];
@@ -4674,6 +4828,244 @@ export interface operations {
             };
             /** @description Unified API error */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionDouyinAutomation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current policy or server default */
+            200: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DouyinAutomationPolicyResource"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    putAcquisitionDouyinAutomation: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DouyinAutomationPolicyInput"];
+            };
+        };
+        responses: {
+            /** @description Published policy version */
+            200: {
+                headers: {
+                    ETag: string;
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DouyinAutomationPolicyVersion"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    runAcquisitionDouyinAutomationNow: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DouyinAutomationRunNowInput"];
+            };
+        };
+        responses: {
+            /** @description Frozen queued run intent */
+            202: {
+                headers: {
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DouyinAutomationRunIntent"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

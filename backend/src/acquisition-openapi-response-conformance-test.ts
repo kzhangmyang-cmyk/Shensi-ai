@@ -102,7 +102,7 @@ function openApi30SchemaForAjv(value: any): any {
 
 function assertResponseConforms(
   path: string,
-  method: "get" | "post" | "patch" | "delete",
+  method: "get" | "put" | "post" | "patch" | "delete",
   status: number,
   body: unknown
 ) {
@@ -131,7 +131,7 @@ function assertResponseConforms(
 
 function assertRequestConforms(
   path: string,
-  method: "post" | "patch",
+  method: "put" | "post" | "patch",
   body: unknown
 ) {
   const operation = openApiPaths[path]?.[method] as
@@ -155,6 +155,93 @@ function assertRequestConforms(
     )}`
   );
 }
+
+test("Douyin automation policy and run intent projections conform without private account state", () => {
+  const input = {
+    keywords: ["工业除尘设备", "工厂环保改造"],
+    schedule: {
+      enabled: true,
+      localTime: "09:30",
+      timeZone: "Asia/Shanghai"
+    },
+    dailyCandidateLimit: 50,
+    collectCreators: true,
+    collectDemandComments: true,
+    limits: {
+      maxVideos: 30,
+      maxCommentsPerVideo: 50,
+      maxPagesPerVideo: 3,
+      maxDurationSeconds: 3_600
+    }
+  };
+  const version = {
+    id: "automation-policy-response-contract",
+    source: "version",
+    workspaceId: TEAM,
+    planId: "plan-response-contract",
+    planVersionId: "plan-version-response-contract",
+    planVersion: 1,
+    planSnapshotHash: "plan-snapshot-response-contract",
+    accountId: "account-response-contract",
+    accountLoginStateVersion: 7,
+    version: 1,
+    revision: 1,
+    etag: '"douyin-automation:plan-response-contract:1"',
+    policyHash: `sha256:${"a".repeat(64)}`,
+    ...input,
+    createdBy: OWNER,
+    createdAt: NOW
+  };
+  const run = {
+    id: "douyin-run-response-contract",
+    workspaceId: TEAM,
+    planId: version.planId,
+    planVersionId: version.planVersionId,
+    planVersion: version.planVersion,
+    planSnapshotHash: version.planSnapshotHash,
+    policyVersionId: version.id,
+    policyHash: version.policyHash,
+    accountId: version.accountId,
+    accountLoginStateVersion: version.accountLoginStateVersion,
+    dailyBudgetId: `sha256:${"b".repeat(64)}`,
+    localDate: "2026-08-25",
+    trigger: "run_now",
+    status: "queued",
+    reason: "人工立即采集",
+    createdBy: OWNER,
+    createdAt: NOW
+  };
+
+  assertRequestConforms(
+    "/api/v1/acquisition/plans/{planId}/automation",
+    "put",
+    input
+  );
+  assertRequestConforms(
+    "/api/v1/acquisition/plans/{planId}/run-now",
+    "post",
+    { reason: "人工立即采集" }
+  );
+  assertResponseConforms(
+    "/api/v1/acquisition/plans/{planId}/automation",
+    "get",
+    200,
+    version
+  );
+  assertResponseConforms(
+    "/api/v1/acquisition/plans/{planId}/automation",
+    "put",
+    200,
+    version
+  );
+  assertResponseConforms(
+    "/api/v1/acquisition/plans/{planId}/run-now",
+    "post",
+    202,
+    run
+  );
+  assert.equal(JSON.stringify({ version, run }).includes("accountHandle"), false);
+});
 
 function visualReaderSessionFixture() {
   return {

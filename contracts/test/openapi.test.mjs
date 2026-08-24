@@ -22,6 +22,8 @@ const section16 = {
   "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}": ["get"],
   "/api/v1/acquisition/social-accounts/douyin": ["get"],
   "/api/v1/acquisition/social-accounts/{accountId}": ["delete"],
+  "/api/v1/acquisition/plans/{planId}/automation": ["get", "put"],
+  "/api/v1/acquisition/plans/{planId}/run-now": ["post"],
   "/api/v1/acquisition/content-fetch-operations": ["get", "post"],
   "/api/v1/acquisition/content-fetch-operations/{id}": ["get"],
   "/api/v1/acquisition/import-operations": ["get", "post"],
@@ -138,7 +140,7 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
   assert.equal(document.components.parameters.idempotencyKey.schema.minLength, 1);
   assert.equal(document.components.parameters.idempotencyKey.schema.maxLength, 200);
   for (const [path, methods] of Object.entries(section16)) {
-    const actualMethods = Object.keys(document.paths[path]).filter((key) => ["get", "post", "patch", "delete"].includes(key)).sort();
+    const actualMethods = Object.keys(document.paths[path]).filter((key) => ["get", "put", "post", "patch", "delete"].includes(key)).sort();
     assert.deepEqual(actualMethods, [...methods].sort(), path);
     for (const method of methods) {
       const operation = document.paths[path][method];
@@ -161,7 +163,7 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
         `${method.toUpperCase()} ${path}`
       );
       assert.equal(operation.responses["401"].content["application/json"].schema.$ref, "#/components/schemas/ApiError");
-      if (["post", "patch", "delete"].includes(method)) {
+      if (["put", "post", "patch", "delete"].includes(method)) {
         const requiresDiscoveryIdempotency = path === "/api/v1/acquisition/provider-connections"
           || path === "/api/v1/acquisition/content-fetch-operations"
           || path === "/api/v1/acquisition/import-operations";
@@ -172,12 +174,54 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
           ].includes(parameter.$ref) || (parameter.name === "Idempotency-Key" && parameter.in === "header" && parameter.required)),
           isDiscoveryOperation
             ? requiresDiscoveryIdempotency
-            : !isPlanRunOperation
+            : path === "/api/v1/acquisition/plans/{planId}/automation"
+              || path === "/api/v1/acquisition/plans/{planId}/run-now"
+              || !isPlanRunOperation
               || path === "/api/v1/acquisition/plans"
               || path === "/api/v1/acquisition/plans/{id}/runs"
         );
       }
     }
+  }
+  const automation = document.paths["/api/v1/acquisition/plans/{planId}/automation"];
+  assert.equal(
+    automation.get.responses["200"].content["application/json"].schema.$ref,
+    "#/components/schemas/DouyinAutomationPolicyResource"
+  );
+  assert.equal(
+    automation.put.requestBody.content["application/json"].schema.$ref,
+    "#/components/schemas/DouyinAutomationPolicyInput"
+  );
+  assert.equal(
+    automation.put.responses["200"].content["application/json"].schema.$ref,
+    "#/components/schemas/DouyinAutomationPolicyVersion"
+  );
+  assert.equal(
+    automation.put.parameters.some((parameter) =>
+      parameter.$ref === "#/components/parameters/ifMatch"),
+    true
+  );
+  const runNow = document.paths["/api/v1/acquisition/plans/{planId}/run-now"].post;
+  assert.equal(
+    runNow.requestBody.content["application/json"].schema.$ref,
+    "#/components/schemas/DouyinAutomationRunNowInput"
+  );
+  assert.equal(
+    runNow.responses["202"].content["application/json"].schema.$ref,
+    "#/components/schemas/DouyinAutomationRunIntent"
+  );
+  for (const schemaName of [
+    "DouyinAutomationPolicyInput",
+    "DouyinAutomationPolicyResource",
+    "DouyinAutomationPolicyVersion",
+    "DouyinAutomationRunNowInput",
+    "DouyinAutomationRunIntent"
+  ]) {
+    assert.equal(
+      document.components.schemas[schemaName].additionalProperties,
+      false,
+      schemaName
+    );
   }
   for (const path of listPaths) {
     assert.equal(document.paths[path].get.responses["200"].content["application/json"].schema.$ref, "#/components/schemas/PagedResult", path);

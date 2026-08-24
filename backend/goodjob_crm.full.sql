@@ -77,6 +77,86 @@ CREATE TABLE acquisition_social_account_replays (
     CHECK (state IN ('pending', 'completed'))
 );
 
+CREATE TABLE acquisition_douyin_automation_policy_versions (
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) NOT NULL,
+  owner_id VARCHAR(100) NOT NULL,
+  team_id VARCHAR(100) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  plan_version_id VARCHAR(160) NOT NULL,
+  account_id VARCHAR(255) NOT NULL,
+  account_login_state_version BIGINT UNSIGNED NOT NULL,
+  version_no BIGINT UNSIGNED NOT NULL,
+  revision BIGINT UNSIGNED NOT NULL,
+  etag VARCHAR(255) NOT NULL,
+  policy_hash CHAR(71) NOT NULL,
+  payload_json JSON NOT NULL,
+  created_by VARCHAR(255) NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  UNIQUE KEY acquisition_douyin_automation_policy_version_number (workspace_id, plan_id, version_no),
+  UNIQUE KEY acquisition_douyin_automation_policy_version_scope (workspace_id, plan_id, id),
+  INDEX acquisition_douyin_automation_policy_plan (workspace_id, plan_id, version_no)
+);
+
+CREATE TABLE acquisition_douyin_automation_policy_heads (
+  workspace_id VARCHAR(255) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  current_version_id VARCHAR(255) NOT NULL,
+  revision BIGINT UNSIGNED NOT NULL,
+  etag VARCHAR(255) NOT NULL,
+  updated_at VARCHAR(40) NOT NULL,
+  PRIMARY KEY (workspace_id, plan_id),
+  CONSTRAINT acquisition_douyin_automation_policy_head_version
+    FOREIGN KEY (workspace_id, plan_id, current_version_id)
+    REFERENCES acquisition_douyin_automation_policy_versions (workspace_id, plan_id, id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+
+CREATE TABLE acquisition_douyin_automation_command_replays (
+  workspace_id VARCHAR(255) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  operation_name VARCHAR(32) NOT NULL,
+  idempotency_key_hash CHAR(64) NOT NULL,
+  request_hash CHAR(71) NOT NULL,
+  result_kind VARCHAR(16) NOT NULL,
+  result_id VARCHAR(255) NOT NULL,
+  response_json JSON NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  PRIMARY KEY (workspace_id, plan_id, operation_name, idempotency_key_hash),
+  CONSTRAINT acquisition_douyin_automation_replay_operation
+    CHECK (operation_name IN ('put_policy', 'run_now')),
+  CONSTRAINT acquisition_douyin_automation_replay_result
+    CHECK (result_kind IN ('policy', 'run'))
+);
+
+CREATE TABLE acquisition_douyin_run_intents (
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) NOT NULL,
+  owner_id VARCHAR(100) NOT NULL,
+  team_id VARCHAR(100) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  plan_version_id VARCHAR(160) NOT NULL,
+  policy_version_id VARCHAR(255) NOT NULL,
+  account_id VARCHAR(255) NOT NULL,
+  account_login_state_version BIGINT UNSIGNED NOT NULL,
+  daily_budget_id CHAR(71) NOT NULL,
+  local_date CHAR(10) NOT NULL,
+  trigger_kind VARCHAR(16) NOT NULL,
+  status VARCHAR(16) NOT NULL,
+  payload_json JSON NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  UNIQUE KEY acquisition_douyin_run_intent_scope (workspace_id, id),
+  INDEX acquisition_douyin_run_intent_daily_budget (workspace_id, daily_budget_id, created_at),
+  CONSTRAINT acquisition_douyin_run_intent_policy
+    FOREIGN KEY (workspace_id, plan_id, policy_version_id)
+    REFERENCES acquisition_douyin_automation_policy_versions (workspace_id, plan_id, id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT acquisition_douyin_run_intent_trigger
+    CHECK (trigger_kind IN ('run_now', 'scheduled')),
+  CONSTRAINT acquisition_douyin_run_intent_status
+    CHECK (status IN ('queued'))
+);
+
 CREATE TABLE customers (
   id VARCHAR(64) PRIMARY KEY,
   company VARCHAR(200) NOT NULL,

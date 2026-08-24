@@ -3563,6 +3563,36 @@ test("provider versions prefer an explicit credential version", () => {
   );
 });
 
+test("acquisition application always mounts Douyin automation routes", async () => {
+  const fixture = isolatedMemoryStore();
+  const runtime = await createAcquisitionApplication({
+    store: fixture.store,
+    masterSecret: MASTER_SECRET
+  });
+  const server = await serve((req, res, next) => {
+    req.activeWorkspace = {
+      workspaceId: TEAM,
+      kind: "team",
+      actorId: OWNER,
+      role: "admin",
+      teamId: TEAM,
+      capabilities: [],
+      capabilityRegistryVersion: "test"
+    };
+    runtime.handler(req, res, next);
+  });
+  try {
+    const result = await server.request(
+      "/api/v1/acquisition/plans/missing/automation"
+    );
+    assert.equal(result.response.status, 404);
+    assert.equal(result.json.code, "automation_plan_not_found");
+  } finally {
+    await server.close();
+    await runtime.close();
+  }
+});
+
 test("acquisition application rejects weak master secrets", async () => {
   const fixture = isolatedMemoryStore();
   await assert.rejects(

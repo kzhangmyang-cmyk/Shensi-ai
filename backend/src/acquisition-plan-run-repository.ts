@@ -147,6 +147,34 @@ export interface AcquisitionPlanVersion {
   createdAt: string;
 }
 
+export interface AcquisitionFrozenPlanVersionIdentity {
+  planId: string;
+  planVersionId: string;
+  planVersion: number;
+  planSnapshotHash: string;
+}
+
+/**
+ * Returns the immutable identity that schedulers and commands must freeze.
+ * A mismatched mutable head/version pair is corruption, never a valid run.
+ */
+export function acquisitionFrozenPlanVersionIdentity(
+  plan: AcquisitionPlan,
+  version: AcquisitionPlanVersion
+): AcquisitionFrozenPlanVersionIdentity {
+  if (version.planId !== plan.id
+    || version.id !== plan.currentVersionId
+    || version.version !== plan.version) {
+    throw new Error("ACQUISITION_PLAN_SNAPSHOT_CORRUPT");
+  }
+  return Object.freeze({
+    planId: plan.id,
+    planVersionId: version.id,
+    planVersion: version.version,
+    planSnapshotHash: version.payloadHash
+  });
+}
+
 export interface AcquisitionRun {
   id: string;
   ownerId: string;

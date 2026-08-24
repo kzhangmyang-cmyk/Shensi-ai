@@ -14,6 +14,8 @@ import {
 
 const planRunOperations = {
   "/api/v1/acquisition/plans": ["post"],
+  "/api/v1/acquisition/plans/{planId}/automation": ["get", "put"],
+  "/api/v1/acquisition/plans/{planId}/run-now": ["post"],
   "/api/v1/acquisition/plans/{id}": ["get", "patch"],
   "/api/v1/acquisition/plans/{id}/revisions": ["post"],
   "/api/v1/acquisition/plans/{id}/approval": ["post"],

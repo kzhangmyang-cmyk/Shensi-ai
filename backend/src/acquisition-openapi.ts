@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 type AcquisitionHttpMethod =
   | "get"
+  | "put"
   | "post"
   | "patch"
   | "delete";
@@ -1116,6 +1117,9 @@ const acquisitionOperationIds: Record<string, string> = {
   "get /api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}": "getAcquisitionDouyinLoginSession",
   "get /api/v1/acquisition/social-accounts/douyin": "listAcquisitionDouyinSocialAccounts",
   "delete /api/v1/acquisition/social-accounts/{accountId}": "disconnectAcquisitionSocialAccount",
+  "get /api/v1/acquisition/plans/{planId}/automation": "getAcquisitionDouyinAutomation",
+  "put /api/v1/acquisition/plans/{planId}/automation": "putAcquisitionDouyinAutomation",
+  "post /api/v1/acquisition/plans/{planId}/run-now": "runAcquisitionDouyinAutomationNow",
   "get /api/v1/acquisition/providers": "listAcquisitionProviders",
   "get /api/v1/acquisition/provider-connections":
     "listAcquisitionProviderConnections",
@@ -1222,7 +1226,7 @@ const acquisitionOperationIds: Record<string, string> = {
 function addAcquisitionOperationIds(paths: AcquisitionOpenApiPaths) {
   const unused = new Set(Object.keys(acquisitionOperationIds));
   for (const [path, pathItem] of Object.entries(paths)) {
-    for (const method of ["get", "post", "patch", "delete"] as const) {
+    for (const method of ["get", "put", "post", "patch", "delete"] as const) {
       const operation = pathItem[method];
       if (!operation) continue;
       const key = `${method} ${path}`;
@@ -1282,11 +1286,133 @@ const socialAccountSchema = {
   properties: { id: { type: "string" }, workspaceId: { type: "string" }, platform: { type: "string", enum: ["douyin"] }, displayName: { type: "string", nullable: true }, state: { type: "string", enum: ["awaiting_scan", "active", "login_expired", "risk_paused", "disconnected"] }, loginStateVersion: { type: "integer", nullable: true }, revision: { type: "integer", minimum: 1 }, etag: { type: "string" }, lastValidatedAt: { type: "string", nullable: true }, createdAt: { type: "string" }, updatedAt: { type: "string" } }
 };
 const socialLoginSessionSchema = { type: "object", additionalProperties: false, required: ["id", "platform", "state", "qrImageDataUrl", "expiresAt", "account"], properties: { id: { type: "string" }, platform: { type: "string", enum: ["douyin"] }, state: { type: "string", enum: ["awaiting_scan", "active", "login_expired"] }, qrImageDataUrl: { type: "string", nullable: true, pattern: "^data:image/" }, expiresAt: { type: "string" }, account: { ...socialAccountSchema, nullable: true } } };
+const douyinAutomationScheduleSchema = {
+  type: "object", additionalProperties: false,
+  required: ["enabled", "localTime", "timeZone"],
+  properties: {
+    enabled: { type: "boolean" },
+    localTime: { type: "string", pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$" },
+    timeZone: { type: "string", minLength: 1, maxLength: 100 }
+  }
+};
+const douyinAutomationLimitsSchema = {
+  type: "object", additionalProperties: false,
+  required: ["maxVideos", "maxCommentsPerVideo", "maxPagesPerVideo", "maxDurationSeconds"],
+  properties: {
+    maxVideos: { type: "integer", minimum: 1, maximum: 200 },
+    maxCommentsPerVideo: { type: "integer", minimum: 1, maximum: 200 },
+    maxPagesPerVideo: { type: "integer", minimum: 1, maximum: 20 },
+    maxDurationSeconds: { type: "integer", minimum: 60, maximum: 14_400 }
+  }
+};
+const douyinAutomationPolicyProperties = {
+  keywords: { type: "array", minItems: 1, maxItems: 20, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 100 } },
+  schedule: douyinAutomationScheduleSchema,
+  dailyCandidateLimit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+  collectCreators: { type: "boolean" },
+  collectDemandComments: { type: "boolean" },
+  limits: douyinAutomationLimitsSchema
+};
+const douyinAutomationPolicyInputSchema = {
+  type: "object", additionalProperties: false,
+  required: ["keywords", "schedule", "collectCreators", "collectDemandComments", "limits"],
+  properties: douyinAutomationPolicyProperties
+};
+const douyinAutomationPolicyAuthorityProperties = {
+  id: { type: "string", nullable: true },
+  source: { type: "string", enum: ["default", "version"] },
+  workspaceId: { type: "string" }, planId: { type: "string" },
+  planVersionId: { type: "string" }, planVersion: { type: "integer", minimum: 1 },
+  planSnapshotHash: { type: "string" }, accountId: { type: "string", nullable: true },
+  accountLoginStateVersion: { type: "integer", minimum: 1, nullable: true },
+  version: { type: "integer", minimum: 0 }, revision: { type: "integer", minimum: 0 },
+  etag: { type: "string" }, policyHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+  ...douyinAutomationPolicyProperties,
+  createdBy: { type: "string", nullable: true }, createdAt: { type: "string", format: "date-time", nullable: true }
+};
+const douyinAutomationPolicyResourceSchema = {
+  type: "object", additionalProperties: false,
+  required: Object.keys(douyinAutomationPolicyAuthorityProperties),
+  properties: douyinAutomationPolicyAuthorityProperties
+};
+const douyinAutomationPolicyVersionSchema = {
+  type: "object", additionalProperties: false,
+  required: Object.keys(douyinAutomationPolicyAuthorityProperties),
+  properties: {
+    ...douyinAutomationPolicyAuthorityProperties,
+    id: { type: "string" }, source: { type: "string", enum: ["version"] },
+    accountId: { type: "string" }, accountLoginStateVersion: { type: "integer", minimum: 1 },
+    version: { type: "integer", minimum: 1 }, revision: { type: "integer", minimum: 1 },
+    createdBy: { type: "string" }, createdAt: { type: "string", format: "date-time" }
+  }
+};
+const douyinAutomationRunNowInputSchema = {
+  type: "object", additionalProperties: false,
+  properties: { reason: { type: "string", maxLength: 2_000 } }
+};
+const douyinAutomationRunIntentSchema = {
+  type: "object", additionalProperties: false,
+  required: ["id", "workspaceId", "planId", "planVersionId", "planVersion", "planSnapshotHash", "policyVersionId", "policyHash", "accountId", "accountLoginStateVersion", "dailyBudgetId", "localDate", "trigger", "status", "reason", "createdBy", "createdAt"],
+  properties: {
+    id: { type: "string" }, workspaceId: { type: "string" }, planId: { type: "string" },
+    planVersionId: { type: "string" }, planVersion: { type: "integer", minimum: 1 },
+    planSnapshotHash: { type: "string" }, policyVersionId: { type: "string" },
+    policyHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" }, accountId: { type: "string" },
+    accountLoginStateVersion: { type: "integer", minimum: 1 },
+    dailyBudgetId: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+    localDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+    trigger: { type: "string", enum: ["run_now", "scheduled"] }, status: { type: "string", enum: ["queued"] },
+    reason: { type: "string", nullable: true, maxLength: 2_000 }, createdBy: { type: "string" },
+    createdAt: { type: "string", format: "date-time" }
+  }
+};
 function addSocialAccountPaths(paths: AcquisitionOpenApiPaths) {
   add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions", "post", operation("post", "开始抖音二维码登录", { parameters: [idempotencyParameter(1)], requestBody: jsonBody({ type: "object", required: ["platform"], properties: { platform: { type: "string", enum: ["douyin"] } }, additionalProperties: false }), responses: { ...standardResponses(201, "二维码登录会话", socialLoginSessionSchema), "200": { ...response("幂等重放", socialLoginSessionSchema), headers: { "Idempotency-Replayed": { schema: { type: "string", enum: ["true"] } } } } } }));
   add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}", "get", operation("get", "查询抖音二维码登录", { parameters: [idParameter(255, "sessionId")], responses: standardResponses(200, "二维码登录会话", socialLoginSessionSchema) }));
   add(paths, "/api/v1/acquisition/social-accounts/douyin", "get", operation("get", "列出抖音账号", { responses: standardResponses(200, "抖音账号", { type: "object", additionalProperties: false, required: ["items"], properties: { items: { type: "array", items: socialAccountSchema } } }) }));
   add(paths, "/api/v1/acquisition/social-accounts/{accountId}", "delete", operation("delete", "断开抖音账号", { parameters: [idParameter(255, "accountId"), idempotencyParameter(1), ifMatchParameter()], responses: { ...standardResponses(200, "已断开账号", socialAccountSchema), "200": { ...response("已断开账号", socialAccountSchema), headers: { "Idempotency-Replayed": { schema: { type: "string", enum: ["true"] } } } }, "412": response("资源版本不匹配", errorSchema), "428": response("缺少 If-Match 版本条件", errorSchema) } }));
+}
+function automationSuccessResponse(
+  description: string,
+  schema: Record<string, unknown>,
+  replay = false
+) {
+  return {
+    ...response(description, schema),
+    headers: {
+      ...(schema === douyinAutomationPolicyResourceSchema
+        || schema === douyinAutomationPolicyVersionSchema
+        ? { ETag: { required: true, schema: { type: "string" } } }
+        : {}),
+      ...(replay
+        ? { "Idempotency-Replayed": { required: false, schema: { type: "string", enum: ["true"] } } }
+        : {})
+    }
+  };
+}
+function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
+  const planParameter = idParameter(160, "planId");
+  add(paths, "/api/v1/acquisition/plans/{planId}/automation", "get", operation("get", "读取抖音自动采集策略", {
+    parameters: [planParameter],
+    responses: { ...standardResponses(200, "当前策略", douyinAutomationPolicyResourceSchema), "200": automationSuccessResponse("当前策略", douyinAutomationPolicyResourceSchema) }
+  }));
+  add(paths, "/api/v1/acquisition/plans/{planId}/automation", "put", operation("put", "发布抖音自动采集策略版本", {
+    parameters: [planParameter, idempotencyParameter(8), ifMatchParameter()],
+    requestBody: jsonBody(douyinAutomationPolicyInputSchema),
+    responses: {
+      ...standardResponses(200, "已发布策略版本", douyinAutomationPolicyVersionSchema),
+      "200": automationSuccessResponse("已发布策略版本", douyinAutomationPolicyVersionSchema, true),
+      "412": response("资源版本不匹配", errorSchema), "428": response("缺少 If-Match 版本条件", errorSchema)
+    }
+  }));
+  add(paths, "/api/v1/acquisition/plans/{planId}/run-now", "post", operation("post", "立即执行抖音自动采集", {
+    parameters: [planParameter, idempotencyParameter(8)],
+    requestBody: jsonBody(douyinAutomationRunNowInputSchema),
+    responses: {
+      ...standardResponses(202, "已冻结并排队运行意图", douyinAutomationRunIntentSchema),
+      "202": automationSuccessResponse("已冻结并排队运行意图", douyinAutomationRunIntentSchema, true)
+    }
+  }));
 }
 function addProviderPaths(paths: AcquisitionOpenApiPaths) {
   add(paths, "/api/v1/acquisition/providers", "get", operation(
@@ -3567,6 +3693,7 @@ export function createAcquisitionOpenApiPaths():
 AcquisitionOpenApiPaths {
   const paths: AcquisitionOpenApiPaths = {};
   addSocialAccountPaths(paths);
+  addDouyinAutomationPaths(paths);
   addProviderPaths(paths);
   addDiscoveryOperationPaths(paths);
   addVisualReaderPaths(paths);

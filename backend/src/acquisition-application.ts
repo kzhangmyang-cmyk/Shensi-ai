@@ -287,6 +287,16 @@ import { MysqlAcquisitionSocialAccountRepository, ensureAcquisitionSocialAccount
 import { AcquisitionSocialAccountService } from "./acquisition-social-account-service.js";
 import { createAcquisitionSocialAccountRouter } from "./acquisition-social-account-router.js";
 import {
+  InMemoryAcquisitionDouyinAutomationRepository,
+  type AcquisitionDouyinAutomationRepository
+} from "./acquisition-douyin-automation-repository.js";
+import {
+  ensureAcquisitionDouyinAutomationMysqlSchema,
+  MysqlAcquisitionDouyinAutomationRepository
+} from "./acquisition-douyin-automation-mysql-repository.js";
+import { AcquisitionDouyinAutomationService } from "./acquisition-douyin-automation-service.js";
+import { createAcquisitionDouyinAutomationRouter } from "./acquisition-douyin-automation-router.js";
+import {
   AcquisitionVisualCommentIngestionService
 } from "./acquisition-visual-comment-ingestion.js";
 import {
@@ -484,6 +494,8 @@ export interface CreateAcquisitionApplicationOptions {
   douyinMediaCrawlerGateway?: DouyinMediaCrawlerGateway;
   /** Test/runtime override; production selects Memory or MySQL from the store mode. */
   socialAccountRepository?: AcquisitionSocialAccountRepository;
+  /** Test/runtime override for immutable policy and run-intent authority. */
+  douyinAutomationRepository?: AcquisitionDouyinAutomationRepository;
 }
 
 export interface AcquisitionApplicationRuntime
@@ -1205,6 +1217,7 @@ export async function createAcquisitionApplication(
       await ensureAcquisitionDouyinCommentEventsMysqlSchema(pool);
       await ensureAcquisitionVisualReaderMysqlSchema(pool);
       await ensureAcquisitionSocialAccountsMysqlSchema(pool);
+      await ensureAcquisitionDouyinAutomationMysqlSchema(pool);
       await ensureAdvisorCandidateAuthorityMysqlSchema(pool);
       const mysqlAuthority = options.advisorCandidateAuthority
         instanceof MysqlAdvisorCandidateAuthorityRepository
@@ -2059,11 +2072,13 @@ export async function createAcquisitionApplication(
       return completed;
     };
     const router = Router();
+    const socialAccountRepository = options.socialAccountRepository
+      ?? (options.store.mode === "mysql"
+        ? new MysqlAcquisitionSocialAccountRepository(pool!)
+        : new InMemoryAcquisitionSocialAccountRepository());
     if (options.douyinMediaCrawlerGateway) {
       const socialAccounts = new AcquisitionSocialAccountService({
-        repository: options.socialAccountRepository ?? (options.store.mode === "mysql"
-          ? new MysqlAcquisitionSocialAccountRepository(pool!)
-          : new InMemoryAcquisitionSocialAccountRepository()),
+        repository: socialAccountRepository,
         gateway: options.douyinMediaCrawlerGateway,
         idFactory: () => idFactory("social_account"),
         now
@@ -2073,6 +2088,24 @@ export async function createAcquisitionApplication(
         requestIdFactory: () => idFactory("request")
       }));
     }
+    const douyinAutomation = new AcquisitionDouyinAutomationService({
+      repository: options.douyinAutomationRepository
+        ?? (options.store.mode === "mysql"
+          ? new MysqlAcquisitionDouyinAutomationRepository(pool!)
+          : new InMemoryAcquisitionDouyinAutomationRepository()),
+      plans: repositories.planRun,
+      accounts: socialAccountRepository,
+      resolvePlanWorkspace: (scope) => acquisitionWorkspace.resolve(scope),
+      idFactory,
+      now
+    });
+    router.use(
+      "/api/v1/acquisition",
+      createAcquisitionDouyinAutomationRouter({
+        service: douyinAutomation,
+        requestIdFactory: () => idFactory("request")
+      })
+    );
     const visualReaderService = new AcquisitionVisualReaderService({
       repository: repositories.visualReader,
       planRunRepository: repositories.planRun,

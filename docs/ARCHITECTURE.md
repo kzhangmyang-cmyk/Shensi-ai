@@ -40,6 +40,12 @@ browser state. Graceful sidecar restarts retain encrypted active profiles;
 expiry and explicit disconnect delete valid profile state. During reload, a
 profile whose metadata is invalid, missing, malformed, symlinked, or unreadable
 is treated as quarantined and deleted rather than loaded into the session map.
+The automation service consumes that same workspace account repository without
+exposing its private handle. It publishes immutable policy versions behind a
+compare-and-swap head and creates idempotent run intents that freeze the
+approved plan version, policy version, account/login version, local date, and
+daily-budget identity. MySQL transactions revalidate those authorities under
+lock before either write commits.
 
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a

@@ -10,7 +10,7 @@ import {
 } from "./acquisition-openapi.js";
 import { createOpenApiDocument } from "./swagger.js";
 
-type ContractHttpMethod = "get" | "post" | "patch" | "delete";
+type ContractHttpMethod = "get" | "put" | "post" | "patch" | "delete";
 type ContractOperation = Record<string, any>;
 
 export type ContractPathItem = Partial<
@@ -23,6 +23,7 @@ const contractPath = fileURLToPath(new URL(
 ));
 const httpMethods: ContractHttpMethod[] = [
   "get",
+  "put",
   "post",
   "patch",
   "delete"

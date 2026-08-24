@@ -53,6 +53,11 @@ ledger.
   restore-boundary comparison, isolated MySQL health, authenticated login,
   restored-connection visibility, and single bounded DeepSeek health gates
   all passed. No traffic cutover or legacy-process shutdown occurred.
+- Acquisition publishes workspace-bound Douyin automation policy `GET`/`PUT`
+  and idempotent run-now commands. Immutable policy versions sit behind a
+  compare-and-swap head, while durable run intents freeze approved plan,
+  policy, active-account/login, local-date, and daily-budget identities. The
+  public contract excludes the private MediaCrawler account handle.
 
 ## Active
 

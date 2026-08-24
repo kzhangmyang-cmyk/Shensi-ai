@@ -65,6 +65,8 @@ test("acquisition OpenAPI publishes the complete agent control surface", () => {
     "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}",
     "/api/v1/acquisition/social-accounts/douyin",
     "/api/v1/acquisition/social-accounts/{accountId}",
+    "/api/v1/acquisition/plans/{planId}/automation",
+    "/api/v1/acquisition/plans/{planId}/run-now",
     "/api/v1/acquisition/providers",
     "/api/v1/acquisition/provider-connections",
     "/api/v1/acquisition/provider-connections/{id}",
@@ -164,7 +166,7 @@ test("every published acquisition operation has a unique stable camelCase id", (
   const ids: string[] = [];
 
   for (const [path, pathItem] of Object.entries(paths)) {
-    for (const method of ["get", "post", "patch", "delete"] as const) {
+    for (const method of ["get", "put", "post", "patch", "delete"] as const) {
       const operation = pathItem[method];
       if (!operation) continue;
       const id = operation.operationId;
@@ -178,12 +180,61 @@ test("every published acquisition operation has a unique stable camelCase id", (
     }
   }
 
-  assert.equal(ids.length, 62);
+  assert.equal(ids.length, 65);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(
     paths["/api/v1/acquisition/plans/{id}/approval"]?.post?.operationId,
     "approveAcquisitionPlan"
   );
+});
+
+test("Douyin automation OpenAPI closes policy and run-now inputs and outputs", () => {
+  const paths = createAcquisitionOpenApiPaths();
+  const automation = paths[
+    "/api/v1/acquisition/plans/{planId}/automation"
+  ] as Record<string, any>;
+  const runNow = paths[
+    "/api/v1/acquisition/plans/{planId}/run-now"
+  ]!.post as Record<string, any>;
+
+  assert.equal(automation.get.operationId, "getAcquisitionDouyinAutomation");
+  assert.equal(automation.put.operationId, "putAcquisitionDouyinAutomation");
+  assert.equal(runNow.operationId, "runAcquisitionDouyinAutomationNow");
+  assert.equal(
+    automation.put.requestBody.content["application/json"].schema
+      .additionalProperties,
+    false
+  );
+  assert.equal(
+    runNow.requestBody.content["application/json"].schema
+      .additionalProperties,
+    false
+  );
+  assert.equal(
+    automation.get.responses["200"].content["application/json"].schema
+      .additionalProperties,
+    false
+  );
+  assert.equal(
+    automation.put.responses["200"].content["application/json"].schema
+      .additionalProperties,
+    false
+  );
+  assert.equal(
+    runNow.responses["202"].content["application/json"].schema
+      .additionalProperties,
+    false
+  );
+  assert.ok(automation.put.responses["200"].headers.ETag);
+  assert.ok(automation.put.responses["200"].headers["Idempotency-Replayed"]);
+  assert.ok(runNow.responses["202"].headers["Idempotency-Replayed"]);
+  for (const operation of [automation.put, runNow]) {
+    assert.equal(operation.parameters.some((parameter: Record<string, unknown>) =>
+      parameter.name === "Idempotency-Key"), true);
+  }
+  assert.equal(automation.put.parameters.some(
+    (parameter: Record<string, unknown>) => parameter.name === "If-Match"
+  ), true);
 });
 
 test("visual reader OpenAPI publishes six secure routes and actual replay semantics", () => {
