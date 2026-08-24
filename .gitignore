@@ -18,6 +18,11 @@ test-results/
 .env.production.local
 backups/
 *.sql
+*.sql.gz
+*.dump
+*.backup
 *.sql.enc
 *.migration-manifest.json
+/migration-exports/raw/
+**/provider-keys/
 deploy/secrets/
