@@ -124,10 +124,17 @@ if grep -ERqi \
   printf '打包目录中发现公测管理员或超级管理员凭据\n' >&2
   exit 1
 fi
-grep -Fq 'id="loginEmail" value="admin@goodjob.com"' "$STAGING_DIR/frontend/index.html" \
-  || { printf '登录界面缺少默认管理员账号\n' >&2; exit 1; }
-grep -Fq 'id="loginPassword" type="password" value="goodjob123"' "$STAGING_DIR/frontend/index.html" \
-  || { printf '登录界面缺少默认管理员密码\n' >&2; exit 1; }
+grep -Fq 'aria-label="Shensi 登录"' "$STAGING_DIR/frontend/index.html" \
+  || { printf '登录界面缺少 Shensi 标识\n' >&2; exit 1; }
+grep -Fq '<input id="loginEmail" name="email" type="email" autocomplete="username" required>' "$STAGING_DIR/frontend/index.html" \
+  || { printf '登录界面缺少空白账号输入\n' >&2; exit 1; }
+grep -Fq '<input id="loginPassword" name="password" type="password" autocomplete="current-password" required>' "$STAGING_DIR/frontend/index.html" \
+  || { printf '登录界面缺少空白密码输入\n' >&2; exit 1; }
+if grep -Fq 'value="admin@goodjob.com"' "$STAGING_DIR/frontend/index.html" \
+  || grep -Fq 'value="goodjob123"' "$STAGING_DIR/frontend/index.html"; then
+  printf '登录界面包含默认凭据\n' >&2
+  exit 1
+fi
 if grep -ERqi "BEGIN (RSA|OPENSSH|EC|PRIVATE) KEY" "$STAGING_DIR"; then
   printf '打包目录中发现私钥\n' >&2
   exit 1

@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   rmSync,
   symlinkSync,
@@ -144,6 +145,17 @@ test("Baota package can evaluate the acquisition OpenAPI module", () => {
       existsSync(path.join(packageRoot, "contracts/scripts/generate-frontend-contract-types.mjs")),
       true
     );
+    const loginHtml = readFileSync(path.join(packageRoot, "frontend/index.html"), "utf8");
+    assert.match(loginHtml, /aria-label="Shensi 登录"/u);
+    assert.match(
+      loginHtml,
+      /<input id="loginEmail" name="email" type="email" autocomplete="username" required>/u
+    );
+    assert.match(
+      loginHtml,
+      /<input id="loginPassword" name="password" type="password" autocomplete="current-password" required>/u
+    );
+    assert.doesNotMatch(loginHtml, /value="admin@goodjob\.com"|value="goodjob123"/u);
     for (const workspace of ["backend", "frontend", "contracts"]) {
       symlinkSync(
         path.join(workspaceRoot, workspace, "node_modules"),

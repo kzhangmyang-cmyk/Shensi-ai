@@ -1,6 +1,111 @@
 # Deployment
 
-## Current supported entry points
+## Production Docker Compose
+
+The canonical production topology is `deploy/compose.yaml`. It runs four
+services on the isolated `shensi_internal` network:
+
+- `mysql` persists the `shensi` database in the `shensi_mysql` named volume.
+- `backend` runs the MySQL-backed Express API on port 4188 inside that network.
+- `frontend` serves the built Vite assets on port 8080 inside that network.
+- `gateway` is the only service with a published port and routes `/api/` to
+  `backend`, all other requests to `frontend`, and `/healthz` locally.
+
+The backend is not published to the host. It listens on `0.0.0.0` only so the
+internal gateway can reach it; Compose's internal network is its network
+boundary. Production always sets `NODE_ENV=production` and `CRM_STORE=mysql`;
+memory/demo persistence is not a production fallback.
+
+### Prerequisites
+
+- Docker Engine with Docker Compose v2.
+- The production configuration and the two secret files described below.
+- Enough durable storage for the MySQL named volume and backups.
+- An HTTPS reverse proxy or load balancer in front of the published gateway
+  port when deploying beyond a trusted local network. Set its public origin in
+  `CORS_ORIGINS` and keep `SESSION_COOKIE_SECURE=true`.
+
+The images are built from the root pnpm workspace with Node `22.22.3` and run
+as non-root users. The current image references are `mysql:8.4.11`,
+`node:22.22.3-bookworm-slim`, and
+`nginxinc/nginx-unprivileged:1.27-alpine`.
+
+### Configuration and secrets
+
+`.env.production.local` and `deploy/secrets/` are ignored and must never be
+committed. Start with `.env.example`, copy it to `.env.production.local`, and
+replace every placeholder with distinct production values. At minimum, set
+the strong session, credential-encryption, job, cursor, claim, and domain
+master secrets required by the backend.
+
+Create the MySQL secret files with owner-only permissions. Do not paste the
+generated values into shell history, tracked files, or logs.
+
+```bash
+umask 077
+mkdir -p deploy/secrets
+openssl rand -base64 36 > deploy/secrets/mysql_app_password
+openssl rand -base64 36 > deploy/secrets/mysql_root_password
+```
+
+Set `DATABASE_URL` in `.env.production.local` to a URL whose user is
+`shensi_app`, host is `mysql`, port is `3306`, and database is `shensi`. Its
+password must be the exact content of `mysql_app_password`, URL-encoded for a
+database URL. Keep strong punctuation in the password; encode it instead of
+weakening it. `SHENSI_HTTP_PORT` is optional and defaults to `8080`.
+
+### Deploy and operate
+
+From the repository root, validate the rendered configuration and build/start
+the topology:
+
+```bash
+docker compose -f deploy/compose.yaml --env-file .env.production.local config --quiet
+docker compose -f deploy/compose.yaml --env-file .env.production.local up --build -d
+docker compose -f deploy/compose.yaml --env-file .env.production.local ps
+curl --fail http://127.0.0.1:${SHENSI_HTTP_PORT:-8080}/healthz
+```
+
+The gateway health endpoint is `/healthz`; the backend container healthcheck
+calls `/api/health`; MySQL is healthy after `mysqladmin ping` succeeds. View
+service logs without exposing configuration values:
+
+```bash
+docker compose -f deploy/compose.yaml --env-file .env.production.local logs --follow --tail=100 gateway backend mysql
+```
+
+Stop the Compose deployment while retaining the database volume:
+
+```bash
+docker compose -f deploy/compose.yaml --env-file .env.production.local down
+```
+
+Do not add `--volumes` to a routine stop or rollback command.
+
+### Upgrade, backup, and rollback
+
+Before an upgrade, take and verify an access-controlled backup of the target
+`shensi` database. At a minimum, keep a timestamped SQL dump in the ignored
+`backups/` directory and verify it can be read by the approved restore
+procedure. Encrypt the dump using the approved backup tooling before storing
+it outside the deployment host:
+
+```bash
+mkdir -p backups
+docker compose -f deploy/compose.yaml --env-file .env.production.local exec -T mysql \
+  sh -c 'mysqldump -uroot -p"$(cat /run/secrets/mysql_root_password)" shensi' \
+  > backups/shensi-before-upgrade.sql
+```
+
+After the backup, build and start the new images with the deploy command above,
+then check gateway, backend, and MySQL health before accepting the upgrade.
+For rollback, stop the new containers without removing `shensi_mysql`, return
+to the previously approved repository/image revision, and run `up -d` with the
+same production configuration. Restore a database backup only under the
+separate approved restore/migration procedure; source databases remain
+read-only migration inputs.
+
+## Local and Baota entry points
 
 Local development uses root package scripts:
 
@@ -12,55 +117,30 @@ pnpm setup:mysql:local
 pnpm dev:real
 ```
 
-`pnpm dev:real` validates `.env.real.local`, starts the MySQL-backed API at
-`127.0.0.1:4188`, and starts Vite at `127.0.0.1:5188`. The setup script is
-hard-coded to MySQL on `127.0.0.1:3307`, database `shensi_sales`, and the
-least-privilege `shensi_sales_app` account.
+`pnpm dev:real` uses the ignored `.env.real.local`, MySQL on `127.0.0.1:3307`,
+database `shensi_sales`, API port `4188`, and Vite port `5188`. It is not the
+production Compose procedure.
 
-`deploy/baota/` contains the existing Linux/Baota package builder, installer,
-Nginx/systemd integration, configuration example, and service manager. The
-backend is bound to localhost and health is checked at `/api/health`. Upgrade
-mode must use `REUSE_EXISTING_DATABASE=true`; `REPLACE_DATABASE=true` is a
-destructive reset that backs up and clears the selected database.
-
-## Not yet available
-
-There is no checked-in Docker Compose topology, Dockerfile set, canonical
-`scripts/deploy` wrapper, or production `.env` validator in the current tree.
-Do not describe the repository as Compose-deployable until those files and
-their tests exist. The Baota package builder also expects an external ignored
-`deploy/baota/database/bootstrap.sql.gz` and checksum when producing a real
-installation archive.
-
-## Configuration and secrets
-
-Use `.env.example` only to discover variable names. Real local and production
-values belong in ignored files or the deployment secret store. At minimum,
-production must provide strong, distinct session, credential-encryption, job,
-cursor, claim, and domain master secrets. Production must set
-`CRM_STORE=mysql`; memory/demo fallback is not acceptable.
-
-Never bake credentials or database contents into frontend assets, images,
-archives, tracked Compose files, or CI logs. Preserve encryption keys during
-an upgrade or data migration.
+`deploy/baota/` remains the existing Linux/Baota package path. Its upgrade
+mode uses `REUSE_EXISTING_DATABASE=true`; `REPLACE_DATABASE=true` is a
+destructive reset. The package builder requires its external ignored bootstrap
+archive and checksum. Do not run destructive installer modes as a verification
+shortcut.
 
 ## Verification
 
-Repository-wide deployment-affecting changes require:
+Deployment-affecting changes require:
 
 ```bash
 ./scripts/context-check
 pnpm test
 pnpm build
 pnpm test:baota-package
+node --test tools/deployment-contract.test.mjs
+docker compose -f deploy/compose.yaml --env-file .env.example config --quiet
 git diff --check
 ```
 
-MySQL, Chromium, and live-provider checks additionally require their documented
-local environment. The GitHub quality workflow provisions MySQL 8.4 and Chrome
-for the aggregate test, build, council, and browser suites. A local memory test
-does not prove a MySQL migration or live-provider deployment.
-
-For the existing Baota service, use `deploy/baota/manage-service.sh status`,
-`health`, and controlled logs after installation. Do not run destructive
-installer modes as a verification shortcut.
+MySQL, Chromium, live-provider, Docker build, and running-container checks
+need their corresponding local services. A memory-mode test does not prove a
+MySQL migration or a production deployment.

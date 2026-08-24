@@ -71,7 +71,10 @@ try {
   if (resolveBackendHost({ NODE_ENV: "production" }) !== "127.0.0.1") {
     throw new Error("production backend host must default to loopback");
   }
-  for (const unsafeHost of ["0.0.0.0", "::", "10.0.0.8"]) {
+  if (resolveBackendHost({ NODE_ENV: "production", BACKEND_HOST: "0.0.0.0" }) !== "0.0.0.0") {
+    throw new Error("production backend must allow the Compose internal-network host");
+  }
+  for (const unsafeHost of ["::", "10.0.0.8"]) {
     try {
       resolveBackendHost({ NODE_ENV: "production", BACKEND_HOST: unsafeHost });
       throw new Error(`production backend host unexpectedly accepted ${unsafeHost}`);
@@ -80,7 +83,7 @@ try {
     }
   }
   if (app.get("trust proxy") !== "loopback") throw new Error("Express must only trust loopback proxies");
-  results.productionLoopbackOnly = true;
+  results.productionNetworkHosts = true;
 
   const aiCredentialContext = {
     id: "ai_security_test",

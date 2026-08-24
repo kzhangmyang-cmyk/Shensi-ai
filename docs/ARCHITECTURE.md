@@ -15,8 +15,9 @@ Shensi is a pnpm workspace with three stable source boundaries:
   immutable Growth releases, validation tests, and frontend type generation.
 
 The browser calls same-origin `/api` routes. Vite proxies those requests during
-development; the current Baota deployment places Nginx in front of the static
-frontend and the backend on `127.0.0.1:4188`.
+development. Production Compose places a single public Nginx gateway in front
+of the static frontend and backend; the API is reachable only through the
+internal Compose network.
 
 ## Backend composition
 
@@ -71,7 +72,10 @@ release bytes in place. See `docs/API_INDEX.md`.
 
 - The canonical repository is this checkout, not the legacy import source.
 - The current local real-runtime database name is still `shensi_sales`.
-- No production Compose topology or canonical live-data migration tooling is
-  present yet; those are explicit next tasks, not implicit capabilities.
+- `deploy/compose.yaml` defines the production MySQL, backend, frontend, and
+  gateway topology. Only the gateway publishes HTTP; the other services use
+  the internal Compose network.
+- Canonical live-data migration tooling is not present yet; it remains an
+  explicit next task, not an implicit capability.
 - Source databases are read-only migration inputs. Restore and verification
   must use a distinct target and keep rollback artifacts recoverable.

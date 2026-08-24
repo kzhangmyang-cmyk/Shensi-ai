@@ -27,7 +27,7 @@ deploy from that source.
 frontend/    React/Vite agent-center application and Playwright tests
 backend/     Express API, domain services, workers, and MySQL repositories
 contracts/   OpenAPI, JSON Schema, immutable releases, and type generation
-deploy/      Existing Baota packaging and service scripts
+deploy/      Production Compose topology and existing Baota packaging/scripts
 docs/        Current-state, module, operations, product, and archived material
 scripts/     Repository entry points and verification wrappers
 tools/       Cross-workspace tests and release gates

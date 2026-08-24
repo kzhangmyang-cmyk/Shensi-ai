@@ -1,0 +1,57 @@
+name: shensi
+services:
+  mysql:
+    image: mysql:8.4.11
+    environment:
+      MYSQL_DATABASE: shensi
+      MYSQL_USER: shensi_app
+      MYSQL_PASSWORD_FILE: /run/secrets/mysql_app_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+    secrets: [mysql_app_password, mysql_root_password]
+    volumes: ["shensi_mysql:/var/lib/mysql"]
+    networks: [shensi_internal]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$(cat /run/secrets/mysql_root_password) --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+    env_file: ../.env.production.local
+    environment:
+      NODE_ENV: production
+      CRM_STORE: mysql
+      BACKEND_HOST: 0.0.0.0
+      PORT: 4188
+    depends_on:
+      mysql: { condition: service_healthy }
+    networks: [shensi_internal]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4188/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/docker/frontend.Dockerfile
+    networks: [shensi_internal]
+  gateway:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    ports: ["${SHENSI_HTTP_PORT:-8080}:8080"]
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend: { condition: service_healthy }
+      frontend: { condition: service_started }
+    networks: [shensi_internal]
+secrets:
+  mysql_app_password: { file: ./secrets/mysql_app_password }
+  mysql_root_password: { file: ./secrets/mysql_root_password }
+volumes:
+  shensi_mysql:
+networks:
+  shensi_internal:
+    internal: true
