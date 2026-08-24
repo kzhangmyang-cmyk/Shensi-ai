@@ -60,6 +60,13 @@ command replay, so concurrent identical new keys yield one write and one exact
 replay. Run intents freeze the plan, policy, account, local date, and
 daily-budget identities consumed by the scheduler and crawler.
 
+Crawler execution uses `acquisition_crawler_jobs`,
+`acquisition_crawler_job_runs`, and append-only
+`acquisition_crawler_job_records`. A unique daily key makes scheduled and
+run-now triggers share one candidate budget. Random 64-hex lease tokens and a
+monotonic fencing token reject exact-expiry, stale, and same-worker ABA writes;
+the result cursor advances only in the Node transaction that persists records.
+
 ## Public Interfaces
 
 Authenticated `/api/v1/acquisition/*` routes cover plans, runs, presentation,
@@ -81,6 +88,9 @@ the same key with changed semantics—including a changed normalized
 `If-Match`—conflicts.
 The editable contract is `contracts/openapi/ai-acquisition.v1.yaml`; frontend
 code consumes `frontend/src/generated/ai-acquisition.ts`.
+`GET /api/v1/acquisition/runs/{runId}/crawler-status` returns only the closed,
+workspace-bound persisted projection. It excludes the private account handle,
+lease, raw cursor, records, and live sidecar state.
 
 ## Tests
 
@@ -109,6 +119,8 @@ but retains safe active metadata/profile state for restart. Only explicit
 disconnect or expiry deletes valid state. During reload, the sidecar treats
 invalid, missing, malformed, symlinked, or unreadable metadata as quarantined
 and deletes the affected profile instead of reconstructing a session.
+Terminal crawler pages are immutable and replayable by opaque cursor for 24
+hours, allowing Node to recover persistence without a sidecar acknowledgement.
 
 ## Known Limitations
 

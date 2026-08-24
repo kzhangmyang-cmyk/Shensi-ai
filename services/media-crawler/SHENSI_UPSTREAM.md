@@ -23,3 +23,10 @@ The deployment must set both `MEDIACRAWLER_ENCRYPTED_VOLUME` and
 `MEDIACRAWLER_PROFILE_ROOT`; startup rejects missing or out-of-volume profiles.
 The adapter owns Playwright on one dedicated thread so FastAPI worker threads
 never call a browser object directly.
+
+Private crawl-job endpoints execute the pinned Douyin search API with an
+account profile, frozen argument arrays, comments enabled, and a bounded
+deadline. User values are never interpolated into shell text. Closed
+creator/video/comment records are stored as append-only opaque-cursor pages;
+reads do not acknowledge them and terminal pages remain available for 24
+hours.

@@ -264,6 +264,20 @@ test("Douyin automation policy and run intent projections conform without privat
   assert.equal(JSON.stringify({ version, run }).includes("accountHandle"), false);
 });
 
+test("persisted crawler status fixture conforms without sidecar or lease state", () => {
+  assertResponseConforms(
+    "/api/v1/acquisition/runs/{runId}/crawler-status",
+    "get",
+    200,
+    {
+      runId: "douyin-run-response-contract", state: "running", attempt: 2,
+      cursorPersisted: true, recordCount: 12, candidateBudgetUsed: 8,
+      candidateBudgetLimit: 50, lastErrorCode: null,
+      createdAt: NOW, updatedAt: NOW, completedAt: null
+    }
+  );
+});
+
 function visualReaderSessionFixture() {
   return {
     sessionId: "visual-session-response-contract",

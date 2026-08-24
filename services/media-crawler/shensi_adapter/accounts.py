@@ -190,6 +190,19 @@ class AccountManager:
                 raise KeyError(session_id)
             self._remove_session(session_id, session)
 
+    def resolve_crawl_profile(self, account_handle: str, login_state_version: int) -> Path:
+        """Resolve private crawl authority without exposing it through HTTP."""
+        with self._lock:
+            self.sweep_expired()
+            session = next((value for value in self._sessions.values()
+                            if value["account_handle"] == account_handle), None)
+            if (session is None or session["login_state_version"] != login_state_version
+                    or not account_handle):
+                raise KeyError("active_account_not_found")
+            self._close_session(session)
+            self._persist_or_remove(session["id"], session)
+            return session["profile"]
+
     def close(self) -> None:
         if self._closed.is_set():
             return

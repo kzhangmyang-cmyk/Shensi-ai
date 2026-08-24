@@ -55,6 +55,10 @@ export interface AcquisitionDouyinAutomationServiceOptions {
   ) => Promise<PlanWorkspaceBinding | null>;
   idFactory?: (prefix: string) => string;
   now?: () => string;
+  onRunIntent?: (
+    run: DouyinAutomationRunIntent,
+    policy: DouyinAutomationPolicyVersion
+  ) => Promise<void>;
 }
 
 export class AcquisitionDouyinAutomationError extends Error {
@@ -165,6 +169,7 @@ export class AcquisitionDouyinAutomationService {
   private readonly resolvePlanWorkspace: AcquisitionDouyinAutomationServiceOptions["resolvePlanWorkspace"];
   private readonly idFactory: (prefix: string) => string;
   private readonly now: () => string;
+  private readonly onRunIntent: AcquisitionDouyinAutomationServiceOptions["onRunIntent"];
 
   constructor(options: AcquisitionDouyinAutomationServiceOptions) {
     this.repository = options.repository;
@@ -174,6 +179,7 @@ export class AcquisitionDouyinAutomationService {
     this.idFactory = options.idFactory
       ?? ((prefix) => `${prefix}_${crypto.randomUUID()}`);
     this.now = options.now ?? (() => new Date().toISOString());
+    this.onRunIntent = options.onRunIntent;
   }
 
   private async visiblePlan(
@@ -398,7 +404,14 @@ export class AcquisitionDouyinAutomationService {
       ),
       "run"
     );
-    if (replay) return { value: replay, replayed: true };
+    if (replay) {
+      const replayPolicy = await this.repository.getCurrent(
+        scope.workspaceId,
+        plan.id
+      );
+      if (replayPolicy) await this.onRunIntent?.(replay, replayPolicy);
+      return { value: replay, replayed: true };
+    }
     if (plan.status !== "approved"
       || plan.approvedVersionId !== planVersion.id
       || plan.approvedSnapshotHash !== planVersion.payloadHash) {
@@ -469,6 +482,7 @@ export class AcquisitionDouyinAutomationService {
     if (result.kind === "binding_mismatch") {
       fail(409, "automation_run_binding_conflict");
     }
+    await this.onRunIntent?.(result.value, policy);
     return { value: result.value, replayed: result.kind === "replay" };
   }
 }

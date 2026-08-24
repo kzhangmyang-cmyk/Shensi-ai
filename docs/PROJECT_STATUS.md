@@ -58,6 +58,11 @@ ledger.
   compare-and-swap head, while durable run intents freeze approved plan,
   policy, active-account/login, local-date, and daily-budget identities. The
   public contract excludes the private MediaCrawler account handle.
+- Douyin automation run intents now feed durable crawler jobs with daily
+  policy/date deduplication, random fenced leases, transactional opaque cursor
+  persistence, bounded recovery, and Memory/MySQL repositories. The private
+  sidecar retains append-only normalized pages for 24 hours. Browsers read only
+  persisted Node status at `GET /api/v1/acquisition/runs/{runId}/crawler-status`.
 
 ## Active
 

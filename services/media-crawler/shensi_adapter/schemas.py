@@ -37,6 +37,18 @@ class CrawlJobRequest(BaseModel):
     deadline_at: datetime
 
 
+class CrawlJobView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    state: Literal["queued", "running", "succeeded", "partial", "paused", "cancelled", "failed"]
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+    record_count: int
+    failure_code: str | None
+
+
 class NormalizedDouyinRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -49,6 +61,16 @@ class NormalizedDouyinRecord(BaseModel):
     source_keyword: str
     observed_at: datetime
     content_hash: str
+
+
+class CrawlJobPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    cursor: str | None
+    next_cursor: str | None
+    done: bool
+    records: list[NormalizedDouyinRecord]
 
 
 class ActionRequest(BaseModel):

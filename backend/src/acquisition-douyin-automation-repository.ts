@@ -161,6 +161,7 @@ export function createAcquisitionDouyinAutomationAuthorityValidator(options: {
 }
 
 export interface AcquisitionDouyinAutomationRepository {
+  listCurrentPolicies(): Promise<DouyinAutomationPolicyVersion[]>;
   getCurrent(
     workspaceId: string,
     planId: string
@@ -281,6 +282,13 @@ implements AcquisitionDouyinAutomationRepository {
     const state = await this.snapshot();
     const id = state.heads.get(headKey(workspaceId, planId));
     return id ? clone(state.versions.get(id) ?? null) : null;
+  }
+
+  async listCurrentPolicies() {
+    const state = await this.snapshot();
+    return [...state.heads.values()].map((id) => state.versions.get(id))
+      .filter((value): value is DouyinAutomationPolicyVersion => Boolean(value))
+      .map(clone);
   }
 
   async listVersions(workspaceId: string, planId: string) {

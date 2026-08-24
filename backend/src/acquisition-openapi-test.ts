@@ -67,6 +67,7 @@ test("acquisition OpenAPI publishes the complete agent control surface", () => {
     "/api/v1/acquisition/social-accounts/{accountId}",
     "/api/v1/acquisition/plans/{planId}/automation",
     "/api/v1/acquisition/plans/{planId}/run-now",
+    "/api/v1/acquisition/runs/{runId}/crawler-status",
     "/api/v1/acquisition/providers",
     "/api/v1/acquisition/provider-connections",
     "/api/v1/acquisition/provider-connections/{id}",
@@ -117,6 +118,22 @@ test("acquisition OpenAPI publishes the complete agent control surface", () => {
   ];
   for (const path of required) {
     assert.ok(paths[path], `missing acquisition OpenAPI path: ${path}`);
+  }
+});
+
+test("crawler status OpenAPI is a persisted-only closed projection", () => {
+  const operation = createAcquisitionOpenApiPaths()[
+    "/api/v1/acquisition/runs/{runId}/crawler-status"
+  ]!.get as Record<string, any>;
+  assert.equal(operation.operationId, "getAcquisitionCrawlerStatus");
+  const schema = operation.responses["200"].content["application/json"].schema;
+  assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(schema.required.sort(), [
+    "attempt", "candidateBudgetLimit", "candidateBudgetUsed", "completedAt", "createdAt",
+    "cursorPersisted", "lastErrorCode", "recordCount", "runId", "state", "updatedAt"
+  ].sort());
+  for (const privateField of ["accountHandle", "leaseToken", "leaseWorkerId", "cursor", "records"]) {
+    assert.equal(schema.properties[privateField], undefined);
   }
 });
 
@@ -180,7 +197,7 @@ test("every published acquisition operation has a unique stable camelCase id", (
     }
   }
 
-  assert.equal(ids.length, 65);
+  assert.equal(ids.length, 66);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(
     paths["/api/v1/acquisition/plans/{id}/approval"]?.post?.operationId,

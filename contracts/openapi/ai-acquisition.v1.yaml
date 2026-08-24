@@ -326,6 +326,22 @@ components:
         reason: { type: [string, 'null'], maxLength: 2000 }
         createdBy: { type: string }
         createdAt: { type: string, format: date-time }
+    AcquisitionCrawlerStatus:
+      type: object
+      additionalProperties: false
+      required: [runId, state, attempt, cursorPersisted, recordCount, candidateBudgetUsed, candidateBudgetLimit, lastErrorCode, createdAt, updatedAt, completedAt]
+      properties:
+        runId: { type: string }
+        state: { type: string, enum: [scheduled, queued, running, succeeded, partial, paused, cancelled, failed] }
+        attempt: { type: integer, minimum: 0 }
+        cursorPersisted: { type: boolean }
+        recordCount: { type: integer, minimum: 0 }
+        candidateBudgetUsed: { type: integer, minimum: 0 }
+        candidateBudgetLimit: { type: integer, minimum: 1, maximum: 200 }
+        lastErrorCode: { type: [string, 'null'], maxLength: 100 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
     DouyinAutomationFailureCode:
       type: string
       enum: [unauthorized, workspace_required, workspace_context_invalid, invalid_request, invalid_automation_scope, invalid_automation_policy, invalid_automation_keywords, invalid_automation_schedule, invalid_automation_local_time, invalid_automation_time_zone, invalid_automation_collection, automation_collection_required, invalid_automation_limits, invalid_daily_candidate_limit, invalid_run_now_input, invalid_idempotency_key, invalid_if_match, if_match_required, automation_plan_not_found, automation_plan_snapshot_corrupt, active_douyin_account_required, active_douyin_account_workspace_mismatch, automation_policy_required, approved_automation_plan_required, automation_policy_plan_version_mismatch, automation_account_login_state_changed, automation_idempotency_conflict, automation_precondition_failed, automation_policy_binding_conflict, automation_run_binding_conflict, automation_policy_binding_corrupt, automation_idempotency_record_corrupt, automation_internal_error]
@@ -751,6 +767,16 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '202': { description: Frozen queued run intent, headers: { Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/DouyinAutomationRunIntent' } } } }
+  /api/v1/acquisition/runs/{runId}/crawler-status:
+    parameters: [{ name: runId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    get:
+      operationId: getAcquisitionCrawlerStatus
+      summary: Read persisted Douyin crawler status
+      description: Reads only the workspace-bound Node persistence projection and never proxies live sidecar process state.
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Persisted crawler status, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionCrawlerStatus' } } } }
   /api/v1/acquisition/providers:
     get:
       operationId: listAcquisitionProviders

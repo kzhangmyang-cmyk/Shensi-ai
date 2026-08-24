@@ -18,6 +18,24 @@ const loginSessionResponseSchema = z.object({
   account_display_name: z.string().nullable(),
   login_state_version: z.number().int().positive().nullable()
 }).strict();
+const crawlJobStateSchema = z.enum(["queued", "running", "succeeded", "partial", "paused", "cancelled", "failed"]);
+const crawlJobResponseSchema = z.object({
+  job_id: z.string().min(1), state: crawlJobStateSchema,
+  created_at: z.string().datetime(), updated_at: z.string().datetime(),
+  completed_at: z.string().datetime().nullable(), record_count: z.number().int().nonnegative(),
+  failure_code: z.string().nullable()
+}).strict();
+const normalizedRecordSchema = z.object({
+  record_id: z.string().min(1), kind: z.enum(["video", "creator", "comment"]),
+  canonical_url: z.string().url().startsWith("https://www.douyin.com/"),
+  public_display_name: z.string().max(200), public_profile_url: z.string().url().nullable(),
+  text_excerpt: z.string().max(500), source_keyword: z.string().max(100),
+  observed_at: z.string().datetime(), content_hash: z.string().regex(/^sha256:[0-9a-f]{64}$/u)
+}).strict();
+const crawlPageResponseSchema = z.object({
+  job_id: z.string().min(1), cursor: z.string().nullable(), next_cursor: z.string().nullable(),
+  done: z.boolean(), records: z.array(normalizedRecordSchema).max(200)
+}).strict();
 
 type GatewayCode = "mediacrawler_unavailable" | "mediacrawler_invalid_response";
 
@@ -40,6 +58,20 @@ export interface DouyinMediaCrawlerGateway {
   createLoginSession(signal?: AbortSignal): Promise<DouyinLoginSession>;
   getLoginSession(sessionId: string, signal?: AbortSignal): Promise<DouyinLoginSession>;
   disconnectLoginSession(sessionId: string, signal?: AbortSignal): Promise<void>;
+  startCrawlJob(input: DouyinCrawlJobInput, signal?: AbortSignal): Promise<DouyinCrawlJob>;
+  getCrawlJob(jobId: string, signal?: AbortSignal): Promise<DouyinCrawlJob>;
+  getCrawlResults(jobId: string, cursor: string | null, signal?: AbortSignal): Promise<DouyinCrawlJobPage>;
+  cancelCrawlJob(jobId: string, signal?: AbortSignal): Promise<void>;
+}
+
+export interface DouyinCrawlJobInput {
+  jobId: string; accountHandle: string; loginStateVersion: number; keywords: string[];
+  maxVideos: number; maxCommentsPerVideo: number; maxPagesPerVideo: number; deadlineAt: string;
+}
+export interface DouyinCrawlJob { jobId: string; state: z.infer<typeof crawlJobStateSchema>; }
+export interface DouyinCrawlJobPage {
+  jobId: string; cursor: string | null; nextCursor: string | null; done: boolean;
+  records: import("./acquisition-crawler-job.js").NormalizedDouyinRecord[];
 }
 
 export interface DouyinLoginSession {
@@ -166,6 +198,26 @@ export function createDouyinMediaCrawlerGateway(
     } finally { request.dispose(); }
   }
 
+  async function jsonRequest(method: "GET" | "POST", path: string, body: unknown, signal?: AbortSignal) {
+    const request = requestAbortSignal(signal, timeoutMs);
+    try {
+      const response = await fetchImpl(new URL(path, baseUrl), {
+        method, headers: { authorization: `Bearer ${serviceSecret}`, ...(body ? { "content-type": "application/json" } : {}) },
+        body: body ? JSON.stringify(body) : undefined, signal: request.signal
+      });
+      if (!response.ok) throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
+      try { return JSON.parse(await responseText(response)) as unknown; }
+      catch (error) { if (error instanceof MediaCrawlerGatewayError) throw error; throw new MediaCrawlerGatewayError("mediacrawler_invalid_response"); }
+    } catch (error) { if (error instanceof MediaCrawlerGatewayError) throw error; throw new MediaCrawlerGatewayError("mediacrawler_unavailable"); }
+    finally { request.dispose(); }
+  }
+
+  function crawlJob(value: unknown): DouyinCrawlJob {
+    const parsed = crawlJobResponseSchema.safeParse(value);
+    if (!parsed.success) throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
+    return Object.freeze({ jobId: parsed.data.job_id, state: parsed.data.state });
+  }
+
   return Object.freeze({
     createLoginSession(signal?: AbortSignal) {
       return loginSessionRequest("POST", "/internal/v1/douyin/login-sessions", signal);
@@ -179,6 +231,40 @@ export function createDouyinMediaCrawlerGateway(
         const response = await fetchImpl(new URL(`/internal/v1/douyin/login-sessions/${encodeURIComponent(sessionId)}`, baseUrl), { method: "DELETE", headers: { authorization: `Bearer ${serviceSecret}` }, signal: request.signal });
         if (!response.ok && response.status !== 404) throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
       } catch (error) { if (error instanceof MediaCrawlerGatewayError) throw error; throw new MediaCrawlerGatewayError("mediacrawler_unavailable"); } finally { request.dispose(); }
+    },
+    async startCrawlJob(input: DouyinCrawlJobInput, signal?: AbortSignal) {
+      return crawlJob(await jsonRequest("POST", "/internal/v1/douyin/crawl-jobs", {
+        job_id: input.jobId, account_handle: input.accountHandle,
+        login_state_version: input.loginStateVersion, keywords: input.keywords,
+        max_videos: input.maxVideos, max_comments_per_video: input.maxCommentsPerVideo,
+        max_pages_per_video: input.maxPagesPerVideo, deadline_at: input.deadlineAt
+      }, signal));
+    },
+    async getCrawlJob(jobId: string, signal?: AbortSignal) {
+      return crawlJob(await jsonRequest("GET", `/internal/v1/douyin/crawl-jobs/${encodeURIComponent(jobId)}`, null, signal));
+    },
+    async getCrawlResults(jobId: string, cursor: string | null, signal?: AbortSignal) {
+      const query = cursor === null ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+      const parsed = crawlPageResponseSchema.safeParse(await jsonRequest("GET", `/internal/v1/douyin/crawl-jobs/${encodeURIComponent(jobId)}/results${query}`, null, signal));
+      if (!parsed.success) throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
+      return Object.freeze({
+        jobId: parsed.data.job_id, cursor: parsed.data.cursor, nextCursor: parsed.data.next_cursor,
+        done: parsed.data.done, records: parsed.data.records.map((record) => Object.freeze({
+          recordId: record.record_id, kind: record.kind, canonicalUrl: record.canonical_url,
+          publicDisplayName: record.public_display_name, publicProfileUrl: record.public_profile_url,
+          textExcerpt: record.text_excerpt, sourceKeyword: record.source_keyword,
+          observedAt: record.observed_at, contentHash: record.content_hash
+        }))
+      });
+    },
+    async cancelCrawlJob(jobId: string, signal?: AbortSignal) {
+      const request = requestAbortSignal(signal, timeoutMs);
+      try {
+        const response = await fetchImpl(new URL(`/internal/v1/douyin/crawl-jobs/${encodeURIComponent(jobId)}`, baseUrl), {
+          method: "DELETE", headers: { authorization: `Bearer ${serviceSecret}` }, signal: request.signal
+        });
+        if (!response.ok && response.status !== 404) throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
+      } finally { request.dispose(); }
     },
     async health(signal?: AbortSignal) {
       const request = requestAbortSignal(signal, timeoutMs);

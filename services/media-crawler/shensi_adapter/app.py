@@ -4,11 +4,12 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 
 from .accounts import AccountManager
 from .browser_state import MediaCrawlerDouyinBrowserState
-from .schemas import HealthView, LoginSessionView
+from .crawl_jobs import CrawlJobManager, CursorConflict
+from .schemas import CrawlJobPage, CrawlJobRequest, CrawlJobView, HealthView, LoginSessionView
 from .security import authorize_bearer, require_service_secret
 
 
@@ -33,14 +34,22 @@ def validate_encrypted_profile_root(volume: Path, root: Path) -> Path:
 
 
 def _build_app(secret_provider: Callable[[], str], account_manager: AccountManager | None = None,
-               deployment_manager_factory: Callable[[], AccountManager] | None = None) -> FastAPI:
+               deployment_manager_factory: Callable[[], AccountManager] | None = None,
+               crawl_job_manager: CrawlJobManager | None = None,
+               deployment_crawl_factory: Callable[[AccountManager], CrawlJobManager] | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         if application.state.account_manager is None and deployment_manager_factory is not None:
             application.state.account_manager = deployment_manager_factory()
+        if application.state.crawl_job_manager is None and deployment_crawl_factory is not None:
+            application.state.crawl_job_manager = deployment_crawl_factory(application.state.account_manager)
         try:
             yield
         finally:
+            jobs = application.state.crawl_job_manager
+            if jobs is not None:
+                jobs.close()
+                application.state.crawl_job_manager = None
             manager = application.state.account_manager
             if manager is not None:
                 manager.close()
@@ -48,6 +57,7 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
 
     application = FastAPI(docs_url=None, openapi_url=None, redoc_url=None, lifespan=lifespan)
     application.state.account_manager = account_manager
+    application.state.crawl_job_manager = crawl_job_manager
 
     @application.get("/internal/v1/health", response_model=HealthView)
     def health(authorization: str | None = Header(default=None)) -> HealthView:
@@ -88,12 +98,58 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
         except KeyError as error:
             raise HTTPException(status_code=404, detail="login_session_not_found") from error
 
+    def jobs() -> CrawlJobManager:
+        manager = application.state.crawl_job_manager
+        if manager is None:
+            raise HTTPException(status_code=503, detail="crawl_job_manager_unconfigured")
+        return manager
+
+    @application.post("/internal/v1/douyin/crawl-jobs", response_model=CrawlJobView)
+    def start_crawl_job(request: CrawlJobRequest,
+                        authorization: str | None = Header(default=None)) -> CrawlJobView:
+        authorize_bearer(authorization, require_service_secret(secret_provider()))
+        try:
+            return jobs().start(request)
+        except KeyError as error:
+            raise HTTPException(status_code=409, detail="active_account_not_found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @application.get("/internal/v1/douyin/crawl-jobs/{job_id}", response_model=CrawlJobView)
+    def get_crawl_job(job_id: str, authorization: str | None = Header(default=None)) -> CrawlJobView:
+        authorize_bearer(authorization, require_service_secret(secret_provider()))
+        try:
+            return jobs().get(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="crawl_job_not_found") from error
+
+    @application.get("/internal/v1/douyin/crawl-jobs/{job_id}/results", response_model=CrawlJobPage)
+    def get_crawl_results(job_id: str, cursor: str | None = Query(default=None),
+                          authorization: str | None = Header(default=None)) -> CrawlJobPage:
+        authorize_bearer(authorization, require_service_secret(secret_provider()))
+        try:
+            return jobs().page(job_id, cursor)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="crawl_job_not_found") from error
+        except CursorConflict as error:
+            raise HTTPException(status_code=409, detail="crawl_cursor_conflict") from error
+
+    @application.delete("/internal/v1/douyin/crawl-jobs/{job_id}", status_code=204)
+    def cancel_crawl_job(job_id: str, authorization: str | None = Header(default=None)) -> None:
+        authorize_bearer(authorization, require_service_secret(secret_provider()))
+        try:
+            jobs().cancel(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="crawl_job_not_found") from error
+
     return application
 
 
-def create_app(service_secret: str, account_manager: AccountManager | None = None) -> FastAPI:
+def create_app(service_secret: str, account_manager: AccountManager | None = None,
+               crawl_job_manager: CrawlJobManager | None = None) -> FastAPI:
     normalized_secret = require_service_secret(service_secret)
-    return _build_app(lambda: normalized_secret, account_manager)
+    return _build_app(lambda: normalized_secret, account_manager,
+                      crawl_job_manager=crawl_job_manager)
 
 
 def create_deployment_account_manager() -> AccountManager:
@@ -109,4 +165,7 @@ def create_deployment_account_manager() -> AccountManager:
 # Deployment entry point: fail closed rather than placing browser state on an
 # unencrypted/default filesystem. Unit tests use create_app with an injected manager.
 app = _build_app(lambda: os.environ.get("MEDIACRAWLER_SERVICE_SECRET", ""),
-                 deployment_manager_factory=create_deployment_account_manager)
+                 deployment_manager_factory=create_deployment_account_manager,
+                 deployment_crawl_factory=lambda manager: CrawlJobManager(
+                     manager._root, account_resolver=manager.resolve_crawl_profile
+                 ))

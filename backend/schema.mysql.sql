@@ -2748,3 +2748,44 @@ CREATE TABLE prospect_qualification_facts (
     visibility_scope IN ('team','owner')
   )
 ) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_crawler_jobs (
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  policy_version_id VARCHAR(255) NOT NULL,
+  local_date DATE NOT NULL,
+  state VARCHAR(32) NOT NULL,
+  lease_worker_id VARCHAR(255) NULL,
+  lease_token CHAR(64) NULL,
+  lease_expires_at DATETIME(3) NULL,
+  fencing_token BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  payload_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  UNIQUE KEY acquisition_crawler_job_daily (workspace_id,plan_id,policy_version_id,local_date),
+  INDEX acquisition_crawler_job_claim (state,created_at),
+  CONSTRAINT acquisition_crawler_job_lease_token CHECK (lease_token IS NULL OR lease_token REGEXP '^[0-9a-f]{64}$')
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_crawler_job_runs (
+  workspace_id VARCHAR(255) NOT NULL,
+  run_id VARCHAR(255) NOT NULL,
+  job_id VARCHAR(255) NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,run_id),
+  CONSTRAINT acquisition_crawler_job_run_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_crawler_job_records (
+  job_id VARCHAR(255) NOT NULL,
+  sequence_no BIGINT UNSIGNED NOT NULL,
+  record_id VARCHAR(255) NOT NULL,
+  content_hash CHAR(71) NOT NULL,
+  payload_json JSON NOT NULL,
+  persisted_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (job_id,sequence_no),
+  UNIQUE KEY acquisition_crawler_record_identity (job_id,record_id),
+  CONSTRAINT acquisition_crawler_record_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id),
+  CONSTRAINT acquisition_crawler_record_hash CHECK (content_hash REGEXP '^sha256:[0-9a-f]{64}$')
+) ENGINE=InnoDB;

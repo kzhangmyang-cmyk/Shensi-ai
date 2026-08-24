@@ -262,6 +262,18 @@ export class MysqlAcquisitionDouyinAutomationRepository
 implements AcquisitionDouyinAutomationRepository {
   constructor(private readonly pool: mysql.Pool) {}
 
+  async listCurrentPolicies() {
+    const result = await rows(
+      this.pool,
+      `SELECT v.* FROM acquisition_douyin_automation_policy_heads h
+       INNER JOIN acquisition_douyin_automation_policy_versions v
+       ON v.workspace_id=h.workspace_id AND v.plan_id=h.plan_id
+       AND v.id=h.current_version_id ORDER BY v.workspace_id,v.plan_id`,
+      []
+    );
+    return result.map(policy);
+  }
+
   async getCurrent(workspaceId: string, planId: string) {
     const result = await rows(
       this.pool,

@@ -50,6 +50,13 @@ transaction token across plan, account, and automation repositories, keeping
 the same validation-and-append boundary atomic during development and focused
 tests.
 
+Frozen run intents materialize as one crawler job per workspace, plan, policy
+version, and policy-local date. Node owns random fenced leases and persists
+each bounded normalized record page together with its opaque cursor. The
+sidecar owns only the live process and immutable result pages; reading a page
+does not acknowledge it. Restarts therefore resume from the Node cursor, and
+the browser-facing status route never proxies live sidecar state.
+
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a
 development and focused-test implementation; MySQL mode is required for

@@ -300,6 +300,19 @@ import {
 } from "./acquisition-douyin-automation-mysql-repository.js";
 import { AcquisitionDouyinAutomationService } from "./acquisition-douyin-automation-service.js";
 import { createAcquisitionDouyinAutomationRouter } from "./acquisition-douyin-automation-router.js";
+import { douyinAutomationHash } from "./acquisition-douyin-automation.js";
+import {
+  InMemoryAcquisitionCrawlerJobRepository,
+  type AcquisitionCrawlerJobRepository
+} from "./acquisition-crawler-job-repository.js";
+import {
+  ensureAcquisitionCrawlerJobMysqlSchema,
+  MysqlAcquisitionCrawlerJobRepository
+} from "./acquisition-crawler-job-mysql-repository.js";
+import { createAcquisitionCrawlerJobRouter } from "./acquisition-crawler-job-router.js";
+import { AcquisitionCrawlerWorker } from "./acquisition-crawler-worker.js";
+import { AcquisitionCrawlerRecoverySweeper } from "./acquisition-crawler-recovery-sweeper.js";
+import { AcquisitionDouyinScheduler } from "./acquisition-douyin-scheduler.js";
 import {
   AcquisitionVisualCommentIngestionService
 } from "./acquisition-visual-comment-ingestion.js";
@@ -500,6 +513,10 @@ export interface CreateAcquisitionApplicationOptions {
   socialAccountRepository?: AcquisitionSocialAccountRepository;
   /** Test/runtime override for immutable policy and run-intent authority. */
   douyinAutomationRepository?: AcquisitionDouyinAutomationRepository;
+  crawlerJobRepository?: AcquisitionCrawlerJobRepository;
+  crawlerWorkerIntervalMs?: number;
+  crawlerRecoveryIntervalMs?: number;
+  douyinSchedulerIntervalMs?: number;
 }
 
 export interface AcquisitionApplicationRuntime
@@ -1191,6 +1208,9 @@ export async function createAcquisitionApplication(
   let visualReaderRecoverySweeper:
     Pick<AcquisitionVisualReaderRecoverySweeper, "start" | "close">
     | null = null;
+  let crawlerWorker: AcquisitionCrawlerWorker | null = null;
+  let crawlerRecoverySweeper: AcquisitionCrawlerRecoverySweeper | null = null;
+  let douyinScheduler: AcquisitionDouyinScheduler | null = null;
 
   try {
     let repositories: AcquisitionRepositorySet;
@@ -1222,6 +1242,7 @@ export async function createAcquisitionApplication(
       await ensureAcquisitionVisualReaderMysqlSchema(pool);
       await ensureAcquisitionSocialAccountsMysqlSchema(pool);
       await ensureAcquisitionDouyinAutomationMysqlSchema(pool);
+      await ensureAcquisitionCrawlerJobMysqlSchema(pool);
       await ensureAdvisorCandidateAuthorityMysqlSchema(pool);
       const mysqlAuthority = options.advisorCandidateAuthority
         instanceof MysqlAdvisorCandidateAuthorityRepository
@@ -2123,14 +2144,36 @@ export async function createAcquisitionApplication(
         })
       );
     };
+    const douyinAutomationRepository = options.douyinAutomationRepository
+      ?? defaultDouyinAutomationRepository();
+    const crawlerJobs = options.crawlerJobRepository
+      ?? (options.store.mode === "mysql"
+        ? new MysqlAcquisitionCrawlerJobRepository(pool!)
+        : new InMemoryAcquisitionCrawlerJobRepository());
+    const enqueueCrawlerJob = async (
+      run: import("./acquisition-douyin-automation.js").DouyinAutomationRunIntent,
+      policy: import("./acquisition-douyin-automation.js").DouyinAutomationPolicyVersion
+    ) => {
+      await crawlerJobs.createOrGet({
+        id: idFactory("crawler-job"), workspaceId: run.workspaceId,
+        runId: run.id, planId: run.planId,
+        policyVersionId: run.policyVersionId, policyHash: run.policyHash,
+        accountId: run.accountId,
+        accountLoginStateVersion: run.accountLoginStateVersion,
+        dailyBudgetId: run.dailyBudgetId, localDate: run.localDate,
+        trigger: run.trigger, dailyCandidateLimit: policy.dailyCandidateLimit,
+        keywords: [...policy.keywords], limits: { ...policy.limits },
+        createdAt: run.createdAt
+      });
+    };
     const douyinAutomation = new AcquisitionDouyinAutomationService({
-      repository: options.douyinAutomationRepository
-        ?? defaultDouyinAutomationRepository(),
+      repository: douyinAutomationRepository,
       plans: repositories.planRun,
       accounts: socialAccountRepository,
       resolvePlanWorkspace: (scope) => acquisitionWorkspace.resolve(scope),
       idFactory,
-      now
+      now,
+      onRunIntent: enqueueCrawlerJob
     });
     router.use(
       "/api/v1/acquisition",
@@ -2139,6 +2182,80 @@ export async function createAcquisitionApplication(
         requestIdFactory: () => idFactory("request")
       })
     );
+    router.use(
+      "/api/v1/acquisition",
+      createAcquisitionCrawlerJobRouter({
+        repository: crawlerJobs,
+        requestIdFactory: () => idFactory("request")
+      })
+    );
+    douyinScheduler = new AcquisitionDouyinScheduler({
+      repository: crawlerJobs,
+      runIntents: {
+        async create(policy, run) {
+          const plan = await repositories.planRun.getPlan(policy.planId);
+          if (!plan || plan.currentVersionId !== policy.planVersionId) {
+            throw new Error("scheduled_automation_plan_binding_changed");
+          }
+          const result = await douyinAutomationRepository.createRunIntent({
+            workspaceId: policy.workspaceId, ownerId: plan.ownerId,
+            teamId: plan.teamId, planId: policy.planId,
+            planVersionId: policy.planVersionId,
+            policyVersionId: policy.policyVersionId,
+            accountId: policy.accountId,
+            accountLoginStateVersion: policy.accountLoginStateVersion,
+            idempotencyKey: `scheduled:${policy.policyVersionId}:${run.localDate}`,
+            requestHash: douyinAutomationHash({
+              workspaceId: policy.workspaceId, planId: policy.planId,
+              policyVersionId: policy.policyVersionId,
+              dailyBudgetId: run.dailyBudgetId, localDate: run.localDate,
+              trigger: run.trigger
+            }),
+            value: run
+          });
+          if (result.kind === "conflict" || result.kind === "binding_mismatch") {
+            throw new Error("scheduled_automation_run_binding_changed");
+          }
+          return result.value;
+        }
+      },
+      policies: {
+        async listScheduled() {
+          return (await douyinAutomationRepository.listCurrentPolicies()).map(
+            (policy) => ({
+              workspaceId: policy.workspaceId, planId: policy.planId,
+              planVersionId: policy.planVersionId,
+              planVersion: policy.planVersion,
+              planSnapshotHash: policy.planSnapshotHash,
+              policyVersionId: policy.id, policyHash: policy.policyHash,
+              accountId: policy.accountId,
+              accountLoginStateVersion: policy.accountLoginStateVersion,
+              createdBy: policy.createdBy, keywords: [...policy.keywords],
+              dailyCandidateLimit: policy.dailyCandidateLimit,
+              schedule: { ...policy.schedule }, limits: { ...policy.limits }
+            })
+          );
+        }
+      },
+      idFactory,
+      now
+    });
+    douyinScheduler.start(options.douyinSchedulerIntervalMs);
+    crawlerRecoverySweeper = new AcquisitionCrawlerRecoverySweeper({
+      repository: crawlerJobs, now,
+      intervalMs: options.crawlerRecoveryIntervalMs
+    });
+    crawlerRecoverySweeper.start();
+    if (options.douyinMediaCrawlerGateway) {
+      crawlerWorker = new AcquisitionCrawlerWorker({
+        repository: crawlerJobs,
+        gateway: options.douyinMediaCrawlerGateway,
+        accounts: socialAccountRepository,
+        workerId: idFactory("crawler-worker"),
+        now
+      });
+      crawlerWorker.start(options.crawlerWorkerIntervalMs);
+    }
     const visualReaderService = new AcquisitionVisualReaderService({
       repository: repositories.visualReader,
       planRunRepository: repositories.planRun,
@@ -2386,6 +2503,9 @@ export async function createAcquisitionApplication(
           try {
             settlements = await waitWithTimeout(
               Promise.allSettled([
+                crawlerWorker?.close() ?? Promise.resolve(),
+                crawlerRecoverySweeper?.close() ?? Promise.resolve(),
+                Promise.resolve(douyinScheduler?.close()),
                 visualArtifactExpirySweeper?.close() ?? Promise.resolve(),
                 visualReaderRecoverySweeper?.close() ?? Promise.resolve(),
                 douyinCommentIngestionRecoverySweeper?.close()
@@ -2451,6 +2571,13 @@ export async function createAcquisitionApplication(
       }
     };
   } catch (error) {
+    douyinScheduler?.close();
+    if (crawlerRecoverySweeper) {
+      await crawlerRecoverySweeper.close().catch(() => undefined);
+    }
+    if (crawlerWorker) {
+      await crawlerWorker.close().catch(() => undefined);
+    }
     if (visualArtifactExpirySweeper) {
       await visualArtifactExpirySweeper.close().catch(() => undefined);
     }
