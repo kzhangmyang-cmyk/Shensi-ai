@@ -1,5 +1,6 @@
 import multiprocessing
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -84,6 +85,53 @@ class _SlowExitProcess:
 
     def close(self):
         assert not self.alive, "Process.close called while the worker was alive"
+        self.close_calls += 1
+
+
+class _DeadWorkerWithLiveDescendantProcess:
+    pid = 41001
+
+    def __init__(self):
+        self.close_calls = 0
+
+    def is_alive(self):
+        return False
+
+    def kill(self):
+        raise AssertionError("dead worker must not be used as the group authority")
+
+    def join(self, timeout=None):
+        assert timeout is not None
+
+    def close(self):
+        self.close_calls += 1
+
+
+class _AliveCheckFailureProcess:
+    pid = 41002
+
+    def __init__(self):
+        self.alive_checks = 0
+        self.explicit_death_observed = False
+        self.close_calls = 0
+
+    def is_alive(self):
+        self.alive_checks += 1
+        if self.alive_checks == 1:
+            raise OSError("worker status unavailable")
+        self.explicit_death_observed = True
+        return False
+
+    def kill(self):
+        return None
+
+    def join(self, timeout=None):
+        assert timeout is not None
+
+    def close(self):
+        assert self.explicit_death_observed, (
+            "Process.close called before worker death was explicitly observed"
+        )
         self.close_calls += 1
 
 
@@ -340,6 +388,8 @@ def test_browser_process_routes_create_poll_disconnect_without_exposing_context(
         command_timeout=2,
     )
     try:
+        if os.name == "posix":
+            assert browser._owned_pgid == browser._process.pid
         opened = browser.open_douyin_login(tmp_path)
         assert opened["qr_image_data_url"] == "data:image/png;base64,cXI="
         assert set(opened) == {"handle", "qr_image_data_url"}
@@ -382,6 +432,43 @@ def test_hard_stop_retries_exit_before_closing_process_and_preserves_timeout_err
 
     assert str(failure.value) == "douyin_browser_command_timeout"
     assert browser._process.alive is False
+    assert browser._process.close_calls == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group boundary")
+def test_hard_stop_signals_verified_process_group_after_worker_already_died(monkeypatch):
+    browser = object.__new__(MediaCrawlerDouyinBrowserState)
+    browser._connection = _TimeoutConnection()
+    browser._process = _DeadWorkerWithLiveDescendantProcess()
+    browser._owned_pgid = browser._process.pid
+    browser._timeout = 0.01
+    browser._closed = False
+
+    signalled = []
+    monkeypatch.setattr(os, "killpg", lambda pgid, sig: signalled.append((pgid, sig)))
+
+    browser._hard_stop()
+
+    assert signalled == [(browser._process.pid, signal.SIGKILL)]
+    assert browser._process.close_calls == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group boundary")
+def test_hard_stop_treats_is_alive_failure_as_unknown_before_closing(monkeypatch):
+    browser = object.__new__(MediaCrawlerDouyinBrowserState)
+    browser._connection = _TimeoutConnection()
+    browser._process = _AliveCheckFailureProcess()
+    browser._owned_pgid = browser._process.pid
+    browser._timeout = 0.01
+    browser._closed = False
+
+    signalled = []
+    monkeypatch.setattr(os, "killpg", lambda pgid, sig: signalled.append((pgid, sig)))
+
+    browser._hard_stop()
+
+    assert signalled == [(browser._process.pid, signal.SIGKILL)]
+    assert browser._process.alive_checks >= 2
     assert browser._process.close_calls == 1
 
 

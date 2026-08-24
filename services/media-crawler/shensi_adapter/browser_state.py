@@ -7,6 +7,7 @@ import os
 import secrets
 import signal
 import threading
+import time
 from collections.abc import Callable
 from multiprocessing.connection import Connection
 from pathlib import Path
@@ -67,6 +68,12 @@ def _browser_worker(connection: Connection, factory: Callable[[], object] | None
         if os.name == "posix":
             try:
                 os.setsid()
+                process_group_id = os.getpgrp()
+                if process_group_id != os.getpid():
+                    raise OSError("browser worker does not own its process group")
+                connection.send(
+                    {"kind": "process_group", "pgid": process_group_id}
+                )
             except OSError:
                 connection.send(
                     {
@@ -179,17 +186,39 @@ class MediaCrawlerDouyinBrowserState:
         self._closed = False
         self._shutdown_failed = False
         self._next_command_id = 1
+        self._owned_pgid: int | None = None
         self._process.start()
         child.close()
-        if not self._connection.poll(startup_timeout):
-            self._hard_stop()
-            raise RuntimeError("douyin_browser_startup_timeout")
-        try:
-            startup = self._connection.recv()
-        except (EOFError, OSError) as error:
-            self._hard_stop()
-            raise RuntimeError("douyin_browser_startup_failed") from error
-        if startup.get("kind") != "ready":
+        startup_deadline = time.monotonic() + startup_timeout
+        while True:
+            remaining = max(0.0, startup_deadline - time.monotonic())
+            if not self._connection.poll(remaining):
+                self._hard_stop()
+                raise RuntimeError("douyin_browser_startup_timeout")
+            try:
+                startup = self._connection.recv()
+            except (EOFError, OSError) as error:
+                self._hard_stop()
+                raise RuntimeError("douyin_browser_startup_failed") from error
+            if startup.get("kind") == "process_group":
+                pgid = startup.get("pgid")
+                if (
+                    os.name != "posix"
+                    or type(pgid) is not int
+                    or pgid <= 0
+                    or self._owned_pgid is not None
+                    or self._process.pid is None
+                    or pgid != self._process.pid
+                ):
+                    self._hard_stop()
+                    raise RuntimeError("douyin_browser_process_isolation_failed")
+                self._owned_pgid = pgid
+                continue
+            if startup.get("kind") == "ready":
+                if os.name == "posix" and self._owned_pgid is None:
+                    self._hard_stop()
+                    raise RuntimeError("douyin_browser_process_isolation_failed")
+                break
             message = str(startup.get("message") or "douyin_browser_startup_failed")
             self._hard_stop()
             raise RuntimeError(message)
@@ -209,48 +238,39 @@ class MediaCrawlerDouyinBrowserState:
             self._connection.close()
         except OSError:
             pass
-        owned_process_group = False
-        if os.name == "posix" and self._process.pid is not None:
+        owned_pgid = getattr(self, "_owned_pgid", None)
+        if os.name == "posix" and owned_pgid is not None:
             try:
-                owned_process_group = os.getpgid(self._process.pid) == self._process.pid
-            except OSError:
+                os.killpg(owned_pgid, signal.SIGKILL)
+            except (OSError, ValueError):
                 pass
         grace = min(max(self._timeout, 0.1), 1.0)
 
+        try:
+            self._process.join(timeout=grace)
+        except (AssertionError, OSError, ValueError):
+            pass
+        try:
+            alive: bool | None = self._process.is_alive()
+        except (AssertionError, OSError, ValueError):
+            alive = None
+
         for _attempt in range(2):
-            try:
-                alive = self._process.is_alive()
-            except (AssertionError, OSError, ValueError):
-                alive = False
-            if not alive:
+            if alive is False:
                 break
             try:
-                if owned_process_group and self._process.pid is not None:
-                    os.killpg(self._process.pid, signal.SIGKILL)
-                else:
-                    self._process.kill()
+                self._process.kill()
             except (OSError, ValueError):
                 pass
             try:
                 self._process.join(timeout=grace)
             except (AssertionError, OSError, ValueError):
                 pass
-
-        try:
-            alive = self._process.is_alive()
-        except (AssertionError, OSError, ValueError):
-            alive = False
-        if alive and owned_process_group:
-            try:
-                self._process.kill()
-                self._process.join(timeout=grace)
-            except (AssertionError, OSError, ValueError):
-                pass
             try:
                 alive = self._process.is_alive()
             except (AssertionError, OSError, ValueError):
-                alive = False
-        if not alive:
+                alive = None
+        if alive is False:
             try:
                 self._process.close()
             except (OSError, ValueError):
