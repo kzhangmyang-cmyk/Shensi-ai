@@ -3,13 +3,21 @@
 ## Current state
 
 This repository contains fail-closed tooling for an encrypted, source-to-new-
-target MySQL migration. An authorized Task 7 live integration attempt stopped
-during restore when the prior dump requested target `LOCK TABLES` privilege;
-the source remained unchanged, no cutover occurred, and the failed target has
-one empty table. That target is contaminated and must not be reused. The
-lock-free dump change documented below has not yet been rerun against a live
-database. Running any command in this document requires operator-supplied
-credentials and explicit operational authorization.
+target MySQL migration. The authorized lock-free retry completed its
+restore-boundary migration into the distinct `shensi` database: source and
+target both had 237 base tables and 170 rows when closed verification passed.
+The source remains unchanged at 237 tables and 170 rows. The first isolated
+target-backend start then added one deterministic, idempotent
+`system_migration` model-activation audit event, so the current target has 237
+tables and 171 rows. A second backend restart added no row.
+
+Task 7 is not complete. Its required authenticated login and one bounded
+restored DeepSeek health test remain blocked on an operator-supplied valid test
+credential pair. No provider call or cutover has occurred. Running any command
+in this document requires operator-supplied credentials and explicit
+operational authorization. Dated incident and retry evidence is retained in
+`docs/migration/2026-08-24-live-migration-verification.md`; it is not the
+current execution procedure.
 
 The source database remains `shensi_sales`. The only accepted restore target
 database is a distinct database named `shensi`. The tools accept `mysql:` URLs
@@ -189,6 +197,13 @@ the original `PROVIDER_CREDENTIAL_KEY` and `AGENT_JOB_ENCRYPTION_KEY`. After
 offline verification passes, runtime acceptance must separately prove login,
 tenant boundaries, decryption/health of an existing model connection,
 acquisition recovery, and financial-council recovery before cutover.
+
+For the current Task 7 target, exact source/target row-count equality is the
+restore-boundary gate. After the first backend start, the target has one
+additional deterministic `ai_model_connection_activation_events` audit row.
+Post-start verification must assert that this is the only count difference,
+that every other closed check still passes, and that a second restart does not
+add another event. It must not delete the audit row to force equality.
 
 ## Rollback
 

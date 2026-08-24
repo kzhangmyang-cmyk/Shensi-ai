@@ -71,7 +71,9 @@ release bytes in place. See `docs/API_INDEX.md`.
 ## Operational boundaries
 
 - The canonical repository is this checkout, not the legacy import source.
-- The current local real-runtime database name is still `shensi_sales`.
+- The retained legacy real-runtime database is `shensi_sales`. The isolated
+  canonical target database is the distinct `shensi`; no traffic cutover has
+  occurred.
 - `deploy/compose.yaml` defines the production MySQL, backend, frontend, and
   gateway topology. Only the gateway publishes HTTP; MySQL, frontend, and the
   gateway use the internal Compose network only, while the backend also has a
@@ -82,8 +84,13 @@ release bytes in place. See `docs/API_INDEX.md`.
   that same open FD to OpenSSL before any MySQL client starts. Backup rejects
   source views, routines, and events because the migration has an absolute
   no-DROP policy. Verification reports only allowlisted non-sensitive integrity
-  and aggregate ciphertext-identity digests. Their presence does not mean a
-  live migration or cutover has run; those remain operator-authorized
-  operations under `docs/DATA_MIGRATION.md`.
+  and aggregate ciphertext-identity digests. The authorized restore-boundary
+  migration has run: source and target matched at 237 tables and 170 rows. The
+  first target-backend start added one deterministic, idempotent
+  `system_migration` model-activation audit event, leaving the current target at
+  237 tables and 171 rows while the preserved source remains at 237 and 170.
+  Task 7 still requires authenticated login and one bounded restored DeepSeek
+  health test before it is complete. No provider call or cutover has run; see
+  `docs/DATA_MIGRATION.md` and the current status ledger.
 - Source databases are read-only migration inputs. Restore and verification
   must use a distinct target and keep rollback artifacts recoverable.

@@ -33,8 +33,8 @@ ledger.
   create a plaintext dump or provide a database-drop path. Verification uses
   allowlisted non-sensitive digests and aggregate ciphertext-row identities;
   password hashes and raw credential bytes are excluded.
-- The authorized live database copy from `shensi_sales` into the distinct
-  `shensi` database completed at `a681c123`. Restore-boundary verification
+- The restore-boundary database-copy stage from `shensi_sales` into the
+  distinct `shensi` database completed at `a681c123`. Closed verification
   matched 237 tables and 170 rows plus stable identities, model projections,
   and aggregate encrypted-row identities. The first target-backend startup
   added one deterministic `system_migration` model-activation audit row; a
@@ -47,30 +47,33 @@ ledger.
 
 ## Active
 
-- The restored `shensi` database is awaiting authenticated login and
-  restored-provider runtime acceptance. The task-owned isolated backend was
-  stopped after its MySQL health evidence was captured. The legacy repository,
-  source database, and user-facing processes remain rollback inputs; no
-  cutover has occurred.
+- Task 7 remains active and incomplete. Its plan Step 6 must authenticate with
+  an already valid operator-supplied login, load the restored
+  `deepseek-v4-pro` connection, and complete one bounded health test before
+  Task 7 can be marked complete. The task-owned isolated backend was stopped
+  after its MySQL health and restart-idempotency evidence was captured. The
+  legacy repository, source database, and user-facing processes remain rollback
+  inputs; no cutover has occurred.
 
 ## Blocked
 
-- No code or documentation blocker is recorded for the current task.
 - Docker Engine and Docker Compose are unavailable in the current execution
   environment (`docker: command not found`), so Compose rendering and image
   builds require verification in a Docker-equipped environment.
-- Login/session and restored DeepSeek credential health cannot be verified
+- Task 7 plan Step 6 login/session and restored DeepSeek credential health
+  cannot be verified
   because the ignored environment contains no authorized test email/password
   pair. The restored `deepseek-v4-pro` projection and ciphertext identity match,
-  but no external provider call was made. Cutover remains separately
-  unauthorized.
+  but no external provider call was made. This blocks overall Task 7
+  acceptance; cutover remains separately unauthorized.
 
 ## Next
 
 1. Supply a valid test login pair through the ignored operator secret boundary,
-   then run the bounded login/session and restored DeepSeek health check.
-2. Run the remaining full-runtime acceptance gates and request explicit
-   cutover approval.
+   then complete Task 7 plan Step 6 with the bounded login/session and restored
+   DeepSeek health check.
+2. Only after Task 7 passes, run Task 8 full-runtime acceptance and request
+   explicit cutover approval.
 
 The two executing design/plan documents are retained under
 `docs/superpowers/` until final acceptance, but they are not progress authority.
