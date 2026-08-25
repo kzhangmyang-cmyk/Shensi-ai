@@ -35,7 +35,7 @@
 - Produces: `MediaCrawlerRunner(headless: bool)` and activity events consumed by `CrawlJobManager`.
 - Consumes: `MEDIACRAWLER_BROWSER_HEADLESS`; the crawl subprocess explicitly sets `ENABLE_CDP_MODE=False`, `CDP_CONNECT_EXISTING=False`, `HEADLESS=headless`, and `CDP_HEADLESS=headless`.
 
-- [ ] **Step 1: Write failing browser-configuration and observation-navigation tests**
+- [x] **Step 1: Write failing browser-configuration and observation-navigation tests**
 
 ```python
 def test_execute_upstream_disables_cdp_and_applies_configured_visible_mode(...):
@@ -52,7 +52,7 @@ def test_visible_observer_navigates_only_to_approved_douyin_search_and_video(...
     ]
 ```
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run:
 
@@ -64,7 +64,7 @@ uv run --frozen --project services/media-crawler pytest -q \
 
 Expected: failures because crawl activity and explicit standard-browser configuration do not exist.
 
-- [ ] **Step 3: Add the minimal sidecar implementation**
+- [x] **Step 3: Add the minimal sidecar implementation**
 
 ```python
 class CrawlActivity(BaseModel):
@@ -83,7 +83,7 @@ The runner writes only this snapshot, the manager validates the keyword
 against `request.keywords`, increments the persisted sequence, and the visible
 observer wraps search/comment calls without changing their returned data.
 
-- [ ] **Step 4: Run the focused tests and verify GREEN**
+- [x] **Step 4: Run the focused tests and verify GREEN**
 
 Run the command from Step 2. Expected: PASS with no external requests.
 
@@ -265,4 +265,3 @@ git diff --check
 Expected: all available deterministic gates pass. Docker/live Douyin gates
 remain outside this change and must be reported as not run, not treated as
 successful.
-
