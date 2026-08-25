@@ -57,7 +57,9 @@ test("outreach batch and ordered action responses conform without private eviden
     batchRevision: 1, candidateId: "candidate-1", accountId: "account-1",
     accountLoginStateVersion: 2, policyVersionId: "policy-1", localDate: "2026-08-05",
     kind: "comment", sequence: 1, status: "queued", predecessorActionId: null,
-    content: candidate.comment, contentHash: hash, approvalHash: hash, createdAt: NOW }] };
+    targetPublicUrl: "https://www.douyin.com/video/7350000000000000001",
+    content: candidate.comment, contentHash: hash, approvalHash: hash, attemptCount: 0,
+    platformReceiptReference: null, occurredAt: null, failureCode: null, createdAt: NOW }] };
   assertResponseConforms("/api/v1/acquisition/outreach-batches/{batchId}/actions", "get", 200, actions);
   assert.equal(JSON.stringify(batch).includes("evidenceText"), false);
   assert.equal(JSON.stringify(batch).includes("accountHandle"), false);

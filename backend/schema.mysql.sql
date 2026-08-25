@@ -2963,10 +2963,36 @@ CREATE TABLE acquisition_outreach_actions (
   account_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   local_date DATE NOT NULL, kind VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   sequence INT NOT NULL, status VARCHAR(40) NOT NULL, predecessor_action_id VARCHAR(255) NULL,
+  target_public_url VARCHAR(2000) NOT NULL,
   content_text TEXT NOT NULL, content_hash CHAR(71) NOT NULL, approval_hash CHAR(71) NOT NULL,
-  payload_json JSON NOT NULL, created_at DATETIME(3) NOT NULL,
+  payload_json JSON NOT NULL, created_at DATETIME(3) NOT NULL, attempt_count INT NOT NULL DEFAULT 0,
+  lease_owner VARCHAR(255) NULL, lease_token CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  fencing_token BIGINT NOT NULL DEFAULT 0, lease_expires_at DATETIME(3) NULL, claimed_at DATETIME(3) NULL,
+  platform_receipt_reference VARCHAR(255) NULL, occurred_at DATETIME(3) NULL,
+  failure_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NULL,
   UNIQUE KEY uk_acquisition_outreach_action_sequence (batch_id, batch_revision, candidate_id, sequence),
   UNIQUE KEY uk_acquisition_outreach_daily_candidate (workspace_id, account_id, local_date, candidate_id, kind),
   CONSTRAINT fk_acquisition_outreach_action_batch FOREIGN KEY (batch_id, batch_revision)
     REFERENCES acquisition_outreach_batches (id, revision)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_action_accounts (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  account_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  next_eligible_at DATETIME(3) NULL, consecutive_failures INT NOT NULL DEFAULT 0,
+  risk_paused BOOLEAN NOT NULL DEFAULT FALSE, updated_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id, account_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_action_attempts (
+  action_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  fencing_token BIGINT NOT NULL, lease_token CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  worker_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  claimed_at DATETIME(3) NOT NULL, lease_expires_at DATETIME(3) NOT NULL,
+  completed_at DATETIME(3) NULL, outcome VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  failure_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  platform_receipt_reference VARCHAR(255) NULL,
+  UNIQUE KEY uk_acquisition_outreach_action_attempt_fence (action_id, fencing_token),
+  CONSTRAINT fk_acquisition_outreach_action_attempt FOREIGN KEY (action_id)
+    REFERENCES acquisition_outreach_actions (id)
 ) ENGINE=InnoDB;

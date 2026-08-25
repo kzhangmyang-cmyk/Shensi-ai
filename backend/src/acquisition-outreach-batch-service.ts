@@ -23,7 +23,8 @@ export interface OutreachRunAuthority {
 }
 export interface OutreachCandidateAuthority {
   candidateId: string; candidateRevision: number; evidenceHashes: string[];
-  evidenceText: string[]; publicActorKey: string; doNotContact: boolean;
+  evidenceText: string[]; publicActorKey: string; publicProfileUrl: string;
+  commentTargetPublicUrl: string; doNotContact: boolean;
 }
 
 export class AcquisitionOutreachBatchError extends Error {
@@ -81,7 +82,9 @@ export class AcquisitionOutreachBatchService {
       }
       candidates.push({ candidateId, selected: true, candidateRevision: draft.candidateRevision,
         evidenceHashes: Object.freeze([...draft.evidenceHashes]), evidenceText: Object.freeze([...current.evidenceText]),
-        publicActorKey: current.publicActorKey, draftRevision: 1,
+        publicActorKey: current.publicActorKey,
+        publicProfileUrl: current.publicProfileUrl,
+        commentTargetPublicUrl: current.commentTargetPublicUrl, draftRevision: 1,
         comment: draft.comment, commentHash: outreachContentHash(draft.comment),
         directMessage: draft.directMessage, directMessageHash: outreachContentHash(draft.directMessage),
         rationaleCodes: Object.freeze([...draft.rationaleCodes]), modelSnapshotId: draft.modelSnapshotId,
@@ -179,6 +182,8 @@ export class AcquisitionOutreachBatchService {
         for (const candidate of selected) {
           const authority = await this.options.loadCandidateAuthority(scope, candidate.candidateId);
           if (!authority || authority.doNotContact || authority.publicActorKey !== candidate.publicActorKey
+            || authority.publicProfileUrl !== candidate.publicProfileUrl
+            || authority.commentTargetPublicUrl !== candidate.commentTargetPublicUrl
             || authority.candidateRevision !== candidate.candidateRevision
             || canonicalJsonStringify([...authority.evidenceHashes].sort()) !== canonicalJsonStringify([...candidate.evidenceHashes].sort())) {
             throw new AcquisitionOutreachBatchError("candidate_evidence_invalid");
@@ -200,13 +205,15 @@ export class AcquisitionOutreachBatchService {
             accountId: current.accountId, accountLoginStateVersion: current.accountLoginStateVersion,
             policyVersionId: current.policyVersionId, localDate: current.localDate,
             kind: "comment", sequence: 1, status: "queued", predecessorActionId: null,
+            targetPublicUrl: candidate.commentTargetPublicUrl,
             content: candidate.comment, contentHash: candidate.commentHash, approvalHash, createdAt: approvedAt });
           actions.push({ id: this.options.idFactory("outreach-action"), workspaceId: current.workspaceId,
             batchId, batchRevision: current.revision, candidateId: candidate.candidateId,
             accountId: current.accountId, accountLoginStateVersion: current.accountLoginStateVersion,
             policyVersionId: current.policyVersionId, localDate: current.localDate,
             kind: "direct_message", sequence: 2, status: "blocked_by_predecessor",
-            predecessorActionId: commentId, content: candidate.directMessage,
+            predecessorActionId: commentId, targetPublicUrl: candidate.publicProfileUrl,
+            content: candidate.directMessage,
             contentHash: candidate.directMessageHash, approvalHash, createdAt: approvedAt });
         }
         return { batch, actions };

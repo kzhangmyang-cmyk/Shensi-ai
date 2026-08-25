@@ -235,7 +235,9 @@ test("outreach batch OpenAPI publishes all eight secure revision and outbox oper
   const actions = paths["/api/v1/acquisition/outreach-batches/{batchId}/actions"]!.get as Record<string, any>;
   const item = actions.responses["200"].content["application/json"].schema.properties.items.items;
   assert.deepEqual(item.properties.kind.enum, ["comment", "direct_message"]);
-  assert.deepEqual(item.properties.status.enum, ["queued", "blocked_by_predecessor"]);
+  assert.deepEqual(item.properties.status.enum, ["queued", "blocked_by_predecessor",
+    "executing", "succeeded", "failed", "risk_paused"]);
+  assert.equal(item.properties.platformReceiptReference.nullable, true);
 });
 
 test("Douyin automation OpenAPI closes policy and run-now inputs and outputs", () => {

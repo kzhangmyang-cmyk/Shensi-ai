@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type {
   AcquisitionOutreachAction,
   AcquisitionOutreachBatch
@@ -33,6 +33,28 @@ export interface AcquisitionOutreachBatchRepository {
   listActions(workspaceId: string, batchId: string): Promise<AcquisitionOutreachAction[] | null>;
   remaining(workspaceId: string, accountId: string, localDate: string,
     dailyLimit: number): Promise<number>;
+  claimNextAction(input: OutreachActionClaimInput): Promise<OutreachActionClaim | null>;
+  completeActionSuccess(fence: OutreachActionFence,
+    receipt: OutreachActionSuccessReceipt): Promise<boolean>;
+  completeActionFailure(fence: OutreachActionFence, failureCode: string,
+    occurredAt: string): Promise<{ completed: boolean; accountPaused: boolean }>;
+  recoverExpiredActionClaims(now: string): Promise<number>;
+}
+
+export interface OutreachActionFence {
+  actionId: string; workerId: string; leaseToken: string; fencingToken: number;
+}
+export interface OutreachActionClaimInput {
+  workerId: string; now: string; leaseDurationMs: number;
+}
+export interface OutreachActionClaim {
+  action: AcquisitionOutreachAction;
+  fence: OutreachActionFence;
+  claimedAt: string;
+  leaseExpiresAt: string;
+}
+export interface OutreachActionSuccessReceipt {
+  platformReceiptReference: string; occurredAt: string;
 }
 
 interface Replay { requestHash: string; value: AcquisitionOutreachBatch; }
@@ -41,6 +63,11 @@ interface State {
   actions: Map<string, AcquisitionOutreachAction[]>;
   replays: Map<string, Replay>;
   dailyCandidates: Set<string>;
+  actionRuntime: Map<string, { workerId: string | null; leaseToken: string | null;
+    fencingToken: number; leaseExpiresAt: string | null; claimedAt: string | null;
+    nextEligibleAt: string | null; attemptCount: number }>;
+  accounts: Map<string, { nextEligibleAt: string | null; consecutiveFailures: number;
+    paused: boolean }>;
 }
 function clone<T>(value: T): T { return structuredClone(value); }
 function replayKey(workspaceId: string, operation: string, key: string) {
@@ -53,7 +80,8 @@ function dailyPrefix(workspaceId: string, accountId: string, localDate: string) 
 
 export class InMemoryAcquisitionOutreachBatchRepository
 implements AcquisitionOutreachBatchRepository {
-  private state: State = { batches: new Map(), actions: new Map(), replays: new Map(), dailyCandidates: new Set() };
+  private state: State = { batches: new Map(), actions: new Map(), replays: new Map(),
+    dailyCandidates: new Set(), actionRuntime: new Map(), accounts: new Map() };
   private tail: Promise<void> = Promise.resolve();
   constructor(private readonly testing: { failActionInsertAt?: number;
     memoryTransactions?: AcquisitionMemoryTransactionCoordinator } = {}) {}
@@ -149,6 +177,10 @@ implements AcquisitionOutreachBatchRepository {
       const key = batchKey(input.workspaceId, input.batchId);
       state.batches.get(key)!.splice(-1, 1, clone(built.batch));
       state.actions.set(key, clone(built.actions));
+      for (const action of built.actions) state.actionRuntime.set(action.id, {
+        workerId: null, leaseToken: null, fencingToken: 0, leaseExpiresAt: null,
+        claimedAt: null, nextEligibleAt: null, attemptCount: 0
+      });
       this.recordReplay(state, { ...input, operation: "approve" }, built.batch);
       return { kind: "created", value: built.batch };
     });
@@ -170,9 +202,127 @@ implements AcquisitionOutreachBatchRepository {
   }
   async listActions(workspaceId: string, batchId: string) {
     const state = await this.snapshot(); const key = batchKey(workspaceId, batchId);
-    return state.batches.has(key) ? state.actions.get(key) ?? [] : null;
+    if (!state.batches.has(key)) return null;
+    return (state.actions.get(key) ?? []).map((action) => ({ ...action,
+      attemptCount: state.actionRuntime.get(action.id)?.attemptCount ?? 0,
+      platformReceiptReference: action.platformReceiptReference ?? null,
+      occurredAt: action.occurredAt ?? null,
+      failureCode: action.failureCode ?? null
+    }));
   }
   async remaining(workspaceId: string, accountId: string, localDate: string, dailyLimit: number) {
     return this.remainingIn(await this.snapshot(), workspaceId, accountId, localDate, dailyLimit);
+  }
+
+  claimNextAction(input: OutreachActionClaimInput) {
+    return this.transaction<OutreachActionClaim | null>((state) => {
+      const at = Date.parse(input.now);
+      if (!Number.isFinite(at) || !Number.isSafeInteger(input.leaseDurationMs)
+        || input.leaseDurationMs < 1) throw new TypeError("invalid_outreach_action_claim");
+      const actions = [...state.actions.values()].flat()
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt)
+          || left.id.localeCompare(right.id));
+      for (const action of actions) {
+        if (action.status !== "queued" && action.status !== "blocked_by_predecessor") continue;
+        const batch = this.current(state, action.workspaceId, action.batchId);
+        if (!batch || batch.state !== "approved" || batch.revision !== action.batchRevision
+          || batch.approvalHash !== action.approvalHash) continue;
+        const approvedToday = [...state.dailyCandidates].filter((key) => key.startsWith(
+          dailyPrefix(action.workspaceId, action.accountId, action.localDate))).length;
+        if (approvedToday > batch.dailyCandidateLimit) continue;
+        const accountKey = `${action.workspaceId}\u0000${action.accountId}`;
+        const account = state.accounts.get(accountKey) ?? {
+          nextEligibleAt: null, consecutiveFailures: 0, paused: false
+        };
+        if (account.paused || (account.nextEligibleAt
+          && Date.parse(account.nextEligibleAt) > at)) continue;
+        const accountBusy = actions.some((other) => other.accountId === action.accountId
+          && other.workspaceId === action.workspaceId && other.status === "executing");
+        if (accountBusy) continue;
+        if (action.kind === "direct_message") {
+          const predecessor = actions.find((other) => other.id === action.predecessorActionId);
+          if (!predecessor || predecessor.status !== "succeeded" || !predecessor.occurredAt
+            || Date.parse(predecessor.occurredAt) + 180_000 > at) continue;
+        }
+        const runtime = state.actionRuntime.get(action.id) ?? { workerId: null,
+          leaseToken: null, fencingToken: 0, leaseExpiresAt: null,
+          claimedAt: null, nextEligibleAt: null, attemptCount: 0 };
+        const leaseToken = randomBytes(32).toString("hex");
+        runtime.workerId = input.workerId; runtime.leaseToken = leaseToken;
+        runtime.fencingToken += 1; runtime.claimedAt = input.now;
+        runtime.leaseExpiresAt = new Date(at + input.leaseDurationMs).toISOString();
+        runtime.attemptCount += 1;
+        state.actionRuntime.set(action.id, runtime);
+        action.status = "executing";
+        account.nextEligibleAt = new Date(at + 60_000).toISOString();
+        state.accounts.set(accountKey, account);
+        return { action: clone(action), claimedAt: input.now,
+          leaseExpiresAt: runtime.leaseExpiresAt,
+          fence: { actionId: action.id, workerId: input.workerId, leaseToken,
+            fencingToken: runtime.fencingToken } };
+      }
+      return null;
+    });
+  }
+
+  completeActionSuccess(fence: OutreachActionFence, receipt: OutreachActionSuccessReceipt) {
+    return this.transaction<boolean>((state) => {
+      const located = [...state.actions.values()].flat().find((value) => value.id === fence.actionId);
+      const runtime = state.actionRuntime.get(fence.actionId);
+      if (!located || located.status !== "executing" || !runtime
+        || runtime.workerId !== fence.workerId || runtime.leaseToken !== fence.leaseToken
+        || runtime.fencingToken !== fence.fencingToken) return false;
+      located.status = "succeeded";
+      located.platformReceiptReference = receipt.platformReceiptReference;
+      located.occurredAt = receipt.occurredAt; located.failureCode = null;
+      for (const candidate of [...state.actions.values()].flat()) {
+        if (candidate.predecessorActionId === located.id
+          && candidate.status === "blocked_by_predecessor") candidate.status = "queued";
+      }
+      runtime.workerId = null; runtime.leaseToken = null; runtime.leaseExpiresAt = null;
+      const accountKey = `${located.workspaceId}\u0000${located.accountId}`;
+      const account = state.accounts.get(accountKey)!; account.consecutiveFailures = 0;
+      return true;
+    });
+  }
+
+  completeActionFailure(fence: OutreachActionFence, failureCode: string, occurredAt: string) {
+    return this.transaction<{ completed: boolean; accountPaused: boolean }>((state) => {
+      const actions = [...state.actions.values()].flat();
+      const located = actions.find((value) => value.id === fence.actionId);
+      const runtime = state.actionRuntime.get(fence.actionId);
+      if (!located || located.status !== "executing" || !runtime
+        || runtime.workerId !== fence.workerId || runtime.leaseToken !== fence.leaseToken
+        || runtime.fencingToken !== fence.fencingToken) return { completed: false, accountPaused: false };
+      located.status = "failed"; located.failureCode = failureCode;
+      located.occurredAt = occurredAt; located.platformReceiptReference = null;
+      runtime.workerId = null; runtime.leaseToken = null; runtime.leaseExpiresAt = null;
+      const accountKey = `${located.workspaceId}\u0000${located.accountId}`;
+      const account = state.accounts.get(accountKey)!;
+      account.consecutiveFailures += 1;
+      const immediatePause = ["douyin_verification_required", "douyin_rate_limited",
+        "douyin_account_warning", "douyin_login_expired"].includes(failureCode);
+      account.paused = immediatePause || account.consecutiveFailures >= 3;
+      if (account.paused) for (const action of actions) {
+        if (action.workspaceId === located.workspaceId && action.accountId === located.accountId
+          && ["queued", "blocked_by_predecessor"].includes(action.status)) action.status = "risk_paused";
+      }
+      return { completed: true, accountPaused: account.paused };
+    });
+  }
+
+  recoverExpiredActionClaims(now: string) {
+    return this.transaction<number>((state) => {
+      const at = Date.parse(now); let recovered = 0;
+      for (const action of [...state.actions.values()].flat()) {
+        const runtime = state.actionRuntime.get(action.id);
+        if (action.status !== "executing" || !runtime?.leaseExpiresAt
+          || Date.parse(runtime.leaseExpiresAt) > at) continue;
+        action.status = action.kind === "direct_message" ? "blocked_by_predecessor" : "queued";
+        runtime.workerId = null; runtime.leaseToken = null; runtime.leaseExpiresAt = null;
+        recovered += 1;
+      }
+      return recovered;
+    });
   }
 }

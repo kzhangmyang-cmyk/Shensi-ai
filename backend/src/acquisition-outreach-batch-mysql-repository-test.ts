@@ -78,7 +78,9 @@ function liveBatch(id: string, candidateId: string): AcquisitionOutreachBatch {
     dailyRemainingLimit: 50, revision: 1, etag: `"outreach-batch:${id}:1"`,
     state: "awaiting_approval", candidates: [{
       candidateId, selected: true, candidateRevision: 1, evidenceHashes: [digest("4")],
-      evidenceText: ["公开需求"], publicActorKey: `actor-${candidateId}`, draftRevision: 1,
+      evidenceText: ["公开需求"], publicActorKey: `actor-${candidateId}`,
+      publicProfileUrl: `https://www.douyin.com/user/${candidateId}`,
+      commentTargetPublicUrl: `https://www.douyin.com/video/${candidateId}`, draftRevision: 1,
       comment: "公开评论", commentHash: digest("5"), directMessage: "公开私信",
       directMessageHash: digest("6"), rationaleCodes: ["evidence_grounded"],
       modelSnapshotId: "model-live", sourceModelSnapshotId: "model-live",
@@ -99,6 +101,7 @@ function liveActions(batch: AcquisitionOutreachBatch, duplicateIds = false): Acq
     accountId: batch.accountId, accountLoginStateVersion: batch.accountLoginStateVersion,
     policyVersionId: batch.policyVersionId, localDate: batch.localDate, kind: "comment",
     sequence: 1, status: "queued", predecessorActionId: null,
+    targetPublicUrl: `https://www.douyin.com/video/${batch.candidates[0]!.candidateId}`,
     content: batch.candidates[0]!.comment, contentHash: batch.candidates[0]!.commentHash,
     approvalHash, createdAt: batch.updatedAt
   }, {
@@ -108,7 +111,9 @@ function liveActions(batch: AcquisitionOutreachBatch, duplicateIds = false): Acq
     accountLoginStateVersion: batch.accountLoginStateVersion,
     policyVersionId: batch.policyVersionId, localDate: batch.localDate,
     kind: "direct_message", sequence: 2, status: "blocked_by_predecessor",
-    predecessorActionId: firstId, content: batch.candidates[0]!.directMessage,
+    predecessorActionId: firstId,
+    targetPublicUrl: `https://www.douyin.com/user/${batch.candidates[0]!.candidateId}`,
+    content: batch.candidates[0]!.directMessage,
     contentHash: batch.candidates[0]!.directMessageHash, approvalHash,
     createdAt: batch.updatedAt
   }];

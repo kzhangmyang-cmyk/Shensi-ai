@@ -177,9 +177,28 @@ reentrant authority coordinator; MySQL locks the account and reuses one
 connection for candidate/evidence/DNC locks, approval, replay, daily-limit
 reservation, and both action inserts.
 
+The action worker claims the earliest eligible action under a random lease and
+monotonic fence, with one in-flight action per account. Before the private
+sidecar call it rechecks the active account/login version, approval and action
+hashes, candidate revision/evidence hashes, DNC, policy/job/budget bindings,
+predecessor receipt, daily allowance, and persisted delay. Server timestamps
+enforce at least 60 seconds between any account actions and 180 seconds from a
+comment receipt to its matching direct message across restart or clock skew.
+The sidecar receives only the frozen public video/profile URL and exact
+approved text, reuses the account's authenticated browser profile, submits
+once, and returns a sanitized platform receipt reference. Verification,
+rate-limit, account-warning, login-expiry, missing-control, and timeout states
+are closed failures; no alternate selector or bypass route is attempted. A
+comment receipt remains succeeded if the later message fails. Three
+consecutive failures, and immediate account-risk failures, persistently pause
+the account and all its queued work. Expired claims are swept for exact replay,
+and stale completions cannot overwrite the current fence.
+
 ## Tests
 
 - Focused domain/runtime: `pnpm --filter ./backend test:acquisition`
+- Focused outreach actions (live MySQL when configured):
+  `pnpm --filter ./backend test:acquisition-outreach-actions`
 - Contract parity/security: `pnpm check:acquisition-contracts`
 - Frontend aggregate: `pnpm --filter ./frontend test`
 - Browser flows: `pnpm test:e2e`

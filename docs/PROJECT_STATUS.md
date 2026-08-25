@@ -113,12 +113,25 @@ ledger.
   queued comment and predecessor-blocked direct message per candidate. Memory
   and MySQL roll back approval if either action insert fails; MySQL reuses one
   locked authority transaction connection.
+- Approved outreach actions now execute through an application-owned fenced
+  worker and recovery sweeper only when the private MediaCrawler gateway is
+  configured. Claims serialize each account and persist server-time delays of
+  at least 60 seconds between actions and 180 seconds from comment receipt to
+  direct message. The worker revalidates active account/login, approval,
+  candidate/evidence, DNC, content, predecessor, policy/job/budget, and daily
+  allowance authority before each call. The sidecar reuses the encrypted
+  authenticated profile, submits the exact approved text once to the frozen
+  public target, and returns a sanitized receipt. Fenced recovery prevents
+  stale writes; three consecutive failures or an immediate platform-risk state
+  pause the account and all queued work. Focused fake-page, Memory, and live
+  MySQL 8.4 gates exercise this behavior without making a real Douyin action.
 
 ## Active
 
-- Task 8 full-runtime acceptance and cutover planning are next. The legacy
-  repository, source database, and user-facing processes remain rollback
-  inputs; no cutover has occurred and none is authorized by Task 7.
+- Task 9 action-history and risk-control UI is next. No production Douyin
+  action, traffic cutover, or real-account acceptance is claimed by Task 8.
+  The legacy repository, source database, and user-facing processes remain
+  rollback inputs.
 
 ## Blocked
 
@@ -128,9 +141,10 @@ ledger.
 
 ## Next
 
-1. Run Task 8 full-runtime acceptance in a Docker-equipped environment.
-2. Request explicit cutover approval only after Task 8 passes; Task 7 did not
-   authorize cutover.
+1. Implement Task 9 against the sanitized action projection and risk-pause
+   state delivered by Task 8.
+2. Request explicit real-account/cutover authorization only after the planned
+   acceptance gates; Task 8 did not authorize either.
 
 The two executing design/plan documents are retained under
 `docs/superpowers/` until final acceptance, but they are not progress authority.

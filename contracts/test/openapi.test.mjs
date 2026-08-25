@@ -463,7 +463,9 @@ test("outreach approval is a closed human confirmation that publishes exact orde
   assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.properties.kind.enum,
     ["comment", "direct_message"]);
   assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.properties.status.enum,
-    ["queued", "blocked_by_predecessor"]);
+    ["queued", "blocked_by_predecessor", "executing", "succeeded", "failed", "risk_paused"]);
+  assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.required.slice(-4),
+    ["attemptCount", "platformReceiptReference", "occurredAt", "failureCode"]);
 });
 
 test("authorized visual reader routes reuse the acquisition API style and binary artifact boundary", async () => {

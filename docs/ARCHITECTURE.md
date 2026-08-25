@@ -113,6 +113,23 @@ batch transaction connection for account and Task 6 final-authority locks,
 replay, daily allowance, and action inserts, so a failed second insert rolls
 back the whole approval.
 
+The acquisition application owns a separate outreach-action worker and
+expired-claim sweeper whenever the private MediaCrawler gateway is configured.
+Claims are random-token leased and monotonically fenced, serialize each
+account, and reserve persisted server-time eligibility before the sidecar call.
+The repository enforces at least 60 seconds between account actions and at
+least 180 seconds from a successful comment receipt to its direct-message
+claim. The worker then revalidates the active account/login version, approved
+batch and action hashes, candidate/evidence authority, predecessor receipt,
+policy binding, and daily allowance. Only the frozen public video/profile URL
+and exact approved text cross the private action port. Receipts commit under
+the fence; an expired lease requeues exact replay, while stale completions are
+rejected. Three consecutive failures, or a verification/rate-limit/account-
+warning/login risk response, atomically pauses the account and all queued work.
+The sidecar reuses only that account's authenticated profile, centralizes UI
+selectors and closed page-state errors, clicks once, and never implements a
+bypass path.
+
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a
 development and focused-test implementation; MySQL mode is required for

@@ -2056,13 +2056,21 @@ export interface components {
             /** @enum {integer} */
             sequence: 1 | 2;
             /** @enum {string} */
-            status: "queued" | "blocked_by_predecessor";
+            status: "queued" | "blocked_by_predecessor" | "executing" | "succeeded" | "failed" | "risk_paused";
             predecessorActionId: string | null;
+            /** Format: uri */
+            targetPublicUrl: string;
             content: string;
             contentHash: string;
             approvalHash: string;
             /** Format: date-time */
             createdAt: string;
+            attemptCount: number;
+            platformReceiptReference: string | null;
+            /** Format: date-time */
+            occurredAt: string | null;
+            /** @enum {string|null} */
+            failureCode: "action_unavailable" | "action_rejected" | "deadline_exceeded" | "douyin_verification_required" | "douyin_rate_limited" | "douyin_account_warning" | "douyin_login_expired" | "douyin_action_control_missing" | "douyin_action_timeout" | null;
         };
         AcquisitionOutreachActionList: {
             items: components["schemas"]["AcquisitionOutreachAction"][];

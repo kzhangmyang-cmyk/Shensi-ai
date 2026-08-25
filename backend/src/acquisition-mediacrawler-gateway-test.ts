@@ -123,6 +123,35 @@ test("gateway acknowledges persisted pages and returns the server timestamp", as
   });
 });
 
+test("gateway sends the exact frozen action and accepts only a bound sanitized receipt", async () => {
+  await withServer((request, response) => {
+    assert.equal(request.method, "POST");
+    assert.equal(request.url, "/internal/v1/douyin/actions/action-1");
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    request.on("end", () => {
+      assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString("utf8")), {
+        action_id: "action-1", account_handle: "private-handle",
+        login_state_version: 3, kind: "comment",
+        target_public_url: "https://www.douyin.com/video/video-1",
+        content: "exact approved content", deadline_at: "2026-08-25T04:01:00.000Z",
+        approved_content_hash: `sha256:${"a".repeat(64)}`
+      });
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ action_id: "action-1", state: "succeeded",
+        platform_receipt_reference: "receipt-1", occurred_at: "2026-08-25T04:00:01.000Z",
+        failure_code: null }));
+    });
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    assert.equal((await gateway.executeAction({ actionId: "action-1",
+      accountHandle: "private-handle", loginStateVersion: 3, kind: "comment",
+      targetPublicUrl: "https://www.douyin.com/video/video-1",
+      content: "exact approved content", approvedContentHash: `sha256:${"a".repeat(64)}`,
+      deadlineAt: "2026-08-25T04:01:00.000Z" })).platformReceiptReference, "receipt-1");
+  });
+});
+
 test("gateway accepts a real-shaped commenter identity and rejects a root actor", async () => {
   for (const [profile, accepted] of [
     ["https://www.douyin.com/user/MS4wLjABCommenter", true],

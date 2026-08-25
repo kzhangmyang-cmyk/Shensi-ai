@@ -13,11 +13,16 @@ from multiprocessing.connection import Connection
 from pathlib import Path
 from typing import Protocol
 
+from .douyin_actions import DouyinActionExecutor, DouyinActionFailure
+from .schemas import ActionRequest
+
 
 class BrowserState(Protocol):
     def open_douyin_login(self, profile_path: Path) -> dict[str, str]: ...
     def close(self, context: object) -> None: ...
     def poll_douyin_login(self, context: object) -> dict[str, object]: ...
+    def execute_douyin_action(self, profile_path: Path,
+                              request: ActionRequest) -> dict[str, object]: ...
 
 
 def _start_playwright(factory: Callable[[], object] | None) -> object:
@@ -57,6 +62,17 @@ def _open_context(playwright: object, profile_path: str) -> tuple[object, str]:
     except BaseException:
         context.close()
         raise
+
+
+def _execute_action(playwright: object, profile_path: str,
+                    raw_request: object) -> dict[str, object]:
+    request = ActionRequest.model_validate(raw_request)
+    context = playwright.chromium.launch_persistent_context(profile_path, headless=True)
+    try:
+        page = context.pages[0] if context.pages else context.new_page()
+        return DouyinActionExecutor().execute(page, request).model_dump(mode="json")
+    finally:
+        context.close()
 
 
 def _browser_worker(connection: Connection, factory: Callable[[], object] | None) -> None:
@@ -132,6 +148,14 @@ def _browser_worker(connection: Connection, factory: Callable[[], object] | None
                     context.close()
                     contexts.pop(handle, None)
                     value = None
+                elif operation == "action":
+                    try:
+                        value = _execute_action(playwright,
+                            str(command["profile_path"]), command["request"])
+                    except DouyinActionFailure:
+                        raise
+                    except BaseException as error:
+                        raise DouyinActionFailure("action_unavailable") from error
                 else:
                     raise RuntimeError("douyin_browser_invalid_command")
                 connection.send({"id": command_id, "kind": "ok", "value": value})
@@ -317,6 +341,11 @@ class MediaCrawlerDouyinBrowserState:
 
     def close(self, context: object) -> None:
         self._call("close", handle=self._handle(context))
+
+    def execute_douyin_action(self, profile_path: Path,
+                              request: ActionRequest) -> dict[str, object]:
+        return self._call("action", profile_path=str(profile_path),
+                          request=request.model_dump(mode="json"))  # type: ignore[return-value]
 
     def close_browser(self) -> None:
         with self._lock:

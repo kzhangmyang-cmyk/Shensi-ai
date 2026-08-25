@@ -56,6 +56,19 @@ const crawlPageResponseSchema = z.object({
   job_id: z.string().min(1), cursor: z.string().nullable(), next_cursor: z.string().nullable(),
   done: z.boolean(), records: z.array(normalizedRecordSchema).max(200)
 }).strict();
+const actionReceiptResponseSchema = z.object({
+  action_id: z.string().min(1), state: z.enum(["succeeded", "failed"]),
+  platform_receipt_reference: z.string().min(1).max(255).nullable(),
+  occurred_at: z.string().datetime(),
+  failure_code: z.enum(["action_unavailable", "action_rejected", "deadline_exceeded",
+    "douyin_verification_required", "douyin_rate_limited", "douyin_account_warning",
+    "douyin_login_expired", "douyin_action_control_missing", "douyin_action_timeout"]).nullable()
+}).strict().superRefine((value, context) => {
+  const valid = value.state === "succeeded"
+    ? value.platform_receipt_reference !== null && value.failure_code === null
+    : value.platform_receipt_reference === null && value.failure_code !== null;
+  if (!valid) context.addIssue({ code: "custom", message: "invalid_action_receipt" });
+});
 
 type GatewayCode = "mediacrawler_unavailable" | "mediacrawler_invalid_response";
 
@@ -86,6 +99,8 @@ export interface DouyinMediaCrawlerGateway {
     acknowledgedAt: string;
   }>>;
   cancelCrawlJob(jobId: string, signal?: AbortSignal): Promise<void>;
+  executeAction(input: import("./acquisition-outreach-action-worker.js").OutreachActionExecutionRequest,
+    signal?: AbortSignal): Promise<import("./acquisition-outreach-action-worker.js").OutreachActionExecutionReceipt>;
 }
 
 export interface DouyinCrawlJobInput {
@@ -309,6 +324,22 @@ export function createDouyinMediaCrawlerGateway(
         });
         if (!response.ok && response.status !== 404) throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
       } finally { request.dispose(); }
+    },
+    async executeAction(input: import("./acquisition-outreach-action-worker.js").OutreachActionExecutionRequest,
+      signal?: AbortSignal) {
+      const parsed = actionReceiptResponseSchema.safeParse(await jsonRequest("POST",
+        `/internal/v1/douyin/actions/${encodeURIComponent(input.actionId)}`, {
+          action_id: input.actionId, account_handle: input.accountHandle,
+          login_state_version: input.loginStateVersion, kind: input.kind,
+          target_public_url: input.targetPublicUrl, content: input.content,
+          deadline_at: input.deadlineAt, approved_content_hash: input.approvedContentHash
+        }, signal));
+      if (!parsed.success || parsed.data.action_id !== input.actionId) {
+        throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
+      }
+      return Object.freeze({ actionId: parsed.data.action_id, state: parsed.data.state,
+        platformReceiptReference: parsed.data.platform_receipt_reference,
+        occurredAt: parsed.data.occurred_at, failureCode: parsed.data.failure_code });
     },
     async health(signal?: AbortSignal) {
       const request = requestAbortSignal(signal, timeoutMs);

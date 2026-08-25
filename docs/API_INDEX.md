@@ -22,7 +22,9 @@ Do not add parallel handwritten DTOs.
   automation policies, server-derived keyword suggestions, and run-now intents with distinct authoritative
   acquisition-run IDs, persisted run crawler status, run-scoped candidate
   feeds, immutable outreach batch revisions, human approval, and ordered
-  comment-then-message action outbox reads, visual reader, copilot, outcomes,
+  comment-then-message action outbox reads with sanitized execution status,
+  attempt count, receipt reference, occurrence time, and closed failure code;
+  visual reader, copilot, outcomes,
   performance, advisor, and
   ROI-related acquisition projections.
 - `/api/v1/catalog`: catalog items, package versions, and pricing policies.

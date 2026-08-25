@@ -89,6 +89,7 @@ class ActionRequest(BaseModel):
 
     action_id: str
     account_handle: str
+    login_state_version: int
     kind: Literal["comment", "direct_message"]
     target_public_url: AnyHttpUrl
     content: str
@@ -104,5 +105,8 @@ class ActionReceipt(BaseModel):
     platform_receipt_reference: str | None
     occurred_at: datetime
     failure_code: Literal[
-        "action_unavailable", "action_rejected", "deadline_exceeded"
+        "action_unavailable", "action_rejected", "deadline_exceeded",
+        "douyin_verification_required", "douyin_rate_limited",
+        "douyin_account_warning", "douyin_login_expired",
+        "douyin_action_control_missing", "douyin_action_timeout",
     ] | None

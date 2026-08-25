@@ -116,6 +116,17 @@ bounded private upstream actor capture; it never treats upstream's anonymous
 that deletes unacknowledged result pages. Backend cleanup removes only unlinked
 crawler evidence after 90 days; DNC and audit authority are not TTL data.
 
+The same configured gateway enables the backend-owned outreach-action worker
+and expired-claim sweeper. The sidecar action endpoint is private and must use
+the existing encrypted authenticated profile; do not expose it through the
+public gateway. Node owns account serialization, fenced claims, persisted
+server-time delays, final authority revalidation, daily limits, and receipts.
+The sidecar owns only the single exact browser submission and closed platform
+state detection. Platform verification, rate limiting, account warnings, and
+login expiry pause the persisted social account and all its queued actions;
+operators must resolve the account state through the normal account lifecycle,
+never by bypassing the platform control.
+
 On an existing MySQL installation, backend schema setup must complete before
 workers start. It widens Douyin authoritative-run alias columns to 160
 characters, backfills legacy automation JSON from
@@ -125,6 +136,14 @@ legacy row stops startup with `acquisition_douyin_run_binding_migration_required
 or `crawler_job_alias_migration_required`; do not bypass that error or relabel
 an intent ID as a run ID. Take the normal encrypted backup before applying the
 migration.
+
+Existing installations also add outreach action target, lease, fence,
+attempt, receipt, and failure columns plus the account-serialization and
+attempt tables. An installation with legacy action rows but no frozen public
+target stops schema setup with
+`outreach_action_target_migration_required`; reconstruct or retire those rows
+under an operator-reviewed migration before restart. Never infer a public
+target from a private handle.
 
 Before starting the sidecar, create and mount an encrypted-at-rest host
 directory. It must already exist, must not be a symlink, and must have exact

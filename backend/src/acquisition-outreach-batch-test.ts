@@ -49,6 +49,8 @@ function fixture(options: { dailyLimit?: number; failActionInsertAt?: number } =
     loadCandidateAuthority: async (_requestedScope, candidateId) => ({
       candidateId, candidateRevision, evidenceHashes: [evidenceHash],
       evidenceText: ["需要获客方案"], publicActorKey: "actor-hash-1", doNotContact: dnc
+      , publicProfileUrl: "https://www.douyin.com/user/actor-1",
+      commentTargetPublicUrl: "https://www.douyin.com/video/video-1"
     }),
     loadAccountAuthority: async () => ({
       accountId: "account-1", state: "active", loginStateVersion: accountVersion

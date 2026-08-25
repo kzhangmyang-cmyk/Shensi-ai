@@ -354,6 +354,8 @@ import {
 } from "./acquisition-outreach-batch-mysql-repository.js";
 import { AcquisitionOutreachBatchService } from "./acquisition-outreach-batch-service.js";
 import { createAcquisitionOutreachBatchRouter } from "./acquisition-outreach-batch-router.js";
+import { AcquisitionOutreachActionWorker } from "./acquisition-outreach-action-worker.js";
+import { AcquisitionOutreachActionRecoverySweeper } from "./acquisition-outreach-action-recovery-sweeper.js";
 import {
   AcquisitionVisualCommentIngestionService
 } from "./acquisition-visual-comment-ingestion.js";
@@ -565,6 +567,8 @@ export interface CreateAcquisitionApplicationOptions {
   crawlerRecoveryIntervalMs?: number;
   crawlerEvidenceRetentionIntervalMs?: number;
   douyinSchedulerIntervalMs?: number;
+  outreachActionWorkerIntervalMs?: number;
+  outreachActionRecoveryIntervalMs?: number;
 }
 
 export interface AcquisitionApplicationRuntime
@@ -1262,6 +1266,8 @@ export async function createAcquisitionApplication(
   let crawlerEvidenceRetentionSweeper:
     AcquisitionDouyinEvidenceRetentionSweeper | null = null;
   let douyinScheduler: AcquisitionDouyinScheduler | null = null;
+  let outreachActionWorker: AcquisitionOutreachActionWorker | null = null;
+  let outreachActionRecoverySweeper: AcquisitionOutreachActionRecoverySweeper | null = null;
 
   try {
     let repositories: AcquisitionRepositorySet;
@@ -2264,15 +2270,16 @@ export async function createAcquisitionApplication(
           : createAcquisitionModelGatewayForSnapshot(options.store, snapshot);
       }
     });
-    const outreachBatches = new AcquisitionOutreachBatchService({
-      repository: options.outreachBatchRepository
+    const outreachBatchRepository = options.outreachBatchRepository
         ?? (options.store.mode === "mysql"
           ? new MysqlAcquisitionOutreachBatchRepository(pool!,
               crawlerIngestion instanceof MysqlAcquisitionDouyinCrawlerIngestionRepository
                 ? crawlerIngestion : undefined)
           : new InMemoryAcquisitionOutreachBatchRepository({
               memoryTransactions: planMemoryTransactions ?? undefined
-            })),
+            }));
+    const outreachBatches = new AcquisitionOutreachBatchService({
+      repository: outreachBatchRepository,
       idFactory,
       now,
       async loadRunAuthority(scope, runId) {
@@ -2309,11 +2316,18 @@ export async function createAcquisitionApplication(
         const verified = await finalAuthority.verify({ scope, candidateId,
           evidenceIds: [...candidate.evidenceIds].sort(), publicActorKey: candidate.profile.publicActorKey,
           expectedCandidate: candidate, expectedEvidence: trusted });
+        const firstProvenance = verified.evidence[0]?.provenance;
+        const commentTargetPublicUrl = !firstProvenance
+          || firstProvenance.kind === "import_artifact_row"
+          ? null : firstProvenance.sourceUrl;
+        if (!commentTargetPublicUrl) return null;
         return { candidateId: verified.candidate.id,
           candidateRevision: verified.candidate.version,
           evidenceHashes: verified.evidence.map((item) => item.contentHash),
           evidenceText: verified.evidence.map((item) => item.sourceSnippet),
           publicActorKey: candidate.profile.publicActorKey,
+          publicProfileUrl: candidate.profile.publicProfileUrl,
+          commentTargetPublicUrl,
           doNotContact: verified.candidate.status === "do_not_contact"
             || await finalAuthority.hasDoNotContact(scope, candidate.profile.publicActorKey) };
       },
@@ -2572,6 +2586,73 @@ export async function createAcquisitionApplication(
         }
       });
       crawlerWorker.start(options.crawlerWorkerIntervalMs);
+      outreachActionRecoverySweeper = new AcquisitionOutreachActionRecoverySweeper({
+        repository: outreachBatchRepository, now,
+        intervalMs: options.outreachActionRecoveryIntervalMs
+      });
+      outreachActionRecoverySweeper.start();
+      const actionWorkerId = idFactory("outreach-action-worker");
+      outreachActionWorker = new AcquisitionOutreachActionWorker({
+        repository: outreachBatchRepository, workerId: actionWorkerId, now,
+        intervalMs: options.outreachActionWorkerIntervalMs,
+        execute: (input) => options.douyinMediaCrawlerGateway!.executeAction(input),
+        async accountAuthority(action) {
+          const [batch, account] = await Promise.all([
+            outreachBatchRepository.find(action.workspaceId, action.batchId),
+            socialAccountRepository.findById(action.workspaceId, action.accountId)
+          ]);
+          if (!batch || batch.state !== "approved" || batch.revision !== action.batchRevision
+            || batch.approvalHash !== action.approvalHash || !account
+            || account.state !== "active" || !account.accountHandle
+            || account.loginStateVersion !== action.accountLoginStateVersion) return null;
+          const frozen = batch.candidates.find((value) => value.candidateId === action.candidateId);
+          if (!frozen || (action.kind === "comment"
+            ? frozen.commentHash !== action.contentHash
+              || frozen.commentTargetPublicUrl !== action.targetPublicUrl
+            : frozen.directMessageHash !== action.contentHash
+              || frozen.publicProfileUrl !== action.targetPublicUrl)) return null;
+          const [authoritativeRun, crawlerJob, policyVersions] = await Promise.all([
+            repositories.planRun.getRun(batch.runId),
+            crawlerJobs.findByRun(action.workspaceId, batch.runId),
+            douyinAutomationRepository.listVersions(action.workspaceId, batch.planId)
+          ]);
+          const policy = policyVersions.find((value) => value.id === batch.policyVersionId);
+          if (!authoritativeRun || !crawlerJob || !policy
+            || policy.policyHash !== batch.policyHash
+            || crawlerJob.policyVersionId !== batch.policyVersionId
+            || crawlerJob.policyHash !== batch.policyHash
+            || crawlerJob.accountId !== batch.accountId
+            || crawlerJob.accountLoginStateVersion !== batch.accountLoginStateVersion
+            || crawlerJob.dailyBudgetId !== batch.dailyBudgetId
+            || crawlerJob.localDate !== batch.localDate
+            || crawlerJob.dailyCandidateLimit !== batch.dailyCandidateLimit) return null;
+          const scope = { workspaceId: action.workspaceId, ownerId: authoritativeRun.ownerId,
+            teamId: authoritativeRun.teamId, actorId: actionWorkerId };
+          const candidate = await repositories.domain.findCandidate(scope, action.candidateId);
+          if (!candidate || candidate.version !== frozen.candidateRevision
+            || candidate.profile.kind !== "individual"
+            || candidate.profile.publicActorKey !== frozen.publicActorKey
+            || candidate.profile.publicProfileUrl !== frozen.publicProfileUrl) return null;
+          const evidence = await Promise.all(candidate.evidenceIds.map((id) =>
+            repositories.domain.findEvidence(scope, id)));
+          if (evidence.some((value) => !value)) return null;
+          const hashes = evidence.filter((value): value is NonNullable<typeof value> => Boolean(value))
+            .map((value) => value.contentHash).sort();
+          if (canonicalJsonStringify(hashes) !== canonicalJsonStringify([...frozen.evidenceHashes].sort())
+            || candidate.status === "do_not_contact"
+            || await finalAuthority.hasDoNotContact(scope, frozen.publicActorKey)) return null;
+          return { accountHandle: account.accountHandle };
+        },
+        async pauseAccount(workspaceId, accountId, loginStateVersion, occurredAt) {
+          const account = await socialAccountRepository.findById(workspaceId, accountId);
+          if (!account || account.state !== "active"
+            || account.loginStateVersion !== loginStateVersion) return;
+          const revision = account.revision + 1;
+          await socialAccountRepository.upsert({ ...account, state: "risk_paused",
+            revision, etag: `"account-v${revision}"`, updatedAt: occurredAt });
+        }
+      });
+      outreachActionWorker.start();
     }
     const visualReaderService = new AcquisitionVisualReaderService({
       repository: repositories.visualReader,
@@ -2824,6 +2905,8 @@ export async function createAcquisitionApplication(
                 crawlerWorker?.close() ?? Promise.resolve(),
                 crawlerRecoverySweeper?.close() ?? Promise.resolve(),
                 crawlerEvidenceRetentionSweeper?.close() ?? Promise.resolve(),
+                outreachActionWorker?.close() ?? Promise.resolve(),
+                outreachActionRecoverySweeper?.close() ?? Promise.resolve(),
                 Promise.resolve(douyinScheduler?.close()),
                 visualArtifactExpirySweeper?.close() ?? Promise.resolve(),
                 visualReaderRecoverySweeper?.close() ?? Promise.resolve(),
@@ -2899,6 +2982,12 @@ export async function createAcquisitionApplication(
     }
     if (crawlerWorker) {
       await crawlerWorker.close().catch(() => undefined);
+    }
+    if (outreachActionWorker) {
+      await outreachActionWorker.close().catch(() => undefined);
+    }
+    if (outreachActionRecoverySweeper) {
+      await outreachActionRecoverySweeper.close().catch(() => undefined);
     }
     if (visualArtifactExpirySweeper) {
       await visualArtifactExpirySweeper.close().catch(() => undefined);

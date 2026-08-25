@@ -11,6 +11,8 @@ export interface AcquisitionOutreachBatchCandidate {
   evidenceHashes: readonly string[];
   evidenceText: readonly string[];
   publicActorKey: string;
+  publicProfileUrl: string;
+  commentTargetPublicUrl: string;
   draftRevision: number;
   comment: string;
   commentHash: string;
@@ -57,7 +59,8 @@ export interface AcquisitionOutreachBatch {
 }
 
 export type AcquisitionOutreachActionKind = "comment" | "direct_message";
-export type AcquisitionOutreachActionStatus = "queued" | "blocked_by_predecessor";
+export type AcquisitionOutreachActionStatus = "queued" | "blocked_by_predecessor"
+  | "executing" | "succeeded" | "failed" | "risk_paused";
 
 export interface AcquisitionOutreachAction {
   id: string;
@@ -73,10 +76,15 @@ export interface AcquisitionOutreachAction {
   sequence: 1 | 2;
   status: AcquisitionOutreachActionStatus;
   predecessorActionId: string | null;
+  targetPublicUrl: string;
   content: string;
   contentHash: string;
   approvalHash: string;
   createdAt: string;
+  attemptCount?: number;
+  platformReceiptReference?: string | null;
+  occurredAt?: string | null;
+  failureCode?: string | null;
 }
 
 function hash(value: unknown) {
@@ -112,7 +120,9 @@ export function outreachBatchHash(value: Omit<AcquisitionOutreachBatch,
     dailyBudgetId: value.dailyBudgetId, localDate: value.localDate,
     dailyCandidateLimit: value.dailyCandidateLimit, revision: value.revision,
     candidates: [...value.candidates].sort((a, b) => a.candidateId.localeCompare(b.candidateId))
-      .map(({ evidenceText: _privateEvidenceText, publicActorKey: _privateActorKey, ...candidate }) => candidate)
+      .map(({ evidenceText: _privateEvidenceText, publicActorKey: _privateActorKey,
+        publicProfileUrl: _privateProfileUrl,
+        commentTargetPublicUrl: _privateCommentTarget, ...candidate }) => candidate)
   });
 }
 
@@ -129,7 +139,9 @@ export function outreachApprovalHash(input: {
 
 export function publicOutreachBatch(batch: AcquisitionOutreachBatch) {
   return Object.freeze({ ...structuredClone(batch), candidates: Object.freeze(batch.candidates.map((candidate) => {
-    const { evidenceText: _evidenceText, publicActorKey: _publicActorKey, ...safe } = structuredClone(candidate);
+    const { evidenceText: _evidenceText, publicActorKey: _publicActorKey,
+      publicProfileUrl: _publicProfileUrl,
+      commentTargetPublicUrl: _commentTargetPublicUrl, ...safe } = structuredClone(candidate);
     return Object.freeze(safe);
   })) });
 }

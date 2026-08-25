@@ -93,8 +93,12 @@ pnpm --filter ./frontend dev
 
 The authenticated acquisition API includes immutable Douyin outreach-batch
 review and approval. Approval only persists the exact ordered
-comment-then-direct-message outbox; the separate executor owns external
-actions and is never invoked by the approval route.
+comment-then-direct-message outbox; the separately leased executor owns
+external actions and is never invoked by the approval route. When the private
+MediaCrawler gateway is configured, the acquisition application owns the
+fenced action worker and expired-claim sweeper lifecycle. The worker rechecks
+the frozen approval/account/candidate/content/budget authority immediately
+before asking the sidecar to submit exact approved text.
 
 The repository also exposes MySQL-backed development:
 

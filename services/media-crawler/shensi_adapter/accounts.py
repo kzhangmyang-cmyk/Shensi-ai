@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .browser_state import BrowserState
+from .douyin_actions import DouyinActionFailure
 from .schemas import LoginSessionView
 
 
@@ -290,6 +291,17 @@ class AccountManager:
             self._close_session(session)
             self._persist_or_remove(session["id"], session)
             return session["profile"]
+
+    def resolve_action_profile(self, account_handle: str,
+                               login_state_version: int) -> Path:
+        """Resolve the same durable authenticated profile for one action."""
+        return self.resolve_crawl_profile(account_handle, login_state_version)
+
+    def execute_action(self, profile: Path, request: object) -> object:
+        execute = getattr(self._browser, "execute_douyin_action", None)
+        if execute is None:
+            raise DouyinActionFailure("action_unavailable")
+        return execute(profile, request)
 
     def close(self) -> None:
         if self._closed.is_set():

@@ -7,11 +7,12 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Query
 
 from .accounts import AccountManager
+from .action_jobs import ActionJobManager, ActionReplayConflict
 from .browser_state import MediaCrawlerDouyinBrowserState
 from .crawl_jobs import CrawlJobManager, CursorConflict
 from .schemas import (
-    CrawlJobAcknowledgement, CrawlJobPage, CrawlJobRequest, CrawlJobView,
-    HealthView, LoginSessionView,
+    ActionReceipt, ActionRequest, CrawlJobAcknowledgement, CrawlJobPage,
+    CrawlJobRequest, CrawlJobView, HealthView, LoginSessionView,
 )
 from .security import authorize_bearer, require_service_secret
 
@@ -39,13 +40,17 @@ def validate_encrypted_profile_root(volume: Path, root: Path) -> Path:
 def _build_app(secret_provider: Callable[[], str], account_manager: AccountManager | None = None,
                deployment_manager_factory: Callable[[], AccountManager] | None = None,
                crawl_job_manager: CrawlJobManager | None = None,
-               deployment_crawl_factory: Callable[[AccountManager], CrawlJobManager] | None = None) -> FastAPI:
+               deployment_crawl_factory: Callable[[AccountManager], CrawlJobManager] | None = None,
+               action_job_manager: ActionJobManager | None = None,
+               deployment_action_factory: Callable[[AccountManager], ActionJobManager] | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         if application.state.account_manager is None and deployment_manager_factory is not None:
             application.state.account_manager = deployment_manager_factory()
         if application.state.crawl_job_manager is None and deployment_crawl_factory is not None:
             application.state.crawl_job_manager = deployment_crawl_factory(application.state.account_manager)
+        if application.state.action_job_manager is None and deployment_action_factory is not None:
+            application.state.action_job_manager = deployment_action_factory(application.state.account_manager)
         try:
             yield
         finally:
@@ -53,6 +58,10 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
             if jobs is not None:
                 jobs.close()
                 application.state.crawl_job_manager = None
+            action_jobs = application.state.action_job_manager
+            if action_jobs is not None:
+                action_jobs.close()
+                application.state.action_job_manager = None
             manager = application.state.account_manager
             if manager is not None:
                 manager.close()
@@ -61,6 +70,7 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
     application = FastAPI(docs_url=None, openapi_url=None, redoc_url=None, lifespan=lifespan)
     application.state.account_manager = account_manager
     application.state.crawl_job_manager = crawl_job_manager
+    application.state.action_job_manager = action_job_manager
 
     @application.get("/internal/v1/health", response_model=HealthView)
     def health(authorization: str | None = Header(default=None)) -> HealthView:
@@ -164,14 +174,30 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
         except KeyError as error:
             raise HTTPException(status_code=404, detail="crawl_job_not_found") from error
 
+    @application.post("/internal/v1/douyin/actions/{action_id}", response_model=ActionReceipt)
+    def execute_action(action_id: str, request: ActionRequest,
+                       authorization: str | None = Header(default=None)) -> ActionReceipt:
+        authorize_bearer(authorization, require_service_secret(secret_provider()))
+        manager = application.state.action_job_manager
+        if manager is None:
+            raise HTTPException(status_code=503, detail="action_job_manager_unconfigured")
+        if action_id != request.action_id:
+            raise HTTPException(status_code=409, detail="action_id_mismatch")
+        try:
+            return manager.execute(request)
+        except ActionReplayConflict as error:
+            raise HTTPException(status_code=409, detail="action_replay_conflict") from error
+
     return application
 
 
 def create_app(service_secret: str, account_manager: AccountManager | None = None,
-               crawl_job_manager: CrawlJobManager | None = None) -> FastAPI:
+               crawl_job_manager: CrawlJobManager | None = None,
+               action_job_manager: ActionJobManager | None = None) -> FastAPI:
     normalized_secret = require_service_secret(service_secret)
     return _build_app(lambda: normalized_secret, account_manager,
-                      crawl_job_manager=crawl_job_manager)
+                      crawl_job_manager=crawl_job_manager,
+                      action_job_manager=action_job_manager)
 
 
 def create_deployment_account_manager() -> AccountManager:
@@ -190,4 +216,7 @@ app = _build_app(lambda: os.environ.get("MEDIACRAWLER_SERVICE_SECRET", ""),
                  deployment_manager_factory=create_deployment_account_manager,
                  deployment_crawl_factory=lambda manager: CrawlJobManager(
                      manager._root, account_resolver=manager.resolve_crawl_profile
+                 ), deployment_action_factory=lambda manager: ActionJobManager(
+                     manager._root, account_resolver=manager.resolve_action_profile,
+                     executor=manager.execute_action
                  ))

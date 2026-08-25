@@ -1489,7 +1489,8 @@ const acquisitionOutreachActionSchema = {
   type: "object", additionalProperties: false,
   required: ["id", "workspaceId", "batchId", "batchRevision", "candidateId", "accountId",
     "accountLoginStateVersion", "policyVersionId", "localDate", "kind", "sequence", "status",
-    "predecessorActionId", "content", "contentHash", "approvalHash", "createdAt"],
+    "predecessorActionId", "targetPublicUrl", "content", "contentHash", "approvalHash", "createdAt",
+    "attemptCount", "platformReceiptReference", "occurredAt", "failureCode"],
   properties: {
     id: { type: "string", minLength: 1, maxLength: 255 },
     workspaceId: { type: "string", minLength: 1, maxLength: 255 },
@@ -1501,11 +1502,20 @@ const acquisitionOutreachActionSchema = {
     policyVersionId: { type: "string", minLength: 1, maxLength: 255 },
     localDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
     kind: { type: "string", enum: ["comment", "direct_message"] }, sequence: { type: "integer", enum: [1, 2] },
-    status: { type: "string", enum: ["queued", "blocked_by_predecessor"] },
-    predecessorActionId: { type: "string", nullable: true, maxLength: 255 }, content: { type: "string", minLength: 1, maxLength: 800 },
+    status: { type: "string", enum: ["queued", "blocked_by_predecessor", "executing", "succeeded", "failed", "risk_paused"] },
+    predecessorActionId: { type: "string", nullable: true, maxLength: 255 },
+    targetPublicUrl: { type: "string", format: "uri", maxLength: 2000 },
+    content: { type: "string", minLength: 1, maxLength: 800 },
     contentHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
     approvalHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
-    createdAt: { type: "string", format: "date-time" }
+    createdAt: { type: "string", format: "date-time" },
+    attemptCount: { type: "integer", minimum: 0 },
+    platformReceiptReference: { type: "string", nullable: true, minLength: 1, maxLength: 255 },
+    occurredAt: { type: "string", format: "date-time", nullable: true },
+    failureCode: { type: "string", nullable: true, enum: ["action_unavailable", "action_rejected",
+      "deadline_exceeded", "douyin_verification_required", "douyin_rate_limited",
+      "douyin_account_warning", "douyin_login_expired", "douyin_action_control_missing",
+      "douyin_action_timeout", null] }
   }
 };
 function addSocialAccountPaths(paths: AcquisitionOpenApiPaths) {

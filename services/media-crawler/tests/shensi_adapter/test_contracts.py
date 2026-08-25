@@ -62,6 +62,7 @@ def test_service_schemas_are_closed():
         ActionRequest(
             action_id="action_1",
             account_handle="handle",
+            login_state_version=1,
             kind="comment",
             target_public_url="https://www.douyin.com/video/1",
             content="approved content",

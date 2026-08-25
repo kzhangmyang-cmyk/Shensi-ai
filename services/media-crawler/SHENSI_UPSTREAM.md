@@ -33,3 +33,13 @@ text. Closed creator/video/comment records are filtered by those flags and
 stored as append-only opaque-cursor pages; reads do not acknowledge them.
 Terminal pages remain available for 24 hours and are removed by startup and
 periodic retention sweeps.
+
+Private action-job endpoints reuse only the durable authenticated account
+profile selected by the trusted backend. Shensi-owned selectors and page-state
+detection are centralized in `shensi_adapter/douyin_actions.py`: the executor
+opens the frozen public video or profile URL, fills the exact approved text,
+submits once, and returns only a sanitized receipt reference. Verification,
+rate limiting, account warning, login expiry, missing controls, and timeout
+fail closed without alternate bypass behavior. Durable action replay records
+store a request hash and sanitized receipt, never raw message text, cookies,
+account handles, or browser profile paths.
