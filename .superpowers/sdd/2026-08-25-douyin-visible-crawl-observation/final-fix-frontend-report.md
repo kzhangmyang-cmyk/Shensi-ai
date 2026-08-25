@@ -216,6 +216,40 @@ set also covers empty status/cursor, ASCII and Unicode padding, a NUL prefix,
 hostless URL input, and malformed percent encoding. Canonical public data
 continues to pass.
 
+## Raw HTTP(S) authority closure
+
+Evidence URLs now require an unmodified raw HTTP(S) authority prefix
+(case-insensitive) followed by an authority character, and reject any raw
+backslash before URL parsing. After parsing, nonempty username or password
+also rejects the URL. This closes parser-repaired inputs such as
+https:example, https:///example, and backslash variants, while preserving
+ordinary uppercase-scheme HTTP(S) URLs with Unicode path and query text.
+
+RED evidence before this final production edit:
+
+```text
+npx tsx src/acquisition/douyin-automation-api.self-test.ts
+AssertionError: Missing expected rejection.
+```
+
+The former check accepted a credential-bearing URL; the regression set also
+covers the three parser-repaired forms above. The canonical public candidate
+page and a Unicode path/query URL remain accepted.
+
+GREEN verification:
+
+```text
+npx tsx src/acquisition/douyin-automation-api.self-test.ts
+{"ok":true,"suite":"douyin-automation-api"}
+npm test
+{"ok":true,"suite":"douyin-automation-api"}
+{"ok":true,"suite":"douyin-automation-controller"}
+{"ok":true,"suite":"douyin-automation-view"}
+{"ok":true,"checked":57}
+npm run test:types
+npm run build
+```
+
 ## Self-review and limitations
 
 - The decoder rejects only forbidden keys, recursively through records and

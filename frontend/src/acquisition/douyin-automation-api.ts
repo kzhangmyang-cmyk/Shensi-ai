@@ -226,12 +226,16 @@ function nonEmptyBoundedString(value: unknown, maxLength: number): value is stri
 
 function publicHttpUrl(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0
+    || !/^https?:\/\/[^/\\?#]/i.test(value)
+    || value.includes("\\")
     || /[\p{White_Space}\p{Cc}\p{Cf}]/u.test(value)
     || /%(?![0-9A-Fa-f]{2})/u.test(value)) return false;
   try {
     const parsed = new URL(value);
     return (parsed.protocol === "http:" || parsed.protocol === "https:")
-      && parsed.hostname.length > 0;
+      && parsed.hostname.length > 0
+      && parsed.username.length === 0
+      && parsed.password.length === 0;
   } catch { return false; }
 }
 

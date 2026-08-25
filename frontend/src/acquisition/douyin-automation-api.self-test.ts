@@ -218,6 +218,17 @@ const canonicalCandidatePage = {
 const readCandidatePage = (body: unknown) => createDouyinAutomationApi(async () =>
   new Response(JSON.stringify(body), { status: 200 })).listRunCandidates("run/1");
 assert.deepEqual(await readCandidatePage(canonicalCandidatePage), canonicalCandidatePage);
+const unicodeCandidatePage = {
+  ...canonicalCandidatePage,
+  items: [{
+    ...canonicalCandidatePage.items[0],
+    evidence: {
+      ...canonicalCandidatePage.items[0].evidence,
+      sourceUrl: "HTTPS://www.douyin.com/公开内容?q=关键词%20A&标签=抖音"
+    }
+  }]
+};
+assert.deepEqual(await readCandidatePage(unicodeCandidatePage), unicodeCandidatePage);
 for (const malformedCandidatePage of [
   null,
   [],
@@ -238,6 +249,10 @@ for (const malformedCandidatePage of [
   { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "https://www.douyin.com/video/741234567890\u00a0" } }], nextCursor: null },
   { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "\u0000https://www.douyin.com/video/741234567890" } }], nextCursor: null },
   { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "https:///" } }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "https://public:secret@www.douyin.com/video/741234567890" } }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "https:example" } }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "https:///example" } }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "https:\\www.douyin.com\\video\\741234567890" } }], nextCursor: null },
   { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "https://www.douyin.com/%ZZ" } }], nextCursor: null },
   { items: [{ ...canonicalCandidatePage.items[0], displayName: "x".repeat(201) }], nextCursor: null },
   { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, excerpt: "x".repeat(501) } }], nextCursor: null },
