@@ -117,3 +117,37 @@ await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
 assert.equal(liveCandidateReads, 2, "scheduled polling must continue while candidates are already visible");
 assert.equal(scheduledRunPolls.length, 1, "each running refresh must schedule the next poll");
 liveCandidateController.close();
+
+const failedPollTimers: Array<() => void> = [];
+let failedPollRunStarts = 0;
+const failedPollController = createDouyinAutomationController({
+  api: {
+    createPlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "draft", version: 1, etag: '"plan:1"' }),
+    approvePlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "approved", version: 1, etag: '"plan:2"' }),
+    listAccounts: async () => ({ items: [activeAccount] }),
+    createLoginSession: async () => { throw new Error("not used"); },
+    getLoginSession: async () => { throw new Error("not used"); },
+    disconnectAccount: async () => undefined,
+    getAutomation: async () => ({ ...defaultPolicy, keywords: ["袜子"] }),
+    suggestKeywords: async () => ({ keywords: ["袜子"], modelSnapshotId: "model-1" }),
+    putAutomation: async (_planId, input) => ({ ...defaultPolicy, ...input, id: "policy-1", source: "version", accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1, etag: '"policy:1"', createdBy: "user-1", createdAt: now }),
+    runNow: async () => { failedPollRunStarts += 1; return { id: "intent-failed-poll", acquisitionRunId: "run-failed-poll", workspaceId: "workspace-1", planId: "plan-1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: "hash", policyVersionId: "policy-1", policyHash: "hash", accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: "budget-1", localDate: "2026-08-25", trigger: "run_now", collectCreators: true, collectDemandComments: true, status: "queued", reason: null, createdBy: "user-1", createdAt: now }; },
+    getCrawlerStatus: async () => { throw new Error("status timeout"); },
+    listRunCandidates: async () => ({ items: [], nextCursor: null })
+  },
+  pollDelayMs: 250,
+  setTimer: ((callback: unknown, delay?: number) => {
+    assert.equal(delay, 250);
+    failedPollTimers.push(callback as () => void);
+    return 1;
+  }) as unknown as typeof setTimeout,
+  clearTimer: (() => undefined) as typeof clearTimeout
+});
+await failedPollController.load("plan-1", "袜子获客计划");
+await failedPollController.runNow();
+assert.equal(failedPollController.getState().runIntent?.acquisitionRunId, "run-failed-poll");
+assert.equal(failedPollController.getState().crawlerStatus, null);
+assert.equal(failedPollTimers.length, 1, "a non-abort first-poll failure must schedule a status retry");
+await failedPollController.runNow();
+assert.equal(failedPollRunStarts, 1, "an outstanding run intent must block a second direct launch after first-poll failure");
+failedPollController.close();

@@ -116,7 +116,10 @@ export function createDouyinAutomationController(options: {
         runTimer = setTimer(() => void refreshRunFor(runId, ownGeneration), pollDelayMs);
       }
     } catch (error) {
-      if (current(ownGeneration) && !(error instanceof DOMException && error.name === "AbortError")) emit({ phase: "error", error: message(error) });
+      if (current(ownGeneration) && !(error instanceof DOMException && error.name === "AbortError")) {
+        emit({ phase: "error", error: message(error) });
+        runTimer = setTimer(() => void refreshRunFor(runId, ownGeneration), pollDelayMs);
+      }
     }
   };
   const persist = (input: DouyinAutomationDraft, runAfterSave: boolean): Promise<void> => {
@@ -226,6 +229,7 @@ export function createDouyinAutomationController(options: {
     runNow() {
       if (runFlight) return runFlight;
       if (!state.planId) return Promise.resolve();
+      if (state.runIntent && !state.crawlerStatus) return Promise.resolve();
       if (state.crawlerStatus && !terminalStates.has(state.crawlerStatus.state)) {
         return Promise.resolve();
       }

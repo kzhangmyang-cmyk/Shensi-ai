@@ -25,6 +25,7 @@ assert.ok(host.querySelector<HTMLInputElement>("[name=planName]"));
 assert.doesNotMatch(host.innerHTML, /cookie|accountHandle|browserProfile/iu);
 
 const connectedAccount = { id: "account-1", workspaceId: "workspace-1", platform: "douyin" as const, displayName: "测试模拟账号", state: "active" as const, loginStateVersion: 1, revision: 1, etag: '"account:1"', lastValidatedAt: null, createdAt: "2026-08-25T09:30:00.000Z", updatedAt: "2026-08-25T09:30:00.000Z" };
+const queuedRunIntent = { id: "intent-waiting-1", acquisitionRunId: "run-waiting-1", workspaceId: "workspace-1", planId: "plan-1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: "hash", policyVersionId: "policy-1", policyHash: "hash", accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: "budget-1", localDate: "2026-08-25", trigger: "run_now" as const, collectCreators: true, collectDemandComments: true, status: "queued" as const, reason: null, createdBy: "user-1", createdAt: "2026-08-25T09:30:00.000Z" };
 renderDouyinAutomationView(host, {
   phase: "ready", planId: null, planName: "工业需求计划", planStatus: null,
   account: connectedAccount, loginSession: null, policy: null, draftPolicy,
@@ -45,6 +46,17 @@ renderDouyinAutomationView(host, {
 assert.match(host.textContent ?? "", /尚未保存/u);
 assert.equal(host.querySelector<HTMLButtonElement>("[data-douyin-action=save-only]")?.disabled, false);
 assert.equal(host.querySelector<HTMLButtonElement>("[data-douyin-action=save-and-run]")?.disabled, false);
+
+renderDouyinAutomationView(host, {
+  phase: "error", planId: "plan-1", planName: "袜子获客计划", planStatus: "approved",
+  account: connectedAccount, loginSession: null, policy: null,
+  draftPolicy: { ...draftPolicy, keywords: ["袜子"] }, runIntent: queuedRunIntent,
+  crawlerStatus: null, candidates: [], selectedCandidateIds: [], error: "状态读取超时",
+  suggestionError: null, closed: false
+});
+assert.match(host.textContent ?? "", /已提交采集，等待服务器返回首次观测状态/u);
+assert.equal(host.querySelector<HTMLButtonElement>("[data-douyin-action=save-and-run]")?.disabled, true);
+assert.ok(host.querySelector<HTMLElement>(".douyin-run-panel [role=status][aria-live=polite][aria-atomic=true]"));
 
 renderDouyinAutomationView(host, {
   phase: "ready", planId: "plan-1", planName: "袜子获客计划", planStatus: "approved",
@@ -72,6 +84,7 @@ assert.match(host.textContent ?? "", /采集中/u);
 assert.match(host.textContent ?? "", /可视窗口已打开/u);
 assert.match(host.textContent ?? "", /正在采集评论/u);
 assert.match(host.textContent ?? "", /当前关键词：袜子/u);
+assert.ok(host.querySelector<HTMLElement>(".douyin-run-observation[role=status][aria-live=polite][aria-atomic=true]"));
 assert.match(host.textContent ?? "", /第 1 次尝试/u);
 assert.match(host.textContent ?? "", /候选人额度1 \/ 50/u);
 assert.doesNotMatch(host.textContent ?? "", /采集进度|%/u);

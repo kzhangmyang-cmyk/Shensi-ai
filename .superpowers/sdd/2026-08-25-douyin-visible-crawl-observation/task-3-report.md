@@ -65,3 +65,42 @@ Tests were added before Task 3 production changes.
 - Test execution required approved local IPC/listener permissions because the
   sandbox disallows those test-only sockets; this did not require external
   network access.
+
+## Fix round 1/5 — closed client status and outstanding first poll
+
+### RED evidence
+
+- Added behavior coverage before the implementation for malformed crawler
+  status roots (extra `cursor`, invalid scalar values, a missing required
+  field, and nested `activityObserved`), first-poll timeout retry/de-duplication,
+  submitted waiting-state disablement, and polite/atomic status announcements.
+- `pnpm --filter ./frontend test` failed as intended before the fix in
+  `douyin-automation-view.self-test.ts` with `false !== true`: the rendered
+  save-and-run control was still enabled when `runIntent` existed without a
+  crawler status. That demonstrated the first-poll duplicate-launch gap.
+
+### Fix and GREEN evidence
+
+- `getCrawlerStatus` now requires the exact canonical root keyset and validates
+  all required scalar, date-time, nullable, budget, state, and activity values.
+  The activity validator rejects unknown nested keys and counts the keyword
+  maximum in Unicode code points.
+- A non-abort polling failure retains the submitted intent, schedules a status
+  retry, and prevents both the rendered and direct launch paths from creating a
+  second run. Retry refreshes the outstanding run instead of reloading away its
+  intent.
+- The live observation and queued placeholder are polite, atomic status
+  announcements.
+- `pnpm --filter ./frontend test` — passed (57 checks).
+- Focused backend contract command — passed, 42 tests / 0 failures.
+- `pnpm check:generated-acquisition-types`, backend build, frontend build, and
+  `./scripts/context-check` — passed. The frontend build emitted only its
+  existing large-chunk warning.
+- `pnpm test`, `pnpm build`, and `git diff --check` — passed.
+
+### Fix-round self-review
+
+- The strict client validator rejects server-only root fields such as `cursor`
+  and `activityObserved` before the value can reach controller or view state.
+- Neither the retry path nor the timeout recovery introduces reload recovery,
+  a latest-run endpoint, real-browser work, or any Douyin request.

@@ -137,17 +137,48 @@ function planShape(value: Record<string, unknown>): boolean {
     && typeof value.version === "number";
 }
 
+function unicodeLength(value: string): number {
+  return [...value].length;
+}
+
+function validDateTime(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
 function crawlerActivityShape(value: unknown): boolean {
   if (!isRecord(value) || Object.keys(value).length !== 4
     || !["queued", "starting_browser", "opening_douyin", "searching",
       "collecting_comments", "finalizing", "completed"].includes(String(value.phase))
     || (value.currentKeyword !== null
-      && (!validString(value.currentKeyword) || value.currentKeyword.length > 100))
+      && (!validString(value.currentKeyword) || unicodeLength(value.currentKeyword) > 100))
     || !["visible", "headless"].includes(String(value.browserMode))
     || !Number.isSafeInteger(value.sequence) || Number(value.sequence) < 0) return false;
   return Object.keys(value).every((key) => [
     "phase", "currentKeyword", "browserMode", "sequence"
   ].includes(key));
+}
+
+function crawlerStatusShape(value: Record<string, unknown>, runId: string): boolean {
+  const keys = [
+    "runId", "state", "attempt", "cursorPersisted", "recordCount",
+    "candidateBudgetUsed", "candidateBudgetLimit", "lastErrorCode",
+    "createdAt", "updatedAt", "completedAt", "activity"
+  ];
+  return Object.keys(value).length === keys.length
+    && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+    && value.runId === runId
+    && ["scheduled", "queued", "running", "succeeded", "partial", "paused", "cancelled", "failed"].includes(String(value.state))
+    && Number.isSafeInteger(value.attempt) && Number(value.attempt) >= 0
+    && typeof value.cursorPersisted === "boolean"
+    && Number.isSafeInteger(value.recordCount) && Number(value.recordCount) >= 0
+    && Number.isSafeInteger(value.candidateBudgetUsed) && Number(value.candidateBudgetUsed) >= 0
+    && Number.isSafeInteger(value.candidateBudgetLimit)
+    && Number(value.candidateBudgetLimit) >= 1 && Number(value.candidateBudgetLimit) <= 200
+    && (value.lastErrorCode === null
+      || (typeof value.lastErrorCode === "string" && unicodeLength(value.lastErrorCode) <= 100))
+    && validDateTime(value.createdAt) && validDateTime(value.updatedAt)
+    && (value.completedAt === null || validDateTime(value.completedAt))
+    && crawlerActivityShape(value.activity);
 }
 
 export function createDouyinAutomationApi(
@@ -289,8 +320,7 @@ export function createDouyinAutomationApi(
     },
     getCrawlerStatus(runId, signal) {
       return request(`/api/v1/acquisition/runs/${segment(runId)}/crawler-status`, { method: "GET", signal },
-        (value) => value.runId === runId && validString(value.state)
-          && typeof value.recordCount === "number" && crawlerActivityShape(value.activity));
+        (value) => crawlerStatusShape(value, runId));
     },
     listRunCandidates(runId, signal) {
       return request(`/api/v1/acquisition/runs/${segment(runId)}/candidates`, { method: "GET", signal },

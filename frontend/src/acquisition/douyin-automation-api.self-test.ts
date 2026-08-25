@@ -147,5 +147,26 @@ await assert.rejects(
   }), { status: 200 })).getCrawlerStatus("run/1"),
   (error: unknown) => error instanceof AcquisitionHttpError && error.code === "malformed_response"
 );
+for (const malformedCrawler of [
+  { ...crawler, cursor: "private-cursor" },
+  { ...crawler, state: "unknown" },
+  { ...crawler, attempt: -1 },
+  { ...crawler, cursorPersisted: "yes" },
+  { ...crawler, recordCount: 1.5 },
+  { ...crawler, candidateBudgetUsed: -1 },
+  { ...crawler, candidateBudgetLimit: 201 },
+  { ...crawler, lastErrorCode: "x".repeat(101) },
+  { ...crawler, createdAt: "not-a-date" },
+  { ...crawler, updatedAt: "not-a-date" },
+  { ...crawler, completedAt: "not-a-date" },
+  (() => { const { recordCount: _recordCount, ...missing } = crawler; return missing; })(),
+  { ...crawler, activity: { ...crawler.activity, activityObserved: true } }
+]) {
+  await assert.rejects(
+    createDouyinAutomationApi(async () => new Response(JSON.stringify(malformedCrawler), { status: 200 }))
+      .getCrawlerStatus("run/1"),
+    (error: unknown) => error instanceof AcquisitionHttpError && error.code === "malformed_response"
+  );
+}
 
 console.log(JSON.stringify({ ok: true, suite: "douyin-automation-api" }));
