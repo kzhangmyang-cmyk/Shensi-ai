@@ -55,7 +55,11 @@ renderDouyinAutomationView(host, {
     runId: "run-live-1", state: "running", attempt: 1, cursorPersisted: true,
     recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50,
     lastErrorCode: null, createdAt: "2026-08-25T09:30:00.000Z",
-    updatedAt: "2026-08-25T09:31:00.000Z", completedAt: null
+    updatedAt: "2026-08-25T09:31:00.000Z", completedAt: null,
+    activity: {
+      phase: "collecting_comments", currentKeyword: "袜子",
+      browserMode: "visible", sequence: 4
+    }
   },
   candidates: [{
     id: "candidate-live-1", status: "comment_candidate", displayName: "袜子采购用户",
@@ -65,6 +69,12 @@ renderDouyinAutomationView(host, {
 });
 const candidatePanel = host.querySelector<HTMLElement>(".douyin-candidates-panel")!;
 assert.match(host.textContent ?? "", /采集中/u);
+assert.match(host.textContent ?? "", /可视窗口已打开/u);
+assert.match(host.textContent ?? "", /正在采集评论/u);
+assert.match(host.textContent ?? "", /当前关键词：袜子/u);
+assert.match(host.textContent ?? "", /第 1 次尝试/u);
+assert.match(host.textContent ?? "", /候选人额度1 \/ 50/u);
+assert.doesNotMatch(host.textContent ?? "", /采集进度|%/u);
 assert.ok(candidatePanel.querySelector(".douyin-candidate-workspace"));
 assert.equal(candidatePanel.querySelectorAll(".douyin-candidate-row").length, 1);
 assert.match(candidatePanel.textContent ?? "", /袜子采购用户/u);

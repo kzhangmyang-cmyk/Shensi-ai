@@ -339,7 +339,7 @@ components:
     AcquisitionCrawlerStatus:
       type: object
       additionalProperties: false
-      required: [runId, state, attempt, cursorPersisted, recordCount, candidateBudgetUsed, candidateBudgetLimit, lastErrorCode, createdAt, updatedAt, completedAt]
+      required: [runId, state, attempt, cursorPersisted, recordCount, candidateBudgetUsed, candidateBudgetLimit, lastErrorCode, createdAt, updatedAt, completedAt, activity]
       properties:
         runId: { type: string }
         state: { type: string, enum: [scheduled, queued, running, succeeded, partial, paused, cancelled, failed] }
@@ -352,6 +352,15 @@ components:
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         completedAt: { type: [string, 'null'], format: date-time }
+        activity:
+          type: object
+          additionalProperties: false
+          required: [phase, currentKeyword, browserMode, sequence]
+          properties:
+            phase: { type: string, enum: [queued, starting_browser, opening_douyin, searching, collecting_comments, finalizing, completed] }
+            currentKeyword: { type: [string, 'null'], minLength: 1, maxLength: 100 }
+            browserMode: { type: string, enum: [visible, headless] }
+            sequence: { type: integer, minimum: 0 }
     AcquisitionRunCandidate:
       type: object
       additionalProperties: false

@@ -30,10 +30,17 @@ test("crawler status route is workspace-bound, closed and reads persisted Node s
     assert.ok(address && typeof address === "object");
     const response = await fetch(`http://127.0.0.1:${address.port}/runs/run-1/crawler-status`);
     assert.equal(response.status, 200);
-    assert.deepEqual(Object.keys(await response.json()).sort(), [
-      "attempt", "candidateBudgetLimit", "candidateBudgetUsed", "completedAt", "createdAt", "cursorPersisted",
-      "lastErrorCode", "recordCount", "runId", "state", "updatedAt"
+    const status = await response.json();
+    assert.deepEqual(Object.keys(status).sort(), [
+      "activity", "attempt", "candidateBudgetLimit", "candidateBudgetUsed", "completedAt", "createdAt",
+      "cursorPersisted", "lastErrorCode", "recordCount", "runId", "state", "updatedAt"
     ]);
+    assert.deepEqual(status.activity, {
+      phase: "queued",
+      currentKeyword: null,
+      browserMode: "headless",
+      sequence: 0
+    });
     const unpublishedMutation = await fetch(`http://127.0.0.1:${address.port}/runs/run-1/crawler-status`, {
       method: "DELETE"
     });

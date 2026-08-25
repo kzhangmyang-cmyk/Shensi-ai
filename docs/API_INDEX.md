@@ -20,7 +20,8 @@ Do not add parallel handwritten DTOs.
 - `/api/v1/acquisition`: plans, runs, shards, candidates, evidence, reviews,
   provider connections, Douyin QR login/workspace accounts, immutable Douyin
   automation policies, optional model-backed keyword suggestions, and run-now intents with distinct authoritative
-  acquisition-run IDs, persisted run crawler status, run-scoped candidate
+  acquisition-run IDs, persisted run crawler status with a closed activity
+  observation (phase, keyword, browser mode, sequence), run-scoped candidate
   feeds, immutable outreach batch revisions, human approval, and ordered
   comment-then-message action outbox reads with sanitized execution status,
   attempt count, receipt reference, occurrence time, and closed failure code;

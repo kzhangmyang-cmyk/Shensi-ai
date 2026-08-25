@@ -137,6 +137,19 @@ function planShape(value: Record<string, unknown>): boolean {
     && typeof value.version === "number";
 }
 
+function crawlerActivityShape(value: unknown): boolean {
+  if (!isRecord(value) || Object.keys(value).length !== 4
+    || !["queued", "starting_browser", "opening_douyin", "searching",
+      "collecting_comments", "finalizing", "completed"].includes(String(value.phase))
+    || (value.currentKeyword !== null
+      && (!validString(value.currentKeyword) || value.currentKeyword.length > 100))
+    || !["visible", "headless"].includes(String(value.browserMode))
+    || !Number.isSafeInteger(value.sequence) || Number(value.sequence) < 0) return false;
+  return Object.keys(value).every((key) => [
+    "phase", "currentKeyword", "browserMode", "sequence"
+  ].includes(key));
+}
+
 export function createDouyinAutomationApi(
   fetchImpl: typeof fetch = fetch,
   options: DouyinAutomationApiOptions = {}
@@ -276,7 +289,8 @@ export function createDouyinAutomationApi(
     },
     getCrawlerStatus(runId, signal) {
       return request(`/api/v1/acquisition/runs/${segment(runId)}/crawler-status`, { method: "GET", signal },
-        (value) => value.runId === runId && validString(value.state) && typeof value.recordCount === "number");
+        (value) => value.runId === runId && validString(value.state)
+          && typeof value.recordCount === "number" && crawlerActivityShape(value.activity));
     },
     listRunCandidates(runId, signal) {
       return request(`/api/v1/acquisition/runs/${segment(runId)}/candidates`, { method: "GET", signal },

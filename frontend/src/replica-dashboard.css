@@ -5031,7 +5031,34 @@ body.is-authenticated .replica-shell {
 }
 
 .douyin-run-metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.douyin-run-observation {
+  margin-bottom: 10px;
+  padding: 14px;
+  border: 1px solid rgba(195, 238, 103, .28);
+  border-radius: 12px;
+  background: rgba(195, 238, 103, .05);
+}
+
+.douyin-run-observation-head,
+.douyin-run-observation-details {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.douyin-run-observation-head span,
+.douyin-run-observation-details {
+  color: var(--replica-muted);
+  font-size: 11px;
+}
+
+.douyin-run-observation-details {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin-top: 9px;
 }
 
 .douyin-run-metrics > div,

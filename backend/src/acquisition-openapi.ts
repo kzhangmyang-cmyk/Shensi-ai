@@ -1399,7 +1399,7 @@ const douyinAutomationRunIntentSchema = {
 };
 const acquisitionCrawlerStatusSchema = {
   type: "object", additionalProperties: false,
-  required: ["runId", "state", "attempt", "cursorPersisted", "recordCount", "candidateBudgetUsed", "candidateBudgetLimit", "lastErrorCode", "createdAt", "updatedAt", "completedAt"],
+  required: ["runId", "state", "attempt", "cursorPersisted", "recordCount", "candidateBudgetUsed", "candidateBudgetLimit", "lastErrorCode", "createdAt", "updatedAt", "completedAt", "activity"],
   properties: {
     runId: { type: "string" },
     state: { type: "string", enum: ["scheduled", "queued", "running", "succeeded", "partial", "paused", "cancelled", "failed"] },
@@ -1408,7 +1408,17 @@ const acquisitionCrawlerStatusSchema = {
     candidateBudgetLimit: { type: "integer", minimum: 1, maximum: 200 },
     lastErrorCode: { type: "string", nullable: true, maxLength: 100 },
     createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
-    completedAt: { type: "string", format: "date-time", nullable: true }
+    completedAt: { type: "string", format: "date-time", nullable: true },
+    activity: {
+      type: "object", additionalProperties: false,
+      required: ["phase", "currentKeyword", "browserMode", "sequence"],
+      properties: {
+        phase: { type: "string", enum: ["queued", "starting_browser", "opening_douyin", "searching", "collecting_comments", "finalizing", "completed"] },
+        currentKeyword: { type: "string", nullable: true, minLength: 1, maxLength: 100 },
+        browserMode: { type: "string", enum: ["visible", "headless"] },
+        sequence: { type: "integer", minimum: 0 }
+      }
+    }
   }
 };
 const acquisitionRunCandidatesSchema = {

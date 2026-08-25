@@ -18,7 +18,7 @@ const controller = createDouyinAutomationController({
     suggestKeywords: async () => ({ keywords: ["工业除尘"], modelSnapshotId: "model-1" }),
     putAutomation: async (_planId, input) => ({ ...input, id: "policy-1", source: "version", workspaceId: "workspace-1", planId: "plan-1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: "hash", accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1, etag: '"policy:1"', policyHash: "hash", createdBy: "user-1", createdAt: new Date().toISOString() }),
     runNow: async () => ({ id: "intent-1", acquisitionRunId: "run-1", workspaceId: "workspace-1", planId: "plan-1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: "hash", policyVersionId: "policy-1", policyHash: "hash", accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: "budget-1", localDate: "2026-08-25", trigger: "run_now", collectCreators: true, collectDemandComments: true, status: "queued", reason: null, createdBy: "user-1", createdAt: new Date().toISOString() }),
-    getCrawlerStatus: async () => ({ runId: "run-1", state: "running", attempt: 1, cursorPersisted: true, recordCount: 8, candidateBudgetUsed: 2, candidateBudgetLimit: 50, lastErrorCode: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: null }),
+    getCrawlerStatus: async () => ({ runId: "run-1", state: "running", attempt: 1, cursorPersisted: true, recordCount: 8, candidateBudgetUsed: 2, candidateBudgetLimit: 50, lastErrorCode: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: null, activity: { phase: "collecting_comments", currentKeyword: "袜子", browserMode: "visible", sequence: 4 } }),
     listRunCandidates: async () => ({ items: [], nextCursor: null })
   },
   pollDelayMs: 1
@@ -47,7 +47,7 @@ const zeroPlanController = createDouyinAutomationController({
     suggestKeywords: async () => { calls.push("suggest"); return { keywords: ["不应调用"], modelSnapshotId: "model-1" }; },
     putAutomation: async (planId, input) => { calls.push(`save:${planId}:${input.keywords.join("|")}`); return { ...defaultPolicy, ...input, id: "policy-1", source: "version", planId, accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1, etag: '"policy:1"', createdBy: "user-1", createdAt: now }; },
     runNow: async (planId) => { calls.push(`run:${planId}`); return { id: "intent-1", acquisitionRunId: "run-1", workspaceId: "workspace-1", planId, planVersionId: "version-1", planVersion: 1, planSnapshotHash: "hash", policyVersionId: "policy-1", policyHash: "hash", accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: "budget-1", localDate: "2026-08-25", trigger: "run_now", collectCreators: true, collectDemandComments: true, status: "queued", reason: null, createdBy: "user-1", createdAt: now }; },
-    getCrawlerStatus: async () => ({ runId: "run-1", state: "succeeded", attempt: 1, cursorPersisted: true, recordCount: 0, candidateBudgetUsed: 0, candidateBudgetLimit: 50, lastErrorCode: null, createdAt: now, updatedAt: now, completedAt: now }),
+    getCrawlerStatus: async () => ({ runId: "run-1", state: "succeeded", attempt: 1, cursorPersisted: true, recordCount: 0, candidateBudgetUsed: 0, candidateBudgetLimit: 50, lastErrorCode: null, createdAt: now, updatedAt: now, completedAt: now, activity: { phase: "completed", currentKeyword: null, browserMode: "headless", sequence: 5 } }),
     listRunCandidates: async () => ({ items: [], nextCursor: null })
   },
   onPlanCreated(planId) { refreshedPlanId = planId; },
@@ -76,6 +76,7 @@ zeroPlanController.close();
 
 const scheduledRunPolls: Array<() => void> = [];
 let liveCandidateReads = 0;
+let liveRunStarts = 0;
 const liveCandidateController = createDouyinAutomationController({
   api: {
     createPlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "draft", version: 1, etag: '"plan:1"' }),
@@ -87,8 +88,8 @@ const liveCandidateController = createDouyinAutomationController({
     getAutomation: async () => ({ ...defaultPolicy, keywords: ["袜子"] }),
     suggestKeywords: async () => ({ keywords: ["袜子"], modelSnapshotId: "model-1" }),
     putAutomation: async (_planId, input) => ({ ...defaultPolicy, ...input, id: "policy-1", source: "version", accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1, etag: '"policy:1"', createdBy: "user-1", createdAt: now }),
-    runNow: async () => ({ id: "intent-live-1", acquisitionRunId: "run-live-1", workspaceId: "workspace-1", planId: "plan-1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: "hash", policyVersionId: "policy-1", policyHash: "hash", accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: "budget-1", localDate: "2026-08-25", trigger: "run_now", collectCreators: true, collectDemandComments: true, status: "queued", reason: null, createdBy: "user-1", createdAt: now }),
-    getCrawlerStatus: async () => ({ runId: "run-live-1", state: "running", attempt: 1, cursorPersisted: true, recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50, lastErrorCode: null, createdAt: now, updatedAt: now, completedAt: null }),
+    runNow: async () => { liveRunStarts += 1; return { id: "intent-live-1", acquisitionRunId: "run-live-1", workspaceId: "workspace-1", planId: "plan-1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: "hash", policyVersionId: "policy-1", policyHash: "hash", accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: "budget-1", localDate: "2026-08-25", trigger: "run_now", collectCreators: true, collectDemandComments: true, status: "queued", reason: null, createdBy: "user-1", createdAt: now }; },
+    getCrawlerStatus: async () => ({ runId: "run-live-1", state: "running", attempt: 1, cursorPersisted: true, recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50, lastErrorCode: null, createdAt: now, updatedAt: now, completedAt: null, activity: { phase: "collecting_comments", currentKeyword: "袜子", browserMode: "visible", sequence: 4 } }),
     listRunCandidates: async () => {
       liveCandidateReads += 1;
       return { items: [liveCandidate], nextCursor: null };
@@ -106,6 +107,8 @@ const liveCandidateController = createDouyinAutomationController({
 await liveCandidateController.load("plan-1", "袜子获客计划");
 await liveCandidateController.runNow();
 assert.equal(liveCandidateController.getState().crawlerStatus?.state, "running");
+await liveCandidateController.runNow();
+assert.equal(liveRunStarts, 1, "a non-terminal crawler status must block direct duplicate launches");
 assert.deepEqual(liveCandidateController.getState().candidates, [liveCandidate]);
 assert.equal(liveCandidateReads, 1);
 assert.equal(scheduledRunPolls.length, 1, "running crawl must schedule another poll after publishing candidates");

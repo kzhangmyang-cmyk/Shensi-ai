@@ -19,7 +19,7 @@ const account = {
 };
 const login = { id: "login-1", platform: "douyin", state: "awaiting_scan", qrImageDataUrl: "data:image/png;base64,AA==", expiresAt: now, account: null };
 const run = { id: "intent-1", acquisitionRunId: "run/1", workspaceId: "workspace-1", planId: "plan/1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: policy.planSnapshotHash, policyVersionId: "policy-1", policyHash: policy.policyHash, accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: `sha256:${"3".repeat(64)}`, localDate: "2026-08-25", trigger: "run_now", collectCreators: true, collectDemandComments: true, status: "queued", reason: null, createdBy: "user-1", createdAt: now };
-const crawler = { runId: "run/1", state: "partial", attempt: 1, cursorPersisted: true, recordCount: 2, candidateBudgetUsed: 2, candidateBudgetLimit: 50, lastErrorCode: "douyin_collection_partial", createdAt: now, updatedAt: now, completedAt: now };
+const crawler = { runId: "run/1", state: "partial", attempt: 1, cursorPersisted: true, recordCount: 2, candidateBudgetUsed: 2, candidateBudgetLimit: 50, lastErrorCode: "douyin_collection_partial", createdAt: now, updatedAt: now, completedAt: now, activity: { phase: "collecting_comments", currentKeyword: "袜子", browserMode: "visible", sequence: 4 } };
 const candidates = { items: [{ id: "candidate-1", status: "creator_candidate", displayName: "候选人", evidence: { sourceUrl: "https://www.douyin.com/video/1", excerpt: "公开证据" } }], nextCursor: null };
 const draftPlan = { id: "plan/1", payload: { name: "工业需求计划" }, status: "draft", version: 1 };
 const approvedPlan = { ...draftPlan, status: "approved" };
@@ -139,6 +139,13 @@ await assert.rejects(
 await assert.rejects(
   createDouyinAutomationApi(async () => new Response(JSON.stringify({ ...policy, accountHandle: "private" }), { status: 200 })).getAutomation("plan-1"),
   (error: unknown) => error instanceof AcquisitionHttpError && error.code === "unsafe_response"
+);
+await assert.rejects(
+  createDouyinAutomationApi(async () => new Response(JSON.stringify({
+    ...crawler,
+    activity: undefined
+  }), { status: 200 })).getCrawlerStatus("run/1"),
+  (error: unknown) => error instanceof AcquisitionHttpError && error.code === "malformed_response"
 );
 
 console.log(JSON.stringify({ ok: true, suite: "douyin-automation-api" }));

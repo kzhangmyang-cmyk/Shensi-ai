@@ -326,7 +326,11 @@ test("persisted crawler status fixture conforms without sidecar or lease state",
       runId: "douyin-run-response-contract", state: "running", attempt: 2,
       cursorPersisted: true, recordCount: 12, candidateBudgetUsed: 8,
       candidateBudgetLimit: 50, lastErrorCode: null,
-      createdAt: NOW, updatedAt: NOW, completedAt: null
+      createdAt: NOW, updatedAt: NOW, completedAt: null,
+      activity: {
+        phase: "collecting_comments", currentKeyword: "袜子",
+        browserMode: "visible", sequence: 4
+      }
     }
   );
 });

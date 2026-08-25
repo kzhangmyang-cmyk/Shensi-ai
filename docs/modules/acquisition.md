@@ -155,7 +155,10 @@ reserved for audit/review paths.
 The editable contract is `contracts/openapi/ai-acquisition.v1.yaml`; frontend
 code consumes `frontend/src/generated/ai-acquisition.ts`.
 `GET /api/v1/acquisition/runs/{runId}/crawler-status` returns only the closed,
-workspace-bound persisted projection. It excludes the private account handle,
+workspace-bound persisted projection. Its required `activity` observation has a
+bounded phase, nullable current keyword, visible/headless browser mode and
+monotonic sequence so the dashboard can explain collection without receiving a
+raw URL or private browser identifier. It excludes the private account handle,
 lease, raw cursor, records, and live sidecar state.
 
 The authenticated browser consumes these generated projections through
@@ -166,7 +169,8 @@ and reason are shown to the operator; malformed detail objects are discarded.
 The `#acquisition` workspace preserves the existing
 Shensi shell and session controller, presents QR connect/reconnect, editable
 keywords, local schedule/timezone and the 1–200 daily limit (default 50), then
-shows persisted crawler progress, creator/commenter candidates, public
+shows the persisted crawler observation (phase, browser mode, keyword, attempt,
+localized update time and candidate allowance), creator/commenter candidates, public
 evidence, DNC/exclusion state, exact comment/direct-message drafts and
 sanitized receipts. Approval always requires an explicit second confirmation.
 An ETag conflict reloads the latest revision before another approval attempt,

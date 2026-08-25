@@ -1986,6 +1986,14 @@ export interface components {
             updatedAt: string;
             /** Format: date-time */
             completedAt: string | null;
+            activity: {
+                /** @enum {string} */
+                phase: "queued" | "starting_browser" | "opening_douyin" | "searching" | "collecting_comments" | "finalizing" | "completed";
+                currentKeyword: string | null;
+                /** @enum {string} */
+                browserMode: "visible" | "headless";
+                sequence: number;
+            };
         };
         AcquisitionRunCandidate: {
             id: string;

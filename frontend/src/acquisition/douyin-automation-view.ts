@@ -4,6 +4,9 @@ import type { DouyinPolicyInput, DouyinRunCandidate } from "./douyin-automation-
 const escape = (value: string) => value.replace(/[&<>"']/gu, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char);
 const stateLabel: Record<string, string> = { awaiting_scan: "等待扫码", active: "已连接", login_expired: "登录已失效", risk_paused: "风险暂停", disconnected: "未连接" };
 const runLabel: Record<string, string> = { scheduled: "已排期", queued: "排队中", running: "采集中", succeeded: "已完成", partial: "部分完成", paused: "已安全暂停", cancelled: "已取消", failed: "采集失败" };
+const phaseLabel: Record<string, string> = { queued: "排队中", starting_browser: "正在启动浏览器", opening_douyin: "正在打开抖音", searching: "正在搜索", collecting_comments: "正在采集评论", finalizing: "正在整理候选人", completed: "采集完成" };
+const browserModeLabel: Record<string, string> = { visible: "可视窗口已打开", headless: "后台浏览器运行中" };
+const terminalRunStates = new Set(["succeeded", "partial", "paused", "cancelled", "failed"]);
 
 function candidateKind(candidate: DouyinRunCandidate): string {
   return /comment/iu.test(candidate.status) ? "需求评论者" : /creator/iu.test(candidate.status) ? "内容创作者" : "公开候选人";
@@ -13,6 +16,7 @@ function saveDisabledReason(state: DouyinAutomationState, planName: string, keyw
   if (!state.account || state.account.state !== "active") return "请先扫码连接抖音账号";
   if (state.phase === "saving") return "正在保存计划…";
   if (state.phase === "running") return "正在启动或运行采集…";
+  if (state.crawlerStatus && !terminalRunStates.has(state.crawlerStatus.state)) return "当前采集尚未结束";
   if (!planName.trim()) return "请输入计划名称";
   if (!keywords.some((keyword) => keyword.trim())) return "至少添加 1 个关键词";
   return null;
@@ -81,7 +85,7 @@ export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutom
       </div>
       <article class="douyin-panel douyin-run-panel">
         <div class="douyin-panel-title"><span class="douyin-step">03</span><div><h3>实时采集</h3><p>${status ? escape(runLabel[status.state] ?? status.state) : "保存计划后可立即运行"}</p></div></div>
-        ${status ? `<div class="douyin-run-metrics"><div><span>公开记录</span><strong>${status.recordCount}</strong></div><div><span>已发现候选人</span><strong>${status.candidateBudgetUsed}</strong></div><div><span>每日预算</span><strong>${status.candidateBudgetLimit}</strong></div><div><span>采集进度</span><strong>${Math.min(100, Math.round(status.candidateBudgetUsed / Math.max(1, status.candidateBudgetLimit) * 100))}%</strong></div></div>${status.lastErrorCode ? `<p class="douyin-safe-reason" role="status">安全暂停原因：${escape(status.lastErrorCode)}</p>` : ""}` : `<div class="douyin-empty"><strong>暂无采集运行</strong><p>系统不会用演示数据替代服务器状态。</p></div>`}
+        ${status ? `<div class="douyin-run-observation"><div class="douyin-run-observation-head"><strong>${escape(phaseLabel[status.activity.phase] ?? status.activity.phase)}</strong><span>${escape(browserModeLabel[status.activity.browserMode] ?? status.activity.browserMode)}</span></div><div class="douyin-run-observation-details"><span>当前关键词：${escape(status.activity.currentKeyword ?? "等待服务器分配关键词")}</span><span>第 ${status.attempt} 次尝试</span><span>更新于 ${escape(new Date(status.updatedAt).toLocaleString("zh-CN", { hour12: false }))}</span></div></div><div class="douyin-run-metrics"><div><span>公开记录</span><strong>${status.recordCount}</strong></div><div><span>候选人额度</span><strong>${status.candidateBudgetUsed} / ${status.candidateBudgetLimit}</strong></div></div>${status.lastErrorCode ? `<p class="douyin-safe-reason" role="status">安全暂停原因：${escape(status.lastErrorCode)}</p>` : ""}` : state.runIntent ? `<div class="douyin-empty"><strong>排队中</strong><p>已提交采集，等待服务器返回首次观测状态。</p></div>` : `<div class="douyin-empty"><strong>暂无采集运行</strong><p>系统不会用演示数据替代服务器状态。</p></div>`}
       </article>
       <article class="douyin-panel douyin-candidates-panel">
         <div class="douyin-panel-title"><span class="douyin-step">04</span><div><h3>候选人与证据</h3><p>选中后生成待审批批次；取消选中即排除，不执行联系。</p></div></div>

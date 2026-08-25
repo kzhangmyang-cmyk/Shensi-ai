@@ -226,6 +226,9 @@ export function createDouyinAutomationController(options: {
     runNow() {
       if (runFlight) return runFlight;
       if (!state.planId) return Promise.resolve();
+      if (state.crawlerStatus && !terminalStates.has(state.crawlerStatus.state)) {
+        return Promise.resolve();
+      }
       const own = generation;
       emit({ phase: "running", error: null });
       const flight = (async () => {
