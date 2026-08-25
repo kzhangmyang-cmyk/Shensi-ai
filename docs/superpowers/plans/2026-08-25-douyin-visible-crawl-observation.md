@@ -105,7 +105,7 @@ Run the command from Step 2. Expected: PASS with no external requests.
 - Produces: `AcquisitionCrawlerActivity` in camelCase.
 - Produces: `updateActivity(fence, { activity, now })`, with monotonic sequence and frozen-keyword validation.
 
-- [ ] **Step 1: Write failing gateway, Memory/MySQL repository, and worker tests**
+- [x] **Step 1: Write failing gateway, Memory/MySQL repository, and worker tests**
 
 ```ts
 await repository.updateActivity(fence, {
@@ -123,7 +123,7 @@ Tests also prove that a lower sequence, a same-sequence conflict, a non-frozen
 keyword, and private extra gateway fields are rejected, and that the worker
 persists activity while `pageCount` is zero.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 ```bash
 pnpm --filter ./backend exec node --import tsx --test --test-concurrency=1 \
@@ -135,7 +135,7 @@ pnpm --filter ./backend exec node --import tsx --test --test-concurrency=1 \
 
 Expected: compile/test failures for the missing activity contract and repository method.
 
-- [ ] **Step 3: Implement the domain, repository, gateway, and worker path**
+- [x] **Step 3: Implement the domain, repository, gateway, and worker path**
 
 ```ts
 export interface AcquisitionCrawlerActivity {
@@ -157,7 +157,7 @@ adds the safe default for old rows; no table column or destructive migration is
 required. The worker persists the snapshot immediately after every validated
 sidecar status read.
 
-- [ ] **Step 4: Run the focused tests and verify GREEN**
+- [x] **Step 4: Run the focused tests and verify GREEN**
 
 Run the command from Step 2. Expected: PASS.
 

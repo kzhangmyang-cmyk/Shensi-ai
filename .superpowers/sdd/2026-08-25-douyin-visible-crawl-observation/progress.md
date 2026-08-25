@@ -28,3 +28,11 @@ Ruling: Visible/headless mode remains deployment-configured through `MEDIACRAWLE
 - Task 1: fix round 1/5 (2 addressed, 1 open; commits `b072fde..a7e6371`).
 - Task 1: fix round 2/5 (1 addressed, 0 open; commit `03777a6`).
 - Task 1: complete (commits `888797d..03777a6`; independent review clean).
+- Task 2: fix round 1/5 (3 addressed, 0 open; commits `d5817cf..0d51e62`).
+- Task 2: complete (commits `adda8e..0d51e62`; independent review clean).
+
+Ruling: Node persists an internal `activityObserved` sentinel — this lets the
+first real sequence-0 sidecar snapshot replace the conservative headless
+default while preserving strict same-sequence conflict detection thereafter —
+if wrong, removing it would make visible and headless initial snapshots
+indistinguishable and reintroduce the reviewed startup failure.
