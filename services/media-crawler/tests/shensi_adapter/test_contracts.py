@@ -8,7 +8,9 @@ from shensi_adapter.app import create_app
 from shensi_adapter.schemas import (
     ActionReceipt,
     ActionRequest,
+    CrawlActivity,
     CrawlJobRequest,
+    CrawlJobView,
     HealthView,
     LoginSessionView,
     NormalizedDouyinRecord,
@@ -46,6 +48,23 @@ def test_service_schemas_are_closed():
             collect_creators=True,
             collect_demand_comments=True,
             deadline_at=NOW,
+        ),
+        CrawlJobView(
+            job_id="job_1",
+            state="queued",
+            created_at=NOW,
+            updated_at=NOW,
+            completed_at=None,
+            acknowledged_at=None,
+            record_count=0,
+            page_count=0,
+            failure_code=None,
+            activity=CrawlActivity(
+                phase="queued",
+                current_keyword=None,
+                browser_mode="visible",
+                sequence=0,
+            ),
         ),
         NormalizedDouyinRecord(
             record_id="record_1",

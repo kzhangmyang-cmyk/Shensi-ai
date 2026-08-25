@@ -9,7 +9,7 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from .accounts import AccountManager
 from .action_jobs import ActionJobManager, ActionReplayConflict
 from .browser_state import MediaCrawlerDouyinBrowserState
-from .crawl_jobs import CrawlJobManager, CursorConflict
+from .crawl_jobs import CrawlJobManager, CursorConflict, MediaCrawlerRunner
 from .schemas import (
     ActionReceipt, ActionRequest, CrawlJobAcknowledgement, CrawlJobPage,
     CrawlJobRequest, CrawlJobView, HealthView, LoginSessionView,
@@ -18,6 +18,12 @@ from .security import authorize_bearer, require_service_secret
 
 
 UPSTREAM_COMMIT = "d6f7c5bb906b6dac40ddf343ef9e26438a3de092"
+
+
+def deployment_browser_headless() -> bool:
+    return os.environ.get(
+        "MEDIACRAWLER_BROWSER_HEADLESS", "true"
+    ).strip().lower() != "false"
 
 
 def deployment_service_secret() -> str:
@@ -220,9 +226,7 @@ def create_deployment_account_manager() -> AccountManager:
         raise RuntimeError("MEDIACRAWLER_ENCRYPTED_VOLUME and MEDIACRAWLER_PROFILE_ROOT are required")
     root_path = validate_encrypted_profile_root(Path(volume), Path(root))
     # Validate containment before the Playwright owner thread is even created.
-    headless = os.environ.get(
-        "MEDIACRAWLER_BROWSER_HEADLESS", "true"
-    ).strip().lower() != "false"
+    headless = deployment_browser_headless()
     browser_channel = (
         os.environ.get("MEDIACRAWLER_BROWSER_CHANNEL", "").strip() or None
     )
@@ -239,7 +243,8 @@ def create_deployment_account_manager() -> AccountManager:
 app = _build_app(deployment_service_secret,
                  deployment_manager_factory=create_deployment_account_manager,
                  deployment_crawl_factory=lambda manager: CrawlJobManager(
-                     manager._root, account_resolver=manager.resolve_crawl_profile
+                     manager._root, account_resolver=manager.resolve_crawl_profile,
+                     runner=MediaCrawlerRunner(headless=deployment_browser_headless()),
                  ), deployment_action_factory=lambda manager: ActionJobManager(
                      manager._root, account_resolver=manager.resolve_action_profile,
                      executor=manager.execute_action

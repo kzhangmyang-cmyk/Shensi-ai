@@ -17,10 +17,12 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Iterable, Mapping
+from urllib.parse import quote
 
 from .douyin_normalizer import normalize_douyin_records
 from .schemas import (
-    CrawlJobPage, CrawlJobRequest, CrawlJobView, NormalizedDouyinRecord,
+    CrawlActivity, CrawlJobPage, CrawlJobRequest, CrawlJobView,
+    NormalizedDouyinRecord,
 )
 
 
@@ -30,7 +32,9 @@ class CursorConflict(ValueError):
 
 Runner = Callable[
     [CrawlJobRequest, Path, threading.Event],
-    Iterable[tuple[str, Mapping[str, object]]] | Iterable[NormalizedDouyinRecord],
+    Iterable[
+        tuple[str, Mapping[str, object]] | NormalizedDouyinRecord | CrawlActivity,
+    ],
 ]
 
 
@@ -175,11 +179,97 @@ def _browser_profile_template(profile: Path) -> str:
     return str(profile).replace("%", "%%") + "%.0s"
 
 
+def _write_activity_snapshot(path: Path, *, phase: str, current_keyword: str | None,
+                             browser_mode: str) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(path.parent, 0o700)
+    _atomic_json(path, {
+        "phase": phase,
+        "current_keyword": current_keyword,
+        "browser_mode": browser_mode,
+    })
+
+
+def _read_activity_snapshot(path: Path) -> CrawlActivity | None:
+    if not path.is_file():
+        return None
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("invalid_crawl_activity")
+    return CrawlActivity.model_validate({**value, "sequence": 0})
+
+
+class _VisibleDouyinObserver:
+    """Adds operator-visible, allowlisted navigation around upstream reads."""
+
+    def __init__(self, *, browser_mode: str, activity_path: Path) -> None:
+        self._browser_mode = browser_mode
+        self._activity_path = activity_path
+        self._current_keyword: str | None = None
+
+    def _publish(self, phase: str, current_keyword: str | None = None) -> None:
+        _write_activity_snapshot(
+            self._activity_path,
+            phase=phase,
+            current_keyword=current_keyword,
+            browser_mode=self._browser_mode,
+        )
+
+    async def _open_search(self, page: object, keyword: object) -> None:
+        normalized_keyword = str(keyword)
+        self._current_keyword = normalized_keyword
+        self._publish("searching", normalized_keyword)
+        await page.goto(  # type: ignore[attr-defined]
+            f"https://www.douyin.com/search/{quote(normalized_keyword, safe='')}?type=general"
+        )
+
+    async def _open_video(self, page: object, aweme_id: object) -> None:
+        normalized_aweme_id = str(aweme_id)
+        self._publish("collecting_comments", self._current_keyword)
+        if re.fullmatch(r"[0-9]{1,32}", normalized_aweme_id):
+            await page.goto(  # type: ignore[attr-defined]
+                f"https://www.douyin.com/video/{normalized_aweme_id}"
+            )
+
+    def install(self, crawler: object) -> None:
+        original_search = crawler.search  # type: ignore[attr-defined]
+        original_get_comments = crawler.get_comments  # type: ignore[attr-defined]
+
+        async def observed_search():
+            client = crawler.dy_client  # type: ignore[attr-defined]
+            original_search_info = client.search_info_by_keyword
+
+            async def observed_search_info(*args, **kwargs):
+                keyword = kwargs.get("keyword", args[0] if args else "")
+                await self._open_search(crawler.context_page, keyword)  # type: ignore[attr-defined]
+                return await original_search_info(*args, **kwargs)
+
+            client.search_info_by_keyword = observed_search_info
+            return await original_search()
+
+        async def observed_get_comments(aweme_id, *args, **kwargs):
+            await self._open_video(crawler.context_page, aweme_id)  # type: ignore[attr-defined]
+            return await original_get_comments(aweme_id, *args, **kwargs)
+
+        crawler.search = observed_search  # type: ignore[attr-defined]
+        crawler.get_comments = observed_get_comments  # type: ignore[attr-defined]
+
+
 class MediaCrawlerRunner:
     """Runs the pinned in-tree API in an isolated process; no user shell text."""
 
-    def __init__(self, service_root: Path | None = None) -> None:
+    def __init__(self, headless: bool | Path = True,
+                 service_root: Path | None = None) -> None:
+        # Keep the earlier positional service-root seam compatible with focused
+        # tests while making browser mode explicit for all new callers.
+        if isinstance(headless, Path):
+            service_root, headless = headless, True
+        self._headless = bool(headless)
         self._service_root = service_root or Path(__file__).resolve().parents[1]
+
+    @property
+    def browser_mode(self) -> str:
+        return "headless" if self._headless else "visible"
 
     def __call__(self, request: CrawlJobRequest, profile: Path,
                  cancelled: threading.Event):
@@ -193,12 +283,15 @@ class MediaCrawlerRunner:
             "max_pages_per_video": request.max_pages_per_video,
             "collect_creators": request.collect_creators,
             "collect_demand_comments": request.collect_demand_comments,
+            "headless": self._headless,
         })
         command = [sys.executable, "-m", "shensi_adapter.crawl_jobs", "--execute", str(spec)]
         process = subprocess.Popen(command, cwd=self._service_root, start_new_session=True,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = request.deadline_at.timestamp()
         seen: set[tuple[str, str]] = set()
+        activity_path = output / "activity.json"
+        previous_activity: str | None = None
 
         def newly_completed_rows(*, live: bool):
             for kind, value in _read_output_rows(
@@ -213,6 +306,18 @@ class MediaCrawlerRunner:
                 seen.add(key)
                 yield kind, value
 
+        def newly_published_activity():
+            nonlocal previous_activity
+            if not activity_path.is_file():
+                return
+            encoded = activity_path.read_text(encoding="utf-8")
+            if encoded == previous_activity:
+                return
+            previous_activity = encoded
+            activity = _read_activity_snapshot(activity_path)
+            if activity is not None:
+                yield activity
+
         termination_error: Exception | None = None
         while process.poll() is None:
             if cancelled.is_set() or time.time() >= deadline:
@@ -226,8 +331,10 @@ class MediaCrawlerRunner:
                     break
                 termination_error = TimeoutError("crawl_deadline_exceeded")
                 break
+            yield from newly_published_activity()
             yield from newly_completed_rows(live=True)
             time.sleep(0.05)
+        yield from newly_published_activity()
         yield from newly_completed_rows(live=False)
         if cancelled.is_set():
             return
@@ -314,7 +421,32 @@ class CrawlJobManager:
                             acknowledged_at=job.get("acknowledged_at"),
                             record_count=job["record_count"],
                             page_count=len(job["pages"]),
-                            failure_code=job.get("failure_code"))
+                            failure_code=job.get("failure_code"),
+                            activity=CrawlActivity.model_validate(
+                                job.get("activity", {
+                                    "phase": "queued", "current_keyword": None,
+                                    "browser_mode": "headless", "sequence": 0,
+                                })
+                            ))
+
+    def _initial_activity(self) -> dict[str, object]:
+        browser_mode = getattr(self._runner, "browser_mode", "headless")
+        return CrawlActivity(
+            phase="queued", current_keyword=None,
+            browser_mode=browser_mode, sequence=0,
+        ).model_dump(mode="json")
+
+    def _publish_activity(self, job: dict, request: CrawlJobRequest,
+                          activity: CrawlActivity) -> None:
+        if (activity.current_keyword is not None
+                and activity.current_keyword not in request.keywords):
+            raise ValueError("invalid_crawl_activity_keyword")
+        previous = CrawlActivity.model_validate(job["activity"])
+        job["activity"] = activity.model_copy(
+            update={"sequence": previous.sequence + 1},
+        ).model_dump(mode="json")
+        job["updated_at"] = self._now().isoformat()
+        self._persist(job)
 
     def start(self, request: CrawlJobRequest) -> CrawlJobView:
         with self._lock:
@@ -334,7 +466,9 @@ class CrawlJobManager:
             os.chmod(directory, 0o700)
             instant = self._now().isoformat()
             job = existing or {"request": request.model_dump(mode="json"), "created_at": instant,
-                               "record_count": 0, "pages": []}
+                               "record_count": 0, "pages": [],
+                               "activity": self._initial_activity()}
+            job.setdefault("activity", self._initial_activity())
             job.update({"state": "queued", "updated_at": instant, "completed_at": None,
                         "acknowledged_at": None,
                         "failure_code": None})
@@ -391,6 +525,12 @@ class CrawlJobManager:
             for value in self._runner(request, profile, cancelled):
                 if cancelled.is_set():
                     break
+                if isinstance(value, CrawlActivity):
+                    with self._lock:
+                        self._publish_activity(
+                            self._jobs[request.job_id], request, value,
+                        )
+                    continue
                 normalized = (
                     [value] if isinstance(value, NormalizedDouyinRecord)
                     else normalize_douyin_records([value], observed_at=self._now())
@@ -517,13 +657,38 @@ class CrawlJobManager:
             raise RuntimeError("crawl_job_shutdown_timeout")
 
 
-def _execute_upstream(spec_path: Path) -> None:
+def _execute_upstream(
+    spec_path: Path,
+    *,
+    config_module: object | None = None,
+    crawler_factory: Callable[[], object] | None = None,
+    capture_installer: Callable[[Path, bool], None] | None = None,
+) -> None:
     value = json.loads(spec_path.read_text(encoding="utf-8"))
-    import config
-    from media_platform.douyin import DouYinCrawler
+    if config_module is None:
+        import config
+    else:
+        config = config_module
+    if crawler_factory is None:
+        from media_platform.douyin import DouYinCrawler
+        crawler_factory = DouYinCrawler
+    if capture_installer is None:
+        capture_installer = _install_public_actor_capture
+    headless = bool(value.get("headless", True))
+    output = Path(value["output"])
+    activity_path = output / "activity.json"
+    browser_mode = "headless" if headless else "visible"
+    _write_activity_snapshot(
+        activity_path, phase="starting_browser", current_keyword=None,
+        browser_mode=browser_mode,
+    )
     config.PLATFORM = "dy"
     config.LOGIN_TYPE = "qrcode"
     config.CRAWLER_TYPE = "search"
+    config.ENABLE_CDP_MODE = False
+    config.CDP_CONNECT_EXISTING = False
+    config.HEADLESS = headless
+    config.CDP_HEADLESS = headless
     config.KEYWORDS = ",".join(value["keywords"])
     config.ENABLE_GET_COMMENTS = bool(value["collect_demand_comments"])
     config.ENABLE_GET_SUB_COMMENTS = False
@@ -538,10 +703,28 @@ def _execute_upstream(spec_path: Path) -> None:
     )
     config.MAX_CONCURRENCY_NUM = 1
     config.ENABLE_GET_WORDCLOUD = False
-    _install_public_actor_capture(
-        Path(value["output"]), bool(value["collect_creators"]),
+    capture_installer(
+        output, bool(value["collect_creators"]),
     )
-    asyncio.run(DouYinCrawler().start())
+    crawler = crawler_factory()
+    _VisibleDouyinObserver(
+        browser_mode=browser_mode, activity_path=activity_path,
+    ).install(crawler)
+    _write_activity_snapshot(
+        activity_path, phase="opening_douyin", current_keyword=None,
+        browser_mode=browser_mode,
+    )
+    try:
+        asyncio.run(crawler.start())  # type: ignore[attr-defined]
+    finally:
+        _write_activity_snapshot(
+            activity_path, phase="finalizing", current_keyword=None,
+            browser_mode=browser_mode,
+        )
+    _write_activity_snapshot(
+        activity_path, phase="completed", current_keyword=None,
+        browser_mode=browser_mode,
+    )
 
 
 if __name__ == "__main__":

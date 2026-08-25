@@ -39,6 +39,20 @@ class CrawlJobRequest(BaseModel):
     deadline_at: datetime
 
 
+class CrawlActivity(BaseModel):
+    """Sanitized, operator-safe snapshot of the private crawl's progress."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    phase: Literal[
+        "queued", "starting_browser", "opening_douyin", "searching",
+        "collecting_comments", "finalizing", "completed",
+    ]
+    current_keyword: str | None
+    browser_mode: Literal["visible", "headless"]
+    sequence: int
+
+
 class CrawlJobView(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -51,6 +65,7 @@ class CrawlJobView(BaseModel):
     record_count: int
     page_count: int
     failure_code: str | None
+    activity: CrawlActivity
 
 
 class CrawlJobAcknowledgement(BaseModel):

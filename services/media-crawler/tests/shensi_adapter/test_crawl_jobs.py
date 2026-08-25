@@ -2,15 +2,17 @@ import json
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
 from shensi_adapter.crawl_jobs import (
     CrawlJobManager, CursorConflict, MediaCrawlerRunner, _browser_profile_template,
-    _public_comment_capture, _public_creator_capture, _read_output_rows,
+    _execute_upstream, _public_comment_capture, _public_creator_capture,
+    _read_output_rows,
 )
 from shensi_adapter.douyin_normalizer import normalize_douyin_records
-from shensi_adapter.schemas import CrawlJobRequest
+from shensi_adapter.schemas import CrawlActivity, CrawlJobRequest
 
 
 NOW = datetime(2026, 8, 24, 1, 2, 3, tzinfo=UTC)
@@ -95,6 +97,113 @@ def test_pinned_runner_preserves_the_exact_private_browser_profile_path(tmp_path
     profile = tmp_path / "account%private" / "profile"
 
     assert _browser_profile_template(profile) % "dy" == str(profile)
+
+
+def test_execute_upstream_disables_cdp_and_applies_configured_visible_mode(tmp_path):
+    spec = tmp_path / "request.json"
+    spec.write_text(json.dumps({
+        "profile": str(tmp_path / "profile"),
+        "output": str(tmp_path / "output"),
+        "keywords": ["袜子"],
+        "max_videos": 2,
+        "max_comments_per_video": 2,
+        "max_pages_per_video": 1,
+        "collect_creators": False,
+        "collect_demand_comments": True,
+        "headless": False,
+    }), encoding="utf-8")
+    fake_config = SimpleNamespace()
+    calls = []
+
+    class FakePage:
+        async def goto(self, url):
+            calls.append(url)
+
+    class FakeClient:
+        async def search_info_by_keyword(self, *, keyword):
+            return f"search-{keyword}"
+
+    class FakeCrawler:
+        def __init__(self):
+            self.context_page = FakePage()
+            self.dy_client = FakeClient()
+
+        async def search(self):
+            return await self.dy_client.search_info_by_keyword(keyword="袜子")
+
+        async def get_comments(self, aweme_id, _semaphore):
+            return f"comments-{aweme_id}"
+
+        async def start(self):
+            self.search_result = await self.search()
+            self.comments_result = await self.get_comments("73001", None)
+
+    crawler = FakeCrawler()
+
+    _execute_upstream(
+        spec,
+        config_module=fake_config,
+        crawler_factory=lambda: crawler,
+        capture_installer=lambda *_: None,
+    )
+
+    assert fake_config.ENABLE_CDP_MODE is False
+    assert fake_config.CDP_CONNECT_EXISTING is False
+    assert fake_config.HEADLESS is False
+    assert fake_config.CDP_HEADLESS is False
+    assert crawler.search_result == "search-袜子"
+    assert crawler.comments_result == "comments-73001"
+    assert calls == [
+        "https://www.douyin.com/search/%E8%A2%9C%E5%AD%90?type=general",
+        "https://www.douyin.com/video/73001",
+    ]
+
+
+def test_manager_persists_only_authorized_activity_keywords_with_monotonic_sequence(tmp_path):
+    def runner(_request, _profile, _cancelled):
+        yield CrawlActivity(
+            phase="searching", current_keyword="industrial pump",
+            browser_mode="visible", sequence=999,
+        )
+
+    manager = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=runner,
+        now=lambda: NOW,
+    )
+    manager.start(request("activity-job"))
+
+    terminal = wait_terminal(manager, "activity-job")
+
+    assert terminal.activity == CrawlActivity(
+        phase="searching", current_keyword="industrial pump",
+        browser_mode="visible", sequence=1,
+    )
+    manager.close()
+
+
+def test_manager_rejects_an_activity_keyword_outside_the_frozen_request(tmp_path):
+    def runner(_request, _profile, _cancelled):
+        yield CrawlActivity(
+            phase="searching", current_keyword="unapproved keyword",
+            browser_mode="visible", sequence=1,
+        )
+
+    manager = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=runner,
+        now=lambda: NOW,
+    )
+    manager.start(request("invalid-activity-job"))
+
+    terminal = wait_terminal(manager, "invalid-activity-job")
+
+    assert terminal.state == "failed"
+    assert terminal.failure_code == "crawl_failed"
+    assert terminal.activity.current_keyword is None
+    manager.close()
 
 
 def wait_terminal(manager, job_id):
