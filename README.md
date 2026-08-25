@@ -125,15 +125,24 @@ its evidence and candidates immediately, so the dashboard can show candidates
 before the crawl ends. A terminal replay finalizes the run and acknowledges the
 sidecar; if the upstream browser stops after publishing records, the job stays
 `partial` and those records remain available instead of being reset to zero.
-When local visible mode is used, its dedicated tab is an operator observation
-mirror for the approved keyword and public video. The deterministic
-MediaCrawler request client remains the data authority, and observation
-navigation cannot fabricate results. The dashboard polls only the persisted
-Node projection: localized phase, approved keyword or null, visible/headless
-mode, monotonic sequence, attempt and update time, and candidate allowance.
-It never receives a raw URL, profile path, cookie, header, selector, browser
-identifier, CDP/WebSocket endpoint, or raw log. It also blocks another run
-while the current intent has not yet been observed or remains nonterminal;
+The manager records the terminal page descriptor, completed activity, terminal
+state, pending candidate projection, and lease release together, so a persisted
+running job never advertises a final page. A safely paused sidecar job releases
+its fence through retryable requeue and resumes on a later claim instead of
+being renewed indefinitely. When local visible mode is used, its dedicated tab
+is a separate best-effort operator observation mirror for the approved keyword
+and public video. The deterministic MediaCrawler request client remains the
+data authority: observation-page creation or navigation cannot fabricate
+results or stop collection. The dashboard polls only the persisted Node
+projection: localized phase, approved keyword or null, visible/headless mode,
+monotonic sequence, attempt and update time, candidate allowance, and the
+closed `candidateProjectionState` (`pending`, `ready`, or `failed`). It never
+receives a raw URL, profile path, cookie, header, selector, browser identifier,
+CDP/WebSocket endpoint, raw log, ingestion state, or lease data. It continues
+polling while a terminal crawl is still `pending` candidate projection, reads
+the candidate feed after readiness, stops once projection is `ready` or
+`failed`, accepts zero candidates with `ready` as a completed result, and
+blocks another run until the current intent is observed and no longer pending;
 comment and direct-message approval rules are unchanged.
 
 The real-mode header action `新建抖音采集计划` scrolls to and focuses the

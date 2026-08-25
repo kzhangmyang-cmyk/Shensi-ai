@@ -90,9 +90,11 @@ persisted records. A sidecar interruption after any published record produces a
 Candidate-budget truncation remains durable across later pages and also ends as
 `partial`. Late same-day aliases reopen only terminal ingestion and project
 already persisted facts into the newly bound authoritative run without
-recrawling. Crawler and ingestion claims alternate under load and prefer another
-workspace when one is ready. Terminal jobs have a second random fenced
-ingestion claim. Its transaction writes
+recrawling. A paused sidecar status records its last safe activity, releases
+the crawl fence through retryable requeue, and resumes on a later claim instead
+of polling and renewing forever. Crawler and ingestion claims alternate under
+load and prefer another workspace when one is ready. Terminal jobs have a
+second random fenced ingestion claim. Its transaction writes
 `acquisition_discovery_evidence`, `acquisition_candidates`, candidate identity
 aliases and audits through the existing acquisition domain repository, then
 writes acquisition-run status and `candidate.discovered` events through the
@@ -160,10 +162,16 @@ bounded phase, nullable approved keyword, visible/headless browser mode and
 monotonic sequence so the dashboard can explain collection without receiving a
 raw URL or private browser identifier. It excludes the private account handle,
 lease, raw cursor, records, live sidecar state, profile path, cookie, header,
-selector, CDP/WebSocket endpoint, and raw log. In local visible mode, the
-dedicated tab is an operator observation mirror for the approved keyword and
-public video; the deterministic MediaCrawler request client remains the data
-authority, and observation navigation cannot fabricate results.
+selector, CDP/WebSocket endpoint, raw log, and raw ingestion state. Its
+required `candidateProjectionState` is the closed `pending`, `ready`, or
+`failed` summary of candidate projection: a successful or partial crawl remains
+`pending` until terminal ingestion resolves, and paused, cancelled, or failed
+crawls are `ready` because no later terminal projection is scheduled. In local
+visible mode, the dedicated tab is a separate best-effort operator observation
+mirror for the approved keyword and public video; it does not reuse the
+collector page, and failure to create or navigate it cannot affect collection.
+The deterministic MediaCrawler request client remains the data authority, and
+observation navigation cannot fabricate results.
 
 The authenticated browser consumes these generated projections through
 `douyin-automation-api.ts` and `outreach-batch-api.ts`; feature code does not
@@ -180,8 +188,11 @@ sanitized receipts. Approval always requires an explicit second confirmation.
 An ETag conflict reloads the latest revision before another approval attempt,
 and logout, close or mode change aborts active requests and the single poller.
 It blocks another run while its current intent has no first persisted
-observation or its observed crawler state is nonterminal. This safeguard does
-not change comment or direct-message approval rules.
+observation, its observed crawler state is nonterminal, or its candidate
+projection is `pending`. It continues polling in that terminal-pending state
+and reads candidates after readiness, then stops at `ready` or `failed`; a
+terminal `ready` response with zero candidates is a valid completed result.
+This safeguard does not change comment or direct-message approval rules.
 The authorized public-link importer remains available only as a collapsed
 fallback. Desktop renders a candidate table beside its inspector; mobile uses
 one-column cards with document scrolling and no horizontal overflow.

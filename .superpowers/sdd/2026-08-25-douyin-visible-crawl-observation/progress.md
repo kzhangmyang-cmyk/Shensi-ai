@@ -42,3 +42,13 @@ indistinguishable and reintroduce the reviewed startup failure.
 - Task 3: fix round 3/5 (1 addressed, 0 open; commits `c58c8b1..182edca`).
 - Task 3: complete (commits `5a00022..182edca`; independent review clean).
 - Task 4: complete (commits `1a38712..f118d31`; independent review clean).
+- Final review fixes: complete (commits `d82890b`, `72494b1`, and `231823e7`).
+  The sidecar observation tab is a separate best-effort mirror whose failures
+  cannot interrupt collection; manager terminal page/activity persistence is
+  atomic and paused jobs requeue for later resume; the closed public projection
+  adds `candidateProjectionState` without raw ingestion fields; and the UI
+  polls terminal-pending projection, reads candidates after readiness, permits
+  zero-candidate `ready`, and blocks duplicate runs while pending. Focused
+  sidecar, backend, contract/generated-type, and frontend self-test/build
+  checks recorded in the final-fix reports passed; no browser, crawl, comment,
+  direct message, or automatic external action was run for these fixes.

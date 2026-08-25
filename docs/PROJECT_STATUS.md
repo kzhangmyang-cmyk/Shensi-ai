@@ -163,17 +163,25 @@ ledger.
   one-column candidate cards and normal body scrolling.
 - Visible local MediaCrawler observation is a dedicated standard-Playwright
   Douyin window when `MEDIACRAWLER_BROWSER_HEADLESS=false`; Shensi disables CDP,
-  while production may set headless mode to `true`. Its visible tab mirrors the
-  approved keyword and public video only. The deterministic request client
-  remains the data authority, so observation navigation cannot create results.
-  The persisted crawler-status activity is closed to phase, approved keyword
-  or null, visible/headless mode, and monotonic sequence. The dashboard polls
-  that Node projection, localizes its phase, and displays browser mode,
-  keyword, attempt/update time, and candidate allowance. It does not expose a
-  raw URL, profile path, cookie, header, selector, CDP/WebSocket endpoint,
-  browser identifier, or raw log; it prevents a duplicate submission while the
-  current intent is unobserved or nonterminal. Comment and direct-message
-  approval rules remain unchanged.
+  while production may set headless mode to `true`. Its visible tab is a
+  separate best-effort mirror of the approved keyword and public video, not the
+  collector page; observation-page creation or navigation failure cannot stop
+  collection. The deterministic request client remains the data authority, so
+  observation navigation cannot create results. The manager publishes truthful
+  launch activity, deduplicates equivalent snapshots, atomically persists a
+  final-page descriptor with completed terminal activity, and requeues safely
+  paused sidecar work for a later resume. The persisted public crawler status
+  is closed to activity (phase, approved keyword or null, visible/headless
+  mode, and monotonic sequence) plus `candidateProjectionState` (`pending`,
+  `ready`, or `failed`); it excludes raw ingestion state, leases, raw URLs,
+  profile paths, cookies, headers, selectors, CDP/WebSocket endpoints, browser
+  identifiers, and raw logs. The dashboard polls while the crawl or candidate
+  projection remains pending, reads candidates after readiness, accepts zero
+  candidates with terminal `ready` as valid, stops at `ready` or `failed`, and
+  prevents duplicate submission until the current intent is observed and no
+  longer pending. Manual automation keywords still require neither a
+  public-search API nor AI. Comment and direct-message approval remains human
+  approved; no automatic external action was run.
 
 ## Active
 

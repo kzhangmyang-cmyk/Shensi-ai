@@ -21,7 +21,8 @@ Do not add parallel handwritten DTOs.
   provider connections, Douyin QR login/workspace accounts, immutable Douyin
   automation policies, optional model-backed keyword suggestions, and run-now intents with distinct authoritative
   acquisition-run IDs, persisted run crawler status with a closed activity
-  observation (phase, keyword, browser mode, sequence), run-scoped candidate
+  observation (phase, keyword, browser mode, sequence) and closed candidate
+  projection readiness (`pending`, `ready`, or `failed`), run-scoped candidate
   feeds, immutable outreach batch revisions, human approval, and ordered
   comment-then-message action outbox reads with sanitized execution status,
   attempt count, receipt reference, occurrence time, and closed failure code;
@@ -55,8 +56,8 @@ The sidecar `/internal/v1/*` health, account, crawl, result, acknowledgement,
 and exact-action routes are service-to-service implementation interfaces, not
 public APIs. They require the mounted bearer secret, accept only a private or
 loopback backend connection, and are never routed by Nginx. Raw handles,
-cookies, browser profiles, leases, and upstream payloads must not be added to
-the acquisition OpenAPI surface.
+cookies, browser profiles, leases, raw ingestion state, and upstream payloads
+must not be added to the acquisition OpenAPI surface.
 
 ## Protocol conventions
 

@@ -104,15 +104,27 @@ one-way DNC identity, and audit authority intact. Restarts resume from Node
 cursors and ingestion leases; a late run alias replays only this projection,
 not the crawl. Fair lane alternation and cross-workspace claim preference keep
 queued crawl work from starving ingestion or another tenant. Browser routes
-never proxy live sidecar state.
-The local visible tab is an observation mirror for the approved keyword and
-public video, not a collection authority. The deterministic MediaCrawler
-request client remains the data authority, and navigation in that tab cannot
-fabricate records, evidence, or candidates. The browser polls the persisted
-Node crawler-status projection rather than the sidecar. Its closed activity
-surface contains only phase, approved keyword or null, visible/headless mode,
-and monotonic sequence; it excludes raw URLs, profile paths, cookies, headers,
-selectors, CDP/WebSocket endpoints, browser identifiers, and raw logs.
+never proxy live sidecar state. The manager publishes `starting_browser`
+before consuming the runner and `opening_douyin` only after a real browser
+launch; equivalent activity snapshots do not create false progress. For a
+successful or partial crawl, it persists the final-page descriptor and
+`completed` activity in the same terminal metadata transition, so no durable
+running job can advertise a final page. A paused sidecar status retains the
+last safe nonterminal activity, releases its fence through retryable requeue,
+and is resumed by a later claim rather than held in an endless poll/renew loop.
+
+The local visible tab is a separate best-effort observation mirror for the
+approved keyword and public video, not a collection authority. It is created
+from the crawl browser context without reusing the collector page; inability to
+create or navigate it cannot stop the search or comment collector. The
+deterministic MediaCrawler request client remains the data authority, and
+navigation in that tab cannot fabricate records, evidence, or candidates. The
+browser polls the persisted Node crawler-status projection rather than the
+sidecar. Its closed public surface contains activity (phase, approved keyword
+or null, visible/headless mode, and monotonic sequence) and
+`candidateProjectionState` (`pending`, `ready`, or `failed`); it excludes raw
+URLs, profile paths, cookies, headers, selectors, CDP/WebSocket endpoints,
+browser identifiers, raw logs, ingestion state, and leases.
 
 Private outreach generation is composed at the application boundary from that
 same domain/DNC authority. Memory verification serializes with the DNC writer
@@ -186,8 +198,12 @@ requirements; authorized public-link import is a collapsed fallback. Private
 MediaCrawler handles, cookies, profiles, leases and internal identifiers are not rendered.
 For a current run, the dashboard polls only the persisted crawler-status
 projection and localizes phase while showing browser mode, keyword, attempt and
-update time, and candidate allowance. A submitted intent without its first
-observation, or a nonterminal observed run, blocks duplicate run submission in
+update time, and candidate allowance. It continues polling while the crawler is
+nonterminal or the closed candidate projection is `pending`, and reads
+candidates after readiness; it stops at `ready` or `failed`, and terminal
+`ready` with zero candidates is a valid completed result. A submitted intent
+without its first observation, an observed nonterminal run, or a terminal run
+whose candidate projection is still `pending` blocks duplicate submission in
 both the rendered control and controller command path. This observation does
 not alter the existing comment or direct-message approval authority.
 The desktop candidate table and evidence inspector collapse to one-column

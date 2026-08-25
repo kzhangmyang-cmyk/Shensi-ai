@@ -186,16 +186,22 @@ assumes a host Chrome installation. Login-session creation allows 35 seconds
 for cold browser startup; ordinary health and poll requests retain the shorter
 gateway timeout.
 
-The local visible tab is only an operator observation mirror for the approved
-keyword and public video. The deterministic MediaCrawler request client remains
-the data authority, and observation navigation cannot fabricate results. The
-browser dashboard polls the persisted Node projection, which exposes only
-phase, approved keyword or null, visible/headless mode, and monotonic sequence;
-it must not expose raw URLs, profile paths, cookies, headers, selectors,
-CDP/WebSocket endpoints, browser identifiers, or raw logs. It displays the
-localized phase, browser mode, keyword, attempt/update time, and candidate
-allowance, and blocks duplicate submission until the current intent is observed
-and terminal. This has no effect on comment or direct-message approval rules.
+The local visible tab is a separate best-effort operator observation mirror for
+the approved keyword and public video. It is not the collector page: failure to
+create or navigate it cannot interrupt deterministic collection. The
+MediaCrawler request client remains the data authority, and observation
+navigation cannot fabricate results. The browser dashboard polls the persisted
+Node projection, which exposes only phase, approved keyword or null,
+visible/headless mode, monotonic sequence, and the closed
+`candidateProjectionState` (`pending`, `ready`, or `failed`); it must not
+expose raw URLs, profile paths, cookies, headers, selectors, CDP/WebSocket
+endpoints, browser identifiers, raw logs, raw ingestion state, or leases. It
+displays the localized phase, browser mode, keyword, attempt/update time, and
+candidate allowance; it continues polling and blocks duplicate submission while
+the current intent is unobserved, nonterminal, or terminal with a `pending`
+candidate projection. A terminal `ready` response with zero candidates is a
+valid completed result, and polling stops at `ready` or `failed`. This has no
+effect on comment or direct-message approval rules.
 
 Compose bind-mounts that directory at `/var/lib/shensi-mediacrawler` and
 refuses to create a missing host path. Stop the sidecar before backup or
