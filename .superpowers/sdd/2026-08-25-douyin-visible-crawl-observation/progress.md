@@ -63,6 +63,42 @@ indistinguishable and reintroduce the reviewed startup failure.
   navigation is a bounded best-effort task outside the collector critical path;
   attempt-local output excludes stale activity/JSONL, and paused restart seeds
   record de-duplication from persisted page IDs.
-- Focused sidecar, backend, contract/generated-type, and frontend self-test/build
-  checks are recorded in the final-fix reports. No browser, crawl, comment,
-  direct message, or automatic external action was run for these fixes.
+- Closed candidate-page decoding: complete (commits `5c5f64d`, `2c75e87`, and
+  `cc3fffb`). The frontend recursively enforces exact public page/candidate/
+  evidence keys and bounded values, and rejects credential-bearing, parser-
+  repaired, malformed, or non-HTTP(S)-authority evidence URLs.
+- Terminal ingestion fencing: complete (commit `3419082`). Terminal startup
+  activity becomes durable only with the atomic `done` page; authoritative
+  run/intent pairs use private alias generations, exact replay is a no-write
+  no-op, mixed aliases fail closed, and a new pair does not clear a running
+  ingestion lease. One serialized heartbeat spans domain projection and
+  acknowledgement, with generation/fence checks before projection, before ack,
+  after ack, and at completion. Persisted and public crawler failures use only
+  stable closed codes.
+- Legacy generation reconciliation: complete (commit `9093743`). MySQL
+  hydration now validates duplicate-free equal-length alias vectors, reopens
+  legacy, half-migrated, and explicitly under-projected succeeded rows whenever
+  their projection cannot be proven current, and claims those exact shapes for
+  repair. Run and intent authority comparisons are byte-exact.
+- MySQL task-presentation recovery: complete (commit `72bb512`). Visual-reader
+  Run-session listing now orders by the persisted `updated_at, session_id`
+  columns covered by its tenant/run index instead of the nonexistent
+  `created_at` column. The local MySQL account and task-detail APIs both return
+  200, and the task detail now renders its persisted zero-result metrics.
+- Fresh deterministic verification at code HEAD `72bb512`: context check
+  returned `SHENSI_CONTEXT_OK`; all 71 sidecar adapter tests passed;
+  `pnpm test` passed its 94 contract tests and the backend, frontend, and Baota
+  suites; `pnpm check:acquisition-contracts` passed contract drift (19),
+  security, OpenAPI/conformance (41), frontend, and Baota checks; and
+  `pnpm build` passed with only the existing Vite 500 kB chunk advisory. The
+  focused crawler slice passed 103 tests with two live-MySQL environment skips;
+  the focused task-presentation slice passed 105 tests with one isolated live-
+  MySQL fixture skip;
+  the lifecycle/legacy code snapshot received an independent GO, the later SQL
+  repair received no finding, and the integrated documentation diff passed
+  `git diff --check`. Exact focused commands are recorded in the Task 4 report.
+  The local `http://127.0.0.1:5588/#acquisition` page was refreshed to verify
+  the connected account, no-API copy, save/run readiness, task-detail metrics,
+  and clean console state. No Douyin/iesdouyin navigation, crawl,
+  comment, direct message, CAPTCHA, or automatic external action was run for
+  these fixes.

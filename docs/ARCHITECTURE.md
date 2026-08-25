@@ -71,15 +71,19 @@ suggestions remain an optional, separately authorized command.
 
 Frozen intents materialize as one crawler job per workspace, plan, policy
 version, and policy-local date. Separate alias tables bind every automation
-intent and authoritative acquisition run to that shared job. The repository
-records `scheduled` before an idempotent enqueue transition. Node owns random
-fenced crawl and terminal-ingestion leases and persists each bounded normalized
-record page together with its opaque cursor and unique cursor history,
-rejecting cycles and non-null terminal cursors. Frozen creator/comment flags
-filter disabled record kinds before persistence. Each stored record also keeps
-the exact cursor of the page that produced it, so a terminal null job cursor
-cannot erase evidence provenance. Real comment authors are normalized to a
-bounded Douyin public profile and an explicit commenter discriminator; root or
+intent and authoritative acquisition run to that shared job, while the
+repository validates them as one authoritative pair. The pair's exact replay
+is a no-write no-op; a run or intent reused in another pair fails closed. A new
+pair increments the job's private `aliasGeneration`, and terminal candidate
+projection is current only when `projectedAliasGeneration` matches it. The
+repository records `scheduled` before an idempotent enqueue transition. Node
+owns random fenced crawl and terminal-ingestion leases and persists each bounded
+normalized record page together with its opaque cursor and unique cursor
+history, rejecting cycles and non-null terminal cursors. Frozen creator/comment
+flags filter disabled record kinds before persistence. Each stored record also
+keeps the exact cursor of the page that produced it, so a terminal null job
+cursor cannot erase evidence provenance. Real comment authors are normalized to
+a bounded Douyin public profile and an explicit commenter discriminator; root or
 empty actor identities are rejected. A private runner hook copies only the
 bounded public actor fields from MediaCrawler's real author object before its
 general-purpose JSONL privacy transform; an anonymous hash is not treated as a
@@ -94,29 +98,44 @@ repositories. A failed live projection does not discard the durable page; the
 terminal ingestion lane replays all records as compensation. A committed retry
 is a no-op, and a failed transactional projection rolls the whole projection
 back. The final page records either `succeeded` or `partial`; partial jobs retain
-all previously published records and their bounded failure code. Only after the
-terminal projection commits does Node acknowledge the sidecar. The durable
+all previously published records and their bounded failure code.
+
+Terminal ingestion owns one generation-bound random fence and one serialized
+in-flight lease renewal. Its heartbeat remains active through domain projection
+and sidecar acknowledgement; the worker checks the live lease and alias
+generation before projection, before acknowledgement, and after acknowledgement.
+A pair added while ingestion is running increments the generation without
+clearing the current lease. The owner that observes the mismatch releases the
+job back to pending without starting acknowledgement; if the pair arrives during
+acknowledgement, the post-ack check and completion transaction prevent the stale
+generation from becoming ready. Only current-generation completion records
+`projectedAliasGeneration`, `ingestedAt`, and `acknowledgedAt`. The durable
 acknowledgement timestamp starts the sidecar's 24-hour page-retention clock and
-is safe to replay after a crash. Every runner invocation creates a random
-owner-only `0700` attempt directory below its job output root and confines its
-request, activity, and JSONL reads to that directory. A resumed manager seeds
-its record de-duplication set from IDs in already persisted pages, so neither
-stale attempt files nor repeated upstream records can be republished. The same
-sweep removes the entire job output root, including every attempt and private
-upstream capture. Backend retention removes only
-unlinked evidence 90 days after ingestion, leaving candidate-linked evidence,
-one-way DNC identity, and audit authority intact. Restarts resume from Node
-cursors and ingestion leases; a late run alias replays only this projection,
-not the crawl. Fair lane alternation and cross-workspace claim preference keep
-queued crawl work from starving ingestion or another tenant. Browser routes
-never proxy live sidecar state. The manager publishes `starting_browser`
-before consuming the runner and `opening_douyin` only after a real browser
-launch; equivalent activity snapshots do not create false progress. For a
-successful or partial crawl, it persists the final-page descriptor and
-`completed` activity in the same terminal metadata transition, so no durable
-running job can advertise a final page. A paused sidecar status retains the
-last safe nonterminal activity, releases its fence through retryable requeue,
-and is resumed by a later claim rather than held in an endless poll/renew loop.
+is safe to replay after a crash. Unknown, legacy, or exception-derived crawler
+failures are normalized to closed stable stored/public codes; raw error and
+credential text never enters the projection.
+
+Every runner invocation creates a random owner-only `0700` attempt directory
+below its job output root and confines its request, activity, and JSONL reads to
+that directory. A resumed manager seeds its record de-duplication set from IDs
+in already persisted pages, so neither stale attempt files nor repeated upstream
+records can be republished. The same sweep removes the entire job output root,
+including every attempt and private upstream capture. Backend retention removes
+only unlinked evidence 90 days after ingestion, leaving candidate-linked
+evidence, one-way DNC identity, and audit authority intact. Restarts resume from
+Node cursors and ingestion leases; a late authoritative run/intent pair replays
+only this projection, not the crawl. Fair lane alternation and cross-workspace
+claim preference keep queued crawl work from starving ingestion or another
+tenant. Browser routes never proxy live sidecar state. The manager publishes
+`starting_browser` before consuming the runner and `opening_douyin` only after a
+real browser launch; equivalent activity snapshots do not create false progress.
+A terminal activity returned by crawl startup is not written by the nonterminal
+activity mutation. For a successful or partial crawl, only the advertised
+`done` page persists its descriptor, `completed` activity, terminal state, and
+crawl-lease release in the same transaction, so no durable running job can
+advertise a final page. A paused sidecar status retains the last safe nonterminal
+activity, releases its fence through retryable requeue, and is resumed by a later
+claim rather than held in an endless poll/renew loop.
 
 The local visible tab is a separate best-effort observation mirror for the
 approved keyword and public video, not a collection authority. It is created
@@ -215,14 +234,21 @@ snapshot is the ordering boundary for the final candidate-page read. Polling
 stops after the read paired with `ready` or `failed`, terminal `ready` with zero
 candidates is valid, and a validated terminal status survives a failed candidate
 read. The decoder requires primitive strings before accepting crawler state,
-activity phase, browser mode, or projection-state enums. The pre-status queued
-live region is polite once per outstanding run and silent on same-run rerenders;
-observing status, clearing the intent, or starting a new run resets its token. A
-submitted intent without its first observation, an observed nonterminal run, or
-a terminal run whose candidate projection is still `pending` blocks duplicate
-submission in both the rendered control and controller command path. This
-observation does not alter the existing comment or direct-message approval
-authority.
+activity phase, browser mode, or projection-state enums. It accepts candidate
+pages only with exact page, candidate, and evidence keys; at most 100 items; a
+null or nonempty cursor of at most 8,192 Unicode code points; nonempty candidate
+ID and status; and display name and excerpt bounds of 200 and 500 code points.
+An evidence URL must have an unmodified raw HTTP(S) authority and hostname. Raw
+credentials, backslashes, whitespace/control/format characters, malformed
+percent escapes, and parser-repaired authority forms fail the whole response;
+uppercase schemes and Unicode path/query text remain valid. The pre-status
+queued live region is polite once per outstanding run and silent on same-run
+rerenders; observing status, clearing the intent, or starting a new run resets
+its token. A submitted intent without its first observation, an observed
+nonterminal run, or a terminal run whose candidate projection is still
+`pending` blocks duplicate submission in both the rendered control and
+controller command path. This observation does not alter the existing comment
+or direct-message approval authority.
 The desktop candidate table and evidence inspector collapse to one-column
 cards at the mobile breakpoint, and page scrolling remains owned by the body/
 main document rather than nested frozen panes.

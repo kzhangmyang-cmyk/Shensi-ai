@@ -69,17 +69,22 @@ Crawler execution uses `acquisition_crawler_jobs`, authoritative
 append-only `acquisition_crawler_job_records` plus unique cursor-history rows. Jobs are
 persisted as `scheduled` before the idempotent enqueue transition makes them
 claimable. A unique daily key makes scheduled and run-now triggers share one
-candidate budget. Random 64-hex lease tokens and a monotonic fencing token
-reject exact-expiry, stale, and same-worker ABA writes; the result cursor and
-its non-reusable history advance only in the Node transaction that persists
-records. Frozen creator/comment collection flags are enforced at both the
-sidecar normalization boundary and repository persistence boundary. Terminal
-records retain their own input page cursor even after the terminal job cursor
-becomes null. Comment records derive a stable public actor from real
-MediaCrawler author fields and persist `commenter`, while creator records
-persist `creator`; an empty or root Douyin identity is invalid. The private
-runner captures only these bounded public actor fields before upstream's
-general JSONL anonymization, and never turns `creator_hash` into a profile URL.
+candidate budget. Each acquisition run and its authoritative automation intent
+are validated as one pair before either alias can join that job. An exact pair
+replay returns the existing job without a write; a run or intent reused in a
+different pair fails closed. Every new pair increments `aliasGeneration`, and
+`projectedAliasGeneration` identifies the latest pair set already projected.
+Random 64-hex lease tokens and a monotonic fencing token reject exact-expiry,
+stale, and same-worker ABA writes; the result cursor and its non-reusable history
+advance only in the Node transaction that persists records. Frozen creator/
+comment collection flags are enforced at both the sidecar normalization boundary
+and repository persistence boundary. Terminal records retain their own input
+page cursor even after the terminal job cursor becomes null. Comment records
+derive a stable public actor from real MediaCrawler author fields and persist
+`commenter`, while creator records persist `creator`; an empty or root Douyin
+identity is invalid. The private runner captures only these bounded public actor
+fields before upstream's general JSONL anonymization, and never turns
+`creator_hash` into a profile URL.
 The sidecar publishes complete immutable pages during a running crawl. The Node
 worker pulls every advertised page, persists records and cursors first, then
 idempotently projects available evidence, candidates and `candidate.discovered`
@@ -92,13 +97,17 @@ Live projection failure cannot erase the page; terminal ingestion replays all
 persisted records. A sidecar interruption after any published record produces a
 `partial` terminal job with those records and its bounded failure code intact.
 Candidate-budget truncation remains durable across later pages and also ends as
-`partial`. Late same-day aliases reopen only terminal ingestion and project
-already persisted facts into the newly bound authoritative run without
-recrawling. A paused sidecar status records its last safe activity, releases
-the crawl fence through retryable requeue, and resumes on a later claim instead
-of polling and renewing forever. Crawler and ingestion claims alternate under
-load and prefer another workspace when one is ready. Terminal jobs have a
-second random fenced ingestion claim. Its transaction writes
+`partial`. Late same-day authoritative pairs reopen only terminal ingestion and
+project already persisted facts into the newly bound run without recrawling. An
+exact pair replay does not reopen a succeeded projection. A pair added during a
+running ingestion increments the generation and resets that generation's retry
+budget without clearing the active lease; the current owner detects the change
+and releases the job back to pending. A paused sidecar status records its last
+safe activity, releases the crawl fence through retryable requeue, and resumes
+on a later claim instead of polling and renewing forever. Crawler and ingestion
+claims alternate under load and prefer another workspace when one is ready.
+Terminal jobs have a second random generation-bound ingestion claim. Its
+transaction writes
 `acquisition_discovery_evidence`, `acquisition_candidates`, candidate identity
 aliases and audits through the existing acquisition domain repository, then
 writes acquisition-run status and `candidate.discovered` events through the
@@ -106,6 +115,19 @@ existing plan-run repository. `acquisition_douyin_crawler_evidence_index`
 enforces workspace content uniqueness and cross-job stable-record
 supersession; `acquisition_douyin_do_not_contact` permanently retains only the
 one-way platform identity hash and minimum policy reason.
+
+One serialized heartbeat renews the ingestion claim through domain projection
+and sidecar acknowledgement; timer renewal and synchronous authority checks
+share the same in-flight promise. The worker revalidates the lease and alias
+generation before projection, after projection but before acknowledgement, and
+after acknowledgement. A pre-ack generation change skips acknowledgement and
+defers the job. A change during acknowledgement is caught by the post-ack check
+or by generation-aware completion, so stale work cannot publish `ready`.
+Successful completion advances `projectedAliasGeneration` only to the exact
+claimed generation. A failed renewal prevents stale completion. Repository
+writes and hydration accept only stable crawler error codes, unknown or raw
+worker failures become the appropriate generic crawler/ingestion code, and the
+legacy internal partial code projects publicly as `mediacrawler_partial`.
 
 ## Public Interfaces
 
@@ -182,6 +204,14 @@ mirror navigation but cannot block collection or create an unbounded backlog.
 The deterministic MediaCrawler request client remains the data authority, and
 observation navigation cannot fabricate results.
 
+The crawler-status `lastErrorCode` is null or a stable runtime allowlisted code.
+Repository hydration and every crawler/ingestion failure mutation replace an
+unrecognized or exception-derived value with a generic stable code; the public
+projection maps the private legacy partial value to `mediacrawler_partial`.
+Raw exception messages, URLs, credentials, and sidecar diagnostics are not
+public error values. The OpenAPI field remains a bounded string rather than a
+generated enum, so this runtime normalization is enforced by the backend.
+
 The authenticated browser consumes these generated projections through
 `douyin-automation-api.ts` and `outreach-batch-api.ts`; feature code does not
 redeclare transport DTOs. Bounded field-level validation details from failed
@@ -205,10 +235,22 @@ ordering boundary for the final candidate read. Polling stops after the read
 paired with `ready` or `failed`, a terminal `ready` response with zero candidates
 is valid, and a candidate-read failure retains the validated terminal status.
 The decoder accepts crawler state, activity phase, browser mode, and projection
-state only as primitive strings in their closed enums. The pre-status queued
-placeholder announces politely once per outstanding run and is silent on
-same-run rerenders; status, no intent, or a new run resets its token. These
-safeguards do not change comment or direct-message approval rules.
+state only as primitive strings in their closed enums. The candidate response is
+also a closed trust boundary: the page is exactly `{items,nextCursor}`, each
+item is exactly `{id,status,displayName,evidence}`, and evidence is exactly
+`{sourceUrl,excerpt}`. A page contains at most 100 items. Candidate ID and status
+are nonempty primitive strings, display names contain at most 200 Unicode code
+points, excerpts at most 500, and a non-null cursor is nonempty and at most
+8,192. The source URL must have a literal case-insensitive `http://` or
+`https://` authority prefix and a hostname, contain no username/password,
+backslash, Unicode whitespace, control/format character, or malformed percent
+escape, and must not depend on URL-parser authority repair. Uppercase schemes
+and Unicode path/query text remain valid. Extra page, candidate, or evidence
+fields and any malformed member fail the complete read rather than yielding a
+partial candidate set. The pre-status queued placeholder announces politely
+once per outstanding run and is silent on same-run rerenders; status, no intent,
+or a new run resets its token. These safeguards do not change comment or direct-
+message approval rules.
 The authorized public-link importer remains available only as a collapsed
 fallback. Desktop renders a candidate table beside its inspector; mobile uses
 one-column cards with document scrolling and no horizontal overflow.
@@ -332,8 +374,14 @@ authenticated state publishes a connected account.
 Running and terminal crawler pages are immutable and replayable by opaque
 cursor. Node consumes only the sidecar-advertised page count, persists each
 page before live projection, and sends a durable acknowledgement only after the
-terminal evidence/candidate/run-link projection succeeds. The acknowledgement
-timestamp, not a read or crawl completion, starts the 24-hour cleanup clock.
+terminal evidence/candidate/run-link projection succeeds under the current
+alias generation. A terminal activity returned by crawl startup is never saved
+as a nonterminal update; the completed activity, final descriptor, terminal
+state, and crawl-lease release commit only with the advertised `done` page. The
+ingestion worker keeps one serialized heartbeat active and verifies its fence
+before projection, before acknowledgement, and after acknowledgement. The
+acknowledgement timestamp, not a read or crawl completion, starts the 24-hour
+cleanup clock.
 The sidecar sweeps an acknowledged job's entire output root, including every
 attempt directory and private upstream capture, at startup and periodically,
 and uses one bounded deadline to stop its sweeper and all active crawl workers.

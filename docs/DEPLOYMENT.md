@@ -122,16 +122,32 @@ invocation creates a random owner-only `0700` attempt directory below its job
 output root and reads request, activity, and JSONL files only from that attempt.
 A resumed manager seeds its record de-duplication set from IDs already stored in
 persisted pages. Result pages remain in the private sidecar until the backend's
-authoritative terminal evidence/candidate/run-link transaction commits and the
-acknowledgement call succeeds. A partial terminal state retains every previously
-published page and its bounded failure code. The persisted acknowledgement
-starts a 24-hour cleanup clock and is idempotent across restarts. That sweep
-removes the complete job output root, including normalized pages, all attempt
-directories, and the bounded private upstream actor capture; it never treats
-upstream's anonymous `creator_hash` as a public profile identity. Do not add an
-external cleanup that deletes unacknowledged result pages. Backend cleanup
-removes only unlinked crawler evidence after 90 days; DNC and audit authority
-are not TTL data.
+authoritative terminal evidence/candidate/run-link transaction commits under
+the current alias generation and the acknowledgement call succeeds. A terminal
+activity returned by the startup call is never persisted through the
+nonterminal activity mutation; only the advertised `done` page commits completed
+activity, terminal metadata, and crawl-lease release together. A partial
+terminal state retains every previously published page and its bounded failure
+code.
+
+Every terminal ingestion claim binds the current alias generation and runs one
+serialized heartbeat through domain projection and acknowledgement. The worker
+revalidates lease and generation before projection, before acknowledgement, and
+after acknowledgement. Adding a newly bound run/intent pair increments the
+generation but never clears an active ingestion lease; the current owner defers
+the job to pending when it observes the change. Exact pair replay is a no-write
+no-op, mixed or reused aliases fail closed, and generation-aware completion
+prevents a pair added during acknowledgement from making stale work ready.
+Worker and repository failures store only stable codes; raw exception or
+credential-bearing text is not persisted or returned publicly.
+
+The persisted acknowledgement starts a 24-hour cleanup clock and is idempotent
+across restarts. That sweep removes the complete job output root, including
+normalized pages, all attempt directories, and the bounded private upstream
+actor capture; it never treats upstream's anonymous `creator_hash` as a public
+profile identity. Do not add an external cleanup that deletes unacknowledged
+result pages. Backend cleanup removes only unlinked crawler evidence after 90
+days; DNC and audit authority are not TTL data.
 
 The same configured gateway enables the backend-owned outreach-action worker
 and expired-claim sweeper. The sidecar action endpoint is private and must use
@@ -153,6 +169,19 @@ legacy row stops startup with `acquisition_douyin_run_binding_migration_required
 or `crawler_job_alias_migration_required`; do not bypass that error or relabel
 an intent ID as a run ID. Take the normal encrypted backup before applying the
 migration.
+
+Crawler generations remain private fields inside `payload_json`; no additional
+table column is required. Hydration requires the run and intent alias vectors to
+be duplicate-free, have the same length, and match an explicit
+`aliasGeneration` exactly. A legacy succeeded payload with one pair may infer
+`aliasGeneration=projectedAliasGeneration=1` only when both fields are absent.
+A half-migrated payload with exactly one generation field, or a multi-pair
+payload missing either field, is conservatively reopened as `pending` with
+`projectedAliasGeneration=0`. An explicit succeeded payload whose projected
+generation trails its alias generation is also claimable for repair. Malformed,
+negative, forward, or vector-inconsistent generation values fail closed. Every
+later create or replay still must match the authoritative run/intent binding
+before an alias is accepted.
 
 Existing installations also add outreach action target, lease, fence,
 attempt, receipt, and failure columns plus the account-serialization and
@@ -209,10 +238,16 @@ dashboard refresh validates status before requesting candidates, so candidates
 may appear before readiness; `ready` is the ordering boundary for the final
 candidate read, and polling stops after the read paired with `ready` or `failed`.
 A terminal `ready` response with zero candidates is valid. The frontend rejects
-non-primitive enum values and announces the pre-status queued placeholder only
-once per outstanding run. Duplicate submission remains blocked while the
-current intent is unobserved, nonterminal, or terminal with a `pending`
-projection. This has no effect on comment or direct-message approval rules.
+non-primitive enum values and accepts a candidate page only when its page,
+candidate, and evidence objects contain exactly their public fields. Pages are
+limited to 100 items; IDs/statuses are nonempty and display, excerpt, and
+non-null cursor values obey their Unicode bounds. Evidence URLs must contain an
+unmodified HTTP(S) authority and hostname with no credentials, backslashes,
+whitespace/control/format characters, malformed percent escapes, or parser-
+repaired authority. The pre-status queued placeholder announces only once per
+outstanding run. Duplicate submission remains blocked while the current intent
+is unobserved, nonterminal, or terminal with a `pending` projection. This has no
+effect on comment or direct-message approval rules.
 
 Compose bind-mounts that directory at `/var/lib/shensi-mediacrawler` and
 refuses to create a missing host path. Stop the sidecar before backup or

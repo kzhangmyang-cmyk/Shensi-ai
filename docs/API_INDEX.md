@@ -22,13 +22,25 @@ Do not add parallel handwritten DTOs.
   automation policies, optional model-backed keyword suggestions, and run-now intents with distinct authoritative
   acquisition-run IDs, persisted run crawler status with a closed activity
   observation (phase, keyword, browser mode, sequence) and closed candidate
-  projection readiness (`pending`, `ready`, or `failed`), run-scoped candidate
-  feeds, immutable outreach batch revisions, human approval, and ordered
-  comment-then-message action outbox reads with sanitized execution status,
-  attempt count, receipt reference, occurrence time, and closed failure code;
+  projection readiness (`pending`, `ready`, or `failed`), a null or stable
+  runtime-normalized crawler failure code, run-scoped candidate feeds, immutable
+  outreach batch revisions, human approval, and ordered comment-then-message
+  action outbox reads with sanitized execution status, attempt count, receipt
+  reference, occurrence time, and closed failure code;
   visual reader, copilot, outcomes,
   performance, advisor, and
   ROI-related acquisition projections.
+
+`GET /api/v1/acquisition/runs/{runId}/candidates` keeps the generated response
+type but the browser treats it as a closed trust boundary. The page, each
+candidate, and its evidence must have exactly the declared keys; the client
+enforces bounded page/text/cursor policy and rejects the whole response when an
+evidence URL lacks a literal HTTP(S) authority and hostname or contains raw
+credentials, backslashes, whitespace/control/format characters, malformed
+percent escapes, or parser-repaired authority. The OpenAPI `sourceUrl` remains
+`format: uri` and crawler `lastErrorCode` remains a bounded nullable string;
+HTTP(S) URL closure and the stable crawler error allowlist are runtime defenses,
+not parallel handwritten DTOs or generated enums.
 
 Plan creation accepts an optional `executionMode`. Absence means the compatible
 `generic` provider-operation mode. `douyin_mediacrawler` is Douyin-only and
@@ -66,6 +78,9 @@ writes use the CSRF cookie/header pair. Contracted commands may additionally
 require `Idempotency-Key`; versioned writes use `If-Match`/`ETag` where declared
 by the OpenAPI document. Error shapes and authorization capabilities must come
 from the contract or backend policy registry rather than frontend inference.
+Crawler repositories normalize unknown, legacy, and exception-derived failures
+before persistence and public projection; raw messages or credentials are never
+valid public error codes.
 
 ## Change workflow
 

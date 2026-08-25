@@ -69,27 +69,38 @@ ledger.
   neither a public-search API nor AI; server-generated keyword suggestions
   remain an optional AI-backed convenience.
 - Authoritative Douyin runs feed one crawler job per workspace/plan/policy/day.
-  Separate run and automation-intent aliases let scheduled and run-now commands
-  share the daily job without mixing their identities. Random fenced crawl and
-  terminal-ingestion leases, transactional non-cyclic opaque cursor history,
-  frozen record-kind filters, and bounded recovery have Memory/MySQL
-  implementations. The sidecar now publishes immutable pages during the crawl;
-  Node consumes the advertised page count, persists each cursor/page first, and
-  atomically projects evidence, candidates, identity aliases, audits, a running
-  run state, and run-candidate links before terminal completion. Terminal
-  ingestion replays all persisted records, finalizes the run, and acknowledges
-  the sidecar. Upstream interruption after published records produces a
-  durable partial job instead of resetting the record count. Each runner
-  invocation confines its request, activity, and JSONL files to a random
-  owner-only `0700` attempt directory. Resumed jobs seed record de-duplication
-  from IDs in persisted pages, so stale attempt files and repeated records are
-  not republished; acknowledgement cleanup removes the whole job output root.
-  Stable record edits supersede across jobs; content is unique per workspace.
-  Each record and evidence row retains its exact page cursor and explicit
-  creator/commenter discriminator. Late same-day aliases re-run only the
-  idempotent ingestion projection and complete the added authoritative run.
-  Fair cross-workspace claims and alternating crawl/ingest lanes bound tenant
-  and ingestion starvation.
+  Every run alias is validated together with its bound automation-intent alias.
+  Exact pair replay performs no write, mixed or reused aliases fail closed, and
+  each genuinely new pair increments a private alias generation for the shared
+  daily job. Random fenced crawl and terminal-ingestion leases, transactional
+  non-cyclic opaque cursor history, frozen record-kind filters, and bounded
+  recovery have Memory/MySQL implementations. The sidecar publishes immutable
+  pages during the crawl; Node consumes the advertised page count, persists each
+  cursor/page first, and atomically projects evidence, candidates, identity
+  aliases, audits, a running run state, and run-candidate links before terminal
+  completion. A terminal startup snapshot is never written through the
+  nonterminal activity path; completed activity becomes durable only with the
+  advertised `done` page and terminal metadata transaction. Upstream interruption
+  after published records produces a durable partial job instead of resetting
+  the record count. Each runner invocation confines its request, activity, and
+  JSONL files to a random owner-only `0700` attempt directory. Resumed jobs seed
+  record de-duplication from IDs in persisted pages, so stale attempt files and
+  repeated records are not republished; acknowledgement cleanup removes the
+  whole job output root. Stable record edits supersede across jobs; content is
+  unique per workspace. Each record and evidence row retains its exact page
+  cursor and explicit creator/commenter discriminator.
+- Terminal ingestion replays all persisted records under a generation-bound
+  random fence. One serialized heartbeat renews the same lease through domain
+  projection and sidecar acknowledgement; generation and lease authority are
+  checked before projection, before acknowledgement, and after acknowledgement.
+  A new alias pair does not clear an active ingestion lease: the owner defers
+  the job to pending when it observes the changed generation, while the
+  completion transaction also prevents a post-ack race from marking stale work
+  ready. For a succeeded or partial crawl, candidate projection becomes ready
+  only after ingestion succeeds and the projected generation equals the current
+  alias generation. Late same-day pairs therefore project persisted facts into
+  the added authoritative run without recrawling. Fair cross-workspace claims
+  and alternating crawl/ingest lanes bound tenant and ingestion starvation.
 - The private sidecar keeps result pages until Node durably ingests them and
   acknowledges the job. The acknowledgement timestamp survives restart and
   starts the 24-hour page and bounded upstream-capture cleanup clock. Public
@@ -100,10 +111,20 @@ ledger.
   exclude DNC candidates; the same default exclusion applies to general and
   priority candidate readers. Existing MySQL installs backfill bound legacy
   intent JSON, separate old mixed aliases, widen run aliases to the core
-  160-character run-ID boundary, and fail closed on unmappable rows. Browsers
+  160-character run-ID boundary, and fail closed on unmappable rows. Hydration
+  requires duplicate-free run/intent alias vectors of the same length, an
+  explicit alias generation equal to that length, and a projected generation
+  within it. A legacy single-pair succeeded job
+  may infer a ready `1/1` projection only when both generation fields are
+  absent. A half-migrated row with only one field, a multi-pair row missing
+  either field, or an explicitly under-projected succeeded row is
+  conservatively reopened for projection. Browsers
   read only persisted Node projections at
   `GET /api/v1/acquisition/runs/{runId}/crawler-status` and
-  `GET /api/v1/acquisition/runs/{runId}/candidates`.
+  `GET /api/v1/acquisition/runs/{runId}/candidates`. Crawler failure persistence
+  and public projection normalize unknown, legacy, or raw worker failures to a
+  closed stable code; credential-bearing exception text is never stored or
+  returned.
 - Douyin keyword suggestions now derive business and ICP context, workspace,
   and the active official model snapshot on the server. Draft generation is a
   private application-composed boundary backed by the real domain and DNC
@@ -187,11 +208,19 @@ ledger.
   boundary for the final candidate read, and polling stops at `ready` or
   `failed`. Zero candidates with terminal `ready` is valid, and a candidate-read
   failure does not discard a validated terminal status. The frontend rejects
-  non-primitive enum values and announces its pre-status queued placeholder once
-  per outstanding run. It prevents duplicate submission until the current
-  intent is observed and no longer pending. Manual automation keywords still
-  require neither a public-search API nor AI. Comment and direct-message
-  approval remains human approved; no automatic external action was run.
+  non-primitive enum values and recursively accepts candidate pages only when
+  the page is exactly `{items,nextCursor}`, each candidate is exactly
+  `{id,status,displayName,evidence}`, and evidence is exactly
+  `{sourceUrl,excerpt}`. Pages contain at most 100 candidates; IDs and statuses
+  are nonempty, display/excerpt/cursor values obey their Unicode bounds, and a
+  non-null cursor is nonempty. Evidence URLs require a raw HTTP(S) authority and
+  hostname and reject credentials, backslashes, whitespace/control/format
+  characters, malformed percent escapes, and parser-repaired authority forms.
+  The pre-status queued placeholder announces once per outstanding run. The UI
+  prevents duplicate submission until the current intent is observed and no
+  longer pending. Manual automation keywords still require neither a public-
+  search API nor AI. Comment and direct-message approval remains human approved;
+  no automatic external action was run.
 
 ## Active
 
@@ -202,9 +231,21 @@ ledger.
   shutdown behavior. Development, deployment and verification wrappers fail
   closed on missing prerequisites or a publicly routed sidecar.
 - Focused deterministic evidence for the current observation, projection, and
-  dashboard behavior is recorded in the task reports. Repository-wide aggregate
-  results are recorded only after the final gate; these deterministic checks do
-  not request a Douyin/iesdouyin host.
+  dashboard behavior is recorded in the task reports. At code HEAD `72bb512`,
+  `./scripts/context-check` returned `SHENSI_CONTEXT_OK`, all 71 sidecar adapter
+  tests passed, `pnpm test` passed 94 contract tests plus the backend, frontend,
+  and Baota suites, `pnpm check:acquisition-contracts` passed 19 drift checks,
+  security checks, 41 OpenAPI/conformance checks, frontend checks, and Baota
+  checks, and `pnpm build` passed with only the existing Vite 500 kB chunk
+  advisory. Independent inspection returned GO for the lifecycle/legacy code
+  snapshot and no finding for the later SQL repair. The focused crawler slice
+  passed 103 tests with two live-MySQL environment skips, and the focused task-
+  presentation slice passed 105 tests with one isolated live-MySQL fixture
+  skip; their exact commands are in the current Task 4 report. The live local
+  MySQL account and task-detail APIs returned 200 after the visual-session query
+  was aligned with its persisted `updated_at, session_id` index. The integrated
+  documentation diff passed `git diff --check`. These checks did not request a
+  Douyin/iesdouyin host.
 - Real QR login on 2026-08-25 reached Douyin from a visible local Chrome
   profile, rendered the returned QR in the authenticated `#acquisition`
   dialog, and completed the operator's scan into an active workspace account.

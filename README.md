@@ -127,14 +127,34 @@ attempt directory beneath the job output root; request, activity, and JSONL
 reads stay inside that attempt, so stale files cannot be replayed by a restart.
 On resume, the manager seeds record de-duplication from IDs already present in
 persisted pages. Acknowledgement cleanup removes the enclosing job root and all
-of its attempt directories. A terminal replay finalizes the run and acknowledges
-the sidecar; if the upstream browser stops after publishing records, the job
-stays `partial` and those records remain available instead of being reset to
-zero. The manager records the terminal page descriptor, completed activity,
-terminal state, pending candidate projection, and lease release together, so a
-persisted running job never advertises a final page. A safely paused sidecar job
-releases its fence through retryable requeue and resumes on a later claim
-instead of being renewed indefinitely.
+of its attempt directories. If the upstream browser stops after publishing
+records, the job stays `partial` and those records remain available instead of
+being reset to zero. A terminal activity returned by crawl startup is never
+persisted through the nonterminal activity path: only the advertised `done`
+page records its descriptor, completed activity, terminal state, pending
+candidate projection, and crawl-lease release in one transaction.
+
+Every authoritative acquisition run and its bound automation intent form one
+alias pair for the shared daily crawler job. An exact pair replay is a no-write
+no-op, a mixed or reused alias fails closed, and a genuinely new pair increments
+the private alias generation. Hydration requires duplicate-free run and intent
+alias vectors of the same length, any explicit alias generation equal to that
+shared length, and any explicit projected generation within it. A legacy
+succeeded job with one pair may infer generation `1/1`
+only when both generation fields are absent. A row with only one generation
+field, or a multi-pair row missing either field, is conservatively returned to
+pending with projected generation zero; an explicitly under-projected
+succeeded generation is also reopened for repair. If terminal ingestion is
+already running, a new pair leaves that lease intact; the current owner detects
+the generation change and defers the job to pending. A single serialized heartbeat
+keeps the ingestion lease alive through domain projection and sidecar
+acknowledgement. Generation and lease authority are checked before projection,
+before acknowledgement, and again afterwards, and only completion for the
+current generation makes the candidate projection ready. Worker and repository
+failures persist only closed stable codes, never raw exception or credential-
+bearing text. A safely paused sidecar job releases its crawl fence through
+retryable requeue and resumes on a later claim instead of being renewed
+indefinitely.
 
 When local visible mode is used, its dedicated tab is a separate best-effort
 operator observation mirror for the approved keyword and public video. At most
@@ -156,10 +176,15 @@ nonterminal or candidate projection is still `pending`; a validated `ready`
 status is the ordering boundary for the final candidate-page read. Polling stops
 after the candidate read paired with `ready` or `failed`, and zero candidates
 with `ready` is a valid completed result. A validated terminal status remains
-visible if that candidate read fails. The frontend rejects non-primitive enum
-values and announces the pre-status queued placeholder only once per outstanding
-run. Another run stays blocked until the current intent is observed and no
-longer pending; comment and direct-message approval rules are unchanged.
+visible if that candidate read fails. The frontend accepts a candidate page only
+when the page, every candidate, and every evidence object contain exactly their
+public fields and stay within the endpoint's item and text bounds. Evidence URLs
+must contain an unmodified HTTP(S) authority and hostname with no credentials,
+backslashes, whitespace/control/format characters, or malformed percent escape.
+The frontend also rejects non-primitive enums and announces the pre-status
+queued placeholder only once per outstanding run. Another run stays blocked
+until the current intent is observed and no longer pending; comment and direct-
+message approval rules are unchanged.
 
 The real-mode header action `新建抖音采集计划` scrolls to and focuses the
 MediaCrawler plan form; it does not open the provider-connection wizard or

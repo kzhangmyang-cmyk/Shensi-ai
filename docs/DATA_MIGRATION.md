@@ -239,6 +239,28 @@ and `acquisition_crawler_job_runs.run_id` from 120 to the authoritative
 4. validates every crawler run alias and installs the authoritative run FK on
    legacy tables that predate it.
 
+The alias and projected generations remain private values in the existing
+`acquisition_crawler_jobs.payload_json`; this lifecycle adds no table column.
+Runtime hydration requires duplicate-free run and intent alias vectors with the
+same nonzero length. Any explicit `aliasGeneration` must equal that shared
+length exactly, and an explicit projected generation must be within it. A
+legacy succeeded payload containing exactly one pair may infer
+`aliasGeneration=projectedAliasGeneration=1` only when both fields are absent.
+If exactly one field is present, or a multi-pair row lacks either field, the row
+cannot prove its projection boundary and is conservatively reopened as
+`pending` with `projectedAliasGeneration=0`. A succeeded row with two valid
+fields but `projectedAliasGeneration < aliasGeneration` is also reopened while
+retaining its last projected generation. Present but malformed, negative,
+forward, duplicate, or vector-inconsistent generation data fails closed.
+Legacy or unrecognized stored crawler errors are normalized to stable bounded
+codes rather than exposed as raw text.
+
+Every later create or replay validates the automation intent and acquisition run
+as one pair against `acquisition_douyin_run_bindings`. An exact existing pair is
+a no-write replay, while a mixed pair, a reused run, or a reused intent is an
+identity conflict. A genuinely new bound pair increments the generation; it
+does not clear an ingestion lease that is already running.
+
 The migration never guesses an `AcquisitionRun` from an intent string. An old
 intent without an authoritative binding fails with
 `acquisition_douyin_run_binding_migration_required:<intentId>`; an invalid
