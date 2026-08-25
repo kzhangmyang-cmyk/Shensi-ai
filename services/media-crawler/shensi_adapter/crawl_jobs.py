@@ -17,7 +17,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Iterable, Mapping
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from .douyin_normalizer import normalize_douyin_records
 from .schemas import (
@@ -190,10 +190,8 @@ def _write_activity_snapshot(path: Path, *, phase: str, current_keyword: str | N
     })
 
 
-def _read_activity_snapshot(path: Path) -> CrawlActivity | None:
-    if not path.is_file():
-        return None
-    value = json.loads(path.read_text(encoding="utf-8"))
+def _read_activity_snapshot(encoded: str) -> CrawlActivity:
+    value = json.loads(encoded)
     if not isinstance(value, dict):
         raise ValueError("invalid_crawl_activity")
     return CrawlActivity.model_validate({**value, "sequence": 0})
@@ -240,8 +238,15 @@ class _VisibleDouyinObserver:
             original_search_info = client.search_info_by_keyword
 
             async def observed_search_info(*args, **kwargs):
-                keyword = kwargs.get("keyword", args[0] if args else "")
+                encoded_keyword = kwargs.get("keyword", args[0] if args else "")
+                keyword = unquote(str(encoded_keyword))
+                from var import source_keyword_var
+                source_keyword_var.set(keyword)
                 await self._open_search(crawler.context_page, keyword)  # type: ignore[attr-defined]
+                if "keyword" in kwargs:
+                    kwargs = {**kwargs, "keyword": keyword}
+                elif args:
+                    args = (keyword, *args[1:])
                 return await original_search_info(*args, **kwargs)
 
             client.search_info_by_keyword = observed_search_info
@@ -314,9 +319,7 @@ class MediaCrawlerRunner:
             if encoded == previous_activity:
                 return
             previous_activity = encoded
-            activity = _read_activity_snapshot(activity_path)
-            if activity is not None:
-                yield activity
+            yield _read_activity_snapshot(encoded)
 
         termination_error: Exception | None = None
         while process.poll() is None:
@@ -689,7 +692,7 @@ def _execute_upstream(
     config.CDP_CONNECT_EXISTING = False
     config.HEADLESS = headless
     config.CDP_HEADLESS = headless
-    config.KEYWORDS = ",".join(value["keywords"])
+    config.KEYWORDS = ",".join(quote(keyword, safe="") for keyword in value["keywords"])
     config.ENABLE_GET_COMMENTS = bool(value["collect_demand_comments"])
     config.ENABLE_GET_SUB_COMMENTS = False
     config.SAVE_DATA_OPTION = "jsonl"

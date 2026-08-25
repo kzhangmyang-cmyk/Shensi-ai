@@ -2,6 +2,7 @@ import json
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -156,6 +157,132 @@ def test_execute_upstream_disables_cdp_and_applies_configured_visible_mode(tmp_p
     assert calls == [
         "https://www.douyin.com/search/%E8%A2%9C%E5%AD%90?type=general",
         "https://www.douyin.com/video/73001",
+    ]
+
+
+def test_execute_upstream_losslessly_transports_comma_keyword(tmp_path):
+    spec = tmp_path / "request.json"
+    spec.write_text(json.dumps({
+        "profile": str(tmp_path / "profile"),
+        "output": str(tmp_path / "output"),
+        "keywords": ["seal, gasket"],
+        "max_videos": 2,
+        "max_comments_per_video": 2,
+        "max_pages_per_video": 1,
+        "collect_creators": False,
+        "collect_demand_comments": False,
+        "headless": False,
+    }), encoding="utf-8")
+    fake_config = SimpleNamespace()
+    calls = []
+
+    class FakePage:
+        async def goto(self, url):
+            calls.append(url)
+
+    class FakeClient:
+        async def search_info_by_keyword(self, *, keyword):
+            from var import source_keyword_var
+            self.source_keyword = source_keyword_var.get()
+            return keyword
+
+    class FakeCrawler:
+        def __init__(self):
+            self.context_page = FakePage()
+            self.dy_client = FakeClient()
+
+        async def search(self):
+            return await self.dy_client.search_info_by_keyword(
+                keyword=fake_config.KEYWORDS,
+            )
+
+        async def get_comments(self, *_args):
+            return None
+
+        async def start(self):
+            self.search_result = await self.search()
+
+    crawler = FakeCrawler()
+    _execute_upstream(
+        spec,
+        config_module=fake_config,
+        crawler_factory=lambda: crawler,
+        capture_installer=lambda *_: None,
+    )
+
+    assert fake_config.KEYWORDS == "seal%2C%20gasket"
+    assert crawler.search_result == "seal, gasket"
+    assert calls == [
+        "https://www.douyin.com/search/seal%2C%20gasket?type=general",
+    ]
+    assert crawler.dy_client.source_keyword == "seal, gasket"
+
+
+def test_runner_reads_each_activity_snapshot_once_when_replaced_during_a_poll(
+    tmp_path, monkeypatch,
+):
+    service_root = tmp_path / "service"
+    runner = MediaCrawlerRunner(headless=False, service_root=service_root)
+    request_value = request("activity-race").model_copy(update={
+        "deadline_at": datetime.now(UTC) + timedelta(minutes=5),
+    })
+    activity_path = (
+        service_root / ".shensi-crawl-output" / "activity-race" / "activity.json"
+    )
+    starting = json.dumps({
+        "phase": "starting_browser", "current_keyword": None,
+        "browser_mode": "visible",
+    }, separators=(",", ":"))
+    opening = json.dumps({
+        "phase": "opening_douyin", "current_keyword": None,
+        "browser_mode": "visible",
+    }, separators=(",", ":"))
+
+    class FakeProcess:
+        returncode = None
+
+        def __init__(self):
+            self.polls = 0
+
+        def poll(self):
+            self.polls += 1
+            if self.polls == 1:
+                return None
+            self.returncode = 0
+            return 0
+
+    process = FakeProcess()
+
+    def popen(*_args, **_kwargs):
+        activity_path.parent.mkdir(parents=True, exist_ok=True)
+        activity_path.write_text(opening, encoding="utf-8")
+        return process
+
+    original_read_text = Path.read_text
+    reads = iter([starting, opening, opening, opening])
+
+    def read_text(path, *args, **kwargs):
+        if path == activity_path:
+            return next(reads)
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr("shensi_adapter.crawl_jobs.subprocess.Popen", popen)
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+    activities = [
+        value for value in runner(request_value, tmp_path / "profile", threading.Event())
+        if isinstance(value, CrawlActivity)
+    ]
+
+    assert activities == [
+        CrawlActivity(
+            phase="starting_browser", current_keyword=None,
+            browser_mode="visible", sequence=0,
+        ),
+        CrawlActivity(
+            phase="opening_douyin", current_keyword=None,
+            browser_mode="visible", sequence=0,
+        ),
     ]
 
 
