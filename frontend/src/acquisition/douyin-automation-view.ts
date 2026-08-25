@@ -44,8 +44,8 @@ function saveDisabledReason(state: DouyinAutomationState, planName: string, keyw
   if (!state.account || state.account.state !== "active") return "请先扫码连接抖音账号";
   if (state.phase === "saving") return "正在保存计划…";
   if (state.phase === "running") return "正在启动或运行采集…";
-  if (state.runIntent && (!state.crawlerStatus
-    || state.crawlerStatus.runId !== state.runIntent.acquisitionRunId)) return "等待服务器返回首次观测状态";
+  if (state.activeRunId && (!state.crawlerStatus
+    || state.crawlerStatus.runId !== state.activeRunId)) return "等待服务器返回首次观测状态";
   if (state.crawlerStatus && (!terminalRunStates.has(state.crawlerStatus.state)
     || state.crawlerStatus.candidateProjectionState === "pending")) return "当前采集尚未结束";
   if (!planName.trim()) return "请输入计划名称";
@@ -159,10 +159,10 @@ export function mountDouyinAutomationView(host: HTMLElement, controller: DouyinA
         else void controller.saveAndRun(draft);
       }
     }
-    else if (action === "retry") void (state.runIntent ? controller.refreshRun() : controller.load(state.planId, state.planName));
+    else if (action === "retry") void controller.load(state.planId, state.planName, state.activeRunId);
     else if (action === "close-qr") { host.querySelector<HTMLDialogElement>(".douyin-qr-dialog")?.close(); host.querySelector<HTMLElement>("[data-douyin-action=connect]")?.focus(); }
     else if (action === "remove-keyword") { target.closest(".douyin-keyword")?.remove(); updateActionAvailability(); }
-    else if (action === "create-batch" && state.runIntent) onCreateBatch(state.runIntent.acquisitionRunId, state.selectedCandidateIds);
+    else if (action === "create-batch" && state.activeRunId) onCreateBatch(state.activeRunId, state.selectedCandidateIds);
   };
   const updateActionAvailability = () => {
     const form = host.querySelector<HTMLFormElement>("[data-douyin-policy-form]");

@@ -199,15 +199,20 @@ nonterminal or candidate projection is still `pending`; a validated `ready`
 status is the ordering boundary for the final candidate-page read. Polling stops
 after the candidate read paired with `ready` or `failed`, and zero candidates
 with `ready` is a valid completed result. A validated terminal status remains
-visible if that candidate read fails. The frontend accepts a candidate page only
+visible if that candidate read fails. Task overview hydration carries the latest
+authoritative run ID across refresh and verified-session restoration; the
+frontend uses it as an independent active run to reload status and candidates
+and to scope an operator-created pending-approval outreach batch. It does not
+reconstruct a run-now intent, and another run stays blocked until restored
+status has been confirmed. Restoration creates or approves no batch and sends
+no comment or direct message. The frontend accepts a candidate page only
 when the page, every candidate, and every evidence object contain exactly their
 public fields and stay within the endpoint's item and text bounds. Evidence URLs
 must contain an unmodified HTTP(S) authority and hostname with no credentials,
 backslashes, whitespace/control/format characters, or malformed percent escape.
 The frontend also rejects non-primitive enums and announces the pre-status
-queued placeholder only once per outstanding run. Another run stays blocked
-until the current intent is observed and no longer pending; comment and direct-
-message approval rules are unchanged.
+queued placeholder only once per outstanding run. Comment and direct-message
+approval rules remain unchanged.
 
 The real-mode header action `新建抖音采集计划` scrolls to and focuses the
 MediaCrawler plan form; it does not open the provider-connection wizard or

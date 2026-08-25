@@ -40,6 +40,7 @@ interface ModeChangedDetail {
 interface TaskSelectedDetail {
   planId?: unknown;
   planName?: unknown;
+  latestRunId?: unknown;
 }
 
 const FLOW_CARD_IDS = [
@@ -606,8 +607,10 @@ function initialiseRuntime(): void {
     }
     const firstTask = model.tasks[0];
     const firstPlanId = firstTask?.planId;
-    if (firstPlanId && automationController.getState().planId !== firstPlanId) {
-      void automationController.load(firstPlanId, firstTask.name);
+    const automationState = automationController.getState();
+    if (firstPlanId && (automationState.planId !== firstPlanId
+      || (firstTask.latestRunId !== null && automationState.activeRunId !== firstTask.latestRunId))) {
+      void automationController.load(firstPlanId, firstTask.name, firstTask.latestRunId);
     } else if (!firstPlanId && automationController.getState().phase === "idle") {
       void automationController.load(null);
     }
@@ -964,11 +967,17 @@ function initialiseRuntime(): void {
     const planId = detail?.planId;
     if (typeof planId === "string" && planId.trim()) {
       const normalizedPlanId = planId.trim();
+      const latestRunId = typeof detail?.latestRunId === "string" && detail.latestRunId.trim()
+        ? detail.latestRunId.trim()
+        : null;
       void loadTaskDetail(normalizedPlanId);
-      if (automationController.getState().planId !== normalizedPlanId) {
+      const automationState = automationController.getState();
+      if (automationState.planId !== normalizedPlanId
+        || (latestRunId !== null && automationState.activeRunId !== latestRunId)) {
         void automationController.load(
           normalizedPlanId,
-          typeof detail?.planName === "string" ? detail.planName : undefined
+          typeof detail?.planName === "string" ? detail.planName : undefined,
+          latestRunId
         );
       }
     }

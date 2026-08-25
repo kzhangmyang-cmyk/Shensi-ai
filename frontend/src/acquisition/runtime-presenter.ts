@@ -74,6 +74,7 @@ export function renderRealTaskRows(tasks: AcquisitionTaskRowModel[]): string {
         class="replica-task-row"
         data-acquisition-real-task="true"
         data-acquisition-plan-id="${escapeHtml(task.planId)}"
+        data-acquisition-latest-run-id="${escapeHtml(task.latestRunId ?? "")}"
         data-task-id="${escapeHtml(publicLabel)}"
         data-task-name="${escapeHtml(task.name)}"
         data-task-summary="${escapeHtml(task.objective)}"

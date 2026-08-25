@@ -227,7 +227,8 @@ if (replica) {
       document.dispatchEvent(new CustomEvent("goodjob:acquisition-task-selected", {
         detail: {
           planId: row.dataset.acquisitionPlanId || "",
-          planName: row.dataset.taskName || ""
+          planName: row.dataset.taskName || "",
+          latestRunId: row.dataset.acquisitionLatestRunId || null
         }
       }));
     }

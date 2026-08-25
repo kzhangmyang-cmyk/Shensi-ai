@@ -239,14 +239,24 @@ evidence, DNC/exclusion state, exact comment/direct-message drafts and
 sanitized receipts. Approval always requires an explicit second confirmation.
 An ETag conflict reloads the latest revision before another approval attempt,
 and logout, close or mode change aborts active requests and the single poller.
-It blocks another run while its current intent has no first persisted
-observation, its observed crawler state is nonterminal, or its candidate
-projection is `pending`. Every refresh validates crawler status before reading
-the candidate page. Live-projected candidates may appear while the crawl is
-nonterminal or projection remains `pending`; a validated `ready` status is the
-ordering boundary for the final candidate read. Polling stops after the read
-paired with `ready` or `failed`, a terminal `ready` response with zero candidates
-is valid, and a candidate-read failure retains the validated terminal status.
+The task overview retains the latest authoritative run ID. On controller load,
+including a browser refresh or verified-session restoration, that
+`latestRunId` becomes the independent `activeRunId` used to reload crawler
+status and the run's candidate page. `activeRunId` is not a reconstructed
+run-now intent; it is also the run authority used when the operator creates an
+editable, pending-approval outreach batch from recovered candidates. It blocks
+another run while recovery has not yet confirmed persisted status, while a
+current intent has no first persisted observation, while its observed crawler
+state is nonterminal, or while candidate projection is `pending`. Every refresh
+validates crawler status before reading the candidate page. Live-projected
+candidates may appear while the crawl is nonterminal or projection remains
+`pending`; a validated `ready` status is the ordering boundary for the final
+candidate read. Polling stops after the read paired with `ready` or `failed`, a
+terminal `ready` response with zero candidates is valid, and a candidate-read
+failure retains the validated terminal status. Recovery is read-only: it does
+not create or approve a batch and never submits a comment or direct message;
+those external actions remain behind explicit second confirmation and the
+separate fenced executor.
 The decoder accepts crawler state, activity phase, browser mode, and projection
 state only as primitive strings in their closed enums. The candidate response is
 also a closed trust boundary: the page is exactly `{items,nextCursor}`, each

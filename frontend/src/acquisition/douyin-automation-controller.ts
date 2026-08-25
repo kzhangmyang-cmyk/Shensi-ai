@@ -14,6 +14,7 @@ export interface DouyinAutomationState {
   policy: DouyinPolicy | null;
   draftPolicy: DouyinPolicyInput;
   runIntent: DouyinRunIntent | null;
+  activeRunId: string | null;
   crawlerStatus: DouyinCrawlerStatus | null;
   candidates: DouyinRunCandidate[];
   selectedCandidateIds: string[];
@@ -30,7 +31,7 @@ export interface DouyinAutomationDraft {
 export interface DouyinAutomationController {
   getState(): DouyinAutomationState;
   subscribe(listener: (state: DouyinAutomationState) => void): () => void;
-  load(planId: string | null, planName?: string): Promise<void>;
+  load(planId: string | null, planName?: string, latestRunId?: string | null): Promise<void>;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   suggestKeywords(): Promise<void>;
@@ -78,7 +79,7 @@ export function createDouyinAutomationController(options: {
   let runFlight: Promise<void> | null = null;
   let runRefreshFlight: { runId: string; generation: number; promise: Promise<void> } | null = null;
   let saveFlight: Promise<void> | null = null;
-  let state: DouyinAutomationState = { phase: "idle", planId: null, planName: "", planStatus: null, account: null, loginSession: null, policy: null, draftPolicy: emptyPolicy(), runIntent: null, crawlerStatus: null, candidates: [], selectedCandidateIds: [], error: null, suggestionError: null, closed: false };
+  let state: DouyinAutomationState = { phase: "idle", planId: null, planName: "", planStatus: null, account: null, loginSession: null, policy: null, draftPolicy: emptyPolicy(), runIntent: null, activeRunId: null, crawlerStatus: null, candidates: [], selectedCandidateIds: [], error: null, suggestionError: null, closed: false };
   const emit = (patch: Partial<DouyinAutomationState>) => {
     state = { ...state, ...patch };
     listeners.forEach((listener) => listener(state));
@@ -212,14 +213,17 @@ export function createDouyinAutomationController(options: {
   const controller: DouyinAutomationController = {
     getState: () => state,
     subscribe(listener) { listeners.add(listener); listener(state); return () => listeners.delete(listener); },
-    async load(planId, planName) {
+    async load(planId, planName, latestRunId = null) {
       const own = resetLifecycle();
-      emit({ phase: "loading", planId, planName: planName?.trim() ?? "", planStatus: planId ? "approved" : null, policy: null, draftPolicy: emptyPolicy(), error: null, suggestionError: null, runIntent: null, crawlerStatus: null, candidates: [], selectedCandidateIds: [] });
+      const restoredRunId = planId ? latestRunId?.trim() || null : null;
+      emit({ phase: "loading", planId, planName: planName?.trim() ?? "", planStatus: planId ? "approved" : null, policy: null, draftPolicy: emptyPolicy(), error: null, suggestionError: null, runIntent: null, activeRunId: restoredRunId, crawlerStatus: null, candidates: [], selectedCandidateIds: [] });
       try {
         const accountPromise = options.api.listAccounts(aborter.signal);
         const policyPromise = planId ? options.api.getAutomation(planId, aborter.signal) : Promise.resolve(null);
         const [accountList, policy] = await Promise.all([accountPromise, policyPromise]);
-        if (current(own)) emit({ phase: "ready", account: accountList.items.find((item) => item.state !== "disconnected") ?? null, policy, draftPolicy: policy ? { keywords: [...policy.keywords], schedule: { ...policy.schedule }, dailyCandidateLimit: policy.dailyCandidateLimit, collectCreators: policy.collectCreators, collectDemandComments: policy.collectDemandComments, limits: { ...policy.limits } } : emptyPolicy(), error: null });
+        if (!current(own)) return;
+        emit({ phase: "ready", account: accountList.items.find((item) => item.state !== "disconnected") ?? null, policy, draftPolicy: policy ? { keywords: [...policy.keywords], schedule: { ...policy.schedule }, dailyCandidateLimit: policy.dailyCandidateLimit, collectCreators: policy.collectCreators, collectDemandComments: policy.collectDemandComments, limits: { ...policy.limits } } : emptyPolicy(), error: null });
+        if (restoredRunId) await refreshRunFor(restoredRunId, own);
       } catch (error) { if (current(own)) emit({ phase: "error", error: message(error) }); }
     },
     async connect() {
@@ -238,7 +242,7 @@ export function createDouyinAutomationController(options: {
       emit({ phase: "loading", error: null });
       try {
         await options.api.disconnectAccount(state.account.id, state.account.etag, key("douyin-disconnect"), aborter.signal);
-        if (current(own)) emit({ phase: "ready", account: null, loginSession: null, runIntent: null, crawlerStatus: null, candidates: [], selectedCandidateIds: [] });
+        if (current(own)) emit({ phase: "ready", account: null, loginSession: null, runIntent: null, activeRunId: null, crawlerStatus: null, candidates: [], selectedCandidateIds: [] });
       } catch (error) { if (current(own)) emit({ phase: "error", error: message(error) }); }
     },
     async suggestKeywords() {
@@ -258,8 +262,8 @@ export function createDouyinAutomationController(options: {
     runNow() {
       if (runFlight) return runFlight;
       if (!state.planId) return Promise.resolve();
-      if (state.runIntent && (!state.crawlerStatus
-        || state.crawlerStatus.runId !== state.runIntent.acquisitionRunId)) return Promise.resolve();
+      if (state.activeRunId && (!state.crawlerStatus
+        || state.crawlerStatus.runId !== state.activeRunId)) return Promise.resolve();
       if (state.crawlerStatus && requiresRunPolling(state.crawlerStatus)) {
         return Promise.resolve();
       }
@@ -269,7 +273,7 @@ export function createDouyinAutomationController(options: {
         try {
           const runIntent = await options.api.runNow(state.planId!, key("douyin-run"), aborter.signal);
           if (!current(own)) return;
-          emit({ runIntent, crawlerStatus: null, candidates: [], selectedCandidateIds: [], phase: "ready", error: null });
+          emit({ runIntent, activeRunId: runIntent.acquisitionRunId, crawlerStatus: null, candidates: [], selectedCandidateIds: [], phase: "ready", error: null });
           await refreshRunFor(runIntent.acquisitionRunId, own);
         } catch (error) { if (current(own)) emit({ phase: "error", error: message(error) }); }
       })();
@@ -283,7 +287,7 @@ export function createDouyinAutomationController(options: {
       emit({ selectedCandidateIds: [...selected] });
     },
     async refreshRun() {
-      if (state.runIntent) await refreshRunFor(state.runIntent.acquisitionRunId, generation);
+      if (state.activeRunId) await refreshRunFor(state.activeRunId, generation);
     },
     abort() { if (!state.closed) resetLifecycle(); },
     close() { if (state.closed) return; resetLifecycle(); emit({ closed: true, phase: "idle" }); listeners.clear(); }

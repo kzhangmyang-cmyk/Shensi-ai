@@ -83,6 +83,11 @@ assert.deepEqual(overview.metrics, [
   { label: "需关注", value: 1, unit: "项", tone: "danger" }
 ]);
 assert.equal(overview.tasks[0]?.planId, "plan-running");
+assert.equal(
+  overview.tasks[0]?.latestRunId,
+  "run-running",
+  "overview rows must retain the latest run id so a refreshed page can restore its candidates"
+);
 assert.equal(overview.tasks[0]?.statusLabel, "正在运行");
 assert.equal(overview.tasks[0]?.evidenceCount, 12);
 assert.equal(overview.tasks[0]?.tags.join(" / "), "公开搜索");

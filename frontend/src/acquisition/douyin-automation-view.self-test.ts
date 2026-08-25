@@ -1,8 +1,8 @@
 import { strict as assert } from "node:assert";
 import { parseHTML } from "linkedom";
-import type { DouyinAutomationState } from "./douyin-automation-controller";
+import type { DouyinAutomationController, DouyinAutomationState } from "./douyin-automation-controller";
 import type { DouyinCrawlerStatus } from "./douyin-automation-api";
-import { renderDouyinAutomationView } from "./douyin-automation-view";
+import { mountDouyinAutomationView, renderDouyinAutomationView } from "./douyin-automation-view";
 
 const { document } = parseHTML("<main id='host'></main>");
 const host = document.querySelector<HTMLElement>("#host")!;
@@ -13,7 +13,7 @@ const draftPolicy = {
 };
 renderDouyinAutomationView(host, {
   phase: "ready", planId: null, planName: "", planStatus: null, account: null, loginSession: null,
-  policy: null, draftPolicy, runIntent: null, crawlerStatus: null, candidates: [],
+  policy: null, draftPolicy, runIntent: null, activeRunId: null, crawlerStatus: null, candidates: [],
   selectedCandidateIds: [], error: null, suggestionError: null, closed: false
 });
 assert.match(host.textContent ?? "", /连接抖音账号/u);
@@ -31,7 +31,7 @@ const queuedRunIntent = { id: "intent-waiting-1", acquisitionRunId: "run-waiting
 renderDouyinAutomationView(host, {
   phase: "ready", planId: null, planName: "工业需求计划", planStatus: null,
   account: connectedAccount, loginSession: null, policy: null, draftPolicy,
-  runIntent: null, crawlerStatus: null, candidates: [], selectedCandidateIds: [],
+  runIntent: null, activeRunId: null, crawlerStatus: null, candidates: [], selectedCandidateIds: [],
   error: null, suggestionError: null, closed: false
 });
 assert.match(host.textContent ?? "", /至少添加 1 个关键词/u);
@@ -41,7 +41,7 @@ renderDouyinAutomationView(host, {
   phase: "ready", planId: null, planName: "工业需求计划", planStatus: null,
   account: connectedAccount,
   loginSession: null, policy: null,
-  draftPolicy: { ...draftPolicy, keywords: ["工业除尘"] }, runIntent: null,
+  draftPolicy: { ...draftPolicy, keywords: ["工业除尘"] }, runIntent: null, activeRunId: null,
   crawlerStatus: null, candidates: [], selectedCandidateIds: [], error: null,
   suggestionError: null, closed: false
 });
@@ -52,7 +52,7 @@ assert.equal(host.querySelector<HTMLButtonElement>("[data-douyin-action=save-and
 renderDouyinAutomationView(host, {
   phase: "error", planId: "plan-1", planName: "袜子获客计划", planStatus: "approved",
   account: connectedAccount, loginSession: null, policy: null,
-  draftPolicy: { ...draftPolicy, keywords: ["袜子"] }, runIntent: queuedRunIntent,
+  draftPolicy: { ...draftPolicy, keywords: ["袜子"] }, runIntent: queuedRunIntent, activeRunId: queuedRunIntent.acquisitionRunId,
   crawlerStatus: null, candidates: [], selectedCandidateIds: [], error: "状态读取超时",
   suggestionError: null, closed: false
 });
@@ -63,7 +63,7 @@ assert.ok(host.querySelector<HTMLElement>(".douyin-run-panel [role=status][aria-
 renderDouyinAutomationView(host, {
   phase: "error", planId: "plan-1", planName: "袜子获客计划", planStatus: "approved",
   account: connectedAccount, loginSession: null, policy: null,
-  draftPolicy: { ...draftPolicy, keywords: ["袜子"] }, runIntent: queuedRunIntent,
+  draftPolicy: { ...draftPolicy, keywords: ["袜子"] }, runIntent: queuedRunIntent, activeRunId: queuedRunIntent.acquisitionRunId,
   crawlerStatus: {
     runId: "run-old", state: "succeeded", attempt: 1, cursorPersisted: true,
     recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50, candidateProjectionState: "ready",
@@ -82,6 +82,7 @@ renderDouyinAutomationView(host, {
   account: connectedAccount, loginSession: null, policy: null,
   draftPolicy: { ...draftPolicy, keywords: ["袜子"] },
   runIntent: null,
+  activeRunId: "run-live-1",
   crawlerStatus: {
     runId: "run-live-1", state: "running", attempt: 1, cursorPersisted: true,
     recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50, candidateProjectionState: "pending",
@@ -122,12 +123,12 @@ const queuedStatus: DouyinCrawlerStatus = {
 const observedState = (crawlerStatus: DouyinCrawlerStatus, error: string | null = null) => ({
   phase: "ready" as const, planId: "plan-1", planName: "袜子获客计划", planStatus: "approved" as const,
   account: connectedAccount, loginSession: null, policy: null, draftPolicy: { ...draftPolicy, keywords: ["袜子"] },
-  runIntent: { ...queuedRunIntent, acquisitionRunId: crawlerStatus.runId }, crawlerStatus, candidates: [], selectedCandidateIds: [], error, suggestionError: null, closed: false
+  runIntent: { ...queuedRunIntent, acquisitionRunId: crawlerStatus.runId }, activeRunId: crawlerStatus.runId, crawlerStatus, candidates: [], selectedCandidateIds: [], error, suggestionError: null, closed: false
 });
 const queuedPlaceholderState = (runIntent = queuedRunIntent): DouyinAutomationState => ({
   phase: "ready", planId: "plan-1", planName: "袜子获客计划", planStatus: "approved",
   account: connectedAccount, loginSession: null, policy: null, draftPolicy: { ...draftPolicy, keywords: ["袜子"] },
-  runIntent, crawlerStatus: null, candidates: [], selectedCandidateIds: [], error: null, suggestionError: null, closed: false
+  runIntent, activeRunId: runIntent.acquisitionRunId, crawlerStatus: null, candidates: [], selectedCandidateIds: [], error: null, suggestionError: null, closed: false
 });
 renderDouyinAutomationView(host, queuedPlaceholderState());
 assert.equal(host.querySelector<HTMLElement>(".douyin-run-panel .douyin-empty[role=status]")?.getAttribute("aria-live"), "polite", "the first pre-status run announcement may be polite");
@@ -192,4 +193,88 @@ renderDouyinAutomationView(host, observedState({ ...ingestionErrorStatus, lastEr
 assert.equal(host.querySelector(".douyin-safe-reason"), null);
 renderDouyinAutomationView(host, observedState(ingestionErrorStatus));
 assert.equal(host.querySelector<HTMLElement>(".douyin-safe-reason")?.getAttribute("aria-live"), "polite", "an error must announce again after it was cleared");
+
+const recoveredCandidate = {
+  id: "candidate-recovered-1",
+  status: "comment_candidate",
+  displayName: "恢复后的袜子采购用户",
+  evidence: {
+    sourceUrl: "https://www.douyin.com/video/recovered-1",
+    excerpt: "公开评论中询问袜子批发"
+  }
+};
+const recoveredViewState = {
+  ...observedState({
+    ...queuedStatus,
+    runId: "run-recovered",
+    state: "partial",
+    candidateProjectionState: "ready",
+    lastErrorCode: "mediacrawler_partial",
+    activity: { phase: "completed", currentKeyword: null, browserMode: "headless", sequence: 1 },
+    completedAt: "2026-08-25T09:31:00.000Z"
+  }),
+  activeRunId: "run-recovered",
+  runIntent: null,
+  candidates: [recoveredCandidate],
+  selectedCandidateIds: [recoveredCandidate.id]
+} as DouyinAutomationState & { activeRunId: string };
+const recoveredViewController = {
+  getState: () => recoveredViewState,
+  subscribe(listener: (state: DouyinAutomationState) => void) {
+    listener(recoveredViewState);
+    return () => undefined;
+  }
+} as unknown as DouyinAutomationController;
+let recoveredBatch: { runId: string; candidateIds: string[] } | null = null;
+const unmountRecoveredView = mountDouyinAutomationView(
+  host,
+  recoveredViewController,
+  (runId, candidateIds) => { recoveredBatch = { runId, candidateIds }; }
+);
+const recoveredBatchButton = host.querySelector<HTMLButtonElement>("[data-douyin-action=create-batch]");
+assert.ok(recoveredBatchButton, "a restored candidate selection must expose the batch action");
+recoveredBatchButton.click();
+assert.deepEqual(
+  recoveredBatch,
+  { runId: "run-recovered", candidateIds: ["candidate-recovered-1"] },
+  "a restored run must create an approval batch without requiring a transient run intent"
+);
+unmountRecoveredView();
+
+const recoveredStatusErrorState: DouyinAutomationState = {
+  ...recoveredViewState,
+  phase: "error",
+  crawlerStatus: null,
+  candidates: [],
+  selectedCandidateIds: [],
+  error: "状态暂时不可用"
+};
+let recoveredReloadArgs: [string | null, string | undefined, string | null | undefined] | null = null;
+let recoveredRefreshCalls = 0;
+const recoveredRetryController = {
+  getState: () => recoveredStatusErrorState,
+  subscribe(listener: (state: DouyinAutomationState) => void) {
+    listener(recoveredStatusErrorState);
+    return () => undefined;
+  },
+  load: async (planId: string | null, planName?: string, latestRunId?: string | null) => {
+    recoveredReloadArgs = [planId, planName, latestRunId];
+  },
+  refreshRun: async () => { recoveredRefreshCalls += 1; }
+} as unknown as DouyinAutomationController;
+const unmountRecoveredRetry = mountDouyinAutomationView(host, recoveredRetryController, () => undefined);
+assert.equal(
+  host.querySelector<HTMLButtonElement>("[data-douyin-action=save-and-run]")?.disabled,
+  true,
+  "a restored run without an observed status must keep direct launch disabled"
+);
+host.querySelector<HTMLButtonElement>("[data-douyin-action=retry]")?.click();
+await Promise.resolve();
+assert.deepEqual(
+  recoveredReloadArgs,
+  ["plan-1", "袜子获客计划", "run-recovered"],
+  "retry must reload account, policy, and the restored run together"
+);
+assert.equal(recoveredRefreshCalls, 0);
+unmountRecoveredRetry();
 console.log(JSON.stringify({ ok: true, suite: "douyin-automation-view" }));

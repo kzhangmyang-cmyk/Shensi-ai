@@ -9,6 +9,7 @@ assert.match(renderRealTaskRows([]), /暂无真实抖音获客任务/);
 const html = renderRealTaskRows([{
   id: "task-1",
   planId: "plan-1",
+  latestRunId: "run-1",
   name: "<img src=x onerror=alert(1)>",
   objective: "寻找公开需求",
   platformLabel: "抖音",
@@ -24,6 +25,7 @@ const html = renderRealTaskRows([{
 }]);
 
 assert.match(html, /data-acquisition-plan-id="plan-1"/);
+assert.match(html, /data-acquisition-latest-run-id="run-1"/);
 assert.match(html, /12 条公开证据/);
 assert.match(html, /正在运行/);
 assert.doesNotMatch(html, /<img/);

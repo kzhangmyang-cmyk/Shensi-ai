@@ -338,3 +338,106 @@ assert.equal(terminalCandidateFailureController.getState().crawlerStatus?.state,
 assert.match(terminalCandidateFailureController.getState().error ?? "", /candidate read failed/u);
 assert.equal(terminalCandidateFailureTimers.length, 0, "a ready terminal projection must not schedule an automatic retry after candidate failure");
 terminalCandidateFailureController.close();
+
+const recoveredRunStatusReads: string[] = [];
+const recoveredRunCandidateReads: string[] = [];
+const recoveredRunController = createDouyinAutomationController({
+  api: {
+    createPlan: async () => ({ id: "plan-recovered", name: "袜子获客计划", status: "draft", version: 1, etag: '"plan:1"' }),
+    approvePlan: async () => ({ id: "plan-recovered", name: "袜子获客计划", status: "approved", version: 1, etag: '"plan:2"' }),
+    listAccounts: async () => ({ items: [activeAccount] }),
+    createLoginSession: async () => { throw new Error("not used"); },
+    getLoginSession: async () => { throw new Error("not used"); },
+    disconnectAccount: async () => undefined,
+    getAutomation: async () => ({ ...defaultPolicy, planId: "plan-recovered", keywords: ["袜子"] }),
+    suggestKeywords: async () => ({ keywords: ["袜子"], modelSnapshotId: "model-1" }),
+    putAutomation: async (_planId, input) => ({ ...defaultPolicy, ...input, id: "policy-recovered", source: "version", planId: "plan-recovered", accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1, etag: '"policy:1"', createdBy: "user-1", createdAt: now }),
+    runNow: async () => queuedIntent("intent-unexpected", "run-unexpected"),
+    getCrawlerStatus: async (runId) => {
+      recoveredRunStatusReads.push(runId);
+      return {
+        runId,
+        state: "partial" as const,
+        attempt: 4,
+        cursorPersisted: true,
+        recordCount: 64,
+        candidateBudgetUsed: 50,
+        candidateBudgetLimit: 50,
+        candidateProjectionState: "ready" as const,
+        lastErrorCode: "mediacrawler_partial",
+        createdAt: now,
+        updatedAt: now,
+        completedAt: now,
+        activity: { phase: "completed" as const, currentKeyword: null, browserMode: "headless" as const, sequence: 1 }
+      };
+    },
+    listRunCandidates: async (runId) => {
+      recoveredRunCandidateReads.push(runId);
+      return { items: [liveCandidate], nextCursor: null };
+    }
+  },
+  pollDelayMs: 250,
+  setTimer: (() => 1) as unknown as typeof setTimeout,
+  clearTimer: (() => undefined) as typeof clearTimeout
+});
+await recoveredRunController.load("plan-recovered", "袜子获客计划", "run-recovered");
+assert.deepEqual(
+  recoveredRunStatusReads,
+  ["run-recovered"],
+  "loading a plan with a latest run must restore that run's crawler status"
+);
+assert.deepEqual(
+  recoveredRunCandidateReads,
+  ["run-recovered"],
+  "loading a plan with a latest run must restore its persisted candidates"
+);
+assert.equal(recoveredRunController.getState().activeRunId, "run-recovered");
+assert.equal(recoveredRunController.getState().crawlerStatus?.state, "partial");
+assert.deepEqual(recoveredRunController.getState().candidates, [liveCandidate]);
+await recoveredRunController.refreshRun();
+assert.deepEqual(
+  recoveredRunStatusReads,
+  ["run-recovered", "run-recovered"],
+  "manual refresh must use the restored active run even without a newly-created run intent"
+);
+await recoveredRunController.load(null, undefined, "run-stale-without-plan");
+assert.equal(recoveredRunController.getState().activeRunId, null);
+assert.deepEqual(
+  recoveredRunStatusReads,
+  ["run-recovered", "run-recovered"],
+  "a run id without its owning plan must never be restored"
+);
+recoveredRunController.close();
+
+let recoveredUnknownStatusRunStarts = 0;
+const recoveredUnknownStatusController = createDouyinAutomationController({
+  api: {
+    createPlan: async () => ({ id: "plan-recovered", name: "袜子获客计划", status: "draft", version: 1, etag: '"plan:1"' }),
+    approvePlan: async () => ({ id: "plan-recovered", name: "袜子获客计划", status: "approved", version: 1, etag: '"plan:2"' }),
+    listAccounts: async () => ({ items: [activeAccount] }),
+    createLoginSession: async () => { throw new Error("not used"); },
+    getLoginSession: async () => { throw new Error("not used"); },
+    disconnectAccount: async () => undefined,
+    getAutomation: async () => ({ ...defaultPolicy, planId: "plan-recovered", keywords: ["袜子"] }),
+    suggestKeywords: async () => ({ keywords: ["袜子"], modelSnapshotId: "model-1" }),
+    putAutomation: async (_planId, input) => ({ ...defaultPolicy, ...input, id: "policy-recovered", source: "version", planId: "plan-recovered", accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1, etag: '"policy:1"', createdBy: "user-1", createdAt: now }),
+    runNow: async () => {
+      recoveredUnknownStatusRunStarts += 1;
+      return queuedIntent("intent-duplicate", "run-duplicate");
+    },
+    getCrawlerStatus: async () => { throw new Error("status temporarily unavailable"); },
+    listRunCandidates: async () => ({ items: [], nextCursor: null })
+  },
+  pollDelayMs: 250,
+  setTimer: (() => 1) as unknown as typeof setTimeout,
+  clearTimer: (() => undefined) as typeof clearTimeout
+});
+await recoveredUnknownStatusController.load("plan-recovered", "袜子获客计划", "run-recovered-unknown");
+assert.equal(recoveredUnknownStatusController.getState().activeRunId, "run-recovered-unknown");
+await recoveredUnknownStatusController.runNow();
+assert.equal(
+  recoveredUnknownStatusRunStarts,
+  0,
+  "a restored run without an observed status must block duplicate direct launches"
+);
+recoveredUnknownStatusController.close();

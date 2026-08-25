@@ -180,8 +180,16 @@ ledger.
   reconnects a workspace account by expiring QR session, edits and enables
   keywords/local schedule/timezone/daily candidate limit, starts one run-now
   command, and renders only persisted crawler status, creator/commenter
-  candidates and public evidence. The separate generic public-search entry is
-  labelled as an optional enhancement with its search-API and AI dependencies.
+  candidates and public evidence. Task overview hydration preserves the latest
+  authoritative run ID; refresh or verified-session restoration uses it as an
+  independent `activeRunId` to reload crawler status and candidates. That run
+  ID also scopes creation of an editable pending-approval batch without
+  fabricating a new run-now intent. A duplicate run remains blocked until the
+  recovered persisted state is confirmed. Recovery itself creates or approves
+  no batch and sends no comment or direct message; those actions still require
+  explicit second confirmation and the fenced executor. The separate generic
+  public-search entry is labelled as an optional enhancement with its
+  search-API and AI dependencies.
   The real-mode header action focuses the MediaCrawler form without requesting
   those connections, and the optional wizard can return directly to that
   no-API form. Missing optional connections disable AI-plan generation before

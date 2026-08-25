@@ -63,6 +63,7 @@ export interface AcquisitionMetricModel {
 export interface AcquisitionTaskRowModel {
   id: string;
   planId: string;
+  latestRunId: string | null;
   name: string;
   objective: string;
   platformLabel: string;
@@ -172,6 +173,7 @@ export function buildAcquisitionOverviewModel(
       return {
         id: task.id,
         planId: task.planId,
+        latestRunId: latestRun?.id ?? null,
         name: task.name,
         objective: task.objective,
         platformLabel: task.platform === "douyin" ? "抖音" : "全网公开网页",
