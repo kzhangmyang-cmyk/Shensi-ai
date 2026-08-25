@@ -142,7 +142,22 @@ function unicodeLength(value: string): number {
 }
 
 function validDateTime(value: unknown): value is string {
-  return typeof value === "string" && Number.isFinite(Date.parse(value));
+  if (typeof value !== "string") return false;
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|([+-])(\d{2}):(\d{2}))$/u.exec(value);
+  if (!parts) return false;
+  const [year, month, day, hour, minute, second] = parts.slice(1, 7).map(Number);
+  const offsetHour = parts[8] ? Number(parts[9]) : 0;
+  const offsetMinute = parts[8] ? Number(parts[10]) : 0;
+  if (hour > 23 || minute > 59 || second > 59 || offsetHour > 23 || offsetMinute > 59) return false;
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(hour, minute, second, 0);
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day
+    && date.getUTCHours() === hour
+    && date.getUTCMinutes() === minute
+    && date.getUTCSeconds() === second;
 }
 
 function crawlerActivityShape(value: unknown): boolean {

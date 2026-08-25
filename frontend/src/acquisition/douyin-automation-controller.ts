@@ -72,8 +72,9 @@ export function createDouyinAutomationController(options: {
   let generation = 0;
   let aborter = new AbortController();
   let loginTimer: ReturnType<typeof setTimeout> | null = null;
-  let runTimer: ReturnType<typeof setTimeout> | null = null;
+  let runTimer: { handle: ReturnType<typeof setTimeout>; runId: string; generation: number } | null = null;
   let runFlight: Promise<void> | null = null;
+  let runRefreshFlight: { runId: string; generation: number; promise: Promise<void> } | null = null;
   let saveFlight: Promise<void> | null = null;
   let state: DouyinAutomationState = { phase: "idle", planId: null, planName: "", planStatus: null, account: null, loginSession: null, policy: null, draftPolicy: emptyPolicy(), runIntent: null, crawlerStatus: null, candidates: [], selectedCandidateIds: [], error: null, suggestionError: null, closed: false };
   const emit = (patch: Partial<DouyinAutomationState>) => {
@@ -86,8 +87,9 @@ export function createDouyinAutomationController(options: {
     aborter.abort();
     aborter = new AbortController();
     if (loginTimer) clearTimer(loginTimer);
-    if (runTimer) clearTimer(runTimer);
+    if (runTimer) clearTimer(runTimer.handle);
     loginTimer = null; runTimer = null;
+    runRefreshFlight = null;
     return generation;
   };
   const pollLogin = async (sessionId: string, ownGeneration: number): Promise<void> => {
@@ -103,24 +105,48 @@ export function createDouyinAutomationController(options: {
       if (current(ownGeneration) && !(error instanceof DOMException && error.name === "AbortError")) emit({ phase: "error", error: message(error) });
     }
   };
-  const refreshRunFor = async (runId: string, ownGeneration: number): Promise<void> => {
+  const clearRunTimer = () => {
+    if (!runTimer) return;
+    clearTimer(runTimer.handle);
+    runTimer = null;
+  };
+  const scheduleRunRefresh = (runId: string, ownGeneration: number) => {
     if (!current(ownGeneration)) return;
-    try {
-      const [crawlerStatus, page] = await Promise.all([
-        options.api.getCrawlerStatus(runId, aborter.signal),
-        options.api.listRunCandidates(runId, aborter.signal)
-      ]);
-      if (!current(ownGeneration)) return;
-      emit({ crawlerStatus, candidates: page.items, phase: "ready", error: null });
-      if (!terminalStates.has(crawlerStatus.state)) {
-        runTimer = setTimer(() => void refreshRunFor(runId, ownGeneration), pollDelayMs);
+    clearRunTimer();
+    const timer = { handle: null as unknown as ReturnType<typeof setTimeout>, runId, generation: ownGeneration };
+    timer.handle = setTimer(() => {
+      if (runTimer === timer) runTimer = null;
+      void refreshRunFor(runId, ownGeneration);
+    }, pollDelayMs);
+    runTimer = timer;
+  };
+  const refreshRunFor = (runId: string, ownGeneration: number): Promise<void> => {
+    if (!current(ownGeneration)) return Promise.resolve();
+    const existing = runRefreshFlight;
+    if (existing && existing.runId === runId && existing.generation === ownGeneration) return existing.promise;
+    clearRunTimer();
+    const flight = (async () => {
+      try {
+        const [crawlerStatus, page] = await Promise.all([
+          options.api.getCrawlerStatus(runId, aborter.signal),
+          options.api.listRunCandidates(runId, aborter.signal)
+        ]);
+        if (!current(ownGeneration)) return;
+        if (crawlerStatus.runId !== runId) throw new Error("服务器返回的采集状态与当前运行不匹配");
+        emit({ crawlerStatus, candidates: page.items, phase: "ready", error: null });
+        if (!terminalStates.has(crawlerStatus.state)) scheduleRunRefresh(runId, ownGeneration);
+      } catch (error) {
+        if (current(ownGeneration) && !(error instanceof DOMException && error.name === "AbortError")) {
+          emit({ phase: "error", error: message(error) });
+          scheduleRunRefresh(runId, ownGeneration);
+        }
       }
-    } catch (error) {
-      if (current(ownGeneration) && !(error instanceof DOMException && error.name === "AbortError")) {
-        emit({ phase: "error", error: message(error) });
-        runTimer = setTimer(() => void refreshRunFor(runId, ownGeneration), pollDelayMs);
-      }
-    }
+    })();
+    runRefreshFlight = { runId, generation: ownGeneration, promise: flight };
+    void flight.finally(() => {
+      if (runRefreshFlight?.promise === flight) runRefreshFlight = null;
+    });
+    return flight;
   };
   const persist = (input: DouyinAutomationDraft, runAfterSave: boolean): Promise<void> => {
     if (saveFlight) return saveFlight;
@@ -229,7 +255,8 @@ export function createDouyinAutomationController(options: {
     runNow() {
       if (runFlight) return runFlight;
       if (!state.planId) return Promise.resolve();
-      if (state.runIntent && !state.crawlerStatus) return Promise.resolve();
+      if (state.runIntent && (!state.crawlerStatus
+        || state.crawlerStatus.runId !== state.runIntent.acquisitionRunId)) return Promise.resolve();
       if (state.crawlerStatus && !terminalStates.has(state.crawlerStatus.state)) {
         return Promise.resolve();
       }
@@ -239,7 +266,7 @@ export function createDouyinAutomationController(options: {
         try {
           const runIntent = await options.api.runNow(state.planId!, key("douyin-run"), aborter.signal);
           if (!current(own)) return;
-          emit({ runIntent, phase: "ready", error: null });
+          emit({ runIntent, crawlerStatus: null, candidates: [], selectedCandidateIds: [], phase: "ready", error: null });
           await refreshRunFor(runIntent.acquisitionRunId, own);
         } catch (error) { if (current(own)) emit({ phase: "error", error: message(error) }); }
       })();

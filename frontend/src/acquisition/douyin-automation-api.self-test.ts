@@ -147,6 +147,15 @@ await assert.rejects(
   }), { status: 200 })).getCrawlerStatus("run/1"),
   (error: unknown) => error instanceof AcquisitionHttpError && error.code === "malformed_response"
 );
+for (const dateTime of [
+  "2026-08-25T09:30:00Z",
+  "2026-08-25T09:30:00.123456789Z",
+  "2026-08-25T09:30:00+08:00"
+]) {
+  await createDouyinAutomationApi(async () => new Response(JSON.stringify({
+    ...crawler, createdAt: dateTime, updatedAt: dateTime, completedAt: dateTime
+  }), { status: 200 })).getCrawlerStatus("run/1");
+}
 for (const malformedCrawler of [
   { ...crawler, cursor: "private-cursor" },
   { ...crawler, state: "unknown" },
@@ -157,6 +166,8 @@ for (const malformedCrawler of [
   { ...crawler, candidateBudgetLimit: 201 },
   { ...crawler, lastErrorCode: "x".repeat(101) },
   { ...crawler, createdAt: "not-a-date" },
+  { ...crawler, createdAt: "2026-08-25" },
+  { ...crawler, createdAt: "2026-02-30T00:00:00Z" },
   { ...crawler, updatedAt: "not-a-date" },
   { ...crawler, completedAt: "not-a-date" },
   (() => { const { recordCount: _recordCount, ...missing } = crawler; return missing; })(),

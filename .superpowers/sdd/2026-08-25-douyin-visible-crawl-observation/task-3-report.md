@@ -104,3 +104,42 @@ Tests were added before Task 3 production changes.
   and `activityObserved` before the value can reach controller or view state.
 - Neither the retry path nor the timeout recovery introduces reload recovery,
   a latest-run endpoint, real-browser work, or any Douyin request.
+
+## Fix round 2/5 — RFC3339 and one-run polling lifecycle
+
+### RED evidence
+
+- Added behavior coverage before implementation for RFC3339 Z/fraction/offset
+  acceptance and date-only/impossible-date rejection; manual refresh racing a
+  queued timer; and old terminal status followed by a new intent whose first
+  poll fails.
+- `pnpm --filter ./frontend test` failed as intended in the stale-status view
+  regression: the UI rendered the old run's `采集完成` status instead of the
+  new intent's `已提交采集，等待服务器返回首次观测状态` placeholder. The same
+  test-first suite contains the date and deterministic scheduler regressions.
+
+### Fix and GREEN evidence
+
+- Replaced permissive `Date.parse` acceptance with bounded RFC3339 parsing:
+  timezone is required, fractions are bounded, time/offset ranges are checked,
+  and a normalized `Date` round-trip rejects impossible calendar dates.
+- Poll scheduling now owns one generation/run-tagged pending timer and one
+  active refresh flight. Manual refresh clears the pending timer, stale timer
+  callbacks cannot clear a newer timer, and lifecycle reset invalidates the
+  active flight.
+- A new run intent clears prior status, candidates, and selection before its
+  first refresh. Missing or run-ID-mismatched status is outstanding in both
+  controller and view, which renders the queued placeholder and blocks another
+  launch.
+- `pnpm --filter ./frontend test` — passed (57 checks).
+- Focused backend contract command — passed, 42 tests / 0 failures.
+- `pnpm check:generated-acquisition-types`, backend/frontend builds, and
+  `./scripts/context-check` — passed. The frontend build emitted only its
+  existing large-chunk warning.
+- `pnpm test`, `pnpm build`, and `git diff --check` — passed.
+
+### Fix-round self-review
+
+- No new endpoint, reload recovery, browser process, or external request was
+  added. The single-flight guard is scoped to the current generation and run,
+  so reset/close cannot let an older refresh mutate current state.

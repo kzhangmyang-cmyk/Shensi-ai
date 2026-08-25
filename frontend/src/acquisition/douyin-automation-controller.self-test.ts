@@ -151,3 +151,86 @@ assert.equal(failedPollTimers.length, 1, "a non-abort first-poll failure must sc
 await failedPollController.runNow();
 assert.equal(failedPollRunStarts, 1, "an outstanding run intent must block a second direct launch after first-poll failure");
 failedPollController.close();
+
+const runningStatus = (runId: string) => ({ runId, state: "running" as const, attempt: 1, cursorPersisted: true, recordCount: 1, candidateBudgetUsed: 1, candidateBudgetLimit: 50, lastErrorCode: null, createdAt: now, updatedAt: now, completedAt: null, activity: { phase: "collecting_comments" as const, currentKeyword: "袜子", browserMode: "visible" as const, sequence: 4 } });
+const queuedIntent = (id: string, acquisitionRunId: string) => ({ id, acquisitionRunId, workspaceId: "workspace-1", planId: "plan-1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: "hash", policyVersionId: "policy-1", policyHash: "hash", accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: "budget-1", localDate: "2026-08-25", trigger: "run_now" as const, collectCreators: true, collectDemandComments: true, status: "queued" as const, reason: null, createdBy: "user-1", createdAt: now });
+
+const scheduledCallbacks = new Map<number, () => void>();
+const clearedRunTimers: number[] = [];
+let nextRunTimer = 0;
+let scheduledStatusReads = 0;
+const secondStatusGate: { resolve: (() => void) | null } = { resolve: null };
+const scheduledRefreshController = createDouyinAutomationController({
+  api: {
+    createPlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "draft", version: 1, etag: '"plan:1"' }),
+    approvePlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "approved", version: 1, etag: '"plan:2"' }),
+    listAccounts: async () => ({ items: [activeAccount] }),
+    createLoginSession: async () => { throw new Error("not used"); }, getLoginSession: async () => { throw new Error("not used"); }, disconnectAccount: async () => undefined,
+    getAutomation: async () => ({ ...defaultPolicy, keywords: ["袜子"] }), suggestKeywords: async () => ({ keywords: ["袜子"], modelSnapshotId: "model-1" }),
+    putAutomation: async (_planId, input) => ({ ...defaultPolicy, ...input, id: "policy-1", source: "version", accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1, etag: '"policy:1"', createdBy: "user-1", createdAt: now }),
+    runNow: async () => queuedIntent("intent-scheduled", "run-scheduled"),
+    getCrawlerStatus: async () => {
+      scheduledStatusReads += 1;
+      if (scheduledStatusReads === 2) await new Promise<void>((resolve) => { secondStatusGate.resolve = resolve; });
+      return runningStatus("run-scheduled");
+    },
+    listRunCandidates: async () => ({ items: [], nextCursor: null })
+  },
+  pollDelayMs: 250,
+  setTimer: ((callback: unknown) => {
+    const id = ++nextRunTimer;
+    scheduledCallbacks.set(id, callback as () => void);
+    return id;
+  }) as unknown as typeof setTimeout,
+  clearTimer: ((timer: number) => { clearedRunTimers.push(timer); scheduledCallbacks.delete(timer); }) as unknown as typeof clearTimeout
+});
+await scheduledRefreshController.load("plan-1", "袜子获客计划");
+await scheduledRefreshController.runNow();
+const staleScheduledCallback = scheduledCallbacks.get(1)!;
+assert.equal(scheduledCallbacks.size, 1);
+const manualRefresh = scheduledRefreshController.refreshRun();
+await Promise.resolve();
+assert.equal(scheduledStatusReads, 2);
+assert.deepEqual(clearedRunTimers, [1], "manual refresh must clear the pending status timer");
+staleScheduledCallback();
+await Promise.resolve();
+assert.equal(scheduledStatusReads, 2, "a stale scheduled callback must join the active refresh instead of polling again");
+const resumeSecondStatus = secondStatusGate.resolve;
+assert.ok(resumeSecondStatus);
+resumeSecondStatus();
+await manualRefresh;
+assert.equal(scheduledCallbacks.size, 1, "one current run may retain only one continuing poll timer");
+scheduledRefreshController.close();
+
+let staleRunStarts = 0;
+const staleStatusController = createDouyinAutomationController({
+  api: {
+    createPlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "draft", version: 1, etag: '"plan:1"' }),
+    approvePlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "approved", version: 1, etag: '"plan:2"' }),
+    listAccounts: async () => ({ items: [activeAccount] }),
+    createLoginSession: async () => { throw new Error("not used"); }, getLoginSession: async () => { throw new Error("not used"); }, disconnectAccount: async () => undefined,
+    getAutomation: async () => ({ ...defaultPolicy, keywords: ["袜子"] }), suggestKeywords: async () => ({ keywords: ["袜子"], modelSnapshotId: "model-1" }),
+    putAutomation: async (_planId, input) => ({ ...defaultPolicy, ...input, id: "policy-1", source: "version", accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1, etag: '"policy:1"', createdBy: "user-1", createdAt: now }),
+    runNow: async () => { staleRunStarts += 1; return queuedIntent(`intent-${staleRunStarts}`, staleRunStarts === 1 ? "run-old" : "run-new"); },
+    getCrawlerStatus: async (runId) => {
+      if (runId === "run-old") return { ...runningStatus(runId), state: "succeeded" as const, completedAt: now, activity: { phase: "completed" as const, currentKeyword: null, browserMode: "headless" as const, sequence: 5 } };
+      throw new Error("status timeout");
+    },
+    listRunCandidates: async () => ({ items: [liveCandidate], nextCursor: null })
+  },
+  pollDelayMs: 250,
+  setTimer: (() => 1) as unknown as typeof setTimeout,
+  clearTimer: (() => undefined) as typeof clearTimeout
+});
+await staleStatusController.load("plan-1", "袜子获客计划");
+await staleStatusController.runNow();
+assert.equal(staleStatusController.getState().crawlerStatus?.state, "succeeded");
+staleStatusController.toggleCandidate(liveCandidate.id);
+await staleStatusController.runNow();
+assert.equal(staleStatusController.getState().runIntent?.acquisitionRunId, "run-new");
+assert.equal(staleStatusController.getState().crawlerStatus, null);
+assert.deepEqual(staleStatusController.getState().candidates, []);
+assert.deepEqual(staleStatusController.getState().selectedCandidateIds, []);
+await staleStatusController.runNow();
+assert.equal(staleRunStarts, 2, "a failed first poll for a new run must not allow a third launch");
+staleStatusController.close();
