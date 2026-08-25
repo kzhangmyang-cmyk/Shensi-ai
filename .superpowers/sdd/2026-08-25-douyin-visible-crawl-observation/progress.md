@@ -36,3 +36,8 @@ first real sequence-0 sidecar snapshot replace the conservative headless
 default while preserving strict same-sequence conflict detection thereafter —
 if wrong, removing it would make visible and headless initial snapshots
 indistinguishable and reintroduce the reviewed startup failure.
+
+- Task 3: fix round 1/5 (2 addressed, 2 open; commits `ac0561d..f3ede81`).
+- Task 3: fix round 2/5 (2 addressed, 1 open; commits `f3ede81..c58c8b1`).
+- Task 3: fix round 3/5 (1 addressed, 0 open; commits `c58c8b1..182edca`).
+- Task 3: complete (commits `5a00022..182edca`; independent review clean).

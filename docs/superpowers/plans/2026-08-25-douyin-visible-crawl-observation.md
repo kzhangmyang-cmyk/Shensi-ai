@@ -180,7 +180,7 @@ Run the command from Step 2. Expected: PASS.
 - Produces: required `activity` on `AcquisitionCrawlerStatus`.
 - Consumes: generated `components["schemas"]["AcquisitionCrawlerStatus"]`; no handwritten transport DTO.
 
-- [ ] **Step 1: Write failing closed-contract and UI behavior tests**
+- [x] **Step 1: Write failing closed-contract and UI behavior tests**
 
 ```ts
 assert.deepEqual(status.activity, {
@@ -197,7 +197,7 @@ assert.match(host.textContent ?? "", /当前关键词：袜子/u);
 The controller test proves that a non-terminal crawler status keeps the
 save-and-run action disabled after the first poll.
 
-- [ ] **Step 2: Run contract/frontend tests and verify RED**
+- [x] **Step 2: Run contract/frontend tests and verify RED**
 
 ```bash
 pnpm --filter ./backend exec node --import tsx --test --test-concurrency=1 \
@@ -209,7 +209,7 @@ pnpm --filter ./frontend test
 
 Expected: failures because `activity` is absent and the UI has no observation status.
 
-- [ ] **Step 3: Implement and generate the public DTO**
+- [x] **Step 3: Implement and generate the public DTO**
 
 ```yaml
 activity:
@@ -223,7 +223,7 @@ browser mode, current keyword, attempt/update time, and `candidateBudgetUsed /
 candidateBudgetLimit`. Remove the misleading completion percentage and do not
 render a raw URL or private browser identifier.
 
-- [ ] **Step 4: Run the tests and verify GREEN**
+- [x] **Step 4: Run the tests and verify GREEN**
 
 Run the commands from Step 2 plus:
 
