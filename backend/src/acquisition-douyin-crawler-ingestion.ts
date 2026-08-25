@@ -92,7 +92,7 @@ function publicActorKey(record: NormalizedDouyinRecord) {
   } catch { return ""; }
 }
 
-function doNotContactHash(actorKey: string) {
+export function douyinDoNotContactIdentityHash(actorKey: string) {
   return `dnc:sha256:${hash(`douyin\u0000${actorKey}`)}`;
 }
 
@@ -141,7 +141,7 @@ export async function ingestDouyinCrawlerPage(input: {
         hasOriginalPublicSource: Boolean(source),
         hasKnownIdentity: Boolean(actorKey)
       });
-      const dncHash = actorKey ? doNotContactHash(actorKey) : null;
+      const dncHash = actorKey ? douyinDoNotContactIdentityHash(actorKey) : null;
 
       // A valid public record remains bounded evidence even when its edited
       // content creates a permanent DNC. This preserves the exact refusal or

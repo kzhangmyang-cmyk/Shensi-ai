@@ -193,6 +193,13 @@ import {
 import {
   createAcquisitionDouyinKeywordRouter
 } from "./acquisition-douyin-keyword-router.js";
+import {
+  AcquisitionOutreachDraftService
+} from "./acquisition-outreach-draft-service.js";
+import {
+  InMemoryAcquisitionOutreachDraftFinalAuthority,
+  MysqlAcquisitionOutreachDraftFinalAuthority
+} from "./acquisition-outreach-draft-authority.js";
 import { executeModelConnectionWriteIdempotently } from "./model-providers/idempotency.js";
 import {
   acquisitionProviderConnectionVersion
@@ -548,6 +555,7 @@ export interface AcquisitionApplicationRuntime
 extends AcquisitionHttpRuntime {
   visualReaderRepository: AcquisitionVisualReaderRepository;
   planDraftGenerator: AcquisitionPlanDraftGenerator;
+  outreachDraftService: AcquisitionOutreachDraftService;
   runOutcomeReconciliation(
     scope: { ownerId: string; teamId: string }
   ): ReturnType<AcquisitionCrmOutcomeReconciliationService["runTenant"]>;
@@ -2194,6 +2202,46 @@ export async function createAcquisitionApplication(
               repositories.planRun
             )
           : null);
+    const outreachDraftFinalAuthority =
+      crawlerIngestion
+        instanceof MysqlAcquisitionDouyinCrawlerIngestionRepository
+      && repositories.domain instanceof MysqlAcquisitionDomainRepository
+        ? new MysqlAcquisitionOutreachDraftFinalAuthority({
+            domain: repositories.domain,
+            doNotContact: crawlerIngestion
+          })
+        : crawlerIngestion
+          instanceof InMemoryAcquisitionDouyinCrawlerIngestionRepository
+        && repositories.domain instanceof InMemoryAcquisitionDomainRepository
+          ? new InMemoryAcquisitionOutreachDraftFinalAuthority({
+              domain: repositories.domain,
+              doNotContact: crawlerIngestion
+            })
+          : null;
+    if (!outreachDraftFinalAuthority) {
+      throw new Error("acquisition_outreach_final_authority_required");
+    }
+    const outreachDraftService = new AcquisitionOutreachDraftService({
+      domain: repositories.domain,
+      finalAuthority: outreachDraftFinalAuthority,
+      resolveSnapshot: async (scope) => {
+        const snapshot = await resolveModelSnapshot(scope, {
+          connectionId: null
+        });
+        return { jobId: snapshot.jobId };
+      },
+      async gateway(snapshotId) {
+        const snapshot = options.store.aiJobModelSnapshots.find((item) =>
+          item.jobId === snapshotId);
+        if (!snapshot) throw new Error("MODEL_SNAPSHOT_UNAVAILABLE");
+        return options.modelGatewayFactory
+          ? options.modelGatewayFactory(
+              snapshot,
+              acquisitionModelContentForSnapshot(snapshot)
+            )
+          : createAcquisitionModelGatewayForSnapshot(options.store, snapshot);
+      }
+    });
     const enqueueCrawlerJob = async (
       run: import("./acquisition-douyin-automation.js").DouyinAutomationRunIntent,
       policy: import("./acquisition-douyin-automation.js").DouyinAutomationPolicyVersion
@@ -2669,6 +2717,7 @@ export async function createAcquisitionApplication(
     return {
       handler: router as RequestHandler,
       planDraftGenerator,
+      outreachDraftService,
       visualReaderRepository: repositories.visualReader,
       runOutcomeReconciliation(scope) {
         return outcomeReconciliation.runTenant(scope, {

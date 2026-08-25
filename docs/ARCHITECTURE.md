@@ -84,6 +84,13 @@ not the crawl. Fair lane alternation and cross-workspace claim preference keep
 queued crawl work from starving ingestion or another tenant. Browser routes
 never proxy live sidecar state.
 
+Private outreach generation is composed at the application boundary from that
+same domain/DNC authority. Memory verification serializes with the DNC writer
+through the shared plan-run transaction coordinator. MySQL takes candidate,
+exact-evidence, and DNC primary-key/gap locks, then performs every authority
+read through the same connection. The owned result is recursively frozen before
+it can reach the later batch authority; generation does not persist a draft.
+
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a
 development and focused-test implementation; MySQL mode is required for

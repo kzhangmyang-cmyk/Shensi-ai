@@ -3743,6 +3743,11 @@ test("the Acquisition domain graph consumes the exact Growth runtime ports", asy
       "function",
       "production runtime must expose its singleton reconciler for bounded drains"
     );
+    assert.equal(
+      typeof runtime.outreachDraftService.generate,
+      "function",
+      "application must production-wire the private Task 6 draft service"
+    );
     assert.ok(domainOptions && domainConsumer && toolOptions && toolConsumer);
     assert.equal(
       domainOptions.growthAcquisitionWorkspace,

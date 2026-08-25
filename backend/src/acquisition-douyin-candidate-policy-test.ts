@@ -36,12 +36,56 @@ test("parses complete Arabic and Chinese age tokens without adult or version fal
   }
 });
 
-test("normalizes complete minor and refusal phrases without weakening adult tokens", () => {
-  for (const text of ["未满18岁，需要获客方案", "不满十八岁，需要获客方案", "拒绝被联系，我需要获客方案", "未 满 １８ 岁，需要获客方案", "拒 绝 被 联 系，我需要获客方案"]) {
+test("normalizes complete minor phrases without weakening adult or version tokens", () => {
+  for (const text of [
+    "未满18岁，需要获客方案",
+    "不满十八岁，需要获客方案",
+    "未满十八周岁，需要获客方案",
+    "不满18周岁，需要获客方案",
+    "未 满 １８ 岁，需要获客方案"
+  ]) {
     assert.equal(qualifyDouyinCrawlerCandidate({ text, hasOriginalPublicSource: true }).status, "suppressed", text);
   }
   for (const text of ["二十岁需要获客方案", "二十八岁需要获客方案", "三十七岁需要获客方案", "2017岁末版本需要获客方案"]) {
     assert.equal(qualifyDouyinCrawlerCandidate({ text, hasOriginalPublicSource: true }).status, "qualified", text);
+  }
+});
+
+test("preserves the complete refusal vocabulary as an independent regression", () => {
+  for (const text of [
+    "勿扰，我需要获客方案",
+    "不需要推销，我需要获客方案",
+    "拒绝推销，我需要获客方案",
+    "拒绝联系，我需要获客方案",
+    "拒绝联系我，我需要获客方案",
+    "拒绝被联系，我需要获客方案",
+    "拒绝再联系我，我需要获客方案",
+    "请勿联系，我需要获客方案",
+    "请勿打扰，我需要获客方案",
+    "不接受营销，我需要获客方案",
+    "别联系，我需要获客方案",
+    "别再联系，我需要获客方案",
+    "别来联系，我需要获客方案",
+    "不要联系，我需要获客方案",
+    "不要再联系，我需要获客方案",
+    "不想联系，我需要获客方案",
+    "不想被联系，我需要获客方案",
+    "不想再被联系，我需要获客方案",
+    "拒 绝 再 联 系 我，我需要获客方案"
+  ]) {
+    assert.deepEqual(
+      qualifyDouyinCrawlerCandidate({
+        text,
+        hasOriginalPublicSource: true
+      }),
+      {
+        status: "suppressed",
+        buyingStage: null,
+        reason: "explicit_refusal",
+        retainDoNotContact: true
+      },
+      text
+    );
   }
 });
 

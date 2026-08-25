@@ -29,30 +29,92 @@ function compactPolicyText(value: string) {
 }
 
 function numberToken(value: string) {
-  if (/^[0-9]+$/u.test(value)) return Number(value);
+  if ([...value].every((character) => character >= "0" && character <= "9")) {
+    return Number(value);
+  }
   return chineseAge(value);
 }
 
 function hasRefusal(text: string) {
   const compact = compactPolicyText(text);
-  return ["勿扰", "不需要", "拒绝推销", "拒绝联系", "拒绝联系我", "拒绝被联系", "请勿联系", "请勿打扰", "不接受营销", "别联系", "别再联系", "不要联系", "不要再联系", "不想联系", "不想被联系"].some((phrase) => compact.includes(phrase));
+  const startsWithTarget = (offset: number, targets: readonly string[]) =>
+    targets.some((target) => compact.startsWith(target, offset));
+  const consumeModifiers = (offset: number, modifiers: readonly string[]) => {
+    let cursor = offset;
+    let advanced = true;
+    while (advanced) {
+      advanced = false;
+      for (const modifier of modifiers) {
+        if (compact.startsWith(modifier, cursor)) {
+          cursor += modifier.length;
+          advanced = true;
+          break;
+        }
+      }
+    }
+    return cursor;
+  };
+  for (let offset = 0; offset < compact.length; offset += 1) {
+    if (compact.startsWith("勿扰", offset)
+      || compact.startsWith("不需要", offset)) return true;
+    if (compact.startsWith("拒绝", offset)) {
+      const targetOffset = consumeModifiers(offset + "拒绝".length, ["再", "被"]);
+      if (startsWithTarget(targetOffset, ["联系", "推销", "营销", "打扰"])) {
+        return true;
+      }
+    }
+    if (compact.startsWith("请勿", offset)
+      && startsWithTarget(offset + "请勿".length, ["联系", "打扰", "推销", "营销"])) {
+      return true;
+    }
+    if (compact.startsWith("不接受", offset)
+      && startsWithTarget(offset + "不接受".length, ["营销", "推销", "联系"])) {
+      return true;
+    }
+    for (const prefix of ["不要", "不想", "别"] as const) {
+      if (!compact.startsWith(prefix, offset)) continue;
+      const targetOffset = consumeModifiers(offset + prefix.length, ["来", "再", "被"]);
+      if (startsWithTarget(targetOffset, ["联系", "打扰", "推销", "营销"])) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function statesMinorAge(text: string) {
   const compact = compactPolicyText(text);
-  for (const match of compact.matchAll(/(?:未满|不满)([0-9零一二三四五六七八九十]+)岁/gu)) {
-    const age = numberToken(match[1]!);
-    if (age !== null && Number.isFinite(age) && age <= 18) return true;
-  }
-  const ages = /(?<![0-9])([0-9]+)岁/gu;
-  for (const match of compact.matchAll(ages)) {
-    const age = Number(match[1]);
-    if (Number.isInteger(age) && age >= 0 && age < 18) return true;
-  }
-  const chineseAges = /([零一二三四五六七八九十]+)岁/gu;
-  for (const match of compact.matchAll(chineseAges)) {
-    const age = chineseAge(match[1]!);
-    if (age !== null && age >= 0 && age < 18) return true;
+  const arabic = (character: string | undefined) =>
+    character !== undefined && character >= "0" && character <= "9";
+  const chinese = (character: string | undefined) =>
+    character !== undefined && "零一二三四五六七八九十".includes(character);
+  const readNumber = (offset: number) => {
+    const isArabic = arabic(compact[offset]);
+    const isChinese = chinese(compact[offset]);
+    if (!isArabic && !isChinese) return null;
+    let end = offset;
+    while (isArabic ? arabic(compact[end]) : chinese(compact[end])) end += 1;
+    const token = compact.slice(offset, end);
+    const age = numberToken(token);
+    return age === null || !Number.isFinite(age) ? null : { age, end };
+  };
+  const hasAgeUnit = (offset: number) => compact[offset] === "岁"
+    ? offset + 1
+    : compact.startsWith("周岁", offset) ? offset + 2 : null;
+  for (let offset = 0; offset < compact.length; offset += 1) {
+    const qualifier = compact.startsWith("未满", offset)
+      ? "未满" : compact.startsWith("不满", offset) ? "不满" : null;
+    if (qualifier) {
+      const parsed = readNumber(offset + qualifier.length);
+      if (parsed && hasAgeUnit(parsed.end) !== null
+        && parsed.age >= 0 && parsed.age <= 18) return true;
+    }
+    const parsed = readNumber(offset);
+    if (!parsed || hasAgeUnit(parsed.end) === null) continue;
+    const previous = compact[offset - 1];
+    if ((arabic(compact[offset]) && arabic(previous))
+      || (chinese(compact[offset]) && chinese(previous))) continue;
+    if (parsed.age >= 0 && parsed.age < 18) return true;
   }
   return false;
 }

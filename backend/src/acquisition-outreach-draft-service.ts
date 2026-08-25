@@ -36,15 +36,19 @@ export function parseOutreachDraftToolArguments(value: unknown) {
 }
 
 export class AcquisitionOutreachDraftService {
-  constructor(private readonly options: { domain: AcquisitionDomainRepository; hasDoNotContact(scope: { workspaceId: string; ownerId: string; teamId: string }, publicActorKey: string): Promise<boolean>; finalAuthority: AcquisitionOutreachDraftFinalAuthorityPort; resolveSnapshot(scope: { ownerId: string; teamId: string }): Promise<{ jobId: string }>; gateway(snapshotId: string): Promise<AcquisitionPiGatewayPort>; }) {}
-  async generate(input: { scope: { workspaceId: string; ownerId: string; teamId: string }; candidateId: string; evidenceIds?: string[] }): Promise<Readonly<AcquisitionOutreachDraft>> {
+  constructor(private readonly options: { domain: AcquisitionDomainRepository; finalAuthority: AcquisitionOutreachDraftFinalAuthorityPort; resolveSnapshot(scope: { ownerId: string; teamId: string; actorId: string }): Promise<{ jobId: string }>; gateway(snapshotId: string): Promise<AcquisitionPiGatewayPort>; }) {}
+  async generate(input: { scope: { workspaceId: string; ownerId: string; teamId: string; actorId: string }; candidateId: string; evidenceIds?: string[] }): Promise<Readonly<AcquisitionOutreachDraft>> {
     const candidate = await this.options.domain.findCandidate(input.scope, input.candidateId);
     if (!candidate || candidate.ownerId !== input.scope.ownerId || candidate.teamId !== input.scope.teamId || candidate.status === "do_not_contact"
       || candidate.profile.kind !== "individual"
       || candidate.profile.sourcePlatform !== "douyin") {
       throw new Error("OUTREACH_CANDIDATE_NOT_DRAFTABLE");
     }
-    if (!candidate.profile.publicActorKey || await this.options.hasDoNotContact(input.scope, candidate.profile.publicActorKey)) throw new Error("OUTREACH_CANDIDATE_NOT_DRAFTABLE");
+    if (!candidate.profile.publicActorKey
+      || await this.options.finalAuthority.hasDoNotContact(
+        input.scope,
+        candidate.profile.publicActorKey
+      )) throw new Error("OUTREACH_CANDIDATE_NOT_DRAFTABLE");
     const expected = [...candidate.evidenceIds].sort();
     if (input.evidenceIds && canonicalIds(input.evidenceIds) !== canonicalIds(expected)) throw new Error("OUTREACH_EVIDENCE_FORGED");
     const evidence = await Promise.all(expected.map((id) => this.options.domain.findEvidence(input.scope, id)));

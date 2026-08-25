@@ -89,11 +89,15 @@ ledger.
   `GET /api/v1/acquisition/runs/{runId}/candidates`.
 - Douyin keyword suggestions now derive business and ICP context, workspace,
   and the active official model snapshot on the server. Draft generation is a
-  private validated boundary: it rechecks DNC and negative policy signals,
-  binds candidate revision/evidence hashes to the snapshot, rejects unsafe or
-  unsupported one-line content, recomputes immutable content hashes, and
-  discards raw model output. Draft persistence remains exclusively with the
-  later outreach-batch revision authority.
+  private application-composed boundary backed by the real domain and DNC
+  repositories. It parses normalized refusal/minor phrases, binds candidate
+  revision/evidence hashes to the snapshot, rejects Unicode/IDN domains, and
+  permits only fixed safe template clauses or complete phrases grounded in one
+  evidence row. Memory shares the DNC writer coordinator; MySQL locks and reads
+  candidate, exact evidence, and the DNC key/gap on one connection. It returns
+  a deeply immutable authority projection, recomputes immutable content hashes,
+  and discards raw model output. Draft persistence remains exclusively with
+  the later outreach-batch revision authority.
 
 ## Active
 

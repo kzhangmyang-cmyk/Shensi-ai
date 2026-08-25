@@ -135,12 +135,19 @@ lease, raw cursor, records, and live sidecar state.
 
 Outreach generation is a private service boundary until Task 7 creates a batch.
 It loads only persisted workspace-owned candidates and their exact evidence,
-rejects DNC/refusal/complaint/minor signals again before any model call, uses the
+parses normalized refusal and age phrases again before any model call, uses the
 active official snapshot with closed structured output, and validates one-line,
-bounded, evidence-grounded comment/direct-message text. URLs, phone numbers,
-forbidden claims/words, unsupported claims, and malformed output are rejected.
-The server recomputes the immutable content hash and discards raw model output;
-Task 6 does not persist drafts or create a competing revision ledger.
+bounded comment/direct-message text. Only fixed safe template clauses may be
+ungrounded; every other complete clause must occur in one approved evidence
+record. Evidence rows are never concatenated. URLs, Unicode/IDN/punycode
+domains, phone numbers, forbidden claims/words, and malformed output are
+rejected. The application composes this service from the real domain and DNC
+repositories. Memory verification shares the DNC writer's transaction
+coordinator; MySQL locks the exact candidate, evidence rows, and DNC key/gap and
+loads them through one connection. The returned authority projection is deeply
+immutable. The server recomputes the immutable content hash and discards raw
+model output; Task 6 does not persist drafts or create a competing revision
+ledger.
 
 ## Tests
 

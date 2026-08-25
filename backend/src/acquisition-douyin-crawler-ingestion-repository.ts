@@ -524,6 +524,19 @@ extends AuthoritativeDouyinCrawlerIngestionRepository {
     }
     return deleted;
   }
+  async lockOutreachDraftAuthority(
+    scope: Pick<IngestionScope, "workspaceId" | "ownerId" | "teamId">,
+    _candidateId: string,
+    _evidenceIds: readonly string[],
+    _identityHash: string
+  ) {
+    const active = this.active().scope;
+    if (active.workspaceId !== scope.workspaceId
+      || active.ownerId !== scope.ownerId
+      || active.teamId !== scope.teamId) {
+      throw new Error("outreach_authority_scope_mismatch");
+    }
+  }
   private key(workspaceId: string, value: string) { return `${workspaceId}\u0000${value}`; }
   protected async findIndexByContent(workspaceId: string, contentHash: string) {
     return clone(this.indexes.get(this.key(workspaceId, contentHash)) ?? null);
@@ -632,6 +645,36 @@ extends AuthoritativeDouyinCrawlerIngestionRepository {
       }, now, limit - deleted);
     }
     return deleted;
+  }
+  async lockOutreachDraftAuthority(
+    scope: Pick<IngestionScope, "workspaceId" | "ownerId" | "teamId">,
+    candidateId: string,
+    evidenceIds: readonly string[],
+    identityHash: string
+  ) {
+    const active = this.active().scope;
+    if (active.workspaceId !== scope.workspaceId
+      || active.ownerId !== scope.ownerId
+      || active.teamId !== scope.teamId) {
+      throw new Error("outreach_authority_scope_mismatch");
+    }
+    await this.source().query(
+      `SELECT id FROM acquisition_candidates
+       WHERE id=? AND owner_id=? AND team_id=? FOR UPDATE`,
+      [candidateId, scope.ownerId, scope.teamId]
+    );
+    for (const evidenceId of [...evidenceIds].sort()) {
+      await this.source().query(
+        `SELECT id FROM acquisition_discovery_evidence
+         WHERE id=? AND owner_id=? AND team_id=? FOR UPDATE`,
+        [evidenceId, scope.ownerId, scope.teamId]
+      );
+    }
+    await this.source().query(
+      `SELECT identity_hash FROM acquisition_douyin_do_not_contact
+       WHERE workspace_id=? AND identity_hash=? FOR UPDATE`,
+      [scope.workspaceId, identityHash]
+    );
   }
   protected async findIndexByContent(workspaceId: string, contentHash: string) {
     const [rows] = await this.source().query(

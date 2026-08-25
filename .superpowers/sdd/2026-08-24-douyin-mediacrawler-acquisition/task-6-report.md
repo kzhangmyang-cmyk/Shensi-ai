@@ -210,3 +210,78 @@ This round changes internal policy, validation, and repository-boundary
 implementation only; no public API or user-facing module contract changed.
 The Task 6 execution report is the required documentation update. The
 ledger-deferred response-contract Minor remains untouched.
+
+## Fix round 4/5 — production authority and parser remediation
+
+### RED
+
+The round-four counterexamples were added before production changes and run
+with:
+
+```bash
+pnpm --dir backend exec tsx --test --test-concurrency=1 \
+  src/acquisition-douyin-candidate-policy-test.ts \
+  src/acquisition-outreach-draft-test.ts \
+  src/acquisition-outreach-draft-authority-test.ts \
+  src/acquisition-application-test.ts
+```
+
+The run reported 38 tests: 32 passed and 6 failed for the intended missing
+behaviour. The failures demonstrated that the production application did not
+compose an outreach draft service, the complete `未满十八周岁` and
+`拒绝再联系我` forms were admitted, Unicode domain separators were accepted,
+`贵公司成立于2010年` was not covered by deterministic grounding, and final
+authority still depended on callback-style adapters instead of the real DNC
+repository boundary.
+
+### GREEN
+
+- Candidate admission now uses a normalized token/phrase parser for complete
+  Arabic/Chinese age tokens and refusal grammar. The refusal vocabulary is an
+  independent regression suite and includes all earlier variants plus
+  `拒绝再联系我`, `别来联系`, and `不想再被联系`; adult ages and
+  `2017岁末版本` remain admitted.
+- Draft validation normalizes Unicode domain separators before IDNA
+  conversion, rejects ASCII, Unicode-IDN, and punycode domains including
+  `例子。公司`, and replaces candidate-fact heuristics with a closed safe
+  template allow-list. Every other complete phrase must occur in one approved
+  evidence record; separate rows are never concatenated.
+- The application now constructs the private draft service and its final
+  authority from the concrete domain and crawler-ingestion/DNC repositories.
+  Memory uses the repository's shared plan-run transaction coordinator. MySQL
+  locks the candidate, sorted exact evidence rows, and exact DNC primary-key
+  record/gap, then reads all three authorities through the same real
+  connection and transaction.
+- Real integration tests prove that the Memory DNC writer queues behind final
+  verification and that a MySQL insert waits on the absent DNC key-gap lock.
+  The MySQL test also records one connection identity for all candidate,
+  evidence, and DNC statements; it uses no authority-load callback.
+- The verified projection is cloned and recursively frozen through nested
+  candidate profile/party references, evidence arrays, and provenance. Tests
+  prove nested object and array mutations throw and cannot alter the returned
+  value. Generation still performs no persistence; Task 7 remains the only
+  draft/revision persistence owner.
+
+### Verification
+
+- Focused production policy/draft/authority/service/application/model suite
+  with the real local MySQL socket: 48 passed, 0 failed, 0 skipped.
+- Real Memory/MySQL final-authority integration suite with
+  `MYSQL_TEST_ADMIN_SOCKET=/Users/mac/.local/var/mysql-shensi-sales/mysql.sock`:
+  2 passed, 0 failed, 0 skipped.
+- `pnpm --filter ./backend test:model-gateway`: 21 passed, 0 failed.
+- `pnpm check:acquisition-contracts`: passed (contracts 91/91, contract drift
+  18/18, security, runtime OpenAPI 39/39, generated types, frontend checks,
+  and Baota package; existing Vite >500 kB advisory only).
+- `pnpm --filter ./backend test:acquisition`: passed with 1,098 passed, 0
+  failed, and 6 unrelated environment-gated tests skipped.
+- Fresh `pnpm test`, `pnpm build`, `./scripts/context-check`, and
+  `git diff --check`: passed.
+
+### Scope and documentation
+
+The current architecture, project-status, and Acquisition module documents
+describe the production authority composition, normalized safety policy,
+single-row grounding, deep immutability, and Task 7 persistence ownership. No
+public route, OpenAPI schema, or generated client contract changed, so the API
+index and generated contract documentation remain current.
