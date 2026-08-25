@@ -1470,7 +1470,7 @@ implements AcquisitionVisualReaderRepository {
       const [result] = await source.query(
         `SELECT * FROM acquisition_visual_reader_sessions
          WHERE owner_id = ? AND team_id = ? AND run_id = ?
-         ORDER BY created_at, session_id LIMIT 1001 FOR UPDATE`,
+         ORDER BY updated_at, session_id LIMIT 1001 FOR UPDATE`,
         [scope.ownerId, scope.teamId, runId]
       );
       const rows = Array.isArray(result) ? result as MysqlRow[] : [];

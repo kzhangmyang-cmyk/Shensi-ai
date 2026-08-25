@@ -1387,6 +1387,25 @@ test("visual MySQL schema is isolated, repeatable, and fully tenant scoped", asy
   assert.equal(typeof repository.withTransactionConnection, "function");
 });
 
+test("visual MySQL Run session listing orders by persisted indexed columns", async () => {
+  const pool = new StatefulVisualMysqlPool();
+  const repository = new MysqlAcquisitionVisualReaderRepository(
+    pool as unknown as mysql.Pool,
+    { masterSecret: SECRET, now: () => START }
+  );
+  await repository.createSession(createInput());
+
+  await repository.listRunSessions(SCOPE, "mysql-visual-run");
+
+  const statement = pool.statements.find(({ sql }) =>
+    sql.includes("FROM acquisition_visual_reader_sessions")
+    && sql.includes("run_id = ?")
+    && sql.includes("LIMIT 1001"));
+  assert.ok(statement);
+  assert.match(statement.sql, /ORDER BY updated_at, session_id/u);
+  assert.doesNotMatch(statement.sql, /ORDER BY created_at/u);
+});
+
 test("visual schema safely retries legacy running work after adding lease tokens", async () => {
   const pool = new StatefulVisualMysqlPool();
   pool.leaseTokenColumnPresent = false;
