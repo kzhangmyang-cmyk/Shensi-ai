@@ -97,8 +97,13 @@ back. The final page records either `succeeded` or `partial`; partial jobs retai
 all previously published records and their bounded failure code. Only after the
 terminal projection commits does Node acknowledge the sidecar. The durable
 acknowledgement timestamp starts the sidecar's 24-hour page-retention clock and
-is safe to replay after a crash. The same sweep removes the runner's private
-upstream capture directory. Backend retention removes only
+is safe to replay after a crash. Every runner invocation creates a random
+owner-only `0700` attempt directory below its job output root and confines its
+request, activity, and JSONL reads to that directory. A resumed manager seeds
+its record de-duplication set from IDs in already persisted pages, so neither
+stale attempt files nor repeated upstream records can be republished. The same
+sweep removes the entire job output root, including every attempt and private
+upstream capture. Backend retention removes only
 unlinked evidence 90 days after ingestion, leaving candidate-linked evidence,
 one-way DNC identity, and audit authority intact. Restarts resume from Node
 cursors and ingestion leases; a late run alias replays only this projection,
@@ -115,16 +120,21 @@ and is resumed by a later claim rather than held in an endless poll/renew loop.
 
 The local visible tab is a separate best-effort observation mirror for the
 approved keyword and public video, not a collection authority. It is created
-from the crawl browser context without reusing the collector page; inability to
-create or navigate it cannot stop the search or comment collector. The
+from the crawl browser context without reusing the collector page. Observation
+navigation uses at most one unfinished best-effort task outside the collector's
+critical await path; a hung task suppresses later mirror navigation without
+blocking search or comment collection or creating an unbounded backlog. The
 deterministic MediaCrawler request client remains the data authority, and
 navigation in that tab cannot fabricate records, evidence, or candidates. The
 browser polls the persisted Node crawler-status projection rather than the
-sidecar. Its closed public surface contains activity (phase, approved keyword
-or null, visible/headless mode, and monotonic sequence) and
+sidecar. Its closed public surface contains activity (phase, a null or exact
+approved keyword of at most 100 Unicode code points, visible/headless mode, and
+monotonic sequence) and
 `candidateProjectionState` (`pending`, `ready`, or `failed`); it excludes raw
 URLs, profile paths, cookies, headers, selectors, CDP/WebSocket endpoints,
-browser identifiers, raw logs, ingestion state, and leases.
+browser identifiers, raw logs, ingestion state, and leases. MySQL hydration,
+repository mutation, and public projection each fail closed when a non-null
+activity keyword is outside the job's frozen keywords or exceeds that bound.
 
 Private outreach generation is composed at the application boundary from that
 same domain/DNC authority. Memory verification serializes with the DNC writer
@@ -198,14 +208,21 @@ requirements; authorized public-link import is a collapsed fallback. Private
 MediaCrawler handles, cookies, profiles, leases and internal identifiers are not rendered.
 For a current run, the dashboard polls only the persisted crawler-status
 projection and localizes phase while showing browser mode, keyword, attempt and
-update time, and candidate allowance. It continues polling while the crawler is
-nonterminal or the closed candidate projection is `pending`, and reads
-candidates after readiness; it stops at `ready` or `failed`, and terminal
-`ready` with zero candidates is a valid completed result. A submitted intent
-without its first observation, an observed nonterminal run, or a terminal run
-whose candidate projection is still `pending` blocks duplicate submission in
-both the rendered control and controller command path. This observation does
-not alter the existing comment or direct-message approval authority.
+update time, and candidate allowance. Each refresh validates crawler status
+before its candidate-page request. Live-projected candidates can appear while
+the crawler is nonterminal or projection is `pending`; a validated `ready`
+snapshot is the ordering boundary for the final candidate-page read. Polling
+stops after the read paired with `ready` or `failed`, terminal `ready` with zero
+candidates is valid, and a validated terminal status survives a failed candidate
+read. The decoder requires primitive strings before accepting crawler state,
+activity phase, browser mode, or projection-state enums. The pre-status queued
+live region is polite once per outstanding run and silent on same-run rerenders;
+observing status, clearing the intent, or starting a new run resets its token. A
+submitted intent without its first observation, an observed nonterminal run, or
+a terminal run whose candidate projection is still `pending` blocks duplicate
+submission in both the rendered control and controller command path. This
+observation does not alter the existing comment or direct-message approval
+authority.
 The desktop candidate table and evidence inspector collapse to one-column
 cards at the mobile breakpoint, and page scrolling remains owned by the body/
 main document rather than nested frozen panes.

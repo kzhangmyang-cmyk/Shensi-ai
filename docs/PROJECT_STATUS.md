@@ -79,7 +79,11 @@ ledger.
   run state, and run-candidate links before terminal completion. Terminal
   ingestion replays all persisted records, finalizes the run, and acknowledges
   the sidecar. Upstream interruption after published records produces a
-  durable partial job instead of resetting the record count.
+  durable partial job instead of resetting the record count. Each runner
+  invocation confines its request, activity, and JSONL files to a random
+  owner-only `0700` attempt directory. Resumed jobs seed record de-duplication
+  from IDs in persisted pages, so stale attempt files and repeated records are
+  not republished; acknowledgement cleanup removes the whole job output root.
   Stable record edits supersede across jobs; content is unique per workspace.
   Each record and evidence row retains its exact page cursor and explicit
   creator/commenter discriminator. Late same-day aliases re-run only the
@@ -165,23 +169,29 @@ ledger.
   Douyin window when `MEDIACRAWLER_BROWSER_HEADLESS=false`; Shensi disables CDP,
   while production may set headless mode to `true`. Its visible tab is a
   separate best-effort mirror of the approved keyword and public video, not the
-  collector page; observation-page creation or navigation failure cannot stop
-  collection. The deterministic request client remains the data authority, so
-  observation navigation cannot create results. The manager publishes truthful
-  launch activity, deduplicates equivalent snapshots, atomically persists a
-  final-page descriptor with completed terminal activity, and requeues safely
-  paused sidecar work for a later resume. The persisted public crawler status
-  is closed to activity (phase, approved keyword or null, visible/headless
-  mode, and monotonic sequence) plus `candidateProjectionState` (`pending`,
-  `ready`, or `failed`); it excludes raw ingestion state, leases, raw URLs,
-  profile paths, cookies, headers, selectors, CDP/WebSocket endpoints, browser
-  identifiers, and raw logs. The dashboard polls while the crawl or candidate
-  projection remains pending, reads candidates after readiness, accepts zero
-  candidates with terminal `ready` as valid, stops at `ready` or `failed`, and
-  prevents duplicate submission until the current intent is observed and no
-  longer pending. Manual automation keywords still require neither a
-  public-search API nor AI. Comment and direct-message approval remains human
-  approved; no automatic external action was run.
+  collector page. It uses at most one unfinished observation task outside the
+  collector's critical path, so a hung mirror cannot block collection or create
+  an unbounded navigation backlog. The deterministic request client remains the
+  data authority, so observation navigation cannot create results. The manager
+  publishes truthful launch activity, deduplicates equivalent snapshots,
+  atomically persists a final-page descriptor with completed terminal activity,
+  and requeues safely paused sidecar work for a later resume. The persisted
+  public crawler status is closed to activity (phase, a null or exact approved
+  keyword of at most 100 Unicode code points, visible/headless mode, and
+  monotonic sequence) plus `candidateProjectionState` (`pending`, `ready`, or
+  `failed`); hydration and public projection revalidate the keyword, and the
+  response excludes raw ingestion state, leases, raw URLs, profile paths,
+  cookies, headers, selectors, CDP/WebSocket endpoints, browser identifiers, and
+  raw logs. Every dashboard refresh validates status before reading candidates,
+  so live candidates may appear before readiness; `ready` is the ordering
+  boundary for the final candidate read, and polling stops at `ready` or
+  `failed`. Zero candidates with terminal `ready` is valid, and a candidate-read
+  failure does not discard a validated terminal status. The frontend rejects
+  non-primitive enum values and announces its pre-status queued placeholder once
+  per outstanding run. It prevents duplicate submission until the current
+  intent is observed and no longer pending. Manual automation keywords still
+  require neither a public-search API nor AI. Comment and direct-message
+  approval remains human approved; no automatic external action was run.
 
 ## Active
 
@@ -191,14 +201,10 @@ ledger.
   pre-existing encrypted-state bind, and has bounded resources, health and
   shutdown behavior. Development, deployment and verification wrappers fail
   closed on missing prerequisites or a publicly routed sidecar.
-- Deterministic evidence on 2026-08-25: the complete focused sidecar suite
-  passed 145 tests; deployment/runtime contracts passed 29 tests; the isolated
-  live-MySQL gate passed 15 tests using a short-lived least-privilege account
-  and cleaned its owned schemas/account; the no-route-interception Playwright
-  flow passed 1 test with real Shensi auth/session/CSRF, MySQL repositories,
-  Node workers and the real sidecar service. Backend and frontend builds and
-  frontend type checks passed. That deterministic gate made no request to a
-  Douyin/iesdouyin host.
+- Focused deterministic evidence for the current observation, projection, and
+  dashboard behavior is recorded in the task reports. Repository-wide aggregate
+  results are recorded only after the final gate; these deterministic checks do
+  not request a Douyin/iesdouyin host.
 - Real QR login on 2026-08-25 reached Douyin from a visible local Chrome
   profile, rendered the returned QR in the authenticated `#acquisition`
   dialog, and completed the operator's scan into an active workspace account.

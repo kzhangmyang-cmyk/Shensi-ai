@@ -101,10 +101,10 @@ Output:
 - Manager tests verify synchronous start visibility, identical activity no-op,
   successful/partial completion, and every captured persisted descriptor around
   the final page transition.
-- Existing documentation already defines the sidecar as a private observation
-  mirror and its browser-mode configuration; no public API or operator workflow
-  changed, so no module/deployment document change was needed beyond this task
-  report.
+- The later D1 attempt isolation and resumed-page de-duplication changed private
+  lifecycle details without changing the public API. Their current rules are
+  synchronized in the root README, architecture, deployment, and acquisition
+  module documentation as well as this report.
 - The observation tab remains intentionally best-effort and can be unavailable
   without changing deterministic collection. It is not an activity event log;
   snapshots can still coalesce between runner polls by design.

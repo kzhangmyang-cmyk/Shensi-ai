@@ -117,17 +117,21 @@ The backend owns the crawler worker, expired-lease recovery, live and terminal
 ingestion, and the evidence-retention lifecycle whenever this gateway is
 configured. The sidecar advertises immutable completed pages while the crawl is
 running; Node persists each page and may expose its candidates immediately. A
-live projection failure leaves the page durable for terminal replay. Result
-pages remain in the private sidecar until the backend's authoritative terminal
-evidence/candidate/run-link transaction commits and the acknowledgement call
-succeeds. A partial terminal state retains every previously published page and
-its bounded failure code. The persisted acknowledgement starts a 24-hour
-cleanup clock and is idempotent across restarts. That sweep removes both
-normalized pages and the
-bounded private upstream actor capture; it never treats upstream's anonymous
-`creator_hash` as a public profile identity. Do not add an external cleanup
-that deletes unacknowledged result pages. Backend cleanup removes only unlinked
-crawler evidence after 90 days; DNC and audit authority are not TTL data.
+live projection failure leaves the page durable for terminal replay. Each runner
+invocation creates a random owner-only `0700` attempt directory below its job
+output root and reads request, activity, and JSONL files only from that attempt.
+A resumed manager seeds its record de-duplication set from IDs already stored in
+persisted pages. Result pages remain in the private sidecar until the backend's
+authoritative terminal evidence/candidate/run-link transaction commits and the
+acknowledgement call succeeds. A partial terminal state retains every previously
+published page and its bounded failure code. The persisted acknowledgement
+starts a 24-hour cleanup clock and is idempotent across restarts. That sweep
+removes the complete job output root, including normalized pages, all attempt
+directories, and the bounded private upstream actor capture; it never treats
+upstream's anonymous `creator_hash` as a public profile identity. Do not add an
+external cleanup that deletes unacknowledged result pages. Backend cleanup
+removes only unlinked crawler evidence after 90 days; DNC and audit authority
+are not TTL data.
 
 The same configured gateway enables the backend-owned outreach-action worker
 and expired-claim sweeper. The sidecar action endpoint is private and must use
@@ -187,21 +191,28 @@ for cold browser startup; ordinary health and poll requests retain the shorter
 gateway timeout.
 
 The local visible tab is a separate best-effort operator observation mirror for
-the approved keyword and public video. It is not the collector page: failure to
-create or navigate it cannot interrupt deterministic collection. The
-MediaCrawler request client remains the data authority, and observation
-navigation cannot fabricate results. The browser dashboard polls the persisted
-Node projection, which exposes only phase, approved keyword or null,
-visible/headless mode, monotonic sequence, and the closed
+the approved keyword and public video. It is not the collector page: at most one
+unfinished observation task runs outside the collector's critical await path.
+A hung task may suppress later mirror movement but cannot interrupt collection
+or create an unbounded navigation backlog. The MediaCrawler request client
+remains the data authority, and observation navigation cannot fabricate
+results. The browser dashboard polls the persisted Node projection, which
+exposes only phase, a null or exact approved keyword of at most 100 Unicode code
+points, visible/headless mode, monotonic sequence, and the closed
 `candidateProjectionState` (`pending`, `ready`, or `failed`); it must not
 expose raw URLs, profile paths, cookies, headers, selectors, CDP/WebSocket
 endpoints, browser identifiers, raw logs, raw ingestion state, or leases. It
 displays the localized phase, browser mode, keyword, attempt/update time, and
-candidate allowance; it continues polling and blocks duplicate submission while
-the current intent is unobserved, nonterminal, or terminal with a `pending`
-candidate projection. A terminal `ready` response with zero candidates is a
-valid completed result, and polling stops at `ready` or `failed`. This has no
-effect on comment or direct-message approval rules.
+candidate allowance. Persisted hydration and public projection fail closed when
+a non-null keyword is not frozen for the job or exceeds that bound. Every
+dashboard refresh validates status before requesting candidates, so candidates
+may appear before readiness; `ready` is the ordering boundary for the final
+candidate read, and polling stops after the read paired with `ready` or `failed`.
+A terminal `ready` response with zero candidates is valid. The frontend rejects
+non-primitive enum values and announces the pre-status queued placeholder only
+once per outstanding run. Duplicate submission remains blocked while the
+current intent is unobserved, nonterminal, or terminal with a `pending`
+projection. This has no effect on comment or direct-message approval rules.
 
 Compose bind-mounts that directory at `/var/lib/shensi-mediacrawler` and
 refuses to create a missing host path. Stop the sidecar before backup or

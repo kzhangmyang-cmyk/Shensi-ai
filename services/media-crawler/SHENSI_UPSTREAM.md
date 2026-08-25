@@ -29,10 +29,19 @@ never call a browser object directly.
 Private crawl-job endpoints execute the pinned Douyin search API with an
 account profile, frozen argument arrays, immutable creator/comment collection
 flags, and a bounded deadline. User values are never interpolated into shell
-text. Closed creator/video/comment records are filtered by those flags and
+text. Each runner invocation creates a random owner-only `0700` attempt
+directory beneath the job output root and confines its request, activity, and
+JSONL reads to that attempt, so stale files from an earlier invocation cannot be
+emitted. Resumed jobs seed record de-duplication from IDs in already persisted
+pages. Closed creator/video/comment records are filtered by the frozen flags and
 stored as append-only opaque-cursor pages; reads do not acknowledge them.
-Terminal pages remain available for 24 hours and are removed by startup and
-periodic retention sweeps.
+Acknowledged terminal pages remain available for 24 hours, after which startup
+and periodic retention sweeps remove the complete job root and all attempts.
+
+The visible Douyin tab is a non-authoritative observation mirror. Search and
+video navigation uses at most one unfinished best-effort task outside the
+collector's critical await path; a hung navigation suppresses later mirror
+movement without blocking collection or creating an unbounded task queue.
 
 Private action-job endpoints reuse only the durable authenticated account
 profile selected by the trusted backend. Shensi-owned selectors and page-state

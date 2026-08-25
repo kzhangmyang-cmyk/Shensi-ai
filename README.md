@@ -122,28 +122,44 @@ receives MediaCrawler cookies, account handles, browser profiles or leases.
 Completed MediaCrawler JSONL records are published as immutable pages while a
 crawl is still running. The backend persists each available page and projects
 its evidence and candidates immediately, so the dashboard can show candidates
-before the crawl ends. A terminal replay finalizes the run and acknowledges the
-sidecar; if the upstream browser stops after publishing records, the job stays
-`partial` and those records remain available instead of being reset to zero.
-The manager records the terminal page descriptor, completed activity, terminal
-state, pending candidate projection, and lease release together, so a persisted
-running job never advertises a final page. A safely paused sidecar job releases
-its fence through retryable requeue and resumes on a later claim instead of
-being renewed indefinitely. When local visible mode is used, its dedicated tab
-is a separate best-effort operator observation mirror for the approved keyword
-and public video. The deterministic MediaCrawler request client remains the
-data authority: observation-page creation or navigation cannot fabricate
-results or stop collection. The dashboard polls only the persisted Node
-projection: localized phase, approved keyword or null, visible/headless mode,
-monotonic sequence, attempt and update time, candidate allowance, and the
-closed `candidateProjectionState` (`pending`, `ready`, or `failed`). It never
-receives a raw URL, profile path, cookie, header, selector, browser identifier,
-CDP/WebSocket endpoint, raw log, ingestion state, or lease data. It continues
-polling while a terminal crawl is still `pending` candidate projection, reads
-the candidate feed after readiness, stops once projection is `ready` or
-`failed`, accepts zero candidates with `ready` as a completed result, and
-blocks another run until the current intent is observed and no longer pending;
-comment and direct-message approval rules are unchanged.
+before the crawl ends. Every runner invocation uses a random owner-only `0700`
+attempt directory beneath the job output root; request, activity, and JSONL
+reads stay inside that attempt, so stale files cannot be replayed by a restart.
+On resume, the manager seeds record de-duplication from IDs already present in
+persisted pages. Acknowledgement cleanup removes the enclosing job root and all
+of its attempt directories. A terminal replay finalizes the run and acknowledges
+the sidecar; if the upstream browser stops after publishing records, the job
+stays `partial` and those records remain available instead of being reset to
+zero. The manager records the terminal page descriptor, completed activity,
+terminal state, pending candidate projection, and lease release together, so a
+persisted running job never advertises a final page. A safely paused sidecar job
+releases its fence through retryable requeue and resumes on a later claim
+instead of being renewed indefinitely.
+
+When local visible mode is used, its dedicated tab is a separate best-effort
+operator observation mirror for the approved keyword and public video. At most
+one unfinished observation-navigation task exists, and it runs outside the
+search/comment collector's critical await path. A hung or failed mirror may
+suppress later mirror movement but cannot fabricate results, delay collection,
+or stop the deterministic MediaCrawler request client. The dashboard polls only
+the persisted Node projection: localized phase, a null or exact approved keyword
+of at most 100 Unicode code points, visible/headless mode, monotonic sequence,
+attempt and update time, candidate allowance, and the closed
+`candidateProjectionState` (`pending`, `ready`, or `failed`). Persisted hydration
+and public projection revalidate that keyword. The browser never receives a raw
+URL, profile path, cookie, header, selector, browser identifier, CDP/WebSocket
+endpoint, raw log, ingestion state, or lease data.
+
+Every dashboard refresh validates crawler status before requesting the candidate
+page. Live-projected candidates may therefore appear while the crawl is
+nonterminal or candidate projection is still `pending`; a validated `ready`
+status is the ordering boundary for the final candidate-page read. Polling stops
+after the candidate read paired with `ready` or `failed`, and zero candidates
+with `ready` is a valid completed result. A validated terminal status remains
+visible if that candidate read fails. The frontend rejects non-primitive enum
+values and announces the pre-status queued placeholder only once per outstanding
+run. Another run stays blocked until the current intent is observed and no
+longer pending; comment and direct-message approval rules are unchanged.
 
 The real-mode header action `新建抖音采集计划` scrolls to and focuses the
 MediaCrawler plan form; it does not open the provider-connection wizard or

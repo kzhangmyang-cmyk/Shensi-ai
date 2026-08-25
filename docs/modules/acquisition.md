@@ -84,6 +84,10 @@ The sidecar publishes complete immutable pages during a running crawl. The Node
 worker pulls every advertised page, persists records and cursors first, then
 idempotently projects available evidence, candidates and `candidate.discovered`
 events while the authoritative run remains `running` with `completedAt: null`.
+Every runner invocation confines its request, activity snapshot, and JSONL reads
+to a random owner-only `0700` attempt directory below the job output root. A
+resumed manager seeds record de-duplication from IDs in already persisted pages,
+so it neither consumes stale attempt files nor republishes an existing record.
 Live projection failure cannot erase the page; terminal ingestion replays all
 persisted records. A sidecar interruption after any published record produces a
 `partial` terminal job with those records and its bounded failure code intact.
@@ -158,8 +162,11 @@ The editable contract is `contracts/openapi/ai-acquisition.v1.yaml`; frontend
 code consumes `frontend/src/generated/ai-acquisition.ts`.
 `GET /api/v1/acquisition/runs/{runId}/crawler-status` returns only the closed,
 workspace-bound persisted projection. Its required `activity` observation has a
-bounded phase, nullable approved keyword, visible/headless browser mode and
-monotonic sequence so the dashboard can explain collection without receiving a
+bounded phase, visible/headless browser mode, monotonic sequence, and a keyword
+that is either null or an exact member of the frozen job keywords with at most
+100 Unicode code points. MySQL hydration, repository mutation, and public
+projection each revalidate this rule and fail closed on malformed persisted
+activity. The dashboard can therefore explain collection without receiving a
 raw URL or private browser identifier. It excludes the private account handle,
 lease, raw cursor, records, live sidecar state, profile path, cookie, header,
 selector, CDP/WebSocket endpoint, raw log, and raw ingestion state. Its
@@ -169,7 +176,9 @@ required `candidateProjectionState` is the closed `pending`, `ready`, or
 crawls are `ready` because no later terminal projection is scheduled. In local
 visible mode, the dedicated tab is a separate best-effort operator observation
 mirror for the approved keyword and public video; it does not reuse the
-collector page, and failure to create or navigate it cannot affect collection.
+collector page. At most one unfinished observation task runs outside the search
+and comment collector's critical await path; a hung task can suppress later
+mirror navigation but cannot block collection or create an unbounded backlog.
 The deterministic MediaCrawler request client remains the data authority, and
 observation navigation cannot fabricate results.
 
@@ -189,10 +198,17 @@ An ETag conflict reloads the latest revision before another approval attempt,
 and logout, close or mode change aborts active requests and the single poller.
 It blocks another run while its current intent has no first persisted
 observation, its observed crawler state is nonterminal, or its candidate
-projection is `pending`. It continues polling in that terminal-pending state
-and reads candidates after readiness, then stops at `ready` or `failed`; a
-terminal `ready` response with zero candidates is a valid completed result.
-This safeguard does not change comment or direct-message approval rules.
+projection is `pending`. Every refresh validates crawler status before reading
+the candidate page. Live-projected candidates may appear while the crawl is
+nonterminal or projection remains `pending`; a validated `ready` status is the
+ordering boundary for the final candidate read. Polling stops after the read
+paired with `ready` or `failed`, a terminal `ready` response with zero candidates
+is valid, and a candidate-read failure retains the validated terminal status.
+The decoder accepts crawler state, activity phase, browser mode, and projection
+state only as primitive strings in their closed enums. The pre-status queued
+placeholder announces politely once per outstanding run and is silent on
+same-run rerenders; status, no intent, or a new run resets its token. These
+safeguards do not change comment or direct-message approval rules.
 The authorized public-link importer remains available only as a collapsed
 fallback. Desktop renders a candidate table beside its inspector; mobile uses
 one-column cards with document scrolling and no horizontal overflow.
@@ -318,11 +334,11 @@ cursor. Node consumes only the sidecar-advertised page count, persists each
 page before live projection, and sends a durable acknowledgement only after the
 terminal evidence/candidate/run-link projection succeeds. The acknowledgement
 timestamp, not a read or crawl completion, starts the 24-hour cleanup clock.
-The sidecar sweeps acknowledged
-pages and the corresponding private upstream capture at startup and
-periodically, and uses one bounded deadline to stop its sweeper and all active
-crawl workers. Failed/cancelled terminal metadata with no result pages may be
-removed 24 hours after completion. Backend cleanup
+The sidecar sweeps an acknowledged job's entire output root, including every
+attempt directory and private upstream capture, at startup and periodically,
+and uses one bounded deadline to stop its sweeper and all active crawl workers.
+Failed/cancelled terminal metadata with no result pages may be removed 24 hours
+after completion. Backend cleanup
 removes unlinked crawler evidence 90 days after ingestion while preserving
 linked evidence, DNC identity hashes, and audit events.
 

@@ -42,13 +42,27 @@ indistinguishable and reintroduce the reviewed startup failure.
 - Task 3: fix round 3/5 (1 addressed, 0 open; commits `c58c8b1..182edca`).
 - Task 3: complete (commits `5a00022..182edca`; independent review clean).
 - Task 4: complete (commits `1a38712..f118d31`; independent review clean).
-- Final review fixes: complete (commits `d82890b`, `72494b1`, and `231823e7`).
-  The sidecar observation tab is a separate best-effort mirror whose failures
-  cannot interrupt collection; manager terminal page/activity persistence is
-  atomic and paused jobs requeue for later resume; the closed public projection
-  adds `candidateProjectionState` without raw ingestion fields; and the UI
-  polls terminal-pending projection, reads candidates after readiness, permits
-  zero-candidate `ready`, and blocks duplicate runs while pending. Focused
-  sidecar, backend, contract/generated-type, and frontend self-test/build
-  checks recorded in the final-fix reports passed; no browser, crawl, comment,
+- Final lifecycle, contract, and UI review fixes: complete (commits `d82890b`,
+  `72494b1`, and `231823e7`). Manager terminal page/activity persistence is
+  atomic, paused jobs requeue, the public projection adds the closed
+  `candidateProjectionState`, and the UI handles terminal-pending projection.
+- Candidate ordering and documentation fixes: complete (commits `9f5f94e` and
+  `51d523a`). Every candidate read follows a validated crawler-status read;
+  live candidates may appear before readiness, and `ready` is the ordering
+  boundary for the final candidate read.
+- Terminal candidate-read failure handling: complete (commit `c4523b2`). A
+  failed candidate request retains its validated terminal status and does not
+  schedule another automatic poll for `ready` or `failed`.
+- Frontend decoder and queued-announcement hardening: complete (commit
+  `011e92b`). Closed crawler enums require primitive strings, and the pre-status
+  queued placeholder announces once per outstanding run.
+- Frozen activity keyword validation: complete (commit `df8d8d5`). Persisted
+  hydration, repository writes, and public projection require a null or approved
+  keyword of at most 100 Unicode code points.
+- Observation and restart isolation: complete (commit `0d7d852`). Observation
+  navigation is a bounded best-effort task outside the collector critical path;
+  attempt-local output excludes stale activity/JSONL, and paused restart seeds
+  record de-duplication from persisted page IDs.
+- Focused sidecar, backend, contract/generated-type, and frontend self-test/build
+  checks are recorded in the final-fix reports. No browser, crawl, comment,
   direct message, or automatic external action was run for these fixes.
