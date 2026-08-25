@@ -156,10 +156,14 @@ The editable contract is `contracts/openapi/ai-acquisition.v1.yaml`; frontend
 code consumes `frontend/src/generated/ai-acquisition.ts`.
 `GET /api/v1/acquisition/runs/{runId}/crawler-status` returns only the closed,
 workspace-bound persisted projection. Its required `activity` observation has a
-bounded phase, nullable current keyword, visible/headless browser mode and
+bounded phase, nullable approved keyword, visible/headless browser mode and
 monotonic sequence so the dashboard can explain collection without receiving a
 raw URL or private browser identifier. It excludes the private account handle,
-lease, raw cursor, records, and live sidecar state.
+lease, raw cursor, records, live sidecar state, profile path, cookie, header,
+selector, CDP/WebSocket endpoint, and raw log. In local visible mode, the
+dedicated tab is an operator observation mirror for the approved keyword and
+public video; the deterministic MediaCrawler request client remains the data
+authority, and observation navigation cannot fabricate results.
 
 The authenticated browser consumes these generated projections through
 `douyin-automation-api.ts` and `outreach-batch-api.ts`; feature code does not
@@ -175,6 +179,9 @@ evidence, DNC/exclusion state, exact comment/direct-message drafts and
 sanitized receipts. Approval always requires an explicit second confirmation.
 An ETag conflict reloads the latest revision before another approval attempt,
 and logout, close or mode change aborts active requests and the single poller.
+It blocks another run while its current intent has no first persisted
+observation or its observed crawler state is nonterminal. This safeguard does
+not change comment or direct-message approval rules.
 The authorized public-link importer remains available only as a collapsed
 fallback. Desktop renders a candidate table beside its inspector; mobile uses
 one-column cards with document scrolling and no horizontal overflow.
@@ -287,8 +294,10 @@ missing or malformed ephemeral QR metadata does not invalidate a valid
 connected account.
 The browser launch mode is configured by `MEDIACRAWLER_BROWSER_HEADLESS` and
 optional `MEDIACRAWLER_BROWSER_CHANNEL`. Local real-QR acceptance uses visible
-installed Chrome (`false` / `chrome`) because Douyin can replace the QR with a
-verification interstitial in headless mode. Login creation has a dedicated
+installed Chrome (`false` / `chrome`) in a dedicated standard-Playwright
+Douyin window because Douyin can replace the QR with a verification interstitial
+in headless mode. Shensi explicitly disables CDP; production may set
+`MEDIACRAWLER_BROWSER_HEADLESS=true`. Login creation has a dedicated
 35-second gateway deadline and the adapter waits up to 25 seconds for a cold-
 start QR; short health and polling deadlines are unchanged. A displayed QR is
 not account authority: only the private browser session observing an actual

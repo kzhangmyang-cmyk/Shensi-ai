@@ -176,12 +176,26 @@ MEDIACRAWLER_BROWSER_CHANNEL=chrome
 ```
 
 Douyin may return a verification interstitial instead of a QR to a headless
-browser. A server/container deployment must therefore provide and acceptance-
-test its chosen visible browser/display or CDP arrangement before claiming QR
-login support. The Compose defaults remain headless and channel-neutral so an
-image never silently assumes a host Chrome installation. Login-session
-creation allows 35 seconds for cold browser startup; ordinary health and poll
-requests retain the shorter gateway timeout.
+browser. With `MEDIACRAWLER_BROWSER_HEADLESS=false`, local operator login opens
+a dedicated standard-Playwright Douyin window; Shensi explicitly disables CDP.
+Production may set `MEDIACRAWLER_BROWSER_HEADLESS=true`. A server/container
+deployment using visible login must provide and acceptance-test its chosen
+standard-Playwright browser/display before claiming QR login support. The
+Compose defaults remain headless and channel-neutral so an image never silently
+assumes a host Chrome installation. Login-session creation allows 35 seconds
+for cold browser startup; ordinary health and poll requests retain the shorter
+gateway timeout.
+
+The local visible tab is only an operator observation mirror for the approved
+keyword and public video. The deterministic MediaCrawler request client remains
+the data authority, and observation navigation cannot fabricate results. The
+browser dashboard polls the persisted Node projection, which exposes only
+phase, approved keyword or null, visible/headless mode, and monotonic sequence;
+it must not expose raw URLs, profile paths, cookies, headers, selectors,
+CDP/WebSocket endpoints, browser identifiers, or raw logs. It displays the
+localized phase, browser mode, keyword, attempt/update time, and candidate
+allowance, and blocks duplicate submission until the current intent is observed
+and terminal. This has no effect on comment or direct-message approval rules.
 
 Compose bind-mounts that directory at `/var/lib/shensi-mediacrawler` and
 refuses to create a missing host path. Stop the sidecar before backup or

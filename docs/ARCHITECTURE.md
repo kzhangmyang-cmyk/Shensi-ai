@@ -44,6 +44,10 @@ metadata and profiles survive independently until explicit disconnect or
 replacement. During reload, invalid durable account metadata is quarantined;
 missing or malformed ephemeral QR metadata does not invalidate a connected
 account.
+With `MEDIACRAWLER_BROWSER_HEADLESS=false`, the sidecar opens a dedicated
+standard-Playwright Douyin window for the local operator. Shensi explicitly
+disables CDP. Production may set `MEDIACRAWLER_BROWSER_HEADLESS=true`; neither
+mode changes the private browser-state boundary.
 The automation service consumes that same workspace account repository without
 exposing its private handle. It publishes immutable policy versions behind a
 compare-and-swap head and creates idempotent automation intents that freeze the
@@ -101,6 +105,14 @@ cursors and ingestion leases; a late run alias replays only this projection,
 not the crawl. Fair lane alternation and cross-workspace claim preference keep
 queued crawl work from starving ingestion or another tenant. Browser routes
 never proxy live sidecar state.
+The local visible tab is an observation mirror for the approved keyword and
+public video, not a collection authority. The deterministic MediaCrawler
+request client remains the data authority, and navigation in that tab cannot
+fabricate records, evidence, or candidates. The browser polls the persisted
+Node crawler-status projection rather than the sidecar. Its closed activity
+surface contains only phase, approved keyword or null, visible/headless mode,
+and monotonic sequence; it excludes raw URLs, profile paths, cookies, headers,
+selectors, CDP/WebSocket endpoints, browser identifiers, and raw logs.
 
 Private outreach generation is composed at the application boundary from that
 same domain/DNC authority. Memory verification serializes with the DNC writer
@@ -172,6 +184,12 @@ provider or model connections. The generic public-search wizard is a separate
 optional enhancement with explicit search-API and tool-calling-model
 requirements; authorized public-link import is a collapsed fallback. Private
 MediaCrawler handles, cookies, profiles, leases and internal identifiers are not rendered.
+For a current run, the dashboard polls only the persisted crawler-status
+projection and localizes phase while showing browser mode, keyword, attempt and
+update time, and candidate allowance. A submitted intent without its first
+observation, or a nonterminal observed run, blocks duplicate run submission in
+both the rendered control and controller command path. This observation does
+not alter the existing comment or direct-message approval authority.
 The desktop candidate table and evidence inspector collapse to one-column
 cards at the mobile breakpoint, and page scrolling remains owned by the body/
 main document rather than nested frozen panes.

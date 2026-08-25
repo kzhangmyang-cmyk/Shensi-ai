@@ -161,6 +161,19 @@ ledger.
   Shensi shell, session/CSRF behavior and accessible navigation are preserved;
   desktop uses a table with evidence inspector, while narrow viewports use
   one-column candidate cards and normal body scrolling.
+- Visible local MediaCrawler observation is a dedicated standard-Playwright
+  Douyin window when `MEDIACRAWLER_BROWSER_HEADLESS=false`; Shensi disables CDP,
+  while production may set headless mode to `true`. Its visible tab mirrors the
+  approved keyword and public video only. The deterministic request client
+  remains the data authority, so observation navigation cannot create results.
+  The persisted crawler-status activity is closed to phase, approved keyword
+  or null, visible/headless mode, and monotonic sequence. The dashboard polls
+  that Node projection, localizes its phase, and displays browser mode,
+  keyword, attempt/update time, and candidate allowance. It does not expose a
+  raw URL, profile path, cookie, header, selector, CDP/WebSocket endpoint,
+  browser identifier, or raw log; it prevents a duplicate submission while the
+  current intent is unobserved or nonterminal. Comment and direct-message
+  approval rules remain unchanged.
 
 ## Active
 

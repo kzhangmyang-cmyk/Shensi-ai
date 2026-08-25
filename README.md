@@ -89,11 +89,12 @@ Do not use memory mode as evidence for this runtime.
 Douyin currently serves a verification interstitial to the bundled headless
 browser during QR-login startup. For local operator login, keep
 `MEDIACRAWLER_BROWSER_HEADLESS=false` and
-`MEDIACRAWLER_BROWSER_CHANNEL=chrome` in `.env.local`; Chrome opens only for
-the private account session and the QR is also rendered in `#acquisition`.
-The first QR can take up to 35 seconds on a cold browser profile. The operator
-must scan it manually; the application never treats a test fixture or a poll
-count as proof of login.
+`MEDIACRAWLER_BROWSER_CHANNEL=chrome` in `.env.local`. This opens a dedicated
+standard-Playwright Douyin window for the private account session; Shensi
+explicitly disables CDP. Production may set
+`MEDIACRAWLER_BROWSER_HEADLESS=true`. The first QR can take up to 35 seconds on
+a cold browser profile. The operator must scan it manually; the application
+never treats a test fixture or a poll count as proof of login.
 
 The following direct commands are retained for focused development work; they
 are not the canonical runtime path:
@@ -124,6 +125,16 @@ its evidence and candidates immediately, so the dashboard can show candidates
 before the crawl ends. A terminal replay finalizes the run and acknowledges the
 sidecar; if the upstream browser stops after publishing records, the job stays
 `partial` and those records remain available instead of being reset to zero.
+When local visible mode is used, its dedicated tab is an operator observation
+mirror for the approved keyword and public video. The deterministic
+MediaCrawler request client remains the data authority, and observation
+navigation cannot fabricate results. The dashboard polls only the persisted
+Node projection: localized phase, approved keyword or null, visible/headless
+mode, monotonic sequence, attempt and update time, and candidate allowance.
+It never receives a raw URL, profile path, cookie, header, selector, browser
+identifier, CDP/WebSocket endpoint, or raw log. It also blocks another run
+while the current intent has not yet been observed or remains nonterminal;
+comment and direct-message approval rules are unchanged.
 
 The real-mode header action `新建抖音采集计划` scrolls to and focuses the
 MediaCrawler plan form; it does not open the provider-connection wizard or
