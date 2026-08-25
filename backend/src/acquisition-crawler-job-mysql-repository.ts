@@ -167,6 +167,13 @@ type Row = Record<string, unknown>;
 function parsed<T>(value: unknown): T { return (typeof value === "string" ? JSON.parse(value) : value) as T; }
 function json(value: unknown) { return JSON.stringify(value); }
 function at(value: string) { const result = Date.parse(value); if (!Number.isFinite(result)) throw new TypeError("invalid_crawler_clock"); return result; }
+function hasOwn(value: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+function boundedAliasId(value: unknown, maximum: number) {
+  return typeof value === "string" && value.length >= 1
+    && value.length <= maximum;
+}
 function mysqlDate(value: string | null) {
   if (value === null) return null;
   const date = new Date(value);
@@ -220,10 +227,24 @@ function applyActivity(
 function hydrate(job: AcquisitionCrawlerJob) {
   const raw = job as unknown as Record<string, unknown>;
   if (!Array.isArray(job.cursorHistory)) job.cursorHistory = [];
-  if (!job.runId || !Array.isArray(job.runIds) || job.runIds.length === 0
-    || !job.automationIntentId || !Array.isArray(job.automationIntentIds)
-    || job.automationIntentIds.length === 0) {
+  if (!["runId", "runIds", "automationIntentId", "automationIntentIds"]
+    .every((key) => hasOwn(raw, key))) {
     throw new Error(`crawler_job_alias_migration_required:${job.id}`);
+  }
+  const runIds = raw.runIds;
+  const automationIntentIds = raw.automationIntentIds;
+  if (!boundedAliasId(raw.runId, 160)
+    || !boundedAliasId(raw.automationIntentId, 255)
+    || !Array.isArray(runIds) || runIds.length === 0
+    || !Array.isArray(automationIntentIds) || automationIntentIds.length === 0
+    || runIds.length !== automationIntentIds.length
+    || runIds.some((value) => !boundedAliasId(value, 160))
+    || automationIntentIds.some((value) => !boundedAliasId(value, 255))
+    || new Set(runIds).size !== runIds.length
+    || new Set(automationIntentIds).size !== automationIntentIds.length
+    || !runIds.includes(raw.runId)
+    || !automationIntentIds.includes(raw.automationIntentId)) {
+    throw new TypeError("invalid_crawler_alias_vector");
   }
   job.ingestionState ??= ["succeeded", "partial"].includes(job.state)
     ? "pending" : null;
@@ -234,14 +255,36 @@ function hydrate(job: AcquisitionCrawlerJob) {
   job.ingestionFencingToken ??= 0;
   job.ingestedAt ??= null;
   job.acknowledgedAt ??= null;
-  job.aliasGeneration ??= Math.max(1, new Set(job.runIds).size);
-  job.projectedAliasGeneration ??= job.ingestionState === "succeeded"
-    ? job.aliasGeneration : 0;
-  if (!Number.isSafeInteger(job.aliasGeneration) || job.aliasGeneration < 1
-    || !Number.isSafeInteger(job.projectedAliasGeneration)
-    || job.projectedAliasGeneration < 0
-    || job.projectedAliasGeneration > job.aliasGeneration) {
+  const hasAliasGeneration = hasOwn(raw, "aliasGeneration");
+  const hasProjectedAliasGeneration = hasOwn(raw, "projectedAliasGeneration");
+  const aliasGeneration = hasAliasGeneration
+    ? raw.aliasGeneration : runIds.length;
+  if (!Number.isSafeInteger(aliasGeneration)
+    || aliasGeneration !== runIds.length) {
     throw new TypeError("invalid_crawler_alias_generation");
+  }
+  job.aliasGeneration = Number(aliasGeneration);
+  const projectedAliasGeneration = hasProjectedAliasGeneration
+    ? raw.projectedAliasGeneration
+    : job.ingestionState === "succeeded" && runIds.length === 1 ? 1 : 0;
+  if (!Number.isSafeInteger(projectedAliasGeneration)
+    || Number(projectedAliasGeneration) < 0
+    || Number(projectedAliasGeneration) > job.aliasGeneration) {
+    throw new TypeError("invalid_crawler_alias_generation");
+  }
+  job.projectedAliasGeneration = Number(projectedAliasGeneration);
+  const halfLegacyGeneration = hasAliasGeneration
+    !== hasProjectedAliasGeneration;
+  const legacyUntrustedGeneration = (!hasAliasGeneration
+    || !hasProjectedAliasGeneration)
+    && (runIds.length > 1 || halfLegacyGeneration);
+  if (job.ingestionState === "succeeded"
+    && (legacyUntrustedGeneration
+      || job.projectedAliasGeneration < job.aliasGeneration)) {
+    job.ingestionState = "pending";
+    job.ingestionAttempt = 0;
+    if (legacyUntrustedGeneration) job.projectedAliasGeneration = 0;
+    clearIngestionLease(job);
   }
   job.lastErrorCode = normalizeAcquisitionCrawlerStoredErrorCode(
     raw.lastErrorCode,
@@ -313,12 +356,15 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
     input: AcquisitionCrawlerJobInput
   ) {
     const binding = rows(await connection.query(
-      `SELECT acquisition_run_id FROM acquisition_douyin_run_bindings
-       WHERE workspace_id=? AND automation_intent_id=?
+      `SELECT automation_intent_id,acquisition_run_id
+       FROM acquisition_douyin_run_bindings
+       WHERE workspace_id=? AND BINARY automation_intent_id=BINARY ?
          AND BINARY acquisition_run_id=BINARY ? FOR UPDATE`,
       [input.workspaceId, input.automationIntentId, input.runId]
     ));
-    if (!binding[0] || String(binding[0].acquisition_run_id) !== input.runId) {
+    if (!binding[0]
+      || String(binding[0].automation_intent_id) !== input.automationIntentId
+      || String(binding[0].acquisition_run_id) !== input.runId) {
       throw new Error("crawler_job_identity_conflict");
     }
   }
@@ -587,7 +633,49 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
       const result = rows(await connection.query(
         `SELECT payload_json FROM acquisition_crawler_jobs
          WHERE state IN ('succeeded','partial')
-           AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.ingestionState')),'pending')='pending'
+           AND (
+             COALESCE(JSON_UNQUOTE(JSON_EXTRACT(
+               payload_json,'$.ingestionState'
+             )),'pending')='pending'
+             OR (
+               JSON_UNQUOTE(JSON_EXTRACT(
+                 payload_json,'$.ingestionState'
+               ))='succeeded'
+               AND (
+                 (
+                   (
+                     JSON_CONTAINS_PATH(
+                       payload_json,'one','$.aliasGeneration'
+                     )=0
+                     OR JSON_CONTAINS_PATH(
+                       payload_json,'one','$.projectedAliasGeneration'
+                     )=0
+                   )
+                   AND (
+                     JSON_LENGTH(JSON_EXTRACT(payload_json,'$.runIds'))>1
+                     OR JSON_CONTAINS_PATH(
+                       payload_json,'one','$.aliasGeneration'
+                     ) <> JSON_CONTAINS_PATH(
+                       payload_json,'one','$.projectedAliasGeneration'
+                     )
+                   )
+                 )
+                 OR (
+                   JSON_CONTAINS_PATH(
+                     payload_json,'one','$.aliasGeneration'
+                   )=1
+                   AND JSON_CONTAINS_PATH(
+                     payload_json,'one','$.projectedAliasGeneration'
+                   )=1
+                   AND CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                     payload_json,'$.projectedAliasGeneration'
+                   )) AS UNSIGNED) < CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                     payload_json,'$.aliasGeneration'
+                   )) AS UNSIGNED)
+                 )
+               )
+             )
+           )
          ORDER BY CASE WHEN ? IS NOT NULL AND workspace_id=? THEN 1 ELSE 0 END,
                   updated_at,id
          LIMIT 1 FOR UPDATE SKIP LOCKED`,

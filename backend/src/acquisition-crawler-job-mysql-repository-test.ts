@@ -205,6 +205,349 @@ test("restart fails closed on an unmigrated Task-4 mixed alias payload", async (
   );
 });
 
+test("restart conservatively requeues a legacy succeeded multi-alias projection", async () => {
+  const legacy = {
+    ...scheduledCrawlerJob(), state: "succeeded" as const,
+    runIds: ["run-1", "run-2"],
+    automationIntentIds: ["intent-1", "intent-2"],
+    ingestionState: "succeeded" as const, ingestionAttempt: 3,
+    ingestionLeaseWorkerId: "legacy-ingester",
+    ingestionLeaseToken: "e".repeat(64),
+    ingestionLeaseExpiresAt: "2026-08-24T01:03:00.000Z",
+    ingestionFencingToken: 2,
+    ingestedAt: "2026-08-24T01:02:03.456Z",
+    acknowledgedAt: "2026-08-24T01:02:03.456Z"
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository({
+    async query() { return [[{ payload_json: JSON.stringify(legacy) }], []]; }
+  } as never);
+
+  const hydrated = await repository.findByRun("workspace-1", "run-2");
+  assert.equal(hydrated?.aliasGeneration, 2);
+  assert.equal(hydrated?.projectedAliasGeneration, 0);
+  assert.equal(hydrated?.ingestionState, "pending");
+  assert.equal(hydrated?.ingestionAttempt, 0);
+  assert.equal(hydrated?.ingestionLeaseWorkerId, null);
+  assert.equal(hydrated?.ingestionLeaseToken, null);
+  assert.equal(hydrated?.ingestionLeaseExpiresAt, null);
+});
+
+test("single-alias legacy succeeded projection remains ready", async () => {
+  const legacy = {
+    ...scheduledCrawlerJob(), state: "succeeded" as const,
+    ingestionState: "succeeded" as const,
+    ingestedAt: "2026-08-24T01:02:03.456Z",
+    acknowledgedAt: "2026-08-24T01:02:03.456Z"
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository({
+    async query() { return [[{ payload_json: JSON.stringify(legacy) }], []]; }
+  } as never);
+
+  const hydrated = await repository.findByRun("workspace-1", "run-1");
+  assert.equal(hydrated?.aliasGeneration, 1);
+  assert.equal(hydrated?.projectedAliasGeneration, 1);
+  assert.equal(hydrated?.ingestionState, "succeeded");
+});
+
+for (const [name, generation] of [
+  ["alias generation", { projectedAliasGeneration: 0 }],
+  ["projected generation", { aliasGeneration: 1 }]
+] as const) {
+  test(`single-alias succeeded projection reopens when only ${name} is missing`, async () => {
+    const halfLegacy = {
+      ...scheduledCrawlerJob(), ...generation, state: "succeeded" as const,
+      ingestionState: "succeeded" as const, ingestionAttempt: 3,
+      ingestionLeaseWorkerId: "stale-ingester",
+      ingestionLeaseToken: "e".repeat(64),
+      ingestionLeaseExpiresAt: "2026-08-24T01:03:00.000Z"
+    };
+    const repository = new MysqlAcquisitionCrawlerJobRepository({
+      async query() {
+        return [[{ payload_json: JSON.stringify(halfLegacy) }], []];
+      }
+    } as never);
+
+    const hydrated = await repository.findByRun("workspace-1", "run-1");
+    assert.equal(hydrated?.aliasGeneration, 1);
+    assert.equal(hydrated?.projectedAliasGeneration, 0);
+    assert.equal(hydrated?.ingestionState, "pending");
+    assert.equal(hydrated?.ingestionAttempt, 0);
+    assert.equal(hydrated?.ingestionLeaseWorkerId, null);
+    assert.equal(hydrated?.ingestionLeaseToken, null);
+    assert.equal(hydrated?.ingestionLeaseExpiresAt, null);
+  });
+}
+
+test("restart requeues an explicitly under-projected succeeded generation", async () => {
+  const stored = {
+    ...scheduledCrawlerJob(), state: "succeeded" as const,
+    runIds: ["run-1", "run-2"],
+    automationIntentIds: ["intent-1", "intent-2"],
+    aliasGeneration: 2, projectedAliasGeneration: 1,
+    ingestionState: "succeeded" as const, ingestionAttempt: 3,
+    ingestionLeaseWorkerId: "stale-ingester",
+    ingestionLeaseToken: "e".repeat(64),
+    ingestionLeaseExpiresAt: "2026-08-24T01:03:00.000Z"
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository({
+    async query() { return [[{ payload_json: JSON.stringify(stored) }], []]; }
+  } as never);
+
+  const hydrated = await repository.findByRun("workspace-1", "run-2");
+  assert.equal(hydrated?.ingestionState, "pending");
+  assert.equal(hydrated?.ingestionAttempt, 0);
+  assert.equal(hydrated?.projectedAliasGeneration, 1);
+  assert.equal(hydrated?.ingestionLeaseWorkerId, null);
+  assert.equal(hydrated?.ingestionLeaseToken, null);
+  assert.equal(hydrated?.ingestionLeaseExpiresAt, null);
+});
+
+for (const [name, payload] of [
+  ["duplicate run IDs", {
+    ...scheduledCrawlerJob(), runIds: ["run-1", "run-1"],
+    automationIntentIds: ["intent-1", "intent-2"], aliasGeneration: 2,
+    projectedAliasGeneration: 0
+  }],
+  ["duplicate intent IDs", {
+    ...scheduledCrawlerJob(), runIds: ["run-1", "run-2"],
+    automationIntentIds: ["intent-1", "intent-1"], aliasGeneration: 2,
+    projectedAliasGeneration: 0
+  }],
+  ["unequal alias vector lengths", {
+    ...scheduledCrawlerJob(), runIds: ["run-1", "run-2"],
+    automationIntentIds: ["intent-1"], aliasGeneration: 2,
+    projectedAliasGeneration: 0
+  }],
+  ["missing primary run", {
+    ...scheduledCrawlerJob(), runIds: ["run-2"], aliasGeneration: 1,
+    projectedAliasGeneration: 0
+  }],
+  ["missing primary intent", {
+    ...scheduledCrawlerJob(), automationIntentIds: ["intent-2"],
+    aliasGeneration: 1, projectedAliasGeneration: 0
+  }],
+  ["overlong run alias", {
+    ...scheduledCrawlerJob(), runIds: ["run-1", "r".repeat(161)],
+    automationIntentIds: ["intent-1", "intent-2"], aliasGeneration: 2,
+    projectedAliasGeneration: 0
+  }],
+  ["overlong intent alias", {
+    ...scheduledCrawlerJob(), runIds: ["run-1", "run-2"],
+    automationIntentIds: ["intent-1", "i".repeat(256)], aliasGeneration: 2,
+    projectedAliasGeneration: 0
+  }],
+  ["empty alias member", {
+    ...scheduledCrawlerJob(), runIds: ["run-1", ""],
+    automationIntentIds: ["intent-1", "intent-2"], aliasGeneration: 2,
+    projectedAliasGeneration: 0
+  }],
+  ["generation does not equal pair count", {
+    ...scheduledCrawlerJob(), runIds: ["run-1", "run-2"],
+    automationIntentIds: ["intent-1", "intent-2"], aliasGeneration: 1,
+    projectedAliasGeneration: 0
+  }],
+  ["explicit null generation", {
+    ...scheduledCrawlerJob(), aliasGeneration: null,
+    projectedAliasGeneration: 0
+  }],
+  ["explicit null projected generation", {
+    ...scheduledCrawlerJob(), aliasGeneration: 1,
+    projectedAliasGeneration: null
+  }]
+] as const) {
+  test(`crawler MySQL rejects ${name}`, async () => {
+    const repository = new MysqlAcquisitionCrawlerJobRepository({
+      async query() { return [[{ payload_json: JSON.stringify(payload) }], []]; }
+    } as never);
+    await assert.rejects(
+      repository.findByRun("workspace-1", "run-1"),
+      /invalid_crawler_alias/u
+    );
+  });
+}
+
+test("claimNextIngestion claims and persists a conservative legacy alias upgrade", async () => {
+  let stored = {
+    ...scheduledCrawlerJob(), state: "succeeded" as const,
+    runIds: ["run-1", "run-2"],
+    automationIntentIds: ["intent-1", "intent-2"],
+    ingestionState: "succeeded" as const, ingestionAttempt: 3,
+    ingestionLeaseWorkerId: "legacy-ingester",
+    ingestionLeaseToken: "e".repeat(64),
+    ingestionLeaseExpiresAt: "2026-08-24T01:03:00.000Z",
+    ingestionFencingToken: 2
+  };
+  let claimSql = "";
+  const pool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {},
+        release() {},
+        async query(sql: string, values: unknown[] = []) {
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs")) {
+            claimSql = sql;
+            const recognizesLegacy = sql.includes("$.aliasGeneration")
+              && sql.includes("$.projectedAliasGeneration")
+              && sql.includes("JSON_LENGTH");
+            return [recognizesLegacy
+              ? [{ payload_json: JSON.stringify(stored) }] : [], []];
+          }
+          if (sql.startsWith("UPDATE acquisition_crawler_jobs")) {
+            stored = JSON.parse(String(values[5]));
+            return [{ affectedRows: 1 }, []];
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        }
+      };
+    }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+
+  const claim = await repository.claimNextIngestion(
+    "ingester-1", "2026-08-24T01:02:04.567Z", 1_000
+  );
+  assert.match(claimSql, /JSON_LENGTH/u);
+  assert.ok(claim);
+  assert.equal(claim.job.aliasGeneration, 2);
+  assert.equal(claim.job.projectedAliasGeneration, 0);
+  assert.equal(claim.job.ingestionState, "running");
+  assert.equal(claim.job.ingestionAttempt, 1);
+  assert.equal(stored.ingestionLeaseWorkerId, "ingester-1");
+  assert.equal(stored.ingestionState, "running");
+});
+
+for (const [name, generation] of [
+  ["alias generation", { projectedAliasGeneration: 0 }],
+  ["projected generation", { aliasGeneration: 1 }]
+] as const) {
+  test(`claimNextIngestion claims a single-alias row missing only ${name}`, async () => {
+    let stored = {
+      ...scheduledCrawlerJob(), ...generation, state: "succeeded" as const,
+      ingestionState: "succeeded" as const, ingestionAttempt: 3,
+      ingestionLeaseWorkerId: "stale-ingester",
+      ingestionLeaseToken: "e".repeat(64),
+      ingestionLeaseExpiresAt: "2026-08-24T01:03:00.000Z"
+    };
+    let claimSql = "";
+    const pool = {
+      async getConnection() {
+        return {
+          async beginTransaction() {}, async commit() {}, async rollback() {},
+          release() {},
+          async query(sql: string, values: unknown[] = []) {
+            if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs")) {
+              claimSql = sql;
+              const recognizesHalfLegacy = sql.includes("<>")
+                && sql.includes("$.aliasGeneration")
+                && sql.includes("$.projectedAliasGeneration");
+              return [recognizesHalfLegacy
+                ? [{ payload_json: JSON.stringify(stored) }] : [], []];
+            }
+            if (sql.startsWith("UPDATE acquisition_crawler_jobs")) {
+              stored = JSON.parse(String(values[5]));
+              return [{ affectedRows: 1 }, []];
+            }
+            throw new Error(`unexpected SQL: ${sql}`);
+          }
+        };
+      }
+    };
+    const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+
+    const claim = await repository.claimNextIngestion(
+      "ingester-1", "2026-08-24T01:02:04.567Z", 1_000
+    );
+    assert.match(claimSql, /<>/u);
+    assert.ok(claim);
+    assert.equal(claim.job.aliasGeneration, 1);
+    assert.equal(claim.job.projectedAliasGeneration, 0);
+    assert.equal(claim.job.ingestionState, "running");
+    assert.equal(claim.job.ingestionAttempt, 1);
+  });
+}
+
+test("claim predicate excludes a ready single-alias row missing both generations", async () => {
+  const stored = {
+    ...scheduledCrawlerJob(), state: "succeeded" as const,
+    ingestionState: "succeeded" as const
+  };
+  let claimSql = "";
+  const pool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {},
+        release() {},
+        async query(sql: string) {
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs")) {
+            claimSql = sql;
+            const hasExactMissingFieldGuard = sql.includes("<>")
+              && sql.includes("JSON_LENGTH");
+            return [hasExactMissingFieldGuard
+              ? [] : [{ payload_json: JSON.stringify(stored) }], []];
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        }
+      };
+    }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+
+  assert.equal(await repository.claimNextIngestion(
+    "ingester-1", "2026-08-24T01:02:04.567Z", 1_000
+  ), null);
+  assert.match(claimSql, /<>/u);
+});
+
+test("claimNextIngestion claims an explicitly under-projected succeeded generation", async () => {
+  let stored = {
+    ...scheduledCrawlerJob(), state: "succeeded" as const,
+    runIds: ["run-1", "run-2"],
+    automationIntentIds: ["intent-1", "intent-2"],
+    aliasGeneration: 2, projectedAliasGeneration: 1,
+    ingestionState: "succeeded" as const, ingestionAttempt: 3,
+    ingestionLeaseWorkerId: "stale-ingester",
+    ingestionLeaseToken: "e".repeat(64),
+    ingestionLeaseExpiresAt: "2026-08-24T01:03:00.000Z"
+  };
+  let claimSql = "";
+  const pool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {},
+        release() {},
+        async query(sql: string, values: unknown[] = []) {
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs")) {
+            claimSql = sql;
+            const recognizesUnderProjection = sql.includes("AS UNSIGNED")
+              && sql.includes("$.aliasGeneration")
+              && sql.includes("$.projectedAliasGeneration");
+            return [recognizesUnderProjection
+              ? [{ payload_json: JSON.stringify(stored) }] : [], []];
+          }
+          if (sql.startsWith("UPDATE acquisition_crawler_jobs")) {
+            stored = JSON.parse(String(values[5]));
+            return [{ affectedRows: 1 }, []];
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        }
+      };
+    }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+
+  const claim = await repository.claimNextIngestion(
+    "ingester-1", "2026-08-24T01:02:04.567Z", 1_000
+  );
+  assert.match(claimSql, /AS UNSIGNED/u);
+  assert.ok(claim);
+  assert.equal(claim.job.aliasGeneration, 2);
+  assert.equal(claim.job.projectedAliasGeneration, 1);
+  assert.equal(claim.job.ingestionState, "running");
+  assert.equal(claim.job.ingestionAttempt, 1);
+  assert.equal(stored.ingestionLeaseWorkerId, "ingester-1");
+  assert.equal(stored.ingestionState, "running");
+});
+
 test("restart derives a legacy record discriminator only after its Task-4 hash validates", async () => {
   const legacyRecord = {
     recordId: "comment-1", kind: "comment" as const,
@@ -289,8 +632,9 @@ test("MySQL daily creation retries duplicate and deadlock races and returns the 
       return {
         async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
         async query(sql: string) {
-          if (sql.startsWith("SELECT acquisition_run_id FROM acquisition_douyin_run_bindings")) {
-            return [[{ acquisition_run_id: "run-now" }], []];
+          if (sql.includes("FROM acquisition_douyin_run_bindings")) {
+            return [[{ automation_intent_id: "run-now-intent",
+              acquisition_run_id: "run-now" }], []];
           }
           if (sql.includes("acquisition_crawler_job_runs") && sql.startsWith("SELECT")) return [[], []];
           if (sql.includes("workspace_id=? AND plan_id=?")) {
@@ -334,8 +678,9 @@ test("MySQL aliases defer a running projection and exact replays retain a succee
       return {
         async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
         async query(sql: string, values: unknown[] = []) {
-          if (sql.startsWith("SELECT acquisition_run_id FROM acquisition_douyin_run_bindings")) {
-            return [[{ acquisition_run_id: "run-2" }], []];
+          if (sql.includes("FROM acquisition_douyin_run_bindings")) {
+            return [[{ automation_intent_id: "intent-2",
+              acquisition_run_id: "run-2" }], []];
           }
           if (sql.startsWith("SELECT job_id FROM acquisition_crawler_job_runs")) return [[], []];
           if (sql.startsWith("SELECT job_id FROM acquisition_crawler_job_intents")) return [[], []];
@@ -387,8 +732,9 @@ test("MySQL aliases defer a running projection and exact replays retain a succee
           if (sql.startsWith("SELECT job_id FROM acquisition_crawler_job_intents")) {
             return [[{ job_id: succeeded.id }], []];
           }
-          if (sql.startsWith("SELECT acquisition_run_id FROM acquisition_douyin_run_bindings")) {
-            return [[{ acquisition_run_id: "run-1" }], []];
+          if (sql.includes("FROM acquisition_douyin_run_bindings")) {
+            return [[{ automation_intent_id: "intent-1",
+              acquisition_run_id: "run-1" }], []];
           }
           if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE workspace_id=?")) {
             return [[{ payload_json: JSON.stringify(succeeded) }], []];
@@ -436,8 +782,9 @@ test("MySQL rejects a mixed existing run and intent alias", async () => {
           if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE workspace_id=?")) {
             return [[{ payload_json: JSON.stringify(stored) }], []];
           }
-          if (sql.startsWith("SELECT acquisition_run_id FROM acquisition_douyin_run_bindings")) {
-            return [[{ acquisition_run_id: "run-1" }], []];
+          if (sql.includes("FROM acquisition_douyin_run_bindings")) {
+            return [[{ automation_intent_id: "intent-1",
+              acquisition_run_id: "run-1" }], []];
           }
           return [{ affectedRows: 1 }, []];
         }
@@ -457,8 +804,9 @@ test("MySQL rejects a newly attached alias that is not the intent's authoritativ
       return {
         async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
         async query(sql: string) {
-          if (sql.startsWith("SELECT acquisition_run_id FROM acquisition_douyin_run_bindings")) {
-            return [[{ acquisition_run_id: "run-authoritative" }], []];
+          if (sql.includes("FROM acquisition_douyin_run_bindings")) {
+            return [[{ automation_intent_id: "intent-2",
+              acquisition_run_id: "run-authoritative" }], []];
           }
           if (sql.startsWith("SELECT job_id FROM acquisition_crawler_job_runs")
             || sql.startsWith("SELECT job_id FROM acquisition_crawler_job_intents")) {
@@ -478,6 +826,35 @@ test("MySQL rejects a newly attached alias that is not the intent's authoritativ
   }), /crawler_job_identity_conflict/u);
 });
 
+test("MySQL authoritative binding compares both alias identifiers as bytes", async () => {
+  let authoritySql = "";
+  const pool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {},
+        release() {},
+        async query(sql: string) {
+          if (sql.includes("FROM acquisition_douyin_run_bindings")) {
+            authoritySql = sql;
+            return [[{
+              automation_intent_id: "intent-1", acquisition_run_id: "run-1"
+            }], []];
+          }
+          if (sql.startsWith("SELECT")) return [[], []];
+          return [{ affectedRows: 1 }, []];
+        }
+      };
+    }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+
+  await assert.rejects(repository.createOrGet({
+    ...crawlerInput(), automationIntentId: "Intent-1"
+  }), /crawler_job_identity_conflict/u);
+  assert.match(authoritySql, /BINARY automation_intent_id=BINARY \?/u);
+  assert.match(authoritySql, /BINARY acquisition_run_id=BINARY \?/u);
+});
+
 test("crawler MySQL repository creates a job with DATETIME-compatible timestamps", async () => {
   const observed: string[] = [];
   const pool = {
@@ -485,8 +862,9 @@ test("crawler MySQL repository creates a job with DATETIME-compatible timestamps
       return {
         async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
         async query(sql: string, values: unknown[] = []) {
-          if (sql.startsWith("SELECT acquisition_run_id FROM acquisition_douyin_run_bindings")) {
-            return [[{ acquisition_run_id: "run-1" }], []];
+          if (sql.includes("FROM acquisition_douyin_run_bindings")) {
+            return [[{ automation_intent_id: "intent-1",
+              acquisition_run_id: "run-1" }], []];
           }
           if (sql.startsWith("SELECT")) return [[], []];
           if (sql.startsWith("INSERT INTO acquisition_crawler_jobs")) {
