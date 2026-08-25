@@ -72,6 +72,14 @@ function clearIngestionLease(job: AcquisitionCrawlerJob) {
   job.ingestionLeaseToken = null;
   job.ingestionLeaseExpiresAt = null;
 }
+function sameActivity(
+  left: import("./acquisition-crawler-job.js").AcquisitionCrawlerActivity,
+  right: import("./acquisition-crawler-job.js").AcquisitionCrawlerActivity
+) {
+  return left.phase === right.phase
+    && left.currentKeyword === right.currentKeyword
+    && left.browserMode === right.browserMode;
+}
 
 export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJobRepository {
   private state: State = { jobs: new Map(), daily: new Map(), runs: new Map(), intents: new Map(), records: new Map() };
@@ -148,7 +156,8 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
         ingestionLeaseWorkerId: null, ingestionLeaseToken: null,
         ingestionLeaseExpiresAt: null, ingestionFencingToken: 0,
         ingestedAt: null, acknowledgedAt: null,
-        activity: structuredClone(defaultAcquisitionCrawlerActivity)
+        activity: structuredClone(defaultAcquisitionCrawlerActivity),
+        activityObserved: false
       };
       state.jobs.set(job.id, job); state.daily.set(identity, job.id);
       state.runs.set(runKey(job.workspaceId, job.runId), job.id);
@@ -233,14 +242,23 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
         && !job.keywords.includes(input.activity.currentKeyword)) {
         throw new TypeError("invalid_crawler_activity");
       }
+      if (!job.activityObserved) {
+        job.activity = structuredClone(input.activity);
+        job.activityObserved = true;
+        job.updatedAt = input.now;
+        return job;
+      }
       if (input.activity.sequence < job.activity.sequence) {
         throw new Error("crawler_activity_sequence_regressed");
       }
       if (input.activity.sequence === job.activity.sequence) {
-        if (JSON.stringify(input.activity) !== JSON.stringify(job.activity)) {
+        if (!sameActivity(input.activity, job.activity)) {
           throw new Error("crawler_activity_sequence_conflict");
         }
         return job;
+      }
+      if (sameActivity(input.activity, job.activity)) {
+        throw new Error("crawler_activity_sequence_without_change");
       }
       job.activity = structuredClone(input.activity);
       job.updatedAt = input.now;

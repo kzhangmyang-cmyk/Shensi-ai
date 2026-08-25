@@ -174,6 +174,14 @@ function clearIngestionLease(job: AcquisitionCrawlerJob) {
   job.ingestionLeaseToken = null;
   job.ingestionLeaseExpiresAt = null;
 }
+function sameActivity(
+  left: import("./acquisition-crawler-job.js").AcquisitionCrawlerActivity,
+  right: import("./acquisition-crawler-job.js").AcquisitionCrawlerActivity
+) {
+  return left.phase === right.phase
+    && left.currentKeyword === right.currentKeyword
+    && left.browserMode === right.browserMode;
+}
 function hydrate(job: AcquisitionCrawlerJob) {
   if (!Array.isArray(job.cursorHistory)) job.cursorHistory = [];
   if (!job.runId || !Array.isArray(job.runIds) || job.runIds.length === 0
@@ -191,6 +199,7 @@ function hydrate(job: AcquisitionCrawlerJob) {
   job.ingestedAt ??= null;
   job.acknowledgedAt ??= null;
   job.activity ??= structuredClone(defaultAcquisitionCrawlerActivity);
+  job.activityObserved ??= false;
   return job;
 }
 function persistedRecord(value: unknown, jobId: string): PersistedNormalizedDouyinRecord {
@@ -309,7 +318,8 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
         ingestionState: null, ingestionAttempt: 0, ingestionLeaseWorkerId: null,
         ingestionLeaseToken: null, ingestionLeaseExpiresAt: null,
         ingestionFencingToken: 0, ingestedAt: null, acknowledgedAt: null,
-        activity: structuredClone(defaultAcquisitionCrawlerActivity) };
+        activity: structuredClone(defaultAcquisitionCrawlerActivity),
+        activityObserved: false };
       await connection.query(`INSERT INTO acquisition_crawler_jobs (id,workspace_id,plan_id,policy_version_id,local_date,state,payload_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
         [job.id, job.workspaceId, job.planId, job.policyVersionId, job.localDate, job.state, json(job), mysqlDate(job.createdAt), mysqlDate(job.updatedAt)]);
       await connection.query(`INSERT INTO acquisition_crawler_job_runs (workspace_id,run_id,job_id,created_at) VALUES (?,?,?,?)`, [job.workspaceId, job.runId, job.id, mysqlDate(job.createdAt)]);
@@ -328,7 +338,7 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
         [workspaceId, runId]
       ));
       if (!result[0]) return null;
-      const job = parsed<AcquisitionCrawlerJob>(result[0].payload_json);
+      const job = hydrate(parsed<AcquisitionCrawlerJob>(result[0].payload_json));
       if (job.state === "scheduled") {
         job.state = "queued";
         job.updatedAt = now;
@@ -354,7 +364,7 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
         [avoidWorkspaceId ?? null, avoidWorkspaceId ?? null]
       ));
       if (!result[0]) return null;
-      const job = parsed<AcquisitionCrawlerJob>(result[0].payload_json);
+      const job = hydrate(parsed<AcquisitionCrawlerJob>(result[0].payload_json));
       job.state = "running"; job.attempt += 1; job.fencingToken += 1; job.leaseWorkerId = workerId;
       job.leaseToken = randomBytes(32).toString("hex"); job.leaseExpiresAt = new Date(at(now) + leaseDurationMs).toISOString(); job.updatedAt = now;
       await this.save(connection, job);
@@ -379,14 +389,24 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
         && !job.keywords.includes(input.activity.currentKeyword)) {
         throw new TypeError("invalid_crawler_activity");
       }
+      if (!job.activityObserved) {
+        job.activity = structuredClone(input.activity);
+        job.activityObserved = true;
+        job.updatedAt = input.now;
+        await this.save(connection, job);
+        return job;
+      }
       if (input.activity.sequence < job.activity.sequence) {
         throw new Error("crawler_activity_sequence_regressed");
       }
       if (input.activity.sequence === job.activity.sequence) {
-        if (JSON.stringify(input.activity) !== JSON.stringify(job.activity)) {
+        if (!sameActivity(input.activity, job.activity)) {
           throw new Error("crawler_activity_sequence_conflict");
         }
         return job;
+      }
+      if (sameActivity(input.activity, job.activity)) {
+        throw new Error("crawler_activity_sequence_without_change");
       }
       job.activity = structuredClone(input.activity);
       job.updatedAt = input.now;
@@ -475,7 +495,7 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
   requestCancel(workspaceId: string, runId: string, now: string) {
     return this.transaction(async (connection) => {
       const result = rows(await connection.query(`SELECT j.payload_json FROM acquisition_crawler_job_runs r INNER JOIN acquisition_crawler_jobs j ON j.id=r.job_id WHERE r.workspace_id=? AND r.run_id=? FOR UPDATE`, [workspaceId, runId]));
-      if (!result[0]) return null; const job = parsed<AcquisitionCrawlerJob>(result[0].payload_json);
+      if (!result[0]) return null; const job = hydrate(parsed<AcquisitionCrawlerJob>(result[0].payload_json));
       if (!["succeeded", "partial", "cancelled", "failed"].includes(job.state)) { job.cancelRequestedAt = now; job.updatedAt = now; if (job.state !== "running") { job.state = "cancelled"; job.completedAt = now; clearLease(job); } await this.save(connection, job); }
       return job;
     });
@@ -577,7 +597,7 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
   sweepExpired(now: string) {
     return this.transaction(async (connection) => {
       const result = rows(await connection.query(`SELECT payload_json FROM acquisition_crawler_jobs WHERE state='running' AND lease_expires_at<=? FOR UPDATE`, [mysqlDate(now)]));
-      for (const row of result) { const job = parsed<AcquisitionCrawlerJob>(row.payload_json); job.state = job.cancelRequestedAt ? "cancelled" : job.attempt < job.maxAttempts ? "queued" : "paused"; job.updatedAt = now; job.lastErrorCode = job.cancelRequestedAt ? null : "crawler_lease_expired"; if (job.state === "cancelled") job.completedAt = now; clearLease(job); await this.save(connection, job); }
+      for (const row of result) { const job = hydrate(parsed<AcquisitionCrawlerJob>(row.payload_json)); job.state = job.cancelRequestedAt ? "cancelled" : job.attempt < job.maxAttempts ? "queued" : "paused"; job.updatedAt = now; job.lastErrorCode = job.cancelRequestedAt ? null : "crawler_lease_expired"; if (job.state === "cancelled") job.completedAt = now; clearLease(job); await this.save(connection, job); }
       const ingestion = rows(await connection.query(
         `SELECT payload_json FROM acquisition_crawler_jobs
          WHERE state IN ('succeeded','partial')

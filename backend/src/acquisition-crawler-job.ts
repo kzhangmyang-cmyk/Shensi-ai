@@ -93,6 +93,7 @@ export interface AcquisitionCrawlerJob extends AcquisitionCrawlerJobInput {
   ingestedAt: string | null;
   acknowledgedAt: string | null;
   activity: AcquisitionCrawlerActivity;
+  activityObserved: boolean;
 }
 
 export interface AcquisitionCrawlerJobFence {

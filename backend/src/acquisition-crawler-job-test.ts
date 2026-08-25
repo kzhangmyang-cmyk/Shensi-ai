@@ -63,27 +63,42 @@ test("fenced activity snapshots advance only for frozen keywords and higher sequ
     now: at(3)
   });
   assert.equal(idempotent.updatedAt, at(2));
+  const reorderedReplay = await repository.updateActivity(claim.fence, {
+    activity: {
+      sequence: 2, browserMode: "visible", currentKeyword: "袜子",
+      phase: "searching"
+    },
+    now: at(4)
+  });
+  assert.equal(reorderedReplay.updatedAt, at(2));
   await assert.rejects(repository.updateActivity(claim.fence, {
     activity: {
       phase: "searching", currentKeyword: "服装",
       browserMode: "visible", sequence: 1
     },
-    now: at(4)
+    now: at(5)
   }), /crawler_activity_sequence_regressed/u);
   await assert.rejects(repository.updateActivity(claim.fence, {
     activity: {
       phase: "searching", currentKeyword: "服装",
       browserMode: "visible", sequence: 2
     },
-    now: at(4)
+    now: at(5)
   }), /crawler_activity_sequence_conflict/u);
   await assert.rejects(repository.updateActivity(claim.fence, {
     activity: {
       phase: "searching", currentKeyword: "鞋子",
       browserMode: "visible", sequence: 3
     },
-    now: at(4)
+    now: at(5)
   }), /invalid_crawler_activity/u);
+  await assert.rejects(repository.updateActivity(claim.fence, {
+    activity: {
+      phase: "searching", currentKeyword: "袜子",
+      browserMode: "visible", sequence: 3
+    },
+    now: at(5)
+  }), /crawler_activity_sequence_without_change/u);
 });
 
 test("daily scheduled and run-now creation deduplicates to one budget and maps both runs", async () => {

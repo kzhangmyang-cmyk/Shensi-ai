@@ -81,3 +81,36 @@ pnpm --filter ./backend exec tsc --noEmit
 - This task adds activity to the internal crawler-status producer as requested
   for the following task; its OpenAPI/UI exposure belongs to that follow-on
   work.
+
+## Review fix round 1
+
+### Added regression behavior
+
+- A real-shaped first sidecar activity of `queued` / `null` / `visible` /
+  sequence `0` now persists through the worker even when no result page exists.
+- An internal persisted `activityObserved` sentinel distinguishes an
+  unobserved conservative default from a real sidecar observation. The first
+  valid snapshot, including equal `headless` sequence `0`, is saved and marks
+  the sentinel; all later same-sequence changes remain conflicts.
+- Exact replay comparison is field-based, so a reordered object with the same
+  four activity values is a no-op. A higher sequence that changes none of the
+  non-sequence activity fields is rejected.
+- Legacy MySQL payloads are hydrated and saved through enqueue and crawl-claim
+  paths, in addition to the existing read/locked paths.
+
+### RED evidence
+
+The focused command was run after adding only the new regression tests and
+exited `1`: 5 failures, 46 passes, and the existing live-MySQL skip. It showed
+the original defects directly: legacy enqueue/claim returned `undefined`
+activity, an equal first seq-0 observation did not save the sentinel, reordered
+keys raised `crawler_activity_sequence_conflict`, and the zero-page visible
+worker remained at the conservative `headless` default.
+
+### GREEN evidence
+
+After the minimal sentinel, structural comparison, and hydration changes, the
+same focused command passed: `52` tests total, `51` passed, `0` failed, and
+the existing explicit-credential live-MySQL test was skipped. The backend
+TypeScript check (`pnpm --filter ./backend exec tsc --noEmit`) and
+`git diff --check` also passed.

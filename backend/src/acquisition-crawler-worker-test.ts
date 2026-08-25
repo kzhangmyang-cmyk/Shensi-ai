@@ -72,8 +72,8 @@ test("worker persists validated sidecar activity before a zero-page poll", async
   await repository.createOrGet({ ...job, keywords: ["袜子"] });
   await repository.enqueue("workspace-1", "run-1", now);
   const activity = {
-    phase: "searching" as const, currentKeyword: "袜子",
-    browserMode: "visible" as const, sequence: 2
+    phase: "queued" as const, currentKeyword: null,
+    browserMode: "visible" as const, sequence: 0
   };
   const worker = new AcquisitionCrawlerWorker({
     repository,
@@ -97,6 +97,7 @@ test("worker persists validated sidecar activity before a zero-page poll", async
   });
   assert.equal(await worker.runOnce(), true);
   assert.deepEqual((await repository.findByRun("workspace-1", "run-1"))?.activity, activity);
+  assert.equal((await repository.findByRun("workspace-1", "run-1"))?.activityObserved, true);
   await worker.close();
 });
 

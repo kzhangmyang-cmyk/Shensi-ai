@@ -376,7 +376,44 @@ test("crawler MySQL repository updates a job with DATETIME-compatible timestamps
     "workspace-1", "run-1", "2026-08-24T01:02:04.567Z"
   );
   assert.equal(result?.state, "queued");
+  assert.deepEqual(result?.activity, {
+    phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0
+  });
+  assert.equal(result?.activityObserved, false);
+  assert.equal((stored as typeof stored & { activityObserved?: boolean })
+    .activityObserved, false);
   assert.deepEqual(observed, ["2026-08-24 01:02:04.567"]);
+});
+
+test("crawler MySQL claim hydrates legacy activity before returning and saving", async () => {
+  let stored = { ...scheduledCrawlerJob(), state: "queued" as const };
+  const pool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+        async query(sql: string, values: unknown[] = []) {
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE state='queued'")) {
+            return [[{ payload_json: JSON.stringify(stored) }], []];
+          }
+          if (sql.startsWith("UPDATE acquisition_crawler_jobs")) {
+            stored = JSON.parse(String(values[5]));
+            return [{ affectedRows: 1 }, []];
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        }
+      };
+    }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+  const claim = await repository.claimNext(
+    "worker-1", "2026-08-24T01:02:04.567Z", 1_000
+  );
+  assert.deepEqual(claim?.job.activity, {
+    phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0
+  });
+  assert.equal(claim?.job.activityObserved, false);
+  assert.equal((stored as typeof stored & { activityObserved?: boolean })
+    .activityObserved, false);
 });
 
 test("crawler MySQL persists a fenced activity snapshot and defaults old JSON safely", async () => {
@@ -408,6 +445,17 @@ test("crawler MySQL persists a fenced activity snapshot and defaults old JSON sa
   assert.deepEqual((await repository.findByRun("workspace-1", "run-1"))?.activity, {
     phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0
   });
+  const observed = await repository.updateActivity({
+    jobId: stored.id, workerId: "worker-1", leaseToken: "c".repeat(64), fencingToken: 1
+  }, {
+    activity: {
+      phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0
+    },
+    now: "2026-08-24T01:02:04.567Z"
+  });
+  assert.equal(observed.activityObserved, true);
+  assert.equal((stored as typeof stored & { activityObserved?: boolean })
+    .activityObserved, true);
   const updated = await repository.updateActivity({
     jobId: stored.id, workerId: "worker-1", leaseToken: "c".repeat(64), fencingToken: 1
   }, {
