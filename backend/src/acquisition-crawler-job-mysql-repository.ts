@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type mysql from "mysql2/promise";
 import {
   assertAcquisitionCrawlerActivity,
+  assertAcquisitionCrawlerActivityForKeywords,
   assertCrawlerActivityObserved,
   assertCrawlerJobInput,
   assertTerminalCrawlerActivity,
@@ -190,13 +191,9 @@ function applyActivity(
   activity: AcquisitionCrawlerActivity,
   now: string
 ) {
-  assertAcquisitionCrawlerActivity(activity);
-  assertAcquisitionCrawlerActivity(job.activity);
+  assertAcquisitionCrawlerActivityForKeywords(job.activity, job.keywords);
   assertCrawlerActivityObserved(job.activityObserved);
-  if (activity.currentKeyword !== null
-    && !job.keywords.includes(activity.currentKeyword)) {
-    throw new TypeError("invalid_crawler_activity");
-  }
+  assertAcquisitionCrawlerActivityForKeywords(activity, job.keywords);
   if (!job.activityObserved) {
     job.activity = structuredClone(activity);
     job.activityObserved = true;
@@ -238,7 +235,10 @@ function hydrate(job: AcquisitionCrawlerJob) {
   if (!Object.prototype.hasOwnProperty.call(raw, "activity")) {
     job.activity = structuredClone(defaultAcquisitionCrawlerActivity);
   } else {
-    assertAcquisitionCrawlerActivity(raw.activity as AcquisitionCrawlerActivity);
+    assertAcquisitionCrawlerActivityForKeywords(
+      raw.activity as AcquisitionCrawlerActivity,
+      job.keywords
+    );
     job.activity = raw.activity as AcquisitionCrawlerActivity;
   }
   if (!Object.prototype.hasOwnProperty.call(raw, "activityObserved")) {

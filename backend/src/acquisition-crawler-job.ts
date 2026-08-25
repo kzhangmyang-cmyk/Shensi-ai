@@ -189,9 +189,22 @@ export function assertAcquisitionCrawlerActivity(
     || !["queued", "starting_browser", "opening_douyin", "searching",
       "collecting_comments", "finalizing", "completed"].includes(activity.phase)
     || (activity.currentKeyword !== null
-      && (typeof activity.currentKeyword !== "string" || !activity.currentKeyword))
+      && (typeof activity.currentKeyword !== "string" || !activity.currentKeyword
+        || [...activity.currentKeyword].length > 100))
     || !["visible", "headless"].includes(activity.browserMode)
     || !Number.isSafeInteger(activity.sequence) || activity.sequence < 0) {
+    throw new TypeError("invalid_crawler_activity");
+  }
+}
+
+export function assertAcquisitionCrawlerActivityForKeywords(
+  activity: AcquisitionCrawlerActivity,
+  keywords: readonly string[]
+) {
+  assertAcquisitionCrawlerActivity(activity);
+  if (!Array.isArray(keywords)
+    || (activity.currentKeyword !== null
+      && !keywords.includes(activity.currentKeyword))) {
     throw new TypeError("invalid_crawler_activity");
   }
 }
@@ -277,7 +290,7 @@ export function normalizedDouyinLegacyContentHash(
 }
 
 export function crawlerStatus(job: AcquisitionCrawlerJob, runId: string): AcquisitionCrawlerStatus {
-  assertAcquisitionCrawlerActivity(job.activity);
+  assertAcquisitionCrawlerActivityForKeywords(job.activity, job.keywords);
   assertCrawlerActivityObserved(job.activityObserved);
   const candidateProjectionState = (() => {
     if (["scheduled", "queued", "running"].includes(job.state)) {

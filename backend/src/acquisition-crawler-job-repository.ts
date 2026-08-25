@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
   assertAcquisitionCrawlerActivity,
+  assertAcquisitionCrawlerActivityForKeywords,
   assertCrawlerActivityObserved,
   assertCrawlerJobInput,
   assertTerminalCrawlerActivity,
@@ -88,13 +89,9 @@ function applyActivity(
   activity: import("./acquisition-crawler-job.js").AcquisitionCrawlerActivity,
   now: string
 ) {
-  assertAcquisitionCrawlerActivity(activity);
-  assertAcquisitionCrawlerActivity(job.activity);
+  assertAcquisitionCrawlerActivityForKeywords(job.activity, job.keywords);
   assertCrawlerActivityObserved(job.activityObserved);
-  if (activity.currentKeyword !== null
-    && !job.keywords.includes(activity.currentKeyword)) {
-    throw new TypeError("invalid_crawler_activity");
-  }
+  assertAcquisitionCrawlerActivityForKeywords(activity, job.keywords);
   if (!job.activityObserved) {
     job.activity = structuredClone(activity);
     job.activityObserved = true;

@@ -470,17 +470,33 @@ test("crawler MySQL persists a fenced activity snapshot and defaults old JSON sa
   }).activity?.sequence, 1);
 });
 
-test("crawler MySQL fails closed for corrupt persisted activity or observation sentinel", async () => {
+test("crawler MySQL fails closed for malformed, unapproved, or overlong persisted activity", async () => {
   for (const [activity, activityObserved, expected] of [
     [{ phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0,
       browserProfile: "/private/profile" }, false, /invalid_crawler_activity/u],
-    [{ phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0 }, "false", /invalid_crawler_activity_observation/u]
+    [{ phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0 }, "false", /invalid_crawler_activity_observation/u],
+    [{ phase: "searching", currentKeyword: "unapproved", browserMode: "visible", sequence: 1 }, true, /invalid_crawler_activity/u],
+    [{ phase: "searching", currentKeyword: "𠮷".repeat(101), browserMode: "visible", sequence: 1 }, true, /invalid_crawler_activity/u]
   ] as const) {
     const legacy = { ...scheduledCrawlerJob(), activity, activityObserved };
     const repository = new MysqlAcquisitionCrawlerJobRepository({
       async query() { return [[{ payload_json: JSON.stringify(legacy) }], []]; }
     } as never);
     await assert.rejects(repository.findByRun("workspace-1", "run-1"), expected);
+  }
+});
+
+test("crawler MySQL hydrates frozen and null activity keywords", async () => {
+  for (const activity of [
+    { phase: "searching", currentKeyword: "pump", browserMode: "visible", sequence: 1 },
+    { phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0 }
+  ] as const) {
+    const legacy = { ...scheduledCrawlerJob(), activity, activityObserved: true };
+    const repository = new MysqlAcquisitionCrawlerJobRepository({
+      async query() { return [[{ payload_json: JSON.stringify(legacy) }], []]; }
+    } as never);
+    const hydrated = await repository.findByRun("workspace-1", "run-1");
+    assert.deepEqual(hydrated?.activity, activity);
   }
 });
 

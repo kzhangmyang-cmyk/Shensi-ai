@@ -5,6 +5,7 @@ import {
 } from "./acquisition-crawler-job-repository.js";
 import type { AcquisitionCrawlerJobInput } from "./acquisition-crawler-job.js";
 import {
+  assertAcquisitionCrawlerActivity,
   assertNormalizedDouyinRecord,
   crawlerStatus,
   normalizedDouyinContentHash
@@ -104,6 +105,22 @@ test("fenced activity snapshots advance only for frozen keywords and higher sequ
     },
     now: at(5)
   }), /crawler_activity_sequence_without_change/u);
+});
+
+test("crawler activity bounds non-null keywords by Unicode codepoint", () => {
+  const atLimit = "𠮷".repeat(100);
+  assert.doesNotThrow(() => assertAcquisitionCrawlerActivity({
+    phase: "searching", currentKeyword: atLimit,
+    browserMode: "visible", sequence: 1
+  }));
+  assert.doesNotThrow(() => assertAcquisitionCrawlerActivity({
+    phase: "queued", currentKeyword: null,
+    browserMode: "headless", sequence: 0
+  }));
+  assert.throws(() => assertAcquisitionCrawlerActivity({
+    phase: "searching", currentKeyword: "𠮷".repeat(101),
+    browserMode: "visible", sequence: 1
+  }), /invalid_crawler_activity/u);
 });
 
 test("daily scheduled and run-now creation deduplicates to one budget and maps both runs", async () => {
@@ -572,4 +589,29 @@ test("crawler status rejects and never clones corrupt persisted activity", async
     activity: completedActivity,
     activityObserved: "false" as never
   }, "run-1"), /invalid_crawler_activity_observation/u);
+});
+
+test("crawler status projects only frozen, bounded activity keywords", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  const job = (await repository.findByRun("workspace-1", "run-1"))!;
+  const valid = {
+    ...job,
+    activity: {
+      phase: "searching" as const, currentKeyword: "pump",
+      browserMode: "visible" as const, sequence: 1
+    },
+    activityObserved: true
+  };
+  assert.deepEqual(crawlerStatus(valid, "run-1").activity, valid.activity);
+  assert.doesNotThrow(() => crawlerStatus({
+    ...valid,
+    activity: { ...valid.activity, currentKeyword: null }
+  }, "run-1"));
+  for (const currentKeyword of ["unapproved", "𠮷".repeat(101)]) {
+    assert.throws(() => crawlerStatus({
+      ...valid,
+      activity: { ...valid.activity, currentKeyword }
+    }, "run-1"), /invalid_crawler_activity/u);
+  }
 });

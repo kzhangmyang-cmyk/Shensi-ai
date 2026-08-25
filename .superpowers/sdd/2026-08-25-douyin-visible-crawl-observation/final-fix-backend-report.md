@@ -110,3 +110,47 @@ types were current, and the diff had no whitespace errors.
   files. Current documentation should be updated by the follow-on frontend
   fix to describe the derived readiness field without exposing raw ingestion
   state.
+
+## Whole-branch review follow-up — frozen activity keywords
+
+The activity validator now rejects a non-null keyword over 100 Unicode code
+points. A shared activity-for-keywords assertion is used when MySQL hydrates
+an existing activity, when repositories apply activity, and before
+`crawlerStatus()` creates the public projection. A non-null activity keyword
+therefore must be one of the job's frozen keywords; null remains valid.
+
+### RED
+
+Tests were added before the code change and run with:
+
+```sh
+pnpm --filter ./backend exec node --import tsx --test --test-concurrency=1 \
+  src/acquisition-crawler-job-test.ts \
+  src/acquisition-crawler-job-mysql-repository-test.ts
+```
+
+The command exited `1`: `37` passed, `3` failed, `1` expected MySQL skip.
+The failures were the missing over-100-codepoint rejection, MySQL acceptance
+of unapproved/overlong existing activity, and `crawlerStatus()` projection of
+a tampered unapproved keyword.
+
+### GREEN
+
+The same focused command passed with `40` passed, `0` failed, and `1` expected
+MySQL skip. The final broader backend-focused command passed with `111`
+passed, `0` failed, and `1` expected MySQL skip:
+
+```sh
+pnpm --filter ./backend exec node --import tsx --test --test-concurrency=1 \
+  src/acquisition-crawler-job-test.ts \
+  src/acquisition-crawler-job-mysql-repository-test.ts \
+  src/acquisition-crawler-worker-test.ts \
+  src/acquisition-crawler-job-router-test.ts \
+  src/acquisition-openapi-test.ts \
+  src/acquisition-openapi-response-conformance-test.ts \
+  src/acquisition-openapi-contract-drift-test.ts
+```
+
+Coverage adds valid frozen/null cases plus unapproved and overlimit cases for
+both MySQL hydration and public status. No browser, Douyin, or external
+network was used.
