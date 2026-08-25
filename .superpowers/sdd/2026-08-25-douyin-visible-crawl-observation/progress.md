@@ -41,3 +41,4 @@ indistinguishable and reintroduce the reviewed startup failure.
 - Task 3: fix round 2/5 (2 addressed, 1 open; commits `f3ede81..c58c8b1`).
 - Task 3: fix round 3/5 (1 addressed, 0 open; commits `c58c8b1..182edca`).
 - Task 3: complete (commits `5a00022..182edca`; independent review clean).
+- Task 4: complete (commits `1a38712..f118d31`; independent review clean).

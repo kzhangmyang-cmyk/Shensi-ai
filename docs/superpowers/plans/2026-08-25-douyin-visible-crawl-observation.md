@@ -247,12 +247,12 @@ Expected: PASS.
 - Documents: local visible-window behavior, observation-mirror semantics,
   headless production behavior, and the closed safe progress contract.
 
-- [ ] **Step 1: Update current execution documents**
+- [x] **Step 1: Update current execution documents**
 
 Describe the current behavior directly. Do not add a top-of-file revision
 note or make archived plans the execution authority.
 
-- [ ] **Step 2: Run focused and aggregate verification**
+- [x] **Step 2: Run focused and aggregate verification**
 
 ```bash
 ./scripts/context-check
