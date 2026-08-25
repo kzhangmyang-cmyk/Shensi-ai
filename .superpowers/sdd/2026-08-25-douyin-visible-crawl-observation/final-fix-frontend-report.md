@@ -71,6 +71,51 @@ git diff --check
 All commands passed. The Vite build emitted its pre-existing chunk-size
 advisory only; it did not fail the build.
 
+## Follow-up ordering and accessibility fix
+
+- `refreshRunFor` now awaits and validates crawler status before requesting
+  candidates. It checks generation freshness after each await, so a ready
+  status forms the ordering boundary for the candidate read and stale/aborted
+  refreshes cannot publish either response.
+- The controller regression gates the status response and proves that the
+  candidate read remains at zero until that gate resolves; the following ready
+  read then publishes the newly available candidate.
+- A pending projection only shows `正在整理候选人` after a terminal crawler
+  state. A running crawl continues to show `正在发现候选人` and never claims
+  that records have already been saved.
+- Strict projection decoding now requires a string before closed-enum
+  membership, rejecting a JSON value such as `["ready"]`.
+- Error announcements use a host-tracked error code independently of activity
+  sequence: a new error is polite, an identical timestamp-only rerender is
+  off, and clearing the error resets the token for a later announcement.
+
+Follow-up RED evidence, before production edits:
+
+```text
+AssertionError: candidate reads must wait for the crawler status ordering boundary
+1 !== 0
+
+AssertionError: expected /正在发现候选人/
+actual: 正在整理候选人公开记录已保存，候选人正在整理。
+
+AssertionError: Missing expected rejection.
+```
+
+The final line is the strict decoder accepting `["ready"]`; the a11y test
+then independently failed because a newly appearing ingestion error had no
+explicit `aria-live="polite"` token.
+
+Follow-up GREEN verification:
+
+```text
+npx tsx src/acquisition/douyin-automation-api.self-test.ts
+{"ok":true,"suite":"douyin-automation-api"}
+npx tsx src/acquisition/douyin-automation-controller.self-test.ts
+{"ok":true,"suite":"douyin-automation-controller"}
+npx tsx src/acquisition/douyin-automation-view.self-test.ts
+{"ok":true,"suite":"douyin-automation-view"}
+```
+
 ## Self-review and limitations
 
 - The decoder rejects only forbidden keys, recursively through records and

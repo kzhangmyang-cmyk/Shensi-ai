@@ -172,6 +172,7 @@ for (const dateTime of [
 for (const malformedCrawler of [
   { ...crawler, cursor: "private-cursor" },
   { ...crawler, candidateProjectionState: "unknown" },
+  { ...crawler, candidateProjectionState: ["ready"] },
   (() => { const { candidateProjectionState: _candidateProjectionState, ...missing } = crawler; return missing; })(),
   { ...crawler, state: "unknown" },
   { ...crawler, attempt: -1 },

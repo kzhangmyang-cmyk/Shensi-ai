@@ -273,3 +273,40 @@ assert.equal(terminalPendingController.getState().crawlerStatus?.candidateProjec
 assert.equal(terminalPendingController.getState().candidates.length, 0, "a ready terminal run may legitimately have no candidates");
 assert.equal(terminalPendingPolls.length, 0, "a ready candidate projection must stop polling");
 terminalPendingController.close();
+
+const readyStatusGate: { resolve: (() => void) | null } = { resolve: null };
+let readyCandidateReads = 0;
+const orderedReadyController = createDouyinAutomationController({
+  api: {
+    createPlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "draft", version: 1, etag: '"plan:1"' }),
+    approvePlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "approved", version: 1, etag: '"plan:2"' }),
+    listAccounts: async () => ({ items: [activeAccount] }),
+    createLoginSession: async () => { throw new Error("not used"); }, getLoginSession: async () => { throw new Error("not used"); }, disconnectAccount: async () => undefined,
+    getAutomation: async () => ({ ...defaultPolicy, keywords: ["袜子"] }), suggestKeywords: async () => ({ keywords: ["袜子"], modelSnapshotId: "model-1" }),
+    putAutomation: async (_planId, input) => ({ ...defaultPolicy, ...input, id: "policy-1", source: "version", accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1, etag: '"policy:1"', createdBy: "user-1", createdAt: now }),
+    runNow: async () => queuedIntent("intent-ordered-ready", "run-ordered-ready"),
+    getCrawlerStatus: async () => {
+      await new Promise<void>((resolve) => { readyStatusGate.resolve = resolve; });
+      return {
+        ...runningStatus("run-ordered-ready"), state: "succeeded" as const,
+        candidateProjectionState: "ready" as const, completedAt: now,
+        activity: { phase: "completed" as const, currentKeyword: null, browserMode: "headless" as const, sequence: 5 }
+      };
+    },
+    listRunCandidates: async () => { readyCandidateReads += 1; return { items: [liveCandidate], nextCursor: null }; }
+  },
+  pollDelayMs: 250,
+  setTimer: (() => 1) as unknown as typeof setTimeout,
+  clearTimer: (() => undefined) as typeof clearTimeout
+});
+await orderedReadyController.load("plan-1", "袜子获客计划");
+const orderedReadyRun = orderedReadyController.runNow();
+await Promise.resolve();
+assert.equal(readyCandidateReads, 0, "candidate reads must wait for the crawler status ordering boundary");
+const releaseReadyStatus = readyStatusGate.resolve;
+assert.ok(releaseReadyStatus);
+releaseReadyStatus();
+await orderedReadyRun;
+assert.equal(readyCandidateReads, 1);
+assert.deepEqual(orderedReadyController.getState().candidates, [liveCandidate], "a ready status must load the candidates read after it");
+orderedReadyController.close();

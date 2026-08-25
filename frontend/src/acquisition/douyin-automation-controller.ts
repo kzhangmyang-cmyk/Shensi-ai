@@ -129,12 +129,11 @@ export function createDouyinAutomationController(options: {
     clearRunTimer();
     const flight = (async () => {
       try {
-        const [crawlerStatus, page] = await Promise.all([
-          options.api.getCrawlerStatus(runId, aborter.signal),
-          options.api.listRunCandidates(runId, aborter.signal)
-        ]);
+        const crawlerStatus = await options.api.getCrawlerStatus(runId, aborter.signal);
         if (!current(ownGeneration)) return;
         if (crawlerStatus.runId !== runId) throw new Error("服务器返回的采集状态与当前运行不匹配");
+        const page = await options.api.listRunCandidates(runId, aborter.signal);
+        if (!current(ownGeneration)) return;
         emit({ crawlerStatus, candidates: page.items, phase: "ready", error: null });
         if (requiresRunPolling(crawlerStatus)) scheduleRunRefresh(runId, ownGeneration);
       } catch (error) {

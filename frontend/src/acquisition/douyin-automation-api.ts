@@ -199,7 +199,8 @@ function crawlerStatusShape(value: Record<string, unknown>, runId: string): bool
     && Number.isSafeInteger(value.candidateBudgetUsed) && Number(value.candidateBudgetUsed) >= 0
     && Number.isSafeInteger(value.candidateBudgetLimit)
     && Number(value.candidateBudgetLimit) >= 1 && Number(value.candidateBudgetLimit) <= 200
-    && ["pending", "ready", "failed"].includes(String(value.candidateProjectionState))
+    && typeof value.candidateProjectionState === "string"
+    && ["pending", "ready", "failed"].includes(value.candidateProjectionState)
     && (value.lastErrorCode === null
       || (typeof value.lastErrorCode === "string" && unicodeLength(value.lastErrorCode) <= 100))
     && validDateTime(value.createdAt) && validDateTime(value.updatedAt)

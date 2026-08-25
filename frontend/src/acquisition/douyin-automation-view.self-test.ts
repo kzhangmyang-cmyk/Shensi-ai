@@ -143,6 +143,14 @@ assert.match(pendingCandidatePanel.textContent ?? "", /正在整理候选人/u);
 assert.doesNotMatch(pendingCandidatePanel.textContent ?? "", /暂无候选人/u);
 
 renderDouyinAutomationView(host, observedState({
+  ...queuedStatus, state: "running", candidateProjectionState: "pending",
+  activity: { phase: "collecting_comments", currentKeyword: "袜子", browserMode: "visible", sequence: 2 }
+}));
+const runningCandidatePanel = host.querySelector<HTMLElement>(".douyin-candidates-panel")!;
+assert.match(runningCandidatePanel.textContent ?? "", /正在发现候选人/u);
+assert.doesNotMatch(runningCandidatePanel.textContent ?? "", /公开记录已保存|正在整理候选人/u);
+
+renderDouyinAutomationView(host, observedState({
   ...queuedStatus, state: "partial", candidateProjectionState: "ready", lastErrorCode: "mediacrawler_partial",
   activity: { phase: "completed", currentKeyword: null, browserMode: "headless", sequence: 1 }, completedAt: "2026-08-25T09:31:00.000Z"
 }));
@@ -154,4 +162,17 @@ renderDouyinAutomationView(host, observedState({
 }));
 assert.match(host.textContent ?? "", /采集遇到问题，请稍后重试或联系管理员/u);
 assert.doesNotMatch(host.textContent ?? "", /unrecognized_internal_fault/u);
+
+const ingestionErrorStatus: DouyinCrawlerStatus = {
+  ...queuedStatus, state: "failed", candidateProjectionState: "failed", lastErrorCode: "crawler_ingestion_failed",
+  activity: { phase: "completed", currentKeyword: null, browserMode: "headless", sequence: 3 }, completedAt: "2026-08-25T09:31:00.000Z"
+};
+renderDouyinAutomationView(host, observedState(ingestionErrorStatus));
+assert.equal(host.querySelector<HTMLElement>(".douyin-safe-reason")?.getAttribute("aria-live"), "polite", "a newly appearing ingestion error must announce");
+renderDouyinAutomationView(host, observedState({ ...ingestionErrorStatus, updatedAt: "2026-08-25T09:32:00.000Z" }));
+assert.equal(host.querySelector<HTMLElement>(".douyin-safe-reason")?.getAttribute("aria-live"), "off", "timestamp-only rerenders must not repeat the same error");
+renderDouyinAutomationView(host, observedState({ ...ingestionErrorStatus, lastErrorCode: null }));
+assert.equal(host.querySelector(".douyin-safe-reason"), null);
+renderDouyinAutomationView(host, observedState(ingestionErrorStatus));
+assert.equal(host.querySelector<HTMLElement>(".douyin-safe-reason")?.getAttribute("aria-live"), "polite", "an error must announce again after it was cleared");
 console.log(JSON.stringify({ ok: true, suite: "douyin-automation-view" }));
