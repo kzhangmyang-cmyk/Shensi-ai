@@ -2555,39 +2555,43 @@ export async function createAcquisitionApplication(
         throw new Error("acquisition_crawler_ingestion_transaction_boundary_required");
       }
       const crawlerWorkerId = idFactory("crawler-worker");
+      const ingestCrawlerJob = async (
+        job: import("./acquisition-crawler-job.js").AcquisitionCrawlerJob
+      ) => {
+        const run = await repositories.planRun.getRun(job.runId);
+        if (!run || run.planId !== job.planId
+          || run.planVersionId !== job.planVersionId
+          || run.planSnapshotHash !== job.planSnapshotHash) {
+          throw new Error("crawler_ingestion_run_binding_changed");
+        }
+        const resolved = await acquisitionWorkspace.resolve({
+          ownerId: run.ownerId,
+          teamId: run.teamId
+        });
+        if (!resolved || resolved.workspaceId !== job.workspaceId) {
+          throw new Error("crawler_ingestion_workspace_binding_changed");
+        }
+        await ingestDouyinCrawlerPage({
+          crawlerJobs,
+          repository: crawlerIngestion,
+          workspaceId: job.workspaceId,
+          runId: job.runId,
+          scope: {
+            ownerId: run.ownerId,
+            teamId: run.teamId,
+            actorId: crawlerWorkerId
+          },
+          now
+        });
+      };
       crawlerWorker = new AcquisitionCrawlerWorker({
         repository: crawlerJobs,
         gateway: options.douyinMediaCrawlerGateway,
         accounts: socialAccountRepository,
         workerId: crawlerWorkerId,
         now,
-        async ingestTerminalJob(job) {
-          const run = await repositories.planRun.getRun(job.runId);
-          if (!run || run.planId !== job.planId
-            || run.planVersionId !== job.planVersionId
-            || run.planSnapshotHash !== job.planSnapshotHash) {
-            throw new Error("crawler_ingestion_run_binding_changed");
-          }
-          const resolved = await acquisitionWorkspace.resolve({
-            ownerId: run.ownerId,
-            teamId: run.teamId
-          });
-          if (!resolved || resolved.workspaceId !== job.workspaceId) {
-            throw new Error("crawler_ingestion_workspace_binding_changed");
-          }
-          await ingestDouyinCrawlerPage({
-            crawlerJobs,
-            repository: crawlerIngestion,
-            workspaceId: job.workspaceId,
-            runId: job.runId,
-            scope: {
-              ownerId: run.ownerId,
-              teamId: run.teamId,
-              actorId: crawlerWorkerId
-            },
-            now
-          });
-        }
+        ingestAvailableJob: ingestCrawlerJob,
+        ingestTerminalJob: ingestCrawlerJob
       });
       crawlerWorker.start(options.crawlerWorkerIntervalMs);
       outreachActionRecoverySweeper = new AcquisitionOutreachActionRecoverySweeper({

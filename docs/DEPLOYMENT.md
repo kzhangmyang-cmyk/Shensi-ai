@@ -113,12 +113,17 @@ The URL validator accepts only private/loopback plain HTTP targets. The secret
 file must be regular, non-symlinked, owner-only, newline-free, and at least 32
 non-whitespace bytes. Do not publish the sidecar or route browser-state traffic
 through the public gateway.
-The backend owns the crawler worker, expired-lease recovery, terminal ingestion,
-and evidence-retention lifecycle whenever this gateway is configured. Result
-pages remain in the private sidecar until the backend's authoritative
+The backend owns the crawler worker, expired-lease recovery, live and terminal
+ingestion, and the evidence-retention lifecycle whenever this gateway is
+configured. The sidecar advertises immutable completed pages while the crawl is
+running; Node persists each page and may expose its candidates immediately. A
+live projection failure leaves the page durable for terminal replay. Result
+pages remain in the private sidecar until the backend's authoritative terminal
 evidence/candidate/run-link transaction commits and the acknowledgement call
-succeeds. The persisted acknowledgement starts a 24-hour cleanup clock and is
-idempotent across restarts. That sweep removes both normalized pages and the
+succeeds. A partial terminal state retains every previously published page and
+its bounded failure code. The persisted acknowledgement starts a 24-hour
+cleanup clock and is idempotent across restarts. That sweep removes both
+normalized pages and the
 bounded private upstream actor capture; it never treats upstream's anonymous
 `creator_hash` as a public profile identity. Do not add an external cleanup
 that deletes unacknowledged result pages. Backend cleanup removes only unlinked

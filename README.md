@@ -118,6 +118,19 @@ run progress, creator/commenter evidence review, revisioned exact-message
 editing, explicit approval, pause/resume and sanitized action receipts. Public-
 link import remains an authorized secondary fallback. The browser never
 receives MediaCrawler cookies, account handles, browser profiles or leases.
+Completed MediaCrawler JSONL records are published as immutable pages while a
+crawl is still running. The backend persists each available page and projects
+its evidence and candidates immediately, so the dashboard can show candidates
+before the crawl ends. A terminal replay finalizes the run and acknowledges the
+sidecar; if the upstream browser stops after publishing records, the job stays
+`partial` and those records remain available instead of being reset to zero.
+
+The real-mode header action `新建抖音采集计划` scrolls to and focuses the
+MediaCrawler plan form; it does not open the provider-connection wizard or
+request search/model connections. `公开搜索增强（可选）` is a separate
+secondary entry and retains its own search-API plus tool-calling-model
+requirements. Its wizard always offers a return to the no-API MediaCrawler
+form.
 
 MediaCrawler-only plans declare
 `executionMode: "douyin_mediacrawler"`. They are created with empty

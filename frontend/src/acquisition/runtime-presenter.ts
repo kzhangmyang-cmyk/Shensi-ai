@@ -179,8 +179,8 @@ export function renderPublicDouyinImportPanel(
       <header class="replica-public-import-header">
         <div>
           <p>通用发现方式</p>
-          <h2 id="replicaPublicImportTitle">通用公开搜索获客</h2>
-          <span>此入口通过搜索 API 获取公开页面，再由支持工具调用的 AI 模型筛选需求信号。</span>
+          <h2 id="replicaPublicImportTitle">公开搜索增强（可选）</h2>
+          <span>可选地通过搜索 API 获取公开页面，再由支持工具调用的 AI 模型筛选需求信号。</span>
         </div>
         <strong>真实自动运行</strong>
       </header>
@@ -189,8 +189,8 @@ export function renderPublicDouyinImportPanel(
           type="button"
           class="replica-auto-acquisition-action"
           data-acquisition-import-action="start-auto-acquisition"
-        >创建公开搜索任务</button>
-        <span>需要已启用的搜索 API 和支持工具调用的 AI 模型 · MediaCrawler 手工关键词请使用上方控制台</span>
+        >创建公开搜索增强任务</button>
+        <span>此可选增强需要搜索 API 和支持工具调用的 AI 模型 · 无 API 请使用上方 MediaCrawler 控制台</span>
       </div>
       <div class="replica-public-import-notice" role="note">
         系统只处理公开信息，不会自动认定客户身份，也不会自动私信、关注或触达客户。

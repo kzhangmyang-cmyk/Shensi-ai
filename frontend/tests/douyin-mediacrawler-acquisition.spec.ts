@@ -45,8 +45,14 @@ test("real session controls automatic Douyin acquisition, approval, receipts, an
   await expect(workspace).toContainText("连接抖音账号");
   await expect(workspace).toContainText("尚未保存");
   await expect(workspace).toContainText("手工关键词无需搜索 API 或 AI 模型");
-  await expect(page.getByRole("heading", { name: "通用公开搜索获客" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "公开搜索增强（可选）" })).toBeVisible();
   await expect(workspace).not.toContainText(/cookie|accountHandle|browserProfile|leaseToken|account-fixture|candidate-creator/iu);
+
+  await expect(page.locator("#replicaNewTaskButtonLabel")).toHaveText("新建抖音采集计划");
+  await page.locator("#replicaNewTaskButton").click();
+  await expect(page.locator("#replicaRealTaskModal")).toBeHidden();
+  await expect(workspace.getByLabel("计划名称")).toBeFocused();
+  expect(genericDependencyRequests).toEqual([]);
 
   await workspace.getByRole("button", { name: "扫码连接" }).click();
   const qrDialog = page.getByRole("dialog", { name: "请使用抖音扫码" });

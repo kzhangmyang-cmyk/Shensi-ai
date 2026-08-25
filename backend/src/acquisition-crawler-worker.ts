@@ -13,6 +13,7 @@ export interface AcquisitionCrawlerWorkerOptions {
   leaseDurationMs?: number;
   pollIntervalMs?: number;
   maxPageCount?: number;
+  ingestAvailableJob?: (job: AcquisitionCrawlerJob) => Promise<void>;
   ingestTerminalJob?: (job: AcquisitionCrawlerJob) => Promise<void>;
 }
 
@@ -33,6 +34,7 @@ export class AcquisitionCrawlerWorker {
   private readonly leaseDurationMs: number;
   private readonly pollIntervalMs: number;
   private readonly maxPageCount: number;
+  private readonly ingestAvailableJob: AcquisitionCrawlerWorkerOptions["ingestAvailableJob"];
   private readonly ingestTerminalJob: AcquisitionCrawlerWorkerOptions["ingestTerminalJob"];
   private readonly controller = new AbortController();
   private active: Promise<boolean> | null = null;
@@ -47,6 +49,7 @@ export class AcquisitionCrawlerWorker {
     this.leaseDurationMs = options.leaseDurationMs ?? 30_000;
     this.pollIntervalMs = options.pollIntervalMs ?? 250;
     this.maxPageCount = options.maxPageCount ?? 1_000;
+    this.ingestAvailableJob = options.ingestAvailableJob;
     this.ingestTerminalJob = options.ingestTerminalJob;
     if (this.ingestTerminalJob && !this.gateway.acknowledgeCrawlJob) {
       throw new TypeError("crawler_acknowledgement_gateway_required");
@@ -111,7 +114,7 @@ export class AcquisitionCrawlerWorker {
           return true;
         }
         const status = await this.gateway.getCrawlJob(job.id, this.controller.signal);
-        if (["succeeded", "partial"].includes(status.state)) break;
+        if (status.jobId !== job.id) throw new Error("mediacrawler_job_mismatch");
         if (["failed", "cancelled"].includes(status.state)) {
           if (status.state === "cancelled") {
             await this.repository.requestCancel(job.workspaceId, job.runId, this.now());
@@ -121,23 +124,65 @@ export class AcquisitionCrawlerWorker {
           }
           return true;
         }
+        if (status.pageCount > this.maxPageCount) {
+          await this.repository.pause(
+            fence, "crawler_page_limit_exceeded", this.now()
+          );
+          return true;
+        }
+        const current = await this.repository.findByRun(job.workspaceId, job.runId);
+        if (!current || current.id !== job.id || current.state !== "running") {
+          throw new Error("crawler_job_binding_changed");
+        }
+        const persistedPageCount = current.cursorHistory.length;
+        const availablePageCount = status.pageCount - persistedPageCount;
+        if (availablePageCount < 0) {
+          throw new Error("mediacrawler_page_count_regressed");
+        }
+        const terminal = status.state === "succeeded" || status.state === "partial";
+        let cursor = current.cursor;
+        let terminalPagePersisted = false;
+        for (let pageOffset = 0; pageOffset < availablePageCount; pageOffset += 1) {
+          const page = await this.gateway.getCrawlResults(
+            job.id, cursor, this.controller.signal
+          );
+          if (page.jobId !== job.id || page.cursor !== cursor) {
+            throw new Error("mediacrawler_cursor_mismatch");
+          }
+          const lastAdvertisedPage = pageOffset === availablePageCount - 1;
+          if (page.done !== (terminal && lastAdvertisedPage)) {
+            throw new Error("mediacrawler_page_count_mismatch");
+          }
+          const stored = await this.repository.persistPage(fence, {
+            expectedCursor: cursor,
+            nextCursor: page.nextCursor,
+            records: page.records,
+            done: page.done,
+            ...(page.done ? {
+              terminalState: status.state as "succeeded" | "partial",
+              terminalErrorCode: status.failureCode
+            } : {}),
+            now: this.now()
+          });
+          if (page.done) {
+            terminalPagePersisted = true;
+            break;
+          }
+          cursor = page.nextCursor;
+          await this.repository.renew(
+            fence, this.now(), this.leaseDurationMs
+          );
+          await this.ingestAvailableJob?.(stored).catch(() => undefined);
+        }
+        if (terminal) {
+          if (!terminalPagePersisted) {
+            throw new Error("mediacrawler_terminal_page_missing");
+          }
+          return true;
+        }
         await this.repository.renew(fence, this.now(), this.leaseDurationMs);
         await delay(this.pollIntervalMs, this.controller.signal);
       }
-      let cursor = job.cursor;
-      for (let pageNumber = 0; pageNumber < this.maxPageCount; pageNumber += 1) {
-        const page = await this.gateway.getCrawlResults(job.id, cursor, this.controller.signal);
-        if (page.jobId !== job.id || page.cursor !== cursor) throw new Error("mediacrawler_cursor_mismatch");
-        await this.repository.persistPage(fence, {
-          expectedCursor: cursor, nextCursor: page.nextCursor,
-          records: page.records, done: page.done, now: this.now()
-        });
-        if (page.done) return true;
-        cursor = page.nextCursor;
-        await this.repository.renew(fence, this.now(), this.leaseDurationMs);
-      }
-      await this.repository.pause(fence, "crawler_page_limit_exceeded", this.now());
-      return true;
     } catch (error) {
       if (this.controller.signal.aborted) return true;
       await this.repository.fail(fence, error instanceof Error ? error.message.slice(0, 100) : "crawler_worker_failed", this.now(), true)

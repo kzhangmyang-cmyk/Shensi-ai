@@ -15,6 +15,7 @@ import {
   type PersistedNormalizedDouyinRecord
 } from "./acquisition-crawler-job.js";
 import type { AcquisitionCrawlerJobRepository, PersistCrawlerPageInput } from "./acquisition-crawler-job-repository.js";
+import { readAuthoritativeAcquisitionRunColumn } from "./acquisition-douyin-automation-mysql-repository.js";
 
 export const acquisitionCrawlerJobsDdl = `CREATE TABLE IF NOT EXISTS acquisition_crawler_jobs (
   id VARCHAR(255) NOT NULL PRIMARY KEY,
@@ -40,8 +41,7 @@ export const acquisitionCrawlerJobRunsDdl = `CREATE TABLE IF NOT EXISTS acquisit
   job_id VARCHAR(255) NOT NULL,
   created_at DATETIME(3) NOT NULL,
   PRIMARY KEY (workspace_id,run_id),
-  CONSTRAINT acquisition_crawler_job_run_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id),
-  CONSTRAINT acquisition_crawler_job_run_authority FOREIGN KEY (run_id) REFERENCES acquisition_runs(id)
+  CONSTRAINT acquisition_crawler_job_run_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id)
 ) ENGINE=InnoDB`;
 export const acquisitionCrawlerJobIntentsDdl = `CREATE TABLE IF NOT EXISTS acquisition_crawler_job_intents (
   workspace_id VARCHAR(255) NOT NULL,
@@ -76,28 +76,26 @@ export const acquisitionCrawlerJobCursorsDdl = `CREATE TABLE IF NOT EXISTS acqui
 export const acquisitionCrawlerJobDdls = [acquisitionCrawlerJobsDdl, acquisitionCrawlerJobRunsDdl, acquisitionCrawlerJobIntentsDdl, acquisitionCrawlerJobRecordsDdl, acquisitionCrawlerJobCursorsDdl] as const;
 
 export const acquisitionCrawlerJobMigrationStatements = [
-  `ALTER TABLE acquisition_crawler_job_runs
-     MODIFY COLUMN run_id VARCHAR(160) NOT NULL`,
   `INSERT IGNORE INTO acquisition_crawler_job_intents
      (workspace_id,automation_intent_id,job_id,created_at)
      SELECT r.workspace_id,r.run_id,r.job_id,r.created_at
      FROM acquisition_crawler_job_runs r
      INNER JOIN acquisition_douyin_run_intents i
-       ON i.workspace_id=r.workspace_id AND i.id=r.run_id
+       ON i.workspace_id=r.workspace_id AND BINARY i.id=BINARY r.run_id
      INNER JOIN acquisition_douyin_run_bindings b
-       ON b.automation_intent_id=i.id`,
+       ON BINARY b.automation_intent_id=BINARY i.id`,
   `DELETE r FROM acquisition_crawler_job_runs r
      INNER JOIN acquisition_douyin_run_intents i
-       ON i.workspace_id=r.workspace_id AND i.id=r.run_id
+       ON i.workspace_id=r.workspace_id AND BINARY i.id=BINARY r.run_id
      INNER JOIN acquisition_douyin_run_bindings b
-       ON b.automation_intent_id=i.id
-     WHERE b.acquisition_run_id <> r.run_id`,
+       ON BINARY b.automation_intent_id=BINARY i.id
+     WHERE BINARY b.acquisition_run_id <> BINARY r.run_id`,
   `INSERT IGNORE INTO acquisition_crawler_job_runs
      (workspace_id,run_id,job_id,created_at)
      SELECT i.workspace_id,b.acquisition_run_id,i.job_id,i.created_at
      FROM acquisition_crawler_job_intents i
      INNER JOIN acquisition_douyin_run_bindings b
-       ON b.automation_intent_id=i.automation_intent_id`,
+       ON BINARY b.automation_intent_id=BINARY i.automation_intent_id`,
   `UPDATE acquisition_crawler_jobs j
      INNER JOIN (
        SELECT job_id,MIN(automation_intent_id) AS primary_intent_id,
@@ -117,12 +115,29 @@ export const acquisitionCrawlerJobMigrationStatements = [
 
 export async function ensureAcquisitionCrawlerJobMysqlSchema(pool: Pick<mysql.Pool, "query">) {
   for (const ddl of acquisitionCrawlerJobDdls) await pool.query(ddl);
+  const { columnType, characterSet, collation } =
+    await readAuthoritativeAcquisitionRunColumn(pool);
+  const [authorityConstraints] = await pool.query(
+    `SELECT CONSTRAINT_NAME FROM information_schema.REFERENTIAL_CONSTRAINTS
+     WHERE CONSTRAINT_SCHEMA=DATABASE()
+       AND TABLE_NAME='acquisition_crawler_job_runs'
+       AND CONSTRAINT_NAME='acquisition_crawler_job_run_authority'`
+  );
+  const hasAuthorityConstraint = Array.isArray(authorityConstraints)
+    && authorityConstraints.length > 0;
+  if (!hasAuthorityConstraint) {
+    await pool.query(
+      `ALTER TABLE acquisition_crawler_job_runs
+       MODIFY COLUMN run_id ${columnType}
+       CHARACTER SET ${characterSet} COLLATE ${collation} NOT NULL`
+    );
+  }
   for (const statement of acquisitionCrawlerJobMigrationStatements) {
     await pool.query(statement);
   }
   const [invalidAliases] = await pool.query(
     `SELECT r.job_id,r.run_id FROM acquisition_crawler_job_runs r
-     LEFT JOIN acquisition_runs ar ON ar.id=r.run_id
+     LEFT JOIN acquisition_runs ar ON BINARY ar.id=BINARY r.run_id
      WHERE ar.id IS NULL LIMIT 1`
   );
   if (Array.isArray(invalidAliases) && invalidAliases.length > 0) {
@@ -131,13 +146,7 @@ export async function ensureAcquisitionCrawlerJobMysqlSchema(pool: Pick<mysql.Po
       `crawler_job_alias_migration_required:${String(row.job_id)}:${String(row.run_id)}`
     );
   }
-  const [constraints] = await pool.query(
-    `SELECT CONSTRAINT_NAME FROM information_schema.REFERENTIAL_CONSTRAINTS
-     WHERE CONSTRAINT_SCHEMA=DATABASE()
-       AND TABLE_NAME='acquisition_crawler_job_runs'
-       AND CONSTRAINT_NAME='acquisition_crawler_job_run_authority'`
-  );
-  if (Array.isArray(constraints) && constraints.length === 0) {
+  if (!hasAuthorityConstraint) {
     await pool.query(
       `ALTER TABLE acquisition_crawler_job_runs
        ADD CONSTRAINT acquisition_crawler_job_run_authority
@@ -150,6 +159,12 @@ type Row = Record<string, unknown>;
 function parsed<T>(value: unknown): T { return (typeof value === "string" ? JSON.parse(value) : value) as T; }
 function json(value: unknown) { return JSON.stringify(value); }
 function at(value: string) { const result = Date.parse(value); if (!Number.isFinite(result)) throw new TypeError("invalid_crawler_clock"); return result; }
+function mysqlDate(value: string | null) {
+  if (value === null) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) throw new TypeError("invalid_crawler_clock");
+  return date.toISOString().slice(0, 23).replace("T", " ");
+}
 function rows(result: unknown) { return (result as [Row[], unknown])[0]; }
 function clearLease(job: AcquisitionCrawlerJob) { job.leaseWorkerId = null; job.leaseToken = null; job.leaseExpiresAt = null; }
 function clearIngestionLease(job: AcquisitionCrawlerJob) {
@@ -216,7 +231,7 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
   }
   private async save(connection: mysql.PoolConnection, job: AcquisitionCrawlerJob) {
     await connection.query(`UPDATE acquisition_crawler_jobs SET state=?,lease_worker_id=?,lease_token=?,lease_expires_at=?,fencing_token=?,payload_json=?,updated_at=? WHERE id=?`,
-      [job.state, job.leaseWorkerId, job.leaseToken, job.leaseExpiresAt, job.fencingToken, json(job), job.updatedAt, job.id]);
+      [job.state, job.leaseWorkerId, job.leaseToken, mysqlDate(job.leaseExpiresAt), job.fencingToken, json(job), mysqlDate(job.updatedAt), job.id]);
   }
   private async locked(connection: mysql.PoolConnection, fence: AcquisitionCrawlerJobFence, now: string) {
     const result = rows(await connection.query(`SELECT payload_json FROM acquisition_crawler_jobs WHERE id=? FOR UPDATE`, [fence.jobId]));
@@ -280,8 +295,8 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
           job.ingestionState = "pending";
           job.ingestedAt = null;
         }
-        await connection.query(`INSERT IGNORE INTO acquisition_crawler_job_runs (workspace_id,run_id,job_id,created_at) VALUES (?,?,?,?)`, [input.workspaceId, input.runId, job.id, input.createdAt]);
-        await connection.query(`INSERT IGNORE INTO acquisition_crawler_job_intents (workspace_id,automation_intent_id,job_id,created_at) VALUES (?,?,?,?)`, [input.workspaceId, input.automationIntentId, job.id, input.createdAt]);
+        await connection.query(`INSERT IGNORE INTO acquisition_crawler_job_runs (workspace_id,run_id,job_id,created_at) VALUES (?,?,?,?)`, [input.workspaceId, input.runId, job.id, mysqlDate(input.createdAt)]);
+        await connection.query(`INSERT IGNORE INTO acquisition_crawler_job_intents (workspace_id,automation_intent_id,job_id,created_at) VALUES (?,?,?,?)`, [input.workspaceId, input.automationIntentId, job.id, mysqlDate(input.createdAt)]);
         await this.save(connection, job); return { created: false, job };
       }
       if (aliases[0] || intentAliases[0]) throw new Error("crawler_job_identity_conflict");
@@ -292,9 +307,9 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
         ingestionLeaseToken: null, ingestionLeaseExpiresAt: null,
         ingestionFencingToken: 0, ingestedAt: null, acknowledgedAt: null };
       await connection.query(`INSERT INTO acquisition_crawler_jobs (id,workspace_id,plan_id,policy_version_id,local_date,state,payload_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
-        [job.id, job.workspaceId, job.planId, job.policyVersionId, job.localDate, job.state, json(job), job.createdAt, job.updatedAt]);
-      await connection.query(`INSERT INTO acquisition_crawler_job_runs (workspace_id,run_id,job_id,created_at) VALUES (?,?,?,?)`, [job.workspaceId, job.runId, job.id, job.createdAt]);
-      await connection.query(`INSERT INTO acquisition_crawler_job_intents (workspace_id,automation_intent_id,job_id,created_at) VALUES (?,?,?,?)`, [job.workspaceId, job.automationIntentId, job.id, job.createdAt]);
+        [job.id, job.workspaceId, job.planId, job.policyVersionId, job.localDate, job.state, json(job), mysqlDate(job.createdAt), mysqlDate(job.updatedAt)]);
+      await connection.query(`INSERT INTO acquisition_crawler_job_runs (workspace_id,run_id,job_id,created_at) VALUES (?,?,?,?)`, [job.workspaceId, job.runId, job.id, mysqlDate(job.createdAt)]);
+      await connection.query(`INSERT INTO acquisition_crawler_job_intents (workspace_id,automation_intent_id,job_id,created_at) VALUES (?,?,?,?)`, [job.workspaceId, job.automationIntentId, job.id, mysqlDate(job.createdAt)]);
       return { created: true, job };
     });
   }
@@ -358,6 +373,18 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
         || (input.nextCursor !== null && Buffer.byteLength(input.nextCursor, "utf8") > 512)) {
         throw new TypeError("invalid_crawler_next_cursor");
       }
+      const hasTerminalMetadata = input.terminalState !== undefined
+        || input.terminalErrorCode !== undefined;
+      if ((!input.done && hasTerminalMetadata)
+        || (input.terminalState !== undefined
+          && !["succeeded", "partial"].includes(input.terminalState))
+        || (input.terminalErrorCode !== undefined
+          && input.terminalErrorCode !== null
+          && !/^[a-z0-9_]{1,100}$/u.test(input.terminalErrorCode))
+        || (input.done && input.terminalState !== "partial"
+          && input.terminalErrorCode != null)) {
+        throw new TypeError("invalid_crawler_terminal_metadata");
+      }
       if (input.nextCursor !== null && job.cursorHistory.includes(input.nextCursor)) {
         throw new Error("crawler_cursor_cycle");
       }
@@ -379,23 +406,30 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
           pageCursor: input.expectedCursor
         };
         const [result] = await connection.query(`INSERT INTO acquisition_crawler_job_records (job_id,sequence_no,record_id,content_hash,payload_json,persisted_at) VALUES (?,?,?,?,?,?)`,
-          [job.id, ++sequence, record.recordId, record.contentHash, json(persisted), input.now]);
+          [job.id, ++sequence, record.recordId, record.contentHash, json(persisted), mysqlDate(input.now)]);
         if ((result as mysql.ResultSetHeader).affectedRows > 0) {
           identities.add(record.recordId); job.recordCount += 1;
           if (record.kind !== "video") job.candidateBudgetUsed += 1;
         }
       }
+      if (dropped) job.lastErrorCode = "crawler_candidate_budget_exhausted";
       job.cursor = input.nextCursor;
       if (input.nextCursor !== null) {
         await connection.query(
           `INSERT INTO acquisition_crawler_job_cursors (job_id,page_sequence,cursor_value,persisted_at) VALUES (?,?,?,?)`,
-          [job.id, job.cursorHistory.length + 1, input.nextCursor, input.now]
+          [job.id, job.cursorHistory.length + 1, input.nextCursor, mysqlDate(input.now)]
         );
         job.cursorHistory.push(input.nextCursor);
       }
       job.updatedAt = input.now;
       if (input.done) {
-        job.state = dropped ? "partial" : "succeeded";
+        const sidecarPartial = input.terminalState === "partial";
+        const budgetExhausted = job.lastErrorCode
+          === "crawler_candidate_budget_exhausted";
+        job.state = sidecarPartial || budgetExhausted ? "partial" : "succeeded";
+        job.lastErrorCode = sidecarPartial
+          ? input.terminalErrorCode ?? "mediacrawler_partial"
+          : budgetExhausted ? "crawler_candidate_budget_exhausted" : null;
         job.completedAt = input.now;
         if (job.ingestionState !== "succeeded") job.ingestionState = "pending";
         clearLease(job);
@@ -511,7 +545,7 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
   }
   sweepExpired(now: string) {
     return this.transaction(async (connection) => {
-      const result = rows(await connection.query(`SELECT payload_json FROM acquisition_crawler_jobs WHERE state='running' AND lease_expires_at<=? FOR UPDATE`, [now]));
+      const result = rows(await connection.query(`SELECT payload_json FROM acquisition_crawler_jobs WHERE state='running' AND lease_expires_at<=? FOR UPDATE`, [mysqlDate(now)]));
       for (const row of result) { const job = parsed<AcquisitionCrawlerJob>(row.payload_json); job.state = job.cancelRequestedAt ? "cancelled" : job.attempt < job.maxAttempts ? "queued" : "paused"; job.updatedAt = now; job.lastErrorCode = job.cancelRequestedAt ? null : "crawler_lease_expired"; if (job.state === "cancelled") job.completedAt = now; clearLease(job); await this.save(connection, job); }
       const ingestion = rows(await connection.query(
         `SELECT payload_json FROM acquisition_crawler_jobs

@@ -25,8 +25,14 @@ test("worker resumes from persisted cursor and never acknowledges sidecar pages"
   const cursors: Array<string | null> = [];
   const starts: unknown[] = [];
   const gateway = {
-    async startCrawlJob(input: unknown) { starts.push(input); return { jobId: "crawler-1", state: "running" as const }; },
-    async getCrawlJob() { return { jobId: "crawler-1", state: "succeeded" as const }; },
+    async startCrawlJob(input: unknown) { starts.push(input); return {
+      jobId: "crawler-1", state: "running" as const,
+      recordCount: 0, pageCount: 0, failureCode: null
+    }; },
+    async getCrawlJob() { return {
+      jobId: "crawler-1", state: "succeeded" as const,
+      recordCount: 1, pageCount: 2, failureCode: null
+    }; },
     async getCrawlResults(_jobId: string, cursor: string | null) {
       cursors.push(cursor);
       if (cursor === null) {
@@ -106,10 +112,12 @@ test("worker alternates crawl and ingestion lanes under sustained crawl load", a
     gateway: {
       async startCrawlJob(input) {
         order.push(`crawl:${input.jobId}`);
-        return { jobId: input.jobId, state: "running" as const };
+        return { jobId: input.jobId, state: "running" as const,
+          recordCount: 0, pageCount: 0, failureCode: null };
       },
       async getCrawlJob(jobId) {
-        return { jobId, state: "succeeded" as const };
+        return { jobId, state: "succeeded" as const,
+          recordCount: 0, pageCount: 1, failureCode: null };
       },
       async getCrawlResults(jobId, cursor) {
         return { jobId, cursor, nextCursor: null, done: true, records: [] };
@@ -163,8 +171,14 @@ test("worker recovers terminal ingestion and acknowledges only after domain pers
   const order: string[] = [];
   let failFirstIngestion = true;
   const gateway = {
-    async startCrawlJob() { return { jobId: "crawler-1", state: "running" as const }; },
-    async getCrawlJob() { return { jobId: "crawler-1", state: "succeeded" as const }; },
+    async startCrawlJob() { return {
+      jobId: "crawler-1", state: "running" as const,
+      recordCount: 0, pageCount: 0, failureCode: null
+    }; },
+    async getCrawlJob() { return {
+      jobId: "crawler-1", state: "succeeded" as const,
+      recordCount: 0, pageCount: 1, failureCode: null
+    }; },
     async getCrawlResults() {
       return { jobId: "crawler-1", cursor: null, nextCursor: null, done: true, records: [] };
     },
@@ -200,5 +214,133 @@ test("worker recovers terminal ingestion and acknowledges only after domain pers
   assert.equal(await worker.runOnce(), true);
   assert.deepEqual(order, ["persist-domain", "persist-domain", "acknowledge"]);
   assert.equal((await repository.findByRun("workspace-1", "run-1"))?.ingestionState, "succeeded");
+  await worker.close();
+});
+
+test("worker projects immutable pages before terminal status and preserves sidecar partial", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(job);
+  await repository.enqueue("workspace-1", "run-1", now);
+  let releaseTerminal!: () => void;
+  const terminalGate = new Promise<void>((resolve) => { releaseTerminal = resolve; });
+  let resolveLiveProjection!: () => void;
+  const liveProjection = new Promise<void>((resolve) => { resolveLiveProjection = resolve; });
+  let statusCalls = 0;
+  const creator = {
+    recordId: "creator-live", kind: "creator" as const,
+    actorKind: "creator" as const,
+    canonicalUrl: "https://www.douyin.com/user/creator-live",
+    publicDisplayName: "Live maker",
+    publicProfileUrl: "https://www.douyin.com/user/creator-live",
+    textExcerpt: "need pump", sourceKeyword: "pump", observedAt: now,
+    contentHash: ""
+  };
+  creator.contentHash = normalizedDouyinContentHash(creator);
+  const gateway = {
+    async startCrawlJob() {
+      return { jobId: "crawler-1", state: "running" as const,
+        recordCount: 0, pageCount: 0, failureCode: null };
+    },
+    async getCrawlJob() {
+      statusCalls += 1;
+      if (statusCalls === 1) {
+        return { jobId: "crawler-1", state: "running" as const,
+          recordCount: 1, pageCount: 1, failureCode: null };
+      }
+      await terminalGate;
+      return { jobId: "crawler-1", state: "partial" as const,
+        recordCount: 1, pageCount: 2,
+        failureCode: "crawl_interrupted_after_partial_results" };
+    },
+    async getCrawlResults(_jobId: string, cursor: string | null) {
+      return cursor === null
+        ? { jobId: "crawler-1", cursor: null, nextCursor: "opaque-live",
+          done: false, records: [creator] }
+        : { jobId: "crawler-1", cursor: "opaque-live", nextCursor: null,
+          done: true, records: [] };
+    },
+    async cancelCrawlJob() {}
+  };
+  const worker = new AcquisitionCrawlerWorker({
+    repository,
+    gateway,
+    accounts: { async findById() { return {
+      id: "account-1", workspaceId: "workspace-1", platform: "douyin" as const,
+      accountHandle: "private-handle", state: "active" as const,
+      loginStateVersion: 2
+    }; } },
+    workerId: "worker-live",
+    now: () => now,
+    pollIntervalMs: 1,
+    async ingestAvailableJob(liveJob) {
+      assert.equal(liveJob.state, "running");
+      resolveLiveProjection();
+    }
+  });
+  const execution = worker.runOnce();
+  try {
+    await Promise.race([
+      liveProjection,
+      new Promise<never>((_resolve, reject) => setTimeout(
+        () => reject(new Error("live_projection_not_observed")), 200
+      ))
+    ]);
+    const running = await repository.findByRun("workspace-1", "run-1");
+    assert.equal(running?.state, "running");
+    assert.equal(running?.recordCount, 1);
+  } finally {
+    releaseTerminal();
+  }
+  assert.equal(await execution, true);
+  const terminal = await repository.findByRun("workspace-1", "run-1");
+  assert.equal(terminal?.state, "partial");
+  assert.equal(terminal?.lastErrorCode, "crawl_interrupted_after_partial_results");
+  assert.equal(terminal?.recordCount, 1);
+  await worker.close();
+});
+
+test("a live projection failure does not discard persisted crawl pages", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(job);
+  await repository.enqueue("workspace-1", "run-1", now);
+  let statusCalls = 0;
+  const worker = new AcquisitionCrawlerWorker({
+    repository,
+    gateway: {
+      async startCrawlJob() { return {
+        jobId: "crawler-1", state: "running" as const,
+        recordCount: 0, pageCount: 0, failureCode: null
+      }; },
+      async getCrawlJob() {
+        statusCalls += 1;
+        return statusCalls === 1
+          ? { jobId: "crawler-1", state: "running" as const,
+            recordCount: 0, pageCount: 1, failureCode: null }
+          : { jobId: "crawler-1", state: "succeeded" as const,
+            recordCount: 0, pageCount: 2, failureCode: null };
+      },
+      async getCrawlResults(jobId, cursor) {
+        return cursor === null
+          ? { jobId, cursor, nextCursor: "opaque-live", done: false, records: [] }
+          : { jobId, cursor, nextCursor: null, done: true, records: [] };
+      },
+      async cancelCrawlJob() {}
+    },
+    accounts: { async findById() { return {
+      id: "account-1", workspaceId: "workspace-1", platform: "douyin" as const,
+      accountHandle: "private-handle", state: "active" as const,
+      loginStateVersion: 2
+    }; } },
+    workerId: "worker-live-failure",
+    now: () => now,
+    pollIntervalMs: 1,
+    async ingestAvailableJob() { throw new Error("injected_live_projection_failure"); }
+  });
+
+  assert.equal(await worker.runOnce(), true);
+  const terminal = await repository.findByRun("workspace-1", "run-1");
+  assert.equal(terminal?.state, "succeeded");
+  assert.equal(terminal?.cursorHistory.length, 1);
+  assert.equal(terminal?.ingestionState, "pending");
   await worker.close();
 });

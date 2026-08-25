@@ -40,7 +40,6 @@ export const acquisitionDouyinCrawlerEvidenceIndexDdl = `CREATE TABLE IF NOT EXI
   UNIQUE KEY acquisition_douyin_crawler_evidence_id (workspace_id,evidence_id),
   KEY acquisition_douyin_crawler_record_version (workspace_id,platform_record_id,observed_at,evidence_id),
   KEY acquisition_douyin_crawler_evidence_retention (candidate_id,retain_until),
-  CONSTRAINT acquisition_douyin_crawler_evidence_authority FOREIGN KEY (evidence_id) REFERENCES acquisition_discovery_evidence(id) ON DELETE CASCADE,
   CONSTRAINT acquisition_douyin_crawler_evidence_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id)
 ) ENGINE=InnoDB`;
 
@@ -54,11 +53,68 @@ export const acquisitionDouyinDoNotContactDdl = `CREATE TABLE IF NOT EXISTS acqu
   CONSTRAINT acquisition_douyin_dnc_hash CHECK (identity_hash REGEXP '^dnc:sha256:[0-9a-f]{64}$')
 ) ENGINE=InnoDB`;
 
+function trustedEvidenceSchemaToken(value: unknown, kind: string) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_]+$/u.test(value)) {
+    throw new Error(`acquisition_douyin_crawler_evidence_invalid_${kind}`);
+  }
+  return value;
+}
+
+function authoritativeEvidenceColumnType(value: unknown) {
+  if (typeof value !== "string" || !/^varchar\([1-9][0-9]{0,3}\)$/iu.test(value)) {
+    throw new Error("acquisition_douyin_crawler_evidence_invalid_authority_type");
+  }
+  return value;
+}
+
+async function ensureAuthoritativeEvidenceForeignKey(
+  pool: Pick<mysql.Pool, "query">
+) {
+  const [columns] = await pool.query(
+    `SELECT COLUMN_TYPE,CHARACTER_SET_NAME,COLLATION_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE()
+       AND TABLE_NAME='acquisition_discovery_evidence'
+       AND COLUMN_NAME='id'`
+  );
+  if (!Array.isArray(columns) || columns.length !== 1) {
+    throw new Error("acquisition_douyin_crawler_evidence_authority_column_missing");
+  }
+  const column = columns[0] as Record<string, unknown>;
+  const columnType = authoritativeEvidenceColumnType(column.COLUMN_TYPE);
+  const characterSet = trustedEvidenceSchemaToken(
+    column.CHARACTER_SET_NAME, "authority_character_set"
+  );
+  const collation = trustedEvidenceSchemaToken(
+    column.COLLATION_NAME, "authority_collation"
+  );
+  const [constraints] = await pool.query(
+    `SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA=DATABASE()
+       AND TABLE_NAME='acquisition_douyin_crawler_evidence_index'
+       AND CONSTRAINT_NAME='acquisition_douyin_crawler_evidence_authority'`
+  );
+  if (Array.isArray(constraints) && constraints.length > 0) return;
+
+  await pool.query(
+    `ALTER TABLE acquisition_douyin_crawler_evidence_index
+     MODIFY COLUMN evidence_id ${columnType}
+     CHARACTER SET ${characterSet} COLLATE ${collation} NOT NULL`
+  );
+  await pool.query(
+    `ALTER TABLE acquisition_douyin_crawler_evidence_index
+     ADD CONSTRAINT acquisition_douyin_crawler_evidence_authority
+     FOREIGN KEY (evidence_id) REFERENCES acquisition_discovery_evidence(id)
+     ON DELETE CASCADE`
+  );
+}
+
 export async function ensureAcquisitionDouyinCrawlerIngestionMysqlSchema(
   pool: Pick<mysql.Pool, "query">
 ) {
   await pool.query(acquisitionDouyinCrawlerEvidenceIndexDdl);
   await pool.query(acquisitionDouyinDoNotContactDdl);
+  await ensureAuthoritativeEvidenceForeignKey(pool);
 }
 
 interface EvidenceIndex {
@@ -439,6 +495,59 @@ implements DouyinCrawlerEvidenceStore {
         && typeof event.data.candidateId === "string"
       ).map((event) => String(event.data.candidateId)));
       const candidateIds = [...new Set(input.candidateIds)].sort();
+      if (input.job.state === "running") {
+        if (!["queued", "running"].includes(run.status)) {
+          throw new Error("douyin_ingestion_run_state_conflict");
+        }
+        const hasRunning = existing.some((event) => event.type === "run.running");
+        if (run.status === "running"
+          && run.evidenceCount >= input.evidenceCount
+          && candidateIds.every((candidateId) => linked.has(candidateId))
+          && hasRunning) {
+          continue;
+        }
+        const updated: AcquisitionRun = {
+          ...run,
+          status: "running",
+          revision: run.revision + 1,
+          etag: `"${run.id}:${run.revision + 1}"`,
+          evidenceCount: Math.max(run.evidenceCount, input.evidenceCount),
+          updatedBy: scope.actorId,
+          updatedAt: input.at,
+          completedAt: null
+        };
+        plan.putRun(updated);
+        for (const candidateId of candidateIds) {
+          if (linked.has(candidateId)) continue;
+          plan.appendRunEvent({
+            id: `are-douyin-candidate-${hash(`${run.id}\u0000${candidateId}`).slice(0, 48)}`,
+            runId: run.id,
+            shardId: null,
+            ownerId: run.ownerId,
+            teamId: run.teamId,
+            type: "candidate.discovered",
+            actorId: scope.actorId,
+            revision: updated.revision,
+            at: input.at,
+            data: { candidateId, source: "douyin_crawler", jobId: input.job.id }
+          });
+        }
+        if (!hasRunning) {
+          plan.appendRunEvent({
+            id: `are-douyin-running-${hash(run.id).slice(0, 48)}`,
+            runId: run.id,
+            shardId: null,
+            ownerId: run.ownerId,
+            teamId: run.teamId,
+            type: "run.running",
+            actorId: scope.actorId,
+            revision: updated.revision,
+            at: input.at,
+            data: { previousStatus: run.status, jobId: input.job.id }
+          });
+        }
+        continue;
+      }
       const status = input.job.state === "partial"
         ? "partial_success" as const
         : input.evidenceCount > 0 ? "succeeded" as const : "succeeded_empty" as const;

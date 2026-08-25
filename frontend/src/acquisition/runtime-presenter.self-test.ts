@@ -50,10 +50,10 @@ const importPanel = renderPublicDouyinImportPanel({
 });
 
 for (const text of [
-  "通用公开搜索获客",
+  "公开搜索增强（可选）",
   "搜索 API 和支持工具调用的 AI 模型",
-  "创建公开搜索任务",
-  "MediaCrawler 手工关键词请使用上方控制台",
+  "创建公开搜索增强任务",
+  "无 API 请使用上方 MediaCrawler 控制台",
   "已有链接？补充导入",
   "粘贴公开链接",
   "导入公开链接",

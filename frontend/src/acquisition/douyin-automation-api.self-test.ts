@@ -109,6 +109,30 @@ for (const status of [401, 403, 409, 412]) {
   );
 }
 await assert.rejects(
+  createDouyinAutomationApi(async () => new Response(JSON.stringify({
+    error: {
+      code: "invalid_request",
+      message: "请求参数不符合计划接口约束",
+      details: [{
+        path: "providerConnections",
+        code: "too_small",
+        message: "数组必须至少包含 1 个元素"
+      }]
+    }
+  }), { status: 400 }), { cookie: "gj_csrf=csrf-value" })
+    .createPlan({ name: "袜子获客", keywords: ["袜子"], dailyCandidateLimit: 50 }, "plan-key"),
+  (error: unknown) => {
+    assert.ok(error instanceof AcquisitionHttpError);
+    assert.deepEqual(error.details, [{
+      path: "providerConnections",
+      code: "too_small",
+      message: "数组必须至少包含 1 个元素"
+    }]);
+    assert.equal(error.message, "请求参数不符合计划接口约束：providerConnections：数组必须至少包含 1 个元素");
+    return true;
+  }
+);
+await assert.rejects(
   createDouyinAutomationApi(async () => new Response("{not-json", { status: 200 })).getAutomation("plan-1"),
   (error: unknown) => error instanceof AcquisitionHttpError && error.code === "malformed_response"
 );

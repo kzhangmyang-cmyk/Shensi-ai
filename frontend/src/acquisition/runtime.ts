@@ -978,6 +978,20 @@ function initialiseRuntime(): void {
     void refreshOverview();
   });
 
+  document.addEventListener("goodjob:acquisition-mediacrawler-create-requested", () => {
+    if (mode !== "real" || !automationHost) return;
+    automationHost.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.requestAnimationFrame(() => {
+      automationHost.querySelector<HTMLInputElement>('input[name="planName"]')
+        ?.focus({ preventScroll: true });
+    });
+    document.dispatchEvent(new CustomEvent("goodjob:acquisition-notify", {
+      detail: {
+        message: "已进入 MediaCrawler 采集计划：填写计划名称和关键词即可，无需搜索 API 或 AI 模型。"
+      }
+    }));
+  });
+
   publicImportHost.addEventListener("input", (event) => {
     const target = event.target as HTMLTextAreaElement | null;
     if (!target?.matches("[data-acquisition-import-url-input]")) return;
@@ -1001,7 +1015,7 @@ function initialiseRuntime(): void {
     if (!target || !publicImportHost.contains(target)) return;
     const action = target.dataset.acquisitionImportAction;
     if (action === "start-auto-acquisition") {
-      document.dispatchEvent(new CustomEvent("goodjob:acquisition-create-requested"));
+      document.dispatchEvent(new CustomEvent("goodjob:acquisition-public-search-create-requested"));
       return;
     }
     if (action === "submit-urls") {

@@ -3398,6 +3398,34 @@ test("mysql acquisition application owns schema setup and pool lifecycle", async
           ? "YES" : "NO"
       })), []];
     }
+    if (sql.includes("information_schema.COLUMNS")
+      && sql.includes("TABLE_NAME='acquisition_runs'")) {
+      return [[{
+        COLUMN_TYPE: "varchar(160)",
+        CHARACTER_SET_NAME: "utf8mb4",
+        COLLATION_NAME: "utf8mb4_unicode_ci"
+      }], []];
+    }
+    if (sql.includes("information_schema.TABLE_CONSTRAINTS")
+      && sql.includes("acquisition_douyin_run_binding_authoritative_run")) {
+      return [[{
+        CONSTRAINT_NAME: "acquisition_douyin_run_binding_authoritative_run"
+      }], []];
+    }
+    if (sql.includes("information_schema.COLUMNS")
+      && sql.includes("TABLE_NAME='acquisition_discovery_evidence'")) {
+      return [[{
+        COLUMN_TYPE: "varchar(255)",
+        CHARACTER_SET_NAME: "utf8mb4",
+        COLLATION_NAME: "utf8mb4_unicode_ci"
+      }], []];
+    }
+    if (sql.includes("information_schema.TABLE_CONSTRAINTS")
+      && sql.includes("acquisition_douyin_crawler_evidence_authority")) {
+      return [[{
+        CONSTRAINT_NAME: "acquisition_douyin_crawler_evidence_authority"
+      }], []];
+    }
     return [[], []];
   };
   const pool = {

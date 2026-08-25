@@ -33,6 +33,14 @@
 没有解析出可靠主体身份的搜索结果会保留为待研究候选，并以
 `identityResolved = false` 命中硬门禁；模型不能把模糊搜索结果直接说成已核实客户。
 
+本文上述链路对应 `executionMode: generic` 的公开搜索增强。当前抖音
+主入口使用 `executionMode: douyin_mediacrawler`：手工关键词采集不需要
+搜索 API 或 AI 模型，AI 关键词建议只是可选便利功能。前端的
+“公开搜索增强（可选）”才进入本文的 Provider/operation 链路。
+MediaCrawler 运行时会分批发布已完成的公开记录；候选可在采集仍为
+`running` 时进入列表。上游中断只会把作业收敛为保留既有记录的
+`partial`，不会把已发现候选回滚为零。
+
 ## 2. 运行架构
 
 ```text
@@ -354,8 +362,9 @@ API Key 在服务端加密保存，在前端与 API 安全投影中均为只写�
 以上接口只返回连接 ID、厂商、状态和凭据版本等安全投影，不回传 API Key、
 密文或内部凭据引用。客户在连接中心配置一次官方 Key 后，`search_public_sources`
 未指定 `providerConnectionIds` 时会自动使用该客户已启用的全部官方搜索连接；
-若客户明确选择了连接，则只使用所选连接。没有可用连接时返回稳定的
-`SEARCH_PROVIDER_CONNECTION_REQUIRED`，前端应引导客户进入连接设置页。
+若客户明确选择了连接，则只使用所选连接。通用公开搜索增强没有可用连接时返回稳定的
+`SEARCH_PROVIDER_CONNECTION_REQUIRED`；前端应标明这是可选增强的门禁，同时提供返回无 API
+的 MediaCrawler 主入口，不得把该错误表述为抖音自动采集的启动前置。
 
 搜索 API Key 同样加密保存。`ProviderConnection.credentialVersion` 是服务端维护的单调版本号：
 

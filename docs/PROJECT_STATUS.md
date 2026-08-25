@@ -73,8 +73,13 @@ ledger.
   share the daily job without mixing their identities. Random fenced crawl and
   terminal-ingestion leases, transactional non-cyclic opaque cursor history,
   frozen record-kind filters, and bounded recovery have Memory/MySQL
-  implementations. Terminal ingestion atomically writes the existing evidence,
-  candidate, identity-alias, audit, run-event, and run-candidate authorities.
+  implementations. The sidecar now publishes immutable pages during the crawl;
+  Node consumes the advertised page count, persists each cursor/page first, and
+  atomically projects evidence, candidates, identity aliases, audits, a running
+  run state, and run-candidate links before terminal completion. Terminal
+  ingestion replays all persisted records, finalizes the run, and acknowledges
+  the sidecar. Upstream interruption after published records produces a
+  durable partial job instead of resetting the record count.
   Stable record edits supersede across jobs; content is unique per workspace.
   Each record and evidence row retains its exact page cursor and explicit
   creator/commenter discriminator. Late same-day aliases re-run only the
@@ -141,7 +146,14 @@ ledger.
   keywords/local schedule/timezone/daily candidate limit, starts one run-now
   command, and renders only persisted crawler status, creator/commenter
   candidates and public evidence. The separate generic public-search entry is
-  labelled with its search-API and AI dependencies.
+  labelled as an optional enhancement with its search-API and AI dependencies.
+  The real-mode header action focuses the MediaCrawler form without requesting
+  those connections, and the optional wizard can return directly to that
+  no-API form. Missing optional connections disable AI-plan generation before
+  any request; the corresponding server race is translated into MediaCrawler
+  guidance instead of exposing its internal error code. Rejected plan payloads
+  preserve bounded backend validation details and show the first field path
+  and reason instead of only the generic contract-error message.
   Candidate selection creates an editable outreach batch; revision conflicts
   reload current authority before explicit approval, and pause/resume plus
   sanitized comment/direct-message receipts survive page reload. Authorized

@@ -45,4 +45,29 @@ renderDouyinAutomationView(host, {
 assert.match(host.textContent ?? "", /尚未保存/u);
 assert.equal(host.querySelector<HTMLButtonElement>("[data-douyin-action=save-only]")?.disabled, false);
 assert.equal(host.querySelector<HTMLButtonElement>("[data-douyin-action=save-and-run]")?.disabled, false);
+
+renderDouyinAutomationView(host, {
+  phase: "ready", planId: "plan-1", planName: "袜子获客计划", planStatus: "approved",
+  account: connectedAccount, loginSession: null, policy: null,
+  draftPolicy: { ...draftPolicy, keywords: ["袜子"] },
+  runIntent: null,
+  crawlerStatus: {
+    runId: "run-live-1", state: "running", attempt: 1, cursorPersisted: true,
+    recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50,
+    lastErrorCode: null, createdAt: "2026-08-25T09:30:00.000Z",
+    updatedAt: "2026-08-25T09:31:00.000Z", completedAt: null
+  },
+  candidates: [{
+    id: "candidate-live-1", status: "comment_candidate", displayName: "袜子采购用户",
+    evidence: { sourceUrl: "https://www.douyin.com/video/live-1", excerpt: "公开评论中询问袜子批发" }
+  }],
+  selectedCandidateIds: [], error: null, suggestionError: null, closed: false
+});
+const candidatePanel = host.querySelector<HTMLElement>(".douyin-candidates-panel")!;
+assert.match(host.textContent ?? "", /采集中/u);
+assert.ok(candidatePanel.querySelector(".douyin-candidate-workspace"));
+assert.equal(candidatePanel.querySelectorAll(".douyin-candidate-row").length, 1);
+assert.match(candidatePanel.textContent ?? "", /袜子采购用户/u);
+assert.match(candidatePanel.textContent ?? "", /公开评论中询问袜子批发/u);
+assert.doesNotMatch(candidatePanel.textContent ?? "", /正在发现候选人|暂无候选人/u);
 console.log(JSON.stringify({ ok: true, suite: "douyin-automation-view" }));

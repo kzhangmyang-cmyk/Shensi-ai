@@ -80,12 +80,19 @@ MediaCrawler author fields and persist `commenter`, while creator records
 persist `creator`; an empty or root Douyin identity is invalid. The private
 runner captures only these bounded public actor fields before upstream's
 general JSONL anonymization, and never turns `creator_hash` into a profile URL.
-Late same-day aliases reopen only terminal ingestion and project already
-persisted facts into the newly bound authoritative run without recrawling.
-Crawler and ingestion claims alternate under load and prefer another workspace
-when one is ready.
-Terminal
-jobs have a second random fenced ingestion claim. Its transaction writes
+The sidecar publishes complete immutable pages during a running crawl. The Node
+worker pulls every advertised page, persists records and cursors first, then
+idempotently projects available evidence, candidates and `candidate.discovered`
+events while the authoritative run remains `running` with `completedAt: null`.
+Live projection failure cannot erase the page; terminal ingestion replays all
+persisted records. A sidecar interruption after any published record produces a
+`partial` terminal job with those records and its bounded failure code intact.
+Candidate-budget truncation remains durable across later pages and also ends as
+`partial`. Late same-day aliases reopen only terminal ingestion and project
+already persisted facts into the newly bound authoritative run without
+recrawling. Crawler and ingestion claims alternate under load and prefer another
+workspace when one is ready. Terminal jobs have a second random fenced
+ingestion claim. Its transaction writes
 `acquisition_discovery_evidence`, `acquisition_candidates`, candidate identity
 aliases and audits through the existing acquisition domain repository, then
 writes acquisition-run status and `candidate.discovered` events through the
@@ -153,7 +160,10 @@ lease, raw cursor, records, and live sidecar state.
 
 The authenticated browser consumes these generated projections through
 `douyin-automation-api.ts` and `outreach-batch-api.ts`; feature code does not
-redeclare transport DTOs. The `#acquisition` workspace preserves the existing
+redeclare transport DTOs. Bounded field-level validation details from failed
+plan requests are preserved by the transport error and the first field path
+and reason are shown to the operator; malformed detail objects are discarded.
+The `#acquisition` workspace preserves the existing
 Shensi shell and session controller, presents QR connect/reconnect, editable
 keywords, local schedule/timezone and the 1–200 daily limit (default 50), then
 shows persisted crawler progress, creator/commenter candidates, public
@@ -164,6 +174,17 @@ and logout, close or mode change aborts active requests and the single poller.
 The authorized public-link importer remains available only as a collapsed
 fallback. Desktop renders a candidate table beside its inspector; mobile uses
 one-column cards with document scrolling and no horizontal overflow.
+
+The real-mode primary action is `新建抖音采集计划`. It focuses this
+MediaCrawler form and must not list or validate public-search/model
+connections. The lower `公开搜索增强（可选）` entry alone opens the legacy-
+compatible generic wizard; those provider and tool-calling-model dependencies
+are requirements of that optional execution mode, not prerequisites for
+Douyin MediaCrawler collection. The wizard includes a no-API return action to
+the primary form. Its AI-plan control stays disabled until both dependencies
+are available and must not submit a request that is already known to fail. A
+server-side `SEARCH_PROVIDER_CONNECTION_REQUIRED` race is rendered as this
+same MediaCrawler guidance rather than a raw internal error code.
 
 Outreach generation is a private service boundary consumed only by the batch
 service. `POST /runs/{runId}/outreach-batches` persists its exact values as
@@ -268,10 +289,12 @@ verification interstitial in headless mode. Login creation has a dedicated
 start QR; short health and polling deadlines are unchanged. A displayed QR is
 not account authority: only the private browser session observing an actual
 authenticated state publishes a connected account.
-Terminal crawler pages are immutable and replayable by opaque cursor until
-Node atomically persists authoritative evidence/candidates/run links and sends
-a durable acknowledgement. The acknowledgement timestamp, not a read or crawl
-completion, starts the 24-hour cleanup clock. The sidecar sweeps acknowledged
+Running and terminal crawler pages are immutable and replayable by opaque
+cursor. Node consumes only the sidecar-advertised page count, persists each
+page before live projection, and sends a durable acknowledgement only after the
+terminal evidence/candidate/run-link projection succeeds. The acknowledgement
+timestamp, not a read or crawl completion, starts the 24-hour cleanup clock.
+The sidecar sweeps acknowledged
 pages and the corresponding private upstream capture at startup and
 periodically, and uses one bounded deadline to stop its sweeper and all active
 crawl workers. Failed/cancelled terminal metadata with no result pages may be

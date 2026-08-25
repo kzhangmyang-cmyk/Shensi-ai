@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from shensi_adapter.crawl_jobs import (
-    CrawlJobManager, CursorConflict, _browser_profile_template,
+    CrawlJobManager, CursorConflict, MediaCrawlerRunner, _browser_profile_template,
     _public_comment_capture, _public_creator_capture, _read_output_rows,
 )
 from shensi_adapter.douyin_normalizer import normalize_douyin_records
@@ -74,6 +74,21 @@ def test_pinned_runner_reads_the_actual_douyin_jsonl_output_directory(tmp_path):
     assert _read_output_rows(tmp_path) == [
         ("video", {"aweme_id": "73001"}), ("comment", public_comment),
     ]
+
+
+def test_pinned_runner_treats_only_physical_lf_as_a_jsonl_record_boundary(tmp_path):
+    directory = tmp_path / "douyin" / "jsonl"
+    directory.mkdir(parents=True)
+    comment = {
+        "comment_id": "c-u2028", "aweme_id": "73001",
+        "sec_uid": "MS4wLjABCommenter",
+        "content": "first line\u2028second line",
+    }
+    (directory / "000-shensi-comments.jsonl").write_text(
+        json.dumps(comment, ensure_ascii=False) + "\n", encoding="utf-8",
+    )
+
+    assert _read_output_rows(tmp_path) == [("comment", comment)]
 
 
 def test_pinned_runner_preserves_the_exact_private_browser_profile_path(tmp_path):
@@ -202,6 +217,133 @@ def test_manager_enforces_one_active_job_per_account_and_replays_opaque_cursor(t
     assert first_page.next_cursor != "1"
     with pytest.raises(CursorConflict):
         manager.page("job-1", "reordered-cursor")
+    manager.close()
+
+
+def test_manager_publishes_full_pages_while_the_runner_is_still_running(tmp_path):
+    runner_waiting = threading.Event()
+    release = threading.Event()
+    records = normalize_douyin_records(fixtures(), observed_at=NOW)
+
+    def streaming_runner(_request, _profile, _cancelled):
+        yield records[0]
+        yield records[1]
+        runner_waiting.set()
+        release.wait(1)
+        yield records[2]
+
+    manager = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=streaming_runner,
+        now=lambda: NOW,
+        page_size=2,
+    )
+    manager.start(request("streaming-job"))
+    assert runner_waiting.wait(1)
+
+    deadline = time.monotonic() + 1
+    while True:
+        running = manager.get("streaming-job")
+        if running.record_count == 2:
+            break
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    assert running.state == "running"
+    assert running.page_count == 1
+    first_page = manager.page("streaming-job", None)
+    assert first_page.done is False
+    assert len(first_page.records) == 2
+
+    release.set()
+    terminal = wait_terminal(manager, "streaming-job")
+    assert terminal.state == "succeeded"
+    assert terminal.record_count == 3
+    assert terminal.page_count == 2
+    final_page = manager.page("streaming-job", first_page.next_cursor)
+    assert final_page.done is True
+    assert len(final_page.records) == 1
+    manager.close()
+
+
+def test_media_crawler_runner_streams_completed_jsonl_rows_before_process_exit(
+    tmp_path, monkeypatch,
+):
+    process_release = threading.Event()
+
+    class FakeProcess:
+        pid = 90001
+        returncode = None
+
+        def poll(self):
+            if not process_release.is_set():
+                return None
+            self.returncode = 0
+            return 0
+
+    process = FakeProcess()
+    service_root = tmp_path / "service"
+
+    def popen(*_args, **_kwargs):
+        output = service_root / ".shensi-crawl-output" / "runner-stream" / "douyin" / "jsonl"
+        output.mkdir(parents=True)
+        (output / "search_contents.jsonl").write_text(
+            json.dumps(fixtures()[0][1]) + "\n", encoding="utf-8",
+        )
+        return process
+
+    monkeypatch.setattr("shensi_adapter.crawl_jobs.subprocess.Popen", popen)
+    manager = CrawlJobManager(
+        tmp_path / "state",
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=MediaCrawlerRunner(service_root),
+        now=lambda: NOW,
+        page_size=1,
+    )
+    live_request = request("runner-stream").model_copy(update={
+        "deadline_at": datetime.now(UTC) + timedelta(minutes=5),
+    })
+    try:
+        manager.start(live_request)
+        deadline = time.monotonic() + 1
+        while manager.get("runner-stream").record_count == 0:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        running = manager.get("runner-stream")
+        assert running.state == "running"
+        assert running.page_count == 1
+    finally:
+        process_release.set()
+        manager.close()
+
+
+def test_manager_keeps_streamed_records_when_the_runner_fails(tmp_path):
+    records = normalize_douyin_records(fixtures(), observed_at=NOW)
+
+    def interrupted_runner(_request, _profile, _cancelled):
+        yield records[0]
+        yield records[1]
+        raise RuntimeError("upstream_browser_closed")
+
+    manager = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=interrupted_runner,
+        now=lambda: NOW,
+        page_size=2,
+    )
+    manager.start(request("partial-job"))
+
+    terminal = wait_terminal(manager, "partial-job")
+    assert terminal.state == "partial"
+    assert terminal.failure_code == "crawl_interrupted_after_partial_results"
+    assert terminal.record_count == 2
+    assert terminal.page_count == 2
+    first_page = manager.page("partial-job", None)
+    assert first_page.done is False
+    final_page = manager.page("partial-job", first_page.next_cursor)
+    assert final_page.done is True
+    assert final_page.records == []
     manager.close()
 
 

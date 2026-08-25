@@ -253,6 +253,57 @@ test("authoritative ingestion links every real run alias and keeps cross-job DNC
     .some((event) => event.eventType === "douyin_do_not_contact_retained"), true);
 });
 
+test("running ingestion exposes candidates without completing the run and terminal replay stays idempotent", async () => {
+  const { planRuns, domain, repository } = await fixture(["run-1"]);
+  let job: AcquisitionCrawlerJob = {
+    ...crawlerJob("job-live", ["run-1"]),
+    state: "running",
+    completedAt: null,
+    ingestionState: null,
+  };
+  const records = [normalized()];
+  const crawlerJobs = {
+    async findByRun() { return job; },
+    async listRecords() { return records; }
+  };
+  const ingest = (at = NOW) => ingestDouyinCrawlerPage({
+    crawlerJobs, repository, workspaceId: SCOPE.workspaceId, runId: "run-1",
+    scope: SCOPE, now: () => at
+  });
+
+  await ingest();
+  const liveRun = await planRuns.getRun("run-1");
+  const liveEvents = await planRuns.listRunEvents("run-1");
+  const liveCandidates = await domain.listCandidates(SCOPE, { limit: 10 });
+  assert.equal(liveRun?.status, "running");
+  assert.equal(liveRun?.completedAt, null);
+  assert.equal(liveCandidates.items.length, 1);
+  assert.equal(liveEvents.filter((event) => event.type === "candidate.discovered").length, 1);
+  assert.equal(liveEvents.filter((event) => event.type === "run.running").length, 1);
+  assert.equal(liveEvents.some((event) => [
+    "run.succeeded", "run.succeeded_empty", "run.partial_success"
+  ].includes(event.type)), false);
+
+  await ingest("2026-08-25T01:05:00.000Z");
+  assert.deepEqual(await planRuns.getRun("run-1"), liveRun);
+  assert.deepEqual(await planRuns.listRunEvents("run-1"), liveEvents);
+
+  job = {
+    ...job,
+    state: "partial",
+    completedAt: "2026-08-25T01:10:00.000Z",
+    ingestionState: "pending",
+  };
+  await ingest("2026-08-25T01:10:00.000Z");
+  const terminalRun = await planRuns.getRun("run-1");
+  const terminalEvents = await planRuns.listRunEvents("run-1");
+  assert.equal(terminalRun?.status, "partial_success");
+  assert.equal(terminalRun?.completedAt, "2026-08-25T01:10:00.000Z");
+  assert.equal((await domain.listCandidates(SCOPE, { limit: 10 })).items.length, 1);
+  assert.equal(terminalEvents.filter((event) => event.type === "candidate.discovered").length, 1);
+  assert.equal(terminalEvents.filter((event) => event.type === "run.partial_success").length, 1);
+});
+
 test("DNC audit dedupe uses an exact event lookup instead of reading every workspace audit", async () => {
   const { domain, repository } = await fixture(["run-1"]);
   let listAuditCalls = 0;
@@ -373,19 +424,64 @@ test("MySQL ingestion schema enforces authoritative evidence and permanent DNC",
   await ensureAcquisitionDouyinCrawlerIngestionMysqlSchema({
     async query(statement: string) {
       sql.push(statement);
+      if (statement.includes("information_schema.COLUMNS")) {
+        return [[{
+          COLUMN_TYPE: "varchar(255)",
+          CHARACTER_SET_NAME: "utf8mb4",
+          COLLATION_NAME: "utf8mb4_unicode_ci"
+        }], []];
+      }
+      if (statement.includes("information_schema.TABLE_CONSTRAINTS")) {
+        return [[{
+          CONSTRAINT_NAME: "acquisition_douyin_crawler_evidence_authority"
+        }], []];
+      }
       return [[], []];
     }
   } as never);
-  assert.deepEqual(sql, [
+  assert.deepEqual(sql.slice(0, 2), [
     acquisitionDouyinCrawlerEvidenceIndexDdl,
     acquisitionDouyinDoNotContactDdl
   ]);
   assert.match(sql[0]!, /PRIMARY KEY \(workspace_id,content_hash\)/u);
   assert.match(sql[0]!, /platform_record_id,observed_at,evidence_id/u);
-  assert.match(sql[0]!, /REFERENCES acquisition_discovery_evidence\(id\) ON DELETE CASCADE/u);
   assert.match(sql[0]!, /candidate_id,retain_until/u);
   assert.match(sql[1]!, /PRIMARY KEY \(workspace_id,identity_hash\)/u);
   assert.match(sql[1]!, /\^dnc:sha256:\[0-9a-f\]\{64\}\$/u);
+  assert.match(sql[2]!, /information_schema\.COLUMNS/u);
+  assert.match(sql[3]!, /information_schema\.TABLE_CONSTRAINTS/u);
+});
+
+test("MySQL ingestion schema aligns evidence ids before adding the authority foreign key", async () => {
+  const sql: string[] = [];
+  await ensureAcquisitionDouyinCrawlerIngestionMysqlSchema({
+    async query(statement: string) {
+      sql.push(statement);
+      if (statement.includes("information_schema.COLUMNS")) {
+        return [[{
+          COLUMN_TYPE: "varchar(255)",
+          CHARACTER_SET_NAME: "utf8mb4",
+          COLLATION_NAME: "utf8mb4_unicode_ci"
+        }], []];
+      }
+      return [[], []];
+    }
+  } as never);
+
+  assert.doesNotMatch(
+    acquisitionDouyinCrawlerEvidenceIndexDdl,
+    /CONSTRAINT acquisition_douyin_crawler_evidence_authority/u
+  );
+  const align = sql.findIndex((statement) =>
+    /MODIFY COLUMN evidence_id VARCHAR\(255\)[\s\S]*COLLATE utf8mb4_unicode_ci/iu
+      .test(statement)
+  );
+  const addForeignKey = sql.findIndex((statement) =>
+    /ADD CONSTRAINT acquisition_douyin_crawler_evidence_authority/u
+      .test(statement)
+  );
+  assert.notEqual(align, -1);
+  assert.ok(addForeignKey > align);
 });
 
 test("live MySQL commits and rolls back authoritative crawler ingestion", {

@@ -98,6 +98,11 @@ function readStored(storage: PlanDraftStorage | null): StoredPlanDraftState {
 }
 
 function taskError(task: CopilotPlanDraftTask): Error {
+  if (task.errorCode === "SEARCH_PROVIDER_CONNECTION_REQUIRED") {
+    return new Error(
+      "公开搜索增强当前没有可用的搜索 API。不配置 API 时请使用 MediaCrawler 采集。"
+    );
+  }
   return new Error(task.errorCode
     ? `AI 计划生成失败：${task.errorCode}`
     : "AI 计划生成失败，请修改描述后重新生成");

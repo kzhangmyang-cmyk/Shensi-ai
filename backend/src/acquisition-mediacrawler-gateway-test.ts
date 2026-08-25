@@ -147,6 +147,32 @@ test("gateway acknowledges persisted pages and returns the server timestamp", as
   });
 });
 
+test("gateway exposes progressive crawl counts and the bounded failure code", async () => {
+  await withServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      job_id: "job-live",
+      state: "running",
+      created_at: "2026-08-25T04:00:00.000Z",
+      updated_at: "2026-08-25T04:00:01.000Z",
+      completed_at: null,
+      acknowledged_at: null,
+      record_count: 25,
+      page_count: 1,
+      failure_code: null,
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    assert.deepEqual(await gateway.getCrawlJob("job-live"), {
+      jobId: "job-live",
+      state: "running",
+      recordCount: 25,
+      pageCount: 1,
+      failureCode: null,
+    });
+  });
+});
+
 test("gateway sends the exact frozen action and accepts only a bound sanitized receipt", async () => {
   await withServer((request, response) => {
     assert.equal(request.method, "POST");

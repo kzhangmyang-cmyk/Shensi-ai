@@ -118,7 +118,7 @@ export async function ingestDouyinCrawlerPage(input: {
 }): Promise<DouyinCrawlerIngestionResult> {
   const job = await input.crawlerJobs.findByRun(input.workspaceId, input.runId);
   if (!job || job.workspaceId !== input.workspaceId || !job.runIds.includes(input.runId)
-    || !["succeeded", "partial"].includes(job.state)) {
+    || !["running", "succeeded", "partial"].includes(job.state)) {
     throw new Error("untrusted_crawler_page");
   }
   const records = await input.crawlerJobs.listRecords(job.id);

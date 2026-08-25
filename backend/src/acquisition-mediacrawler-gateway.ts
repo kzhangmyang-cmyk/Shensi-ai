@@ -26,7 +26,8 @@ const crawlJobResponseSchema = z.object({
   completed_at: z.string().datetime().nullable(),
   acknowledged_at: z.string().datetime().nullable(),
   record_count: z.number().int().nonnegative(),
-  failure_code: z.string().nullable()
+  page_count: z.number().int().nonnegative(),
+  failure_code: z.string().regex(/^[a-z0-9_]{1,100}$/u).nullable()
 }).strict();
 const crawlJobAcknowledgementSchema = z.object({
   job_id: z.string().min(1),
@@ -109,7 +110,13 @@ export interface DouyinCrawlJobInput {
   maxVideos: number; maxCommentsPerVideo: number; maxPagesPerVideo: number; deadlineAt: string;
   collectCreators: boolean; collectDemandComments: boolean;
 }
-export interface DouyinCrawlJob { jobId: string; state: z.infer<typeof crawlJobStateSchema>; }
+export interface DouyinCrawlJob {
+  jobId: string;
+  state: z.infer<typeof crawlJobStateSchema>;
+  recordCount: number;
+  pageCount: number;
+  failureCode: string | null;
+}
 export interface DouyinCrawlJobPage {
   jobId: string; cursor: string | null; nextCursor: string | null; done: boolean;
   records: import("./acquisition-crawler-job.js").NormalizedDouyinRecord[];
@@ -264,7 +271,13 @@ export function createDouyinMediaCrawlerGateway(
   function crawlJob(value: unknown): DouyinCrawlJob {
     const parsed = crawlJobResponseSchema.safeParse(value);
     if (!parsed.success) throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
-    return Object.freeze({ jobId: parsed.data.job_id, state: parsed.data.state });
+    return Object.freeze({
+      jobId: parsed.data.job_id,
+      state: parsed.data.state,
+      recordCount: parsed.data.record_count,
+      pageCount: parsed.data.page_count,
+      failureCode: parsed.data.failure_code,
+    });
   }
 
   return Object.freeze({

@@ -46,24 +46,38 @@ def _instant(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def _read_output_rows(output: Path) -> list[tuple[str, Mapping[str, object]]]:
+def _output_row_identity(kind: str, value: Mapping[str, object]) -> str:
+    return str(
+        value.get("aweme_id") if kind == "video"
+        else value.get("sec_uid") or value.get("sec_user_id")
+        or value.get("user_id") or value.get("uid")
+        if kind == "creator"
+        else value.get("comment_id") or value.get("cid")
+        or ""
+    )
+
+
+def _read_output_rows(
+    output: Path, *, ignore_incomplete_tail: bool = False,
+) -> list[tuple[str, Mapping[str, object]]]:
     rows: list[tuple[str, Mapping[str, object]]] = []
     seen: set[tuple[str, str]] = set()
     for kind, pattern in (("video", "*contents*.jsonl"),
                           ("creator", "*creators*.jsonl"),
                           ("comment", "*comments*.jsonl")):
         for path in sorted(output.glob(f"douyin/jsonl/{pattern}")):
-            for line in path.read_text(encoding="utf-8").splitlines():
+            payload = path.read_bytes()
+            if ignore_incomplete_tail and not payload.endswith(b"\n"):
+                boundary = payload.rfind(b"\n")
+                if boundary < 0:
+                    continue
+                payload = payload[:boundary + 1]
+            for line in payload.decode("utf-8").split("\n"):
+                if not line.strip():
+                    continue
                 value = json.loads(line)
                 if isinstance(value, dict):
-                    identity = str(
-                        value.get("aweme_id") if kind == "video"
-                        else value.get("sec_uid") or value.get("sec_user_id")
-                        or value.get("user_id") or value.get("uid")
-                        if kind == "creator"
-                        else value.get("comment_id") or value.get("cid")
-                        or ""
-                    )
+                    identity = _output_row_identity(kind, value)
                     key = (kind, identity)
                     if identity and key in seen:
                         continue
@@ -184,6 +198,22 @@ class MediaCrawlerRunner:
         process = subprocess.Popen(command, cwd=self._service_root, start_new_session=True,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = request.deadline_at.timestamp()
+        seen: set[tuple[str, str]] = set()
+
+        def newly_completed_rows(*, live: bool):
+            for kind, value in _read_output_rows(
+                output, ignore_incomplete_tail=live,
+            ):
+                identity = _output_row_identity(kind, value)
+                key = (kind, identity or json.dumps(
+                    value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                ))
+                if key in seen:
+                    continue
+                seen.add(key)
+                yield kind, value
+
+        termination_error: Exception | None = None
         while process.poll() is None:
             if cancelled.is_set() or time.time() >= deadline:
                 os.killpg(process.pid, signal.SIGTERM)
@@ -193,12 +223,18 @@ class MediaCrawlerRunner:
                     os.killpg(process.pid, signal.SIGKILL)
                     process.wait(timeout=3)
                 if cancelled.is_set():
-                    return []
-                raise TimeoutError("crawl_deadline_exceeded")
+                    break
+                termination_error = TimeoutError("crawl_deadline_exceeded")
+                break
+            yield from newly_completed_rows(live=True)
             time.sleep(0.05)
+        yield from newly_completed_rows(live=False)
+        if cancelled.is_set():
+            return
+        if termination_error:
+            raise termination_error
         if process.returncode != 0:
             raise RuntimeError("mediacrawler_job_failed")
-        return _read_output_rows(output)
 
     def cleanup(self, job_id: str) -> None:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,254}", job_id):
@@ -277,6 +313,7 @@ class CrawlJobManager:
                             completed_at=job.get("completed_at"),
                             acknowledged_at=job.get("acknowledged_at"),
                             record_count=job["record_count"],
+                            page_count=len(job["pages"]),
                             failure_code=job.get("failure_code"))
 
     def start(self, request: CrawlJobRequest) -> CrawlJobView:
@@ -311,44 +348,83 @@ class CrawlJobManager:
             thread.start()
             return self._view(job)
 
+    @staticmethod
+    def _record_enabled(record: NormalizedDouyinRecord,
+                        request: CrawlJobRequest) -> bool:
+        return (
+            record.kind == "video"
+            or (record.kind == "creator" and request.collect_creators)
+            or (record.kind == "comment" and request.collect_demand_comments)
+        )
+
+    def _append_page(self, job: dict, records: list[NormalizedDouyinRecord],
+                     *, done: bool) -> None:
+        index = len(job["pages"])
+        cursor = None if index == 0 else job["pages"][-1]["next_cursor"]
+        if index > 0 and cursor is None:
+            raise RuntimeError("crawl_page_already_terminal")
+        next_cursor = None if done else secrets.token_urlsafe(32)
+        page = CrawlJobPage(
+            job_id=job["request"]["job_id"], cursor=cursor,
+            next_cursor=next_cursor, done=done, records=records,
+        )
+        page_name = f"page-{index:08d}.json"
+        _atomic_json(
+            self._directory(job["request"]["job_id"]) / page_name,
+            page.model_dump(mode="json"),
+        )
+        job["pages"].append({
+            "cursor": cursor, "next_cursor": next_cursor, "file": page_name,
+        })
+        job["record_count"] += len(records)
+        job["updated_at"] = self._now().isoformat()
+        self._persist(job)
+
     def _execute(self, request: CrawlJobRequest, profile: Path, cancelled: threading.Event) -> None:
+        pending: list[NormalizedDouyinRecord] = []
+        seen: set[str] = set()
         try:
             with self._lock:
                 job = self._jobs[request.job_id]
                 job["state"], job["updated_at"] = "running", self._now().isoformat()
                 self._persist(job)
-            values = list(self._runner(request, profile, cancelled))
-            records = values if all(isinstance(value, NormalizedDouyinRecord) for value in values) else normalize_douyin_records(values, observed_at=self._now())
-            records = [record for record in records if (
-                record.kind == "video"
-                or (record.kind == "creator" and request.collect_creators)
-                or (record.kind == "comment" and request.collect_demand_comments)
-            )]
+            for value in self._runner(request, profile, cancelled):
+                if cancelled.is_set():
+                    break
+                normalized = (
+                    [value] if isinstance(value, NormalizedDouyinRecord)
+                    else normalize_douyin_records([value], observed_at=self._now())
+                )
+                for record in normalized:
+                    if record.record_id in seen or not self._record_enabled(record, request):
+                        continue
+                    seen.add(record.record_id)
+                    pending.append(record)
+                    if len(pending) == self._page_size:
+                        with self._lock:
+                            self._append_page(self._jobs[request.job_id], pending, done=False)
+                        pending = []
             with self._lock:
                 job = self._jobs[request.job_id]
                 if cancelled.is_set():
                     self._finish(job, "cancelled")
                     return
-                pages = []
-                for offset in range(0, max(len(records), 1), self._page_size):
-                    chunk = records[offset:offset + self._page_size]
-                    index = len(pages)
-                    cursor = None if index == 0 else pages[index - 1]["next_cursor"]
-                    done = offset + self._page_size >= len(records)
-                    next_cursor = None if done else secrets.token_urlsafe(32)
-                    page = CrawlJobPage(job_id=request.job_id, cursor=cursor,
-                                        next_cursor=next_cursor, done=done, records=chunk)
-                    page_name = f"page-{index:08d}.json"
-                    _atomic_json(self._directory(request.job_id) / page_name, page.model_dump(mode="json"))
-                    pages.append({"cursor": cursor, "next_cursor": next_cursor, "file": page_name})
-                job["pages"], job["record_count"] = pages, len(records)
+                self._append_page(job, pending, done=True)
                 self._finish(job, "succeeded")
         except Exception:
             with self._lock:
                 job = self._jobs.get(request.job_id)
                 if job:
-                    job["failure_code"] = "crawl_failed"
-                    self._finish(job, "failed")
+                    if cancelled.is_set():
+                        self._finish(job, "cancelled")
+                    elif job["record_count"] > 0 or pending:
+                        if pending or not job["pages"] or job["pages"][-1]["next_cursor"] is not None:
+                            self._append_page(job, pending, done=True)
+                        job["failure_code"] = "crawl_interrupted_after_partial_results"
+                        self._finish(job, "partial")
+                    else:
+                        job["failure_code"] = "crawl_failed"
+                        self._finish(job, "failed")
         finally:
             with self._lock:
                 if self._threads.get(request.job_id) is threading.current_thread():

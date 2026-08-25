@@ -112,10 +112,6 @@ export const acquisitionDouyinRunBindingsDdl = `CREATE TABLE IF NOT EXISTS acqui
   CONSTRAINT acquisition_douyin_run_binding_intent
     FOREIGN KEY (automation_intent_id)
     REFERENCES acquisition_douyin_run_intents (id)
-    ON UPDATE RESTRICT ON DELETE RESTRICT,
-  CONSTRAINT acquisition_douyin_run_binding_authoritative_run
-    FOREIGN KEY (acquisition_run_id)
-    REFERENCES acquisition_runs (id)
     ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB`;
 
@@ -128,8 +124,6 @@ const schemaStatements = [
 ];
 
 export const acquisitionDouyinAutomationMigrationStatements = [
-  `ALTER TABLE acquisition_douyin_run_bindings
-     MODIFY COLUMN acquisition_run_id VARCHAR(160) NOT NULL`,
   `UPDATE acquisition_douyin_run_intents i
      INNER JOIN acquisition_douyin_run_bindings b
        ON b.automation_intent_id=i.id
@@ -144,10 +138,77 @@ export const acquisitionDouyinAutomationMigrationStatements = [
      WHERE JSON_EXTRACT(r.response_json,'$.acquisitionRunId') IS NULL`
 ] as const;
 
+const authoritativeRunColumnMetadataSql = `SELECT COLUMN_TYPE,CHARACTER_SET_NAME,COLLATION_NAME
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE()
+    AND TABLE_NAME='acquisition_runs'
+    AND COLUMN_NAME='id'`;
+
+const authoritativeRunBindingConstraintSql = `SELECT CONSTRAINT_NAME
+  FROM information_schema.TABLE_CONSTRAINTS
+  WHERE TABLE_SCHEMA=DATABASE()
+    AND TABLE_NAME='acquisition_douyin_run_bindings'
+    AND CONSTRAINT_NAME='acquisition_douyin_run_binding_authoritative_run'`;
+
+function trustedMysqlSchemaToken(value: unknown, kind: string) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_]+$/u.test(value)) {
+    throw new Error(`acquisition_douyin_run_binding_invalid_${kind}`);
+  }
+  return value;
+}
+
+function authoritativeRunColumnType(value: unknown) {
+  if (typeof value !== "string" || !/^varchar\([1-9][0-9]{0,3}\)$/iu.test(value)) {
+    throw new Error("acquisition_douyin_run_binding_invalid_authoritative_run_type");
+  }
+  return value;
+}
+
+export async function readAuthoritativeAcquisitionRunColumn(
+  pool: Pick<mysql.Pool, "query">
+) {
+  const [columns] = await pool.query(authoritativeRunColumnMetadataSql);
+  if (!Array.isArray(columns) || columns.length !== 1) {
+    throw new Error("acquisition_douyin_run_binding_authoritative_run_column_missing");
+  }
+  const column = columns[0] as Record<string, unknown>;
+  const columnType = authoritativeRunColumnType(column.COLUMN_TYPE);
+  const characterSet = trustedMysqlSchemaToken(
+    column.CHARACTER_SET_NAME, "authoritative_run_character_set"
+  );
+  const collation = trustedMysqlSchemaToken(
+    column.COLLATION_NAME, "authoritative_run_collation"
+  );
+  return { columnType, characterSet, collation };
+}
+
+async function ensureAuthoritativeRunBindingForeignKey(
+  pool: Pick<mysql.Pool, "query">
+) {
+  const { columnType, characterSet, collation } =
+    await readAuthoritativeAcquisitionRunColumn(pool);
+  const [constraints] = await pool.query(authoritativeRunBindingConstraintSql);
+  if (Array.isArray(constraints) && constraints.length > 0) return;
+
+  await pool.query(
+    `ALTER TABLE acquisition_douyin_run_bindings
+       MODIFY COLUMN acquisition_run_id ${columnType}
+       CHARACTER SET ${characterSet} COLLATE ${collation} NOT NULL`
+  );
+  await pool.query(
+    `ALTER TABLE acquisition_douyin_run_bindings
+       ADD CONSTRAINT acquisition_douyin_run_binding_authoritative_run
+       FOREIGN KEY (acquisition_run_id)
+       REFERENCES acquisition_runs (id)
+       ON UPDATE RESTRICT ON DELETE RESTRICT`
+  );
+}
+
 export async function ensureAcquisitionDouyinAutomationMysqlSchema(
   pool: Pick<mysql.Pool, "query">
 ) {
   for (const statement of schemaStatements) await pool.query(statement);
+  await ensureAuthoritativeRunBindingForeignKey(pool);
   for (const statement of acquisitionDouyinAutomationMigrationStatements) {
     await pool.query(statement);
   }
@@ -176,6 +237,14 @@ function keyHash(value: string) {
 
 function json(value: unknown) {
   return JSON.stringify(value);
+}
+
+function mysqlDate(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error("ACQUISITION_MYSQL_INVALID_DATE");
+  }
+  return date.toISOString().slice(0, 23).replace("T", " ");
 }
 
 function parsed(value: unknown) {
@@ -583,7 +652,7 @@ implements AcquisitionDouyinAutomationRepository {
          VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL)`,
         [run.id, run.planId, run.planVersionId, run.ownerId, run.teamId,
           run.revision, run.planSnapshotHash, run.budgetSnapshotHash,
-          json(run), run.createdAt, run.updatedAt]
+          json(run), mysqlDate(run.createdAt), mysqlDate(run.updatedAt)]
       );
       const identityHash = keyHash(command.value.id);
       const runEvent = {
@@ -609,7 +678,7 @@ implements AcquisitionDouyinAutomationRepository {
           occurred_at)
          VALUES (?,?,NULL,?,?,?,?,?)`,
         [runEvent.id, run.id, run.ownerId, run.teamId, run.revision,
-          json(runEvent), run.createdAt]
+          json(runEvent), mysqlDate(run.createdAt)]
       );
       const audit = {
         id: `apae-douyin-${identityHash.slice(0, 64)}`,
@@ -630,7 +699,7 @@ implements AcquisitionDouyinAutomationRepository {
           occurred_at)
          VALUES (?,?,?,?,?,?,?)`,
         [audit.id, audit.ownerId, audit.teamId, audit.targetType,
-          audit.targetId, json(audit), audit.at]
+          audit.targetId, json(audit), mysqlDate(audit.at)]
       );
       await connection.query(
         `INSERT INTO acquisition_douyin_run_intents

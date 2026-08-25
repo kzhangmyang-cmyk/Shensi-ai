@@ -27,8 +27,19 @@ export interface DouyinAutomationPlanResource {
   etag: string;
 }
 
+export interface AcquisitionHttpErrorDetail {
+  path: string;
+  code: string;
+  message: string;
+}
+
 export class AcquisitionHttpError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+    readonly details: readonly AcquisitionHttpErrorDetail[] = []
+  ) {
     super(message);
     this.name = "AcquisitionHttpError";
   }
@@ -62,6 +73,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function safeErrorDetails(value: unknown): AcquisitionHttpErrorDetail[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item)
+      || typeof item.path !== "string"
+      || typeof item.code !== "string"
+      || typeof item.message !== "string") return [];
+    return [{
+      path: item.path.slice(0, 160),
+      code: item.code.slice(0, 80),
+      message: item.message.slice(0, 300)
+    }];
+  }).slice(0, 10);
+}
+
 function safeError(body: unknown, status: number): AcquisitionHttpError {
   const root = isRecord(body) ? body : {};
   const nested = isRecord(root.error) ? root.error : {};
@@ -69,7 +95,12 @@ function safeError(body: unknown, status: number): AcquisitionHttpError {
     : typeof root.code === "string" ? root.code : `http_${status}`;
   const message = typeof nested.message === "string" ? nested.message
     : typeof root.message === "string" ? root.message : `请求失败（HTTP ${status}）`;
-  return new AcquisitionHttpError(status, code, message.slice(0, 300));
+  const details = safeErrorDetails(nested.details ?? root.details);
+  const firstDetail = details[0];
+  const displayMessage = firstDetail
+    ? `${message}：${firstDetail.path || "请求内容"}：${firstDetail.message}`
+    : message;
+  return new AcquisitionHttpError(status, code, displayMessage.slice(0, 300), details);
 }
 
 function validString(value: unknown): value is string {

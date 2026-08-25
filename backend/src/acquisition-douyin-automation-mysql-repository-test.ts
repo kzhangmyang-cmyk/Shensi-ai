@@ -57,15 +57,63 @@ test("automation MySQL schema keeps immutable versions, a mutable head, hashed r
   await ensureAcquisitionDouyinAutomationMysqlSchema({
     async query(sql: string) {
       executed.push(sql);
+      if (sql.includes("information_schema.COLUMNS")) {
+        return [[{
+          COLUMN_TYPE: "varchar(160)",
+          CHARACTER_SET_NAME: "utf8mb4",
+          COLLATION_NAME: "utf8mb4_unicode_ci"
+        }], []];
+      }
+      if (sql.includes("information_schema.TABLE_CONSTRAINTS")) {
+        return [[{
+          CONSTRAINT_NAME: "acquisition_douyin_run_binding_authoritative_run"
+        }], []];
+      }
       return [[], []];
     }
   } as never);
   assert.deepEqual(executed.slice(0, statements.length), statements);
+  assert.match(executed[statements.length]!, /information_schema\.COLUMNS/u);
+  assert.match(executed[statements.length + 1]!, /information_schema\.TABLE_CONSTRAINTS/u);
   assert.deepEqual(
-    executed.slice(statements.length, -1),
+    executed.slice(statements.length + 2, -1),
     acquisitionDouyinAutomationMigrationStatements
   );
   assert.match(executed.at(-1)!, /SELECT i\.id/u);
+});
+
+test("automation schema aligns the run binding to the authoritative run before adding its foreign key", async () => {
+  const executed: string[] = [];
+  await ensureAcquisitionDouyinAutomationMysqlSchema({
+    async query(sql: string) {
+      executed.push(sql);
+      if (sql.includes("information_schema.COLUMNS")) {
+        return [[{
+          COLUMN_TYPE: "varchar(160)",
+          CHARACTER_SET_NAME: "utf8mb4",
+          COLLATION_NAME: "utf8mb4_unicode_ci"
+        }], []];
+      }
+      if (sql.includes("information_schema.TABLE_CONSTRAINTS")) {
+        return [[], []];
+      }
+      return [[], []];
+    }
+  } as never);
+
+  assert.doesNotMatch(
+    acquisitionDouyinRunBindingsDdl,
+    /CONSTRAINT acquisition_douyin_run_binding_authoritative_run/u
+  );
+  const align = executed.findIndex((sql) =>
+    /MODIFY COLUMN acquisition_run_id VARCHAR\(160\)[\s\S]*COLLATE utf8mb4_unicode_ci/iu
+      .test(sql)
+  );
+  const addForeignKey = executed.findIndex((sql) =>
+    /ADD CONSTRAINT acquisition_douyin_run_binding_authoritative_run/u.test(sql)
+  );
+  assert.notEqual(align, -1);
+  assert.ok(addForeignKey > align);
 });
 
 test("legacy run-intent JSON safely backfills from the authoritative binding", async () => {
@@ -169,10 +217,26 @@ class StatefulAutomationMysqlPool {
   readonly replays = new Map<string, Record<string, unknown>>();
   readonly runs = new Map<string, Record<string, unknown>>();
   readonly bindings = new Map<string, string>();
+  readonly authoritativeDatetimeValues: string[] = [];
   planCurrentVersionId = "plan-version-1";
   accountState: "active" | "login_expired" = "active";
   accountLoginStateVersion = 7;
   private lockTail: Promise<void> = Promise.resolve();
+
+  constructor(private readonly strictMysqlDatetimes = false) {}
+
+  private recordAuthoritativeDatetimes(values: unknown[]) {
+    for (const value of values) {
+      if (this.strictMysqlDatetimes
+        && (typeof value !== "string"
+          || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/u.test(value))) {
+        const error = new Error(`Incorrect datetime value: '${String(value)}'`);
+        Object.assign(error, { code: "ER_TRUNCATED_WRONG_VALUE" });
+        throw error;
+      }
+      this.authoritativeDatetimeValues.push(String(value));
+    }
+  }
 
   private key(workspaceId: unknown, planId: unknown) {
     return `${String(workspaceId)}:${String(planId)}`;
@@ -286,9 +350,14 @@ class StatefulAutomationMysqlPool {
       });
     } else if (normalized.startsWith("INSERT INTO acquisition_douyin_run_bindings")) {
       this.bindings.set(String(values[0]), String(values[1]));
-    } else if (normalized.startsWith("INSERT INTO acquisition_runs")
-      || normalized.startsWith("INSERT INTO acquisition_run_events")
-      || normalized.startsWith("INSERT INTO acquisition_plan_run_audit_events")) {
+    } else if (normalized.startsWith("INSERT INTO acquisition_runs")) {
+      this.recordAuthoritativeDatetimes([values[9], values[10]]);
+      result = [];
+    } else if (normalized.startsWith("INSERT INTO acquisition_run_events")) {
+      this.recordAuthoritativeDatetimes([values[6]]);
+      result = [];
+    } else if (normalized.startsWith("INSERT INTO acquisition_plan_run_audit_events")) {
+      this.recordAuthoritativeDatetimes([values[6]]);
       result = [];
     } else if (normalized.startsWith("INSERT INTO acquisition_douyin_automation_command_replays")) {
       const operation = normalized.includes("'put_policy'") ? "put_policy" : "run_now";
@@ -418,6 +487,43 @@ test("automation MySQL repository matches append, CAS, replay and frozen run beh
     repository.createRunIntent(runCommand),
     /acquisition_douyin_run_intent_binding_corrupt/u
   );
+});
+
+test("automation MySQL repository writes authoritative run timestamps as MySQL DATETIME values", async () => {
+  const pool = new StatefulAutomationMysqlPool(true);
+  const repository = new MysqlAcquisitionDouyinAutomationRepository(pool as never);
+  const value = policyVersion();
+  assert.equal((await repository.savePolicy({
+    workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
+    planVersionId: "plan-version-1", accountId: "account-1", accountLoginStateVersion: 7,
+    expectedEtag: '"default"', defaultEtag: '"default"', idempotencyKey: "datetime-policy-key",
+    requestHash: `sha256:${"b".repeat(64)}`, value
+  })).kind, "created");
+
+  const run: DouyinAutomationRunIntent = {
+    id: "run-datetime", acquisitionRunId: "acquisition-run-datetime",
+    workspaceId: "workspace-1", planId: "plan-1", planVersionId: "plan-version-1",
+    planVersion: 1, planSnapshotHash: "plan-hash", policyVersionId: value.id,
+    policyHash: value.policyHash, accountId: "account-1", accountLoginStateVersion: 7,
+    dailyBudgetId: `sha256:${"d".repeat(64)}`, localDate: "2026-08-25", trigger: "run_now",
+    collectCreators: true, collectDemandComments: true,
+    status: "queued", reason: null, createdBy: "owner-1", createdAt: "2026-08-25T01:01:02.345Z"
+  };
+  const result = await repository.createRunIntent({
+    workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", planId: "plan-1",
+    planVersionId: "plan-version-1", policyVersionId: value.id, accountId: "account-1",
+    accountLoginStateVersion: 7, idempotencyKey: "datetime-run-key",
+    requestHash: `sha256:${"e".repeat(64)}`, value: run,
+    runBinding: bindingFor(run)
+  });
+
+  assert.equal(result.kind, "created");
+  assert.deepEqual(pool.authoritativeDatetimeValues, [
+    "2026-08-25 01:01:02.345",
+    "2026-08-25 01:01:02.345",
+    "2026-08-25 01:01:02.345",
+    "2026-08-25 01:01:02.345"
+  ]);
 });
 
 test("automation MySQL repository serializes identical new policy and run keys", async () => {
@@ -610,6 +716,61 @@ test("live MySQL serializes identical new policy and run keys into exact replay"
     ]);
     assert.deepEqual(runResults.map((result) => result.kind).sort(), ["created", "replay"]);
     assert.deepEqual(runResults[0]?.value, runResults[1]?.value);
+  } finally {
+    await pool.end();
+    await admin.query(`DROP DATABASE IF EXISTS \`${databaseName}\``);
+    await admin.end();
+  }
+});
+
+test("live MySQL aligns a new run binding with the existing authoritative run collation", {
+  skip: !process.env.MYSQL_TEST_ADMIN_URL
+    ? "MYSQL_TEST_ADMIN_URL is required; no database is provisioned implicitly"
+    : false
+}, async () => {
+  const configured = process.env.MYSQL_TEST_ADMIN_URL!;
+  const adminUrl = new URL(configured);
+  const databaseName = `goodjob_douyin_binding_collation_${randomUUID().replaceAll("-", "")}`;
+  const admin = await mysql.createConnection(adminUrl.toString());
+  const databaseUrl = new URL(adminUrl);
+  databaseUrl.pathname = `/${databaseName}`;
+  await admin.query(
+    `CREATE DATABASE \`${databaseName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+  );
+  const pool = mysql.createPool({ uri: databaseUrl.toString(), connectionLimit: 2 });
+  try {
+    await ensureAcquisitionMysqlSchema(pool);
+    await admin.query(
+      `ALTER DATABASE \`${databaseName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`
+    );
+
+    await ensureAcquisitionDouyinAutomationMysqlSchema(pool);
+    await ensureAcquisitionDouyinAutomationMysqlSchema(pool);
+
+    const [columns] = await pool.query(
+      `SELECT TABLE_NAME,COLLATION_NAME
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA=DATABASE()
+         AND ((TABLE_NAME='acquisition_runs' AND COLUMN_NAME='id')
+           OR (TABLE_NAME='acquisition_douyin_run_bindings'
+             AND COLUMN_NAME='acquisition_run_id'))
+       ORDER BY TABLE_NAME`
+    );
+    assert.deepEqual(columns, [
+      {
+        TABLE_NAME: "acquisition_douyin_run_bindings",
+        COLLATION_NAME: "utf8mb4_unicode_ci"
+      },
+      { TABLE_NAME: "acquisition_runs", COLLATION_NAME: "utf8mb4_unicode_ci" }
+    ]);
+    const [constraints] = await pool.query(
+      `SELECT CONSTRAINT_NAME
+       FROM information_schema.TABLE_CONSTRAINTS
+       WHERE TABLE_SCHEMA=DATABASE()
+         AND TABLE_NAME='acquisition_douyin_run_bindings'
+         AND CONSTRAINT_NAME='acquisition_douyin_run_binding_authoritative_run'`
+    );
+    assert.equal(Array.isArray(constraints) ? constraints.length : 0, 1);
   } finally {
     await pool.end();
     await admin.query(`DROP DATABASE IF EXISTS \`${databaseName}\``);

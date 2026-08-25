@@ -248,8 +248,63 @@ test("real acquisition header survives a private-domain round trip without hidde
   await expect(page.locator("#replicaHeaderSubtitle")).toHaveText(
     "真实抖音任务 · 公开搜索 · AI 研判 · 人工审核"
   );
-  await expect(page.locator("#replicaNewTaskButtonLabel")).toHaveText("新建真实任务");
+  await expect(page.locator("#replicaNewTaskButtonLabel")).toHaveText("新建抖音采集计划");
   await expect(page.locator("#demoModuleMain")).toBeHidden();
+});
+
+test("public-search AI generation stays gated without a search connection", async ({ page }) => {
+  let copilotRequests = 0;
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const json = (value: unknown) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(value)
+    });
+    if (url.pathname === "/api/v1/acquisition/provider-connections") {
+      return void await json({ items: [], nextCursor: null });
+    }
+    if (url.pathname === "/api/v1/ai/connections") {
+      return void await json({
+        items: [{
+          id: "model-a",
+          provider: "deepseek",
+          model: "deepseek-v4-pro",
+          status: "active",
+          credentialVersion: 1,
+          capabilitySnapshot: { toolCalling: true }
+        }],
+        nextCursor: null
+      });
+    }
+    if (url.pathname === "/api/v1/acquisition/copilot/sessions") {
+      copilotRequests += 1;
+    }
+    return void await json({ items: [], nextCursor: null });
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem("gj_user", JSON.stringify({
+      id: "demo-admin",
+      name: "Admin",
+      email: "admin@goodjob.com",
+      role: "admin",
+      teamId: "demo-team",
+      avatar: "AD"
+    }));
+  });
+
+  await page.goto("/#acquisition");
+  await page.locator('button[data-acquisition-mode="real"]').click();
+  await page.locator('[data-acquisition-import-action="start-auto-acquisition"]').click();
+
+  const dialog = page.locator("#replicaRealTaskModal");
+  await expect(dialog.locator("#replicaRealPreflightStatus")).toContainText(
+    "公开搜索增强缺少搜索 API"
+  );
+  await expect(dialog.locator("#replicaRealAiGenerate")).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "无需 API，使用 MediaCrawler" })).toBeVisible();
+  expect(copilotRequests).toBe(0);
 });
 
 
@@ -308,10 +363,12 @@ test("AI draft creation preserves the complete server plan through approval and 
     localStorage.setItem("gj_user", JSON.stringify({ id: "demo-admin", name: "Admin", email: "admin@goodjob.com", role: "admin", teamId: "demo-team", avatar: "AD" }));
   });
   await page.goto("/#acquisition");
-  await page.locator('[data-acquisition-mode="real"]').click();
+  await page.locator('button[data-acquisition-mode="real"]').click();
   await page.locator('[data-acquisition-import-action="start-auto-acquisition"]').click();
   const dialog = page.locator("#replicaRealTaskModal");
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "创建公开搜索增强任务（可选）" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "无需 API，使用 MediaCrawler" })).toBeVisible();
   await expect(dialog.locator("#replicaRealTaskModeAi")).toHaveAttribute("aria-pressed", "true");
   await dialog.locator("#replicaRealAiPrompt").fill("帮我找厦门的企业服务和装修抖音商机");
   await dialog.locator("#replicaRealAiGenerate").click();
@@ -348,9 +405,14 @@ test("AI draft creation preserves the complete server plan through approval and 
   await dialog.locator("#replicaRealTaskClose").click();
   await expect(dialog).toBeHidden();
   await page.locator("#replicaNewTaskButton").click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator("#douyinAutomationHost").getByLabel("计划名称")).toBeFocused();
+
+  await page.locator('[data-acquisition-import-action="start-auto-acquisition"]').click();
   await expect(dialog).toBeVisible();
-  await expect(dialog.locator("#replicaRealAiPrompt")).toBeEnabled();
-  await expect(dialog.locator("#replicaRealTaskSubmitStatus")).toBeHidden();
+  await dialog.getByRole("button", { name: "无需 API，使用 MediaCrawler" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator("#douyinAutomationHost").getByLabel("计划名称")).toBeFocused();
 });
 
 test("real acquisition task opens authoritative plan and AI candidate review", async ({ page }) => {

@@ -17,6 +17,8 @@ export interface PersistCrawlerPageInput {
   nextCursor: string | null;
   records: NormalizedDouyinRecord[];
   done: boolean;
+  terminalState?: "succeeded" | "partial";
+  terminalErrorCode?: string | null;
   now: string;
 }
 
@@ -222,6 +224,18 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
         || (input.nextCursor !== null && Buffer.byteLength(input.nextCursor, "utf8") > 512)) {
         throw new TypeError("invalid_crawler_next_cursor");
       }
+      const hasTerminalMetadata = input.terminalState !== undefined
+        || input.terminalErrorCode !== undefined;
+      if ((!input.done && hasTerminalMetadata)
+        || (input.terminalState !== undefined
+          && !["succeeded", "partial"].includes(input.terminalState))
+        || (input.terminalErrorCode !== undefined
+          && input.terminalErrorCode !== null
+          && !/^[a-z0-9_]{1,100}$/u.test(input.terminalErrorCode))
+        || (input.done && input.terminalState !== "partial"
+          && input.terminalErrorCode != null)) {
+        throw new TypeError("invalid_crawler_terminal_metadata");
+      }
       if (input.nextCursor !== null && job.cursorHistory.includes(input.nextCursor)) {
         throw new Error("crawler_cursor_cycle");
       }
@@ -240,11 +254,18 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
         job.recordCount += 1;
         if (candidate) job.candidateBudgetUsed += 1;
       }
+      if (dropped) job.lastErrorCode = "crawler_candidate_budget_exhausted";
       job.cursor = input.nextCursor;
       if (input.nextCursor !== null) job.cursorHistory.push(input.nextCursor);
       job.updatedAt = input.now;
       if (input.done) {
-        job.state = dropped ? "partial" : "succeeded";
+        const sidecarPartial = input.terminalState === "partial";
+        const budgetExhausted = job.lastErrorCode
+          === "crawler_candidate_budget_exhausted";
+        job.state = sidecarPartial || budgetExhausted ? "partial" : "succeeded";
+        job.lastErrorCode = sidecarPartial
+          ? input.terminalErrorCode ?? "mediacrawler_partial"
+          : budgetExhausted ? "crawler_candidate_budget_exhausted" : null;
         job.completedAt = input.now;
         if (job.ingestionState !== "succeeded") job.ingestionState = "pending";
         clearLease(job);

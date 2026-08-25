@@ -291,6 +291,28 @@ for (const status of ["failed", "cancelled"] as const) {
   assert.equal(remaining.includes(`task-${status}`), false, "终态后必须移除 pending task");
 }
 
+const missingSearchWorkflow = createPlanDraftWorkflow({
+  async createCopilotSession() { return { id: "missing-search-session" }; },
+  async createPlanDraftTask() {
+    return {
+      id: "missing-search-task",
+      status: "failed",
+      result: null,
+      errorCode: "SEARCH_PROVIDER_CONNECTION_REQUIRED"
+    };
+  },
+  async getCopilotTask() { throw new Error("终态任务不应轮询"); }
+}, { storage: null });
+await assert.rejects(
+  () => missingSearchWorkflow.generate({ modelConnectionId: "model-a", prompt: "生成公开搜索计划" }),
+  (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /MediaCrawler/u);
+    assert.doesNotMatch(error.message, /SEARCH_PROVIDER_CONNECTION_REQUIRED/u);
+    return true;
+  }
+);
+
 const configuredTimeoutWorkflow = createPlanDraftWorkflow({
   async createCopilotSession() { return { id: "timeout-session" }; },
   async createPlanDraftTask() { return { id: "timeout-task", status: "queued", result: null, errorCode: null }; },

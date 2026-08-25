@@ -108,7 +108,7 @@ export function createDemoRouter(initial: DemoModule = "agents"): DemoRouter {
       ? "真实抖音任务 · 公开搜索 · AI 研判 · 人工审核"
       : meta.subtitle;
     if (search) search.placeholder = meta.searchPlaceholder;
-    if (action) action.textContent = realAcquisition ? "新建真实任务" : meta.primaryAction;
+    if (action) action.textContent = realAcquisition ? "新建抖音采集计划" : meta.primaryAction;
   }
 
   function navigate(module: DemoModule): void {

@@ -13,6 +13,7 @@ dist/
 coverage/
 playwright-report/
 test-results/
+services/media-crawler/.shensi-crawl-output/
 .superpowers/
 .worktrees/
 .env.local

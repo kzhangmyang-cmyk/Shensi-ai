@@ -81,14 +81,20 @@ bounded public actor fields from MediaCrawler's real author object before its
 general-purpose JSONL privacy transform; an anonymous hash is not treated as a
 public profile identity.
 
-After a terminal page is durable, the ingestion worker writes evidence,
-candidates, identity aliases, DNC/audit state, acquisition-run status, and
-candidate-discovered run events through the existing domain and plan-run
-repositories in one transaction. A committed retry is a no-op; a failed write
-rolls the whole unit back. Only then does Node acknowledge the sidecar. The
-durable acknowledgement timestamp starts the sidecar's 24-hour page-retention
-clock and is safe to replay after a crash. The same sweep removes the runner's
-private upstream capture directory. Backend retention removes only
+While a crawl is running, the sidecar tails only complete physical-LF JSONL
+records and publishes immutable nonterminal pages. Node pulls each advertised
+page, atomically advances its opaque cursor, and projects available evidence,
+candidates, identity aliases, DNC/audit state, a running acquisition-run state,
+and candidate-discovered events through the existing domain and plan-run
+repositories. A failed live projection does not discard the durable page; the
+terminal ingestion lane replays all records as compensation. A committed retry
+is a no-op, and a failed transactional projection rolls the whole projection
+back. The final page records either `succeeded` or `partial`; partial jobs retain
+all previously published records and their bounded failure code. Only after the
+terminal projection commits does Node acknowledge the sidecar. The durable
+acknowledgement timestamp starts the sidecar's 24-hour page-retention clock and
+is safe to replay after a crash. The same sweep removes the runner's private
+upstream capture directory. Backend retention removes only
 unlinked evidence 90 days after ingestion, leaving candidate-linked evidence,
 one-way DNC identity, and audit authority intact. Restarts resume from Node
 cursors and ingestion leases; a late run alias replays only this projection,
@@ -161,8 +167,11 @@ batch controllers inside the single existing `.replica-shell`. The controllers
 call only authenticated Node routes with browser CSRF, semantic idempotency and
 ETag authority; they fence generations and abort requests/pollers on mode
 change, logout and close. Automatic collection is the primary surface, while
-authorized public-link import is a collapsed fallback. Private MediaCrawler
-handles, cookies, profiles, leases and internal identifiers are not rendered.
+the real-mode header action focuses the MediaCrawler plan form without loading
+provider or model connections. The generic public-search wizard is a separate
+optional enhancement with explicit search-API and tool-calling-model
+requirements; authorized public-link import is a collapsed fallback. Private
+MediaCrawler handles, cookies, profiles, leases and internal identifiers are not rendered.
 The desktop candidate table and evidence inspector collapse to one-column
 cards at the mobile breakpoint, and page scrolling remains owned by the body/
 main document rather than nested frozen panes.

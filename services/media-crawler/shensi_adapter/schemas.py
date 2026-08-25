@@ -49,6 +49,7 @@ class CrawlJobView(BaseModel):
     completed_at: datetime | None
     acknowledged_at: datetime | None
     record_count: int
+    page_count: int
     failure_code: str | None
 
 

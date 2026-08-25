@@ -382,13 +382,13 @@
       <div class="replica-modal-head">
         <div>
           <span class="replica-wizard-kicker">DOUYIN · REAL ACQUISITION</span>
-          <h2>创建真实抖音获客任务</h2>
+          <h2>创建公开搜索增强任务（可选）</h2>
         </div>
         <button type="button" id="replicaRealTaskClose" aria-label="关闭"><i class="ph ph-x" aria-hidden="true"></i></button>
       </div>
 
       <ol class="replica-wizard-steps" aria-label="任务创建步骤">
-        <li class="active"><b>01</b><span>连接检查</span></li>
+        <li class="active"><b>01</b><span>可选连接</span></li>
         <li><b>02</b><span>定义客户</span></li>
         <li><b>03</b><span>搜索与预算</span></li>
         <li><b>04</b><span>人工批准</span></li>
@@ -397,20 +397,21 @@
       <div class="replica-real-task-scroll">
         <section class="replica-real-form-section replica-preflight-section">
           <div class="replica-form-section-head">
-            <div><span>运行前置</span><h3>连接真实搜索与 AI 模型</h3></div>
+            <div><span>可选增强</span><h3>连接公开搜索与 AI 模型</h3></div>
             <div class="replica-form-section-actions">
-              <button type="button" class="is-primary" id="replicaRealConnectionsConfigure"><i class="ph ph-plugs-connected" aria-hidden="true"></i>配置连接</button>
+              <button type="button" class="is-primary" id="replicaUseMediaCrawler"><i class="ph ph-arrow-left" aria-hidden="true"></i>无需 API，使用 MediaCrawler</button>
+              <button type="button" id="replicaRealConnectionsConfigure"><i class="ph ph-plugs-connected" aria-hidden="true"></i>配置连接</button>
               <button type="button" id="replicaRealConnectionsRefresh"><i class="ph ph-arrow-clockwise" aria-hidden="true"></i>重新检查</button>
             </div>
           </div>
           <div class="replica-connection-grid">
             <label>
-              <span>公开搜索 API</span>
+              <span>公开搜索 API（仅本增强方式）</span>
               <select id="replicaRealSearchConnection" required><option value="">正在读取可用连接…</option></select>
               <small>用于搜索引擎检索公开收录的抖音页面，不等于抖音官方接口。</small>
             </label>
             <label>
-              <span>AI 模型连接</span>
+              <span>AI 模型连接（仅本增强方式）</span>
               <select id="replicaRealModelConnection" required><option value="">正在读取可用模型…</option></select>
               <small>只显示已启用且支持工具调用的模型连接。</small>
             </label>
@@ -446,7 +447,7 @@
         <section class="replica-real-form-section replica-ai-plan-section" id="replicaRealAiSection">
           <div class="replica-form-section-head"><div><span>AI 增长参谋</span><h3>用一句话生成可批准的完整服务端计划</h3></div></div>
           <label class="wide"><span>你的抖音获客目标</span><textarea id="replicaRealAiPrompt" maxlength="20000" required>帮我寻找厦门企业服务和装修行业，在抖音公开表达采购、询价或合作需求的企业和老板。</textarea><small>AI 会保留所有服务端生成的搜索连接、查询、预算与停止条件，供人工完整核对。</small></label>
-          <div class="replica-form-section-actions"><button type="button" class="is-primary" id="replicaRealAiGenerate"><i class="ph ph-sparkle" aria-hidden="true"></i>生成完整计划</button></div>
+          <div class="replica-form-section-actions"><button type="button" class="is-primary" id="replicaRealAiGenerate" aria-describedby="replicaRealPreflightStatus"><i class="ph ph-sparkle" aria-hidden="true"></i>生成完整计划</button></div>
           <div id="replicaRealAiDraft" hidden></div>
         </section>
 

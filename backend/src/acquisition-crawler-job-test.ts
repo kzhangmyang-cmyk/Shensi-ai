@@ -142,6 +142,81 @@ test("cursor history rejects cycles and terminal non-null cursors", async () => 
   })).state, "succeeded");
 });
 
+test("terminal partial metadata preserves records and the bounded sidecar error", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  await repository.enqueue("workspace-1", "run-1", at(0));
+  const claim = await repository.claimNext("worker-A", at(1), 10_000);
+  assert.ok(claim);
+  const record = {
+    recordId: "creator-partial", kind: "creator" as const,
+    actorKind: "creator" as const,
+    canonicalUrl: "https://www.douyin.com/user/creator-partial",
+    publicDisplayName: "Maker",
+    publicProfileUrl: "https://www.douyin.com/user/creator-partial",
+    textExcerpt: "pump", sourceKeyword: "pump", observedAt: at(1), contentHash: ""
+  };
+  record.contentHash = normalizedDouyinContentHash(record);
+
+  const terminal = await repository.persistPage(claim.fence, {
+    expectedCursor: null, nextCursor: null, records: [record], done: true,
+    terminalState: "partial",
+    terminalErrorCode: "crawl_interrupted_after_partial_results",
+    now: at(2)
+  });
+
+  assert.equal(terminal.state, "partial");
+  assert.equal(terminal.lastErrorCode, "crawl_interrupted_after_partial_results");
+  assert.equal(terminal.recordCount, 1);
+  assert.equal(terminal.ingestionState, "pending");
+  assert.equal((await repository.listRecords("crawler-1")).length, 1);
+});
+
+test("terminal metadata is rejected on a nonterminal page", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  await repository.enqueue("workspace-1", "run-1", at(0));
+  const claim = await repository.claimNext("worker-A", at(1), 10_000);
+  assert.ok(claim);
+
+  await assert.rejects(repository.persistPage(claim.fence, {
+    expectedCursor: null, nextCursor: "opaque-A", records: [], done: false,
+    terminalState: "partial",
+    terminalErrorCode: "crawl_interrupted_after_partial_results",
+    now: at(2)
+  }), /invalid_crawler_terminal_metadata/u);
+});
+
+test("candidate budget truncation on an early page survives the final empty page", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input({ dailyCandidateLimit: 1 }));
+  await repository.enqueue("workspace-1", "run-1", at(0));
+  const claim = await repository.claimNext("worker-A", at(1), 10_000);
+  assert.ok(claim);
+  const records = ["creator-one", "creator-two"].map((recordId) => {
+    const record = {
+      recordId, kind: "creator" as const, actorKind: "creator" as const,
+      canonicalUrl: `https://www.douyin.com/user/${recordId}`,
+      publicDisplayName: recordId,
+      publicProfileUrl: `https://www.douyin.com/user/${recordId}`,
+      textExcerpt: "pump", sourceKeyword: "pump", observedAt: at(1), contentHash: ""
+    };
+    record.contentHash = normalizedDouyinContentHash(record);
+    return record;
+  });
+  const first = await repository.persistPage(claim.fence, {
+    expectedCursor: null, nextCursor: "opaque-A", records, done: false, now: at(2)
+  });
+  assert.equal(first.lastErrorCode, "crawler_candidate_budget_exhausted");
+
+  const terminal = await repository.persistPage(claim.fence, {
+    expectedCursor: "opaque-A", nextCursor: null, records: [], done: true,
+    terminalState: "succeeded", terminalErrorCode: null, now: at(3)
+  });
+  assert.equal(terminal.state, "partial");
+  assert.equal(terminal.lastErrorCode, "crawler_candidate_budget_exhausted");
+});
+
 test("persist rejects a well-shaped but tampered normalized content hash", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   await repository.createOrGet(input());

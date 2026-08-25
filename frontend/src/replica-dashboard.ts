@@ -399,7 +399,7 @@ if (replica) {
   document.querySelector("#replicaNewTaskButton")?.addEventListener("click", () => {
     if (!isAcquisitionActive()) return;
     if (replica.dataset.acquisitionMode === "real") {
-      document.dispatchEvent(new CustomEvent("goodjob:acquisition-create-requested"));
+      document.dispatchEvent(new CustomEvent("goodjob:acquisition-mediacrawler-create-requested"));
       return;
     }
     modal?.showModal();

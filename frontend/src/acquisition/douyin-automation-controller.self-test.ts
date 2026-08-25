@@ -4,6 +4,7 @@ import { createDouyinAutomationController } from "./douyin-automation-controller
 const now = new Date().toISOString();
 const activeAccount = { id: "account-1", workspaceId: "workspace-1", platform: "douyin" as const, displayName: "测试账号", state: "active" as const, loginStateVersion: 1, revision: 1, etag: '"account:1"', lastValidatedAt: null, createdAt: now, updatedAt: now };
 const defaultPolicy = { id: null, source: "default" as const, workspaceId: "workspace-1", planId: "plan-1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: "hash", accountId: null, accountLoginStateVersion: null, version: 0, revision: 0, etag: '"policy:0"', policyHash: "hash", keywords: [], schedule: { enabled: false, localTime: "09:30", timeZone: "Asia/Shanghai" }, dailyCandidateLimit: 50, collectCreators: true, collectDemandComments: true, limits: { maxVideos: 30, maxCommentsPerVideo: 50, maxPagesPerVideo: 3, maxDurationSeconds: 3600 }, createdBy: null, createdAt: null };
+const liveCandidate = { id: "candidate-live-1", status: "comment_candidate", displayName: "袜子采购用户", evidence: { sourceUrl: "https://www.douyin.com/video/live-1", excerpt: "公开评论中询问袜子批发" } };
 
 const controller = createDouyinAutomationController({
   api: {
@@ -72,3 +73,44 @@ assert.equal(refreshedPlanId, "plan-new");
 assert.equal(zeroPlanController.getState().planName, "工业需求计划");
 assert.equal(zeroPlanController.getState().planStatus, "approved");
 zeroPlanController.close();
+
+const scheduledRunPolls: Array<() => void> = [];
+let liveCandidateReads = 0;
+const liveCandidateController = createDouyinAutomationController({
+  api: {
+    createPlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "draft", version: 1, etag: '"plan:1"' }),
+    approvePlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "approved", version: 1, etag: '"plan:2"' }),
+    listAccounts: async () => ({ items: [activeAccount] }),
+    createLoginSession: async () => { throw new Error("not used"); },
+    getLoginSession: async () => { throw new Error("not used"); },
+    disconnectAccount: async () => undefined,
+    getAutomation: async () => ({ ...defaultPolicy, keywords: ["袜子"] }),
+    suggestKeywords: async () => ({ keywords: ["袜子"], modelSnapshotId: "model-1" }),
+    putAutomation: async (_planId, input) => ({ ...defaultPolicy, ...input, id: "policy-1", source: "version", accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1, etag: '"policy:1"', createdBy: "user-1", createdAt: now }),
+    runNow: async () => ({ id: "intent-live-1", acquisitionRunId: "run-live-1", workspaceId: "workspace-1", planId: "plan-1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: "hash", policyVersionId: "policy-1", policyHash: "hash", accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: "budget-1", localDate: "2026-08-25", trigger: "run_now", collectCreators: true, collectDemandComments: true, status: "queued", reason: null, createdBy: "user-1", createdAt: now }),
+    getCrawlerStatus: async () => ({ runId: "run-live-1", state: "running", attempt: 1, cursorPersisted: true, recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50, lastErrorCode: null, createdAt: now, updatedAt: now, completedAt: null }),
+    listRunCandidates: async () => {
+      liveCandidateReads += 1;
+      return { items: [liveCandidate], nextCursor: null };
+    }
+  },
+  pollDelayMs: 250,
+  setTimer: ((callback: unknown, delay?: number) => {
+    assert.equal(delay, 250);
+    assert.equal(typeof callback, "function");
+    scheduledRunPolls.push(callback as () => void);
+    return 1;
+  }) as unknown as typeof setTimeout,
+  clearTimer: (() => undefined) as typeof clearTimeout
+});
+await liveCandidateController.load("plan-1", "袜子获客计划");
+await liveCandidateController.runNow();
+assert.equal(liveCandidateController.getState().crawlerStatus?.state, "running");
+assert.deepEqual(liveCandidateController.getState().candidates, [liveCandidate]);
+assert.equal(liveCandidateReads, 1);
+assert.equal(scheduledRunPolls.length, 1, "running crawl must schedule another poll after publishing candidates");
+scheduledRunPolls.shift()?.();
+await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+assert.equal(liveCandidateReads, 2, "scheduled polling must continue while candidates are already visible");
+assert.equal(scheduledRunPolls.length, 1, "each running refresh must schedule the next poll");
+liveCandidateController.close();

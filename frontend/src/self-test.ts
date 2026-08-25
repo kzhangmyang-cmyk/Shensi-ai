@@ -138,6 +138,7 @@ const required = [
   "id=\"replicaRealSearchConnection\"",
   "id=\"replicaRealModelConnection\"",
   "id=\"replicaRealConnectionsConfigure\"",
+  "id=\"replicaUseMediaCrawler\"",
   "id=\"replicaConnectionCenter\"",
   "id=\"replicaConnectionCenterBody\"",
   "id=\"replicaAcquisitionDetailCenter\"",

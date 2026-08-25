@@ -100,6 +100,7 @@ function initialise(): void {
   const cancel = byId<HTMLButtonElement>("replicaRealTaskCancel");
   const refresh = byId<HTMLButtonElement>("replicaRealConnectionsRefresh");
   const configure = byId<HTMLButtonElement>("replicaRealConnectionsConfigure");
+  const useMediaCrawler = byId<HTMLButtonElement>("replicaUseMediaCrawler");
   const searchSelect = byId<HTMLSelectElement>("replicaRealSearchConnection");
   const modelSelect = byId<HTMLSelectElement>("replicaRealModelConnection");
   const approvalConfirmed = byId<HTMLInputElement>("replicaRealApprovalConfirmed");
@@ -164,6 +165,14 @@ function initialise(): void {
   }
 
   function updateSubmitAvailability(): void {
+    if (aiGenerate) {
+      aiGenerate.disabled = mode !== "ai"
+        || !searchConnectionSelect.value
+        || !modelConnectionSelect.value
+        || loadingConnections
+        || submitting
+        || completed;
+    }
     submitButton.disabled = mode === "manual"
       ? !isTaskCreationSubmitReady({
         searchConnectionId: searchConnectionSelect.value,
@@ -208,7 +217,6 @@ function initialise(): void {
     generatedPlan = null;
     generatedCommentSample = undefined;
     if (approvalConfirmed) approvalConfirmed.checked = false;
-    if (aiGenerate) aiGenerate.disabled = false;
     if (aiDraft) {
       aiDraft.hidden = true;
       aiDraft.replaceChildren();
@@ -218,6 +226,14 @@ function initialise(): void {
 
   async function generatePlanDraft(): Promise<void> {
     if (mode !== "ai" || loadingConnections || submitting || completed) return;
+    if (!searchConnectionSelect.value) {
+      setSubmitStatus(
+        "公开搜索增强需要搜索 API；不配置 API 时请使用 MediaCrawler 采集。",
+        "error"
+      );
+      updateSubmitAvailability();
+      return;
+    }
     if (!modelConnectionSelect.value) {
       setSubmitStatus("请先选择一个支持工具调用的 AI 模型。", "error");
       return;
@@ -251,7 +267,6 @@ function initialise(): void {
       setSubmitStatus(error instanceof Error ? error.message : "AI 计划生成失败", "error");
     } finally {
       if (requestGeneration === generation) {
-        if (aiGenerate) aiGenerate.disabled = false;
         updateSubmitAvailability();
       }
     }
@@ -283,11 +298,11 @@ function initialise(): void {
         "ready"
       );
     } else if (searchConnections.length === 0 && modelConnections.length === 0) {
-      setPreflight("还缺 2 项：请先配置并测试真实搜索 API，以及支持工具调用的 AI 模型连接。", "blocked");
+      setPreflight("可选的公开搜索增强尚未配置；可直接切换到无需 API 的 MediaCrawler 采集。", "blocked");
     } else if (searchConnections.length === 0) {
-      setPreflight("还缺 1 项：请先配置并测试一个真实搜索 API 连接。", "blocked");
+      setPreflight("公开搜索增强缺少搜索 API；这不会阻止 MediaCrawler 采集。", "blocked");
     } else {
-      setPreflight("还缺 1 项：请先配置一个支持工具调用的 AI 模型连接。", "blocked");
+      setPreflight("公开搜索增强缺少支持工具调用的 AI 模型；这不会阻止 MediaCrawler 采集。", "blocked");
     }
     updateSubmitAvailability();
   }
@@ -356,7 +371,7 @@ function initialise(): void {
     taskDialog.close();
   }
 
-  document.addEventListener("goodjob:acquisition-create-requested", openDialog);
+  document.addEventListener("goodjob:acquisition-public-search-create-requested", openDialog);
   close?.addEventListener("click", closeDialog);
   cancel?.addEventListener("click", closeDialog);
   refresh?.addEventListener("click", () => void loadConnections());
@@ -365,6 +380,10 @@ function initialise(): void {
     document.dispatchEvent(new CustomEvent("goodjob:connections-open-requested", {
       detail: { mode, returnTo: "task-creation" }
     }));
+  });
+  useMediaCrawler?.addEventListener("click", () => {
+    closeDialog();
+    document.dispatchEvent(new CustomEvent("goodjob:acquisition-mediacrawler-create-requested"));
   });
   document.addEventListener("goodjob:connections-changed", () => {
     if (taskDialog.open) {
