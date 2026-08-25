@@ -49,6 +49,8 @@ function key(prefix: string): string {
 }
 function message(error: unknown): string { return error instanceof Error ? error.message.slice(0, 300) : "未知错误"; }
 const terminalStates = new Set(["succeeded", "partial", "paused", "cancelled", "failed"]);
+const requiresRunPolling = (status: DouyinCrawlerStatus) => !terminalStates.has(status.state)
+  || status.candidateProjectionState === "pending";
 const emptyPolicy = (): DouyinPolicyInput => ({
   keywords: [],
   schedule: { enabled: false, localTime: "09:30", timeZone: "Asia/Shanghai" },
@@ -134,7 +136,7 @@ export function createDouyinAutomationController(options: {
         if (!current(ownGeneration)) return;
         if (crawlerStatus.runId !== runId) throw new Error("服务器返回的采集状态与当前运行不匹配");
         emit({ crawlerStatus, candidates: page.items, phase: "ready", error: null });
-        if (!terminalStates.has(crawlerStatus.state)) scheduleRunRefresh(runId, ownGeneration);
+        if (requiresRunPolling(crawlerStatus)) scheduleRunRefresh(runId, ownGeneration);
       } catch (error) {
         if (current(ownGeneration) && !(error instanceof DOMException && error.name === "AbortError")) {
           emit({ phase: "error", error: message(error) });
@@ -257,7 +259,7 @@ export function createDouyinAutomationController(options: {
       if (!state.planId) return Promise.resolve();
       if (state.runIntent && (!state.crawlerStatus
         || state.crawlerStatus.runId !== state.runIntent.acquisitionRunId)) return Promise.resolve();
-      if (state.crawlerStatus && !terminalStates.has(state.crawlerStatus.state)) {
+      if (state.crawlerStatus && requiresRunPolling(state.crawlerStatus)) {
         return Promise.resolve();
       }
       const own = generation;

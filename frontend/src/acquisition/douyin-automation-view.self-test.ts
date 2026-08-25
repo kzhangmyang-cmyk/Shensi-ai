@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { parseHTML } from "linkedom";
+import type { DouyinCrawlerStatus } from "./douyin-automation-api";
 import { renderDouyinAutomationView } from "./douyin-automation-view";
 
 const { document } = parseHTML("<main id='host'></main>");
@@ -64,7 +65,7 @@ renderDouyinAutomationView(host, {
   draftPolicy: { ...draftPolicy, keywords: ["袜子"] }, runIntent: queuedRunIntent,
   crawlerStatus: {
     runId: "run-old", state: "succeeded", attempt: 1, cursorPersisted: true,
-    recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50,
+    recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50, candidateProjectionState: "ready",
     lastErrorCode: null, createdAt: "2026-08-25T09:30:00.000Z",
     updatedAt: "2026-08-25T09:31:00.000Z", completedAt: "2026-08-25T09:31:00.000Z",
     activity: { phase: "completed", currentKeyword: null, browserMode: "headless", sequence: 5 }
@@ -82,7 +83,7 @@ renderDouyinAutomationView(host, {
   runIntent: null,
   crawlerStatus: {
     runId: "run-live-1", state: "running", attempt: 1, cursorPersisted: true,
-    recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50,
+    recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50, candidateProjectionState: "pending",
     lastErrorCode: null, createdAt: "2026-08-25T09:30:00.000Z",
     updatedAt: "2026-08-25T09:31:00.000Z", completedAt: null,
     activity: {
@@ -101,7 +102,7 @@ assert.match(host.textContent ?? "", /采集中/u);
 assert.match(host.textContent ?? "", /可视窗口已打开/u);
 assert.match(host.textContent ?? "", /正在采集评论/u);
 assert.match(host.textContent ?? "", /当前关键词：袜子/u);
-assert.ok(host.querySelector<HTMLElement>(".douyin-run-observation[role=status][aria-live=polite][aria-atomic=true]"));
+assert.ok(host.querySelector<HTMLElement>(".douyin-run-live-activity[role=status][aria-live=polite][aria-atomic=true]"));
 assert.match(host.textContent ?? "", /第 1 次尝试/u);
 assert.match(host.textContent ?? "", /候选人额度1 \/ 50/u);
 assert.doesNotMatch(host.textContent ?? "", /采集进度|%/u);
@@ -110,4 +111,47 @@ assert.equal(candidatePanel.querySelectorAll(".douyin-candidate-row").length, 1)
 assert.match(candidatePanel.textContent ?? "", /袜子采购用户/u);
 assert.match(candidatePanel.textContent ?? "", /公开评论中询问袜子批发/u);
 assert.doesNotMatch(candidatePanel.textContent ?? "", /正在发现候选人|暂无候选人/u);
+
+const queuedStatus: DouyinCrawlerStatus = {
+  runId: "run-queued-1", state: "queued" as const, attempt: 0, cursorPersisted: false,
+  recordCount: 0, candidateBudgetUsed: 0, candidateBudgetLimit: 50, candidateProjectionState: "pending" as const,
+  lastErrorCode: null, createdAt: "2026-08-25T09:30:00.000Z", updatedAt: "2026-08-25T09:30:00.000Z", completedAt: null,
+  activity: { phase: "queued" as const, currentKeyword: null, browserMode: "headless" as const, sequence: 0 }
+};
+const observedState = (crawlerStatus: DouyinCrawlerStatus, error: string | null = null) => ({
+  phase: "ready" as const, planId: "plan-1", planName: "袜子获客计划", planStatus: "approved" as const,
+  account: connectedAccount, loginSession: null, policy: null, draftPolicy: { ...draftPolicy, keywords: ["袜子"] },
+  runIntent: { ...queuedRunIntent, acquisitionRunId: crawlerStatus.runId }, crawlerStatus, candidates: [], selectedCandidateIds: [], error, suggestionError: null, closed: false
+});
+renderDouyinAutomationView(host, observedState(queuedStatus));
+const firstObservation = host.querySelector<HTMLElement>(".douyin-run-live-activity")!;
+assert.match(firstObservation.textContent ?? "", /等待浏览器启动/u);
+assert.doesNotMatch(firstObservation.textContent ?? "", /后台浏览器运行中/u);
+assert.equal(firstObservation.getAttribute("aria-live"), "polite", "a new queued sequence may announce once");
+assert.equal(firstObservation.querySelector("time"), null, "timestamps must remain outside the live region");
+renderDouyinAutomationView(host, observedState({ ...queuedStatus, updatedAt: "2026-08-25T09:31:00.000Z" }));
+const timestampRefresh = host.querySelector<HTMLElement>(".douyin-run-live-activity")!;
+assert.equal(timestampRefresh.getAttribute("aria-live"), "off", "timestamp-only rerenders must not repeat the activity announcement");
+assert.match(host.textContent ?? "", /更新于/u);
+
+renderDouyinAutomationView(host, observedState({
+  ...queuedStatus, state: "succeeded", candidateProjectionState: "pending",
+  activity: { phase: "completed", currentKeyword: null, browserMode: "headless", sequence: 1 }, completedAt: "2026-08-25T09:31:00.000Z"
+}));
+const pendingCandidatePanel = host.querySelector<HTMLElement>(".douyin-candidates-panel")!;
+assert.match(pendingCandidatePanel.textContent ?? "", /正在整理候选人/u);
+assert.doesNotMatch(pendingCandidatePanel.textContent ?? "", /暂无候选人/u);
+
+renderDouyinAutomationView(host, observedState({
+  ...queuedStatus, state: "partial", candidateProjectionState: "ready", lastErrorCode: "mediacrawler_partial",
+  activity: { phase: "completed", currentKeyword: null, browserMode: "headless", sequence: 1 }, completedAt: "2026-08-25T09:31:00.000Z"
+}));
+assert.match(host.textContent ?? "", /采集已部分完成，请检查公开记录后再继续/u);
+assert.doesNotMatch(host.textContent ?? "", /mediacrawler_partial/u);
+renderDouyinAutomationView(host, observedState({
+  ...queuedStatus, state: "failed", candidateProjectionState: "failed", lastErrorCode: "unrecognized_internal_fault",
+  activity: { phase: "completed", currentKeyword: null, browserMode: "headless", sequence: 2 }, completedAt: "2026-08-25T09:31:00.000Z"
+}));
+assert.match(host.textContent ?? "", /采集遇到问题，请稍后重试或联系管理员/u);
+assert.doesNotMatch(host.textContent ?? "", /unrecognized_internal_fault/u);
 console.log(JSON.stringify({ ok: true, suite: "douyin-automation-view" }));

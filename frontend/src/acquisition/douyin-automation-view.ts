@@ -7,6 +7,28 @@ const runLabel: Record<string, string> = { scheduled: "已排期", queued: "排�
 const phaseLabel: Record<string, string> = { queued: "排队中", starting_browser: "正在启动浏览器", opening_douyin: "正在打开抖音", searching: "正在搜索", collecting_comments: "正在采集评论", finalizing: "正在整理候选人", completed: "采集完成" };
 const browserModeLabel: Record<string, string> = { visible: "可视窗口已打开", headless: "后台浏览器运行中" };
 const terminalRunStates = new Set(["succeeded", "partial", "paused", "cancelled", "failed"]);
+const renderedActivitySequence = Symbol("renderedActivitySequence");
+type ActivitySequenceHost = HTMLElement & { [renderedActivitySequence]?: number | null };
+
+function activityBrowserLabel(phase: string, browserMode: string): string {
+  return phase === "queued" ? "等待浏览器启动" : browserModeLabel[browserMode] ?? browserMode;
+}
+
+function localizedCrawlerError(code: string, state: string): string {
+  const known: Record<string, string> = {
+    crawler_candidate_budget_exhausted: "候选人额度已用尽，采集已安全结束。",
+    mediacrawler_partial: "采集已部分完成，请检查公开记录后再继续。",
+    crawler_ingestion_failed: "候选人整理失败，请稍后重试或联系管理员。",
+    crawler_ingestion_lease_expired: "候选人整理等待超时，请稍后重试。",
+    crawler_lease_expired: "采集任务等待超时，请稍后重试。",
+    mediacrawler_job_paused: "采集已安全暂停，请检查后再继续。",
+    mediacrawler_job_failed: "采集失败，请稍后重试或联系管理员。"
+  };
+  if (known[code]) return known[code];
+  return state === "partial"
+    ? "采集已部分完成，请检查公开记录后再继续。"
+    : "采集遇到问题，请稍后重试或联系管理员。";
+}
 
 function candidateKind(candidate: DouyinRunCandidate): string {
   return /comment/iu.test(candidate.status) ? "需求评论者" : /creator/iu.test(candidate.status) ? "内容创作者" : "公开候选人";
@@ -18,7 +40,8 @@ function saveDisabledReason(state: DouyinAutomationState, planName: string, keyw
   if (state.phase === "running") return "正在启动或运行采集…";
   if (state.runIntent && (!state.crawlerStatus
     || state.crawlerStatus.runId !== state.runIntent.acquisitionRunId)) return "等待服务器返回首次观测状态";
-  if (state.crawlerStatus && !terminalRunStates.has(state.crawlerStatus.state)) return "当前采集尚未结束";
+  if (state.crawlerStatus && (!terminalRunStates.has(state.crawlerStatus.state)
+    || state.crawlerStatus.candidateProjectionState === "pending")) return "当前采集尚未结束";
   if (!planName.trim()) return "请输入计划名称";
   if (!keywords.some((keyword) => keyword.trim())) return "至少添加 1 个关键词";
   return null;
@@ -49,6 +72,11 @@ export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutom
   const hasOutstandingRun = Boolean(state.runIntent && (!state.crawlerStatus
     || state.crawlerStatus.runId !== state.runIntent.acquisitionRunId));
   const status = hasOutstandingRun ? null : state.crawlerStatus;
+  const activityHost = host as ActivitySequenceHost;
+  const activitySequence = status?.activity.sequence ?? null;
+  const activityLive = activitySequence !== null && activityHost[renderedActivitySequence] !== activitySequence
+    ? "polite" : "off";
+  activityHost[renderedActivitySequence] = activitySequence;
   const candidates = hasOutstandingRun ? [] : state.candidates;
   const selected = new Set(state.selectedCandidateIds);
   const inspector = candidates.find((candidate) => selected.has(candidate.id)) ?? candidates[0] ?? null;
@@ -90,11 +118,11 @@ export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutom
       </div>
       <article class="douyin-panel douyin-run-panel">
         <div class="douyin-panel-title"><span class="douyin-step">03</span><div><h3>实时采集</h3><p>${status ? escape(runLabel[status.state] ?? status.state) : state.runIntent ? "排队中" : "保存计划后可立即运行"}</p></div></div>
-        ${status ? `<div class="douyin-run-observation" role="status" aria-live="polite" aria-atomic="true"><div class="douyin-run-observation-head"><strong>${escape(phaseLabel[status.activity.phase] ?? status.activity.phase)}</strong><span>${escape(browserModeLabel[status.activity.browserMode] ?? status.activity.browserMode)}</span></div><div class="douyin-run-observation-details"><span>当前关键词：${escape(status.activity.currentKeyword ?? "等待服务器分配关键词")}</span><span>第 ${status.attempt} 次尝试</span><span>更新于 ${escape(new Date(status.updatedAt).toLocaleString("zh-CN", { hour12: false }))}</span></div></div><div class="douyin-run-metrics"><div><span>公开记录</span><strong>${status.recordCount}</strong></div><div><span>候选人额度</span><strong>${status.candidateBudgetUsed} / ${status.candidateBudgetLimit}</strong></div></div>${status.lastErrorCode ? `<p class="douyin-safe-reason" role="status">安全暂停原因：${escape(status.lastErrorCode)}</p>` : ""}` : state.runIntent ? `<div class="douyin-empty" role="status" aria-live="polite" aria-atomic="true"><strong>排队中</strong><p>已提交采集，等待服务器返回首次观测状态。</p></div>` : `<div class="douyin-empty"><strong>暂无采集运行</strong><p>系统不会用演示数据替代服务器状态。</p></div>`}
+        ${status ? `<div class="douyin-run-observation"><div class="douyin-run-live-activity" role="status" aria-live="${activityLive}" aria-atomic="true"><div class="douyin-run-observation-head"><strong>${escape(phaseLabel[status.activity.phase] ?? status.activity.phase)}</strong><span>${escape(activityBrowserLabel(status.activity.phase, status.activity.browserMode))}</span></div><span>当前关键词：${escape(status.activity.currentKeyword ?? "等待服务器分配关键词")}</span></div><div class="douyin-run-observation-details"><span>第 ${status.attempt} 次尝试</span><span>更新于 ${escape(new Date(status.updatedAt).toLocaleString("zh-CN", { hour12: false }))}</span></div></div><div class="douyin-run-metrics"><div><span>公开记录</span><strong>${status.recordCount}</strong></div><div><span>候选人额度</span><strong>${status.candidateBudgetUsed} / ${status.candidateBudgetLimit}</strong></div></div>${status.lastErrorCode ? `<p class="douyin-safe-reason" role="status">运行提示：${escape(localizedCrawlerError(status.lastErrorCode, status.state))}</p>` : ""}` : state.runIntent ? `<div class="douyin-empty" role="status" aria-live="polite" aria-atomic="true"><strong>排队中</strong><p>已提交采集，等待服务器返回首次观测状态。</p></div>` : `<div class="douyin-empty"><strong>暂无采集运行</strong><p>系统不会用演示数据替代服务器状态。</p></div>`}
       </article>
       <article class="douyin-panel douyin-candidates-panel">
         <div class="douyin-panel-title"><span class="douyin-step">04</span><div><h3>候选人与证据</h3><p>选中后生成待审批批次；取消选中即排除，不执行联系。</p></div></div>
-        ${candidates.length ? `<div class="douyin-candidate-workspace"><div class="douyin-candidate-table" role="listbox" aria-label="候选人列表">${candidates.map((candidate, index) => `<label class="douyin-candidate-row ${inspector?.id === candidate.id ? "is-active" : ""}" role="option" aria-selected="${selected.has(candidate.id)}" tabindex="${index === 0 ? 0 : -1}" data-candidate-index="${index}"><input type="checkbox" data-douyin-candidate data-candidate-index="${index}" ${selected.has(candidate.id) ? "checked" : ""}><span class="douyin-candidate-kind">${candidateKind(candidate)}</span><strong>${escape(candidate.displayName)}</strong><span>${escape(candidate.evidence.excerpt.slice(0, 70))}</span><em>${selected.has(candidate.id) ? "已选中" : "排除本批次"}</em></label>`).join("")}</div>${inspector ? `<aside class="douyin-evidence-inspector" aria-label="证据查看器"><span class="douyin-eyebrow">EVIDENCE</span><h4>${escape(inspector.displayName)}</h4><p>${escape(inspector.evidence.excerpt)}</p><a href="${escape(inspector.evidence.sourceUrl)}" target="_blank" rel="noreferrer">查看公开来源</a><small>仅展示服务器保存的公开证据摘要；永久不联系身份已由服务器过滤。</small></aside>` : ""}</div><div class="douyin-actions"><span>已选 ${state.selectedCandidateIds.length} 人</span><button type="button" class="primary" data-douyin-action="create-batch" ${state.selectedCandidateIds.length === 0 ? "disabled" : ""}>生成待审批批次</button></div>` : `<div class="douyin-empty"><strong>${status?.state === "running" ? "正在发现候选人" : "暂无候选人"}</strong><p>${status?.state === "partial" ? "本次为部分结果，已保留可用公开证据。" : "运行自动采集后，创作者与需求评论者将显示在这里。"}</p></div>`}
+        ${candidates.length ? `<div class="douyin-candidate-workspace"><div class="douyin-candidate-table" role="listbox" aria-label="候选人列表">${candidates.map((candidate, index) => `<label class="douyin-candidate-row ${inspector?.id === candidate.id ? "is-active" : ""}" role="option" aria-selected="${selected.has(candidate.id)}" tabindex="${index === 0 ? 0 : -1}" data-candidate-index="${index}"><input type="checkbox" data-douyin-candidate data-candidate-index="${index}" ${selected.has(candidate.id) ? "checked" : ""}><span class="douyin-candidate-kind">${candidateKind(candidate)}</span><strong>${escape(candidate.displayName)}</strong><span>${escape(candidate.evidence.excerpt.slice(0, 70))}</span><em>${selected.has(candidate.id) ? "已选中" : "排除本批次"}</em></label>`).join("")}</div>${inspector ? `<aside class="douyin-evidence-inspector" aria-label="证据查看器"><span class="douyin-eyebrow">EVIDENCE</span><h4>${escape(inspector.displayName)}</h4><p>${escape(inspector.evidence.excerpt)}</p><a href="${escape(inspector.evidence.sourceUrl)}" target="_blank" rel="noreferrer">查看公开来源</a><small>仅展示服务器保存的公开证据摘要；永久不联系身份已由服务器过滤。</small></aside>` : ""}</div><div class="douyin-actions"><span>已选 ${state.selectedCandidateIds.length} 人</span><button type="button" class="primary" data-douyin-action="create-batch" ${state.selectedCandidateIds.length === 0 ? "disabled" : ""}>生成待审批批次</button></div>` : `<div class="douyin-empty"><strong>${status?.candidateProjectionState === "pending" ? "正在整理候选人" : status?.state === "running" ? "正在发现候选人" : "暂无候选人"}</strong><p>${status?.candidateProjectionState === "pending" ? "公开记录已保存，候选人正在整理。" : status?.state === "partial" ? "本次为部分结果，已保留可用公开证据。" : "运行自动采集后，创作者与需求评论者将显示在这里。"}</p></div>`}
       </article>
       ${session ? `<dialog class="douyin-qr-dialog" open aria-labelledby="douyinQrTitle"><div><span class="douyin-eyebrow">SECURE QR LOGIN</span><h3 id="douyinQrTitle">${session.state === "awaiting_scan" ? "请使用抖音扫码" : session.state === "active" ? "账号已连接" : "二维码已过期"}</h3>${session.qrImageDataUrl ? `<img src="${escape(session.qrImageDataUrl)}" alt="抖音登录二维码">` : ""}<p>${session.state === "awaiting_scan" ? `二维码有效至 ${escape(new Date(session.expiresAt).toLocaleTimeString("zh-CN", { hour12: false }))}` : escape(stateLabel[session.state] ?? session.state)}</p><div class="douyin-actions">${session.state === "login_expired" ? `<button type="button" class="primary" data-douyin-action="connect">重新生成</button>` : ""}<button type="button" class="secondary" data-douyin-action="close-qr">关闭</button></div></div></dialog>` : ""}
     </section>`;

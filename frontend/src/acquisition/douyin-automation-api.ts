@@ -107,13 +107,23 @@ function validString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
+const forbiddenResponseFieldNames = new Set([
+  "cookie", "accounthandle", "browserprofile", "leasetoken", "servicesecret"
+]);
+
+function hasForbiddenResponseFieldName(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasForbiddenResponseFieldName);
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(([name, nested]) => forbiddenResponseFieldNames.has(name.toLocaleLowerCase())
+    || hasForbiddenResponseFieldName(nested));
+}
+
 function assertShape<T>(body: unknown, predicate: (value: Record<string, unknown>) => boolean): T {
+  if (hasForbiddenResponseFieldName(body)) {
+    throw new AcquisitionHttpError(502, "unsafe_response", "服务器返回了不应向浏览器暴露的字段");
+  }
   if (!isRecord(body) || !predicate(body)) {
     throw new AcquisitionHttpError(502, "malformed_response", "服务器返回了无法识别的数据");
-  }
-  const forbidden = /cookie|accountHandle|browserProfile|leaseToken|serviceSecret/iu;
-  if (forbidden.test(JSON.stringify(body))) {
-    throw new AcquisitionHttpError(502, "unsafe_response", "服务器返回了不应向浏览器暴露的字段");
   }
   return body as T;
 }
@@ -176,7 +186,7 @@ function crawlerActivityShape(value: unknown): boolean {
 function crawlerStatusShape(value: Record<string, unknown>, runId: string): boolean {
   const keys = [
     "runId", "state", "attempt", "cursorPersisted", "recordCount",
-    "candidateBudgetUsed", "candidateBudgetLimit", "lastErrorCode",
+    "candidateBudgetUsed", "candidateBudgetLimit", "candidateProjectionState", "lastErrorCode",
     "createdAt", "updatedAt", "completedAt", "activity"
   ];
   return Object.keys(value).length === keys.length
@@ -189,6 +199,7 @@ function crawlerStatusShape(value: Record<string, unknown>, runId: string): bool
     && Number.isSafeInteger(value.candidateBudgetUsed) && Number(value.candidateBudgetUsed) >= 0
     && Number.isSafeInteger(value.candidateBudgetLimit)
     && Number(value.candidateBudgetLimit) >= 1 && Number(value.candidateBudgetLimit) <= 200
+    && ["pending", "ready", "failed"].includes(String(value.candidateProjectionState))
     && (value.lastErrorCode === null
       || (typeof value.lastErrorCode === "string" && unicodeLength(value.lastErrorCode) <= 100))
     && validDateTime(value.createdAt) && validDateTime(value.updatedAt)
