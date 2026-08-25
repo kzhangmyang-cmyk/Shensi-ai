@@ -7,6 +7,9 @@ import { canonicalJsonStringify } from "./canonical-json.js";
 
 export type AcquisitionSubjectChannel = "organization" | "individual";
 export type AcquisitionTargetPlatform = "douyin" | "web";
+export type AcquisitionPlanExecutionMode =
+  | "generic"
+  | "douyin_mediacrawler";
 export type AcquisitionOperationKind =
   | "search"
   | "content_fetch"
@@ -96,6 +99,7 @@ export interface AcquisitionPlanOperation {
 }
 
 export interface AcquisitionPlanPayload {
+  executionMode?: AcquisitionPlanExecutionMode;
   targetPlatform?: AcquisitionTargetPlatform;
   douyinPublicCommentSample?: DouyinPublicCommentSamplePolicy;
   name: string;
@@ -114,7 +118,7 @@ export interface AcquisitionPlanPayload {
   providerConnections: AcquisitionProviderConnectionSnapshot[];
   operations: AcquisitionPlanOperation[];
   budgetSnapshot: AcquisitionBudgetSnapshot;
-  modelSnapshotRef: AcquisitionModelSnapshotRef;
+  modelSnapshotRef: AcquisitionModelSnapshotRef | null;
   stopConditions: {
     stopWhenBudgetExhausted: boolean;
     stopWhenNoMoreResults: boolean;
@@ -183,6 +187,7 @@ export function acquisitionFrozenPlanVersionIdentity(
 }
 
 export interface AcquisitionRun {
+  executionMode?: AcquisitionPlanExecutionMode;
   id: string;
   ownerId: string;
   teamId: string;
@@ -199,7 +204,7 @@ export interface AcquisitionRun {
   budgetSnapshot: AcquisitionBudgetSnapshot;
   budgetSnapshotHash: string;
   billingCurrency: string;
-  modelSnapshotRef: AcquisitionModelSnapshotRef;
+  modelSnapshotRef: AcquisitionModelSnapshotRef | null;
   consumedBudget: AcquisitionBudgetUsage;
   evidenceCount: number;
   reason: string | null;
@@ -243,6 +248,9 @@ export function createDouyinCollectionAcquisitionRun(input: {
   return Object.freeze({
     automationIntentId: input.automationIntentId,
     run: Object.freeze({
+      ...(version.payload.executionMode
+        ? { executionMode: version.payload.executionMode }
+        : {}),
       id: input.id,
       ownerId: plan.ownerId,
       teamId: plan.teamId,

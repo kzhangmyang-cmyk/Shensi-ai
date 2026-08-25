@@ -225,7 +225,10 @@ if (replica) {
     if (candidateButton) candidateButton.disabled = false;
     if (isRealTask) {
       document.dispatchEvent(new CustomEvent("goodjob:acquisition-task-selected", {
-        detail: { planId: row.dataset.acquisitionPlanId || "" }
+        detail: {
+          planId: row.dataset.acquisitionPlanId || "",
+          planName: row.dataset.taskName || ""
+        }
       }));
     }
     if (syncFlow) syncFlowToTask(row);

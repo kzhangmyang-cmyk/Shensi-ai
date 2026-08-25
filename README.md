@@ -119,6 +119,18 @@ editing, explicit approval, pause/resume and sanitized action receipts. Public-
 link import remains an authorized secondary fallback. The browser never
 receives MediaCrawler cookies, account handles, browser profiles or leases.
 
+MediaCrawler-only plans declare
+`executionMode: "douyin_mediacrawler"`. They are created with empty
+`providerConnections` and `operations`, no `modelConnectionId`, and a
+server-persisted `modelSnapshotRef: null`; no public-search API or AI model is
+needed to enter manual automation keywords. The authenticated sequence is
+`POST /api/v1/acquisition/plans`, plan approval, `GET`/`PUT` of the plan's
+`/automation` policy, then `POST /plans/{planId}/run-now`. The optional
+`/automation/keyword-suggestions` command still requires an active AI model.
+The generic `/plans/{id}/runs` operation is not a MediaCrawler launch path.
+Omitting `executionMode` retains the compatible `generic` provider-operation
+behavior.
+
 The repository also exposes MySQL-backed development:
 
 ```bash

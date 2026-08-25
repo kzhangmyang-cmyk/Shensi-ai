@@ -2264,6 +2264,14 @@ const planCreateWriteSchema = {
     "stopConditions"
   ],
   properties: {
+    executionMode: {
+      type: "string",
+      enum: ["generic", "douyin_mediacrawler"],
+      default: "generic",
+      description:
+        "Omit for the compatible generic provider-operation mode. Use "
+        + "douyin_mediacrawler only for private MediaCrawler discovery."
+    },
     targetPlatform: {
       type: "string",
       enum: ["douyin", "web"]
@@ -2324,7 +2332,6 @@ const planCreateWriteSchema = {
     },
     providerConnections: {
       type: "array",
-      minItems: 1,
       maxItems: 100,
       items: {
         type: "object",
@@ -2353,7 +2360,6 @@ const planCreateWriteSchema = {
     },
     operations: {
       type: "array",
-      minItems: 1,
       maxItems: 500,
       items: {
         type: "object",
@@ -2409,7 +2415,9 @@ const planCreateWriteSchema = {
       nullable: true,
       minLength: 1,
       maxLength: 255,
-      description: "可选 BYOK 模型连接；服务端据此绑定不可伪造的模型快照。"
+      description:
+        "Optional BYOK model connection for generic plans. It must be omitted "
+        + "or null for douyin_mediacrawler plans."
     },
     stopConditions: {
       type: "object",
@@ -2424,7 +2432,39 @@ const planCreateWriteSchema = {
       additionalProperties: false
     }
   },
-  allOf: [enabledDouyinCommentProviderRequirement],
+  allOf: [
+    {
+      if: {
+        type: "object",
+        required: ["executionMode"],
+        properties: {
+          executionMode: { enum: ["douyin_mediacrawler"] }
+        }
+      },
+      then: {
+        type: "object",
+        required: ["targetPlatform", "providerConnections", "operations"],
+        properties: {
+          targetPlatform: { enum: ["douyin"] },
+          providerConnections: { type: "array", maxItems: 0 },
+          operations: { type: "array", maxItems: 0 },
+          modelConnectionId: {
+            type: "string",
+            enum: [null],
+            nullable: true
+          }
+        }
+      },
+      else: {
+        type: "object",
+        properties: {
+          providerConnections: { type: "array", minItems: 1 },
+          operations: { type: "array", minItems: 1 }
+        }
+      }
+    },
+    enabledDouyinCommentProviderRequirement
+  ],
   additionalProperties: false
 };
 
@@ -2667,9 +2707,14 @@ const planMutationWriteSchema = {
     objective: planCreateWriteSchema.properties.objective,
     icp: planCreateWriteSchema.properties.icp,
     subjectChannels: planCreateWriteSchema.properties.subjectChannels,
-    providerConnections:
-      planCreateWriteSchema.properties.providerConnections,
-    operations: planCreateWriteSchema.properties.operations,
+    providerConnections: {
+      ...planCreateWriteSchema.properties.providerConnections,
+      minItems: 1
+    },
+    operations: {
+      ...planCreateWriteSchema.properties.operations,
+      minItems: 1
+    },
     budgetSnapshot: planCreateWriteSchema.properties.budgetSnapshot,
     modelSnapshotRef: planModelSnapshotWriteSchema,
     stopConditions: planCreateWriteSchema.properties.stopConditions
@@ -3896,6 +3941,15 @@ function addCoreAgentPaths(paths: AcquisitionOpenApiPaths) {
       path,
       method,
       operation(method, summary, {
+        ...(path === "/api/v1/acquisition/plans" && method === "post"
+          ? {
+              description:
+                "Omit executionMode for the compatible generic "
+                + "provider-operation contract. douyin_mediacrawler accepts "
+                + "no search provider, operation, or model connection and "
+                + "must later use approval, automation policy, and run-now."
+            }
+          : {}),
         ...(parameters.length > 0 ? { parameters } : {}),
         ...(body
           ? {

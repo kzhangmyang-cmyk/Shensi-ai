@@ -123,6 +123,17 @@ function planBody(): PublicPlanBody {
   };
 }
 
+function mediaCrawlerPlanBody(): PublicPlanBody {
+  const { modelConnectionId: _modelConnectionId, ...body } = planBody();
+  return {
+    ...body,
+    executionMode: "douyin_mediacrawler",
+    targetPlatform: "douyin",
+    providerConnections: [],
+    operations: []
+  };
+}
+
 function publicCommentPolicy() {
   return {
     enabled: true,
@@ -444,6 +455,26 @@ test("plan creation requires idempotency and binds a trusted model snapshot", as
     );
     assert.equal(otherTeam.response.status, 201);
     assert.notEqual(otherTeam.json.id, created.json.id);
+  } finally {
+    await app.close();
+  }
+});
+
+test("MediaCrawler plan creation persists no model snapshot", async () => {
+  const app = await fixture();
+  try {
+    const created = await app.request("/api/v1/acquisition/plans", {
+      method: "POST",
+      headers: { "Idempotency-Key": "plan-key-mediacrawler" },
+      body: JSON.stringify(mediaCrawlerPlanBody())
+    });
+
+    assert.equal(created.response.status, 201);
+    assert.equal(created.json.payload.executionMode, "douyin_mediacrawler");
+    assert.equal(created.json.payload.modelSnapshotRef, null);
+    assert.deepEqual(created.json.payload.providerConnections, []);
+    assert.deepEqual(created.json.payload.operations, []);
+    assert.equal(app.snapshotRequests.length, 0);
   } finally {
     await app.close();
   }

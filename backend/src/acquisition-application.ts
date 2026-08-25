@@ -1201,6 +1201,9 @@ function assertTrustedPlanSnapshot(
   scope: { ownerId: string; teamId: string },
   payload: AcquisitionPlanPayload
 ) {
+  if (!payload.modelSnapshotRef) {
+    throw new Error("ACQUISITION_PLAN_MODEL_SNAPSHOT_UNAVAILABLE");
+  }
   trustedPlanSnapshot(store, scope, payload.modelSnapshotRef);
 }
 
@@ -1639,7 +1642,8 @@ export async function createAcquisitionApplication(
         : null;
       if (!run
         || run.ownerId !== input.ownerId
-        || run.teamId !== input.teamId) {
+        || run.teamId !== input.teamId
+        || !run.modelSnapshotRef) {
         throw new Error("MODEL_SNAPSHOT_UNAVAILABLE");
       }
       const snapshot = trustedPlanSnapshot(

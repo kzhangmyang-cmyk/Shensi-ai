@@ -100,6 +100,20 @@ Authenticated `/api/v1/acquisition/*` routes cover plans, runs, presentation,
 candidates, evidence, reviews, outcomes, performance, providers/connections,
 operations, versioned outreach batches and their ordered action outbox,
 visual-reader sessions/artifacts, copilot, and advisor projections.
+
+Plan `executionMode` separates the existing provider-operation runtime from
+private MediaCrawler collection. An omitted value is the legacy-compatible
+`generic` mode and continues to require non-empty provider snapshots,
+operations and a trusted model snapshot. A `douyin_mediacrawler` create must
+declare `targetPlatform: douyin`, send empty `providerConnections` and
+`operations`, and omit or null `modelConnectionId`; the persisted Plan and its
+authoritative acquisition Run carry `modelSnapshotRef: null`. This exception
+does not weaken generic plan readiness. A MediaCrawler plan follows `POST
+/plans`, `POST /plans/{id}/approval`, `GET`/`PUT
+/plans/{planId}/automation`, and `POST /plans/{planId}/run-now`. The generic
+`POST /plans/{id}/runs` endpoint rejects this mode rather than creating a
+zero-shard run.
+
 The Douyin account family provides QR-session create/poll, workspace account
 list, and disconnect. POST and DELETE require authentication, the browser CSRF
 cookie/header pair, and semantic `Idempotency-Key`; DELETE also requires the
@@ -107,12 +121,15 @@ current `If-Match`. Account handles, browser contexts, cookies, and profile
 paths remain private.
 The Douyin automation family provides `GET`/`PUT`
 `/plans/{planId}/automation`, `POST /plans/{planId}/automation/keyword-suggestions`,
-and `POST /plans/{planId}/run-now`. Keyword suggestions take no caller business,
-workspace, or model authority: the server derives the current plan objective/ICP,
-resolves the active official model snapshot, and returns at most twenty NFKC-canonical
-editable keywords plus that frozen snapshot identity. Keyword suggestions require an
-empty JSON object and `Idempotency-Key`: exact retries replay the durable result,
-while a changed server-derived plan revision conflicts. Policy writes
+and `POST /plans/{planId}/run-now`. Operators can type and save automation
+keywords without a public-search API or AI connection. Keyword suggestions are
+a separate optional convenience that requires an active AI model; callers
+provide no business, workspace, or model authority. The server derives the
+current plan objective/ICP, resolves the active official model snapshot, and
+returns at most twenty NFKC-canonical editable keywords plus that frozen
+snapshot identity. Keyword suggestions require an empty JSON object and
+`Idempotency-Key`: exact retries replay the durable result, while a changed
+server-derived plan revision conflicts. Policy writes
 require `If-Match` and `Idempotency-Key`; run-now requires
 `Idempotency-Key` and an explicit JSON body (an empty object is valid). At
 least one of creator or demand-comment collection must remain enabled. GET

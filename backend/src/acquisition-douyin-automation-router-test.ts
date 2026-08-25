@@ -42,6 +42,7 @@ const POLICY = {
 
 function payload(): AcquisitionPlanPayload {
   return {
+    executionMode: "douyin_mediacrawler",
     targetPlatform: "douyin",
     name: "抖音获客",
     objective: "工业环保需求",
@@ -62,18 +63,7 @@ function payload(): AcquisitionPlanPayload {
       maxAmountMinor: 10_000,
       maxDurationSeconds: 3_600
     },
-    modelSnapshotRef: {
-      jobSnapshotId: "job-1",
-      connectionId: "connection-1",
-      credentialVersion: 1,
-      provider: "qwen",
-      model: "qwen-plus",
-      capabilitySnapshotHash: "sha256:capability",
-      promptVersion: "prompt-v1",
-      schemaVersion: "schema-v1",
-      promptHash: "sha256:prompt",
-      schemaHash: "sha256:schema"
-    },
+    modelSnapshotRef: null,
     stopConditions: {
       stopWhenBudgetExhausted: true,
       stopWhenNoMoreResults: true

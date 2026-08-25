@@ -13,6 +13,20 @@ export type DouyinAccountList = operations["listAcquisitionDouyinSocialAccounts"
 export type DouyinAccount = DouyinAccountList["items"][number];
 export type DouyinCandidatePage = operations["listAcquisitionRunCandidates"]["responses"][200]["content"]["application/json"];
 
+export interface DouyinAutomationPlanCreateInput {
+  name: string;
+  keywords: string[];
+  dailyCandidateLimit: number;
+}
+
+export interface DouyinAutomationPlanResource {
+  id: string;
+  name: string;
+  status: "draft" | "approved";
+  version: number;
+  etag: string;
+}
+
 export class AcquisitionHttpError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) {
     super(message);
@@ -21,6 +35,8 @@ export class AcquisitionHttpError extends Error {
 }
 
 export interface DouyinAutomationApi {
+  createPlan(input: DouyinAutomationPlanCreateInput, idempotencyKey: string, signal?: AbortSignal): Promise<DouyinAutomationPlanResource>;
+  approvePlan(planId: string, etag: string, signal?: AbortSignal): Promise<DouyinAutomationPlanResource>;
   listAccounts(signal?: AbortSignal): Promise<DouyinAccountList>;
   createLoginSession(idempotencyKey: string, signal?: AbortSignal): Promise<DouyinLoginSession>;
   getLoginSession(sessionId: string, signal?: AbortSignal): Promise<DouyinLoginSession>;
@@ -83,6 +99,13 @@ function loginShape(value: Record<string, unknown>): boolean {
     && validString(value.expiresAt);
 }
 
+function planShape(value: Record<string, unknown>): boolean {
+  const payload = isRecord(value.payload) ? value.payload : {};
+  return validString(value.id) && (validString(value.name) || validString(payload.name))
+    && ["draft", "approved"].includes(String(value.status))
+    && typeof value.version === "number";
+}
+
 export function createDouyinAutomationApi(
   fetchImpl: typeof fetch = fetch,
   options: DouyinAutomationApiOptions = {}
@@ -101,6 +124,27 @@ export function createDouyinAutomationApi(
     return assertShape<T>(body, validate);
   }
 
+  async function requestPlan(path: string, init: RequestInit): Promise<DouyinAutomationPlanResource> {
+    const response = await fetchImpl(path, {
+      ...init,
+      credentials: "same-origin",
+      headers: { accept: "application/json", ...(init.headers ?? {}) }
+    });
+    const body = await response.json().catch(() => null) as unknown;
+    if (!response.ok) throw safeError(body, response.status);
+    const plan = assertShape<Record<string, unknown>>(body, planShape);
+    const etag = response.headers.get("etag");
+    if (!etag) throw new AcquisitionHttpError(502, "malformed_response", "服务器返回的计划缺少 ETag");
+    const payload = isRecord(plan.payload) ? plan.payload : {};
+    return {
+      id: String(plan.id),
+      name: String(validString(plan.name) ? plan.name : payload.name),
+      status: plan.status as DouyinAutomationPlanResource["status"],
+      version: Number(plan.version),
+      etag
+    };
+  }
+
   const writeHeaders = (idempotencyKey: string, etag?: string) => ({
     "content-type": "application/json",
     "Idempotency-Key": idempotencyKey,
@@ -109,6 +153,50 @@ export function createDouyinAutomationApi(
   });
 
   return {
+    createPlan(input, idempotencyKey, signal) {
+      const keywords = input.keywords.map((keyword) => keyword.trim()).filter(Boolean).slice(0, 20);
+      const name = input.name.trim().slice(0, 200);
+      const dailyCandidateLimit = Math.max(1, Math.min(200, Math.trunc(input.dailyCandidateLimit)));
+      const objective = `通过 MediaCrawler 采集抖音公开内容，发现与 ${keywords.join("、")} 相关的潜在客户`;
+      return requestPlan("/api/v1/acquisition/plans", {
+        method: "POST", signal, headers: writeHeaders(idempotencyKey),
+        body: JSON.stringify({
+          executionMode: "douyin_mediacrawler",
+          targetPlatform: "douyin",
+          name,
+          objective,
+          icp: {
+            industries: keywords,
+            regions: ["不限地区"],
+            organizationCriteria: ["公开内容与手工关键词匹配"],
+            individualCriteria: ["公开内容与手工关键词匹配"],
+            exclusionRules: []
+          },
+          subjectChannels: { organization: true, individual: true },
+          providerConnections: [],
+          operations: [],
+          budgetSnapshot: {
+            billingCurrency: "CNY",
+            maxRequests: 1,
+            maxResults: dailyCandidateLimit,
+            maxAmountMinor: 0,
+            maxDurationSeconds: 3_600
+          },
+          stopConditions: { stopWhenBudgetExhausted: true, stopWhenNoMoreResults: true }
+        })
+      });
+    },
+    approvePlan(planId, etag, signal) {
+      return requestPlan(`/api/v1/acquisition/plans/${segment(planId)}/approval`, {
+        method: "POST", signal,
+        headers: {
+          "content-type": "application/json",
+          "X-CSRF-Token": csrfFromCookie(cookieSource()),
+          "If-Match": etag
+        },
+        body: JSON.stringify({ decision: "approve", reason: "启用 MediaCrawler 抖音自动采集" })
+      });
+    },
     listAccounts(signal) {
       return request("/api/v1/acquisition/social-accounts/douyin", { method: "GET", signal },
         (value) => Array.isArray(value.items));

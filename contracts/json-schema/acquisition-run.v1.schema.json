@@ -32,6 +32,10 @@
     "completedAt"
   ],
   "properties": {
+    "executionMode": {
+      "enum": ["generic", "douyin_mediacrawler"],
+      "description": "Absent values are interpreted as generic for persisted legacy runs."
+    },
     "id": { "type": "string", "minLength": 1 },
     "ownerId": { "type": "string", "minLength": 1 },
     "teamId": { "type": "string", "minLength": 1 },
@@ -68,7 +72,12 @@
       "minLength": 3,
       "maxLength": 3
     },
-    "modelSnapshotRef": { "$ref": "#/$defs/modelSnapshot" },
+    "modelSnapshotRef": {
+      "oneOf": [
+        { "$ref": "#/$defs/modelSnapshot" },
+        { "type": "null" }
+      ]
+    },
     "consumedBudget": { "$ref": "#/$defs/budgetUsage" },
     "evidenceCount": { "type": "integer", "minimum": 0 },
     "reason": { "type": ["string", "null"] },
@@ -78,6 +87,29 @@
     "updatedAt": { "type": "string", "format": "date-time" },
     "completedAt": { "type": ["string", "null"], "format": "date-time" }
   },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "required": ["executionMode"],
+        "properties": {
+          "executionMode": { "const": "douyin_mediacrawler" }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "modelSnapshotRef": { "const": null }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "modelSnapshotRef": { "$ref": "#/$defs/modelSnapshot" }
+        }
+      }
+    }
+  ],
   "$defs": {
     "budgetUsage": {
       "type": "object",

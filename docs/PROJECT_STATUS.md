@@ -60,6 +60,14 @@ ledger.
   and is transactionally bound to a distinct authoritative `AcquisitionRun`.
   The public result exposes both identities and never exposes the private
   MediaCrawler account handle.
+- Acquisition plans now distinguish the compatible generic provider-operation
+  mode from `douyin_mediacrawler`. A MediaCrawler plan is Douyin-only, carries
+  no public-search provider, generic operation, model connection, or model
+  snapshot, and can run only through the approved automation-policy/run-now
+  path. Generic plans retain their existing provider, operation, trusted-model,
+  and shard-run requirements. Manual MediaCrawler keywords therefore require
+  neither a public-search API nor AI; server-generated keyword suggestions
+  remain an optional AI-backed convenience.
 - Authoritative Douyin runs feed one crawler job per workspace/plan/policy/day.
   Separate run and automation-intent aliases let scheduled and run-now commands
   share the daily job without mixing their identities. Random fenced crawl and
@@ -126,10 +134,14 @@ ledger.
   pause the account and all queued work. Focused fake-page, Memory, and live
   MySQL 8.4 gates exercise this behavior without making a real Douyin action.
 - The authenticated `#acquisition` dashboard now makes automatic Douyin
-  acquisition the primary workflow. It connects or reconnects a workspace
-  account by expiring QR session, edits and enables keywords/local schedule/
-  timezone/daily candidate limit, starts one run-now command, and renders only
-  persisted crawler status, creator/commenter candidates and public evidence.
+  acquisition the primary workflow. With no existing task it still loads the
+  workspace account and can create, approve, configure, and optionally run a
+  MediaCrawler-only plan from a plan name plus manual keywords. It connects or
+  reconnects a workspace account by expiring QR session, edits and enables
+  keywords/local schedule/timezone/daily candidate limit, starts one run-now
+  command, and renders only persisted crawler status, creator/commenter
+  candidates and public evidence. The separate generic public-search entry is
+  labelled with its search-API and AI dependencies.
   Candidate selection creates an editable outreach batch; revision conflicts
   reload current authority before explicit approval, and pause/resume plus
   sanitized comment/direct-message receipts survive page reload. Authorized
@@ -154,12 +166,13 @@ ledger.
   Node workers and the real sidecar service. Backend and frontend builds and
   frontend type checks passed. That deterministic gate made no request to a
   Douyin/iesdouyin host.
-- Real QR-generation smoke on 2026-08-25 reached Douyin from a visible local
-  Chrome profile and rendered the returned scannable QR in the authenticated
-  `#acquisition` dialog. The same login in headless Chromium returned Douyin's
-  verification interstitial, so local startup now explicitly supports visible
-  Chrome and gives cold QR creation a separate bounded deadline. No QR was
-  scanned and no account authentication was completed.
+- Real QR login on 2026-08-25 reached Douyin from a visible local Chrome
+  profile, rendered the returned QR in the authenticated `#acquisition`
+  dialog, and completed the operator's scan into an active workspace account.
+  The same login in headless Chromium returned Douyin's verification
+  interstitial, so local startup explicitly supports visible Chrome and gives
+  cold QR creation a separate bounded deadline. No crawl, comment, direct
+  message, or other external action was triggered during that login check.
 - Dedicated-account external action acceptance is not performed. No CAPTCHA
   was handled, production traffic changed, or real comment/direct message sent.
   It remains a separately authorized operator checkpoint after the exact

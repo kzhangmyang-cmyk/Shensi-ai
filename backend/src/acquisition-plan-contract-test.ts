@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  acquisitionPlanPayloadContractSchema,
   acquisitionPublicPlanCreateSchema,
   type AcquisitionPublicPlanCreateInput
 } from "./acquisition-plan-contract.js";
@@ -82,6 +83,56 @@ test("public plan create accepts model connection, ICP, operations, and budget",
   const input = publicPlanInput();
 
   assert.deepEqual(acquisitionPublicPlanCreateSchema.parse(input), input);
+});
+
+test("public plan create accepts a provider-free Douyin MediaCrawler plan", () => {
+  const input = {
+    ...publicPlanInput(),
+    executionMode: "douyin_mediacrawler" as const,
+    targetPlatform: "douyin" as const,
+    providerConnections: [],
+    operations: []
+  };
+  delete (input as { modelConnectionId?: string }).modelConnectionId;
+
+  assert.deepEqual(acquisitionPublicPlanCreateSchema.parse(input), input);
+  assert.equal(acquisitionPublicPlanCreateSchema.safeParse({
+    ...input,
+    modelConnectionId: null
+  }).success, true);
+});
+
+test("MediaCrawler plan contract rejects generic provider and model bindings", () => {
+  const input = {
+    ...publicPlanInput(),
+    executionMode: "douyin_mediacrawler" as const,
+    targetPlatform: "douyin" as const,
+    providerConnections: [],
+    operations: []
+  };
+  delete (input as { modelConnectionId?: string }).modelConnectionId;
+
+  for (const invalid of [
+    { ...input, targetPlatform: "web" },
+    { ...input, providerConnections: publicPlanInput().providerConnections },
+    { ...input, operations: publicPlanInput().operations },
+    { ...input, modelConnectionId: "model-connection-1" }
+  ]) {
+    assert.equal(
+      acquisitionPublicPlanCreateSchema.safeParse(invalid).success,
+      false,
+      JSON.stringify(invalid)
+    );
+  }
+
+  assert.equal(acquisitionPlanPayloadContractSchema.safeParse({
+    ...input,
+    modelSnapshotRef: null
+  }).success, true);
+  assert.equal(acquisitionPlanPayloadContractSchema.safeParse({
+    ...input,
+    modelSnapshotRef
+  }).success, false);
 });
 
 test("public plan create accepts an explicit acquisition target platform", () => {

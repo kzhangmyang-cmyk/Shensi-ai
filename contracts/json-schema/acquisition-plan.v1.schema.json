@@ -187,6 +187,10 @@
         "stopConditions"
       ],
       "properties": {
+        "executionMode": {
+          "enum": ["generic", "douyin_mediacrawler"],
+          "description": "Absent values are interpreted as generic for persisted legacy plans."
+        },
         "targetPlatform": { "enum": ["douyin", "web"] },
         "douyinPublicCommentSample": {
           "$ref": "#/$defs/douyinPublicCommentSamplePolicy"
@@ -244,7 +248,12 @@
           "items": { "$ref": "#/$defs/operation" }
         },
         "budgetSnapshot": { "$ref": "#/$defs/budgetSnapshot" },
-        "modelSnapshotRef": { "$ref": "#/$defs/modelSnapshot" },
+        "modelSnapshotRef": {
+          "oneOf": [
+            { "$ref": "#/$defs/modelSnapshot" },
+            { "type": "null" }
+          ]
+        },
         "stopConditions": {
           "type": "object",
           "additionalProperties": false,
@@ -256,6 +265,38 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "required": ["executionMode"],
+            "properties": {
+              "executionMode": { "const": "douyin_mediacrawler" }
+            }
+          },
+          "then": {
+            "type": "object",
+            "required": [
+              "targetPlatform",
+              "providerConnections",
+              "operations",
+              "modelSnapshotRef"
+            ],
+            "properties": {
+              "targetPlatform": { "const": "douyin" },
+              "providerConnections": { "type": "array", "maxItems": 0 },
+              "operations": { "type": "array", "maxItems": 0 },
+              "modelSnapshotRef": { "const": null }
+            }
+          },
+          "else": {
+            "type": "object",
+            "properties": {
+              "providerConnections": { "type": "array", "minItems": 1 },
+              "operations": { "type": "array", "minItems": 1 },
+              "modelSnapshotRef": { "$ref": "#/$defs/modelSnapshot" }
+            }
+          }
+        },
         {
           "if": {
             "type": "object",

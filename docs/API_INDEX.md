@@ -19,7 +19,7 @@ Do not add parallel handwritten DTOs.
   `/api/commission`: CRM and operating routes in `backend/src/server.ts`.
 - `/api/v1/acquisition`: plans, runs, shards, candidates, evidence, reviews,
   provider connections, Douyin QR login/workspace accounts, immutable Douyin
-  automation policies, server-derived keyword suggestions, and run-now intents with distinct authoritative
+  automation policies, optional model-backed keyword suggestions, and run-now intents with distinct authoritative
   acquisition-run IDs, persisted run crawler status, run-scoped candidate
   feeds, immutable outreach batch revisions, human approval, and ordered
   comment-then-message action outbox reads with sanitized execution status,
@@ -27,6 +27,15 @@ Do not add parallel handwritten DTOs.
   visual reader, copilot, outcomes,
   performance, advisor, and
   ROI-related acquisition projections.
+
+Plan creation accepts an optional `executionMode`. Absence means the compatible
+`generic` provider-operation mode. `douyin_mediacrawler` is Douyin-only and
+uses empty provider/operation arrays, no model connection, and a nullable model
+snapshot on its persisted Plan and Run. Its command path is plan create,
+approval, automation GET/PUT, then `/plans/{planId}/run-now`; generic
+`/plans/{id}/runs` rejects this mode. Manually supplied automation keywords do
+not require a search API or AI model. Only `automation/keyword-suggestions`
+requires the server-selected active model.
 - `/api/v1/catalog`: catalog items, package versions, and pricing policies.
 - `/api/v1/quotes`: quote cases, versions, approvals, publication, and deal
   decisions.

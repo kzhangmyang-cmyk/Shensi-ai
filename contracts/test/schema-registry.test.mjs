@@ -278,6 +278,43 @@ function acquisitionPlan(payload) {
   };
 }
 
+function acquisitionRun(overrides = {}) {
+  const payload = acquisitionPlanPayload();
+  return {
+    id: "run-1",
+    ownerId: "owner-1",
+    teamId: "team-1",
+    planId: "plan-1",
+    planVersionId: "plan-version-1",
+    planVersion: 1,
+    planSnapshotHash: validSha256,
+    parentRunId: null,
+    status: "queued",
+    terminationIntent: null,
+    revision: 1,
+    etag: "etag-run-1",
+    budgetSnapshotId: "budget-1",
+    budgetSnapshot: payload.budgetSnapshot,
+    budgetSnapshotHash: validSha256,
+    billingCurrency: "CNY",
+    modelSnapshotRef: payload.modelSnapshotRef,
+    consumedBudget: {
+      requests: 0,
+      results: 0,
+      amountMinor: 0,
+      durationSeconds: 0
+    },
+    evidenceCount: 0,
+    reason: null,
+    createdBy: "user-1",
+    createdAt: "2026-08-15T00:00:00.000Z",
+    updatedBy: "user-1",
+    updatedAt: "2026-08-15T00:00:00.000Z",
+    completedAt: null,
+    ...overrides
+  };
+}
+
 const platformContracts = {
   "platform-connection": {
     id: "platform-connection-1",
@@ -1432,6 +1469,51 @@ test("acquisition plans version an optional Douyin public comment policy", async
   assert.equal(validate(acquisitionPlan(acquisitionPlanPayload({
     douyinPublicCommentSample: { ...policy, unexpected: true }
   }))), false);
+});
+
+test("MediaCrawler plans and runs allow no provider or model only in the explicit execution mode", async () => {
+  const registry = await loadSchemaRegistry();
+  const validatePlan = registry.validators.get("acquisition-plan");
+  const validateRun = registry.validators.get("acquisition-run");
+  const mediaPayload = acquisitionPlanPayload({
+    executionMode: "douyin_mediacrawler",
+    providerConnections: [],
+    operations: [],
+    modelSnapshotRef: null
+  });
+
+  assert.equal(
+    validatePlan(acquisitionPlan(mediaPayload)),
+    true,
+    JSON.stringify(validatePlan.errors)
+  );
+  assert.equal(validatePlan(acquisitionPlan({
+    ...mediaPayload,
+    targetPlatform: "web"
+  })), false, "MediaCrawler mode is Douyin-only");
+  assert.equal(validatePlan(acquisitionPlan({
+    ...mediaPayload,
+    providerConnections: acquisitionPlanPayload().providerConnections
+  })), false, "MediaCrawler mode cannot bind a public-search provider");
+  assert.equal(validatePlan(acquisitionPlan({
+    ...mediaPayload,
+    modelSnapshotRef: acquisitionPlanPayload().modelSnapshotRef
+  })), false, "MediaCrawler mode persists an explicit null model snapshot");
+  assert.equal(validatePlan(acquisitionPlan(acquisitionPlanPayload({
+    modelSnapshotRef: null
+  }))), false, "legacy generic plans still require a model snapshot");
+
+  assert.equal(validateRun(acquisitionRun()), true, JSON.stringify(validateRun.errors));
+  assert.equal(validateRun(acquisitionRun({
+    executionMode: "douyin_mediacrawler",
+    modelSnapshotRef: null
+  })), true, JSON.stringify(validateRun.errors));
+  assert.equal(validateRun(acquisitionRun({
+    executionMode: "douyin_mediacrawler"
+  })), false, "MediaCrawler runs cannot claim model provenance");
+  assert.equal(validateRun(acquisitionRun({
+    modelSnapshotRef: null
+  })), false, "legacy generic runs still require a model snapshot");
 });
 
 test("platform and action contracts accept canonical objects and reject unknown fields", async () => {

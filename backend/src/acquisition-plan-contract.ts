@@ -7,6 +7,11 @@ export const idSchema = requiredText(255);
 
 export const acquisitionTargetPlatformSchema = z.enum(["douyin", "web"]);
 
+export const acquisitionPlanExecutionModeSchema = z.enum([
+  "generic",
+  "douyin_mediacrawler"
+]);
+
 export const douyinPublicCommentSamplePolicySchema = z.object({
   enabled: z.boolean(),
   maxVideosPerRun: z.number().int().min(1).max(20),
@@ -61,6 +66,7 @@ export const acquisitionModelSnapshotSchema = z.object({
 }).strict();
 
 export const acquisitionPlanPayloadSchema = z.object({
+  executionMode: acquisitionPlanExecutionModeSchema.optional(),
   targetPlatform: acquisitionTargetPlatformSchema.optional(),
   douyinPublicCommentSample:
     douyinPublicCommentSamplePolicySchema.optional(),
@@ -78,10 +84,10 @@ export const acquisitionPlanPayloadSchema = z.object({
     individual: z.boolean()
   }).strict(),
   providerConnections:
-    z.array(acquisitionProviderConnectionSchema).min(1).max(100),
-  operations: z.array(acquisitionPlanOperationSchema).min(1).max(500),
+    z.array(acquisitionProviderConnectionSchema).max(100),
+  operations: z.array(acquisitionPlanOperationSchema).max(500),
   budgetSnapshot: acquisitionBudgetSchema,
-  modelSnapshotRef: acquisitionModelSnapshotSchema,
+  modelSnapshotRef: acquisitionModelSnapshotSchema.nullable(),
   stopConditions: z.object({
     stopWhenBudgetExhausted: z.boolean(),
     stopWhenNoMoreResults: z.boolean()
@@ -123,17 +129,100 @@ function refineDouyinPublicCommentSampleBinding(
   }
 }
 
+type PlanExecutionBinding = Pick<
+  z.infer<typeof acquisitionPlanPayloadSchema>,
+  | "executionMode"
+  | "targetPlatform"
+  | "providerConnections"
+  | "operations"
+> & {
+  modelSnapshotRef?: z.infer<typeof acquisitionModelSnapshotSchema> | null;
+  modelConnectionId?: string | null;
+};
+
+function refinePlanExecutionBinding(
+  value: PlanExecutionBinding,
+  context: z.RefinementCtx
+) {
+  const mode = value.executionMode ?? "generic";
+  if (mode === "douyin_mediacrawler") {
+    if (value.targetPlatform !== "douyin") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetPlatform"],
+        message: "MediaCrawler 计划必须显式绑定抖音平台"
+      });
+    }
+    if (value.providerConnections.length !== 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["providerConnections"],
+        message: "MediaCrawler 计划不能绑定通用 Provider"
+      });
+    }
+    if (value.operations.length !== 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["operations"],
+        message: "MediaCrawler 计划不能声明通用运行操作"
+      });
+    }
+    if ("modelSnapshotRef" in value && value.modelSnapshotRef !== null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["modelSnapshotRef"],
+        message: "MediaCrawler 计划不能绑定模型快照"
+      });
+    }
+    if ("modelConnectionId" in value
+      && value.modelConnectionId != null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["modelConnectionId"],
+        message: "MediaCrawler 计划不能绑定模型连接"
+      });
+    }
+    return;
+  }
+
+  if (value.providerConnections.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["providerConnections"],
+      message: "通用计划至少需要一个 Provider"
+    });
+  }
+  if (value.operations.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["operations"],
+      message: "通用计划至少需要一个运行操作"
+    });
+  }
+  if ("modelSnapshotRef" in value && value.modelSnapshotRef === null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["modelSnapshotRef"],
+      message: "通用计划必须绑定模型快照"
+    });
+  }
+}
+
 export const acquisitionPlanPayloadContractSchema =
-  acquisitionPlanPayloadSchema.superRefine(
-    refineDouyinPublicCommentSampleBinding
-  );
+  acquisitionPlanPayloadSchema.superRefine((value, context) => {
+    refineDouyinPublicCommentSampleBinding(value, context);
+    refinePlanExecutionBinding(value, context);
+  });
 
 export const acquisitionPublicPlanCreateSchema =
   acquisitionPlanPayloadSchema
     .omit({ modelSnapshotRef: true })
     .extend({ modelConnectionId: idSchema.nullable().optional() })
     .strict()
-    .superRefine(refineDouyinPublicCommentSampleBinding);
+    .superRefine((value, context) => {
+      refineDouyinPublicCommentSampleBinding(value, context);
+      refinePlanExecutionBinding(value, context);
+    });
 
 export type AcquisitionPublicPlanCreateInput =
   z.infer<typeof acquisitionPublicPlanCreateSchema>;

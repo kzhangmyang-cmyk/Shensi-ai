@@ -690,7 +690,8 @@ export class AcquisitionPlanRunService {
         { issues: pendingIssues }
       );
     }
-    if (this.validatePlanPayloadForApproval) {
+    if (this.validatePlanPayloadForApproval
+      && pending.payload.executionMode !== "douyin_mediacrawler") {
       try {
         await this.validatePlanPayloadForApproval(
           scope,
@@ -862,6 +863,13 @@ export class AcquisitionPlanRunService {
           "已审批计划快照不完整或哈希不匹配"
         );
       }
+      if (version.payload.executionMode === "douyin_mediacrawler") {
+        throw new AcquisitionPlanRunError(
+          409,
+          "mediacrawler_run_now_required",
+          "MediaCrawler 计划只能通过抖音自动化 run-now 执行"
+        );
+      }
       const readinessIssues = planReadinessIssues(version.payload);
       if (readinessIssues.length > 0) {
         throw new AcquisitionPlanRunError(
@@ -869,6 +877,14 @@ export class AcquisitionPlanRunService {
           "plan_not_ready",
           "已审批计划快照不再满足运行条件",
           { issues: readinessIssues }
+        );
+      }
+      const modelSnapshotRef = version.payload.modelSnapshotRef;
+      if (!modelSnapshotRef) {
+        throw new AcquisitionPlanRunError(
+          409,
+          "approved_snapshot_corrupt",
+          "通用计划的已审批快照缺少模型绑定"
         );
       }
 
@@ -904,6 +920,9 @@ export class AcquisitionPlanRunService {
       const runId = this.idFactory("ar");
       const budgetSnapshotId = this.idFactory("abs");
       const run: AcquisitionRun = {
+        ...(version.payload.executionMode
+          ? { executionMode: version.payload.executionMode }
+          : {}),
         id: runId,
         ownerId: scope.ownerId,
         teamId: scope.teamId,
@@ -920,7 +939,7 @@ export class AcquisitionPlanRunService {
         budgetSnapshot: clone(version.payload.budgetSnapshot),
         budgetSnapshotHash: stableHash(version.payload.budgetSnapshot),
         billingCurrency: version.payload.budgetSnapshot.billingCurrency,
-        modelSnapshotRef: clone(version.payload.modelSnapshotRef),
+        modelSnapshotRef: clone(modelSnapshotRef),
         consumedBudget: clone(ZERO_USAGE),
         evidenceCount: 0,
         reason: input.reason?.trim() || null,
@@ -952,7 +971,7 @@ export class AcquisitionPlanRunService {
           budgetSnapshotId,
           allocatedBudget: clone(operation.allocatedBudget),
           consumedBudget: clone(ZERO_USAGE),
-          modelSnapshotRef: clone(version.payload.modelSnapshotRef),
+          modelSnapshotRef: clone(modelSnapshotRef),
           evidenceCount: 0,
           completionIdempotencyKey: undefined,
           completionRequestHash: undefined,

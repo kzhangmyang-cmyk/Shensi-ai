@@ -169,6 +169,16 @@ function planInput(
   };
 }
 
+function mediaCrawlerPlanInput(): AcquisitionPlanDraftInput {
+  return planInput({
+    executionMode: "douyin_mediacrawler",
+    targetPlatform: "douyin",
+    providerConnections: [],
+    operations: [],
+    modelSnapshotRef: null
+  });
+}
+
 class RecordingExecutionPort implements AcquisitionExecutionPort {
   enqueueFailuresRemaining = 0;
   pauseFailuresRemaining = 0;
@@ -467,6 +477,51 @@ test("explicit approval freezes dual-channel ICP, connections, queries, budget a
     approvedVersion.payload.modelSnapshotRef.schemaHash,
     /^sha256:/
   );
+});
+
+test("explicit approval freezes a provider-free MediaCrawler plan without model validation", async () => {
+  let approvalValidationCalls = 0;
+  const { repository, service } = harness({
+    validatePlanPayloadForApproval: async () => {
+      approvalValidationCalls += 1;
+      throw new Error("MediaCrawler approval must not validate generic bindings");
+    }
+  });
+  const draft = await service.createPlan(ownerA, mediaCrawlerPlanInput());
+
+  const approved = await service.approvePlan(
+    ownerA,
+    draft.id,
+    draft.etag,
+    { decision: "approve", reason: "已人工核对抖音采集范围和预算" }
+  );
+
+  assert.equal(approved.status, "approved");
+  assert.equal(approved.approvedVersionId, draft.currentVersionId);
+  assert.ok(approved.approvedSnapshotHash);
+  assert.equal(approvalValidationCalls, 0);
+  const version = await repository.getPlanVersion(draft.currentVersionId);
+  assert.equal(version?.payload.executionMode, "douyin_mediacrawler");
+  assert.equal(version?.payload.modelSnapshotRef, null);
+});
+
+test("generic run creation rejects a MediaCrawler-only plan", async () => {
+  const { executionPort, service } = harness();
+  const draft = await service.createPlan(ownerA, mediaCrawlerPlanInput());
+  const approved = await service.approvePlan(
+    ownerA,
+    draft.id,
+    draft.etag,
+    { decision: "approve", reason: "只允许走 MediaCrawler run-now" }
+  );
+
+  await rejectsCode(
+    () => service.createRun(ownerA, approved.id, {
+      idempotencyKey: "mediacrawler-generic-run"
+    }),
+    "mediacrawler_run_now_required"
+  );
+  assert.equal(executionPort.enqueueCalls.length, 0);
 });
 
 test("Douyin query safety cannot be bypassed by direct plan approval or a tampered approved snapshot", async () => {

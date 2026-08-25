@@ -15,9 +15,9 @@ const TEST_QR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height=
   <text x="120" y="126" fill="#d71935" font-family="Arial, sans-serif" font-size="17" font-weight="700" text-anchor="middle" shape-rendering="auto">TEST ONLY</text>
 </svg>`;
 const TEST_QR_IMAGE_DATA_URL = `data:image/svg+xml;base64,${Buffer.from(TEST_QR_SVG).toString("base64")}`;
-type FixtureState = { loginPolls: number; runPolls: number; actionPolls: number; approvalConflicted: boolean; policyRevision: number; batchRevision: number; batchState: "awaiting_approval" | "approved" | "paused" };
+type FixtureState = { loginPolls: number; runPolls: number; actionPolls: number; approvalConflicted: boolean; policyRevision: number; batchRevision: number; batchState: "awaiting_approval" | "approved" | "paused"; planCreated: boolean; planApproved: boolean; planName: string };
 let state: FixtureState;
-const reset = () => { state = { loginPolls: 0, runPolls: 0, actionPolls: 0, approvalConflicted: false, policyRevision: 0, batchRevision: 1, batchState: "awaiting_approval" }; };
+const reset = () => { state = { loginPolls: 0, runPolls: 0, actionPolls: 0, approvalConflicted: false, policyRevision: 0, batchRevision: 1, batchState: "awaiting_approval", planCreated: false, planApproved: false, planName: "" }; };
 reset();
 
 const readBody = async (request: IncomingMessage) => {
@@ -32,7 +32,7 @@ const send = (response: ServerResponse, body: unknown, status = 200, headers: Re
 };
 const error = (response: ServerResponse, status: number, code: string, message: string) => send(response, { error: { code, message, requestId: "fixture-request" } }, status);
 const authenticated = (request: IncomingMessage) => /(?:^|;\s*)gj_session=fixture-session(?:;|$)/u.test(request.headers.cookie ?? "");
-const writeAuthorized = (request: IncomingMessage) => request.headers["x-csrf-token"] === "fixture-csrf" && typeof request.headers["idempotency-key"] === "string";
+const writeAuthorized = (request: IncomingMessage) => request.headers["x-csrf-token"] === "fixture-csrf";
 
 const account = (accountState: "active" | "risk_paused" = "active") => ({ id: "account-fixture", workspaceId: "workspace-fixture", platform: "douyin" as const, displayName: "测试模拟账号", state: accountState, loginStateVersion: 3, revision: 3, etag: '"account:3"', lastValidatedAt: NOW, createdAt: NOW, updatedAt: NOW });
 const limits = { maxVideos: 30, maxCommentsPerVideo: 50, maxPagesPerVideo: 3, maxDurationSeconds: 3600 };
@@ -53,12 +53,26 @@ const server = createServer(async (request, response) => {
   if (!authenticated(request)) return error(response, 401, "unauthorized", "请先登录");
   if (url.pathname === "/api/auth/me") return send(response, { id: "user-fixture", name: "默认管理员", email: "admin@example.com", role: "admin", teamId: "team-fixture", avatar: "AD" });
   if (!["GET", "HEAD"].includes(request.method ?? "GET") && !writeAuthorized(request)) return error(response, 403, "csrf_invalid", "请求校验失败");
-  if (url.pathname === "/api/v1/acquisition/overview") return send(response, { generatedAt: NOW, platform: "douyin", totals: { tasks: 1 }, statusCounts: { not_started: 1 }, discoveryMethodCounts: { official_authorized: 1 }, tasks: [{ id: "task-fixture", planId: "plan-fixture", name: "抖音工业需求获客", objective: "发现工厂环保改造需求", platform: "douyin", discoveryMethods: ["official_authorized"], planStatus: "approved", latestRun: null, updatedAt: NOW }] });
-  if (url.pathname === "/api/v1/acquisition/tasks/plan-fixture") return send(response, { task: { id: "task-fixture", planId: "plan-fixture", name: "抖音工业需求获客", objective: "发现工厂环保改造需求", platform: "douyin", discoveryMethods: ["official_authorized"], planStatus: "approved", latestRun: null, updatedAt: NOW }, plan: { id: "plan-fixture", status: "approved", version: 1 }, latestRun: null, shards: [], presentation: null });
+  if (url.pathname === "/api/v1/acquisition/overview") return send(response, { generatedAt: NOW, platform: "douyin", totals: { tasks: state.planCreated ? 1 : 0 }, statusCounts: state.planCreated ? { not_started: 1 } : {}, discoveryMethodCounts: state.planCreated ? { official_authorized: 1 } : {}, tasks: state.planCreated ? [{ id: "task-fixture", planId: "plan-fixture", name: state.planName, objective: "通过 MediaCrawler 采集抖音公开内容", platform: "douyin", discoveryMethods: ["official_authorized"], planStatus: state.planApproved ? "approved" : "draft", latestRun: null, updatedAt: NOW }] : [] });
+  if (url.pathname === "/api/v1/acquisition/tasks/plan-fixture" && state.planCreated) return send(response, { task: { id: "task-fixture", planId: "plan-fixture", name: state.planName, objective: "通过 MediaCrawler 采集抖音公开内容", platform: "douyin", discoveryMethods: ["official_authorized"], planStatus: state.planApproved ? "approved" : "draft", latestRun: null, updatedAt: NOW }, plan: { id: "plan-fixture", status: state.planApproved ? "approved" : "draft", version: 1 }, latestRun: null, shards: [], presentation: null });
   if (url.pathname === "/api/v1/acquisition/performance") return send(response, { counts: { discovered: 2, highIntent: 2, approved: 0, converted: 0, contacted: 0, quoted: 0, won: 0, lost: 0 }, rates: { highIntentRate: 1, approvalRate: 0, crmConversionRate: 0, contactRate: 0, quoteRate: 0, winRate: 0 }, valuesByCurrency: [], cost: { status: "not_aggregatable", executionCostMinor: null, currency: null, coverage: "recorded_api_execution_only" }, roi: { status: "not_computable", reason: "channel_cost_or_verified_margin_unavailable" }, dataQuality: { missingAttribution: 0, missingFinancial: 2, truncated: false, lastReconciledAt: NOW }, briefingFacts: { headlines: [], risks: [], actions: [], metricIds: [] } });
   if (url.pathname === "/api/v1/acquisition/social-accounts/douyin" && request.method === "GET") return send(response, { items: state.loginPolls > 1 ? [account()] : [] });
   if (url.pathname === "/api/v1/acquisition/social-accounts/douyin/login-sessions" && request.method === "POST") return send(response, { id: "login-fixture", platform: "douyin", state: "awaiting_scan", qrImageDataUrl: TEST_QR_IMAGE_DATA_URL, expiresAt: "2026-08-25T10:30:00.000Z", account: null }, 201);
   if (url.pathname === "/api/v1/acquisition/social-accounts/douyin/login-sessions/login-fixture") { state.loginPolls += 1; const active = state.loginPolls > 1; return send(response, { id: "login-fixture", platform: "douyin", state: active ? "active" : "awaiting_scan", qrImageDataUrl: active ? null : TEST_QR_IMAGE_DATA_URL, expiresAt: "2026-08-25T10:30:00.000Z", account: active ? account() : null }); }
+  if (url.pathname === "/api/v1/acquisition/plans" && request.method === "POST") {
+    const body = await readBody(request);
+    if (body.executionMode !== "douyin_mediacrawler" || body.targetPlatform !== "douyin"
+      || !Array.isArray(body.providerConnections) || body.providerConnections.length !== 0
+      || !Array.isArray(body.operations) || body.operations.length !== 0
+      || "modelConnectionId" in body) return error(response, 400, "invalid_mediacrawler_plan", "MediaCrawler 计划契约无效");
+    state.planCreated = true;
+    state.planName = typeof body.name === "string" ? body.name : "MediaCrawler 抖音计划";
+    return send(response, { id: "plan-fixture", payload: { name: state.planName }, status: "draft", version: 1 }, 201, { ETag: '"plan:1"' });
+  }
+  if (url.pathname === "/api/v1/acquisition/plans/plan-fixture/approval" && request.method === "POST") {
+    state.planApproved = true;
+    return send(response, { id: "plan-fixture", payload: { name: state.planName }, status: "approved", version: 1 }, 200, { ETag: '"plan:2"' });
+  }
   if (url.pathname === "/api/v1/acquisition/plans/plan-fixture/automation" && request.method === "GET") return send(response, policy());
   if (url.pathname === "/api/v1/acquisition/plans/plan-fixture/automation/keyword-suggestions" && request.method === "POST") return send(response, { keywords: ["工业除尘改造", "工厂节能"], modelSnapshotId: "model-snapshot-public" });
   if (url.pathname === "/api/v1/acquisition/plans/plan-fixture/automation" && request.method === "PUT") { await readBody(request); state.policyRevision += 1; return send(response, policy()); }

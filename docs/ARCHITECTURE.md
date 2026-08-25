@@ -55,6 +55,16 @@ one transaction after locked authority validation. Memory composition uses one
 shared transaction token across plan, account, and automation repositories and
 provides the same all-or-nothing boundary.
 
+The plan payload uses `executionMode` as the closed runtime discriminator.
+Legacy rows without it are `generic` and retain provider-operation plus trusted
+model-snapshot readiness. `douyin_mediacrawler` is an explicit Douyin-only
+branch with empty provider/operation arrays and `modelSnapshotRef: null` on
+both its frozen plan and authoritative run. It can be approved without a
+public-search or AI connection, but it cannot enter the generic shard runner;
+only the automation policy and `run-now` authority may launch collection.
+Manual policy keywords are deterministic input. Model-backed keyword
+suggestions remain an optional, separately authorized command.
+
 Frozen intents materialize as one crawler job per workspace, plan, policy
 version, and policy-local date. Separate alias tables bind every automation
 intent and authoritative acquisition run to that shared job. The repository

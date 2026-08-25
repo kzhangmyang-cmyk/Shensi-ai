@@ -1462,7 +1462,19 @@ test("acquisition schemas are converted to valid OpenAPI 3.0 without weakening c
     },
     subjectChannels: { organization: false, individual: true },
     providerConnections: [providerConnection],
-    operations: [],
+    operations: [{
+      operationId: "douyin-public-comment-fetch",
+      subjectChannel: "individual",
+      kind: "content_fetch",
+      connectionId: providerConnection.connectionId,
+      sourceRef: "https://www.douyin.com/video/test-owned",
+      allocatedBudget: {
+        requests: 1,
+        results: 30,
+        amountMinor: 0,
+        durationSeconds: 60
+      }
+    }],
     budgetSnapshot: {
       billingCurrency: "CNY",
       maxRequests: 1,
@@ -1511,7 +1523,7 @@ test("acquisition schemas are converted to valid OpenAPI 3.0 without weakening c
     targetPlatform: "web",
     douyinPublicCommentSample: { ...enabledPolicy, enabled: false },
     providerConnections: []
-  }), true, JSON.stringify(validatePlanPayload.errors));
+  }), false, JSON.stringify(validatePlanPayload.errors));
   const {
     douyinPublicCommentSample: _omittedPolicy,
     ...legacyPayload
@@ -1520,6 +1532,14 @@ test("acquisition schemas are converted to valid OpenAPI 3.0 without weakening c
     ...legacyPayload,
     targetPlatform: "web",
     providerConnections: []
+  }), false, JSON.stringify(validatePlanPayload.errors));
+  assert.equal(validatePlanPayload({
+    ...legacyPayload,
+    executionMode: "douyin_mediacrawler",
+    targetPlatform: "douyin",
+    providerConnections: [],
+    operations: [],
+    modelSnapshotRef: null
   }), true, JSON.stringify(validatePlanPayload.errors));
 
   const battleCardSchema = (paths[

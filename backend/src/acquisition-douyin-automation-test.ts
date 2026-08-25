@@ -62,6 +62,7 @@ function deferred() {
 
 function planPayload(): AcquisitionPlanPayload {
   return {
+    executionMode: "douyin_mediacrawler",
     targetPlatform: "douyin",
     name: "抖音工业获客",
     objective: "寻找工业环保设备采购需求",
@@ -82,18 +83,7 @@ function planPayload(): AcquisitionPlanPayload {
       maxAmountMinor: 100_000,
       maxDurationSeconds: 3_600
     },
-    modelSnapshotRef: {
-      jobSnapshotId: "job-1",
-      connectionId: "connection-1",
-      credentialVersion: 1,
-      provider: "qwen",
-      model: "qwen-plus",
-      capabilitySnapshotHash: "sha256:capability",
-      promptVersion: "prompt-v1",
-      schemaVersion: "schema-v1",
-      promptHash: "sha256:prompt",
-      schemaHash: "sha256:schema"
-    },
+    modelSnapshotRef: null,
     stopConditions: {
       stopWhenBudgetExhausted: true,
       stopWhenNoMoreResults: true
@@ -664,6 +654,8 @@ test("run-now freezes plan, policy, account, login and binds a distinct authorit
   assert.match(first.value.dailyBudgetId, /^sha256:[a-f0-9]{64}$/u);
   assert.notEqual(first.value.acquisitionRunId, first.value.id);
   const acquisitionRun = await plans.getRun(first.value.acquisitionRunId);
+  assert.equal(acquisitionRun?.executionMode, "douyin_mediacrawler");
+  assert.equal(acquisitionRun?.modelSnapshotRef, null);
   assert.equal(acquisitionRun?.planVersionId, first.value.planVersionId);
   assert.equal(acquisitionRun?.planSnapshotHash, first.value.planSnapshotHash);
   assert.deepEqual(

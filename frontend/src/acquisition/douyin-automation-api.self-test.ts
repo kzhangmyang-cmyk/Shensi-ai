@@ -21,6 +21,8 @@ const login = { id: "login-1", platform: "douyin", state: "awaiting_scan", qrIma
 const run = { id: "intent-1", acquisitionRunId: "run/1", workspaceId: "workspace-1", planId: "plan/1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: policy.planSnapshotHash, policyVersionId: "policy-1", policyHash: policy.policyHash, accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: `sha256:${"3".repeat(64)}`, localDate: "2026-08-25", trigger: "run_now", collectCreators: true, collectDemandComments: true, status: "queued", reason: null, createdBy: "user-1", createdAt: now };
 const crawler = { runId: "run/1", state: "partial", attempt: 1, cursorPersisted: true, recordCount: 2, candidateBudgetUsed: 2, candidateBudgetLimit: 50, lastErrorCode: "douyin_collection_partial", createdAt: now, updatedAt: now, completedAt: now };
 const candidates = { items: [{ id: "candidate-1", status: "creator_candidate", displayName: "候选人", evidence: { sourceUrl: "https://www.douyin.com/video/1", excerpt: "公开证据" } }], nextCursor: null };
+const draftPlan = { id: "plan/1", payload: { name: "工业需求计划" }, status: "draft", version: 1 };
+const approvedPlan = { ...draftPlan, status: "approved" };
 
 const calls: Array<{ url: string; init?: RequestInit }> = [];
 const api = createDouyinAutomationApi(async (input, init) => {
@@ -28,6 +30,8 @@ const api = createDouyinAutomationApi(async (input, init) => {
   calls.push({ url, init });
   const method = init?.method ?? "GET";
   const body = method === "DELETE" ? { ...account, state: "disconnected" }
+    : url === "/api/v1/acquisition/plans" ? draftPlan
+      : url.endsWith("/approval") ? approvedPlan
     : url.endsWith("/login-sessions") ? login
       : url.includes("/login-sessions/") ? { ...login, state: "active", qrImageDataUrl: null, account }
         : url.endsWith("/social-accounts/douyin") ? { items: [account] }
@@ -36,10 +40,19 @@ const api = createDouyinAutomationApi(async (input, init) => {
               : url.endsWith("/crawler-status") ? crawler
                 : url.endsWith("/candidates") ? candidates
                   : policy;
-  return new Response(JSON.stringify(body), { status: method === "POST" && url.endsWith("/login-sessions") ? 201 : 200, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify(body), {
+    status: method === "POST" && (url.endsWith("/login-sessions") || url === "/api/v1/acquisition/plans") ? 201 : 200,
+    headers: { "content-type": "application/json", etag: url.endsWith("/approval") ? '"plan:2"' : '"plan:1"' }
+  });
 }, { cookieSource: () => "gj_csrf=csrf-value" });
 
 const signal = new AbortController().signal;
+const createdPlan = await api.createPlan({ name: "工业需求计划", keywords: ["工业除尘", "工厂节能"], dailyCandidateLimit: 50 }, "plan-key", signal);
+assert.equal(createdPlan.id, "plan/1");
+assert.equal(createdPlan.etag, '"plan:1"');
+const approved = await api.approvePlan(createdPlan.id, createdPlan.etag, signal);
+assert.equal(approved.status, "approved");
+assert.equal(approved.etag, '"plan:2"');
 await api.listAccounts(signal);
 await api.createLoginSession("login-key", signal);
 await api.getLoginSession("login/1", signal);
@@ -53,6 +66,8 @@ await api.getCrawlerStatus("run/1", signal);
 await api.listRunCandidates("run/1", signal);
 
 assert.deepEqual(calls.map((call) => call.url), [
+  "/api/v1/acquisition/plans",
+  "/api/v1/acquisition/plans/plan%2F1/approval",
   "/api/v1/acquisition/social-accounts/douyin",
   "/api/v1/acquisition/social-accounts/douyin/login-sessions",
   "/api/v1/acquisition/social-accounts/douyin/login-sessions/login%2F1",
@@ -65,18 +80,27 @@ assert.deepEqual(calls.map((call) => call.url), [
   "/api/v1/acquisition/runs/run%2F1/candidates"
 ]);
 assert.ok(calls.every((call) => call.init?.signal === signal));
-assert.equal(calls[1]?.init?.method, "POST");
-assert.deepEqual(JSON.parse(String(calls[1]?.init?.body)), { platform: "douyin" });
-assert.equal(calls[3]?.init?.method, "DELETE");
-assert.equal(new Headers(calls[3]?.init?.headers).get("if-match"), '"account:1"');
-const putHeaders = new Headers(calls[6]?.init?.headers);
-assert.equal(calls[6]?.init?.method, "PUT");
+const planCreateBody = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+assert.equal(planCreateBody.executionMode, "douyin_mediacrawler");
+assert.equal(planCreateBody.targetPlatform, "douyin");
+assert.deepEqual(planCreateBody.providerConnections, []);
+assert.deepEqual(planCreateBody.operations, []);
+assert.equal("modelConnectionId" in planCreateBody, false);
+assert.equal(new Headers(calls[0]?.init?.headers).get("idempotency-key"), "plan-key");
+assert.deepEqual(JSON.parse(String(calls[1]?.init?.body)), { decision: "approve", reason: "启用 MediaCrawler 抖音自动采集" });
+assert.equal(new Headers(calls[1]?.init?.headers).get("if-match"), '"plan:1"');
+assert.equal(calls[3]?.init?.method, "POST");
+assert.deepEqual(JSON.parse(String(calls[3]?.init?.body)), { platform: "douyin" });
+assert.equal(calls[5]?.init?.method, "DELETE");
+assert.equal(new Headers(calls[5]?.init?.headers).get("if-match"), '"account:1"');
+const putHeaders = new Headers(calls[8]?.init?.headers);
+assert.equal(calls[8]?.init?.method, "PUT");
 assert.equal(putHeaders.get("x-csrf-token"), "csrf-value");
 assert.equal(putHeaders.get("idempotency-key"), "policy-key");
 assert.equal(putHeaders.get("if-match"), '"policy:1"');
-assert.equal("browserProfile" in JSON.parse(String(calls[6]?.init?.body)), false, "request projection must be closed");
-assert.equal(String(calls[5]?.init?.body), "{}");
+assert.equal("browserProfile" in JSON.parse(String(calls[8]?.init?.body)), false, "request projection must be closed");
 assert.equal(String(calls[7]?.init?.body), "{}");
+assert.equal(String(calls[9]?.init?.body), "{}");
 
 for (const status of [401, 403, 409, 412]) {
   await assert.rejects(

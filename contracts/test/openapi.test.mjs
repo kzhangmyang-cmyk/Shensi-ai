@@ -81,6 +81,82 @@ const section16 = {
   "/api/v1/acquisition/audit-events": ["get"]
 };
 
+function publicPlanCreate(overrides = {}) {
+  return {
+    targetPlatform: "douyin",
+    name: "Douyin acquisition",
+    objective: "Discover public demand",
+    icp: {
+      industries: ["enterprise services"],
+      regions: ["China"],
+      organizationCriteria: ["public demand"],
+      individualCriteria: ["public demand"],
+      exclusionRules: []
+    },
+    subjectChannels: { organization: true, individual: true },
+    providerConnections: [{
+      connectionId: "search-1",
+      providerId: "public-search",
+      kind: "search",
+      status: "active",
+      credentialVersion: 1
+    }],
+    operations: [{
+      operationId: "search-organization",
+      subjectChannel: "organization",
+      kind: "search",
+      connectionId: "search-1",
+      query: "site:douyin.com demand",
+      allocatedBudget: {
+        requests: 1,
+        results: 10,
+        amountMinor: 0,
+        durationSeconds: 60
+      }
+    }],
+    budgetSnapshot: {
+      billingCurrency: "CNY",
+      maxRequests: 1,
+      maxResults: 10,
+      maxAmountMinor: 0,
+      maxDurationSeconds: 60
+    },
+    modelConnectionId: "model-1",
+    stopConditions: {
+      stopWhenBudgetExhausted: true,
+      stopWhenNoMoreResults: true
+    },
+    ...overrides
+  };
+}
+
+test("plan creation contract isolates provider-free MediaCrawler requests behind executionMode", async () => {
+  const document = await loadOpenApiSource();
+  const schema = document.paths["/api/v1/acquisition/plans"]
+    .post.requestBody.content["application/json"].schema;
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  const validate = ajv.compile(schema);
+  const mediaInput = publicPlanCreate({
+    executionMode: "douyin_mediacrawler",
+    providerConnections: [],
+    operations: [],
+    modelConnectionId: null
+  });
+
+  assert.equal(validate(publicPlanCreate()), true, JSON.stringify(validate.errors));
+  assert.equal(validate(mediaInput), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...mediaInput, targetPlatform: "web" }), false);
+  assert.equal(validate({
+    ...mediaInput,
+    providerConnections: publicPlanCreate().providerConnections
+  }), false);
+  assert.equal(validate({ ...mediaInput, modelConnectionId: "model-1" }), false);
+  assert.equal(validate(publicPlanCreate({
+    providerConnections: [],
+    operations: []
+  })), false, "legacy generic create still requires provider operations");
+});
+
 const listPaths = [
   "/api/v1/ai/providers", "/api/v1/ai/connections", "/api/v1/ai/connections/{id}/models",
   "/api/v1/ai/calls",
@@ -683,6 +759,26 @@ test("every named API resource component accepts a canonical valid instance", as
     startedAt: null,
     completedAt: null
   };
+  examples.AcquisitionPlan.payload.providerConnections = [{
+    connectionId: "search-1",
+    providerId: "public-search",
+    kind: "search",
+    status: "active",
+    credentialVersion: 1
+  }];
+  examples.AcquisitionPlan.payload.operations = [{
+    operationId: "search-organization",
+    subjectChannel: "organization",
+    kind: "search",
+    connectionId: "search-1",
+    query: "public demand",
+    allocatedBudget: {
+      requests: 0,
+      results: 0,
+      amountMinor: 0,
+      durationSeconds: 0
+    }
+  }];
   examples.Candidate = [
     buildCanonicalExample(registry.schemaDocuments.get("organization-candidate")),
     buildCanonicalExample(registry.schemaDocuments.get("individual-demand-signal"))

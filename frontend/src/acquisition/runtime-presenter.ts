@@ -178,9 +178,9 @@ export function renderPublicDouyinImportPanel(
     >
       <header class="replica-public-import-header">
         <div>
-          <p>自动发现客户</p>
-          <h2 id="replicaPublicImportTitle">启动抖音自动获客</h2>
-          <span>描述目标客户后，系统自动搜索公开页面，AI 筛选需求信号，交由你批准后运行。</span>
+          <p>通用发现方式</p>
+          <h2 id="replicaPublicImportTitle">通用公开搜索获客</h2>
+          <span>此入口通过搜索 API 获取公开页面，再由支持工具调用的 AI 模型筛选需求信号。</span>
         </div>
         <strong>真实自动运行</strong>
       </header>
@@ -189,8 +189,8 @@ export function renderPublicDouyinImportPanel(
           type="button"
           class="replica-auto-acquisition-action"
           data-acquisition-import-action="start-auto-acquisition"
-        >创建自动获客任务</button>
-        <span>无需先粘贴链接 · 需要已启用的搜索 API 和支持工具调用的 AI 模型</span>
+        >创建公开搜索任务</button>
+        <span>需要已启用的搜索 API 和支持工具调用的 AI 模型 · MediaCrawler 手工关键词请使用上方控制台</span>
       </div>
       <div class="replica-public-import-notice" role="note">
         系统只处理公开信息，不会自动认定客户身份，也不会自动私信、关注或触达客户。

@@ -195,10 +195,13 @@ export function createAcquisitionPlanRouter(
         modelConnectionId = null,
         ...planPayload
       } = publicPayload;
-      const modelSnapshotRef = await options.resolveModelSnapshot(scope, {
-        connectionId: modelConnectionId,
-        idempotencyKey: key
-      });
+      const modelSnapshotRef = planPayload.executionMode
+        === "douyin_mediacrawler"
+        ? null
+        : await options.resolveModelSnapshot(scope, {
+            connectionId: modelConnectionId,
+            idempotencyKey: key
+          });
       const plan = await options.service.createPlan(
         scope,
         {

@@ -50,6 +50,19 @@ already-implemented response it extends must retain parity. Run
 `pnpm check:generated-acquisition-types` to detect stale or absent generated
 output without modifying repository files.
 
+## Acquisition plan execution modes
+
+The optional plan `executionMode` defaults semantically to `generic` when it is
+absent, preserving stored v1 plans and runs. Generic create requests keep the
+provider-operation contract. `douyin_mediacrawler` is an explicit Douyin-only
+branch: create requests carry empty `providerConnections` and `operations` and
+omit or null `modelConnectionId`; persisted plans and their authoritative runs
+carry `modelSnapshotRef: null`. Collection then uses plan approval,
+automation GET/PUT, and `/plans/{planId}/run-now`. The generic
+`/plans/{id}/runs` command is not valid for this mode. Manual automation
+keywords have no search-provider or model dependency; the optional
+`automation/keyword-suggestions` command retains its active-model requirement.
+
 The platform connection, capability, generic event envelope, Douyin comment
 event, action-policy, and action-receipt components are schema reservations
 only. They have no published routes until their implementations land in Issues

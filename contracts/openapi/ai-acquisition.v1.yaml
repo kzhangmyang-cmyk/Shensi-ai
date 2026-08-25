@@ -705,7 +705,159 @@ x-async-write: &asyncWrite
     '400': *apiError
     '401': *apiError
 x-plan-create-schema: &planCreateSchema
-  { type: object, required: [name, objective, icp, subjectChannels, providerConnections, operations, budgetSnapshot, stopConditions], properties: { targetPlatform: { type: string, enum: [douyin, web] }, douyinPublicCommentSample: { type: object, required: [enabled, maxVideosPerRun, maxCommentsPerVideo, maxPagesPerVideo], properties: { enabled: { type: boolean }, maxVideosPerRun: { type: integer, minimum: 1, maximum: 20 }, maxCommentsPerVideo: { type: integer, minimum: 1, maximum: 100 }, maxPagesPerVideo: { type: integer, minimum: 1, maximum: 5 } }, additionalProperties: false }, name: { type: string, minLength: 1, maxLength: 200 }, objective: { type: string, minLength: 1, maxLength: 2000 }, icp: { type: object, required: [industries, regions, organizationCriteria, individualCriteria, exclusionRules], properties: { industries: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 120 } }, regions: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 120 } }, organizationCriteria: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 500 } }, individualCriteria: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 500 } }, exclusionRules: { type: array, maxItems: 200, items: { type: string, minLength: 1, maxLength: 500 } } }, additionalProperties: false }, subjectChannels: { type: object, required: [organization, individual], properties: { organization: { type: boolean }, individual: { type: boolean } }, additionalProperties: false }, providerConnections: { type: array, minItems: 1, maxItems: 100, items: { type: object, required: [connectionId, providerId, kind, status, credentialVersion], properties: { connectionId: { type: string, minLength: 1, maxLength: 255 }, providerId: { type: string, minLength: 1, maxLength: 100 }, kind: { type: string, enum: [search, content_fetch, import] }, status: { type: string, enum: [active, inactive, disabled] }, credentialVersion: { type: integer, minimum: 1 } }, additionalProperties: false } }, operations: { type: array, minItems: 1, maxItems: 500, items: { type: object, required: [operationId, subjectChannel, kind, connectionId, allocatedBudget], properties: { operationId: { type: string, minLength: 1, maxLength: 255 }, subjectChannel: { type: string, enum: [organization, individual] }, kind: { type: string, enum: [search, content_fetch, import_rows] }, connectionId: { type: string, minLength: 1, maxLength: 255 }, query: { type: string, minLength: 1, maxLength: 4000 }, sourceRef: { type: string, minLength: 1, maxLength: 4000 }, allocatedBudget: { type: object, required: [requests, results, amountMinor, durationSeconds], properties: { requests: { type: integer, minimum: 0 }, results: { type: integer, minimum: 0 }, amountMinor: { type: integer, minimum: 0 }, durationSeconds: { type: integer, minimum: 0 } }, additionalProperties: false } }, additionalProperties: false } }, budgetSnapshot: { type: object, required: [billingCurrency, maxRequests, maxResults, maxAmountMinor, maxDurationSeconds], properties: { billingCurrency: { type: string, minLength: 3, maxLength: 3 }, maxRequests: { type: integer, minimum: 0 }, maxResults: { type: integer, minimum: 0 }, maxAmountMinor: { type: integer, minimum: 0 }, maxDurationSeconds: { type: integer, minimum: 0 } }, additionalProperties: false }, modelConnectionId: { type: string, nullable: true, minLength: 1, maxLength: 255, description: 可选 BYOK 模型连接；服务端据此绑定不可伪造的模型快照。 }, stopConditions: { type: object, required: [stopWhenBudgetExhausted, stopWhenNoMoreResults], properties: { stopWhenBudgetExhausted: { type: boolean }, stopWhenNoMoreResults: { type: boolean } }, additionalProperties: false } }, allOf: [{ if: { type: object, required: [douyinPublicCommentSample], properties: { douyinPublicCommentSample: { type: object, required: [enabled], properties: { enabled: { enum: [true] } } } } }, then: { type: object, required: [targetPlatform, providerConnections], properties: { targetPlatform: { enum: [douyin] }, providerConnections: { type: array, not: { items: { not: { type: object, required: [providerId, kind, status], properties: { providerId: { enum: [experimental_public_sample] }, kind: { enum: [content_fetch] }, status: { enum: [active] } } } } } } } } }], additionalProperties: false }
+  type: object
+  required:
+    - name
+    - objective
+    - icp
+    - subjectChannels
+    - providerConnections
+    - operations
+    - budgetSnapshot
+    - stopConditions
+  properties:
+    executionMode:
+      type: string
+      enum: [generic, douyin_mediacrawler]
+      default: generic
+      description: >-
+        Omit for the compatible generic provider-operation mode. Use
+        douyin_mediacrawler only for private MediaCrawler discovery.
+    targetPlatform: { type: string, enum: [douyin, web] }
+    douyinPublicCommentSample:
+      type: object
+      required: [enabled, maxVideosPerRun, maxCommentsPerVideo, maxPagesPerVideo]
+      properties:
+        enabled: { type: boolean }
+        maxVideosPerRun: { type: integer, minimum: 1, maximum: 20 }
+        maxCommentsPerVideo: { type: integer, minimum: 1, maximum: 100 }
+        maxPagesPerVideo: { type: integer, minimum: 1, maximum: 5 }
+      additionalProperties: false
+    name: { type: string, minLength: 1, maxLength: 200 }
+    objective: { type: string, minLength: 1, maxLength: 2000 }
+    icp:
+      type: object
+      required: [industries, regions, organizationCriteria, individualCriteria, exclusionRules]
+      properties:
+        industries: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 120 } }
+        regions: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 120 } }
+        organizationCriteria: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 500 } }
+        individualCriteria: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 500 } }
+        exclusionRules: { type: array, maxItems: 200, items: { type: string, minLength: 1, maxLength: 500 } }
+      additionalProperties: false
+    subjectChannels:
+      type: object
+      required: [organization, individual]
+      properties:
+        organization: { type: boolean }
+        individual: { type: boolean }
+      additionalProperties: false
+    providerConnections:
+      type: array
+      maxItems: 100
+      items:
+        type: object
+        required: [connectionId, providerId, kind, status, credentialVersion]
+        properties:
+          connectionId: { type: string, minLength: 1, maxLength: 255 }
+          providerId: { type: string, minLength: 1, maxLength: 100 }
+          kind: { type: string, enum: [search, content_fetch, import] }
+          status: { type: string, enum: [active, inactive, disabled] }
+          credentialVersion: { type: integer, minimum: 1 }
+        additionalProperties: false
+    operations:
+      type: array
+      maxItems: 500
+      items:
+        type: object
+        required: [operationId, subjectChannel, kind, connectionId, allocatedBudget]
+        properties:
+          operationId: { type: string, minLength: 1, maxLength: 255 }
+          subjectChannel: { type: string, enum: [organization, individual] }
+          kind: { type: string, enum: [search, content_fetch, import_rows] }
+          connectionId: { type: string, minLength: 1, maxLength: 255 }
+          query: { type: string, minLength: 1, maxLength: 4000 }
+          sourceRef: { type: string, minLength: 1, maxLength: 4000 }
+          allocatedBudget:
+            type: object
+            required: [requests, results, amountMinor, durationSeconds]
+            properties:
+              requests: { type: integer, minimum: 0 }
+              results: { type: integer, minimum: 0 }
+              amountMinor: { type: integer, minimum: 0 }
+              durationSeconds: { type: integer, minimum: 0 }
+            additionalProperties: false
+        additionalProperties: false
+    budgetSnapshot:
+      type: object
+      required: [billingCurrency, maxRequests, maxResults, maxAmountMinor, maxDurationSeconds]
+      properties:
+        billingCurrency: { type: string, minLength: 3, maxLength: 3 }
+        maxRequests: { type: integer, minimum: 0 }
+        maxResults: { type: integer, minimum: 0 }
+        maxAmountMinor: { type: integer, minimum: 0 }
+        maxDurationSeconds: { type: integer, minimum: 0 }
+      additionalProperties: false
+    modelConnectionId:
+      type: string
+      nullable: true
+      minLength: 1
+      maxLength: 255
+      description: >-
+        Optional BYOK model connection for generic plans. It must be omitted or
+        null for douyin_mediacrawler plans.
+    stopConditions:
+      type: object
+      required: [stopWhenBudgetExhausted, stopWhenNoMoreResults]
+      properties:
+        stopWhenBudgetExhausted: { type: boolean }
+        stopWhenNoMoreResults: { type: boolean }
+      additionalProperties: false
+  allOf:
+    - if:
+        type: object
+        required: [executionMode]
+        properties:
+          executionMode: { enum: [douyin_mediacrawler] }
+      then:
+        type: object
+        required: [targetPlatform, providerConnections, operations]
+        properties:
+          targetPlatform: { enum: [douyin] }
+          providerConnections: { type: array, maxItems: 0 }
+          operations: { type: array, maxItems: 0 }
+          modelConnectionId: { type: string, enum: [null], nullable: true }
+      else:
+        type: object
+        properties:
+          providerConnections: { type: array, minItems: 1 }
+          operations: { type: array, minItems: 1 }
+    - if:
+        type: object
+        required: [douyinPublicCommentSample]
+        properties:
+          douyinPublicCommentSample:
+            type: object
+            required: [enabled]
+            properties:
+              enabled: { enum: [true] }
+      then:
+        type: object
+        required: [targetPlatform, providerConnections]
+        properties:
+          targetPlatform: { enum: [douyin] }
+          providerConnections:
+            type: array
+            not:
+              items:
+                not:
+                  type: object
+                  required: [providerId, kind, status]
+                  properties:
+                    providerId: { enum: [experimental_public_sample] }
+                    kind: { enum: [content_fetch] }
+                    status: { enum: [active] }
+  additionalProperties: false
 x-plan-mutation-schema: &planMutationSchema
   { type: object, minProperties: 1, properties: { targetPlatform: { type: string, enum: [douyin, web] }, douyinPublicCommentSample: { type: object, required: [enabled, maxVideosPerRun, maxCommentsPerVideo, maxPagesPerVideo], properties: { enabled: { type: boolean }, maxVideosPerRun: { type: integer, minimum: 1, maximum: 20 }, maxCommentsPerVideo: { type: integer, minimum: 1, maximum: 100 }, maxPagesPerVideo: { type: integer, minimum: 1, maximum: 5 } }, additionalProperties: false }, name: { type: string, minLength: 1, maxLength: 200 }, objective: { type: string, minLength: 1, maxLength: 2000 }, icp: { type: object, required: [industries, regions, organizationCriteria, individualCriteria, exclusionRules], properties: { industries: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 120 } }, regions: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 120 } }, organizationCriteria: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 500 } }, individualCriteria: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 500 } }, exclusionRules: { type: array, maxItems: 200, items: { type: string, minLength: 1, maxLength: 500 } } }, additionalProperties: false }, subjectChannels: { type: object, required: [organization, individual], properties: { organization: { type: boolean }, individual: { type: boolean } }, additionalProperties: false }, providerConnections: { type: array, minItems: 1, maxItems: 100, items: { type: object, required: [connectionId, providerId, kind, status, credentialVersion], properties: { connectionId: { type: string, minLength: 1, maxLength: 255 }, providerId: { type: string, minLength: 1, maxLength: 100 }, kind: { type: string, enum: [search, content_fetch, import] }, status: { type: string, enum: [active, inactive, disabled] }, credentialVersion: { type: integer, minimum: 1 } }, additionalProperties: false } }, operations: { type: array, minItems: 1, maxItems: 500, items: { type: object, required: [operationId, subjectChannel, kind, connectionId, allocatedBudget], properties: { operationId: { type: string, minLength: 1, maxLength: 255 }, subjectChannel: { type: string, enum: [organization, individual] }, kind: { type: string, enum: [search, content_fetch, import_rows] }, connectionId: { type: string, minLength: 1, maxLength: 255 }, query: { type: string, minLength: 1, maxLength: 4000 }, sourceRef: { type: string, minLength: 1, maxLength: 4000 }, allocatedBudget: { type: object, required: [requests, results, amountMinor, durationSeconds], properties: { requests: { type: integer, minimum: 0 }, results: { type: integer, minimum: 0 }, amountMinor: { type: integer, minimum: 0 }, durationSeconds: { type: integer, minimum: 0 } }, additionalProperties: false } }, additionalProperties: false } }, budgetSnapshot: { type: object, required: [billingCurrency, maxRequests, maxResults, maxAmountMinor, maxDurationSeconds], properties: { billingCurrency: { type: string, minLength: 3, maxLength: 3 }, maxRequests: { type: integer, minimum: 0 }, maxResults: { type: integer, minimum: 0 }, maxAmountMinor: { type: integer, minimum: 0 }, maxDurationSeconds: { type: integer, minimum: 0 } }, additionalProperties: false }, modelSnapshotRef: { type: object, required: [jobSnapshotId, connectionId, credentialVersion, provider, model, capabilitySnapshotHash, promptVersion, schemaVersion, promptHash, schemaHash], properties: { jobSnapshotId: { type: string, minLength: 1, maxLength: 255 }, connectionId: { type: string, minLength: 1, maxLength: 255 }, credentialVersion: { type: integer, minimum: 1 }, provider: { type: string, minLength: 1, maxLength: 100 }, model: { type: string, minLength: 1, maxLength: 200 }, capabilitySnapshotHash: { type: string, minLength: 1, maxLength: 200 }, promptVersion: { type: string, minLength: 1, maxLength: 100 }, schemaVersion: { type: string, minLength: 1, maxLength: 100 }, promptHash: { type: string, minLength: 1, maxLength: 200 }, schemaHash: { type: string, minLength: 1, maxLength: 200 } }, additionalProperties: false }, stopConditions: { type: object, required: [stopWhenBudgetExhausted, stopWhenNoMoreResults], properties: { stopWhenBudgetExhausted: { type: boolean }, stopWhenNoMoreResults: { type: boolean } }, additionalProperties: false } }, additionalProperties: false }
 x-plan-approval-schema: &planApprovalSchema
@@ -862,6 +1014,7 @@ paths:
     put:
       operationId: putAcquisitionDouyinAutomation
       summary: Publish immutable Douyin automation policy version
+      description: Manual policy keywords require neither a public-search API nor an AI model.
       security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }, { $ref: '#/components/parameters/ifMatch' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DouyinAutomationPolicyInput' } } } }
@@ -886,7 +1039,7 @@ paths:
     post:
       operationId: suggestAcquisitionDouyinKeywords
       summary: Generate editable Douyin search keywords from server-owned plan business and ICP context
-      description: The active official model snapshot and workspace context are selected on the server; the command accepts no model, workspace, or business authority from callers.
+      description: This optional convenience requires an active official model selected with workspace context on the server; the command accepts no model, workspace, or business authority from callers.
       security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { type: object, properties: {}, additionalProperties: false } } } }
@@ -1151,6 +1304,11 @@ paths:
     post:
       operationId: createAcquisitionPlan
       summary: Create acquisition plan
+      description: >-
+        Omit executionMode for the compatible generic provider-operation
+        contract. douyin_mediacrawler accepts no search provider, operation,
+        or model connection and must later use approval, automation policy,
+        and run-now.
       security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: *planCreateSchema } } }
@@ -1250,6 +1408,9 @@ paths:
     post:
       operationId: createAcquisitionRun
       summary: Create acquisition run
+      description: >-
+        Starts only the generic provider-operation shard runtime.
+        douyin_mediacrawler plans must use /plans/{planId}/run-now.
       security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
       requestBody: { required: false, content: { application/json: { schema: *planRunSchema } } }

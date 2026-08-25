@@ -50,9 +50,10 @@ const importPanel = renderPublicDouyinImportPanel({
 });
 
 for (const text of [
-  "启动抖音自动获客",
-  "自动搜索公开页面",
-  "创建自动获客任务",
+  "通用公开搜索获客",
+  "搜索 API 和支持工具调用的 AI 模型",
+  "创建公开搜索任务",
+  "MediaCrawler 手工关键词请使用上方控制台",
   "已有链接？补充导入",
   "粘贴公开链接",
   "导入公开链接",

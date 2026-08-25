@@ -4912,11 +4912,42 @@ body.is-authenticated .replica-shell {
 }
 
 .douyin-field-head label,
+.douyin-plan-name > span,
 .douyin-form-grid label > span,
 .outreach-editor label > span {
   color: #cbd0cd;
   font-size: 11px;
   font-weight: 680;
+}
+
+.douyin-plan-name {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+
+.douyin-plan-name input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 11px;
+  color: #e4e8e5;
+  background: #080a0a;
+  border: 1px solid var(--replica-line);
+  border-radius: 10px;
+  outline: 0;
+}
+
+.douyin-field-head small,
+.douyin-inline-status {
+  display: block;
+  margin-top: 4px;
+  color: var(--replica-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.douyin-inline-status.is-warning {
+  color: #f2c47b;
 }
 
 .douyin-keywords {

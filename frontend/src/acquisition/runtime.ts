@@ -39,6 +39,7 @@ interface ModeChangedDetail {
 
 interface TaskSelectedDetail {
   planId?: unknown;
+  planName?: unknown;
 }
 
 const FLOW_CARD_IDS = [
@@ -170,7 +171,10 @@ function initialiseRuntime(): void {
   const automationHost = byId("douyinAutomationHost");
   const outreachHost = byId("douyinOutreachHost");
   const automationController = createDouyinAutomationController({
-    api: createDouyinAutomationApi()
+    api: createDouyinAutomationApi(),
+    onPlanCreated() {
+      document.dispatchEvent(new Event("goodjob:acquisition-refresh-requested"));
+    }
   });
   const outreachController = createOutreachBatchController({
     api: createOutreachBatchApi()
@@ -600,9 +604,12 @@ function initialiseRuntime(): void {
       setRealInspectorShell("后端当前没有抖音获客任务。");
       setRunMetricValues(0, 0, 0, "0 秒");
     }
-    const firstPlanId = model.tasks[0]?.planId;
+    const firstTask = model.tasks[0];
+    const firstPlanId = firstTask?.planId;
     if (firstPlanId && automationController.getState().planId !== firstPlanId) {
-      void automationController.load(firstPlanId);
+      void automationController.load(firstPlanId, firstTask.name);
+    } else if (!firstPlanId && automationController.getState().phase === "idle") {
+      void automationController.load(null);
     }
     scheduleOverviewPoll(model.tasks.some((task) =>
       task.status !== null && ACTIVE_RUN_STATUSES.has(task.status)
@@ -953,10 +960,17 @@ function initialiseRuntime(): void {
   });
 
   document.addEventListener("goodjob:acquisition-task-selected", (event) => {
-    const planId = (event as CustomEvent<TaskSelectedDetail>).detail?.planId;
+    const detail = (event as CustomEvent<TaskSelectedDetail>).detail;
+    const planId = detail?.planId;
     if (typeof planId === "string" && planId.trim()) {
-      void loadTaskDetail(planId.trim());
-      void automationController.load(planId.trim());
+      const normalizedPlanId = planId.trim();
+      void loadTaskDetail(normalizedPlanId);
+      if (automationController.getState().planId !== normalizedPlanId) {
+        void automationController.load(
+          normalizedPlanId,
+          typeof detail?.planName === "string" ? detail.planName : undefined
+        );
+      }
     }
   });
 

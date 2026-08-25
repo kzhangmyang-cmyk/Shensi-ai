@@ -1,4 +1,4 @@
-import type { DouyinAutomationController, DouyinAutomationState } from "./douyin-automation-controller";
+import type { DouyinAutomationController, DouyinAutomationDraft, DouyinAutomationState } from "./douyin-automation-controller";
 import type { DouyinPolicyInput, DouyinRunCandidate } from "./douyin-automation-api";
 
 const escape = (value: string) => value.replace(/[&<>"']/gu, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char);
@@ -9,6 +9,33 @@ function candidateKind(candidate: DouyinRunCandidate): string {
   return /comment/iu.test(candidate.status) ? "需求评论者" : /creator/iu.test(candidate.status) ? "内容创作者" : "公开候选人";
 }
 
+function saveDisabledReason(state: DouyinAutomationState, planName: string, keywords: string[]): string | null {
+  if (!state.account || state.account.state !== "active") return "请先扫码连接抖音账号";
+  if (state.phase === "saving") return "正在保存计划…";
+  if (state.phase === "running") return "正在启动或运行采集…";
+  if (!planName.trim()) return "请输入计划名称";
+  if (!keywords.some((keyword) => keyword.trim())) return "至少添加 1 个关键词";
+  return null;
+}
+
+function formDraft(form: HTMLFormElement, state: DouyinAutomationState): DouyinAutomationDraft {
+  const data = new FormData(form);
+  const newKeyword = String(data.get("newKeyword") ?? "").trim();
+  const keywordInputs = [...form.querySelectorAll<HTMLInputElement>("[data-douyin-keyword]")]
+    .map((input) => input.value.trim()).filter(Boolean);
+  return {
+    planName: String(data.get("planName") ?? "").trim(),
+    policy: {
+      keywords: [...new Set([...keywordInputs, ...(newKeyword ? [newKeyword] : [])])],
+      schedule: { enabled: data.get("scheduleEnabled") === "on", localTime: String(data.get("localTime")), timeZone: String(data.get("timeZone")) },
+      dailyCandidateLimit: Number(data.get("dailyCandidateLimit")),
+      collectCreators: data.get("collectCreators") === "on",
+      collectDemandComments: data.get("collectDemandComments") === "on",
+      limits: { ...state.draftPolicy.limits }
+    }
+  };
+}
+
 export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutomationState): void {
   const policy = state.policy;
   const account = state.account;
@@ -16,7 +43,10 @@ export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutom
   const status = state.crawlerStatus;
   const selected = new Set(state.selectedCandidateIds);
   const inspector = state.candidates.find((candidate) => selected.has(candidate.id)) ?? state.candidates[0] ?? null;
-  const keywordInputs = (policy?.keywords ?? []).map((keyword, index) => `<label class="douyin-keyword"><span class="sr-only">关键词 ${index + 1}</span><input data-douyin-keyword value="${escape(keyword)}" maxlength="100"><button type="button" data-douyin-action="remove-keyword" aria-label="删除关键词 ${escape(keyword)}">×</button></label>`).join("");
+  const draft = state.draftPolicy;
+  const keywordInputs = draft.keywords.map((keyword, index) => `<label class="douyin-keyword"><span class="sr-only">关键词 ${index + 1}</span><input data-douyin-keyword value="${escape(keyword)}" maxlength="100"><button type="button" data-douyin-action="remove-keyword" aria-label="删除关键词 ${escape(keyword)}">×</button></label>`).join("");
+  const disabledReason = saveDisabledReason(state, state.planName, draft.keywords);
+  const suggestionDisabled = !state.planId || !policy || ["loading", "saving", "running"].includes(state.phase);
   host.innerHTML = `
     <section class="douyin-control-stack" aria-label="抖音自动获客控制台" data-phase="${state.phase}">
       <header class="douyin-control-hero">
@@ -31,17 +61,21 @@ export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutom
           <div class="douyin-actions">${account && account.state === "active" ? `<button type="button" class="secondary" data-douyin-action="disconnect">断开连接</button>` : `<button type="button" class="primary" data-douyin-action="connect">${account ? "重新连接" : "扫码连接"}</button>`}</div>
         </article>
         <article class="douyin-panel douyin-policy-card">
-          <div class="douyin-panel-title"><span class="douyin-step">02</span><div><h3>自动采集计划</h3><p>关键词、本地时间与每日上限均可编辑</p></div></div>
+          <div class="douyin-panel-title"><span class="douyin-step">02</span><div><h3>MediaCrawler 采集计划</h3><p>${state.planId ? `当前计划：${escape(state.planName || state.planId)}` : "尚未保存"}</p></div></div>
           <form data-douyin-policy-form>
-            <div class="douyin-field-head"><label>可编辑关键词</label><button type="button" class="text-button" data-douyin-action="suggest" ${!policy ? "disabled" : ""}>智能生成</button></div>
+            <label class="douyin-plan-name"><span>计划名称</span><input name="planName" value="${escape(state.planName)}" maxlength="200" placeholder="例如：工业除尘需求获客" required></label>
+            <div class="douyin-field-head"><div><label>手工关键词</label><small>手工关键词无需搜索 API 或 AI 模型。</small></div><button type="button" class="text-button" data-douyin-action="suggest" ${suggestionDisabled ? "disabled" : ""}>AI 智能生成（可选）</button></div>
             <div class="douyin-keywords" data-douyin-keywords>${keywordInputs}<label class="douyin-keyword is-new"><span class="sr-only">新关键词</span><input name="newKeyword" data-douyin-new-keyword placeholder="+添加关键词" maxlength="100"></label></div>
+            ${state.suggestionError ? `<p class="douyin-inline-status is-warning" role="status">${escape(state.suggestionError)}</p>` : ""}
             <div class="douyin-form-grid">
-              <label><span>每日时间</span><input name="localTime" type="time" value="${escape(policy?.schedule.localTime ?? "09:30")}" required></label>
-              <label><span>时区</span><select name="timeZone"><option value="Asia/Shanghai" ${(policy?.schedule.timeZone ?? "Asia/Shanghai") === "Asia/Shanghai" ? "selected" : ""}>Asia/Shanghai (UTC+8)</option><option value="Asia/Hong_Kong" ${policy?.schedule.timeZone === "Asia/Hong_Kong" ? "selected" : ""}>Asia/Hong_Kong (UTC+8)</option><option value="UTC" ${policy?.schedule.timeZone === "UTC" ? "selected" : ""}>UTC</option></select></label>
-              <label><span>每日候选人 <small>建议 50</small></span><input name="dailyCandidateLimit" type="number" min="1" max="200" value="${policy?.dailyCandidateLimit ?? 50}" required></label>
+              <label><span>每日时间</span><input name="localTime" type="time" value="${escape(draft.schedule.localTime)}" required></label>
+              <label><span>时区</span><select name="timeZone"><option value="Asia/Shanghai" ${draft.schedule.timeZone === "Asia/Shanghai" ? "selected" : ""}>Asia/Shanghai (UTC+8)</option><option value="Asia/Hong_Kong" ${draft.schedule.timeZone === "Asia/Hong_Kong" ? "selected" : ""}>Asia/Hong_Kong (UTC+8)</option><option value="UTC" ${draft.schedule.timeZone === "UTC" ? "selected" : ""}>UTC</option></select></label>
+              <label><span>每日候选人 <small>建议 50</small></span><input name="dailyCandidateLimit" type="number" min="1" max="200" value="${draft.dailyCandidateLimit}" required></label>
             </div>
-            <div class="douyin-checks"><label><input name="scheduleEnabled" type="checkbox" ${policy?.schedule.enabled ? "checked" : ""}> 启用每日定时</label><label><input name="collectCreators" type="checkbox" ${policy?.collectCreators !== false ? "checked" : ""}> 采集创作者</label><label><input name="collectDemandComments" type="checkbox" ${policy?.collectDemandComments !== false ? "checked" : ""}> 采集需求评论</label></div>
-            <div class="douyin-actions"><button type="submit" class="secondary" ${!policy || state.phase === "saving" ? "disabled" : ""}>保存并启用</button><button type="button" class="primary" data-douyin-action="run-now" ${!account || account.state !== "active" || !policy || state.phase === "running" ? "disabled" : ""}>立即运行</button></div>
+            <div class="douyin-checks"><label><input name="scheduleEnabled" type="checkbox" ${draft.schedule.enabled ? "checked" : ""}> 启用每日定时</label><label><input name="collectCreators" type="checkbox" ${draft.collectCreators ? "checked" : ""}> 采集创作者</label><label><input name="collectDemandComments" type="checkbox" ${draft.collectDemandComments ? "checked" : ""}> 采集需求评论</label></div>
+            <p class="douyin-inline-status" data-douyin-disabled-reason aria-live="polite">${disabledReason ? escape(disabledReason) : "可直接保存，无需配置公开搜索连接或 AI 模型。"}</p>
+            <div class="douyin-actions"><button type="button" class="secondary" data-douyin-action="save-only" ${disabledReason ? "disabled" : ""} aria-describedby="douyinSaveReason">仅保存</button><button type="button" class="primary" data-douyin-action="save-and-run" ${disabledReason ? "disabled" : ""} aria-describedby="douyinSaveReason">保存并立即运行</button></div>
+            <span id="douyinSaveReason" class="sr-only">${disabledReason ? escape(disabledReason) : "计划可以保存并运行"}</span>
           </form>
         </article>
       </div>
@@ -66,25 +100,41 @@ export function mountDouyinAutomationView(host: HTMLElement, controller: DouyinA
     if (action === "connect") void controller.connect();
     else if (action === "disconnect") void controller.disconnect();
     else if (action === "suggest") void controller.suggestKeywords();
-    else if (action === "run-now") void controller.runNow();
-    else if (action === "retry" && state.planId) void controller.load(state.planId);
+    else if (action === "save-only" || action === "save-and-run") {
+      const form = target.closest<HTMLFormElement>("[data-douyin-policy-form]");
+      if (form && form.reportValidity()) {
+        const draft = formDraft(form, state);
+        if (action === "save-only") void controller.save(draft);
+        else void controller.saveAndRun(draft);
+      }
+    }
+    else if (action === "retry") void controller.load(state.planId, state.planName);
     else if (action === "close-qr") { host.querySelector<HTMLDialogElement>(".douyin-qr-dialog")?.close(); host.querySelector<HTMLElement>("[data-douyin-action=connect]")?.focus(); }
-    else if (action === "remove-keyword") target.closest(".douyin-keyword")?.remove();
+    else if (action === "remove-keyword") { target.closest(".douyin-keyword")?.remove(); updateActionAvailability(); }
     else if (action === "create-batch" && state.runIntent) onCreateBatch(state.runIntent.acquisitionRunId, state.selectedCandidateIds);
   };
-  const change = (event: Event) => { const target = event.target as HTMLInputElement | null; if (!target?.matches("[data-douyin-candidate]")) return; const candidate = state.candidates[Number(target.dataset.candidateIndex)]; if (candidate) controller.toggleCandidate(candidate.id); };
+  const updateActionAvailability = () => {
+    const form = host.querySelector<HTMLFormElement>("[data-douyin-policy-form]");
+    if (!form) return;
+    const draft = formDraft(form, state);
+    const reason = saveDisabledReason(state, draft.planName, draft.policy.keywords);
+    form.querySelectorAll<HTMLButtonElement>("[data-douyin-action=save-only], [data-douyin-action=save-and-run]").forEach((button) => { button.disabled = Boolean(reason); });
+    const visible = form.querySelector<HTMLElement>("[data-douyin-disabled-reason]");
+    if (visible) visible.textContent = reason ?? "可直接保存，无需配置公开搜索连接或 AI 模型。";
+    const accessible = form.querySelector<HTMLElement>("#douyinSaveReason");
+    if (accessible) accessible.textContent = reason ?? "计划可以保存并运行";
+  };
+  const input = () => updateActionAvailability();
+  const change = (event: Event) => { updateActionAvailability(); const target = event.target as HTMLInputElement | null; if (!target?.matches("[data-douyin-candidate]")) return; const candidate = state.candidates[Number(target.dataset.candidateIndex)]; if (candidate) controller.toggleCandidate(candidate.id); };
   const submit = (event: Event) => {
-    const form = event.target as HTMLFormElement; if (!form.matches("[data-douyin-policy-form]") || !state.policy) return; event.preventDefault();
-    const data = new FormData(form); const newKeyword = String(data.get("newKeyword") ?? "").trim();
-    const keywordInputs = [...form.querySelectorAll<HTMLInputElement>("[data-douyin-keyword]")].map((input) => input.value.trim()).filter(Boolean);
-    const input: DouyinPolicyInput = { keywords: [...new Set([...keywordInputs, ...(newKeyword ? [newKeyword] : [])])], schedule: { enabled: data.get("scheduleEnabled") === "on", localTime: String(data.get("localTime")), timeZone: String(data.get("timeZone")) }, dailyCandidateLimit: Number(data.get("dailyCandidateLimit")), collectCreators: data.get("collectCreators") === "on", collectDemandComments: data.get("collectDemandComments") === "on", limits: { ...state.policy.limits } };
-    void controller.savePolicy(input);
+    const form = event.target as HTMLFormElement; if (!form.matches("[data-douyin-policy-form]")) return; event.preventDefault();
+    if (form.reportValidity()) void controller.saveAndRun(formDraft(form, state));
   };
   const keydown = (event: KeyboardEvent) => {
     const row = (event.target as HTMLElement | null)?.closest<HTMLElement>(".douyin-candidate-row"); if (!row || !["ArrowDown", "ArrowUp", " "].includes(event.key)) return; event.preventDefault();
     if (event.key === " ") { const candidate = state.candidates[Number(row.dataset.candidateIndex)]; if (candidate) controller.toggleCandidate(candidate.id); return; }
     const rows = [...host.querySelectorAll<HTMLElement>(".douyin-candidate-row")]; const index = rows.indexOf(row); const next = rows[(index + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length]; next?.focus();
   };
-  host.addEventListener("click", click); host.addEventListener("change", change); host.addEventListener("submit", submit); host.addEventListener("keydown", keydown);
-  return () => { unsubscribe(); host.removeEventListener("click", click); host.removeEventListener("change", change); host.removeEventListener("submit", submit); host.removeEventListener("keydown", keydown); };
+  host.addEventListener("click", click); host.addEventListener("input", input); host.addEventListener("change", change); host.addEventListener("submit", submit); host.addEventListener("keydown", keydown);
+  return () => { unsubscribe(); host.removeEventListener("click", click); host.removeEventListener("input", input); host.removeEventListener("change", change); host.removeEventListener("submit", submit); host.removeEventListener("keydown", keydown); };
 }

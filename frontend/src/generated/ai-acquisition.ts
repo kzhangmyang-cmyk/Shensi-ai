@@ -630,7 +630,10 @@ export interface paths {
         };
         /** Get current Douyin automation policy */
         get: operations["getAcquisitionDouyinAutomation"];
-        /** Publish immutable Douyin automation policy version */
+        /**
+         * Publish immutable Douyin automation policy version
+         * @description Manual policy keywords require neither a public-search API nor an AI model.
+         */
         put: operations["putAcquisitionDouyinAutomation"];
         post?: never;
         delete?: never;
@@ -671,7 +674,7 @@ export interface paths {
         put?: never;
         /**
          * Generate editable Douyin search keywords from server-owned plan business and ICP context
-         * @description The active official model snapshot and workspace context are selected on the server; the command accepts no model, workspace, or business authority from callers.
+         * @description This optional convenience requires an active official model selected with workspace context on the server; the command accepts no model, workspace, or business authority from callers.
          */
         post: operations["suggestAcquisitionDouyinKeywords"];
         delete?: never;
@@ -1035,7 +1038,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create acquisition plan */
+        /**
+         * Create acquisition plan
+         * @description Omit executionMode for the compatible generic provider-operation contract. douyin_mediacrawler accepts no search provider, operation, or model connection and must later use approval, automation policy, and run-now.
+         */
         post: operations["createAcquisitionPlan"];
         delete?: never;
         options?: never;
@@ -1112,7 +1118,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create acquisition run */
+        /**
+         * Create acquisition run
+         * @description Starts only the generic provider-operation shard runtime. douyin_mediacrawler plans must use /plans/{planId}/run-now.
+         */
         post: operations["createAcquisitionRun"];
         delete?: never;
         options?: never;
@@ -2976,6 +2985,18 @@ export interface components {
             amountMinor: number;
             durationSeconds: number;
         };
+        modelSnapshot: {
+            jobSnapshotId: string;
+            connectionId: string;
+            credentialVersion: number;
+            provider: string;
+            model: string;
+            capabilitySnapshotHash: string;
+            promptVersion: string;
+            schemaVersion: string;
+            promptHash: string;
+            schemaHash: string;
+        };
         douyinPublicCommentSamplePolicy: {
             enabled: boolean;
             maxVideosPerRun: number;
@@ -3009,19 +3030,12 @@ export interface components {
             maxAmountMinor: number;
             maxDurationSeconds: number;
         };
-        modelSnapshot: {
-            jobSnapshotId: string;
-            connectionId: string;
-            credentialVersion: number;
-            provider: string;
-            model: string;
-            capabilitySnapshotHash: string;
-            promptVersion: string;
-            schemaVersion: string;
-            promptHash: string;
-            schemaHash: string;
-        };
         payload: {
+            /**
+             * @description Absent values are interpreted as generic for persisted legacy plans.
+             * @enum {unknown}
+             */
+            executionMode?: "generic" | "douyin_mediacrawler";
             /** @enum {unknown} */
             targetPlatform?: "douyin" | "web";
             douyinPublicCommentSample?: components["schemas"]["douyinPublicCommentSamplePolicy"];
@@ -3041,12 +3055,12 @@ export interface components {
             providerConnections: components["schemas"]["providerConnection"][];
             operations: components["schemas"]["operation"][];
             budgetSnapshot: components["schemas"]["budgetSnapshot"];
-            modelSnapshotRef: components["schemas"]["modelSnapshot"];
+            modelSnapshotRef: components["schemas"]["modelSnapshot"] | null;
             stopConditions: {
                 stopWhenBudgetExhausted: boolean;
                 stopWhenNoMoreResults: boolean;
             };
-        } & unknown;
+        } & (unknown & unknown);
         /** AcquisitionPlan */
         "acquisition-plan.v1.schema": {
             id: string;
@@ -3124,6 +3138,11 @@ export interface components {
                     maxPagesPerVideo: number;
                 };
                 payload: {
+                    /**
+                     * @description Absent values are interpreted as generic for persisted legacy plans.
+                     * @enum {unknown}
+                     */
+                    executionMode?: "generic" | "douyin_mediacrawler";
                     /** @enum {unknown} */
                     targetPlatform?: "douyin" | "web";
                     douyinPublicCommentSample?: components["schemas"]["douyinPublicCommentSamplePolicy"];
@@ -3143,16 +3162,21 @@ export interface components {
                     providerConnections: components["schemas"]["providerConnection"][];
                     operations: components["schemas"]["operation"][];
                     budgetSnapshot: components["schemas"]["budgetSnapshot"];
-                    modelSnapshotRef: components["schemas"]["modelSnapshot"];
+                    modelSnapshotRef: components["schemas"]["modelSnapshot"] | null;
                     stopConditions: {
                         stopWhenBudgetExhausted: boolean;
                         stopWhenNoMoreResults: boolean;
                     };
-                } & unknown;
+                } & (unknown & unknown);
             };
         };
         /** AcquisitionRun */
         "acquisition-run.v1.schema": {
+            /**
+             * @description Absent values are interpreted as generic for persisted legacy runs.
+             * @enum {unknown}
+             */
+            executionMode?: "generic" | "douyin_mediacrawler";
             id: string;
             ownerId: string;
             teamId: string;
@@ -3171,7 +3195,7 @@ export interface components {
             budgetSnapshot: components["schemas"]["budgetSnapshot"];
             budgetSnapshotHash: string;
             billingCurrency: string;
-            modelSnapshotRef: components["schemas"]["modelSnapshot"];
+            modelSnapshotRef: components["schemas"]["modelSnapshot"] | null;
             consumedBudget: components["schemas"]["budgetUsage"];
             evidenceCount: number;
             reason: string | null;
@@ -3210,7 +3234,7 @@ export interface components {
                     schemaHash: string;
                 };
             };
-        };
+        } & unknown;
         /** AcquisitionRunPresentation */
         "acquisition-run-presentation.v1.schema": {
             run: {
@@ -7343,6 +7367,12 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /**
+                     * @description Omit for the compatible generic provider-operation mode. Use douyin_mediacrawler only for private MediaCrawler discovery.
+                     * @default generic
+                     * @enum {string}
+                     */
+                    executionMode?: "generic" | "douyin_mediacrawler";
                     /** @enum {string} */
                     targetPlatform?: "douyin" | "web";
                     douyinPublicCommentSample?: {
@@ -7396,13 +7426,13 @@ export interface operations {
                         maxAmountMinor: number;
                         maxDurationSeconds: number;
                     };
-                    /** @description 可选 BYOK 模型连接；服务端据此绑定不可伪造的模型快照。 */
+                    /** @description Optional BYOK model connection for generic plans. It must be omitted or null for douyin_mediacrawler plans. */
                     modelConnectionId?: string | null;
                     stopConditions: {
                         stopWhenBudgetExhausted: boolean;
                         stopWhenNoMoreResults: boolean;
                     };
-                } & unknown;
+                } & (unknown & unknown);
             };
         };
         responses: {
