@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type RequestHandler, type Res
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { randomUUID } from "node:crypto";
+import { lstatSync, readFileSync } from "node:fs";
 import nodemailer from "nodemailer";
 import { z } from "zod";
 import { AUTH_COOKIE_NAME, CSRF_COOKIE_NAME, canManageAccount, canManageAccounts, canManageRole, canSeeOwner, canSeePersonalData, canSeeTeam, createCsrfToken, csrfCookieOptions, hashPassword, publicUser, requireAuth, sessionCookieOptions, signToken, validateAuthSecurity, verifyPassword } from "./auth.js";
@@ -12297,6 +12298,23 @@ export function enabledServerGrowthFeatures(
   return GROWTH_FEATURES;
 }
 
+export function readMediaCrawlerGatewayConfiguration(environment: NodeJS.ProcessEnv = process.env) {
+  const baseUrl = environment.MEDIACRAWLER_BASE_URL?.trim();
+  const secretFile = environment.MEDIACRAWLER_SERVICE_SECRET_FILE?.trim();
+  if (!baseUrl && !secretFile) return null;
+  if (!baseUrl || !secretFile) throw new Error("MEDIACRAWLER_GATEWAY_CONFIGURATION_INCOMPLETE");
+  const info = lstatSync(secretFile);
+  if (info.isSymbolicLink() || !info.isFile() || (info.mode & 0o077) !== 0
+    || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+    throw new Error("MEDIACRAWLER_SERVICE_SECRET_FILE_INVALID");
+  }
+  const serviceSecret = readFileSync(secretFile, "utf8");
+  if (/\s/u.test(serviceSecret) || Buffer.byteLength(serviceSecret, "utf8") < 32) {
+    throw new Error("MEDIACRAWLER_SERVICE_SECRET_FILE_INVALID");
+  }
+  return Object.freeze({ baseUrl, serviceSecret });
+}
+
 async function startServer() {
   const mysqlRequested = process.env.CRM_STORE === "mysql"
     || (process.env.CRM_STORE !== "memory" && Boolean(process.env.DATABASE_URL || process.env.MYSQL_URL));
@@ -12360,6 +12378,7 @@ async function startServer() {
       uninstallCommercialAuthority();
       throw error;
     }
+    const mediaCrawlerConfiguration = readMediaCrawlerGatewayConfiguration();
     const acquisitionRuntime = await createAcquisitionApplication({
       store,
       masterSecret: resolveAcquisitionMasterSecret({
@@ -12378,10 +12397,10 @@ async function startServer() {
         growthRuntime.integrations.probabilityAssessments,
       quoteProjectedDocumentAuthority:
         growthRuntime.integrations.quoteProjectedDocumentAuthority,
-      ...(process.env.MEDIACRAWLER_BASE_URL && process.env.MEDIACRAWLER_SERVICE_SECRET
+      ...(mediaCrawlerConfiguration
         ? { douyinMediaCrawlerGateway: createDouyinMediaCrawlerGateway({
-            baseUrl: process.env.MEDIACRAWLER_BASE_URL,
-            serviceSecret: process.env.MEDIACRAWLER_SERVICE_SECRET
+            baseUrl: mediaCrawlerConfiguration.baseUrl,
+            serviceSecret: mediaCrawlerConfiguration.serviceSecret
           }) }
         : {})
     });

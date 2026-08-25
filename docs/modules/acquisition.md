@@ -219,7 +219,9 @@ and stale completions cannot overwrite the current fence.
 
 ## Operational Checks
 
-Use MySQL tests for transaction, restart, lease, and recovery claims. Provider
+Use `pnpm test:task10:mysql` for the isolated live-MySQL restart/race/rollback
+gate and `pnpm test:task10:browser` for the deterministic no-route-interception
+browser flow. Use MySQL tests for transaction, restart, lease, and recovery claims. Provider
 smokes require explicit local credentials; the Douyin live smoke is
 `pnpm --filter ./backend smoke:douyin-public-comments`. Run the contract gate
 after any route or DTO change and inspect logs for identifiers only, never raw
@@ -228,7 +230,9 @@ customer/comment text or credentials.
 For QR login, provision an encrypted-at-rest directory before starting the
 sidecar. `MEDIACRAWLER_ENCRYPTED_VOLUME` must name an existing, non-symlink
 directory with exact mode `0700`; `MEDIACRAWLER_PROFILE_ROOT` must be inside
-it. The sidecar corrects owned profile directories to `0700` and metadata to
+it. `MEDIACRAWLER_SERVICE_SECRET_FILE` must name a non-symlinked, owner-only,
+newline-free secret file of at least 32 bytes; a raw secret environment value
+is rejected. The sidecar corrects owned profile directories to `0700` and metadata to
 `0600`. Playwright and every browser context live in one owned child process
 group;
 startup, commands, and shutdown are bounded, and a timed-out command hard

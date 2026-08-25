@@ -7,6 +7,8 @@
     "node": ">=22.22.3 <23"
   },
   "scripts": {
+    "test:task10:mysql": "node scripts/run-task10-mysql-gate.mjs",
+    "test:task10:browser": "node scripts/run-task10-mysql-gate.mjs --browser",
     "check:context": "node scripts/context-check.mjs",
     "dev": "concurrently \"pnpm --filter ./backend dev:mysql\" \"pnpm --filter ./frontend dev\"",
     "dev:shensi": "node --env-file-if-exists=.env.local scripts/dev.mjs",

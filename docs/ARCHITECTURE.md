@@ -16,8 +16,10 @@ Shensi is a pnpm workspace with three stable source boundaries:
 
 The browser calls same-origin `/api` routes. Vite proxies those requests during
 development. Production Compose places a single public Nginx gateway in front
-of the static frontend and backend; the API is reachable only through the
-internal Compose network.
+of the static frontend and backend. A separate internal-only network connects
+the backend to the non-root MediaCrawler sidecar; that network never reaches
+the gateway, and the sidecar publishes no host port. MySQL, backend, frontend,
+sidecar, and gateway all retain separate runtime responsibilities.
 
 ## Backend composition
 
@@ -32,7 +34,7 @@ the composition registry rather than exposed as frontend DTOs. The
 acquisition application follows the same domain/service/repository pattern and
 is mounted under `/api/v1/acquisition`.
 
-When configured, Douyin QR login crosses one private boundary: Express stores
+Douyin QR login crosses one private boundary: Express stores
 workspace-scoped account/session/replay records, while the pinned
 MediaCrawler sidecar owns raw browser profiles and Playwright in a killable
 child process. Public DTOs expose neither the opaque upstream handle nor raw

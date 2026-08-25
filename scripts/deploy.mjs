@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { assertPortAvailable, readEnvironmentFile, requiredLocalVariables } from "./dev.mjs";
+import { assertMediaCrawlerHostPrerequisites, validateMediaCrawlerComposeConfig } from "./mediacrawler-runtime.mjs";
 
 const productionSecurityVariables = ["TRADE_OBSERVATION_CURSOR_SECRET", "MARKET_OPPORTUNITY_CURSOR_SECRET", "PROSPECT_RUN_IDEMPOTENCY_SECRET", "PROSPECT_RUN_CURSOR_SECRET", "PROSPECT_EXECUTION_CLAIM_SECRET", "ORGANIZATION_IDENTITY_MASTER_SECRET", "PROSPECT_SOURCE_RAW_ENVELOPE_SECRET", "PROSPECT_COVERAGE_MASTER_SECRET"];
 export const requiredProductionVariables = [...requiredLocalVariables, ...productionSecurityVariables, "SESSION_COOKIE_SECURE", "SHENSI_MYSQL_APP_PASSWORD", "CORS_ORIGINS"];
@@ -105,12 +106,14 @@ function gatewayOwnsPort(port, runCompose, inspectContainer, environment) {
 
 export async function deployProduction(root, environment, options = {}) {
   const dockerEnvironment = options.dockerEnvironment ?? composeOperationalEnvironment();
-  const { assertDocker = assertDockerAvailable, runCompose = (argumentsList, selectedEnvironment) => compose(root, argumentsList, selectedEnvironment), inspectContainer = (containerId, selectedEnvironment) => docker(root, ["inspect", "--format", "{{json .NetworkSettings.Ports}}", containerId], selectedEnvironment), assertPort = assertPortAvailable, poll = pollHealth, emit = (line) => console.log(line) } = options;
+  const { assertDocker = assertDockerAvailable, runCompose = (argumentsList, selectedEnvironment) => compose(root, argumentsList, selectedEnvironment), inspectContainer = (containerId, selectedEnvironment) => docker(root, ["inspect", "--format", "{{json .NetworkSettings.Ports}}", containerId], selectedEnvironment), assertPort = assertPortAvailable, poll = pollHealth, emit = (line) => console.log(line),
+    validateCompose = (selectedEnvironment) => validateMediaCrawlerComposeConfig(JSON.parse(runCompose(["config", "--format", "json"], selectedEnvironment))) } = options;
   const origin = publicOrigin(environment);
   const port = Number(environment.SHENSI_HTTP_PORT ?? 8080);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT_INVALID:gateway");
   assertDocker("docker", { environment: dockerEnvironment });
   runCompose(["config", "--quiet"], dockerEnvironment);
+  validateCompose(dockerEnvironment);
   if (!gatewayOwnsPort(port, runCompose, inspectContainer, dockerEnvironment)) await assertPort(port, "0.0.0.0");
   runCompose(["build"], dockerEnvironment);
   runCompose(["up", "-d"], dockerEnvironment);
@@ -133,6 +136,10 @@ async function main() {
   const environment = loadProductionEnvironment(environmentFile);
   validateProductionVariables(environment);
   validateProductionSecrets(environment, resolve(root, "deploy/secrets"));
+  assertMediaCrawlerHostPrerequisites({
+    secretFile: resolve(root, "deploy/secrets/mediacrawler_service_secret"),
+    stateDirectory: resolve(root, environment.MEDIACRAWLER_ENCRYPTED_VOLUME)
+  });
   await deployProduction(root, environment);
 }
 

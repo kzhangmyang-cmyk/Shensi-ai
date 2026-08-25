@@ -14,7 +14,11 @@ from fastapi.testclient import TestClient
 
 from shensi_adapter.accounts import AccountManager
 from shensi_adapter.browser_state import MediaCrawlerDouyinBrowserState
-from shensi_adapter.app import create_app, validate_encrypted_profile_root
+from shensi_adapter.app import (
+    create_app,
+    deployment_service_secret,
+    validate_encrypted_profile_root,
+)
 from shensi_adapter.crawl_jobs import CrawlJobManager
 from shensi_adapter.schemas import CrawlJobRequest
 
@@ -648,6 +652,19 @@ def test_deployment_profile_root_requires_an_owner_only_existing_encrypted_direc
     ).resolve()
     with pytest.raises(RuntimeError, match="inside"):
         validate_encrypted_profile_root(volume, tmp_path / "outside")
+
+
+def test_deployment_secret_requires_an_owner_only_regular_file(tmp_path, monkeypatch):
+    secret_file = tmp_path / "service-secret"
+    secret_file.write_text("s" * 48, encoding="utf-8")
+    monkeypatch.setenv("MEDIACRAWLER_SERVICE_SECRET_FILE", str(secret_file))
+
+    os.chmod(secret_file, 0o644)
+    with pytest.raises(RuntimeError, match="owner-only"):
+        deployment_service_secret()
+
+    os.chmod(secret_file, 0o600)
+    assert deployment_service_secret() == "s" * 48
 
 
 def test_real_asgi_routes_delete_profiles_but_graceful_close_preserves_active_restart_state(tmp_path):

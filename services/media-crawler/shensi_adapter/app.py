@@ -20,6 +20,19 @@ from .security import authorize_bearer, require_service_secret
 UPSTREAM_COMMIT = "d6f7c5bb906b6dac40ddf343ef9e26438a3de092"
 
 
+def deployment_service_secret() -> str:
+    secret_file = os.environ.get("MEDIACRAWLER_SERVICE_SECRET_FILE", "").strip()
+    if not secret_file:
+        raise RuntimeError("MEDIACRAWLER_SERVICE_SECRET_FILE is required")
+    path = Path(secret_file)
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("MEDIACRAWLER_SERVICE_SECRET_FILE must be a regular file")
+    metadata = path.stat()
+    if metadata.st_mode & 0o077 or metadata.st_uid != os.getuid():
+        raise RuntimeError("MEDIACRAWLER_SERVICE_SECRET_FILE must be owner-only")
+    return require_service_secret(path.read_text(encoding="utf-8"))
+
+
 def validate_encrypted_profile_root(volume: Path, root: Path) -> Path:
     """Validate the deployment mount before any browser process starts."""
     if not volume.exists():
@@ -212,7 +225,7 @@ def create_deployment_account_manager() -> AccountManager:
 
 # Deployment entry point: fail closed rather than placing browser state on an
 # unencrypted/default filesystem. Unit tests use create_app with an injected manager.
-app = _build_app(lambda: os.environ.get("MEDIACRAWLER_SERVICE_SECRET", ""),
+app = _build_app(deployment_service_secret,
                  deployment_manager_factory=create_deployment_account_manager,
                  deployment_crawl_factory=lambda manager: CrawlJobManager(
                      manager._root, account_resolver=manager.resolve_crawl_profile

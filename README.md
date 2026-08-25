@@ -20,7 +20,7 @@ For production, provision the production secrets and configuration described
 in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md), then run:
 
 ```bash
-cp .env.example .env.production.local
+cp .env.production.example .env.production.local
 ./scripts/deploy
 ```
 
@@ -62,6 +62,7 @@ the authority for shared DTOs. The current immutable Growth release is
 - Node.js `22.22.3` (the root engine range is `>=22.22.3 <23`)
 - pnpm `11.18.0`
 - MySQL 8 for persistent and integration flows
+- uv `0.12.5` and Playwright Chromium for the private MediaCrawler sidecar
 - Chrome for Playwright browser acceptance
 
 Install dependencies with:
@@ -75,11 +76,13 @@ provider encryption keys. Use `.env.example` only as a list of variable names.
 
 ## Local runtime
 
-`./scripts/dev` reads `.env.local`, requires a real MySQL URL and the runtime
-security keys, reserves API port `4191` and frontend port `5191` before either
-process starts, and runs MySQL mode only. Vite uses `--strictPort`, so a port
-race fails rather than selecting a different port. It forwards `SIGINT` and
-`SIGTERM` to both child process trees and terminates them within a bounded
+`./scripts/dev` reads `.env.local`, requires a real MySQL URL, runtime security
+keys, an owner-only MediaCrawler secret file and a pre-existing encrypted state
+directory with mode `0700`. It reserves private sidecar port `4491`, API port
+`4191`, and frontend port `5191` before starting the Python sidecar, MySQL-backed
+Node runtime/workers, and Vite. Vite uses `--strictPort`, so a port race fails
+rather than selecting a different port. The wrapper forwards `SIGINT` and
+`SIGTERM` to all child process trees and force-terminates them after a bounded
 shutdown window.
 Do not use memory mode as evidence for this runtime.
 

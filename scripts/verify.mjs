@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readEnvironmentFile } from "./dev.mjs";
+import { assertMediaCrawlerHostPrerequisites } from "./mediacrawler-runtime.mjs";
 
 export function healthTargets(environment = {}) {
   const backendPort = Number(environment.SHENSI_BACKEND_PORT ?? 4191);
@@ -29,6 +30,11 @@ export async function verifyHealth(environment = {}) {
 export async function runVerification(root, environment, options = {}) {
   const { run: runCommand = (command, argumentsList) => run(root, command, argumentsList), verifyHealth: checkHealth = verifyHealth } = options;
   runCommand(process.execPath, ["scripts/context-check.mjs"]);
+  runCommand(process.execPath, ["--test",
+    "tools/mediacrawler-deployment.test.mjs",
+    "tools/mediacrawler-provenance.test.mjs"
+  ]);
+  runCommand("uv", ["run", "--frozen", "--project", "services/media-crawler", "pytest", "-q", "services/media-crawler/tests"]);
   runCommand("pnpm", ["--filter", "./contracts", "test"]);
   runCommand("pnpm", ["--filter", "./backend", "build"]);
   runCommand("pnpm", ["--filter", "./frontend", "test"]);
@@ -40,7 +46,13 @@ export async function runVerification(root, environment, options = {}) {
 async function main() {
   const root = resolve(import.meta.dirname, "..");
   const environmentFile = resolve(root, ".env.local");
-  await runVerification(root, existsSync(environmentFile) ? readEnvironmentFile(environmentFile) : {});
+  if (!existsSync(environmentFile)) throw new Error("LOCAL_ENVIRONMENT_FILE_MISSING");
+  const environment = readEnvironmentFile(environmentFile);
+  assertMediaCrawlerHostPrerequisites({
+    secretFile: resolve(root, environment.MEDIACRAWLER_SERVICE_SECRET_FILE ?? ""),
+    stateDirectory: resolve(root, environment.MEDIACRAWLER_ENCRYPTED_VOLUME ?? "")
+  });
+  await runVerification(root, environment);
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

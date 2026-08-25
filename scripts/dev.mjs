@@ -3,8 +3,9 @@ import { createServer } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { assertMediaCrawlerHostPrerequisites } from "./mediacrawler-runtime.mjs";
 
-export const requiredLocalVariables = ["DATABASE_URL", "JWT_SECRET", "PROVIDER_CREDENTIAL_KEY", "AGENT_JOB_ENCRYPTION_KEY", "ACQUISITION_MASTER_SECRET"];
+export const requiredLocalVariables = ["DATABASE_URL", "JWT_SECRET", "PROVIDER_CREDENTIAL_KEY", "AGENT_JOB_ENCRYPTION_KEY", "ACQUISITION_MASTER_SECRET", "MEDIACRAWLER_SERVICE_SECRET_FILE", "MEDIACRAWLER_ENCRYPTED_VOLUME"];
 
 export function readEnvironmentFile(filePath) {
   if (!existsSync(filePath)) throw new Error("LOCAL_ENVIRONMENT_FILE_MISSING");
@@ -33,9 +34,9 @@ function parsePort(value, name) {
   return port;
 }
 
-export function validatePorts({ backend, frontend }) {
-  const parsed = { backend: parsePort(backend, "backend"), frontend: parsePort(frontend, "frontend") };
-  if (parsed.backend === parsed.frontend) throw new Error("PORT_CONFLICT");
+export function validatePorts({ backend, frontend, mediaCrawler = 4491 }) {
+  const parsed = { backend: parsePort(backend, "backend"), frontend: parsePort(frontend, "frontend"), mediaCrawler: parsePort(mediaCrawler, "media-crawler") };
+  if (new Set(Object.values(parsed)).size !== 3) throw new Error("PORT_CONFLICT");
   return parsed;
 }
 
@@ -48,9 +49,10 @@ export function assertPortAvailable(port, host = "127.0.0.1") {
   });
 }
 
-export async function assertPortsAvailable(ports, hosts = { backend: "127.0.0.1", frontend: "127.0.0.1" }) {
+export async function assertPortsAvailable(ports, hosts = { backend: "127.0.0.1", frontend: "127.0.0.1", mediaCrawler: "127.0.0.1" }) {
   await assertPortAvailable(ports.backend, hosts.backend);
   await assertPortAvailable(ports.frontend, hosts.frontend);
+  await assertPortAvailable(ports.mediaCrawler, hosts.mediaCrawler);
 }
 
 export function terminateProcessTree(child, signal) {
@@ -70,10 +72,13 @@ function waitForChild(child) {
 }
 
 export async function runDevelopment(root, environment, options = {}) {
-  const { processRef = process, spawnProcess = spawn, assertPorts = assertPortsAvailable, terminateTree = terminateProcessTree, setTimer = setTimeout, clearTimer = clearTimeout } = options;
+  const { processRef = process, spawnProcess = spawn, assertPorts = assertPortsAvailable,
+    assertMediaCrawler = assertMediaCrawlerHostPrerequisites,
+    terminateTree = terminateProcessTree, setTimer = setTimeout, clearTimer = clearTimeout } = options;
   validateRequiredVariables(environment);
-  const ports = validatePorts({ backend: environment.SHENSI_BACKEND_PORT ?? 4191, frontend: environment.SHENSI_FRONTEND_PORT ?? 5191 });
-  const hosts = { backend: environment.BACKEND_HOST ?? "127.0.0.1", frontend: "127.0.0.1" };
+  assertMediaCrawler({ secretFile: resolve(root, environment.MEDIACRAWLER_SERVICE_SECRET_FILE), stateDirectory: resolve(root, environment.MEDIACRAWLER_ENCRYPTED_VOLUME) });
+  const ports = validatePorts({ backend: environment.SHENSI_BACKEND_PORT ?? 4191, frontend: environment.SHENSI_FRONTEND_PORT ?? 5191, mediaCrawler: environment.MEDIACRAWLER_PORT ?? 4491 });
+  const hosts = { backend: environment.BACKEND_HOST ?? "127.0.0.1", frontend: "127.0.0.1", mediaCrawler: "127.0.0.1" };
   const records = [];
   let stopping = false;
   let deadline;
@@ -105,7 +110,16 @@ export async function runDevelopment(root, environment, options = {}) {
       return true;
     };
     const waitForStoppedChildren = () => Promise.all(records.map(({ exited }) => exited));
-    if (!launch("pnpm", ["--filter", "./backend", "dev:mysql"], { ...environment, CRM_STORE: "mysql", PORT: String(ports.backend), BACKEND_HOST: hosts.backend })) {
+    const mediaEnvironment = { ...environment,
+      MEDIACRAWLER_SERVICE_SECRET_FILE: resolve(root, environment.MEDIACRAWLER_SERVICE_SECRET_FILE),
+      MEDIACRAWLER_ENCRYPTED_VOLUME: resolve(root, environment.MEDIACRAWLER_ENCRYPTED_VOLUME),
+      MEDIACRAWLER_PROFILE_ROOT: resolve(root, environment.MEDIACRAWLER_ENCRYPTED_VOLUME, "profiles")
+    };
+    if (!launch("uv", ["run", "--frozen", "--project", "services/media-crawler", "uvicorn", "shensi_adapter.app:app", "--app-dir", "services/media-crawler", "--host", "127.0.0.1", "--port", String(ports.mediaCrawler), "--workers", "1", "--timeout-graceful-shutdown", "20"], mediaEnvironment)) {
+      await waitForStoppedChildren();
+      return;
+    }
+    if (!launch("pnpm", ["--filter", "./backend", "dev:mysql"], { ...environment, CRM_STORE: "mysql", PORT: String(ports.backend), BACKEND_HOST: hosts.backend, MEDIACRAWLER_BASE_URL: `http://127.0.0.1:${ports.mediaCrawler}`, MEDIACRAWLER_SERVICE_SECRET_FILE: mediaEnvironment.MEDIACRAWLER_SERVICE_SECRET_FILE })) {
       await waitForStoppedChildren();
       return;
     }

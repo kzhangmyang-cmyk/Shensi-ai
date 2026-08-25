@@ -21,7 +21,8 @@ import {
 test("local runtime requires real MySQL and security keys", () => {
   assert.deepEqual(requiredLocalVariables, [
     "DATABASE_URL", "JWT_SECRET", "PROVIDER_CREDENTIAL_KEY",
-    "AGENT_JOB_ENCRYPTION_KEY", "ACQUISITION_MASTER_SECRET"
+    "AGENT_JOB_ENCRYPTION_KEY", "ACQUISITION_MASTER_SECRET",
+    "MEDIACRAWLER_SERVICE_SECRET_FILE", "MEDIACRAWLER_ENCRYPTED_VOLUME"
   ]);
 });
 
@@ -45,7 +46,7 @@ test("an occupied local port fails before runtime processes can start", async ()
 test("local validation names missing variables without exposing values", () => {
   assert.throws(
     () => validateRequiredVariables({ DATABASE_URL: "mysql://present" }),
-    /LOCAL_ENVIRONMENT_MISSING:JWT_SECRET,PROVIDER_CREDENTIAL_KEY,AGENT_JOB_ENCRYPTION_KEY,ACQUISITION_MASTER_SECRET/u
+    /LOCAL_ENVIRONMENT_MISSING:JWT_SECRET,PROVIDER_CREDENTIAL_KEY,AGENT_JOB_ENCRYPTION_KEY,ACQUISITION_MASTER_SECRET,MEDIACRAWLER_SERVICE_SECRET_FILE,MEDIACRAWLER_ENCRYPTED_VOLUME/u
   );
 });
 

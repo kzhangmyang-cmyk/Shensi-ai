@@ -15,6 +15,48 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+  media-crawler:
+    build:
+      context: ..
+      dockerfile: services/media-crawler/Dockerfile.shensi
+    environment:
+      MEDIACRAWLER_SERVICE_SECRET_FILE: /run/secrets/mediacrawler_service_secret
+      MEDIACRAWLER_ENCRYPTED_VOLUME: /var/lib/shensi-mediacrawler
+      MEDIACRAWLER_PROFILE_ROOT: /var/lib/shensi-mediacrawler/profiles
+    secrets:
+      - source: mediacrawler_service_secret
+        target: /run/secrets/mediacrawler_service_secret
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    volumes:
+      - type: bind
+        source: ${MEDIACRAWLER_ENCRYPTED_VOLUME:?MEDIACRAWLER_ENCRYPTED_VOLUME is required}
+        target: /var/lib/shensi-mediacrawler
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    cpus: "1.0"
+    mem_limit: 1536M
+    stop_grace_period: 25s
+    networks: [shensi_mediacrawler, shensi_egress]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,urllib.request; s=open(os.environ['MEDIACRAWLER_SERVICE_SECRET_FILE'],encoding='utf-8').read(); r=urllib.request.Request('http://127.0.0.1:8899/internal/v1/health',headers={'Authorization':'Bearer '+s}); raise SystemExit(0 if urllib.request.urlopen(r,timeout=4).status == 200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1536M
   backend:
     build:
       context: ..
@@ -26,9 +68,18 @@ services:
       BACKEND_HOST: 0.0.0.0
       PORT: 4188
       TRUSTED_PROXY_CIDRS: 172.30.0.4/32
+      MEDIACRAWLER_BASE_URL: http://media-crawler:8899
+      MEDIACRAWLER_SERVICE_SECRET_FILE: /run/secrets/mediacrawler_service_secret
+    secrets:
+      - source: mediacrawler_service_secret
+        target: /run/secrets/mediacrawler_service_secret
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
     depends_on:
       mysql: { condition: service_healthy }
-    networks: [shensi_internal, shensi_egress]
+      media-crawler: { condition: service_healthy }
+    networks: [shensi_internal, shensi_mediacrawler, shensi_egress]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4188/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s
@@ -53,6 +104,7 @@ services:
 secrets:
   mysql_app_password: { file: ./secrets/mysql_app_password }
   mysql_root_password: { file: ./secrets/mysql_root_password }
+  mediacrawler_service_secret: { file: ./secrets/mediacrawler_service_secret }
 volumes:
   shensi_mysql:
 networks:
@@ -62,3 +114,5 @@ networks:
       config:
         - subnet: 172.30.0.0/24
   shensi_egress:
+  shensi_mediacrawler:
+    internal: true

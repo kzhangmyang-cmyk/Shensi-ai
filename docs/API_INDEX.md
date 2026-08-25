@@ -41,6 +41,13 @@ The legacy `/api/*` CRM route list is generated from Express registration in
 `backend/src/swagger.ts`; it is not a substitute for the two versioned shared
 contracts.
 
+The sidecar `/internal/v1/*` health, account, crawl, result, acknowledgement,
+and exact-action routes are service-to-service implementation interfaces, not
+public APIs. They require the mounted bearer secret, accept only a private or
+loopback backend connection, and are never routed by Nginx. Raw handles,
+cookies, browser profiles, leases, and upstream payloads must not be added to
+the acquisition OpenAPI surface.
+
 ## Protocol conventions
 
 Protected routes require an authenticated session or bearer identity. Browser

@@ -18,7 +18,9 @@ const localEnvironment = {
   JWT_SECRET: "fixture-security-value-that-is-longer-than-32-characters",
   PROVIDER_CREDENTIAL_KEY: "fixture-security-value-that-is-longer-than-32-characters",
   AGENT_JOB_ENCRYPTION_KEY: "fixture-security-value-that-is-longer-than-32-characters",
-  ACQUISITION_MASTER_SECRET: "fixture-security-value-that-is-longer-than-32-characters"
+  ACQUISITION_MASTER_SECRET: "fixture-security-value-that-is-longer-than-32-characters",
+  MEDIACRAWLER_SERVICE_SECRET_FILE: "fixture-secret-file",
+  MEDIACRAWLER_ENCRYPTED_VOLUME: "fixture-state-directory"
 };
 
 const productionEnvironment = {
@@ -47,14 +49,15 @@ function child(pid) {
   return value;
 }
 
-test("development launches only after preflight with strict Vite ports and cleans both process trees", async () => {
+test("development launches sidecar, backend, and frontend after preflight and cleans every process tree", async () => {
   const processRef = new EventEmitter();
-  const children = [child(101), child(102)];
+  const children = [child(101), child(102), child(103)];
   const started = [];
   const calls = [];
   const terminated = [];
   await runDevelopment("/workspace", localEnvironment, {
     processRef,
+    assertMediaCrawler: () => {},
     assertPorts: async (ports, hosts) => calls.push({ ports, hosts }),
     spawnProcess(command, argumentsList, options) {
       calls.push({ command, argumentsList, options });
@@ -69,14 +72,16 @@ test("development launches only after preflight with strict Vite ports and clean
     }
   });
   assert.deepEqual(calls[0], {
-    ports: { backend: 4191, frontend: 5191 },
-    hosts: { backend: "127.0.0.1", frontend: "127.0.0.1" }
+    ports: { backend: 4191, frontend: 5191, mediaCrawler: 4491 },
+    hosts: { backend: "127.0.0.1", frontend: "127.0.0.1", mediaCrawler: "127.0.0.1" }
   });
-  assert.deepEqual(calls[1].argumentsList, ["--filter", "./backend", "dev:mysql"]);
+  assert.deepEqual(calls[1].argumentsList.slice(0, 4), ["run", "--frozen", "--project", "services/media-crawler"]);
   assert.equal(calls[1].options.detached, true);
-  assert.deepEqual(calls[2].argumentsList, ["--filter", "./frontend", "dev", "--", "--port", "5191", "--strictPort"]);
-  assert.equal(calls[2].options.env.VITE_API_TARGET, "http://127.0.0.1:4191");
-  assert.deepEqual(terminated.map(([pid]) => pid).sort(), [101, 102]);
+  assert.deepEqual(calls[2].argumentsList, ["--filter", "./backend", "dev:mysql"]);
+  assert.equal(calls[2].options.env.MEDIACRAWLER_BASE_URL, "http://127.0.0.1:4491");
+  assert.deepEqual(calls[3].argumentsList, ["--filter", "./frontend", "dev", "--", "--port", "5191", "--strictPort"]);
+  assert.equal(calls[3].options.env.VITE_API_TARGET, "http://127.0.0.1:4191");
+  assert.deepEqual(terminated.map(([pid]) => pid).sort(), [101, 102, 103]);
 });
 
 test("a shutdown signal during the first spawn prevents the second spawn and forces cleanup", async () => {
@@ -86,6 +91,7 @@ test("a shutdown signal during the first spawn prevents the second spawn and for
   let spawnCount = 0;
   await runDevelopment("/workspace", localEnvironment, {
     processRef,
+    assertMediaCrawler: () => {},
     assertPorts: async () => {},
     spawnProcess() {
       spawnCount += 1;
@@ -113,6 +119,7 @@ test("development does not resolve until an early-signal child has been forcibly
   let settled = false;
   const execution = runDevelopment("/workspace", localEnvironment, {
     processRef,
+    assertMediaCrawler: () => {},
     assertPorts: async () => {},
     spawnProcess() {
       processRef.emit("SIGINT");
@@ -173,6 +180,7 @@ test("Docker availability and every deployment command share explicit endpoint s
   assert.equal("DOCKER_HOST" in composeOperationalEnvironment({ PATH: "/fixture/bin" }), false);
   const received = [];
   await assert.rejects(deployProduction("/workspace", productionEnvironment, {
+    validateCompose: () => {},
     dockerEnvironment: selectors,
     assertDocker(_binary, { environment }) { received.push(["availability", environment]); },
     runCompose(argumentsList, environment) {
@@ -234,6 +242,7 @@ test("same Compose gateway ownership permits redeploy while unrelated port owner
   const calls = [];
   const lines = [];
   await deployProduction("/workspace", productionEnvironment, {
+    validateCompose: () => {},
     assertDocker: () => {},
     runCompose(argumentsList) {
       calls.push(argumentsList);
@@ -256,6 +265,7 @@ test("same Compose gateway ownership permits redeploy while unrelated port owner
   assert.doesNotMatch(lines.join("\n"), /fixture-(?:app-password|security)/u);
 
   await assert.rejects(deployProduction("/workspace", productionEnvironment, {
+    validateCompose: () => {},
     assertDocker: () => {},
     runCompose(argumentsList) {
       if (argumentsList.join(" ") === "ps -q gateway") return "";
@@ -270,6 +280,7 @@ test("same Compose gateway ownership permits redeploy while unrelated port owner
 test("failed post-up health checks run deterministic Compose cleanup without leaking configuration", async () => {
   const calls = [];
   await assert.rejects(deployProduction("/workspace", productionEnvironment, {
+    validateCompose: () => {},
     assertDocker: () => {},
     runCompose(argumentsList) {
       calls.push(argumentsList);
@@ -291,6 +302,8 @@ test("verification includes frontend type tests before health requests", async (
   });
   assert.deepEqual(commands, [
     [process.execPath, ["scripts/context-check.mjs"]],
+    [process.execPath, ["--test", "tools/mediacrawler-deployment.test.mjs", "tools/mediacrawler-provenance.test.mjs"]],
+    ["uv", ["run", "--frozen", "--project", "services/media-crawler", "pytest", "-q", "services/media-crawler/tests"]],
     ["pnpm", ["--filter", "./contracts", "test"]],
     ["pnpm", ["--filter", "./backend", "build"]],
     ["pnpm", ["--filter", "./frontend", "test"]],

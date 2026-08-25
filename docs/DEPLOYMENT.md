@@ -2,20 +2,25 @@
 
 ## Production Docker Compose
 
-The canonical production topology is `deploy/compose.yaml`. It runs four
-services on the isolated `shensi_internal` network:
+The canonical production topology is `deploy/compose.yaml`. It runs five
+services with separate internal application and MediaCrawler networks:
 
 - `mysql` persists the `shensi` database in the `shensi_mysql` named volume.
 - `backend` runs the MySQL-backed Express API on port 4188 inside that network.
+- `media-crawler` runs the pinned Python 3.11/uv/Playwright service as UID/GID
+  10001 with read-only code, a read-only root filesystem, bounded resources
+  and shutdown, and no published port.
 - `frontend` serves the built Vite assets on port 8080 inside that network.
 - `gateway` is the only service with a published port and routes `/api/` to
   `backend`, all other requests to `frontend`, and `/healthz` locally.
 
 The backend is not published to the host. It listens on `0.0.0.0` only so the
 internal gateway can reach it; Compose's internal network is its network
-boundary. The backend alone also joins the egress-enabled `shensi_egress`
-network for approved provider, search, email, and Twilio calls. MySQL,
-frontend, and gateway remain only on `shensi_internal`. Production always sets
+boundary. The backend and MediaCrawler sidecar join the egress-enabled
+`shensi_egress` network for approved outbound calls. Only the backend joins
+both `shensi_internal` and the internal `shensi_mediacrawler` network. The
+gateway never joins or routes that sidecar network. MySQL, frontend, and
+gateway remain only on `shensi_internal`. Production always sets
 `NODE_ENV=production` and `CRM_STORE=mysql`; memory/demo persistence is not a
 production fallback.
 
@@ -27,16 +32,17 @@ widen this value or publish a backend port.
 ### Prerequisites
 
 - Docker Engine with Docker Compose v2.
-- The production configuration and the two secret files described below.
+- The production configuration and the three secret files described below.
 - Enough durable storage for the MySQL named volume and backups.
 - An HTTPS reverse proxy or load balancer in front of the published gateway
   port when deploying beyond a trusted local network. Set its public origin in
   `CORS_ORIGINS` and keep `SESSION_COOKIE_SECURE=true`.
 
-The images are built from the root pnpm workspace with Node `22.22.3` and run
-as non-root users. The current image references are `mysql:8.4.11`,
-`node:22.22.3-bookworm-slim`, and
-`nginxinc/nginx-unprivileged:1.27-alpine`.
+The images are built from frozen workspaces and run as non-root users. The
+current image references are `mysql:8.4.11`, `node:22.22.3-bookworm-slim`,
+`python:3.11.13-slim-bookworm`, `ghcr.io/astral-sh/uv:0.12.5`, and
+`nginxinc/nginx-unprivileged:1.27-alpine`. The sidecar installs its frozen uv
+environment and Playwright Chromium during the image build.
 
 Use `./scripts/deploy` as the canonical production command. It accepts only
 MySQL persistence with `CRM_SEED_DEVELOPMENT_DATA=false`, checks
@@ -54,8 +60,9 @@ that recorded verification limitation.
 ### Configuration and secrets
 
 `.env.production.local` and `deploy/secrets/` are ignored and must never be
-committed. Start with `.env.example`, copy it to `.env.production.local`, and
-replace every placeholder with distinct production values. At minimum, set
+committed. Start with `.env.production.example`, copy it to
+`.env.production.local`, and replace every placeholder with distinct
+production values. At minimum, set
 the strong session, credential-encryption, job, cursor, claim, and domain
 master secrets required by the backend.
 
@@ -67,6 +74,8 @@ umask 077
 mkdir -p deploy/secrets
 openssl rand -base64 36 | tr -d '\n' > deploy/secrets/mysql_app_password
 openssl rand -base64 36 | tr -d '\n' > deploy/secrets/mysql_root_password
+openssl rand -base64 36 | tr -d '\n' > deploy/secrets/mediacrawler_service_secret
+chmod 0400 deploy/secrets/mediacrawler_service_secret
 ```
 
 Set `DATABASE_URL` in `.env.production.local` to a URL whose user is
@@ -74,7 +83,7 @@ Set `DATABASE_URL` in `.env.production.local` to a URL whose user is
 password must be the exact newline-free content of `mysql_app_password`,
 encoded exactly with JavaScript `encodeURIComponent` for a database URL. Keep
 strong punctuation in the password; encode it instead of weakening it. After
-copying `.env.example`, use this
+copying `.env.production.example`, use this
 deterministic command to update `DATABASE_URL` in the ignored production file
 without printing the password or its encoded form:
 
@@ -88,23 +97,22 @@ Set `SHENSI_MYSQL_APP_PASSWORD` in `.env.production.local` to the exact
 newline-free content of `deploy/secrets/mysql_app_password`; the wrapper uses
 it only for consistency validation and never prints it.
 
-### Optional Douyin QR-login sidecar
+### Private Douyin MediaCrawler sidecar
 
-The current canonical four-service Compose topology does not include the
-MediaCrawler sidecar. Consequently, production does not publish the four
-Douyin account routes unless an operator separately provisions the pinned
-`services/media-crawler` service on a private network and configures the
-backend with both of these values:
+The canonical Compose topology includes the pinned `services/media-crawler`
+service. Compose gives the backend its internal URL and mounts the shared
+secret file into backend and sidecar; raw secret environment values are not
+accepted:
 
 ```dotenv
-MEDIACRAWLER_BASE_URL=http://private-mediacrawler-host:port
-MEDIACRAWLER_SERVICE_SECRET=replace_with_a_shared_32_plus_character_secret
+MEDIACRAWLER_BASE_URL=http://media-crawler:8899
+MEDIACRAWLER_SERVICE_SECRET_FILE=/run/secrets/mediacrawler_service_secret
 ```
 
-The URL validator accepts only private/loopback plain HTTP targets; do not
-publish the sidecar or route browser-state traffic through the public gateway.
-The same secret is supplied to the sidecar as
-`MEDIACRAWLER_SERVICE_SECRET` and must be at least 32 non-whitespace bytes.
+The URL validator accepts only private/loopback plain HTTP targets. The secret
+file must be regular, non-symlinked, owner-only, newline-free, and at least 32
+non-whitespace bytes. Do not publish the sidecar or route browser-state traffic
+through the public gateway.
 The backend owns the crawler worker, expired-lease recovery, terminal ingestion,
 and evidence-retention lifecycle whenever this gateway is configured. Result
 pages remain in the private sidecar until the backend's authoritative
@@ -153,6 +161,12 @@ POSIX mode `0700`. The profile root must remain beneath that mount:
 MEDIACRAWLER_ENCRYPTED_VOLUME=/run/shensi-encrypted/mediacrawler
 MEDIACRAWLER_PROFILE_ROOT=/run/shensi-encrypted/mediacrawler/profiles
 ```
+
+Compose bind-mounts that directory at `/var/lib/shensi-mediacrawler` and
+refuses to create a missing host path. Stop the sidecar before backup or
+restore. Copy browser state only with approved encrypted-at-rest backup
+tooling, preserve ownership and exact `0700` mode, and never extract it into
+an unencrypted staging directory.
 
 Every owned directory is enforced as `0700` and metadata as `0600`. Browser
 commands execute in an owned child process group with bounded startup, command, and
@@ -231,8 +245,9 @@ cp .env.example .env.local
 ./scripts/verify
 ```
 
-The development wrapper reserves `4191` for the API and `5191` for Vite before
-starting either process, forces `CRM_STORE=mysql`, and gives Vite
+The development wrapper reserves `4491` for the private sidecar, `4191` for
+the API, and `5191` for Vite before starting any process, forces
+`CRM_STORE=mysql`, and gives Vite
 `VITE_API_TARGET=http://127.0.0.1:4191`. `./scripts/verify` runs the context,
 contract, backend-build, frontend-test/type/build, and local health gates;
 keep the local runtime running while it performs its health checks.
@@ -267,10 +282,26 @@ pnpm test
 pnpm build
 pnpm test:baota-package
 node --test tools/deployment-contract.test.mjs
-docker compose -f deploy/compose.yaml --env-file .env.example config --quiet
+node --test tools/mediacrawler-deployment.test.mjs tools/mediacrawler-provenance.test.mjs
+pnpm test:task10:mysql
+pnpm test:task10:browser
+docker compose -f deploy/compose.yaml --env-file .env.production.example config --quiet
 git diff --check
 ```
 
 MySQL, Chromium, live-provider, Docker build, and running-container checks
 need their corresponding local services. A memory-mode test does not prove a
 MySQL migration or a production deployment.
+
+### Dedicated-account external acceptance checkpoint
+
+Deterministic verification does not authorize a real Douyin action. External
+acceptance starts only after an operator supplies a dedicated test account and
+displays the exact test-owned video/profile URLs. The operator must verify the
+account has no unrelated audience or target, manually scan the QR, and stop on
+CAPTCHA, verification, rate-limit, or account-warning state. Immediately before
+approval, the user must see the selected account, target URL, exact test comment
+and exact test direct message and give action-time confirmation. Without that
+confirmation, do not approve the batch and do not send either action. The owned
+local UI is `http://127.0.0.1:5191/#acquisition`; production acceptance uses the
+configured HTTPS `CORS_ORIGINS` origin with `#acquisition` appended.

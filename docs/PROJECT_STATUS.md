@@ -140,25 +140,40 @@ ledger.
 
 ## Active
 
-- Task 10 deployment, restart, no-intercept runtime verification and explicit
-  dedicated-account acceptance are next. Task 9 used only a deterministic HTTP
-  fixture and made no production Douyin action. No traffic cutover or real-
-  account acceptance is claimed. The legacy repository, source database, and
-  user-facing processes remain rollback inputs.
+- Task 10 deterministic implementation and repository-wide final gates are
+  complete. The pinned Python 3.11/uv/Playwright sidecar is private-only,
+  non-root and read-only, uses a mounted owner-only service-secret file and a
+  pre-existing encrypted-state bind, and has bounded resources, health and
+  shutdown behavior. Development, deployment and verification wrappers fail
+  closed on missing prerequisites or a publicly routed sidecar.
+- Deterministic evidence on 2026-08-25: the complete focused sidecar suite
+  passed 145 tests; deployment/runtime contracts passed 29 tests; the isolated
+  live-MySQL gate passed 15 tests using a short-lived least-privilege account
+  and cleaned its owned schemas/account; the no-route-interception Playwright
+  flow passed 1 test with real Shensi auth/session/CSRF, MySQL repositories,
+  Node workers and the real sidecar service. Backend and frontend builds and
+  frontend type checks passed. No request reached a Douyin/iesdouyin host.
+- Dedicated-account external acceptance is not performed. No QR was scanned,
+  CAPTCHA handled, production traffic changed, or real comment/direct message
+  sent. It remains a separately authorized operator checkpoint after the exact
+  dedicated account and test-owned target URLs are displayed and the user gives
+  action-time confirmation.
 
 ## Blocked
 
 - Docker Engine and Docker Compose are unavailable in the current execution
-  environment (`docker: command not found`), so Compose rendering and image
-  builds require verification in a Docker-equipped environment.
+  environment (`docker` is absent from `PATH`; Colima is installed but reports
+  `colima is not running`), so Compose rendering and image builds remain an
+  exact deployment blocker requiring a Docker-equipped environment.
 
 ## Next
 
-1. Implement Task 10 deployment and isolated real-runtime gates, keeping
-   deterministic, MySQL, Docker and external acceptance evidence separate.
-2. Request explicit dedicated-account and cutover authorization before any
-   external Douyin acceptance or production traffic change; Task 9 authorized
-   neither.
+1. In a Docker-equipped environment, render `deploy/compose.yaml`, build every
+   image, inspect the private networks and run container health/shutdown checks.
+2. If external acceptance is requested, first display the dedicated test
+   account and exact test-owned video/profile URLs, then request action-time
+   confirmation before approving any comment/direct-message batch. Never
+   automate CAPTCHA or continue after a platform warning.
 
 The two executing design/plan documents are retained under
 `docs/superpowers/` until final acceptance, but they are not progress authority.
