@@ -47,3 +47,38 @@ test("grounds every non-template phrase in one approved evidence row and closes 
     modelSnapshotId: "snapshot-1"
   }));
 });
+
+test("allows grounded dotted product and technology names without public TLDs", () => {
+  for (const product of ["Node.js", "Qwen.VL"]) {
+    assert.doesNotThrow(() => validateAcquisitionOutreachDraft({
+      ...base,
+      comment: `看到你公开提到正在评估${product}方案，祝进展顺利。`,
+      directMessage:
+        `看到你公开提到正在评估${product}方案；如愿意，可交流公开场景里的思路。`
+    }, {
+      candidateId: "candidate-1", candidateRevision: 2,
+      evidenceHashes: [`sha256:${"a".repeat(64)}`],
+      evidenceText: [`公开提到正在评估${product}方案`],
+      modelSnapshotId: "snapshot-1"
+    }), product);
+  }
+});
+
+test("rejects recognized registry domains and protocol-obfuscated URLs", () => {
+  for (const comment of [
+    "访问 example.dev",
+    "访问 例子。公司",
+    "访问 xn--fsqu00a.xn--55qx5d",
+    "访问 h\u200bttps://example.dev",
+    "访问 ｗｗｗ。example.dev"
+  ]) {
+    assert.throws(() => validateAcquisitionOutreachDraft({
+      ...base,
+      comment
+    }, {
+      candidateId: "candidate-1", candidateRevision: 2,
+      evidenceHashes: [`sha256:${"a".repeat(64)}`],
+      evidenceText: [comment], modelSnapshotId: "snapshot-1"
+    }), /OUTREACH_DRAFT_INVALID/u, comment);
+  }
+});

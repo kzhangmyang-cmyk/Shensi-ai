@@ -91,13 +91,18 @@ ledger.
   and the active official model snapshot on the server. Draft generation is a
   private application-composed boundary backed by the real domain and DNC
   repositories. It parses normalized refusal/minor phrases, binds candidate
-  revision/evidence hashes to the snapshot, rejects Unicode/IDN domains, and
-  permits only fixed safe template clauses or complete phrases grounded in one
-  evidence row. Memory shares the DNC writer coordinator; MySQL locks and reads
-  candidate, exact evidence, and the DNC key/gap on one connection. It returns
-  a deeply immutable authority projection, recomputes immutable content hashes,
-  and discards raw model output. Draft persistence remains exclusively with
-  the later outreach-batch revision authority.
+  revision/evidence hashes to the snapshot, rejects ICANN-recognized ASCII,
+  Unicode/IDN, and punycode domains while allowing grounded dotted product
+  names without a public TLD, and permits only fixed safe template clauses or
+  complete phrases grounded in one evidence row. Memory shares the DNC writer
+  coordinator; MySQL locks and reads candidate, exact evidence, and the DNC
+  key/gap on one connection. Custom domain/crawler repositories may inject the
+  same tenant-scoped atomic final-authority port; without one, application
+  startup remains compatible and only Task 6 draft generation fails closed
+  before model traffic. The service returns a deeply immutable authority
+  projection, recomputes immutable content hashes, and discards raw model
+  output. Draft persistence remains exclusively with the later outreach-batch
+  revision authority.
 
 ## Active
 

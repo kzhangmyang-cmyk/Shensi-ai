@@ -285,3 +285,68 @@ describe the production authority composition, normalized safety policy,
 single-row grounding, deep immutability, and Task 7 persistence ownership. No
 public route, OpenAPI schema, or generated client contract changed, so the API
 index and generated contract documentation remain current.
+
+## Fix round 5/5 — public-suffix and custom-composition remediation
+
+### RED
+
+- Added grounded `Node.js` and `Qwen.VL` counterexamples first. The old
+  any-alphabetic-final-label heuristic rejected `Node.js` before evidence
+  grounding.
+- Added application counterexamples with non-`instanceof` domain and crawler
+  repository implementations. Both injected-authority generation and
+  authority-less backward-compatible startup failed at application creation
+  with `acquisition_outreach_final_authority_required`.
+- The corrected focused RED run reported 35 tests: 32 passed and 3 failed for
+  exactly those missing behaviours. Existing/new negative cases for
+  `example.dev`, Unicode-dot `例子。公司`, real punycode/IDN suffixes,
+  protocol URLs, and zero-width/full-width obfuscation remained rejected.
+
+### GREEN
+
+- Domain validation now uses `tldts` `7.4.10` and its maintained ICANN Public
+  Suffix List classification instead of guessing from alphabetic labels.
+  `tldts-core` is also pinned to cooled `7.4.10`; the repository's
+  minimum-release-age policy passes without an exception. Both packages are
+  MIT licensed and recorded in the current third-party notice.
+- The application exposes an explicit injectable
+  `AcquisitionOutreachFinalAuthority` port. Concrete Memory/MySQL composition
+  still auto-builds the existing atomic adapters. Custom repository
+  compositions can generate drafts through an injected port carrying the
+  exact workspace/owner/team, candidate, evidence-membership, and actor
+  identity inputs.
+- Missing custom authority no longer blocks unrelated application startup.
+  Its port rejects the first DNC authority check, before snapshot resolution or
+  model traffic, when Task 6 draft generation is invoked. Candidate/evidence/
+  DNC transaction and tenant guarantees are unchanged.
+
+### Verification
+
+- Focused draft/application GREEN: 35 passed, 0 failed.
+- Expanded policy/model-content/draft/service/application/final-authority suite:
+  49 passed, 0 failed, 0 skipped. The real local MySQL final-authority test ran
+  through `/Users/mac/.local/var/mysql-shensi-sales/mysql.sock` and retained its
+  one-connection/key-gap-lock assertions.
+- `pnpm --filter ./backend test:model-gateway`: 21 passed, 0 failed.
+- `pnpm check:acquisition-contracts`: passed (contracts 91/91, contract drift
+  18/18, runtime OpenAPI 39/39, security, generated types, frontend checks,
+  and Baota package; existing Vite >500 kB advisory only).
+- MySQL-enabled `pnpm --filter ./backend test:acquisition`: 1,103 passed, 0
+  failed, and 5 unrelated environment-gated tests skipped.
+- Fresh `pnpm test` and `pnpm build`: passed; build emitted only the existing
+  Vite chunk-size advisory.
+- `./scripts/context-check` returned `SHENSI_CONTEXT_OK`; `git diff --check`
+  passed.
+- Frozen install, exact dependency-tree, and license checks passed. The full
+  production audit still reports 4 high and 1 moderate pre-existing findings
+  through `frontend>xlsx`, `backend>whatsapp-web.js>...>extract-zip`, and
+  `frontend>vite>postcss>nanoid`; neither `tldts` nor `tldts-core` appears in
+  the advisory set. Those unrelated dependencies are outside this exact
+  two-regression remediation.
+
+### Scope and documentation
+
+The current project ledger, architecture, Acquisition module, dependency
+notice, package manifest, workspace override, and lockfile describe the actual
+runtime. No public route, OpenAPI schema, generated DTO, persistence schema, or
+Task 7 draft-revision ownership changed; the API index remains current.

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { domainToASCII } from "node:url";
+import { parse as parseDomain } from "tldts";
 import { canonicalJsonStringify } from "./canonical-json.js";
 
 export interface AcquisitionOutreachDraft {
@@ -49,9 +50,10 @@ function containsDomain(value: string) {
       || ![...label].every((character) => /[a-z0-9-]/u.test(character)))) {
       return false;
     }
-    const topLevel = labels.at(-1)!;
-    return topLevel.startsWith("xn--")
-      || (topLevel.length >= 2 && [...topLevel].every((character) => /[a-z]/u.test(character)));
+    return parseDomain(ascii, {
+      extractHostname: false,
+      validateHostname: false
+    }).isIcann === true;
   });
 }
 function singleLine(value: unknown, maximum: number) {

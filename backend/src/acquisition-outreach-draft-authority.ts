@@ -56,6 +56,12 @@ export interface AcquisitionOutreachDraftFinalAuthorityPort {
   ): Promise<VerifiedOutreachDraftAuthority>;
 }
 
+/** Application injection port for custom repository compositions. The
+ * implementation owns the same tenant-scoped atomic candidate/evidence/DNC
+ * verification guaranteed by the built-in Memory and MySQL adapters. */
+export type AcquisitionOutreachFinalAuthority =
+  AcquisitionOutreachDraftFinalAuthorityPort;
+
 function changed(): never {
   throw new Error("OUTREACH_CANDIDATE_AUTHORITY_CHANGED");
 }

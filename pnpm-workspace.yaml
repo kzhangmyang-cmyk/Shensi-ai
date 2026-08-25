@@ -11,3 +11,6 @@ allowBuilds:
   protobufjs: true
   puppeteer: true
   tesseract.js: true
+
+overrides:
+  tldts-core: 7.4.10

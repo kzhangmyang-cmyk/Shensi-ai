@@ -140,14 +140,19 @@ active official snapshot with closed structured output, and validates one-line,
 bounded comment/direct-message text. Only fixed safe template clauses may be
 ungrounded; every other complete clause must occur in one approved evidence
 record. Evidence rows are never concatenated. URLs, Unicode/IDN/punycode
-domains, phone numbers, forbidden claims/words, and malformed output are
-rejected. The application composes this service from the real domain and DNC
-repositories. Memory verification shares the DNC writer's transaction
-coordinator; MySQL locks the exact candidate, evidence rows, and DNC key/gap and
-loads them through one connection. The returned authority projection is deeply
-immutable. The server recomputes the immutable content hash and discards raw
-model output; Task 6 does not persist drafts or create a competing revision
-ledger.
+domains recognized by the pinned ICANN public-suffix data, phone numbers,
+forbidden claims/words, and malformed output are rejected. Grounded dotted
+product/technology names whose final label is not an ICANN suffix are allowed.
+The application composes this service from the real domain and DNC repositories.
+Memory verification shares the DNC writer's transaction coordinator; MySQL
+locks the exact candidate, evidence rows, and DNC key/gap and loads them through
+one connection. Custom repositories must inject an
+`AcquisitionOutreachFinalAuthority` implementation with the same tenant-scoped
+atomic guarantees. Without that port, unrelated application startup remains
+available but Task 6 draft generation fails before model traffic. The returned
+authority projection is deeply immutable. The server recomputes the immutable
+content hash and discards raw model output; Task 6 does not persist drafts or
+create a competing revision ledger.
 
 ## Tests
 

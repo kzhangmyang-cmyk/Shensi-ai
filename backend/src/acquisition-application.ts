@@ -198,7 +198,8 @@ import {
 } from "./acquisition-outreach-draft-service.js";
 import {
   InMemoryAcquisitionOutreachDraftFinalAuthority,
-  MysqlAcquisitionOutreachDraftFinalAuthority
+  MysqlAcquisitionOutreachDraftFinalAuthority,
+  type AcquisitionOutreachFinalAuthority
 } from "./acquisition-outreach-draft-authority.js";
 import { executeModelConnectionWriteIdempotently } from "./model-providers/idempotency.js";
 import {
@@ -545,6 +546,9 @@ export interface CreateAcquisitionApplicationOptions {
   douyinAutomationRepository?: AcquisitionDouyinAutomationRepository;
   crawlerJobRepository?: AcquisitionCrawlerJobRepository;
   crawlerIngestionRepository?: DouyinCrawlerEvidenceStore;
+  /** Required for Task 6 draft generation when custom repositories prevent
+   * the application from constructing a built-in atomic authority adapter. */
+  outreachFinalAuthority?: AcquisitionOutreachFinalAuthority;
   crawlerWorkerIntervalMs?: number;
   crawlerRecoveryIntervalMs?: number;
   crawlerEvidenceRetentionIntervalMs?: number;
@@ -2202,8 +2206,8 @@ export async function createAcquisitionApplication(
               repositories.planRun
             )
           : null);
-    const outreachDraftFinalAuthority =
-      crawlerIngestion
+    const outreachDraftFinalAuthority = options.outreachFinalAuthority
+      ?? (crawlerIngestion
         instanceof MysqlAcquisitionDouyinCrawlerIngestionRepository
       && repositories.domain instanceof MysqlAcquisitionDomainRepository
         ? new MysqlAcquisitionOutreachDraftFinalAuthority({
@@ -2217,13 +2221,18 @@ export async function createAcquisitionApplication(
               domain: repositories.domain,
               doNotContact: crawlerIngestion
             })
-          : null;
-    if (!outreachDraftFinalAuthority) {
-      throw new Error("acquisition_outreach_final_authority_required");
-    }
+          : null);
+    const finalAuthority = outreachDraftFinalAuthority ?? {
+      async hasDoNotContact(): Promise<boolean> {
+        throw new Error("acquisition_outreach_final_authority_required");
+      },
+      async verify(): Promise<never> {
+        throw new Error("acquisition_outreach_final_authority_required");
+      }
+    } satisfies AcquisitionOutreachFinalAuthority;
     const outreachDraftService = new AcquisitionOutreachDraftService({
       domain: repositories.domain,
-      finalAuthority: outreachDraftFinalAuthority,
+      finalAuthority,
       resolveSnapshot: async (scope) => {
         const snapshot = await resolveModelSnapshot(scope, {
           connectionId: null

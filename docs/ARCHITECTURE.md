@@ -90,6 +90,15 @@ through the shared plan-run transaction coordinator. MySQL takes candidate,
 exact-evidence, and DNC primary-key/gap locks, then performs every authority
 read through the same connection. The owned result is recursively frozen before
 it can reach the later batch authority; generation does not persist a draft.
+The default application constructs these adapters for the concrete Memory and
+MySQL repositories. A custom domain or crawler repository supplies the same
+tenant-scoped atomic guarantee through the explicit
+`AcquisitionOutreachFinalAuthority` port. Missing custom authority does not
+break unrelated application startup, but the private draft call fails closed
+before model traffic. Draft safety recognizes real ASCII and IDN suffixes from
+the pinned ICANN public-suffix data rather than treating every alphabetic final
+label as a domain, so grounded names such as `Node.js` and `Qwen.VL` remain
+usable while real domains stay prohibited.
 
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a

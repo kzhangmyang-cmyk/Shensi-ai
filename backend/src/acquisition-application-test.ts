@@ -37,7 +37,8 @@ import {
   InMemoryAcquisitionDiscoveryOperationRepository
 } from "./acquisition-discovery-operations.js";
 import {
-  InMemoryAcquisitionDomainRepository
+  InMemoryAcquisitionDomainRepository,
+  type AcquisitionDomainRepository
 } from "./acquisition-domain-repository.js";
 import {
   AcquisitionDomainService,
@@ -111,6 +112,19 @@ import {
   createGrowthAcquisitionWorkspaceResolver
 } from "./growth-workspace-context.js";
 import type { ProbabilityAssessmentWriter } from "./probability-assessment.js";
+import {
+  InMemoryAcquisitionDouyinCrawlerIngestionRepository
+} from "./acquisition-douyin-crawler-ingestion-repository.js";
+import type {
+  DouyinCrawlerEvidenceStore
+} from "./acquisition-douyin-crawler-ingestion.js";
+import type {
+  AcquisitionOutreachDraftFinalAuthorityPort
+} from "./acquisition-outreach-draft-authority.js";
+import {
+  ACQUISITION_DOUYIN_DRAFT_PROMPT_ID,
+  ACQUISITION_OUTREACH_DRAFT_TOOL
+} from "./acquisition-outreach-model-content.js";
 
 const OWNER = "owner-application";
 const TEAM = "team-application";
@@ -3773,6 +3787,195 @@ test("the Acquisition domain graph consumes the exact Growth runtime ports", asy
     assert.equal("growthIntegrations" in runtime, false);
   } finally {
     await runtime.close();
+    await runtime.close();
+  }
+});
+
+function customRepository<T extends object>(delegate: T): T {
+  return new Proxy(Object.create(null) as T, {
+    get(_target, property) {
+      const value = Reflect.get(delegate, property, delegate);
+      return typeof value === "function" ? value.bind(delegate) : value;
+    }
+  });
+}
+
+async function seedCustomOutreachAuthorityFixture(
+  repository: AcquisitionDomainRepository
+) {
+  const now = "2026-08-25T12:00:00.000Z";
+  const evidence = {
+    id: "evidence-custom-outreach", ownerId: OWNER, teamId: TEAM,
+    targetType: "individual_signal" as const, sourcePlatform: "douyin",
+    sourceTitle: "公开需求",
+    sourceSnippet: "公开提到正在寻找获客方案",
+    publishedAt: now, locale: "zh-CN",
+    rawArtifactHash: `sha256:${"a".repeat(64)}`,
+    contentHash: `sha256:${"b".repeat(64)}`,
+    provenance: {
+      kind: "mediacrawler_public_record" as const,
+      sourceUrl: "https://www.douyin.com/video/7350000000000000001",
+      jobId: "crawler-job-custom", recordId: "record-custom",
+      actorKind: "commenter" as const, cursor: "cursor-custom",
+      upstreamCommit: "commit-custom"
+    },
+    accessStatus: "public_content" as const,
+    supersedesEvidenceId: null, fetchedAt: now
+  };
+  const candidate = {
+    id: "candidate-custom-outreach", ownerId: OWNER, teamId: TEAM,
+    partyType: "individual" as const,
+    partyRef: {
+      partyType: "individual" as const,
+      individualPartyId: "individual-custom",
+      demandSignalId: "signal-custom"
+    },
+    profile: {
+      kind: "individual" as const,
+      publicActorKey: "douyin:/user/custom-outreach",
+      publicDisplayName: "公开用户",
+      publicProfileUrl: "https://www.douyin.com/user/custom-outreach",
+      sourcePlatform: "douyin", demandCategory: "public_business_demand",
+      demandSummary: "公开需求", locationHint: "",
+      buyingStage: "solution_research" as const, negativeSignals: [],
+      individualPartyId: "individual-custom"
+    },
+    evidenceIds: [evidence.id], status: "needs_research" as const,
+    latestDecisionId: null, latestDecisionVersion: null,
+    approvedDecisionVersion: null, hardGateFailures: [], leadId: null,
+    createdAt: now, updatedAt: now, version: 1
+  };
+  await repository.appendEvidence(evidence);
+  await repository.insertCandidate(candidate);
+  return { candidate, evidence };
+}
+
+function customOutreachGateway(): AcquisitionPiGatewayPort {
+  return {
+    async callTools(request) {
+      assert.ok("contentBinding" in request && request.contentBinding);
+      assert.equal(
+        request.contentBinding.promptId,
+        ACQUISITION_DOUYIN_DRAFT_PROMPT_ID
+      );
+      return {
+        toolCalls: [{
+          id: "custom-outreach-call",
+          name: ACQUISITION_OUTREACH_DRAFT_TOOL,
+          arguments: {
+            comment: "看到你公开提到正在寻找获客方案，祝进展顺利。",
+            directMessage:
+              "看到你公开提到正在寻找获客方案；如愿意，可交流公开场景里的思路。",
+            rationaleCodes: ["evidence_grounded"]
+          }
+        }],
+        usage: { inputTokens: 20, outputTokens: 10, reasoningTokens: 0 },
+        providerRequestId: "custom-outreach-request"
+      };
+    }
+  };
+}
+
+test("custom acquisition repositories generate drafts through an injected final authority", async () => {
+  const fixture = isolatedMemoryStore();
+  const baseDomain = new InMemoryAcquisitionDomainRepository();
+  const planRuns = new InMemoryAcquisitionPlanRunRepository();
+  const baseCrawler = new InMemoryAcquisitionDouyinCrawlerIngestionRepository(
+    baseDomain,
+    planRuns
+  );
+  const domainRepository = customRepository<AcquisitionDomainRepository>(
+    baseDomain
+  );
+  const crawlerIngestionRepository =
+    customRepository<DouyinCrawlerEvidenceStore>(baseCrawler);
+  const seeded = await seedCustomOutreachAuthorityFixture(domainRepository);
+  let authorityVerifications = 0;
+  const outreachFinalAuthority: AcquisitionOutreachDraftFinalAuthorityPort = {
+    async hasDoNotContact(scope, publicActorKey) {
+      assert.equal(scope.workspaceId, TEAM);
+      assert.equal(scope.ownerId, OWNER);
+      assert.equal(scope.teamId, TEAM);
+      assert.equal(publicActorKey, seeded.candidate.profile.publicActorKey);
+      return false;
+    },
+    async verify(input) {
+      authorityVerifications += 1;
+      assert.equal(input.scope.workspaceId, TEAM);
+      assert.equal(input.scope.ownerId, OWNER);
+      assert.equal(input.scope.teamId, TEAM);
+      assert.equal(input.candidateId, seeded.candidate.id);
+      assert.deepEqual(input.evidenceIds, [seeded.evidence.id]);
+      return Object.freeze({
+        candidate: structuredClone(input.expectedCandidate),
+        evidence: Object.freeze(structuredClone(input.expectedEvidence))
+      });
+    }
+  };
+  const runtime = await createAcquisitionApplication({
+    store: fixture.store,
+    masterSecret: MASTER_SECRET,
+    domainRepository,
+    planRunRepository: planRuns,
+    crawlerIngestionRepository,
+    douyinCommentIngestionUnitOfWork: {
+      transaction: (work) => baseDomain.transaction(work)
+    },
+    outreachFinalAuthority,
+    modelGatewayFactory: () => customOutreachGateway()
+  });
+  try {
+    const draft = await runtime.outreachDraftService.generate({
+      scope: {
+        workspaceId: TEAM, ownerId: OWNER, teamId: TEAM, actorId: OWNER
+      },
+      candidateId: seeded.candidate.id
+    });
+    assert.equal(draft.candidateId, seeded.candidate.id);
+    assert.deepEqual(draft.evidenceHashes, [seeded.evidence.contentHash]);
+    assert.equal(authorityVerifications, 1);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("custom repository startup stays compatible and draft generation fails closed without final authority", async () => {
+  const fixture = isolatedMemoryStore();
+  const baseDomain = new InMemoryAcquisitionDomainRepository();
+  const planRuns = new InMemoryAcquisitionPlanRunRepository();
+  const baseCrawler = new InMemoryAcquisitionDouyinCrawlerIngestionRepository(
+    baseDomain,
+    planRuns
+  );
+  const domainRepository = customRepository<AcquisitionDomainRepository>(
+    baseDomain
+  );
+  const seeded = await seedCustomOutreachAuthorityFixture(domainRepository);
+  let gatewayCalls = 0;
+  const runtime = await createAcquisitionApplication({
+    store: fixture.store,
+    masterSecret: MASTER_SECRET,
+    domainRepository,
+    planRunRepository: planRuns,
+    crawlerIngestionRepository:
+      customRepository<DouyinCrawlerEvidenceStore>(baseCrawler),
+    douyinCommentIngestionUnitOfWork: {
+      transaction: (work) => baseDomain.transaction(work)
+    },
+    modelGatewayFactory: () => {
+      gatewayCalls += 1;
+      return customOutreachGateway();
+    }
+  });
+  try {
+    await assert.rejects(runtime.outreachDraftService.generate({
+      scope: {
+        workspaceId: TEAM, ownerId: OWNER, teamId: TEAM, actorId: OWNER
+      },
+      candidateId: seeded.candidate.id
+    }), /acquisition_outreach_final_authority_required/u);
+    assert.equal(gatewayCalls, 0);
+  } finally {
     await runtime.close();
   }
 });
