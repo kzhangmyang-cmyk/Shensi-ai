@@ -211,6 +211,46 @@ function crawlerStatusShape(value: Record<string, unknown>, runId: string): bool
     && crawlerActivityShape(value.activity);
 }
 
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).length === keys.length
+    && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function boundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && unicodeLength(value) <= maxLength;
+}
+
+function publicHttpUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch { return false; }
+}
+
+function candidateEvidenceShape(value: unknown): boolean {
+  return isRecord(value)
+    && exactKeys(value, ["sourceUrl", "excerpt"])
+    && publicHttpUrl(value.sourceUrl)
+    && boundedString(value.excerpt, 500);
+}
+
+function runCandidateShape(value: unknown): boolean {
+  return isRecord(value)
+    && exactKeys(value, ["id", "status", "displayName", "evidence"])
+    && typeof value.id === "string"
+    && typeof value.status === "string"
+    && boundedString(value.displayName, 200)
+    && candidateEvidenceShape(value.evidence);
+}
+
+function runCandidatePageShape(value: Record<string, unknown>): boolean {
+  return exactKeys(value, ["items", "nextCursor"])
+    && Array.isArray(value.items) && value.items.length <= 100
+    && value.items.every(runCandidateShape)
+    && (value.nextCursor === null || boundedString(value.nextCursor, 8_192));
+}
+
 export function createDouyinAutomationApi(
   fetchImpl: typeof fetch = fetch,
   options: DouyinAutomationApiOptions = {}
@@ -354,7 +394,7 @@ export function createDouyinAutomationApi(
     },
     listRunCandidates(runId, signal) {
       return request(`/api/v1/acquisition/runs/${segment(runId)}/candidates`, { method: "GET", signal },
-        (value) => Array.isArray(value.items) && (value.nextCursor === null || typeof value.nextCursor === "string"));
+        runCandidatePageShape);
     }
   };
 }

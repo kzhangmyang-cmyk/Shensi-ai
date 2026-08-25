@@ -208,4 +208,39 @@ for (const malformedCrawler of [
   );
 }
 
+const canonicalCandidatePage = {
+  items: [{
+    id: "candidate-public-1", status: "creator_candidate", displayName: "公开创作者",
+    evidence: { sourceUrl: "https://www.douyin.com/video/741234567890", excerpt: "公开可验证证据" }
+  }],
+  nextCursor: "opaque-public-cursor"
+};
+const readCandidatePage = (body: unknown) => createDouyinAutomationApi(async () =>
+  new Response(JSON.stringify(body), { status: 200 })).listRunCandidates("run/1");
+assert.deepEqual(await readCandidatePage(canonicalCandidatePage), canonicalCandidatePage);
+for (const malformedCandidatePage of [
+  null,
+  [],
+  { items: null, nextCursor: null },
+  { items: [null], nextCursor: null },
+  { ...canonicalCandidatePage, rawResponse: { secret: "private" } },
+  { ...canonicalCandidatePage, private: true },
+  { ...canonicalCandidatePage, unknown: true },
+  { items: [{ ...canonicalCandidatePage.items[0], rawResponse: {} }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], private: true }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, unknown: true } }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: null }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "ftp://public.example/video" } }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "not a url" } }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], displayName: "x".repeat(201) }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, excerpt: "x".repeat(501) } }], nextCursor: null },
+  { items: Array.from({ length: 101 }, () => canonicalCandidatePage.items[0]), nextCursor: null },
+  { ...canonicalCandidatePage, nextCursor: "x".repeat(8_193) }
+]) {
+  await assert.rejects(
+    readCandidatePage(malformedCandidatePage),
+    (error: unknown) => error instanceof AcquisitionHttpError && error.code === "malformed_response"
+  );
+}
+
 console.log(JSON.stringify({ ok: true, suite: "douyin-automation-api" }));

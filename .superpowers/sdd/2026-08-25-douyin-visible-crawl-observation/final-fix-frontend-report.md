@@ -169,6 +169,32 @@ npx tsx src/acquisition/douyin-automation-controller.self-test.ts
 {"ok":true,"suite":"douyin-automation-controller"}
 ```
 
+## Final closed candidate-page decoder
+
+`listRunCandidates` now validates the public OpenAPI projection recursively:
+the page is exactly `{ items, nextCursor }`; every item is exactly
+`{ id, status, displayName, evidence }`; and evidence is exactly
+`{ sourceUrl, excerpt }`. It preserves the only declared nullable field,
+`nextCursor`, while rejecting null/scalar items, private or unknown fields,
+invalid evidence, non-HTTP(S) or malformed URLs, display/excerpt length
+overflow, response pages above the endpoint's public maximum of 100, and
+overlong cursors. The existing recursive forbidden-field-name privacy guard
+continues to run before shape validation.
+
+The published candidate schema has no numeric or timestamp members, so no
+timestamp parser or numeric-range rule is invented for this response shape.
+
+RED evidence before the decoder implementation:
+
+```text
+npx tsx src/acquisition/douyin-automation-api.self-test.ts
+AssertionError: Missing expected rejection.
+```
+
+This was the old shallow page check accepting `items: [null]` and extra or
+malformed nested candidate data. The canonical valid page now passes; all
+listed malformed-page cases reject with `malformed_response`.
+
 ## Self-review and limitations
 
 - The decoder rejects only forbidden keys, recursively through records and
