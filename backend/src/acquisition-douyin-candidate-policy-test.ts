@@ -36,6 +36,15 @@ test("parses complete Arabic and Chinese age tokens without adult or version fal
   }
 });
 
+test("normalizes complete minor and refusal phrases without weakening adult tokens", () => {
+  for (const text of ["未满18岁，需要获客方案", "不满十八岁，需要获客方案", "拒绝被联系，我需要获客方案", "未 满 １８ 岁，需要获客方案", "拒 绝 被 联 系，我需要获客方案"]) {
+    assert.equal(qualifyDouyinCrawlerCandidate({ text, hasOriginalPublicSource: true }).status, "suppressed", text);
+  }
+  for (const text of ["二十岁需要获客方案", "二十八岁需要获客方案", "三十七岁需要获客方案", "2017岁末版本需要获客方案"]) {
+    assert.equal(qualifyDouyinCrawlerCandidate({ text, hasOriginalPublicSource: true }).status, "qualified", text);
+  }
+});
+
 test("creator discovery and demand comments use separate admission policies", () => {
   assert.equal(qualifyDouyinCrawlerCandidate({
     text: "工业除尘设备厂家",

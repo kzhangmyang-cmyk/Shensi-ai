@@ -159,3 +159,54 @@ owner. The ledger-deferred Minor response-contract maximum was not changed.
 - `pnpm --filter ./backend test:acquisition`: passed (aggregate output is
   environment-gated for optional live MySQL cases).
 - `pnpm build`, `./scripts/context-check`, and `git diff --check`: passed.
+
+## Fix round 3/5 — atomic final-authority remediation
+
+### RED
+
+- Added the specified full-phrase policy cases first. The focused tests showed
+  that `未满18岁`/`不满十八岁` and `拒绝被联系` could still pass the crawler
+  gate, while generic IDN domains and a factual assertion constructed from two
+  separate evidence rows were accepted.
+- Added an interleaving authority test first: a DNC writer could be attempted
+  between separate post-model reads because the earlier implementation had no
+  single final transaction boundary.
+
+### GREEN
+
+- Candidate policy now normalizes NFKC/spacing/format characters and parses
+  complete Arabic/Chinese age tokens and qualified age phrases. It suppresses
+  the exact reviewer forms while retaining the explicit adult and version
+  non-regressions (`二十岁`, `二十八岁`, `三十七岁`, `2017岁末版本`).
+- Draft validation rejects arbitrary bare ASCII, Unicode-IDN, and punycode
+  domains, including `example.dev`, `例子.公司`, and `xn--fsqu00a.xn--55qx5d`.
+  Candidate-specific factual clauses must be present in one individual,
+  approved evidence record; evidence rows are never concatenated. Rationale
+  codes are a closed allow-list.
+- The model result now crosses one `FinalAuthority` boundary before it is
+  returned. The memory implementation uses the repository transaction plus
+  the DNC writer's shared workspace/identity lock. The MySQL implementation
+  locks the candidate, each exact evidence row, and the DNC primary-key
+  record/gap, loads through that same connection, compares complete immutable
+  authority, and commits only the frozen verified value. Changes, including a
+  newly retained DNC, roll back. The draft service has no await or mutable
+  authority read after this boundary, and still persists no draft.
+
+### Verification
+
+- Focused policy/draft/authority/service compilation suite: 14 passed, 0
+  failed; expanded focused model/content/application suite: 67 passed, 0
+  failed.
+- `pnpm --filter ./backend test:model-gateway`: 21 passed, 0 failed.
+- `pnpm check:acquisition-contracts`: passed (including runtime OpenAPI,
+  generated types, frontend checks, and Baota package; existing Vite >500 kB
+  advisory only).
+- `pnpm --filter ./backend test:acquisition`: passed.
+- `pnpm build`, `./scripts/context-check`, and `git diff --check`: passed.
+
+### Scope / documentation
+
+This round changes internal policy, validation, and repository-boundary
+implementation only; no public API or user-facing module contract changed.
+The Task 6 execution report is the required documentation update. The
+ledger-deferred response-contract Minor remains untouched.

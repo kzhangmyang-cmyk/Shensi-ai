@@ -4,7 +4,6 @@ export type DouyinCandidatePolicyResult =
   | { status: "qualified"; buyingStage: BuyingStage; reason: null }
   | { status: "suppressed"; buyingStage: null; reason: string; retainDoNotContact: boolean };
 
-const REFUSAL = /(?:勿扰|不需要|拒绝(?:推销|(?:再)?联系(?:我)?)|请勿(?:联系|打扰)|不接受营销|别[来再]联系|不要(?:再)?联系(?:我)?|不(?:要|想)(?:再)?(?:被)?联系)/u;
 const COMPLAINT = /(?:投诉|举报|骗子|骗人|维权|曝光)/u;
 const MINOR_LABEL = /(?:未成年|小学生|初中生|高中生)/u;
 
@@ -25,15 +24,33 @@ function chineseAge(value: string) {
   return (left ? digits[left]! : 1) * 10 + (right ? digits[right]! : 0);
 }
 
+function compactPolicyText(value: string) {
+  return value.normalize("NFKC").replace(/[\s\p{Cf}\p{Zs}\p{Zl}\p{Zp}]+/gu, "");
+}
+
+function numberToken(value: string) {
+  if (/^[0-9]+$/u.test(value)) return Number(value);
+  return chineseAge(value);
+}
+
+function hasRefusal(text: string) {
+  const compact = compactPolicyText(text);
+  return ["勿扰", "不需要", "拒绝推销", "拒绝联系", "拒绝联系我", "拒绝被联系", "请勿联系", "请勿打扰", "不接受营销", "别联系", "别再联系", "不要联系", "不要再联系", "不想联系", "不想被联系"].some((phrase) => compact.includes(phrase));
+}
+
 function statesMinorAge(text: string) {
-  if (/不满\s*18\s*岁/u.test(text)) return true;
-  const ages = /(?<![0-9])([0-9]+)\s*岁/gu;
-  for (const match of text.matchAll(ages)) {
+  const compact = compactPolicyText(text);
+  for (const match of compact.matchAll(/(?:未满|不满)([0-9零一二三四五六七八九十]+)岁/gu)) {
+    const age = numberToken(match[1]!);
+    if (age !== null && Number.isFinite(age) && age <= 18) return true;
+  }
+  const ages = /(?<![0-9])([0-9]+)岁/gu;
+  for (const match of compact.matchAll(ages)) {
     const age = Number(match[1]);
     if (Number.isInteger(age) && age >= 0 && age < 18) return true;
   }
   const chineseAges = /([零一二三四五六七八九十]+)岁/gu;
-  for (const match of text.matchAll(chineseAges)) {
+  for (const match of compact.matchAll(chineseAges)) {
     const age = chineseAge(match[1]!);
     if (age !== null && age >= 0 && age < 18) return true;
   }
@@ -57,7 +74,7 @@ export function qualifyDouyinCrawlerCandidate(input: {
   if (!input.hasOriginalPublicSource) {
     return { status: "suppressed", buyingStage: null, reason: "missing_original_public_source", retainDoNotContact: input.hasKnownIdentity !== false };
   }
-  if (REFUSAL.test(text)) {
+  if (hasRefusal(text)) {
     return { status: "suppressed", buyingStage: null, reason: "explicit_refusal", retainDoNotContact: true };
   }
   if (COMPLAINT.test(text)) {
