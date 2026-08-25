@@ -231,9 +231,18 @@ export function startAcquisitionPerformance(
       aiGeneration.invalidate();
       return;
     }
-    void load();
+    if (document.body.classList.contains("is-authenticated")) void load();
+  });
+
+  document.addEventListener("goodjob:auth-state-changed", (event) => {
+    const authenticated = (event as CustomEvent<{ authenticated?: boolean }>).detail?.authenticated === true;
+    if (realMode && authenticated) void load();
+    if (!authenticated) {
+      requestVersion += 1;
+      aiGeneration.invalidate();
+    }
   });
 
   section.hidden = !realMode;
-  if (realMode) void load();
+  if (realMode && document.body.classList.contains("is-authenticated")) void load();
 }

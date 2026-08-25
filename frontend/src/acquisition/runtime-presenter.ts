@@ -57,20 +57,29 @@ export function renderRealTaskRows(tasks: AcquisitionTaskRowModel[]): string {
     `;
   }
 
-  return tasks.map((task) => {
+  const localDateTime = new Intl.DateTimeFormat("zh-CN", {
+    dateStyle: "short",
+    timeStyle: "short"
+  });
+
+  return tasks.map((task, index) => {
     const tags = task.tags.length > 0 ? task.tags.join(",") : "待配置来源";
+    const publicLabel = `采集任务 ${String(index + 1).padStart(2, "0")}`;
+    const updatedAt = Number.isNaN(Date.parse(task.updatedAt))
+      ? "更新时间待同步"
+      : localDateTime.format(new Date(task.updatedAt));
     return `
       <button
         type="button"
         class="replica-task-row"
         data-acquisition-real-task="true"
         data-acquisition-plan-id="${escapeHtml(task.planId)}"
-        data-task-id="${escapeHtml(task.id)}"
+        data-task-id="${escapeHtml(publicLabel)}"
         data-task-name="${escapeHtml(task.name)}"
         data-task-summary="${escapeHtml(task.objective)}"
         data-task-owner="智能体"
         data-task-project="${escapeHtml(task.platformLabel)}"
-        data-task-due="${escapeHtml(task.updatedAt)}"
+        data-task-due="${escapeHtml(updatedAt)}"
         data-task-status="${escapeHtml(task.statusLabel)}"
         data-task-priority="待判断"
         data-task-tags="${escapeHtml(tags)}"
@@ -79,7 +88,7 @@ export function renderRealTaskRows(tasks: AcquisitionTaskRowModel[]): string {
         data-result-count="${task.results}"
         data-duration-seconds="${task.durationSeconds}"
       >
-        <span>${escapeHtml(task.id)}</span>
+        <span>${escapeHtml(publicLabel)}</span>
         <b>${escapeHtml(task.name)}</b>
         <span><span class="priority${statusClass(task.statusTone)}">${escapeHtml(task.statusLabel)}</span> ${task.evidenceCount} 条公开证据</span>
       </button>

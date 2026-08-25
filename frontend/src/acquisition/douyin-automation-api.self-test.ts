@@ -1,0 +1,96 @@
+import { strict as assert } from "node:assert";
+import { AcquisitionHttpError, createDouyinAutomationApi, type DouyinPolicyInput } from "./douyin-automation-api";
+
+const now = "2026-08-25T09:30:00.000Z";
+const policy = {
+  id: "policy-1", source: "version", workspaceId: "workspace-1", planId: "plan/1",
+  planVersionId: "version-1", planVersion: 1, planSnapshotHash: `sha256:${"1".repeat(64)}`,
+  accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1,
+  etag: '"policy:1"', policyHash: `sha256:${"2".repeat(64)}`, keywords: ["工业除尘"],
+  schedule: { enabled: true, localTime: "09:30", timeZone: "Asia/Shanghai" },
+  dailyCandidateLimit: 50, collectCreators: true, collectDemandComments: true,
+  limits: { maxVideos: 30, maxCommentsPerVideo: 50, maxPagesPerVideo: 3, maxDurationSeconds: 3600 },
+  createdBy: "user-1", createdAt: now
+};
+const account = {
+  id: "account-1", workspaceId: "workspace-1", platform: "douyin", displayName: "专用获客账号",
+  state: "active", loginStateVersion: 1, revision: 1, etag: '"account:1"',
+  lastValidatedAt: now, createdAt: now, updatedAt: now
+};
+const login = { id: "login-1", platform: "douyin", state: "awaiting_scan", qrImageDataUrl: "data:image/png;base64,AA==", expiresAt: now, account: null };
+const run = { id: "intent-1", acquisitionRunId: "run/1", workspaceId: "workspace-1", planId: "plan/1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: policy.planSnapshotHash, policyVersionId: "policy-1", policyHash: policy.policyHash, accountId: "account-1", accountLoginStateVersion: 1, dailyBudgetId: `sha256:${"3".repeat(64)}`, localDate: "2026-08-25", trigger: "run_now", collectCreators: true, collectDemandComments: true, status: "queued", reason: null, createdBy: "user-1", createdAt: now };
+const crawler = { runId: "run/1", state: "partial", attempt: 1, cursorPersisted: true, recordCount: 2, candidateBudgetUsed: 2, candidateBudgetLimit: 50, lastErrorCode: "douyin_collection_partial", createdAt: now, updatedAt: now, completedAt: now };
+const candidates = { items: [{ id: "candidate-1", status: "creator_candidate", displayName: "候选人", evidence: { sourceUrl: "https://www.douyin.com/video/1", excerpt: "公开证据" } }], nextCursor: null };
+
+const calls: Array<{ url: string; init?: RequestInit }> = [];
+const api = createDouyinAutomationApi(async (input, init) => {
+  const url = String(input);
+  calls.push({ url, init });
+  const method = init?.method ?? "GET";
+  const body = method === "DELETE" ? { ...account, state: "disconnected" }
+    : url.endsWith("/login-sessions") ? login
+      : url.includes("/login-sessions/") ? { ...login, state: "active", qrImageDataUrl: null, account }
+        : url.endsWith("/social-accounts/douyin") ? { items: [account] }
+          : url.endsWith("/keyword-suggestions") ? { keywords: ["工业除尘", "环保改造"], modelSnapshotId: "model-1" }
+            : url.endsWith("/run-now") ? run
+              : url.endsWith("/crawler-status") ? crawler
+                : url.endsWith("/candidates") ? candidates
+                  : policy;
+  return new Response(JSON.stringify(body), { status: method === "POST" && url.endsWith("/login-sessions") ? 201 : 200, headers: { "content-type": "application/json" } });
+}, { cookieSource: () => "gj_csrf=csrf-value" });
+
+const signal = new AbortController().signal;
+await api.listAccounts(signal);
+await api.createLoginSession("login-key", signal);
+await api.getLoginSession("login/1", signal);
+await api.disconnectAccount("account/1", '"account:1"', "disconnect-key", signal);
+await api.getAutomation("plan/1", signal);
+await api.suggestKeywords("plan/1", "keyword-key", signal);
+const policyInput: DouyinPolicyInput = { keywords: ["工业除尘"], schedule: { enabled: true, localTime: "09:30", timeZone: "Asia/Shanghai" }, dailyCandidateLimit: 50, collectCreators: true, collectDemandComments: true, limits: { ...policy.limits } };
+await api.putAutomation("plan/1", { ...policyInput, browserProfile: "must-not-cross" } as DouyinPolicyInput, '"policy:1"', "policy-key", signal);
+await api.runNow("plan/1", "run-key", signal);
+await api.getCrawlerStatus("run/1", signal);
+await api.listRunCandidates("run/1", signal);
+
+assert.deepEqual(calls.map((call) => call.url), [
+  "/api/v1/acquisition/social-accounts/douyin",
+  "/api/v1/acquisition/social-accounts/douyin/login-sessions",
+  "/api/v1/acquisition/social-accounts/douyin/login-sessions/login%2F1",
+  "/api/v1/acquisition/social-accounts/account%2F1",
+  "/api/v1/acquisition/plans/plan%2F1/automation",
+  "/api/v1/acquisition/plans/plan%2F1/automation/keyword-suggestions",
+  "/api/v1/acquisition/plans/plan%2F1/automation",
+  "/api/v1/acquisition/plans/plan%2F1/run-now",
+  "/api/v1/acquisition/runs/run%2F1/crawler-status",
+  "/api/v1/acquisition/runs/run%2F1/candidates"
+]);
+assert.ok(calls.every((call) => call.init?.signal === signal));
+assert.equal(calls[1]?.init?.method, "POST");
+assert.deepEqual(JSON.parse(String(calls[1]?.init?.body)), { platform: "douyin" });
+assert.equal(calls[3]?.init?.method, "DELETE");
+assert.equal(new Headers(calls[3]?.init?.headers).get("if-match"), '"account:1"');
+const putHeaders = new Headers(calls[6]?.init?.headers);
+assert.equal(calls[6]?.init?.method, "PUT");
+assert.equal(putHeaders.get("x-csrf-token"), "csrf-value");
+assert.equal(putHeaders.get("idempotency-key"), "policy-key");
+assert.equal(putHeaders.get("if-match"), '"policy:1"');
+assert.equal("browserProfile" in JSON.parse(String(calls[6]?.init?.body)), false, "request projection must be closed");
+assert.equal(String(calls[5]?.init?.body), "{}");
+assert.equal(String(calls[7]?.init?.body), "{}");
+
+for (const status of [401, 403, 409, 412]) {
+  await assert.rejects(
+    createDouyinAutomationApi(async () => new Response(JSON.stringify({ error: { code: `status_${status}`, message: "closed failure" } }), { status })).getAutomation("plan-1"),
+    (error: unknown) => error instanceof AcquisitionHttpError && error.status === status && error.code === `status_${status}`
+  );
+}
+await assert.rejects(
+  createDouyinAutomationApi(async () => new Response("{not-json", { status: 200 })).getAutomation("plan-1"),
+  (error: unknown) => error instanceof AcquisitionHttpError && error.code === "malformed_response"
+);
+await assert.rejects(
+  createDouyinAutomationApi(async () => new Response(JSON.stringify({ ...policy, accountHandle: "private" }), { status: 200 })).getAutomation("plan-1"),
+  (error: unknown) => error instanceof AcquisitionHttpError && error.code === "unsafe_response"
+);
+
+console.log(JSON.stringify({ ok: true, suite: "douyin-automation-api" }));

@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>GoodJob 自动营销系统</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2318ed78'/%3E%3Cpath d='M9 9h14v4H14v6h5v-2h-3v-4h7v10H9z' fill='%23020303'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/src/app-shell.css" />
   <link rel="stylesheet" href="/src/vendor/phosphor/regular/style.css" />
   <link rel="stylesheet" href="/src/replica-dashboard.css" />
@@ -136,6 +137,17 @@
           <div class="replica-metric-value"><strong id="replicaMetricValue3">5</strong><span id="replicaMetricUnit3">位客户</span></div>
           <div class="replica-metric-change" id="replicaMetricChange3">较昨日 <b class="down">↓ 17%</b></div>
         </article>
+      </section>
+
+      <section class="douyin-automation-workspace replica-glass" id="douyinAutomationWorkspace" hidden aria-label="抖音自动获客工作台">
+        <div id="douyinAutomationHost" aria-live="polite">
+          <div class="douyin-empty"><strong>选择一项真实抖音获客计划</strong><p>将从服务器读取账号、自动化与采集状态。</p></div>
+        </div>
+        <div id="douyinOutreachHost" aria-live="polite"></div>
+        <details class="douyin-link-fallback">
+          <summary>授权公开链接导入（备用）</summary>
+          <p>仅在自动采集暂不可用且你有权提交该公开链接时使用。</p>
+        </details>
       </section>
 
       <section class="replica-performance replica-glass" id="replicaAcquisitionPerformance" hidden aria-labelledby="replicaAcquisitionPerformanceTitle">

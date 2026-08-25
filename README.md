@@ -100,6 +100,13 @@ fenced action worker and expired-claim sweeper lifecycle. The worker rechecks
 the frozen approval/account/candidate/content/budget authority immediately
 before asking the sidecar to submit exact approved text.
 
+The authenticated `#acquisition` dashboard uses that authority for the primary
+automatic Douyin workflow: QR account connection, editable local automation,
+run progress, creator/commenter evidence review, revisioned exact-message
+editing, explicit approval, pause/resume and sanitized action receipts. Public-
+link import remains an authorized secondary fallback. The browser never
+receives MediaCrawler cookies, account handles, browser profiles or leases.
+
 The repository also exposes MySQL-backed development:
 
 ```bash

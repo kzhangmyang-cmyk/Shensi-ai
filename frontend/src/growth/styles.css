@@ -7,6 +7,12 @@
   display: none !important;
 }
 
+body.is-authenticated:has(.replica-shell[data-acquisition-mode="real"]) {
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .growth-nav {
   display: flex;
   flex-wrap: wrap;

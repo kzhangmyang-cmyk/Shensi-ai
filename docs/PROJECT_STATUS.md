@@ -125,13 +125,26 @@ ledger.
   stale writes; three consecutive failures or an immediate platform-risk state
   pause the account and all queued work. Focused fake-page, Memory, and live
   MySQL 8.4 gates exercise this behavior without making a real Douyin action.
+- The authenticated `#acquisition` dashboard now makes automatic Douyin
+  acquisition the primary workflow. It connects or reconnects a workspace
+  account by expiring QR session, edits and enables keywords/local schedule/
+  timezone/daily candidate limit, starts one run-now command, and renders only
+  persisted crawler status, creator/commenter candidates and public evidence.
+  Candidate selection creates an editable outreach batch; revision conflicts
+  reload current authority before explicit approval, and pause/resume plus
+  sanitized comment/direct-message receipts survive page reload. Authorized
+  public-link import remains a collapsed secondary fallback. The existing
+  Shensi shell, session/CSRF behavior and accessible navigation are preserved;
+  desktop uses a table with evidence inspector, while narrow viewports use
+  one-column candidate cards and normal body scrolling.
 
 ## Active
 
-- Task 9 action-history and risk-control UI is next. No production Douyin
-  action, traffic cutover, or real-account acceptance is claimed by Task 8.
-  The legacy repository, source database, and user-facing processes remain
-  rollback inputs.
+- Task 10 deployment, restart, no-intercept runtime verification and explicit
+  dedicated-account acceptance are next. Task 9 used only a deterministic HTTP
+  fixture and made no production Douyin action. No traffic cutover or real-
+  account acceptance is claimed. The legacy repository, source database, and
+  user-facing processes remain rollback inputs.
 
 ## Blocked
 
@@ -141,10 +154,11 @@ ledger.
 
 ## Next
 
-1. Implement Task 9 against the sanitized action projection and risk-pause
-   state delivered by Task 8.
-2. Request explicit real-account/cutover authorization only after the planned
-   acceptance gates; Task 8 did not authorize either.
+1. Implement Task 10 deployment and isolated real-runtime gates, keeping
+   deterministic, MySQL, Docker and external acceptance evidence separate.
+2. Request explicit dedicated-account and cutover authorization before any
+   external Douyin acceptance or production traffic change; Task 9 authorized
+   neither.
 
 The two executing design/plan documents are retained under
 `docs/superpowers/` until final acceptance, but they are not progress authority.

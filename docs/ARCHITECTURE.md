@@ -144,6 +144,17 @@ and council controllers and views. Shared transport types are imported from
 `frontend/src/generated/`, which is generated from `contracts/`; new DTOs must
 not be hand-written in feature code.
 
+The acquisition runtime composes account/login, automation/run and outreach-
+batch controllers inside the single existing `.replica-shell`. The controllers
+call only authenticated Node routes with browser CSRF, semantic idempotency and
+ETag authority; they fence generations and abort requests/pollers on mode
+change, logout and close. Automatic collection is the primary surface, while
+authorized public-link import is a collapsed fallback. Private MediaCrawler
+handles, cookies, profiles, leases and internal identifiers are not rendered.
+The desktop candidate table and evidence inspector collapse to one-column
+cards at the mobile breakpoint, and page scrolling remains owned by the body/
+main document rather than nested frozen panes.
+
 ## Persistence
 
 The backend supports memory and MySQL stores. Core CRM tables and startup DDL

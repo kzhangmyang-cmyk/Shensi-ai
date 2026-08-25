@@ -55,8 +55,8 @@ export interface AcquisitionTaskDetail {
 }
 
 export interface AcquisitionRuntimeApi {
-  getOverview(): Promise<AcquisitionTaskOverview>;
-  getTask(planId: string): Promise<AcquisitionTaskDetail>;
+  getOverview(signal?: AbortSignal): Promise<AcquisitionTaskOverview>;
+  getTask(planId: string, signal?: AbortSignal): Promise<AcquisitionTaskDetail>;
   createImportOperation(
     input: AcquisitionImportOperationCreateInput,
     idempotencyKey: string
@@ -140,9 +140,10 @@ export function createAcquisitionApi(
       ? defaultCookieSource
       : () => options.cookie ?? "");
 
-  async function request<T>(path: string): Promise<T> {
+  async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
     const response = await fetchImpl(path, {
       method: "GET",
+      signal,
       credentials: "same-origin",
       headers: {
         accept: "application/json"
@@ -154,14 +155,16 @@ export function createAcquisitionApi(
   }
 
   return {
-    getOverview() {
+    getOverview(signal) {
       return request<AcquisitionTaskOverview>(
-        "/api/v1/acquisition/overview?platform=douyin"
+        "/api/v1/acquisition/overview?platform=douyin",
+        signal
       );
     },
-    getTask(planId: string) {
+    getTask(planId: string, signal) {
       return request<AcquisitionTaskDetail>(
-        `/api/v1/acquisition/tasks/${segment(planId)}`
+        `/api/v1/acquisition/tasks/${segment(planId)}`,
+        signal
       );
     },
     async createImportOperation(input, idempotencyKey) {

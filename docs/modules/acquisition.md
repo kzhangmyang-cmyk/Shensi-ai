@@ -134,6 +134,20 @@ code consumes `frontend/src/generated/ai-acquisition.ts`.
 workspace-bound persisted projection. It excludes the private account handle,
 lease, raw cursor, records, and live sidecar state.
 
+The authenticated browser consumes these generated projections through
+`douyin-automation-api.ts` and `outreach-batch-api.ts`; feature code does not
+redeclare transport DTOs. The `#acquisition` workspace preserves the existing
+Shensi shell and session controller, presents QR connect/reconnect, editable
+keywords, local schedule/timezone and the 1–200 daily limit (default 50), then
+shows persisted crawler progress, creator/commenter candidates, public
+evidence, DNC/exclusion state, exact comment/direct-message drafts and
+sanitized receipts. Approval always requires an explicit second confirmation.
+An ETag conflict reloads the latest revision before another approval attempt,
+and logout, close or mode change aborts active requests and the single poller.
+The authorized public-link importer remains available only as a collapsed
+fallback. Desktop renders a candidate table beside its inspector; mobile uses
+one-column cards with document scrolling and no horizontal overflow.
+
 Outreach generation is a private service boundary consumed only by the batch
 service. `POST /runs/{runId}/outreach-batches` persists its exact values as
 candidate draft revision 1; generation itself still performs no persistence.

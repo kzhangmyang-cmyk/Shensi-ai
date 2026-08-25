@@ -22,6 +22,12 @@ import {
   type PublicDouyinImportPanelState
 } from "./runtime-presenter";
 import { acquisitionCandidateDetailRequest } from "./detail-center-entry";
+import { createDouyinAutomationApi } from "./douyin-automation-api";
+import { createDouyinAutomationController } from "./douyin-automation-controller";
+import { mountDouyinAutomationView } from "./douyin-automation-view";
+import { createOutreachBatchApi } from "./outreach-batch-api";
+import { createOutreachBatchController } from "./outreach-batch-controller";
+import { mountOutreachBatchView } from "./outreach-batch-view";
 
 type AcquisitionMode = "demo" | "real";
 type RuntimeState = "loading" | "ready" | "error" | "unauthorized";
@@ -64,6 +70,7 @@ const ACTIVE_RUN_STATUSES = new Set<AcquisitionRunStatus>([
 ]);
 const OVERVIEW_POLL_BASE_DELAY_MS = 2_000;
 const OVERVIEW_POLL_MAX_DELAY_MS = 30_000;
+const LAST_OUTREACH_BATCH_KEY = "shensi:acquisition:last-outreach-batch";
 
 let started = false;
 let waitingForDom = false;
@@ -159,6 +166,27 @@ function initialiseRuntime(): void {
   const runtimeShell = shell;
 
   const api = createAcquisitionApi();
+  const automationWorkspace = byId("douyinAutomationWorkspace");
+  const automationHost = byId("douyinAutomationHost");
+  const outreachHost = byId("douyinOutreachHost");
+  const automationController = createDouyinAutomationController({
+    api: createDouyinAutomationApi()
+  });
+  const outreachController = createOutreachBatchController({
+    api: createOutreachBatchApi()
+  });
+  const unmountOutreach = outreachHost
+    ? mountOutreachBatchView(outreachHost, outreachController)
+    : () => undefined;
+  const unmountAutomation = automationHost
+    ? mountDouyinAutomationView(automationHost, automationController, (runId, candidateIds) => {
+      void outreachController.create(runId, candidateIds).then(() => {
+        const batchId = outreachController.getState().batch?.id;
+        if (batchId) sessionStorage.setItem(LAST_OUTREACH_BATCH_KEY, batchId);
+        outreachHost?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    })
+    : () => undefined;
   const restoreActions: Array<() => void> = [];
   let mode: AcquisitionMode = defaultMode();
   let overviewRequestVersion = 0;
@@ -300,6 +328,7 @@ function initialiseRuntime(): void {
   rememberHidden(realTaskGroup);
   rememberHidden(runMetrics);
   rememberHidden(demoTimeline);
+  rememberHidden(automationWorkspace);
   demoTaskGroups.forEach(rememberHidden);
   rememberClass(modeBadge);
   rememberClass(runtimeStatus);
@@ -570,6 +599,10 @@ function initialiseRuntime(): void {
     if (model.tasks.length === 0) {
       setRealInspectorShell("后端当前没有抖音获客任务。");
       setRunMetricValues(0, 0, 0, "0 秒");
+    }
+    const firstPlanId = model.tasks[0]?.planId;
+    if (firstPlanId && automationController.getState().planId !== firstPlanId) {
+      void automationController.load(firstPlanId);
     }
     scheduleOverviewPoll(model.tasks.some((task) =>
       task.status !== null && ACTIVE_RUN_STATUSES.has(task.status)
@@ -879,10 +912,15 @@ function initialiseRuntime(): void {
     if (demoTimeline) demoTimeline.hidden = true;
     if (realTaskGroup) realTaskGroup.hidden = false;
     if (runMetrics) runMetrics.hidden = false;
+    if (automationWorkspace) automationWorkspace.hidden = false;
     dispatchModeChanged("selected");
     renderPublicImport();
     enforceRealVisibility();
-    void refreshOverview();
+    if (document.body.classList.contains("is-authenticated")) {
+      void refreshOverview();
+    } else {
+      showErrorState(new Error("未登录"));
+    }
   }
 
   function applyDemoMode(): void {
@@ -890,10 +928,13 @@ function initialiseRuntime(): void {
     overviewRequestVersion += 1;
     detailRequestVersion += 1;
     importRequestVersion += 1;
+    automationController.abort();
+    outreachController.abort();
     restoreInitialDom();
     runtimeShell.dataset.acquisitionMode = "demo";
     updateModeButtons();
     publicImport = { ...publicImport, visible: false };
+    if (automationWorkspace) automationWorkspace.hidden = true;
     renderPublicImport();
     dispatchModeChanged("selected");
   }
@@ -915,6 +956,7 @@ function initialiseRuntime(): void {
     const planId = (event as CustomEvent<TaskSelectedDetail>).detail?.planId;
     if (typeof planId === "string" && planId.trim()) {
       void loadTaskDetail(planId.trim());
+      void automationController.load(planId.trim());
     }
   });
 
@@ -990,9 +1032,14 @@ function initialiseRuntime(): void {
     const isAuthenticated = document.body.classList.contains("is-authenticated");
     if (mode === "real" && isAuthenticated && !wasAuthenticated) {
       void refreshOverview();
+      const batchId = sessionStorage.getItem(LAST_OUTREACH_BATCH_KEY);
+      if (batchId) void outreachController.load(batchId);
     }
     if (mode === "real" && !isAuthenticated && wasAuthenticated) {
       stopOverviewPolling();
+      automationController.abort();
+      outreachController.abort();
+      sessionStorage.removeItem(LAST_OUTREACH_BATCH_KEY);
       overviewRequestVersion += 1;
       detailRequestVersion += 1;
       importRequestVersion += 1;
@@ -1005,8 +1052,18 @@ function initialiseRuntime(): void {
     attributes: true,
     attributeFilter: ["class"]
   });
+  if (wasAuthenticated) {
+    const batchId = sessionStorage.getItem(LAST_OUTREACH_BATCH_KEY);
+    if (batchId) void outreachController.load(batchId);
+  }
 
-  window.addEventListener("pagehide", stopOverviewPolling, { once: true });
+  window.addEventListener("pagehide", () => {
+    stopOverviewPolling();
+    automationController.close();
+    outreachController.close();
+    unmountAutomation();
+    unmountOutreach();
+  }, { once: true });
 
   const visibilityObserver = new MutationObserver(enforceRealVisibility);
   [...demoTaskGroups, realTaskGroup, runMetrics, demoTimeline]
