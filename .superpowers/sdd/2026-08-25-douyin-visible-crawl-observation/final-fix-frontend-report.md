@@ -116,6 +116,27 @@ npx tsx src/acquisition/douyin-automation-view.self-test.ts
 {"ok":true,"suite":"douyin-automation-view"}
 ```
 
+## Follow-up terminal candidate-read failure fix
+
+`refreshRunFor` retains crawler status only after validating that it belongs to
+the requested run. If the subsequent candidate read fails, it publishes that
+known status with the bounded controller error state. Automatic refresh is now
+scheduled only when no validated status exists or that status still requires
+polling; a terminal `ready` or `failed` projection receives no automatic timer,
+while the existing manual refresh path remains available.
+
+RED evidence:
+
+```text
+AssertionError: a validated terminal status must survive a candidate-read failure
++ actual - expected
++ undefined
+- 'succeeded'
+```
+
+GREEN verification includes the focused controller self-test plus the complete
+frontend self-tests, TypeScript checks, production build, and `git diff --check`.
+
 ## Self-review and limitations
 
 - The decoder rejects only forbidden keys, recursively through records and

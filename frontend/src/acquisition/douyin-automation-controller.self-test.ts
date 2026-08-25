@@ -310,3 +310,31 @@ await orderedReadyRun;
 assert.equal(readyCandidateReads, 1);
 assert.deepEqual(orderedReadyController.getState().candidates, [liveCandidate], "a ready status must load the candidates read after it");
 orderedReadyController.close();
+
+const terminalCandidateFailureTimers: Array<() => void> = [];
+const terminalCandidateFailureController = createDouyinAutomationController({
+  api: {
+    createPlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "draft", version: 1, etag: '"plan:1"' }),
+    approvePlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "approved", version: 1, etag: '"plan:2"' }),
+    listAccounts: async () => ({ items: [activeAccount] }),
+    createLoginSession: async () => { throw new Error("not used"); }, getLoginSession: async () => { throw new Error("not used"); }, disconnectAccount: async () => undefined,
+    getAutomation: async () => ({ ...defaultPolicy, keywords: ["袜子"] }), suggestKeywords: async () => ({ keywords: ["袜子"], modelSnapshotId: "model-1" }),
+    putAutomation: async (_planId, input) => ({ ...defaultPolicy, ...input, id: "policy-1", source: "version", accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1, etag: '"policy:1"', createdBy: "user-1", createdAt: now }),
+    runNow: async () => queuedIntent("intent-terminal-candidate-failure", "run-terminal-candidate-failure"),
+    getCrawlerStatus: async () => ({
+      ...runningStatus("run-terminal-candidate-failure"), state: "succeeded" as const,
+      candidateProjectionState: "ready" as const, completedAt: now,
+      activity: { phase: "completed" as const, currentKeyword: null, browserMode: "headless" as const, sequence: 5 }
+    }),
+    listRunCandidates: async () => { throw new Error("candidate read failed"); }
+  },
+  pollDelayMs: 250,
+  setTimer: ((callback: unknown) => { terminalCandidateFailureTimers.push(callback as () => void); return terminalCandidateFailureTimers.length; }) as unknown as typeof setTimeout,
+  clearTimer: (() => undefined) as typeof clearTimeout
+});
+await terminalCandidateFailureController.load("plan-1", "袜子获客计划");
+await terminalCandidateFailureController.runNow();
+assert.equal(terminalCandidateFailureController.getState().crawlerStatus?.state, "succeeded", "a validated terminal status must survive a candidate-read failure");
+assert.match(terminalCandidateFailureController.getState().error ?? "", /candidate read failed/u);
+assert.equal(terminalCandidateFailureTimers.length, 0, "a ready terminal projection must not schedule an automatic retry after candidate failure");
+terminalCandidateFailureController.close();

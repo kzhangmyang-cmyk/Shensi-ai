@@ -128,18 +128,20 @@ export function createDouyinAutomationController(options: {
     if (existing && existing.runId === runId && existing.generation === ownGeneration) return existing.promise;
     clearRunTimer();
     const flight = (async () => {
+      let validatedStatus: DouyinCrawlerStatus | null = null;
       try {
         const crawlerStatus = await options.api.getCrawlerStatus(runId, aborter.signal);
         if (!current(ownGeneration)) return;
         if (crawlerStatus.runId !== runId) throw new Error("服务器返回的采集状态与当前运行不匹配");
+        validatedStatus = crawlerStatus;
         const page = await options.api.listRunCandidates(runId, aborter.signal);
         if (!current(ownGeneration)) return;
         emit({ crawlerStatus, candidates: page.items, phase: "ready", error: null });
         if (requiresRunPolling(crawlerStatus)) scheduleRunRefresh(runId, ownGeneration);
       } catch (error) {
         if (current(ownGeneration) && !(error instanceof DOMException && error.name === "AbortError")) {
-          emit({ phase: "error", error: message(error) });
-          scheduleRunRefresh(runId, ownGeneration);
+          emit({ ...(validatedStatus ? { crawlerStatus: validatedStatus } : {}), phase: "error", error: message(error) });
+          if (!validatedStatus || requiresRunPolling(validatedStatus)) scheduleRunRefresh(runId, ownGeneration);
         }
       }
     })();
