@@ -152,6 +152,20 @@ test("a run alias cannot be remapped to another daily job", async () => {
   assert.equal((await repository.findByRun("workspace-1", "run-1"))?.id, "crawler-1");
 });
 
+test("a mixed existing run and intent alias fails closed instead of replaying", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  await repository.createOrGet(input({
+    id: "crawler-2", runId: "run-2", automationIntentId: "intent-2",
+    trigger: "run_now"
+  }));
+
+  await assert.rejects(repository.createOrGet(input({
+    id: "crawler-3", runId: "run-2", automationIntentId: "intent-1",
+    trigger: "run_now"
+  })), /crawler_job_identity_conflict/u);
+});
+
 test("leases use random 64-hex fences and reject exact expiry plus same-worker ABA", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   await repository.createOrGet(input());
@@ -480,6 +494,46 @@ test("late same-day alias requeues projection without recrawling or duplicating 
   assert.equal((await repository.listRecords(attached.job.id)).length, 0);
 });
 
+test("new aliases defer a running projection while exact replays leave a succeeded projection alone", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  await repository.enqueue("workspace-1", "run-1", at(0));
+  const crawl = await repository.claimNext("crawler", at(1), 10_000);
+  assert.ok(crawl);
+  await repository.persistPage(crawl.fence, {
+    expectedCursor: null, nextCursor: null, records: [], done: true,
+    terminalActivity: completedActivity, now: at(2)
+  });
+  const running = await repository.claimNextIngestion("ingester-A", at(3), 10_000);
+  assert.ok(running);
+
+  const exactWhileRunning = await repository.createOrGet(input());
+  assert.equal(exactWhileRunning.job.ingestionState, "running");
+  const attached = await repository.createOrGet(input({
+    id: "crawler-2", runId: "run-2", automationIntentId: "intent-2",
+    trigger: "run_now"
+  }));
+  assert.equal(attached.job.ingestionState, "running");
+  assert.equal(attached.job.ingestionAttempt, 0);
+  assert.equal((attached.job as unknown as { aliasGeneration?: unknown })
+    .aliasGeneration, 2);
+  assert.equal(await repository.claimNextIngestion("ingester-B", at(3), 10_000), null);
+  const deferred = await repository.completeIngestion(
+    running.fence, at(3), at(3), at(3)
+  );
+  assert.equal(deferred.ingestionState, "pending");
+
+  const replay = await repository.claimNextIngestion("ingester-B", at(4), 10_000);
+  assert.ok(replay);
+  await repository.completeIngestion(replay.fence, at(4), at(4), at(4));
+  const beforeExactReplay = (await repository.findByRun("workspace-1", "run-1"))!;
+  const exactAfterSuccess = await repository.createOrGet(input());
+  assert.equal(exactAfterSuccess.job.ingestionState, "succeeded");
+  assert.equal(exactAfterSuccess.job.ingestedAt, at(4));
+  assert.equal(exactAfterSuccess.job.updatedAt, beforeExactReplay.updatedAt);
+  assert.equal(exactAfterSuccess.job.ingestionAttempt, beforeExactReplay.ingestionAttempt);
+});
+
 test("terminal ingestion claims are fenced, single-winner, and restart recoverable", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   await repository.createOrGet(input());
@@ -614,4 +668,30 @@ test("crawler status projects only frozen, bounded activity keywords", async () 
       activity: { ...valid.activity, currentKeyword }
     }, "run-1"), /invalid_crawler_activity/u);
   }
+});
+
+test("crawler status replaces a tampered stored error with a closed public code", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  const job = (await repository.findByRun("workspace-1", "run-1"))!;
+  const status = crawlerStatus({
+    ...job,
+    lastErrorCode: "credential=top-secret-status-token"
+  }, "run-1");
+  assert.equal(status.lastErrorCode, "crawler_worker_failed");
+  assert.doesNotMatch(status.lastErrorCode ?? "", /top-secret/u);
+});
+
+test("crawler status keeps a stale alias generation projection pending", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  const job = (await repository.findByRun("workspace-1", "run-1"))!;
+  const status = crawlerStatus({
+    ...job,
+    state: "succeeded",
+    ingestionState: "succeeded",
+    aliasGeneration: 2,
+    projectedAliasGeneration: 1
+  }, "run-1");
+  assert.equal(status.candidateProjectionState, "pending");
 });

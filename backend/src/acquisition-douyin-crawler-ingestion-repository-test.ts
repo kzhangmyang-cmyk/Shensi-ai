@@ -123,6 +123,7 @@ function crawlerJob(
     fencingToken: 1, ingestionState: "pending", ingestionAttempt: 0,
     ingestionLeaseWorkerId: null, ingestionLeaseToken: null,
     ingestionLeaseExpiresAt: null, ingestionFencingToken: 0,
+    aliasGeneration: runIds.length, projectedAliasGeneration: 0,
     ingestedAt: null, acknowledgedAt: null,
     updatedAt: NOW, completedAt: NOW
   };

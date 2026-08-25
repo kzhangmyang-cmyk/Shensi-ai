@@ -5,7 +5,9 @@ import {
   assertCrawlerActivityObserved,
   assertCrawlerJobInput,
   assertTerminalCrawlerActivity,
+  clearAcquisitionCrawlerIngestionErrorCode,
   defaultAcquisitionCrawlerActivity,
+  normalizeAcquisitionCrawlerStoredErrorCode,
   assertNormalizedDouyinRecord,
   type AcquisitionCrawlerJob,
   type AcquisitionCrawlerJobClaim,
@@ -45,6 +47,8 @@ export interface AcquisitionCrawlerJobRepository {
   pause(fence: AcquisitionCrawlerJobFence, errorCode: string, now: string): Promise<AcquisitionCrawlerJob>;
   fail(fence: AcquisitionCrawlerJobFence, errorCode: string, now: string, retryable: boolean): Promise<AcquisitionCrawlerJob>;
   claimNextIngestion(workerId: string, now: string, leaseDurationMs: number, avoidWorkspaceId?: string): Promise<AcquisitionCrawlerIngestionClaim | null>;
+  renewIngestion(fence: AcquisitionCrawlerIngestionFence, now: string, leaseDurationMs: number): Promise<AcquisitionCrawlerJob>;
+  deferIngestionForAliasChange(fence: AcquisitionCrawlerIngestionFence, now: string): Promise<AcquisitionCrawlerJob>;
   completeIngestion(fence: AcquisitionCrawlerIngestionFence, ingestedAt: string, acknowledgedAt: string, now: string): Promise<AcquisitionCrawlerJob>;
   failIngestion(fence: AcquisitionCrawlerIngestionFence, errorCode: string, now: string): Promise<AcquisitionCrawlerJob>;
   sweepExpired(now: string): Promise<number>;
@@ -55,6 +59,7 @@ interface State {
   daily: Map<string, string>;
   runs: Map<string, string>;
   intents: Map<string, string>;
+  pairs: Map<string, string>;
   records: Map<string, PersistedNormalizedDouyinRecord[]>;
 }
 
@@ -68,6 +73,9 @@ function dailyKey(value: Pick<AcquisitionCrawlerJobInput, "workspaceId" | "planI
   return `${value.workspaceId}\u0000${value.planId}\u0000${value.policyVersionId}\u0000${value.localDate}`;
 }
 function runKey(workspaceId: string, runId: string) { return `${workspaceId}\u0000${runId}`; }
+function aliasPairKey(workspaceId: string, runId: string, automationIntentId: string) {
+  return `${workspaceId}\u0000${runId}\u0000${automationIntentId}`;
+}
 function clearLease(job: AcquisitionCrawlerJob) {
   job.leaseWorkerId = null; job.leaseToken = null; job.leaseExpiresAt = null;
 }
@@ -115,7 +123,10 @@ function applyActivity(
 }
 
 export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJobRepository {
-  private state: State = { jobs: new Map(), daily: new Map(), runs: new Map(), intents: new Map(), records: new Map() };
+  private state: State = {
+    jobs: new Map(), daily: new Map(), runs: new Map(), intents: new Map(),
+    pairs: new Map(), records: new Map()
+  };
   private tail: Promise<void> = Promise.resolve();
 
   private transaction<T>(work: (state: State) => T | Promise<T>): Promise<T> {
@@ -141,10 +152,14 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
           input.workspaceId,
           input.automationIntentId
         ));
-        if (mappedId && mappedId !== existingId) {
-          throw new Error("crawler_job_identity_conflict");
-        }
-        if (intentMappedId && intentMappedId !== existingId) {
+        const pairId = state.pairs.get(aliasPairKey(
+          input.workspaceId,
+          input.runId,
+          input.automationIntentId
+        ));
+        if ((mappedId && mappedId !== existingId)
+          || (intentMappedId && intentMappedId !== existingId)
+          || (pairId && pairId !== existingId)) {
           throw new Error("crawler_job_identity_conflict");
         }
         const existing = state.jobs.get(existingId)!;
@@ -157,24 +172,45 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
           || existing.dailyBudgetId !== input.dailyBudgetId) {
           throw new Error("crawler_job_binding_conflict");
         }
-        if (!existing.runIds.includes(input.runId)) existing.runIds.push(input.runId);
-        if (!existing.automationIntentIds.includes(input.automationIntentId)) {
-          existing.automationIntentIds.push(input.automationIntentId);
+        const exactReplay = mappedId === existingId
+          && intentMappedId === existingId
+          && pairId === existingId
+          && existing.runIds.includes(input.runId)
+          && existing.automationIntentIds.includes(input.automationIntentId);
+        if (exactReplay) return { created: false, job: existing };
+        if (mappedId || intentMappedId || pairId
+          || existing.runIds.includes(input.runId)
+          || existing.automationIntentIds.includes(input.automationIntentId)) {
+          throw new Error("crawler_job_identity_conflict");
         }
-        if (existing.ingestionState === "succeeded") {
+        existing.runIds.push(input.runId);
+        existing.automationIntentIds.push(input.automationIntentId);
+        existing.aliasGeneration += 1;
+        existing.ingestionAttempt = 0;
+        if (existing.ingestionState !== "running"
+          && ["succeeded", "partial"].includes(existing.state)) {
           existing.ingestionState = "pending";
-          existing.ingestedAt = null;
         }
         state.runs.set(runKey(input.workspaceId, input.runId), existing.id);
         state.intents.set(
           runKey(input.workspaceId, input.automationIntentId),
           existing.id
         );
+        state.pairs.set(aliasPairKey(
+          input.workspaceId,
+          input.runId,
+          input.automationIntentId
+        ), existing.id);
         return { created: false, job: existing };
       }
       if (state.jobs.has(input.id)
         || state.runs.has(runKey(input.workspaceId, input.runId))
-        || state.intents.has(runKey(input.workspaceId, input.automationIntentId))) {
+        || state.intents.has(runKey(input.workspaceId, input.automationIntentId))
+        || state.pairs.has(aliasPairKey(
+          input.workspaceId,
+          input.runId,
+          input.automationIntentId
+        ))) {
         throw new Error("crawler_job_identity_conflict");
       }
       const job: AcquisitionCrawlerJob = {
@@ -188,6 +224,7 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
         completedAt: null, ingestionState: null, ingestionAttempt: 0,
         ingestionLeaseWorkerId: null, ingestionLeaseToken: null,
         ingestionLeaseExpiresAt: null, ingestionFencingToken: 0,
+        aliasGeneration: 1, projectedAliasGeneration: 0,
         ingestedAt: null, acknowledgedAt: null,
         activity: structuredClone(defaultAcquisitionCrawlerActivity),
         activityObserved: false
@@ -198,6 +235,11 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
         runKey(job.workspaceId, job.automationIntentId),
         job.id
       );
+      state.pairs.set(aliasPairKey(
+        job.workspaceId,
+        job.runId,
+        job.automationIntentId
+      ), job.id);
       state.records.set(job.id, []);
       return { created: true, job };
     });
@@ -294,7 +336,10 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
           && !["succeeded", "partial"].includes(input.terminalState))
         || (input.terminalErrorCode !== undefined
           && input.terminalErrorCode !== null
-          && !/^[a-z0-9_]{1,100}$/u.test(input.terminalErrorCode))
+          && (input.terminalErrorCode
+            !== "crawl_interrupted_after_partial_results"))
+        || (input.terminalState === "partial"
+          && input.terminalErrorCode !== "crawl_interrupted_after_partial_results")
         || (input.done && input.terminalState !== "partial"
           && input.terminalErrorCode != null)) {
         throw new TypeError("invalid_crawler_terminal_metadata");
@@ -330,7 +375,10 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
           === "crawler_candidate_budget_exhausted";
         job.state = sidecarPartial || budgetExhausted ? "partial" : "succeeded";
         job.lastErrorCode = sidecarPartial
-          ? input.terminalErrorCode ?? "mediacrawler_partial"
+          ? normalizeAcquisitionCrawlerStoredErrorCode(
+            input.terminalErrorCode,
+            "mediacrawler_partial"
+          )
           : budgetExhausted ? "crawler_candidate_budget_exhausted" : null;
         job.completedAt = input.now;
         if (job.ingestionState !== "succeeded") job.ingestionState = "pending";
@@ -365,14 +413,23 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
   pause(fence: AcquisitionCrawlerJobFence, errorCode: string, now: string) {
     return this.transaction((state) => {
       const job = this.fenced(state, fence, now);
-      job.state = "paused"; job.lastErrorCode = errorCode; job.updatedAt = now; clearLease(job); return job;
+      job.state = "paused";
+      job.lastErrorCode = normalizeAcquisitionCrawlerStoredErrorCode(
+        errorCode,
+        "crawler_worker_failed"
+      );
+      job.updatedAt = now; clearLease(job); return job;
     });
   }
 
   fail(fence: AcquisitionCrawlerJobFence, errorCode: string, now: string, retryable: boolean) {
     return this.transaction((state) => {
       const job = this.fenced(state, fence, now);
-      job.lastErrorCode = errorCode; job.updatedAt = now; clearLease(job);
+      job.lastErrorCode = normalizeAcquisitionCrawlerStoredErrorCode(
+        errorCode,
+        "crawler_worker_failed"
+      );
+      job.updatedAt = now; clearLease(job);
       if (retryable && job.attempt < job.maxAttempts) job.state = "queued";
       else { job.state = retryable ? "paused" : "failed"; job.completedAt = retryable ? null : now; }
       return job;
@@ -408,7 +465,8 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
           jobId: job.id,
           workerId,
           leaseToken: job.ingestionLeaseToken,
-          fencingToken: job.ingestionFencingToken
+          fencingToken: job.ingestionFencingToken,
+          aliasGeneration: job.aliasGeneration
         }
       };
     });
@@ -424,11 +482,48 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
       || job.ingestionLeaseWorkerId !== fence.workerId
       || job.ingestionLeaseToken !== fence.leaseToken
       || job.ingestionFencingToken !== fence.fencingToken
+      || !Number.isSafeInteger(fence.aliasGeneration)
+      || fence.aliasGeneration < 1
+      || fence.aliasGeneration > job.aliasGeneration
       || !job.ingestionLeaseExpiresAt
       || milliseconds(now) >= milliseconds(job.ingestionLeaseExpiresAt)) {
       throw new Error("stale_crawler_ingestion_fence");
     }
     return job;
+  }
+
+  renewIngestion(
+    fence: AcquisitionCrawlerIngestionFence,
+    now: string,
+    leaseDurationMs: number
+  ) {
+    if (!Number.isSafeInteger(leaseDurationMs) || leaseDurationMs < 1) {
+      throw new TypeError("invalid_crawler_ingestion_lease");
+    }
+    return this.transaction((state) => {
+      const job = this.fencedIngestion(state, fence, now);
+      job.ingestionLeaseExpiresAt = new Date(
+        milliseconds(now) + leaseDurationMs
+      ).toISOString();
+      job.updatedAt = now;
+      return job;
+    });
+  }
+
+  deferIngestionForAliasChange(
+    fence: AcquisitionCrawlerIngestionFence,
+    now: string
+  ) {
+    return this.transaction((state) => {
+      const job = this.fencedIngestion(state, fence, now);
+      if (job.aliasGeneration === fence.aliasGeneration) {
+        throw new Error("crawler_ingestion_generation_current");
+      }
+      job.ingestionState = "pending";
+      job.updatedAt = now;
+      clearIngestionLease(job);
+      return job;
+    });
   }
 
   completeIngestion(
@@ -441,9 +536,19 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
       const job = this.fencedIngestion(state, fence, now);
       milliseconds(ingestedAt);
       milliseconds(acknowledgedAt);
+      if (job.aliasGeneration !== fence.aliasGeneration) {
+        job.ingestionState = "pending";
+        job.updatedAt = now;
+        clearIngestionLease(job);
+        return job;
+      }
       job.ingestionState = "succeeded";
+      job.projectedAliasGeneration = job.aliasGeneration;
       job.ingestedAt = ingestedAt;
       job.acknowledgedAt = acknowledgedAt;
+      job.lastErrorCode = clearAcquisitionCrawlerIngestionErrorCode(
+        job.lastErrorCode
+      );
       job.updatedAt = now;
       clearIngestionLease(job);
       return job;
@@ -457,9 +562,13 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
   ) {
     return this.transaction((state) => {
       const job = this.fencedIngestion(state, fence, now);
-      job.ingestionState = job.ingestionAttempt < job.maxAttempts
+      job.ingestionState = job.aliasGeneration !== fence.aliasGeneration
+        ? "pending" : job.ingestionAttempt < job.maxAttempts
         ? "pending" : "failed";
-      job.lastErrorCode = errorCode.slice(0, 100);
+      job.lastErrorCode = normalizeAcquisitionCrawlerStoredErrorCode(
+        errorCode,
+        "crawler_ingestion_failed"
+      );
       job.updatedAt = now;
       clearIngestionLease(job);
       return job;

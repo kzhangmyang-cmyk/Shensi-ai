@@ -289,6 +289,9 @@ test("MySQL daily creation retries duplicate and deadlock races and returns the 
       return {
         async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
         async query(sql: string) {
+          if (sql.startsWith("SELECT acquisition_run_id FROM acquisition_douyin_run_bindings")) {
+            return [[{ acquisition_run_id: "run-now" }], []];
+          }
           if (sql.includes("acquisition_crawler_job_runs") && sql.startsWith("SELECT")) return [[], []];
           if (sql.includes("workspace_id=? AND plan_id=?")) {
             if (attempt === 1) throw Object.assign(new Error("daily race"), failure);
@@ -319,6 +322,162 @@ test("MySQL daily creation retries duplicate and deadlock races and returns the 
   }
 });
 
+test("MySQL aliases defer a running projection and exact replays retain a succeeded projection", async () => {
+  let stored = {
+    ...scheduledCrawlerJob(), state: "succeeded" as const,
+    ingestionState: "running" as const, ingestionAttempt: 1,
+    ingestionLeaseWorkerId: "ingester-A", ingestionLeaseToken: "d".repeat(64),
+    ingestionLeaseExpiresAt: "2026-08-24T01:03:00.000Z", ingestionFencingToken: 1
+  };
+  const pool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+        async query(sql: string, values: unknown[] = []) {
+          if (sql.startsWith("SELECT acquisition_run_id FROM acquisition_douyin_run_bindings")) {
+            return [[{ acquisition_run_id: "run-2" }], []];
+          }
+          if (sql.startsWith("SELECT job_id FROM acquisition_crawler_job_runs")) return [[], []];
+          if (sql.startsWith("SELECT job_id FROM acquisition_crawler_job_intents")) return [[], []];
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE workspace_id=?")) {
+            return [[{ payload_json: JSON.stringify(stored) }], []];
+          }
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE id=?")) {
+            return [[{ payload_json: JSON.stringify(stored) }], []];
+          }
+          if (sql.startsWith("UPDATE acquisition_crawler_jobs")) {
+            stored = JSON.parse(String(values[5]));
+            return [{ affectedRows: 1 }, []];
+          }
+          return [{ affectedRows: 1 }, []];
+        }
+      };
+    }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+  const attached = await repository.createOrGet({
+    ...crawlerInput(), id: "job-new-alias", runId: "run-2",
+    automationIntentId: "intent-2"
+  });
+  assert.equal(attached.job.ingestionState, "running");
+  assert.equal(attached.job.ingestionAttempt, 0);
+  const deferred = await repository.completeIngestion({
+    jobId: stored.id, workerId: "ingester-A", leaseToken: "d".repeat(64),
+    fencingToken: 1, aliasGeneration: 1
+  }, "2026-08-24T01:02:04.567Z", "2026-08-24T01:02:04.567Z",
+  "2026-08-24T01:02:04.567Z");
+  assert.equal(deferred.ingestionState, "pending");
+
+  let succeeded = {
+    ...scheduledCrawlerJob(), state: "succeeded" as const,
+    ingestionState: "succeeded" as const,
+    ingestedAt: "2026-08-24T01:02:03.456Z",
+    acknowledgedAt: "2026-08-24T01:02:03.456Z"
+  };
+  let updates = 0;
+  let aliasWrites = 0;
+  const replayPool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+        async query(sql: string, values: unknown[] = []) {
+          if (sql.startsWith("SELECT job_id FROM acquisition_crawler_job_runs")) {
+            return [[{ job_id: succeeded.id }], []];
+          }
+          if (sql.startsWith("SELECT job_id FROM acquisition_crawler_job_intents")) {
+            return [[{ job_id: succeeded.id }], []];
+          }
+          if (sql.startsWith("SELECT acquisition_run_id FROM acquisition_douyin_run_bindings")) {
+            return [[{ acquisition_run_id: "run-1" }], []];
+          }
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE workspace_id=?")) {
+            return [[{ payload_json: JSON.stringify(succeeded) }], []];
+          }
+          if (sql.startsWith("UPDATE acquisition_crawler_jobs")) {
+            updates += 1;
+            succeeded = JSON.parse(String(values[5]));
+            return [{ affectedRows: 1 }, []];
+          }
+          if (sql.startsWith("INSERT INTO acquisition_crawler_job_")) {
+            aliasWrites += 1;
+            return [{ affectedRows: 1 }, []];
+          }
+          return [{ affectedRows: 1 }, []];
+        }
+      };
+    }
+  };
+  const replayRepository = new MysqlAcquisitionCrawlerJobRepository(replayPool as never);
+  const exactReplay = await replayRepository.createOrGet(crawlerInput());
+  assert.equal(exactReplay.job.ingestionState, "succeeded");
+  assert.equal(exactReplay.job.ingestedAt, "2026-08-24T01:02:03.456Z");
+  assert.equal(updates, 0);
+  assert.equal(aliasWrites, 0);
+  assert.equal(exactReplay.job.updatedAt, "2026-08-24T01:02:03.456Z");
+  assert.equal(exactReplay.job.ingestionAttempt, 0);
+});
+
+test("MySQL rejects a mixed existing run and intent alias", async () => {
+  const stored = {
+    ...scheduledCrawlerJob(), runIds: ["run-1", "run-2"],
+    automationIntentIds: ["intent-1", "intent-2"]
+  };
+  const pool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+        async query(sql: string) {
+          if (sql.startsWith("SELECT job_id FROM acquisition_crawler_job_runs")) {
+            return [[{ job_id: stored.id }], []];
+          }
+          if (sql.startsWith("SELECT job_id FROM acquisition_crawler_job_intents")) {
+            return [[{ job_id: stored.id }], []];
+          }
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE workspace_id=?")) {
+            return [[{ payload_json: JSON.stringify(stored) }], []];
+          }
+          if (sql.startsWith("SELECT acquisition_run_id FROM acquisition_douyin_run_bindings")) {
+            return [[{ acquisition_run_id: "run-1" }], []];
+          }
+          return [{ affectedRows: 1 }, []];
+        }
+      };
+    }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+  await assert.rejects(repository.createOrGet({
+    ...crawlerInput(), id: "mixed-job", runId: "run-2", automationIntentId: "intent-1"
+  }), /crawler_job_identity_conflict/u);
+});
+
+test("MySQL rejects a newly attached alias that is not the intent's authoritative run", async () => {
+  const stored = scheduledCrawlerJob();
+  const pool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+        async query(sql: string) {
+          if (sql.startsWith("SELECT acquisition_run_id FROM acquisition_douyin_run_bindings")) {
+            return [[{ acquisition_run_id: "run-authoritative" }], []];
+          }
+          if (sql.startsWith("SELECT job_id FROM acquisition_crawler_job_runs")
+            || sql.startsWith("SELECT job_id FROM acquisition_crawler_job_intents")) {
+            return [[], []];
+          }
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE workspace_id=?")) {
+            return [[{ payload_json: JSON.stringify(stored) }], []];
+          }
+          return [{ affectedRows: 1 }, []];
+        }
+      };
+    }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+  await assert.rejects(repository.createOrGet({
+    ...crawlerInput(), id: "unbound-job", runId: "run-2", automationIntentId: "intent-2"
+  }), /crawler_job_identity_conflict/u);
+});
+
 test("crawler MySQL repository creates a job with DATETIME-compatible timestamps", async () => {
   const observed: string[] = [];
   const pool = {
@@ -326,6 +485,9 @@ test("crawler MySQL repository creates a job with DATETIME-compatible timestamps
       return {
         async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
         async query(sql: string, values: unknown[] = []) {
+          if (sql.startsWith("SELECT acquisition_run_id FROM acquisition_douyin_run_bindings")) {
+            return [[{ acquisition_run_id: "run-1" }], []];
+          }
           if (sql.startsWith("SELECT")) return [[], []];
           if (sql.startsWith("INSERT INTO acquisition_crawler_jobs")) {
             assertMysqlDatetime(values[7]);
@@ -412,8 +574,49 @@ test("crawler MySQL claim hydrates legacy activity before returning and saving",
     phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0
   });
   assert.equal(claim?.job.activityObserved, false);
+  assert.equal(claim?.job.aliasGeneration, 1);
+  assert.equal(claim?.job.projectedAliasGeneration, 0);
   assert.equal((stored as typeof stored & { activityObserved?: boolean })
     .activityObserved, false);
+});
+
+test("crawler MySQL rejects a swept ingestion fence before terminal completion", async () => {
+  let stored = {
+    ...scheduledCrawlerJob(), state: "succeeded" as const,
+    ingestionState: "running" as const, ingestionAttempt: 1,
+    ingestionLeaseWorkerId: "ingester-1", ingestionLeaseToken: "e".repeat(64),
+    ingestionLeaseExpiresAt: "2026-08-24T01:02:00.000Z", ingestionFencingToken: 1
+  };
+  const pool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+        async query(sql: string, values: unknown[] = []) {
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE state='running'")) {
+            return [[], []];
+          }
+          if (sql.includes("JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.ingestionState'))='running'")) {
+            return [[{ payload_json: JSON.stringify(stored) }], []];
+          }
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE id=?")) {
+            return [[{ payload_json: JSON.stringify(stored) }], []];
+          }
+          if (sql.startsWith("UPDATE acquisition_crawler_jobs")) {
+            stored = JSON.parse(String(values[5]));
+            return [{ affectedRows: 1 }, []];
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        }
+      };
+    }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+  assert.equal(await repository.sweepExpired("2026-08-24T01:02:01.000Z"), 1);
+  await assert.rejects(repository.completeIngestion({
+    jobId: stored.id, workerId: "ingester-1", leaseToken: "e".repeat(64),
+    fencingToken: 1, aliasGeneration: 1
+  }, "2026-08-24T01:02:01.000Z", "2026-08-24T01:02:01.000Z",
+  "2026-08-24T01:02:01.000Z"), /stale_crawler_ingestion_fence/u);
 });
 
 test("crawler MySQL persists a fenced activity snapshot and defaults old JSON safely", async () => {
@@ -484,6 +687,19 @@ test("crawler MySQL fails closed for malformed, unapproved, or overlong persiste
     } as never);
     await assert.rejects(repository.findByRun("workspace-1", "run-1"), expected);
   }
+});
+
+test("crawler MySQL replaces an unknown persisted public error code", async () => {
+  const legacy = {
+    ...scheduledCrawlerJob(),
+    lastErrorCode: "credential=top-secret-mysql-token"
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository({
+    async query() { return [[{ payload_json: JSON.stringify(legacy) }], []]; }
+  } as never);
+  const hydrated = await repository.findByRun("workspace-1", "run-1");
+  assert.equal(hydrated?.lastErrorCode, "crawler_worker_failed");
+  assert.doesNotMatch(hydrated?.lastErrorCode ?? "", /top-secret/u);
 });
 
 test("crawler MySQL hydrates frozen and null activity keywords", async () => {

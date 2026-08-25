@@ -107,9 +107,11 @@ export class AcquisitionCrawlerWorker {
         collectDemandComments: job.collectDemandComments
       }, this.controller.signal);
       if (started.jobId !== job.id) throw new Error("mediacrawler_job_mismatch");
-      await this.repository.updateActivity(fence, {
-        activity: started.activity, now: this.now()
-      });
+      if (!["succeeded", "partial"].includes(started.state)) {
+        await this.repository.updateActivity(fence, {
+          activity: started.activity, now: this.now()
+        });
+      }
       while (true) {
         const persisted = await this.repository.findByRun(job.workspaceId, job.runId);
         if (persisted?.cancelRequestedAt) {
@@ -201,7 +203,7 @@ export class AcquisitionCrawlerWorker {
       }
     } catch (error) {
       if (this.controller.signal.aborted) return true;
-      await this.repository.fail(fence, error instanceof Error ? error.message.slice(0, 100) : "crawler_worker_failed", this.now(), true)
+      await this.repository.fail(fence, "crawler_worker_failed", this.now(), true)
         .catch(() => undefined);
       return true;
     }
@@ -219,27 +221,71 @@ export class AcquisitionCrawlerWorker {
     this.lastWorkspaceId = claim.job.workspaceId;
     this.nextLane = "crawl";
     const ingestedAt = this.now();
+    let renewal: Promise<AcquisitionCrawlerJob> | null = null;
+    let leaseFailure: unknown = null;
+    const renewIngestionLease = () => {
+      if (renewal) return renewal;
+      const pending = this.repository.renewIngestion(
+        claim.fence,
+        this.now(),
+        this.leaseDurationMs
+      );
+      renewal = pending;
+      void pending.then(
+        () => {
+          if (renewal === pending) renewal = null;
+        },
+        (error) => {
+          leaseFailure ??= error;
+          if (renewal === pending) renewal = null;
+        }
+      );
+      return pending;
+    };
+    const ensureCurrentGeneration = async () => {
+      if (leaseFailure) throw leaseFailure;
+      const persisted = await renewIngestionLease();
+      if (leaseFailure) throw leaseFailure;
+      if (persisted.aliasGeneration !== claim.fence.aliasGeneration) {
+        await this.repository.deferIngestionForAliasChange(
+          claim.fence,
+          this.now()
+        );
+        return false;
+      }
+      return true;
+    };
+    const heartbeat = setInterval(() => {
+      if (!leaseFailure) void renewIngestionLease();
+    }, Math.max(1, Math.floor(this.leaseDurationMs / 3)));
+    heartbeat.unref();
     try {
+      if (!await ensureCurrentGeneration()) return true;
       await this.ingestTerminalJob(claim.job);
+      if (!await ensureCurrentGeneration()) return true;
       const acknowledgement = await this.gateway.acknowledgeCrawlJob(
         claim.job.id,
         this.controller.signal
       );
+      if (!await ensureCurrentGeneration()) return true;
       await this.repository.completeIngestion(
         claim.fence,
         ingestedAt,
         acknowledgement.acknowledgedAt,
         this.now()
       );
-    } catch (error) {
+    } catch {
       if (!this.controller.signal.aborted) {
         await this.repository.failIngestion(
           claim.fence,
-          error instanceof Error
-            ? error.message.slice(0, 100) : "crawler_ingestion_failed",
+          "crawler_ingestion_failed",
           this.now()
         ).catch(() => undefined);
       }
+    } finally {
+      clearInterval(heartbeat);
+      const pendingRenewal = renewal as Promise<AcquisitionCrawlerJob> | null;
+      if (pendingRenewal) await pendingRenewal.catch(() => undefined);
     }
     return true;
   }

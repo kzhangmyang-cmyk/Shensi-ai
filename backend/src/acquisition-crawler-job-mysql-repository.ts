@@ -6,7 +6,9 @@ import {
   assertCrawlerActivityObserved,
   assertCrawlerJobInput,
   assertTerminalCrawlerActivity,
+  clearAcquisitionCrawlerIngestionErrorCode,
   defaultAcquisitionCrawlerActivity,
+  normalizeAcquisitionCrawlerStoredErrorCode,
   assertNormalizedDouyinRecord,
   normalizedDouyinContentHash,
   normalizedDouyinLegacyContentHash,
@@ -216,6 +218,7 @@ function applyActivity(
   job.updatedAt = now;
 }
 function hydrate(job: AcquisitionCrawlerJob) {
+  const raw = job as unknown as Record<string, unknown>;
   if (!Array.isArray(job.cursorHistory)) job.cursorHistory = [];
   if (!job.runId || !Array.isArray(job.runIds) || job.runIds.length === 0
     || !job.automationIntentId || !Array.isArray(job.automationIntentIds)
@@ -231,7 +234,20 @@ function hydrate(job: AcquisitionCrawlerJob) {
   job.ingestionFencingToken ??= 0;
   job.ingestedAt ??= null;
   job.acknowledgedAt ??= null;
-  const raw = job as unknown as Record<string, unknown>;
+  job.aliasGeneration ??= Math.max(1, new Set(job.runIds).size);
+  job.projectedAliasGeneration ??= job.ingestionState === "succeeded"
+    ? job.aliasGeneration : 0;
+  if (!Number.isSafeInteger(job.aliasGeneration) || job.aliasGeneration < 1
+    || !Number.isSafeInteger(job.projectedAliasGeneration)
+    || job.projectedAliasGeneration < 0
+    || job.projectedAliasGeneration > job.aliasGeneration) {
+    throw new TypeError("invalid_crawler_alias_generation");
+  }
+  job.lastErrorCode = normalizeAcquisitionCrawlerStoredErrorCode(
+    raw.lastErrorCode,
+    ["running", "failed"].includes(job.ingestionState ?? "")
+      ? "crawler_ingestion_failed" : "crawler_worker_failed"
+  );
   if (!Object.prototype.hasOwnProperty.call(raw, "activity")) {
     job.activity = structuredClone(defaultAcquisitionCrawlerActivity);
   } else {
@@ -292,6 +308,20 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
     await connection.query(`UPDATE acquisition_crawler_jobs SET state=?,lease_worker_id=?,lease_token=?,lease_expires_at=?,fencing_token=?,payload_json=?,updated_at=? WHERE id=?`,
       [job.state, job.leaseWorkerId, job.leaseToken, mysqlDate(job.leaseExpiresAt), job.fencingToken, json(job), mysqlDate(job.updatedAt), job.id]);
   }
+  private async assertAuthoritativeAliasPair(
+    connection: mysql.PoolConnection,
+    input: AcquisitionCrawlerJobInput
+  ) {
+    const binding = rows(await connection.query(
+      `SELECT acquisition_run_id FROM acquisition_douyin_run_bindings
+       WHERE workspace_id=? AND automation_intent_id=?
+         AND BINARY acquisition_run_id=BINARY ? FOR UPDATE`,
+      [input.workspaceId, input.automationIntentId, input.runId]
+    ));
+    if (!binding[0] || String(binding[0].acquisition_run_id) !== input.runId) {
+      throw new Error("crawler_job_identity_conflict");
+    }
+  }
   private async locked(connection: mysql.PoolConnection, fence: AcquisitionCrawlerJobFence, now: string) {
     const result = rows(await connection.query(`SELECT payload_json FROM acquisition_crawler_jobs WHERE id=? FOR UPDATE`, [fence.jobId]));
     const job = result[0] ? parsed<AcquisitionCrawlerJob>(result[0].payload_json) : null;
@@ -319,6 +349,7 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
 
   private createOrGetOnce(input: AcquisitionCrawlerJobInput) {
     return this.transaction(async (connection) => {
+      await this.assertAuthoritativeAliasPair(connection, input);
       const aliases = rows(await connection.query(
         `SELECT job_id FROM acquisition_crawler_job_runs WHERE workspace_id=? AND run_id=? FOR UPDATE`,
         [input.workspaceId, input.runId]
@@ -346,16 +377,27 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
           || job.dailyBudgetId !== input.dailyBudgetId) {
           throw new Error("crawler_job_binding_conflict");
         }
-        if (!job.runIds.includes(input.runId)) job.runIds.push(input.runId);
-        if (!job.automationIntentIds.includes(input.automationIntentId)) {
-          job.automationIntentIds.push(input.automationIntentId);
+        const exactReplay = Boolean(aliases[0] && intentAliases[0])
+          && String(aliases[0].job_id) === job.id
+          && String(intentAliases[0].job_id) === job.id
+          && job.runIds.includes(input.runId)
+          && job.automationIntentIds.includes(input.automationIntentId);
+        if (exactReplay) return { created: false, job };
+        if (aliases[0] || intentAliases[0]
+          || job.runIds.includes(input.runId)
+          || job.automationIntentIds.includes(input.automationIntentId)) {
+          throw new Error("crawler_job_identity_conflict");
         }
-        if (job.ingestionState === "succeeded") {
+        job.runIds.push(input.runId);
+        job.automationIntentIds.push(input.automationIntentId);
+        job.aliasGeneration += 1;
+        job.ingestionAttempt = 0;
+        if (job.ingestionState !== "running"
+          && ["succeeded", "partial"].includes(job.state)) {
           job.ingestionState = "pending";
-          job.ingestedAt = null;
         }
-        await connection.query(`INSERT IGNORE INTO acquisition_crawler_job_runs (workspace_id,run_id,job_id,created_at) VALUES (?,?,?,?)`, [input.workspaceId, input.runId, job.id, mysqlDate(input.createdAt)]);
-        await connection.query(`INSERT IGNORE INTO acquisition_crawler_job_intents (workspace_id,automation_intent_id,job_id,created_at) VALUES (?,?,?,?)`, [input.workspaceId, input.automationIntentId, job.id, mysqlDate(input.createdAt)]);
+        await connection.query(`INSERT INTO acquisition_crawler_job_runs (workspace_id,run_id,job_id,created_at) VALUES (?,?,?,?)`, [input.workspaceId, input.runId, job.id, mysqlDate(input.createdAt)]);
+        await connection.query(`INSERT INTO acquisition_crawler_job_intents (workspace_id,automation_intent_id,job_id,created_at) VALUES (?,?,?,?)`, [input.workspaceId, input.automationIntentId, job.id, mysqlDate(input.createdAt)]);
         await this.save(connection, job); return { created: false, job };
       }
       if (aliases[0] || intentAliases[0]) throw new Error("crawler_job_identity_conflict");
@@ -364,7 +406,8 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
         leaseWorkerId: null, leaseToken: null, leaseExpiresAt: null, fencingToken: 0, updatedAt: input.createdAt, completedAt: null,
         ingestionState: null, ingestionAttempt: 0, ingestionLeaseWorkerId: null,
         ingestionLeaseToken: null, ingestionLeaseExpiresAt: null,
-        ingestionFencingToken: 0, ingestedAt: null, acknowledgedAt: null,
+        ingestionFencingToken: 0, aliasGeneration: 1, projectedAliasGeneration: 0,
+        ingestedAt: null, acknowledgedAt: null,
         activity: structuredClone(defaultAcquisitionCrawlerActivity),
         activityObserved: false };
       await connection.query(`INSERT INTO acquisition_crawler_jobs (id,workspace_id,plan_id,policy_version_id,local_date,state,payload_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
@@ -455,7 +498,10 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
           && !["succeeded", "partial"].includes(input.terminalState))
         || (input.terminalErrorCode !== undefined
           && input.terminalErrorCode !== null
-          && !/^[a-z0-9_]{1,100}$/u.test(input.terminalErrorCode))
+          && (input.terminalErrorCode
+            !== "crawl_interrupted_after_partial_results"))
+        || (input.terminalState === "partial"
+          && input.terminalErrorCode !== "crawl_interrupted_after_partial_results")
         || (input.done && input.terminalState !== "partial"
           && input.terminalErrorCode != null)) {
         throw new TypeError("invalid_crawler_terminal_metadata");
@@ -506,7 +552,10 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
           === "crawler_candidate_budget_exhausted";
         job.state = sidecarPartial || budgetExhausted ? "partial" : "succeeded";
         job.lastErrorCode = sidecarPartial
-          ? input.terminalErrorCode ?? "mediacrawler_partial"
+          ? normalizeAcquisitionCrawlerStoredErrorCode(
+            input.terminalErrorCode,
+            "mediacrawler_partial"
+          )
           : budgetExhausted ? "crawler_candidate_budget_exhausted" : null;
         job.completedAt = input.now;
         if (job.ingestionState !== "succeeded") job.ingestionState = "pending";
@@ -528,8 +577,8 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
     });
   }
   completeCancelled(fence: AcquisitionCrawlerJobFence, now: string) { return this.transaction(async (connection) => { const job = await this.locked(connection, fence, now); if (!job.cancelRequestedAt) throw new Error("crawler_cancel_not_requested"); job.state = "cancelled"; job.updatedAt = now; job.completedAt = now; clearLease(job); await this.save(connection, job); return job; }); }
-  pause(fence: AcquisitionCrawlerJobFence, errorCode: string, now: string) { return this.transaction(async (connection) => { const job = await this.locked(connection, fence, now); job.state = "paused"; job.lastErrorCode = errorCode; job.updatedAt = now; clearLease(job); await this.save(connection, job); return job; }); }
-  fail(fence: AcquisitionCrawlerJobFence, errorCode: string, now: string, retryable: boolean) { return this.transaction(async (connection) => { const job = await this.locked(connection, fence, now); job.lastErrorCode = errorCode; job.updatedAt = now; clearLease(job); if (retryable && job.attempt < job.maxAttempts) job.state = "queued"; else { job.state = retryable ? "paused" : "failed"; job.completedAt = retryable ? null : now; } await this.save(connection, job); return job; }); }
+  pause(fence: AcquisitionCrawlerJobFence, errorCode: string, now: string) { return this.transaction(async (connection) => { const job = await this.locked(connection, fence, now); job.state = "paused"; job.lastErrorCode = normalizeAcquisitionCrawlerStoredErrorCode(errorCode, "crawler_worker_failed"); job.updatedAt = now; clearLease(job); await this.save(connection, job); return job; }); }
+  fail(fence: AcquisitionCrawlerJobFence, errorCode: string, now: string, retryable: boolean) { return this.transaction(async (connection) => { const job = await this.locked(connection, fence, now); job.lastErrorCode = normalizeAcquisitionCrawlerStoredErrorCode(errorCode, "crawler_worker_failed"); job.updatedAt = now; clearLease(job); if (retryable && job.attempt < job.maxAttempts) job.state = "queued"; else { job.state = retryable ? "paused" : "failed"; job.completedAt = retryable ? null : now; } await this.save(connection, job); return job; }); }
   claimNextIngestion(workerId: string, now: string, leaseDurationMs: number, avoidWorkspaceId?: string) {
     if (!workerId || !Number.isSafeInteger(leaseDurationMs) || leaseDurationMs < 1) {
       throw new TypeError("invalid_crawler_ingestion_lease");
@@ -560,7 +609,8 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
           jobId: job.id,
           workerId,
           leaseToken: job.ingestionLeaseToken,
-          fencingToken: job.ingestionFencingToken
+          fencingToken: job.ingestionFencingToken,
+          aliasGeneration: job.aliasGeneration
         }
       };
     });
@@ -580,11 +630,48 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
       || job.ingestionLeaseWorkerId !== fence.workerId
       || job.ingestionLeaseToken !== fence.leaseToken
       || job.ingestionFencingToken !== fence.fencingToken
+      || !Number.isSafeInteger(fence.aliasGeneration)
+      || fence.aliasGeneration < 1
+      || fence.aliasGeneration > job.aliasGeneration
       || !job.ingestionLeaseExpiresAt
       || at(now) >= at(job.ingestionLeaseExpiresAt)) {
       throw new Error("stale_crawler_ingestion_fence");
     }
     return job;
+  }
+  renewIngestion(
+    fence: AcquisitionCrawlerIngestionFence,
+    now: string,
+    leaseDurationMs: number
+  ) {
+    if (!Number.isSafeInteger(leaseDurationMs) || leaseDurationMs < 1) {
+      throw new TypeError("invalid_crawler_ingestion_lease");
+    }
+    return this.transaction(async (connection) => {
+      const job = await this.lockedIngestion(connection, fence, now);
+      job.ingestionLeaseExpiresAt = new Date(
+        at(now) + leaseDurationMs
+      ).toISOString();
+      job.updatedAt = now;
+      await this.save(connection, job);
+      return job;
+    });
+  }
+  deferIngestionForAliasChange(
+    fence: AcquisitionCrawlerIngestionFence,
+    now: string
+  ) {
+    return this.transaction(async (connection) => {
+      const job = await this.lockedIngestion(connection, fence, now);
+      if (job.aliasGeneration === fence.aliasGeneration) {
+        throw new Error("crawler_ingestion_generation_current");
+      }
+      job.ingestionState = "pending";
+      job.updatedAt = now;
+      clearIngestionLease(job);
+      await this.save(connection, job);
+      return job;
+    });
   }
   completeIngestion(
     fence: AcquisitionCrawlerIngestionFence,
@@ -596,9 +683,20 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
       const job = await this.lockedIngestion(connection, fence, now);
       at(ingestedAt);
       at(acknowledgedAt);
+      if (job.aliasGeneration !== fence.aliasGeneration) {
+        job.ingestionState = "pending";
+        job.updatedAt = now;
+        clearIngestionLease(job);
+        await this.save(connection, job);
+        return job;
+      }
       job.ingestionState = "succeeded";
+      job.projectedAliasGeneration = job.aliasGeneration;
       job.ingestedAt = ingestedAt;
       job.acknowledgedAt = acknowledgedAt;
+      job.lastErrorCode = clearAcquisitionCrawlerIngestionErrorCode(
+        job.lastErrorCode
+      );
       job.updatedAt = now;
       clearIngestionLease(job);
       await this.save(connection, job);
@@ -612,9 +710,13 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
   ) {
     return this.transaction(async (connection) => {
       const job = await this.lockedIngestion(connection, fence, now);
-      job.ingestionState = job.ingestionAttempt < job.maxAttempts
+      job.ingestionState = job.aliasGeneration !== fence.aliasGeneration
+        ? "pending" : job.ingestionAttempt < job.maxAttempts
         ? "pending" : "failed";
-      job.lastErrorCode = errorCode.slice(0, 100);
+      job.lastErrorCode = normalizeAcquisitionCrawlerStoredErrorCode(
+        errorCode,
+        "crawler_ingestion_failed"
+      );
       job.updatedAt = now;
       clearIngestionLease(job);
       await this.save(connection, job);

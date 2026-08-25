@@ -20,6 +20,64 @@ export interface AcquisitionCrawlerActivity {
   sequence: number;
 }
 
+export const acquisitionCrawlerStoredErrorCodes = [
+  "crawler_account_binding_changed",
+  "crawler_page_limit_exceeded",
+  "crawler_candidate_budget_exhausted",
+  "crawler_lease_expired",
+  "crawler_ingestion_lease_expired",
+  "crawler_worker_failed",
+  "crawler_ingestion_failed",
+  "mediacrawler_job_paused",
+  "mediacrawler_job_failed",
+  "mediacrawler_partial",
+  "crawl_interrupted_after_partial_results"
+] as const;
+
+export type AcquisitionCrawlerStoredErrorCode =
+  typeof acquisitionCrawlerStoredErrorCodes[number];
+
+const acquisitionCrawlerStoredErrorCodeSet = new Set<string>(
+  acquisitionCrawlerStoredErrorCodes
+);
+
+export function isAcquisitionCrawlerStoredErrorCode(
+  value: unknown
+): value is AcquisitionCrawlerStoredErrorCode {
+  return typeof value === "string"
+    && acquisitionCrawlerStoredErrorCodeSet.has(value);
+}
+
+export function normalizeAcquisitionCrawlerStoredErrorCode(
+  value: unknown,
+  fallback: AcquisitionCrawlerStoredErrorCode | null
+): AcquisitionCrawlerStoredErrorCode | null {
+  if (value === null || value === undefined) return null;
+  return isAcquisitionCrawlerStoredErrorCode(value) ? value : fallback;
+}
+
+export function publicAcquisitionCrawlerErrorCode(
+  value: unknown
+): AcquisitionCrawlerStoredErrorCode | null {
+  const normalized = normalizeAcquisitionCrawlerStoredErrorCode(
+    value,
+    "crawler_worker_failed"
+  );
+  return normalized === "crawl_interrupted_after_partial_results"
+    ? "mediacrawler_partial" : normalized;
+}
+
+export function clearAcquisitionCrawlerIngestionErrorCode(
+  value: unknown
+): AcquisitionCrawlerStoredErrorCode | null {
+  const normalized = normalizeAcquisitionCrawlerStoredErrorCode(
+    value,
+    "crawler_worker_failed"
+  );
+  return normalized === "crawler_ingestion_failed"
+    || normalized === "crawler_ingestion_lease_expired" ? null : normalized;
+}
+
 export const defaultAcquisitionCrawlerActivity: AcquisitionCrawlerActivity = Object.freeze({
   phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0
 });
@@ -90,6 +148,8 @@ export interface AcquisitionCrawlerJob extends AcquisitionCrawlerJobInput {
   ingestionLeaseToken: string | null;
   ingestionLeaseExpiresAt: string | null;
   ingestionFencingToken: number;
+  aliasGeneration: number;
+  projectedAliasGeneration: number;
   ingestedAt: string | null;
   acknowledgedAt: string | null;
   activity: AcquisitionCrawlerActivity;
@@ -113,6 +173,7 @@ export interface AcquisitionCrawlerIngestionFence {
   workerId: string;
   leaseToken: string;
   fencingToken: number;
+  aliasGeneration: number;
 }
 
 export interface AcquisitionCrawlerIngestionClaim {
@@ -300,14 +361,17 @@ export function crawlerStatus(job: AcquisitionCrawlerJob, runId: string): Acquis
       return "ready" as const;
     }
     if (job.ingestionState === "failed") return "failed" as const;
-    return job.ingestionState === "succeeded" ? "ready" as const : "pending" as const;
+    return job.ingestionState === "succeeded"
+      && job.projectedAliasGeneration === job.aliasGeneration
+      ? "ready" as const : "pending" as const;
   })();
   return Object.freeze({
     runId, state: job.state, attempt: job.attempt,
     cursorPersisted: job.cursor !== null, recordCount: job.recordCount,
     candidateBudgetUsed: job.candidateBudgetUsed,
     candidateBudgetLimit: job.dailyCandidateLimit,
-    lastErrorCode: job.lastErrorCode, createdAt: job.createdAt,
+    lastErrorCode: publicAcquisitionCrawlerErrorCode(job.lastErrorCode),
+    createdAt: job.createdAt,
     updatedAt: job.updatedAt, completedAt: job.completedAt,
     candidateProjectionState,
     activity: Object.freeze({
