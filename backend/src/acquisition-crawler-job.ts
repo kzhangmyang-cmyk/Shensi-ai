@@ -12,6 +12,18 @@ export interface AcquisitionCrawlerLimits {
   maxDurationSeconds: number;
 }
 
+export interface AcquisitionCrawlerActivity {
+  phase: "queued" | "starting_browser" | "opening_douyin" | "searching"
+    | "collecting_comments" | "finalizing" | "completed";
+  currentKeyword: string | null;
+  browserMode: "visible" | "headless";
+  sequence: number;
+}
+
+export const defaultAcquisitionCrawlerActivity: AcquisitionCrawlerActivity = Object.freeze({
+  phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0
+});
+
 export interface AcquisitionCrawlerJobInput {
   id: string;
   workspaceId: string;
@@ -80,6 +92,7 @@ export interface AcquisitionCrawlerJob extends AcquisitionCrawlerJobInput {
   ingestionFencingToken: number;
   ingestedAt: string | null;
   acknowledgedAt: string | null;
+  activity: AcquisitionCrawlerActivity;
 }
 
 export interface AcquisitionCrawlerJobFence {
@@ -118,6 +131,7 @@ export interface AcquisitionCrawlerStatus {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  activity: AcquisitionCrawlerActivity;
 }
 
 function validInstant(value: string) {
@@ -161,6 +175,22 @@ export function assertCrawlerJobInput(input: AcquisitionCrawlerJobInput) {
       && !integerBetween(input.maxAttempts, 1, 10))
     || !validInstant(input.createdAt)) {
     throw new TypeError("invalid_crawler_job_input");
+  }
+}
+
+export function assertAcquisitionCrawlerActivity(
+  activity: AcquisitionCrawlerActivity
+) {
+  const keys = ["phase", "currentKeyword", "browserMode", "sequence"];
+  if (!activity || typeof activity !== "object"
+    || Object.keys(activity).some((key) => !keys.includes(key))
+    || !["queued", "starting_browser", "opening_douyin", "searching",
+      "collecting_comments", "finalizing", "completed"].includes(activity.phase)
+    || (activity.currentKeyword !== null
+      && (typeof activity.currentKeyword !== "string" || !activity.currentKeyword))
+    || !["visible", "headless"].includes(activity.browserMode)
+    || !Number.isSafeInteger(activity.sequence) || activity.sequence < 0) {
+    throw new TypeError("invalid_crawler_activity");
   }
 }
 
@@ -235,6 +265,7 @@ export function crawlerStatus(job: AcquisitionCrawlerJob, runId: string): Acquis
     candidateBudgetUsed: job.candidateBudgetUsed,
     candidateBudgetLimit: job.dailyCandidateLimit,
     lastErrorCode: job.lastErrorCode, createdAt: job.createdAt,
-    updatedAt: job.updatedAt, completedAt: job.completedAt
+    updatedAt: job.updatedAt, completedAt: job.completedAt,
+    activity: structuredClone(job.activity)
   });
 }

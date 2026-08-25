@@ -379,6 +379,49 @@ test("crawler MySQL repository updates a job with DATETIME-compatible timestamps
   assert.deepEqual(observed, ["2026-08-24 01:02:04.567"]);
 });
 
+test("crawler MySQL persists a fenced activity snapshot and defaults old JSON safely", async () => {
+  let stored = {
+    ...scheduledCrawlerJob(), state: "running" as const, attempt: 1,
+    leaseWorkerId: "worker-1", leaseToken: "c".repeat(64),
+    leaseExpiresAt: "2026-08-24T01:03:00.000Z", fencingToken: 1
+  };
+  const pool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+        async query(sql: string, values: unknown[] = []) {
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE id=")) {
+            return [[{ payload_json: JSON.stringify(stored) }], []];
+          }
+          if (sql.startsWith("UPDATE acquisition_crawler_jobs")) {
+            stored = JSON.parse(String(values[5]));
+            return [{ affectedRows: 1 }, []];
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        }
+      };
+    },
+    async query() { return [[{ payload_json: JSON.stringify(stored) }], []]; }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+
+  assert.deepEqual((await repository.findByRun("workspace-1", "run-1"))?.activity, {
+    phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0
+  });
+  const updated = await repository.updateActivity({
+    jobId: stored.id, workerId: "worker-1", leaseToken: "c".repeat(64), fencingToken: 1
+  }, {
+    activity: {
+      phase: "searching", currentKeyword: "pump", browserMode: "visible", sequence: 1
+    },
+    now: "2026-08-24T01:02:04.567Z"
+  });
+  assert.equal(updated.activity.browserMode, "visible");
+  assert.equal((stored as typeof stored & {
+    activity?: { sequence: number };
+  }).activity?.sequence, 1);
+});
+
 test("crawler MySQL repository persists pages with DATETIME-compatible timestamps", async () => {
   let stored = {
     ...scheduledCrawlerJob(), state: "running" as const, attempt: 1,

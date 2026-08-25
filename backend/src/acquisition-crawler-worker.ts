@@ -96,7 +96,7 @@ export class AcquisitionCrawlerWorker {
         return true;
       }
       const deadlineAt = new Date(Date.parse(this.now()) + job.limits.maxDurationSeconds * 1_000).toISOString();
-      await this.gateway.startCrawlJob({
+      const started = await this.gateway.startCrawlJob({
         jobId: job.id, accountHandle: account.accountHandle,
         loginStateVersion: job.accountLoginStateVersion, keywords: [...job.keywords],
         maxVideos: job.limits.maxVideos,
@@ -106,6 +106,10 @@ export class AcquisitionCrawlerWorker {
         collectCreators: job.collectCreators,
         collectDemandComments: job.collectDemandComments
       }, this.controller.signal);
+      if (started.jobId !== job.id) throw new Error("mediacrawler_job_mismatch");
+      await this.repository.updateActivity(fence, {
+        activity: started.activity, now: this.now()
+      });
       while (true) {
         const persisted = await this.repository.findByRun(job.workspaceId, job.runId);
         if (persisted?.cancelRequestedAt) {
@@ -115,6 +119,9 @@ export class AcquisitionCrawlerWorker {
         }
         const status = await this.gateway.getCrawlJob(job.id, this.controller.signal);
         if (status.jobId !== job.id) throw new Error("mediacrawler_job_mismatch");
+        await this.repository.updateActivity(fence, {
+          activity: status.activity, now: this.now()
+        });
         if (["failed", "cancelled"].includes(status.state)) {
           if (status.state === "cancelled") {
             await this.repository.requestCancel(job.workspaceId, job.runId, this.now());

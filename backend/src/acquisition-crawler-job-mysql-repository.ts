@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import type mysql from "mysql2/promise";
 import {
+  assertAcquisitionCrawlerActivity,
   assertCrawlerJobInput,
+  defaultAcquisitionCrawlerActivity,
   assertNormalizedDouyinRecord,
   normalizedDouyinContentHash,
   normalizedDouyinLegacyContentHash,
@@ -188,6 +190,7 @@ function hydrate(job: AcquisitionCrawlerJob) {
   job.ingestionFencingToken ??= 0;
   job.ingestedAt ??= null;
   job.acknowledgedAt ??= null;
+  job.activity ??= structuredClone(defaultAcquisitionCrawlerActivity);
   return job;
 }
 function persistedRecord(value: unknown, jobId: string): PersistedNormalizedDouyinRecord {
@@ -305,7 +308,8 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
         leaseWorkerId: null, leaseToken: null, leaseExpiresAt: null, fencingToken: 0, updatedAt: input.createdAt, completedAt: null,
         ingestionState: null, ingestionAttempt: 0, ingestionLeaseWorkerId: null,
         ingestionLeaseToken: null, ingestionLeaseExpiresAt: null,
-        ingestionFencingToken: 0, ingestedAt: null, acknowledgedAt: null };
+        ingestionFencingToken: 0, ingestedAt: null, acknowledgedAt: null,
+        activity: structuredClone(defaultAcquisitionCrawlerActivity) };
       await connection.query(`INSERT INTO acquisition_crawler_jobs (id,workspace_id,plan_id,policy_version_id,local_date,state,payload_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
         [job.id, job.workspaceId, job.planId, job.policyVersionId, job.localDate, job.state, json(job), mysqlDate(job.createdAt), mysqlDate(job.updatedAt)]);
       await connection.query(`INSERT INTO acquisition_crawler_job_runs (workspace_id,run_id,job_id,created_at) VALUES (?,?,?,?)`, [job.workspaceId, job.runId, job.id, mysqlDate(job.createdAt)]);
@@ -362,6 +366,33 @@ export class MysqlAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJ
       throw new TypeError("invalid_crawler_lease");
     }
     return this.transaction(async (connection) => { const job = await this.locked(connection, fence, now); job.leaseExpiresAt = new Date(at(now) + leaseDurationMs).toISOString(); job.updatedAt = now; await this.save(connection, job); return job; });
+  }
+  updateActivity(fence: AcquisitionCrawlerJobFence, input: {
+    activity: import("./acquisition-crawler-job.js").AcquisitionCrawlerActivity;
+    now: string;
+  }) {
+    at(input.now);
+    assertAcquisitionCrawlerActivity(input.activity);
+    return this.transaction(async (connection) => {
+      const job = await this.locked(connection, fence, input.now);
+      if (input.activity.currentKeyword !== null
+        && !job.keywords.includes(input.activity.currentKeyword)) {
+        throw new TypeError("invalid_crawler_activity");
+      }
+      if (input.activity.sequence < job.activity.sequence) {
+        throw new Error("crawler_activity_sequence_regressed");
+      }
+      if (input.activity.sequence === job.activity.sequence) {
+        if (JSON.stringify(input.activity) !== JSON.stringify(job.activity)) {
+          throw new Error("crawler_activity_sequence_conflict");
+        }
+        return job;
+      }
+      job.activity = structuredClone(input.activity);
+      job.updatedAt = input.now;
+      await this.save(connection, job);
+      return job;
+    });
   }
   persistPage(fence: AcquisitionCrawlerJobFence, input: PersistCrawlerPageInput) {
     return this.transaction(async (connection) => {

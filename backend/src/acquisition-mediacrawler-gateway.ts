@@ -20,6 +20,13 @@ const loginSessionResponseSchema = z.object({
   login_state_version: z.number().int().positive().nullable()
 }).strict();
 const crawlJobStateSchema = z.enum(["queued", "running", "succeeded", "partial", "paused", "cancelled", "failed"]);
+const crawlerActivitySchema = z.object({
+  phase: z.enum(["queued", "starting_browser", "opening_douyin", "searching",
+    "collecting_comments", "finalizing", "completed"]),
+  current_keyword: z.string().min(1).nullable(),
+  browser_mode: z.enum(["visible", "headless"]),
+  sequence: z.number().int().nonnegative()
+}).strict();
 const crawlJobResponseSchema = z.object({
   job_id: z.string().min(1), state: crawlJobStateSchema,
   created_at: z.string().datetime(), updated_at: z.string().datetime(),
@@ -27,7 +34,8 @@ const crawlJobResponseSchema = z.object({
   acknowledged_at: z.string().datetime().nullable(),
   record_count: z.number().int().nonnegative(),
   page_count: z.number().int().nonnegative(),
-  failure_code: z.string().regex(/^[a-z0-9_]{1,100}$/u).nullable()
+  failure_code: z.string().regex(/^[a-z0-9_]{1,100}$/u).nullable(),
+  activity: crawlerActivitySchema
 }).strict();
 const crawlJobAcknowledgementSchema = z.object({
   job_id: z.string().min(1),
@@ -116,6 +124,7 @@ export interface DouyinCrawlJob {
   recordCount: number;
   pageCount: number;
   failureCode: string | null;
+  activity: import("./acquisition-crawler-job.js").AcquisitionCrawlerActivity;
 }
 export interface DouyinCrawlJobPage {
   jobId: string; cursor: string | null; nextCursor: string | null; done: boolean;
@@ -277,6 +286,12 @@ export function createDouyinMediaCrawlerGateway(
       recordCount: parsed.data.record_count,
       pageCount: parsed.data.page_count,
       failureCode: parsed.data.failure_code,
+      activity: {
+        phase: parsed.data.activity.phase,
+        currentKeyword: parsed.data.activity.current_keyword,
+        browserMode: parsed.data.activity.browser_mode,
+        sequence: parsed.data.activity.sequence
+      }
     });
   }
 

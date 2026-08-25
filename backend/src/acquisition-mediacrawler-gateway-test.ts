@@ -160,6 +160,9 @@ test("gateway exposes progressive crawl counts and the bounded failure code", as
       record_count: 25,
       page_count: 1,
       failure_code: null,
+      activity: {
+        phase: "queued", current_keyword: null, browser_mode: "headless", sequence: 0
+      }
     }));
   }, async (baseUrl) => {
     const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
@@ -169,8 +172,42 @@ test("gateway exposes progressive crawl counts and the bounded failure code", as
       recordCount: 25,
       pageCount: 1,
       failureCode: null,
+      activity: {
+        phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0
+      }
     });
   });
+});
+
+test("gateway maps strict snake-case sidecar activity and rejects private activity fields", async () => {
+  for (const [extra, accepted] of [[undefined, true], ["private_handle", false]] as const) {
+    await withServer((_request, response) => {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({
+        job_id: "job-live", state: "running",
+        created_at: "2026-08-25T04:00:00.000Z",
+        updated_at: "2026-08-25T04:00:01.000Z",
+        completed_at: null, acknowledged_at: null,
+        record_count: 0, page_count: 0, failure_code: null,
+        activity: {
+          phase: "searching", current_keyword: "袜子",
+          browser_mode: "visible", sequence: 2,
+          ...(extra ? { [extra]: "never expose" } : {})
+        }
+      }));
+    }, async (baseUrl) => {
+      const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+      if (accepted) {
+        assert.deepEqual((await gateway.getCrawlJob("job-live")).activity, {
+          phase: "searching", currentKeyword: "袜子", browserMode: "visible", sequence: 2
+        });
+      } else {
+        await assert.rejects(gateway.getCrawlJob("job-live"), {
+          code: "mediacrawler_invalid_response"
+        });
+      }
+    });
+  }
 });
 
 test("gateway sends the exact frozen action and accepts only a bound sanitized receipt", async () => {

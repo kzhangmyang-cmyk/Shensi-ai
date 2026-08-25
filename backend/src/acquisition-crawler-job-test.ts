@@ -37,6 +37,55 @@ test("jobs persist scheduled before an idempotent enqueue and claim", async () =
   assert.equal((await repository.claimNext("worker-A", at(2), 1_000))?.job.state, "running");
 });
 
+test("fenced activity snapshots advance only for frozen keywords and higher sequences", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input({ keywords: ["袜子", "服装"] }));
+  await repository.enqueue("workspace-1", "run-1", at(0));
+  const claim = await repository.claimNext("worker-A", at(1), 10_000);
+  assert.ok(claim);
+
+  await repository.updateActivity(claim.fence, {
+    activity: {
+      phase: "searching", currentKeyword: "袜子",
+      browserMode: "visible", sequence: 2
+    },
+    now: at(2)
+  });
+  assert.equal(
+    (await repository.findByRun("workspace-1", "run-1"))?.activity.currentKeyword,
+    "袜子"
+  );
+  const idempotent = await repository.updateActivity(claim.fence, {
+    activity: {
+      phase: "searching", currentKeyword: "袜子",
+      browserMode: "visible", sequence: 2
+    },
+    now: at(3)
+  });
+  assert.equal(idempotent.updatedAt, at(2));
+  await assert.rejects(repository.updateActivity(claim.fence, {
+    activity: {
+      phase: "searching", currentKeyword: "服装",
+      browserMode: "visible", sequence: 1
+    },
+    now: at(4)
+  }), /crawler_activity_sequence_regressed/u);
+  await assert.rejects(repository.updateActivity(claim.fence, {
+    activity: {
+      phase: "searching", currentKeyword: "服装",
+      browserMode: "visible", sequence: 2
+    },
+    now: at(4)
+  }), /crawler_activity_sequence_conflict/u);
+  await assert.rejects(repository.updateActivity(claim.fence, {
+    activity: {
+      phase: "searching", currentKeyword: "鞋子",
+      browserMode: "visible", sequence: 3
+    },
+    now: at(4)
+  }), /invalid_crawler_activity/u);
+});
+
 test("daily scheduled and run-now creation deduplicates to one budget and maps both runs", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   const scheduled = await repository.createOrGet(input());

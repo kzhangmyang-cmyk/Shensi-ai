@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import {
+  assertAcquisitionCrawlerActivity,
   assertCrawlerJobInput,
+  defaultAcquisitionCrawlerActivity,
   assertNormalizedDouyinRecord,
   type AcquisitionCrawlerJob,
   type AcquisitionCrawlerJobClaim,
@@ -29,6 +31,10 @@ export interface AcquisitionCrawlerJobRepository {
   claimNext(workerId: string, now: string, leaseDurationMs: number, avoidWorkspaceId?: string): Promise<AcquisitionCrawlerJobClaim | null>;
   renew(fence: AcquisitionCrawlerJobFence, now: string, leaseDurationMs: number): Promise<AcquisitionCrawlerJob>;
   persistPage(fence: AcquisitionCrawlerJobFence, input: PersistCrawlerPageInput): Promise<AcquisitionCrawlerJob>;
+  updateActivity(fence: AcquisitionCrawlerJobFence, input: {
+    activity: import("./acquisition-crawler-job.js").AcquisitionCrawlerActivity;
+    now: string;
+  }): Promise<AcquisitionCrawlerJob>;
   listRecords(jobId: string): Promise<PersistedNormalizedDouyinRecord[]>;
   requestCancel(workspaceId: string, runId: string, now: string): Promise<AcquisitionCrawlerJob | null>;
   completeCancelled(fence: AcquisitionCrawlerJobFence, now: string): Promise<AcquisitionCrawlerJob>;
@@ -141,7 +147,8 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
         completedAt: null, ingestionState: null, ingestionAttempt: 0,
         ingestionLeaseWorkerId: null, ingestionLeaseToken: null,
         ingestionLeaseExpiresAt: null, ingestionFencingToken: 0,
-        ingestedAt: null, acknowledgedAt: null
+        ingestedAt: null, acknowledgedAt: null,
+        activity: structuredClone(defaultAcquisitionCrawlerActivity)
       };
       state.jobs.set(job.id, job); state.daily.set(identity, job.id);
       state.runs.set(runKey(job.workspaceId, job.runId), job.id);
@@ -211,6 +218,33 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
       const job = this.fenced(state, fence, now);
       job.leaseExpiresAt = new Date(milliseconds(now) + leaseDurationMs).toISOString();
       job.updatedAt = now; return job;
+    });
+  }
+
+  updateActivity(fence: AcquisitionCrawlerJobFence, input: {
+    activity: import("./acquisition-crawler-job.js").AcquisitionCrawlerActivity;
+    now: string;
+  }) {
+    milliseconds(input.now);
+    assertAcquisitionCrawlerActivity(input.activity);
+    return this.transaction((state) => {
+      const job = this.fenced(state, fence, input.now);
+      if (input.activity.currentKeyword !== null
+        && !job.keywords.includes(input.activity.currentKeyword)) {
+        throw new TypeError("invalid_crawler_activity");
+      }
+      if (input.activity.sequence < job.activity.sequence) {
+        throw new Error("crawler_activity_sequence_regressed");
+      }
+      if (input.activity.sequence === job.activity.sequence) {
+        if (JSON.stringify(input.activity) !== JSON.stringify(job.activity)) {
+          throw new Error("crawler_activity_sequence_conflict");
+        }
+        return job;
+      }
+      job.activity = structuredClone(input.activity);
+      job.updatedAt = input.now;
+      return job;
     });
   }
 
