@@ -115,6 +115,19 @@ is safe to replay after a crash. Unknown, legacy, or exception-derived crawler
 failures are normalized to closed stable stored/public codes; raw error and
 credential text never enters the projection.
 
+The backend and Shensi sidecar adapter form one private versioned runtime
+boundary even though the route prefix remains `/internal/v1`. Before issuing a
+create request, the worker reads the deterministic sidecar job ID and adopts a
+matching existing job. This read-before-create rule lets restart recovery reuse
+published pages without repeating an external crawl. For compatibility with
+already persisted legacy results, only a terminal `succeeded` or `partial`
+descriptor may omit activity; the gateway closes that absence to `completed`, a
+null keyword, `headless`, and sequence `1`. Missing activity on `queued`,
+`running`, `paused`, `cancelled`, or `failed` remains an invalid response.
+Sidecar health proves liveness and pinned upstream provenance, not
+adapter/gateway protocol compatibility, so the two processes are deployed and
+restarted from the same source revision.
+
 Every runner invocation creates a random owner-only `0700` attempt directory
 below its job output root and confines its request, activity, and JSONL reads to
 that directory. A resumed manager seeds its record de-duplication set from IDs
@@ -122,9 +135,12 @@ in already persisted pages, so neither stale attempt files nor repeated upstream
 records can be republished. The same sweep removes the entire job output root,
 including every attempt and private upstream capture. Backend retention removes
 only unlinked evidence 90 days after ingestion, leaving candidate-linked
-evidence, one-way DNC identity, and audit authority intact. Restarts resume from
-Node cursors and ingestion leases; a late authoritative run/intent pair replays
-only this projection, not the crawl. Fair lane alternation and cross-workspace
+evidence, one-way DNC identity, and audit authority intact. Restarts recover
+expired running crawl leases and ingestion leases from Node cursors. A crawler
+job that is already `paused` after exhausting its retry budget is not an
+automatic restart candidate; only an audited, job-scoped explicit requeue may
+make it claimable again. A late authoritative run/intent pair replays only this
+projection, not the crawl. Fair lane alternation and cross-workspace
 claim preference keep queued crawl work from starving ingestion or another
 tenant. Browser routes never proxy live sidecar state. The manager publishes
 `starting_browser` before consuming the runner and `opening_douyin` only after a
@@ -136,6 +152,11 @@ crawl-lease release in the same transaction, so no durable running job can
 advertise a final page. A paused sidecar status retains the last safe nonterminal
 activity, releases its fence through retryable requeue, and is resumed by a later
 claim rather than held in an endless poll/renew loop.
+
+MySQL `DATETIME(3)` parameters at this boundary are derived from the same UTC
+instant and bound in the database driver's timezone-free date-time form. SQL
+comparisons and lease/retention timestamps therefore do not mix ISO timezone
+suffixes with MySQL date-time values.
 
 The local visible tab is a separate best-effort observation mirror for the
 approved keyword and public video, not a collection authority. It is created

@@ -35,8 +35,12 @@ const crawlJobResponseSchema = z.object({
   record_count: z.number().int().nonnegative(),
   page_count: z.number().int().nonnegative(),
   failure_code: z.string().regex(/^[a-z0-9_]{1,100}$/u).nullable(),
-  activity: crawlerActivitySchema
-}).strict();
+  activity: crawlerActivitySchema.optional()
+}).strict().superRefine((value, context) => {
+  if (!value.activity && !["succeeded", "partial"].includes(value.state)) {
+    context.addIssue({ code: "custom", message: "missing_live_crawler_activity" });
+  }
+});
 const crawlJobAcknowledgementSchema = z.object({
   job_id: z.string().min(1),
   acknowledged_at: z.string().datetime()
@@ -102,6 +106,7 @@ export interface DouyinMediaCrawlerGateway {
   getLoginSession(sessionId: string, signal?: AbortSignal): Promise<DouyinLoginSession>;
   disconnectLoginSession(sessionId: string, signal?: AbortSignal): Promise<void>;
   startCrawlJob(input: DouyinCrawlJobInput, signal?: AbortSignal): Promise<DouyinCrawlJob>;
+  findCrawlJob(jobId: string, signal?: AbortSignal): Promise<DouyinCrawlJob | null>;
   getCrawlJob(jobId: string, signal?: AbortSignal): Promise<DouyinCrawlJob>;
   getCrawlResults(jobId: string, cursor: string | null, signal?: AbortSignal): Promise<DouyinCrawlJobPage>;
   acknowledgeCrawlJob(jobId: string, signal?: AbortSignal): Promise<Readonly<{
@@ -263,13 +268,15 @@ export function createDouyinMediaCrawlerGateway(
     } finally { request.dispose(); }
   }
 
-  async function jsonRequest(method: "GET" | "POST", path: string, body: unknown, signal?: AbortSignal) {
+  async function jsonRequest(method: "GET" | "POST", path: string, body: unknown,
+                             signal?: AbortSignal, allowNotFound = false) {
     const request = requestAbortSignal(signal, timeoutMs);
     try {
       const response = await fetchImpl(new URL(path, baseUrl), {
         method, headers: { authorization: `Bearer ${serviceSecret}`, ...(body ? { "content-type": "application/json" } : {}) },
         body: body ? JSON.stringify(body) : undefined, signal: request.signal
       });
+      if (allowNotFound && response.status === 404) return null;
       if (!response.ok) throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
       try { return JSON.parse(await responseText(response)) as unknown; }
       catch (error) { if (error instanceof MediaCrawlerGatewayError) throw error; throw new MediaCrawlerGatewayError("mediacrawler_invalid_response"); }
@@ -280,6 +287,12 @@ export function createDouyinMediaCrawlerGateway(
   function crawlJob(value: unknown): DouyinCrawlJob {
     const parsed = crawlJobResponseSchema.safeParse(value);
     if (!parsed.success) throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
+    const activity = parsed.data.activity ?? {
+      phase: "completed" as const,
+      current_keyword: null,
+      browser_mode: "headless" as const,
+      sequence: 1
+    };
     return Object.freeze({
       jobId: parsed.data.job_id,
       state: parsed.data.state,
@@ -287,10 +300,10 @@ export function createDouyinMediaCrawlerGateway(
       pageCount: parsed.data.page_count,
       failureCode: parsed.data.failure_code,
       activity: {
-        phase: parsed.data.activity.phase,
-        currentKeyword: parsed.data.activity.current_keyword,
-        browserMode: parsed.data.activity.browser_mode,
-        sequence: parsed.data.activity.sequence
+        phase: activity.phase,
+        currentKeyword: activity.current_keyword,
+        browserMode: activity.browser_mode,
+        sequence: activity.sequence
       }
     });
   }
@@ -319,6 +332,16 @@ export function createDouyinMediaCrawlerGateway(
         collect_demand_comments: input.collectDemandComments,
         deadline_at: input.deadlineAt
       }, signal));
+    },
+    async findCrawlJob(jobId: string, signal?: AbortSignal) {
+      const value = await jsonRequest(
+        "GET",
+        `/internal/v1/douyin/crawl-jobs/${encodeURIComponent(jobId)}`,
+        null,
+        signal,
+        true
+      );
+      return value === null ? null : crawlJob(value);
     },
     async getCrawlJob(jobId: string, signal?: AbortSignal) {
       return crawlJob(await jsonRequest("GET", `/internal/v1/douyin/crawl-jobs/${encodeURIComponent(jobId)}`, null, signal));

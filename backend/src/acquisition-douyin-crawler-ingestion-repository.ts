@@ -155,6 +155,13 @@ function iso(value: unknown) {
   if (value instanceof Date) return value.toISOString();
   return new Date(String(value)).toISOString();
 }
+function mysqlDate(value: string) {
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) {
+    throw new TypeError("invalid_douyin_ingestion_instant");
+  }
+  return parsed.toISOString().slice(0, 23).replace("T", " ");
+}
 function candidateView(candidate: AcquisitionCandidate): DouyinCrawlerCandidate {
   if (candidate.profile.kind !== "individual") {
     throw new Error("douyin_candidate_identity_corrupt");
@@ -741,7 +748,7 @@ extends AuthoritativeDouyinCrawlerIngestionRepository {
        INNER JOIN acquisition_discovery_evidence e ON e.id=i.evidence_id
        WHERE i.candidate_id IS NULL AND i.retain_until<=?
        ORDER BY i.workspace_id LIMIT ?`,
-      [now, limit]
+      [mysqlDate(now), limit]
     );
     let deleted = 0;
     for (const row of rows as Record<string, unknown>[]) {
@@ -818,8 +825,9 @@ extends AuthoritativeDouyinCrawlerIngestionRepository {
         source_url,observed_at,candidate_id,retain_until,created_at)
        VALUES (?,?,?,?,?,?,?,?,?,?)`,
       [value.workspaceId, value.contentHash, value.platformRecordId,
-        value.evidenceId, value.jobId, value.sourceUrl, value.observedAt,
-        value.candidateId, value.retainUntil, value.createdAt]
+        value.evidenceId, value.jobId, value.sourceUrl,
+        mysqlDate(value.observedAt), value.candidateId,
+        mysqlDate(value.retainUntil), mysqlDate(value.createdAt)]
     );
   }
   protected async updateIndexCandidate(workspaceId: string, evidenceId: string, candidateId: string) {
@@ -844,7 +852,7 @@ extends AuthoritativeDouyinCrawlerIngestionRepository {
        VALUES (?,?,?,?,?) AS incoming
        ON DUPLICATE KEY UPDATE reason=incoming.reason,
          last_observed_at=incoming.last_observed_at`,
-      [workspaceId, identityHash, reason, now, now]
+      [workspaceId, identityHash, reason, mysqlDate(now), mysqlDate(now)]
     );
   }
   protected async findExpiredUnlinkedIndexes(
@@ -856,7 +864,7 @@ extends AuthoritativeDouyinCrawlerIngestionRepository {
       `SELECT * FROM acquisition_douyin_crawler_evidence_index
        WHERE workspace_id=? AND candidate_id IS NULL AND retain_until<=?
        ORDER BY retain_until,evidence_id LIMIT ? FOR UPDATE SKIP LOCKED`,
-      [workspaceId, now, limit]
+      [workspaceId, mysqlDate(now), limit]
     );
     return (rows as Record<string, unknown>[])
       .map((row) => this.index(row))

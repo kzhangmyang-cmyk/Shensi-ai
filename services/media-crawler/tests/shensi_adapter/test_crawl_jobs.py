@@ -1037,6 +1037,45 @@ def test_manager_deduplicates_persisted_page_record_ids_after_paused_restart(tmp
         manager.close()
 
 
+def test_manager_maps_legacy_terminal_metadata_without_activity_to_completed(
+    tmp_path,
+):
+    job_id = "legacy-terminal"
+    request_value = request(job_id)
+    directory = tmp_path / "crawl-jobs" / job_id
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({
+        "request": request_value.model_dump(mode="json"),
+        "created_at": NOW.isoformat(),
+        "updated_at": NOW.isoformat(),
+        "completed_at": NOW.isoformat(),
+        "acknowledged_at": None,
+        "state": "partial",
+        "record_count": 305,
+        "pages": [],
+        "failure_code": "crawl_interrupted_after_partial_results",
+    }), encoding="utf-8")
+
+    manager = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=lambda *_: [],
+        now=lambda: NOW,
+    )
+    try:
+        terminal = manager.get(job_id)
+        assert terminal.state == "partial"
+        assert terminal.record_count == 305
+        assert terminal.activity == CrawlActivity(
+            phase="completed",
+            current_keyword=None,
+            browser_mode="headless",
+            sequence=1,
+        )
+    finally:
+        manager.close()
+
+
 def test_media_crawler_runner_streams_completed_jsonl_rows_before_process_exit(
     tmp_path, monkeypatch,
 ):

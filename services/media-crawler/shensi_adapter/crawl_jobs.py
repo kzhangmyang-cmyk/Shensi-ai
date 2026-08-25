@@ -474,6 +474,7 @@ class CrawlJobManager:
 
     @staticmethod
     def _view(job: dict) -> CrawlJobView:
+        legacy_terminal = job["state"] in {"succeeded", "partial"}
         return CrawlJobView(job_id=job["request"]["job_id"], state=job["state"],
                             created_at=job["created_at"], updated_at=job["updated_at"],
                             completed_at=job.get("completed_at"),
@@ -483,8 +484,10 @@ class CrawlJobManager:
                             failure_code=job.get("failure_code"),
                             activity=CrawlActivity.model_validate(
                                 job.get("activity", {
-                                    "phase": "queued", "current_keyword": None,
-                                    "browser_mode": "headless", "sequence": 0,
+                                    "phase": "completed" if legacy_terminal else "queued",
+                                    "current_keyword": None,
+                                    "browser_mode": "headless",
+                                    "sequence": 1 if legacy_terminal else 0,
                                 })
                             ))
 

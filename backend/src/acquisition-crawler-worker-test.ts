@@ -71,6 +71,54 @@ test("worker resumes from persisted cursor and never acknowledges sidecar pages"
   await worker.close();
 });
 
+test("worker adopts a persisted terminal sidecar job without starting a new crawl", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(job);
+  await repository.enqueue("workspace-1", "run-1", now);
+  let starts = 0;
+  const terminal = {
+    jobId: "crawler-1",
+    state: "partial" as const,
+    recordCount: 305,
+    pageCount: 1,
+    failureCode: "crawl_interrupted_after_partial_results",
+    activity: completedActivity
+  };
+  const worker = new AcquisitionCrawlerWorker({
+    repository,
+    gateway: {
+      async findCrawlJob() { return terminal; },
+      async startCrawlJob() {
+        starts += 1;
+        throw new Error("new crawl must not start");
+      },
+      async getCrawlJob() { return terminal; },
+      async getCrawlResults() {
+        return {
+          jobId: "crawler-1",
+          cursor: null,
+          nextCursor: null,
+          done: true,
+          records: []
+        };
+      },
+      async cancelCrawlJob() { throw new Error("not expected"); }
+    },
+    accounts: { async findById() { return {
+      id: "account-1", workspaceId: "workspace-1", platform: "douyin" as const,
+      accountHandle: "private-handle", state: "active" as const,
+      loginStateVersion: 2
+    }; } },
+    workerId: "worker-adopt-terminal",
+    now: () => now
+  });
+
+  assert.equal(await worker.runOnce(), true);
+  assert.equal(starts, 0);
+  assert.equal((await repository.findByRun("workspace-1", "run-1"))?.state, "partial");
+  await worker.close();
+});
+
 test("worker persists validated sidecar activity before a zero-page poll", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   await repository.createOrGet({ ...job, keywords: ["袜子"] });

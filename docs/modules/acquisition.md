@@ -106,6 +106,19 @@ and releases the job back to pending. A paused sidecar status records its last
 safe activity, releases the crawl fence through retryable requeue, and resumes
 on a later claim instead of polling and renewing forever. Crawler and ingestion
 claims alternate under load and prefer another workspace when one is ready.
+
+The worker performs a read-before-create lookup for the deterministic sidecar
+job ID. A matching existing job is adopted, so restart recovery consumes its
+retained pages instead of repeating the external crawl. The private gateway has
+one narrow legacy compatibility rule: an activity-less `succeeded` or `partial`
+descriptor is closed to `completed`, a null keyword, `headless`, and sequence
+`1`. Live descriptors remain strict and must carry valid activity. Backend and
+sidecar therefore move as one protocol unit; service health proves liveness,
+not schema compatibility. Exhausting the backend retry budget leaves a crawler
+job `paused`, and neither process restart nor lease sweeping requeues it. Only
+an audited, workspace/job-scoped explicit requeue after compatibility validation
+may resume that job.
+
 Terminal jobs have a second random generation-bound ingestion claim. Its
 transaction writes
 `acquisition_discovery_evidence`, `acquisition_candidates`, candidate identity
@@ -389,6 +402,18 @@ Failed/cancelled terminal metadata with no result pages may be removed 24 hours
 after completion. Backend cleanup
 removes unlinked crawler evidence 90 days after ingestion while preserving
 linked evidence, DNC identity hashes, and audit events.
+
+For an incompatible backend/sidecar runtime, treat `crawler_worker_failed` as a
+closed boundary failure rather than evidence that no records were collected.
+Stop new dispatch, preserve the encrypted sidecar state and unacknowledged
+pages, restart both processes from one revision, and use a sanitized read-only
+job/status check. If the Node job is paused at its attempt limit, use only the
+reviewed explicit requeue path. The worker must adopt the existing sidecar job,
+project retained records, and perform the normal acknowledgement; do not delete
+the job, manually acknowledge it, reset unrelated data, or create a new run to
+force another crawl. Logs and reports include bounded counts and stable codes,
+never raw collected text, account handles, credentials, browser profiles, or
+private paths.
 
 ## Known Limitations
 

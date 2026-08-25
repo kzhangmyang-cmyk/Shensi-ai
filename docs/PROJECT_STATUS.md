@@ -125,6 +125,16 @@ ledger.
   and public projection normalize unknown, legacy, or raw worker failures to a
   closed stable code; credential-bearing exception text is never stored or
   returned.
+- The backend and Shensi sidecar adapter are operated as one private protocol
+  unit. The crawler worker reads and adopts an existing deterministic sidecar
+  job before considering create, so retained pages are projected without a
+  repeated external crawl. Legacy compatibility is limited to terminal
+  `succeeded`/`partial` descriptors without activity, which become the closed
+  `completed` / `headless` / sequence `1` observation; live descriptors remain
+  strict. Health proves liveness, not gateway/adapter schema compatibility.
+  Backend jobs paused at their attempt limit require an audited explicit
+  requeue and are not silently recovered by restart. MySQL `DATETIME(3)` values
+  in this lifecycle use one UTC-derived, timezone-free driver binding format.
 - Douyin keyword suggestions now derive business and ICP context, workspace,
   and the active official model snapshot on the server. Draft generation is a
   private application-composed boundary backed by the real domain and DNC
@@ -230,8 +240,10 @@ ledger.
   pre-existing encrypted-state bind, and has bounded resources, health and
   shutdown behavior. Development, deployment and verification wrappers fail
   closed on missing prerequisites or a publicly routed sidecar.
-- Focused deterministic evidence for the current observation, projection, and
-  dashboard behavior is recorded in the task reports. At code HEAD `72bb512`,
+- Focused deterministic evidence for the observation, projection, and dashboard
+  behavior is recorded in the task reports. The latest aggregate evidence
+  preceding the runtime-compatibility recovery changes is at code commit
+  `72bb512`:
   `./scripts/context-check` returned `SHENSI_CONTEXT_OK`, all 71 sidecar adapter
   tests passed, `pnpm test` passed 94 contract tests plus the backend, frontend,
   and Baota suites, `pnpm check:acquisition-contracts` passed 19 drift checks,
@@ -253,6 +265,17 @@ ledger.
   interstitial, so local startup explicitly supports visible Chrome and gives
   cold QR creation a separate bounded deadline. No crawl, comment, direct
   message, or other external action was triggered during that login check.
+- A later authorized real-local crawl exposed a mixed-version private runtime:
+  the older sidecar returned a terminal `partial` descriptor without activity,
+  while the backend interpreted the missing live-required field as a protocol
+  failure and exhausted its retry budget. The retained terminal job contained
+  305 normalized records across 13 pages. A controlled ingestion-only recovery
+  adopted that existing job without another crawl, persisted 64 records under
+  the frozen policy and daily candidate limit (14 videos plus 50 candidate-
+  eligible records), projected 13 final candidates, and completed the normal
+  sidecar acknowledgement. The authoritative run remains truthfully `partial`.
+  No comment or direct message was approved or sent during collection or
+  recovery.
 - Dedicated-account external action acceptance is not performed. No CAPTCHA
   was handled, production traffic changed, or real comment/direct message sent.
   It remains a separately authorized operator checkpoint after the exact

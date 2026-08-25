@@ -141,6 +141,18 @@ prevents a pair added during acknowledgement from making stale work ready.
 Worker and repository failures store only stable codes; raw exception or
 credential-bearing text is not persisted or returned publicly.
 
+The backend gateway and Shensi sidecar adapter are one private protocol unit.
+Deploy and restart them from the same source revision; do not upgrade or
+hot-reload only the backend while leaving an older sidecar process attached.
+Before a create call, the worker reads the deterministic sidecar job ID and
+adopts a matching existing job, including a terminal job with retained pages,
+instead of starting a duplicate crawl. For already persisted compatibility
+only, a `succeeded` or `partial` descriptor may omit activity; Node synthesizes
+the closed terminal observation `completed` / `headless` / sequence `1`. Every
+live descriptor still requires a valid activity object. The authenticated
+health endpoint proves process liveness and pinned upstream provenance, not
+adapter/gateway schema compatibility.
+
 The persisted acknowledgement starts a 24-hour cleanup clock and is idempotent
 across restarts. That sweep removes the complete job output root, including
 normalized pages, all attempt directories, and the bounded private upstream
@@ -148,6 +160,17 @@ actor capture; it never treats upstream's anonymous `creator_hash` as a public
 profile identity. Do not add an external cleanup that deletes unacknowledged
 result pages. Backend cleanup removes only unlinked crawler evidence after 90
 days; DNC and audit authority are not TTL data.
+
+If an incompatible runtime leaves a Node crawler job `paused`, preserve the
+encrypted state volume and every unacknowledged page. Stop new crawl dispatch,
+restart backend and sidecar from the same revision, and verify the existing job
+through a read-only protocol path. A job that has exhausted `maxAttempts` is not
+made claimable by process restart or lease sweeping; it requires an audited,
+workspace/job-scoped explicit requeue. The worker then adopts the existing
+sidecar job, ingests its retained pages, commits candidate projection, and sends
+the normal acknowledgement. Never recover by deleting the sidecar job,
+acknowledging it manually, resetting the whole database, or creating a
+replacement run that repeats the external crawl.
 
 The same configured gateway enables the backend-owned outreach-action worker
 and expired-claim sweeper. The sidecar action endpoint is private and must use
@@ -279,6 +302,12 @@ The gateway health endpoint is `/healthz`; the backend container healthcheck
 calls `/api/health`; MySQL is healthy after `mysqladmin ping` succeeds. View
 service logs without exposing configuration values:
 
+These liveness checks do not establish backend/sidecar protocol compatibility.
+An upgrade is accepted only when both images were built from the same approved
+revision and a bounded authenticated read of the private sidecar contract is
+accepted by that revision's backend gateway. Do not print its bearer secret or
+raw crawl records while performing the check.
+
 Before deployment, the wrapper checks the host bind address `0.0.0.0`. It
 allows that port to be held by the running gateway from this exact Compose
 project for a redeploy, but rejects other owners. If `up -d` completes and the
@@ -313,13 +342,15 @@ docker compose -f deploy/compose.yaml --env-file .env.production.local exec -T m
   > backups/shensi-before-upgrade.sql
 ```
 
-After the backup, build and start the new images with the deploy command above,
-then check gateway, backend, and MySQL health before accepting the upgrade.
-For rollback, stop the new containers without removing `shensi_mysql`, return
-to the previously approved repository/image revision, and run `up -d` with the
-same production configuration. Restore a database backup only under the
-separate approved restore/migration procedure; source databases remain
-read-only migration inputs.
+After the backup, build and start all images with the deploy command above, then
+check gateway, backend, MySQL, and the bounded private backend/sidecar contract
+before accepting the upgrade. Backend and sidecar must move together even when
+only one side's source appears to have changed. For rollback, stop the new
+containers without removing `shensi_mysql`, return both backend and sidecar to
+the previously approved repository/image revision, and run `up -d` with the same
+production configuration. Restore a database backup only under the separate
+approved restore/migration procedure; source databases remain read-only
+migration inputs.
 
 ## Local and Baota entry points
 
@@ -349,9 +380,14 @@ pnpm setup:mysql:local
 pnpm dev:real
 ```
 
+These focused commands do not start or reload MediaCrawler. They must not be
+combined with an independently running sidecar of unknown revision for an
+integrated acquisition check. Python adapter or private gateway changes require
+stopping the complete local process tree and restarting `./scripts/dev`.
+
 `pnpm dev:real` uses the ignored `.env.real.local`, MySQL on `127.0.0.1:3307`,
 database `shensi_sales`, API port `4188`, and Vite port `5188`. It is not the
-production Compose procedure.
+production Compose procedure and starts only backend plus frontend.
 
 `deploy/baota/` remains the existing Linux/Baota package path. Its upgrade
 mode uses `REUSE_EXISTING_DATABASE=true`; `REPLACE_DATABASE=true` is a

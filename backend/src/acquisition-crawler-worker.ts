@@ -6,7 +6,7 @@ import type { AcquisitionSocialAccountPrivateRecord } from "./acquisition-social
 export interface AcquisitionCrawlerWorkerOptions {
   repository: AcquisitionCrawlerJobRepository;
   gateway: Pick<DouyinMediaCrawlerGateway, "startCrawlJob" | "getCrawlJob" | "getCrawlResults" | "cancelCrawlJob">
-    & Partial<Pick<DouyinMediaCrawlerGateway, "acknowledgeCrawlJob">>;
+    & Partial<Pick<DouyinMediaCrawlerGateway, "acknowledgeCrawlJob" | "findCrawlJob">>;
   accounts: { findById(workspaceId: string, accountId: string): Promise<Partial<AcquisitionSocialAccountPrivateRecord> | null> };
   workerId: string;
   now?: () => string;
@@ -96,16 +96,21 @@ export class AcquisitionCrawlerWorker {
         return true;
       }
       const deadlineAt = new Date(Date.parse(this.now()) + job.limits.maxDurationSeconds * 1_000).toISOString();
-      const started = await this.gateway.startCrawlJob({
-        jobId: job.id, accountHandle: account.accountHandle,
-        loginStateVersion: job.accountLoginStateVersion, keywords: [...job.keywords],
-        maxVideos: job.limits.maxVideos,
-        maxCommentsPerVideo: job.limits.maxCommentsPerVideo,
-        maxPagesPerVideo: job.limits.maxPagesPerVideo,
-        deadlineAt,
-        collectCreators: job.collectCreators,
-        collectDemandComments: job.collectDemandComments
-      }, this.controller.signal);
+      const existing = await this.gateway.findCrawlJob?.(
+        job.id,
+        this.controller.signal
+      );
+      const started = existing ?? await this.gateway.startCrawlJob({
+          jobId: job.id, accountHandle: account.accountHandle,
+          loginStateVersion: job.accountLoginStateVersion,
+          keywords: [...job.keywords],
+          maxVideos: job.limits.maxVideos,
+          maxCommentsPerVideo: job.limits.maxCommentsPerVideo,
+          maxPagesPerVideo: job.limits.maxPagesPerVideo,
+          deadlineAt,
+          collectCreators: job.collectCreators,
+          collectDemandComments: job.collectDemandComments
+        }, this.controller.signal);
       if (started.jobId !== job.id) throw new Error("mediacrawler_job_mismatch");
       if (!["succeeded", "partial"].includes(started.state)) {
         await this.repository.updateActivity(fence, {

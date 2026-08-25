@@ -2571,18 +2571,35 @@ export async function createAcquisitionApplication(
         if (!resolved || resolved.workspaceId !== job.workspaceId) {
           throw new Error("crawler_ingestion_workspace_binding_changed");
         }
-        await ingestDouyinCrawlerPage({
-          crawlerJobs,
-          repository: crawlerIngestion,
-          workspaceId: job.workspaceId,
-          runId: job.runId,
-          scope: {
-            ownerId: run.ownerId,
-            teamId: run.teamId,
-            actorId: crawlerWorkerId
-          },
-          now
-        });
+        try {
+          await ingestDouyinCrawlerPage({
+            crawlerJobs,
+            repository: crawlerIngestion,
+            workspaceId: job.workspaceId,
+            runId: job.runId,
+            scope: {
+              ownerId: run.ownerId,
+              teamId: run.teamId,
+              actorId: crawlerWorkerId
+            },
+            now
+          });
+        } catch (error) {
+          const candidate = error as { code?: unknown; message?: unknown };
+          const databaseCode = typeof candidate?.code === "string"
+            && /^ER_[A-Z_]{1,80}$/u.test(candidate.code)
+            ? candidate.code : null;
+          const internalCode = typeof candidate?.message === "string"
+            && /^[a-z][a-z0-9_]{1,100}$/u.test(candidate.message)
+            ? candidate.message : null;
+          console.error(JSON.stringify({
+            event: "acquisition_crawler_ingestion_failed",
+            jobId: job.id,
+            databaseCode,
+            internalCode
+          }));
+          throw error;
+        }
       };
       crawlerWorker = new AcquisitionCrawlerWorker({
         repository: crawlerJobs,

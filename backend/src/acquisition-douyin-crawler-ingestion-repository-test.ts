@@ -485,6 +485,70 @@ test("MySQL ingestion schema aligns evidence ids before adding the authority for
   assert.ok(addForeignKey > align);
 });
 
+test("MySQL crawler ingestion converts ISO instants before DATETIME writes", async () => {
+  const calls: Array<{ sql: string; values: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, values: unknown[] = []) {
+      calls.push({ sql, values });
+      return [[], []];
+    }
+  };
+  const repository = new MysqlAcquisitionDouyinCrawlerIngestionRepository(
+    pool as never,
+    {} as never,
+    {} as never
+  ) as unknown as {
+    appendIndex(value: {
+      workspaceId: string;
+      contentHash: string;
+      platformRecordId: string;
+      evidenceId: string;
+      jobId: string;
+      sourceUrl: string;
+      observedAt: string;
+      candidateId: string | null;
+      retainUntil: string;
+      createdAt: string;
+    }): Promise<void>;
+    upsertDnc(
+      workspaceId: string,
+      identityHash: string,
+      reason: string,
+      now: string
+    ): Promise<void>;
+  };
+
+  await repository.appendIndex({
+    workspaceId: "workspace-1",
+    contentHash: `sha256:${"a".repeat(64)}`,
+    platformRecordId: "record-1",
+    evidenceId: "evidence-1",
+    jobId: "job-1",
+    sourceUrl: "https://www.douyin.com/video/1",
+    observedAt: "2026-08-25T01:02:03.456Z",
+    candidateId: null,
+    retainUntil: "2026-11-23T01:02:03.456Z",
+    createdAt: "2026-08-25T04:05:06.789Z"
+  });
+  await repository.upsertDnc(
+    "workspace-1",
+    `dnc:sha256:${"b".repeat(64)}`,
+    "policy",
+    "2026-08-25T07:08:09.012Z"
+  );
+
+  assert.deepEqual(calls[0]!.values.slice(6), [
+    "2026-08-25 01:02:03.456",
+    null,
+    "2026-11-23 01:02:03.456",
+    "2026-08-25 04:05:06.789"
+  ]);
+  assert.deepEqual(calls[1]!.values.slice(3), [
+    "2026-08-25 07:08:09.012",
+    "2026-08-25 07:08:09.012"
+  ]);
+});
+
 test("live MySQL commits and rolls back authoritative crawler ingestion", {
   skip: !process.env.MYSQL_TEST_ADMIN_URL
     ? "MYSQL_TEST_ADMIN_URL is required; no database is provisioned implicitly"

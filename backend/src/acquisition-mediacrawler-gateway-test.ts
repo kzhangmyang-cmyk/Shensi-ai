@@ -147,6 +147,18 @@ test("gateway acknowledges persisted pages and returns the server timestamp", as
   });
 });
 
+test("gateway reports a missing persisted crawl job without treating it as downtime", async () => {
+  await withServer((request, response) => {
+    assert.equal(request.method, "GET");
+    assert.equal(request.url, "/internal/v1/douyin/crawl-jobs/job-missing");
+    response.statusCode = 404;
+    response.end();
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    assert.equal(await gateway.findCrawlJob("job-missing"), null);
+  });
+});
+
 test("gateway exposes progressive crawl counts and the bounded failure code", async () => {
   await withServer((_request, response) => {
     response.setHeader("content-type", "application/json");
@@ -175,6 +187,60 @@ test("gateway exposes progressive crawl counts and the bounded failure code", as
       activity: {
         phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0
       }
+    });
+  });
+});
+
+test("gateway recovers legacy terminal crawl descriptors without activity", async () => {
+  await withServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      job_id: "job-legacy-partial",
+      state: "partial",
+      created_at: "2026-08-25T16:18:09.216Z",
+      updated_at: "2026-08-25T16:19:11.137Z",
+      completed_at: "2026-08-25T16:19:11.137Z",
+      acknowledged_at: null,
+      record_count: 305,
+      page_count: 13,
+      failure_code: "crawl_interrupted_after_partial_results"
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    assert.deepEqual(await gateway.getCrawlJob("job-legacy-partial"), {
+      jobId: "job-legacy-partial",
+      state: "partial",
+      recordCount: 305,
+      pageCount: 13,
+      failureCode: "crawl_interrupted_after_partial_results",
+      activity: {
+        phase: "completed",
+        currentKeyword: null,
+        browserMode: "headless",
+        sequence: 1
+      }
+    });
+  });
+});
+
+test("gateway still rejects live crawl descriptors without activity", async () => {
+  await withServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      job_id: "job-live-without-activity",
+      state: "running",
+      created_at: "2026-08-25T16:18:09.216Z",
+      updated_at: "2026-08-25T16:19:11.137Z",
+      completed_at: null,
+      acknowledged_at: null,
+      record_count: 25,
+      page_count: 1,
+      failure_code: null
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    await assert.rejects(gateway.getCrawlJob("job-live-without-activity"), {
+      code: "mediacrawler_invalid_response"
     });
   });
 });

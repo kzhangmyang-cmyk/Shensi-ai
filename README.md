@@ -86,6 +86,13 @@ rather than selecting a different port. The wrapper forwards `SIGINT` and
 shutdown window.
 Do not use memory mode as evidence for this runtime.
 
+The Node and Vite development children may reload source, but the Python
+MediaCrawler sidecar does not auto-reload. Treat the backend gateway and the
+Shensi sidecar adapter as one private protocol unit: after changing either
+side's crawl schemas, gateway parsing, or job lifecycle code, stop the complete
+wrapper, let every child exit, and restart `./scripts/dev`. A liveness health
+response does not prove that the two processes implement the same protocol.
+
 Douyin currently serves a verification interstitial to the bundled headless
 browser during QR-login startup. For local operator login, keep
 `MEDIACRAWLER_BROWSER_HEADLESS=false` and
@@ -103,6 +110,10 @@ are not the canonical runtime path:
 pnpm --filter ./backend dev
 pnpm --filter ./frontend dev
 ```
+
+Those commands start only the named process. They neither start nor reload the
+private sidecar and must not be attached to an older independently running
+sidecar as evidence for the automatic Douyin workflow.
 
 The authenticated acquisition API includes immutable Douyin outreach-batch
 review and approval. Approval only persists the exact ordered
@@ -133,6 +144,18 @@ being reset to zero. A terminal activity returned by crawl startup is never
 persisted through the nonterminal activity path: only the advertised `done`
 page records its descriptor, completed activity, terminal state, pending
 candidate projection, and crawl-lease release in one transaction.
+
+Before creating a sidecar crawl, the Node worker reads the deterministic job ID
+and adopts a matching existing job. A restart can therefore ingest retained
+pages from a running or terminal job without repeating the crawl. The private
+gateway accepts an activity-less legacy descriptor only when its state is
+`succeeded` or `partial`, synthesizing the closed terminal observation
+`completed` / `headless` / sequence `1`; every live descriptor still requires a
+valid explicit activity object. A backend crawler job that has exhausted its
+attempts remains `paused` across restart and is not silently reclaimed. Resume
+requires an audited, job-scoped explicit requeue after protocol compatibility
+has been verified. Do not create a replacement run, delete unacknowledged pages,
+or acknowledge the sidecar manually as a recovery shortcut.
 
 Every authoritative acquisition run and its bound automation intent form one
 alias pair for the shared daily crawler job. An exact pair replay is a no-write
@@ -223,8 +246,11 @@ pnpm dev:real
 
 That wrapper currently targets `127.0.0.1:3307`, database `shensi_sales`, API
 port `4188`, and frontend port `5188`. It fails closed when MySQL is
-unavailable. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) before treating any
-local command as a production procedure.
+unavailable. It starts only the backend and frontend; MediaCrawler work requires
+a separately managed sidecar from the same source revision, so `./scripts/dev`
+remains the canonical integrated path. See
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) before treating any local command as a
+production procedure.
 
 ## Verification
 
