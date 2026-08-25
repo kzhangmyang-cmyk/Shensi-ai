@@ -150,6 +150,7 @@ await assert.rejects(
 for (const dateTime of [
   "2026-08-25T09:30:00Z",
   "2026-08-25T09:30:00.123456789Z",
+  "2026-08-25T09:30:00.12345678901234567890Z",
   "2026-08-25T09:30:00+08:00"
 ]) {
   await createDouyinAutomationApi(async () => new Response(JSON.stringify({
@@ -168,6 +169,9 @@ for (const malformedCrawler of [
   { ...crawler, createdAt: "not-a-date" },
   { ...crawler, createdAt: "2026-08-25" },
   { ...crawler, createdAt: "2026-02-30T00:00:00Z" },
+  { ...crawler, createdAt: "2026-08-25T09:30:00+24:00" },
+  { ...crawler, createdAt: "2026-08-25T09:30:00+99:00" },
+  { ...crawler, createdAt: "2026-08-25T09:30:00+08:60" },
   { ...crawler, updatedAt: "not-a-date" },
   { ...crawler, completedAt: "not-a-date" },
   (() => { const { recordCount: _recordCount, ...missing } = crawler; return missing; })(),

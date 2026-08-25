@@ -143,3 +143,34 @@ Tests were added before Task 3 production changes.
 - No new endpoint, reload recovery, browser process, or external request was
   added. The single-flight guard is scoped to the current generation and run,
   so reset/close cannot let an older refresh mutate current state.
+
+## Fix round 3/5 — RFC3339 offset capture and unbounded fraction
+
+### RED evidence
+
+- Added boundary tests before changing the validator: an RFC3339 timestamp
+  with a fraction longer than nine digits must be accepted, while offsets
+  `+24:00`, `+99:00`, and `+08:60` must be rejected.
+- `pnpm --filter ./frontend test` failed as intended before the fix in
+  `douyin-automation-api.self-test.ts:156` with
+  `AcquisitionHttpError: 服务器返回了无法识别的数据`. That is the new valid
+  long-fraction timestamp being rejected by the former `{1,9}` fraction cap;
+  the same test-first batch covered the incorrectly indexed offset captures.
+
+### Fix and GREEN evidence
+
+- The validator now permits an unbounded nonempty RFC3339 fractional part and
+  reads its offset sign/hour/minute from capture groups 7/8/9. Existing
+  calendar and time validation remains unchanged, so invalid offset hours and
+  minutes are rejected.
+- `pnpm --filter ./frontend test` — passed (57 checks).
+- `./scripts/context-check`, `pnpm test`, `pnpm build`, and
+  `git diff --check` — passed.
+
+### Fix-round self-review
+
+- This is a frontend runtime-validation correction only; it does not alter the
+  canonical contract or generated types, so no regeneration or current module
+  documentation update was needed.
+- No browser, Douyin request, provider request, or other external network
+  operation was performed.
