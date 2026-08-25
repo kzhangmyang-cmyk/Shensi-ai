@@ -204,6 +204,7 @@ class _VisibleDouyinObserver:
         self._browser_mode = browser_mode
         self._activity_path = activity_path
         self._current_keyword: str | None = None
+        self._observation_page: object | None = None
 
     def _publish(self, phase: str, current_keyword: str | None = None) -> None:
         _write_activity_snapshot(
@@ -213,25 +214,45 @@ class _VisibleDouyinObserver:
             browser_mode=self._browser_mode,
         )
 
-    async def _open_search(self, page: object, keyword: object) -> None:
+    async def _navigate(self, crawler: object, url: str) -> None:
+        """Best-effort mirror only; the collector's page and result stay untouched."""
+        try:
+            if self._observation_page is None:
+                self._observation_page = await crawler.browser_context.new_page()  # type: ignore[attr-defined]
+            await self._observation_page.goto(url)  # type: ignore[attr-defined]
+        except Exception:
+            return
+
+    async def _open_search(self, crawler: object, keyword: object) -> None:
         normalized_keyword = str(keyword)
         self._current_keyword = normalized_keyword
         self._publish("searching", normalized_keyword)
-        await page.goto(  # type: ignore[attr-defined]
+        await self._navigate(
+            crawler,
             f"https://www.douyin.com/search/{quote(normalized_keyword, safe='')}?type=general"
         )
 
-    async def _open_video(self, page: object, aweme_id: object) -> None:
+    async def _open_video(self, crawler: object, aweme_id: object) -> None:
         normalized_aweme_id = str(aweme_id)
         self._publish("collecting_comments", self._current_keyword)
         if re.fullmatch(r"[0-9]{1,32}", normalized_aweme_id):
-            await page.goto(  # type: ignore[attr-defined]
+            await self._navigate(
+                crawler,
                 f"https://www.douyin.com/video/{normalized_aweme_id}"
             )
 
     def install(self, crawler: object) -> None:
         original_search = crawler.search  # type: ignore[attr-defined]
         original_get_comments = crawler.get_comments  # type: ignore[attr-defined]
+        original_launch_browser = getattr(crawler, "launch_browser", None)
+
+        if callable(original_launch_browser):
+            async def observed_launch_browser(*args, **kwargs):
+                browser_context = await original_launch_browser(*args, **kwargs)
+                self._publish("opening_douyin")
+                return browser_context
+
+            crawler.launch_browser = observed_launch_browser  # type: ignore[attr-defined]
 
         async def observed_search():
             client = crawler.dy_client  # type: ignore[attr-defined]
@@ -242,7 +263,7 @@ class _VisibleDouyinObserver:
                 keyword = unquote(str(encoded_keyword))
                 from var import source_keyword_var
                 source_keyword_var.set(keyword)
-                await self._open_search(crawler.context_page, keyword)  # type: ignore[attr-defined]
+                await self._open_search(crawler, keyword)
                 if "keyword" in kwargs:
                     kwargs = {**kwargs, "keyword": keyword}
                 elif args:
@@ -253,7 +274,7 @@ class _VisibleDouyinObserver:
             return await original_search()
 
         async def observed_get_comments(aweme_id, *args, **kwargs):
-            await self._open_video(crawler.context_page, aweme_id)  # type: ignore[attr-defined]
+            await self._open_video(crawler, aweme_id)
             return await original_get_comments(aweme_id, *args, **kwargs)
 
         crawler.search = observed_search  # type: ignore[attr-defined]
@@ -440,16 +461,22 @@ class CrawlJobManager:
         ).model_dump(mode="json")
 
     def _publish_activity(self, job: dict, request: CrawlJobRequest,
-                          activity: CrawlActivity) -> None:
+                          activity: CrawlActivity, *, persist: bool = True) -> bool:
         if (activity.current_keyword is not None
                 and activity.current_keyword not in request.keywords):
             raise ValueError("invalid_crawl_activity_keyword")
         previous = CrawlActivity.model_validate(job["activity"])
+        if (previous.phase, previous.current_keyword, previous.browser_mode) == (
+            activity.phase, activity.current_keyword, activity.browser_mode,
+        ):
+            return False
         job["activity"] = activity.model_copy(
             update={"sequence": previous.sequence + 1},
         ).model_dump(mode="json")
         job["updated_at"] = self._now().isoformat()
-        self._persist(job)
+        if persist:
+            self._persist(job)
+        return True
 
     def start(self, request: CrawlJobRequest) -> CrawlJobView:
         with self._lock:
@@ -495,7 +522,7 @@ class CrawlJobManager:
         )
 
     def _append_page(self, job: dict, records: list[NormalizedDouyinRecord],
-                     *, done: bool) -> None:
+                     *, done: bool, persist: bool = True) -> None:
         index = len(job["pages"])
         cursor = None if index == 0 else job["pages"][-1]["next_cursor"]
         if index > 0 and cursor is None:
@@ -515,7 +542,8 @@ class CrawlJobManager:
         })
         job["record_count"] += len(records)
         job["updated_at"] = self._now().isoformat()
-        self._persist(job)
+        if persist:
+            self._persist(job)
 
     def _execute(self, request: CrawlJobRequest, profile: Path, cancelled: threading.Event) -> None:
         pending: list[NormalizedDouyinRecord] = []
@@ -524,6 +552,16 @@ class CrawlJobManager:
             with self._lock:
                 job = self._jobs[request.job_id]
                 job["state"], job["updated_at"] = "running", self._now().isoformat()
+                previous = CrawlActivity.model_validate(job["activity"])
+                self._publish_activity(
+                    job,
+                    request,
+                    CrawlActivity(
+                        phase="starting_browser", current_keyword=None,
+                        browser_mode=previous.browser_mode, sequence=0,
+                    ),
+                    persist=False,
+                )
                 self._persist(job)
             for value in self._runner(request, profile, cancelled):
                 if cancelled.is_set():
@@ -552,7 +590,7 @@ class CrawlJobManager:
                 if cancelled.is_set():
                     self._finish(job, "cancelled")
                     return
-                self._append_page(job, pending, done=True)
+                self._append_page(job, pending, done=True, persist=False)
                 self._finish(job, "succeeded")
         except Exception:
             with self._lock:
@@ -562,7 +600,7 @@ class CrawlJobManager:
                         self._finish(job, "cancelled")
                     elif job["record_count"] > 0 or pending:
                         if pending or not job["pages"] or job["pages"][-1]["next_cursor"] is not None:
-                            self._append_page(job, pending, done=True)
+                            self._append_page(job, pending, done=True, persist=False)
                         job["failure_code"] = "crawl_interrupted_after_partial_results"
                         self._finish(job, "partial")
                     else:
@@ -576,6 +614,13 @@ class CrawlJobManager:
 
     def _finish(self, job: dict, state: str) -> None:
         instant = self._now().isoformat()
+        if state in {"succeeded", "partial"}:
+            previous = CrawlActivity.model_validate(job["activity"])
+            job["activity"] = CrawlActivity(
+                phase="completed", current_keyword=None,
+                browser_mode=previous.browser_mode,
+                sequence=previous.sequence + 1,
+            ).model_dump(mode="json")
         job.update({"state": state, "updated_at": instant, "completed_at": instant})
         self._persist(job)
 
@@ -681,10 +726,6 @@ def _execute_upstream(
     output = Path(value["output"])
     activity_path = output / "activity.json"
     browser_mode = "headless" if headless else "visible"
-    _write_activity_snapshot(
-        activity_path, phase="starting_browser", current_keyword=None,
-        browser_mode=browser_mode,
-    )
     config.PLATFORM = "dy"
     config.LOGIN_TYPE = "qrcode"
     config.CRAWLER_TYPE = "search"
@@ -713,10 +754,6 @@ def _execute_upstream(
     _VisibleDouyinObserver(
         browser_mode=browser_mode, activity_path=activity_path,
     ).install(crawler)
-    _write_activity_snapshot(
-        activity_path, phase="opening_douyin", current_keyword=None,
-        browser_mode=browser_mode,
-    )
     try:
         asyncio.run(crawler.start())  # type: ignore[attr-defined]
     finally:
@@ -724,10 +761,6 @@ def _execute_upstream(
             activity_path, phase="finalizing", current_keyword=None,
             browser_mode=browser_mode,
         )
-    _write_activity_snapshot(
-        activity_path, phase="completed", current_keyword=None,
-        browser_mode=browser_mode,
-    )
 
 
 if __name__ == "__main__":

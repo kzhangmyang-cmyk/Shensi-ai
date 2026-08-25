@@ -1,3 +1,4 @@
+import copy
 import json
 import threading
 import time
@@ -7,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from shensi_adapter import crawl_jobs
 from shensi_adapter.crawl_jobs import (
     CrawlJobManager, CursorConflict, MediaCrawlerRunner, _browser_profile_template,
     _execute_upstream, _public_comment_capture, _public_creator_capture,
@@ -114,11 +116,23 @@ def test_execute_upstream_disables_cdp_and_applies_configured_visible_mode(tmp_p
         "headless": False,
     }), encoding="utf-8")
     fake_config = SimpleNamespace()
-    calls = []
+    primary_calls = []
+    observation_calls = []
 
     class FakePage:
+        def __init__(self, calls):
+            self.calls = calls
+
         async def goto(self, url):
-            calls.append(url)
+            self.calls.append(url)
+
+    class FakeBrowserContext:
+        def __init__(self):
+            self.new_page_calls = 0
+
+        async def new_page(self):
+            self.new_page_calls += 1
+            return observation_page
 
     class FakeClient:
         async def search_info_by_keyword(self, *, keyword):
@@ -126,7 +140,8 @@ def test_execute_upstream_disables_cdp_and_applies_configured_visible_mode(tmp_p
 
     class FakeCrawler:
         def __init__(self):
-            self.context_page = FakePage()
+            self.context_page = FakePage(primary_calls)
+            self.browser_context = FakeBrowserContext()
             self.dy_client = FakeClient()
 
         async def search(self):
@@ -139,6 +154,7 @@ def test_execute_upstream_disables_cdp_and_applies_configured_visible_mode(tmp_p
             self.search_result = await self.search()
             self.comments_result = await self.get_comments("73001", None)
 
+    observation_page = FakePage(observation_calls)
     crawler = FakeCrawler()
 
     _execute_upstream(
@@ -154,10 +170,12 @@ def test_execute_upstream_disables_cdp_and_applies_configured_visible_mode(tmp_p
     assert fake_config.CDP_HEADLESS is False
     assert crawler.search_result == "search-袜子"
     assert crawler.comments_result == "comments-73001"
-    assert calls == [
+    assert primary_calls == []
+    assert observation_calls == [
         "https://www.douyin.com/search/%E8%A2%9C%E5%AD%90?type=general",
         "https://www.douyin.com/video/73001",
     ]
+    assert crawler.browser_context.new_page_calls == 1
 
 
 def test_execute_upstream_losslessly_transports_comma_keyword(tmp_path):
@@ -174,11 +192,19 @@ def test_execute_upstream_losslessly_transports_comma_keyword(tmp_path):
         "headless": False,
     }), encoding="utf-8")
     fake_config = SimpleNamespace()
-    calls = []
+    primary_calls = []
+    observation_calls = []
 
     class FakePage:
+        def __init__(self, calls):
+            self.calls = calls
+
         async def goto(self, url):
-            calls.append(url)
+            self.calls.append(url)
+
+    class FakeBrowserContext:
+        async def new_page(self):
+            return observation_page
 
     class FakeClient:
         async def search_info_by_keyword(self, *, keyword):
@@ -188,7 +214,8 @@ def test_execute_upstream_losslessly_transports_comma_keyword(tmp_path):
 
     class FakeCrawler:
         def __init__(self):
-            self.context_page = FakePage()
+            self.context_page = FakePage(primary_calls)
+            self.browser_context = FakeBrowserContext()
             self.dy_client = FakeClient()
 
         async def search(self):
@@ -202,6 +229,7 @@ def test_execute_upstream_losslessly_transports_comma_keyword(tmp_path):
         async def start(self):
             self.search_result = await self.search()
 
+    observation_page = FakePage(observation_calls)
     crawler = FakeCrawler()
     _execute_upstream(
         spec,
@@ -212,10 +240,197 @@ def test_execute_upstream_losslessly_transports_comma_keyword(tmp_path):
 
     assert fake_config.KEYWORDS == "seal%2C%20gasket"
     assert crawler.search_result == "seal, gasket"
-    assert calls == [
+    assert primary_calls == []
+    assert observation_calls == [
         "https://www.douyin.com/search/seal%2C%20gasket?type=general",
     ]
     assert crawler.dy_client.source_keyword == "seal, gasket"
+
+
+def test_observer_failures_do_not_interrupt_search_or_comment_collection(tmp_path):
+    spec = tmp_path / "request.json"
+    spec.write_text(json.dumps({
+        "profile": str(tmp_path / "profile"),
+        "output": str(tmp_path / "output"),
+        "keywords": ["袜子"],
+        "max_videos": 2,
+        "max_comments_per_video": 2,
+        "max_pages_per_video": 1,
+        "collect_creators": False,
+        "collect_demand_comments": True,
+        "headless": False,
+    }), encoding="utf-8")
+
+    class FailingPage:
+        def __init__(self):
+            self.calls = []
+
+        async def goto(self, url):
+            self.calls.append(url)
+            raise RuntimeError("observation_navigation_failed")
+
+    class FakeBrowserContext:
+        def __init__(self):
+            self.new_page_calls = 0
+
+        async def new_page(self):
+            self.new_page_calls += 1
+            return observation_page
+
+    class FakeClient:
+        async def search_info_by_keyword(self, *, keyword):
+            return f"search-{keyword}"
+
+    class FakeCrawler:
+        def __init__(self):
+            self.context_page = primary_page
+            self.browser_context = FakeBrowserContext()
+            self.dy_client = FakeClient()
+
+        async def search(self):
+            return await self.dy_client.search_info_by_keyword(keyword="袜子")
+
+        async def get_comments(self, aweme_id, _semaphore):
+            return f"comments-{aweme_id}"
+
+        async def start(self):
+            self.search_result = await self.search()
+            self.comments_result = await self.get_comments("73001", None)
+
+    primary_page = FailingPage()
+    observation_page = FailingPage()
+    crawler = FakeCrawler()
+
+    _execute_upstream(
+        spec,
+        config_module=SimpleNamespace(),
+        crawler_factory=lambda: crawler,
+        capture_installer=lambda *_: None,
+    )
+
+    assert crawler.search_result == "search-袜子"
+    assert crawler.comments_result == "comments-73001"
+    assert primary_page.calls == []
+    assert observation_page.calls == [
+        "https://www.douyin.com/search/%E8%A2%9C%E5%AD%90?type=general",
+        "https://www.douyin.com/video/73001",
+    ]
+    assert crawler.browser_context.new_page_calls == 1
+
+
+def test_observer_page_creation_failure_does_not_interrupt_collection(tmp_path):
+    spec = tmp_path / "request.json"
+    spec.write_text(json.dumps({
+        "profile": str(tmp_path / "profile"),
+        "output": str(tmp_path / "output"),
+        "keywords": ["袜子"],
+        "max_videos": 2,
+        "max_comments_per_video": 2,
+        "max_pages_per_video": 1,
+        "collect_creators": False,
+        "collect_demand_comments": True,
+        "headless": False,
+    }), encoding="utf-8")
+
+    class PrimaryPage:
+        async def goto(self, _url):
+            raise AssertionError("collector page must not be used for observation")
+
+    class FailingBrowserContext:
+        def __init__(self):
+            self.new_page_calls = 0
+
+        async def new_page(self):
+            self.new_page_calls += 1
+            raise RuntimeError("observation_page_creation_failed")
+
+    class FakeClient:
+        async def search_info_by_keyword(self, *, keyword):
+            return f"search-{keyword}"
+
+    class FakeCrawler:
+        def __init__(self):
+            self.context_page = PrimaryPage()
+            self.browser_context = FailingBrowserContext()
+            self.dy_client = FakeClient()
+
+        async def search(self):
+            return await self.dy_client.search_info_by_keyword(keyword="袜子")
+
+        async def get_comments(self, aweme_id, _semaphore):
+            return f"comments-{aweme_id}"
+
+        async def start(self):
+            self.search_result = await self.search()
+            self.comments_result = await self.get_comments("73001", None)
+
+    crawler = FakeCrawler()
+    _execute_upstream(
+        spec,
+        config_module=SimpleNamespace(),
+        crawler_factory=lambda: crawler,
+        capture_installer=lambda *_: None,
+    )
+
+    assert crawler.search_result == "search-袜子"
+    assert crawler.comments_result == "comments-73001"
+    assert crawler.browser_context.new_page_calls == 2
+
+
+def test_execute_upstream_publishes_opening_only_after_standard_browser_launch(
+    tmp_path, monkeypatch,
+):
+    spec = tmp_path / "request.json"
+    spec.write_text(json.dumps({
+        "profile": str(tmp_path / "profile"),
+        "output": str(tmp_path / "output"),
+        "keywords": ["袜子"],
+        "max_videos": 2,
+        "max_comments_per_video": 2,
+        "max_pages_per_video": 1,
+        "collect_creators": False,
+        "collect_demand_comments": False,
+        "headless": False,
+    }), encoding="utf-8")
+    events = []
+    original_writer = crawl_jobs._write_activity_snapshot
+
+    def writer(path, *, phase, current_keyword, browser_mode):
+        events.append(f"activity:{phase}")
+        original_writer(
+            path,
+            phase=phase,
+            current_keyword=current_keyword,
+            browser_mode=browser_mode,
+        )
+
+    class FakeCrawler:
+        async def launch_browser(self, *_args, **_kwargs):
+            events.append("launch_returned")
+            return object()
+
+        async def search(self):
+            return None
+
+        async def get_comments(self, *_args):
+            return None
+
+        async def start(self):
+            self.browser_context = await self.launch_browser(None, None, None)
+
+    monkeypatch.setattr(crawl_jobs, "_write_activity_snapshot", writer)
+    _execute_upstream(
+        spec,
+        config_module=SimpleNamespace(),
+        crawler_factory=FakeCrawler,
+        capture_installer=lambda *_: None,
+    )
+
+    assert events == [
+        "launch_returned",
+        "activity:opening_douyin",
+        "activity:finalizing",
+    ]
 
 
 def test_runner_reads_each_activity_snapshot_once_when_replaced_during_a_poll(
@@ -287,11 +502,16 @@ def test_runner_reads_each_activity_snapshot_once_when_replaced_during_a_poll(
 
 
 def test_manager_persists_only_authorized_activity_keywords_with_monotonic_sequence(tmp_path):
+    entered = threading.Event()
+    release = threading.Event()
+
     def runner(_request, _profile, _cancelled):
         yield CrawlActivity(
             phase="searching", current_keyword="industrial pump",
             browser_mode="visible", sequence=999,
         )
+        entered.set()
+        release.wait(1)
 
     manager = CrawlJobManager(
         tmp_path,
@@ -300,12 +520,17 @@ def test_manager_persists_only_authorized_activity_keywords_with_monotonic_seque
         now=lambda: NOW,
     )
     manager.start(request("activity-job"))
+    assert entered.wait(1)
 
-    terminal = wait_terminal(manager, "activity-job")
-
-    assert terminal.activity == CrawlActivity(
+    assert manager.get("activity-job").activity == CrawlActivity(
         phase="searching", current_keyword="industrial pump",
-        browser_mode="visible", sequence=1,
+        browser_mode="visible", sequence=2,
+    )
+    release.set()
+    terminal = wait_terminal(manager, "activity-job")
+    assert terminal.activity == CrawlActivity(
+        phase="completed", current_keyword=None,
+        browser_mode="visible", sequence=3,
     )
     manager.close()
 
@@ -330,6 +555,123 @@ def test_manager_rejects_an_activity_keyword_outside_the_frozen_request(tmp_path
     assert terminal.state == "failed"
     assert terminal.failure_code == "crawl_failed"
     assert terminal.activity.current_keyword is None
+    manager.close()
+
+
+def test_manager_publishes_starting_browser_before_invoking_the_runner(tmp_path):
+    observed = []
+
+    def runner(current_request, _profile, _cancelled):
+        observed.append(manager.get(current_request.job_id).activity)
+        return []
+
+    manager = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=runner,
+        now=lambda: NOW,
+    )
+    manager.start(request("synchronous-starting"))
+
+    assert wait_terminal(manager, "synchronous-starting").state == "succeeded"
+    assert observed == [CrawlActivity(
+        phase="starting_browser", current_keyword=None,
+        browser_mode="headless", sequence=1,
+    )]
+    manager.close()
+
+
+def test_manager_ignores_an_identical_activity_without_advancing_metadata(tmp_path):
+    entered = threading.Event()
+    release = threading.Event()
+    clock = [NOW]
+
+    def runner(_request, _profile, _cancelled):
+        entered.set()
+        release.wait(1)
+        return []
+
+    manager = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=runner,
+        now=lambda: clock[0],
+    )
+    manager.start(request("identical-activity"))
+    assert entered.wait(1)
+    before = manager.get("identical-activity")
+    clock[0] += timedelta(seconds=1)
+
+    with manager._lock:
+        manager._publish_activity(
+            manager._jobs["identical-activity"],
+            request("identical-activity"),
+            before.activity,
+        )
+
+    after = manager.get("identical-activity")
+    assert after.activity == before.activity
+    assert after.updated_at == before.updated_at
+    release.set()
+    wait_terminal(manager, "identical-activity")
+    manager.close()
+
+
+@pytest.mark.parametrize(("job_id", "partial"), [
+    ("terminal-succeeded", False),
+    ("terminal-partial", True),
+])
+def test_manager_persists_final_page_and_terminal_activity_together(
+    tmp_path, job_id, partial,
+):
+    record = normalize_douyin_records(fixtures(), observed_at=NOW)[0]
+
+    def runner(_request, _profile, _cancelled):
+        yield record
+        if partial:
+            raise RuntimeError("upstream_browser_closed")
+
+    manager = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=runner,
+        now=lambda: NOW,
+    )
+    writes = []
+    persist = manager._persist
+
+    def capture_persist(job):
+        writes.append(copy.deepcopy(job))
+        persist(job)
+
+    manager._persist = capture_persist
+    manager.start(request(job_id))
+    terminal = wait_terminal(manager, job_id)
+
+    expected_state = "partial" if partial else "succeeded"
+    assert terminal.state == expected_state
+    assert terminal.activity == CrawlActivity(
+        phase="completed", current_keyword=None,
+        browser_mode="headless", sequence=2,
+    )
+    terminal_writes = [
+        saved for saved in writes
+        if saved["pages"] and saved["pages"][-1]["next_cursor"] is None
+    ]
+    assert len(terminal_writes) == 1
+    assert terminal_writes[0]["state"] == expected_state
+    assert terminal_writes[0]["activity"] == terminal.activity.model_dump(mode="json")
+    assert not any(
+        saved["state"] == "running"
+        and saved["pages"]
+        and saved["pages"][-1]["next_cursor"] is None
+        for saved in writes
+    )
+    persisted = json.loads(
+        (tmp_path / "crawl-jobs" / job_id / "job.json").read_text(encoding="utf-8")
+    )
+    assert persisted["state"] == expected_state
+    assert persisted["activity"] == terminal.activity.model_dump(mode="json")
     manager.close()
 
 
