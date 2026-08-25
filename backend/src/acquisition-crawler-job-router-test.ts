@@ -32,9 +32,10 @@ test("crawler status route is workspace-bound, closed and reads persisted Node s
     assert.equal(response.status, 200);
     const status = await response.json();
     assert.deepEqual(Object.keys(status).sort(), [
-      "activity", "attempt", "candidateBudgetLimit", "candidateBudgetUsed", "completedAt", "createdAt",
-      "cursorPersisted", "lastErrorCode", "recordCount", "runId", "state", "updatedAt"
+      "activity", "attempt", "candidateBudgetLimit", "candidateBudgetUsed", "candidateProjectionState",
+      "completedAt", "createdAt", "cursorPersisted", "lastErrorCode", "recordCount", "runId", "state", "updatedAt"
     ]);
+    assert.equal(status.candidateProjectionState, "pending");
     assert.deepEqual(status.activity, {
       phase: "queued",
       currentKeyword: null,

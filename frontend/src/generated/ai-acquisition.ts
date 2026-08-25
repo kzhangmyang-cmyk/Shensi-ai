@@ -1979,6 +1979,8 @@ export interface components {
             recordCount: number;
             candidateBudgetUsed: number;
             candidateBudgetLimit: number;
+            /** @enum {string} */
+            candidateProjectionState: "pending" | "ready" | "failed";
             lastErrorCode: string | null;
             /** Format: date-time */
             createdAt: string;

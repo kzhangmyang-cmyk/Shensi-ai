@@ -6,10 +6,15 @@ import {
 import type { AcquisitionCrawlerJobInput } from "./acquisition-crawler-job.js";
 import {
   assertNormalizedDouyinRecord,
+  crawlerStatus,
   normalizedDouyinContentHash
 } from "./acquisition-crawler-job.js";
 
 const at = (second: number) => `2026-08-24T00:00:${String(second).padStart(2, "0")}.000Z`;
+const completedActivity = {
+  phase: "completed" as const, currentKeyword: null,
+  browserMode: "visible" as const, sequence: 9
+};
 
 function input(overrides: Partial<AcquisitionCrawlerJobInput> = {}): AcquisitionCrawlerJobInput {
   return {
@@ -202,7 +207,8 @@ test("cursor history rejects cycles and terminal non-null cursors", async () => 
     expectedCursor: "opaque-B", nextCursor: "opaque-C", records: [], done: true, now: at(4)
   }), /invalid_crawler_next_cursor/u);
   assert.equal((await repository.persistPage(claim.fence, {
-    expectedCursor: "opaque-B", nextCursor: null, records: [], done: true, now: at(4)
+    expectedCursor: "opaque-B", nextCursor: null, records: [], done: true,
+    terminalActivity: completedActivity, now: at(4)
   })).state, "succeeded");
 });
 
@@ -226,6 +232,7 @@ test("terminal partial metadata preserves records and the bounded sidecar error"
     expectedCursor: null, nextCursor: null, records: [record], done: true,
     terminalState: "partial",
     terminalErrorCode: "crawl_interrupted_after_partial_results",
+    terminalActivity: completedActivity,
     now: at(2)
   });
 
@@ -234,6 +241,57 @@ test("terminal partial metadata preserves records and the bounded sidecar error"
   assert.equal(terminal.recordCount, 1);
   assert.equal(terminal.ingestionState, "pending");
   assert.equal((await repository.listRecords("crawler-1")).length, 1);
+});
+
+test("terminal page commits completed activity, terminal state, and lease release atomically", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  await repository.enqueue("workspace-1", "run-1", at(0));
+  const claim = await repository.claimNext("worker-A", at(1), 10_000);
+  assert.ok(claim);
+  await repository.updateActivity(claim.fence, {
+    activity: {
+      phase: "searching", currentKeyword: "pump", browserMode: "visible", sequence: 8
+    },
+    now: at(2)
+  });
+
+  const terminal = await repository.persistPage(claim.fence, {
+    expectedCursor: null, nextCursor: null, records: [], done: true,
+    terminalState: "succeeded", terminalErrorCode: null,
+    terminalActivity: completedActivity, now: at(3)
+  });
+  assert.equal(terminal.state, "succeeded");
+  assert.deepEqual(terminal.activity, completedActivity);
+  assert.equal(terminal.ingestionState, "pending");
+  assert.equal(terminal.leaseToken, null);
+});
+
+test("invalid terminal activity rolls back the page and preserves the fenced running job", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  await repository.enqueue("workspace-1", "run-1", at(0));
+  const claim = await repository.claimNext("worker-A", at(1), 10_000);
+  assert.ok(claim);
+  await repository.updateActivity(claim.fence, {
+    activity: {
+      phase: "searching", currentKeyword: "pump", browserMode: "visible", sequence: 1
+    },
+    now: at(2)
+  });
+  await assert.rejects(repository.persistPage(claim.fence, {
+    expectedCursor: null, nextCursor: null, records: [], done: true,
+    terminalState: "succeeded", terminalErrorCode: null,
+    terminalActivity: {
+      phase: "finalizing", currentKeyword: "pump", browserMode: "visible", sequence: 2
+    },
+    now: at(3)
+  }), /invalid_crawler_terminal_activity/u);
+  const running = await repository.findByRun("workspace-1", "run-1");
+  assert.equal(running?.state, "running");
+  assert.equal(running?.leaseToken, claim.fence.leaseToken);
+  assert.equal(running?.recordCount, 0);
+  assert.equal(running?.activity.phase, "searching");
 });
 
 test("terminal metadata is rejected on a nonterminal page", async () => {
@@ -275,7 +333,8 @@ test("candidate budget truncation on an early page survives the final empty page
 
   const terminal = await repository.persistPage(claim.fence, {
     expectedCursor: "opaque-A", nextCursor: null, records: [], done: true,
-    terminalState: "succeeded", terminalErrorCode: null, now: at(3)
+    terminalState: "succeeded", terminalErrorCode: null,
+    terminalActivity: completedActivity, now: at(3)
   });
   assert.equal(terminal.state, "partial");
   assert.equal(terminal.lastErrorCode, "crawler_candidate_budget_exhausted");
@@ -288,7 +347,8 @@ test("persist rejects a well-shaped but tampered normalized content hash", async
   const claim = await repository.claimNext("worker-A", at(1), 5_000);
   assert.ok(claim);
   await assert.rejects(repository.persistPage(claim.fence, {
-    expectedCursor: null, nextCursor: null, done: true, now: at(2), records: [{
+    expectedCursor: null, nextCursor: null, done: true,
+    terminalActivity: completedActivity, now: at(2), records: [{
       recordId: "video-1", kind: "video", canonicalUrl: "https://www.douyin.com/video/1",
       actorKind: null,
       publicDisplayName: "Maker", publicProfileUrl: null, textExcerpt: "changed",
@@ -320,7 +380,8 @@ test("job and record persistence reject values beyond frozen storage bounds", as
   };
   record.contentHash = normalizedDouyinContentHash(record);
   await assert.rejects(repository.persistPage(claim.fence, {
-    expectedCursor: null, nextCursor: null, done: true, now: at(2), records: [record]
+    expectedCursor: null, nextCursor: null, done: true,
+    terminalActivity: completedActivity, now: at(2), records: [record]
   }), /invalid_normalized_douyin_record/u);
   await assert.rejects(repository.persistPage(claim.fence, {
     expectedCursor: null, nextCursor: "界".repeat(200), done: false,
@@ -359,7 +420,8 @@ test("persistence filters both asymmetric frozen collection policies", async () 
       return record;
     });
     await repository.persistPage(claim.fence, {
-      expectedCursor: null, nextCursor: null, done: true, now: at(2), records
+      expectedCursor: null, nextCursor: null, done: true,
+      terminalActivity: completedActivity, now: at(2), records
     });
     assert.deepEqual((await repository.listRecords(jobId)).map((record) => record.kind), expected);
   }
@@ -384,7 +446,8 @@ test("late same-day alias requeues projection without recrawling or duplicating 
   const crawl = await repository.claimNext("crawler", at(1), 10_000);
   assert.ok(crawl);
   await repository.persistPage(crawl.fence, {
-    expectedCursor: null, nextCursor: null, records: [], done: true, now: at(2)
+    expectedCursor: null, nextCursor: null, records: [], done: true,
+    terminalActivity: completedActivity, now: at(2)
   });
   const ingestion = await repository.claimNextIngestion("ingester", at(3), 10_000);
   assert.ok(ingestion);
@@ -407,7 +470,8 @@ test("terminal ingestion claims are fenced, single-winner, and restart recoverab
   const crawl = await repository.claimNext("crawler-A", at(1), 5_000);
   assert.ok(crawl);
   await repository.persistPage(crawl.fence, {
-    expectedCursor: null, nextCursor: null, records: [], done: true, now: at(2)
+    expectedCursor: null, nextCursor: null, records: [], done: true,
+    terminalActivity: completedActivity, now: at(2)
   });
 
   const [winner, loser] = await Promise.all([
@@ -434,4 +498,78 @@ test("terminal ingestion claims are fenced, single-winner, and restart recoverab
   assert.equal(completed.ingestedAt, at(7));
   assert.equal(completed.acknowledgedAt, at(8));
   assert.equal(await repository.claimNextIngestion("ingestion-D", at(9), 1_000), null);
+});
+
+test("crawler status maps terminal projection readiness without exposing internal activity state", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input({ maxAttempts: 1 }));
+  const scheduled = await repository.findByRun("workspace-1", "run-1");
+  assert.equal(crawlerStatus(scheduled!, "run-1").candidateProjectionState, "pending");
+  await repository.enqueue("workspace-1", "run-1", at(0));
+  const queued = await repository.findByRun("workspace-1", "run-1");
+  assert.equal(crawlerStatus(queued!, "run-1").candidateProjectionState, "pending");
+  const crawl = await repository.claimNext("crawler", at(1), 10_000);
+  assert.ok(crawl);
+  assert.equal(crawlerStatus(crawl.job, "run-1").candidateProjectionState, "pending");
+  await repository.persistPage(crawl.fence, {
+    expectedCursor: null, nextCursor: null, records: [], done: true,
+    terminalState: "succeeded", terminalErrorCode: null,
+    terminalActivity: completedActivity, now: at(2)
+  });
+  const pending = await repository.findByRun("workspace-1", "run-1");
+  const pendingStatus = crawlerStatus(pending!, "run-1");
+  assert.equal(pendingStatus.candidateProjectionState, "pending");
+  assert.deepEqual(Object.keys(pendingStatus.activity).sort(), [
+    "browserMode", "currentKeyword", "phase", "sequence"
+  ]);
+  for (const privateField of [
+    "activityObserved", "ingestionState", "ingestionAttempt",
+    "ingestionLeaseWorkerId", "ingestionLeaseToken",
+    "ingestionLeaseExpiresAt", "ingestionFencingToken", "ingestedAt",
+    "acknowledgedAt"
+  ]) {
+    assert.equal(privateField in pendingStatus, false, privateField);
+  }
+  const ingestion = await repository.claimNextIngestion("ingester", at(3), 10_000);
+  assert.ok(ingestion);
+  await repository.completeIngestion(ingestion.fence, at(3), at(3), at(3));
+  const ready = await repository.findByRun("workspace-1", "run-1");
+  assert.equal(crawlerStatus(ready!, "run-1").candidateProjectionState, "ready");
+
+  for (const state of ["succeeded", "partial"] as const) {
+    for (const ingestionState of [null, "pending", "running"] as const) {
+      assert.equal(
+        crawlerStatus({ ...ready!, state, ingestionState }, "run-1")
+          .candidateProjectionState,
+        "pending",
+        `${state}:${String(ingestionState)}`
+      );
+    }
+    assert.equal(
+      crawlerStatus({ ...ready!, state, ingestionState: "succeeded" }, "run-1")
+        .candidateProjectionState,
+      "ready"
+    );
+    assert.equal(
+      crawlerStatus({ ...ready!, state, ingestionState: "failed" }, "run-1")
+        .candidateProjectionState,
+      "failed"
+    );
+  }
+  for (const state of ["paused", "cancelled", "failed"] as const) {
+    assert.equal(crawlerStatus({ ...ready!, state }, "run-1").candidateProjectionState, "ready");
+  }
+});
+
+test("crawler status rejects and never clones corrupt persisted activity", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  const job = (await repository.findByRun("workspace-1", "run-1"))!;
+  (job.activity as unknown as { browserProfile: string }).browserProfile = "/private/profile";
+  assert.throws(() => crawlerStatus(job, "run-1"), /invalid_crawler_activity/u);
+  assert.throws(() => crawlerStatus({
+    ...job,
+    activity: completedActivity,
+    activityObserved: "false" as never
+  }, "run-1"), /invalid_crawler_activity_observation/u);
 });

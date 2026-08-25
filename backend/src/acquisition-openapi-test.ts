@@ -132,8 +132,9 @@ test("crawler status OpenAPI is a persisted-only closed projection", () => {
   assert.equal(schema.additionalProperties, false);
   assert.deepEqual(schema.required.sort(), [
     "attempt", "candidateBudgetLimit", "candidateBudgetUsed", "completedAt", "createdAt",
-    "cursorPersisted", "lastErrorCode", "recordCount", "runId", "state", "updatedAt", "activity"
+    "candidateProjectionState", "cursorPersisted", "lastErrorCode", "recordCount", "runId", "state", "updatedAt", "activity"
   ].sort());
+  assert.deepEqual(schema.properties.candidateProjectionState.enum, ["pending", "ready", "failed"]);
   assert.equal(schema.properties.activity.additionalProperties, false);
   assert.deepEqual(schema.properties.activity.required, [
     "phase", "currentKeyword", "browserMode", "sequence"
@@ -145,7 +146,12 @@ test("crawler status OpenAPI is a persisted-only closed projection", () => {
   assert.deepEqual(schema.properties.activity.properties.browserMode.enum, [
     "visible", "headless"
   ]);
-  for (const privateField of ["accountHandle", "leaseToken", "leaseWorkerId", "cursor", "records"]) {
+  for (const privateField of [
+    "accountHandle", "activityObserved", "ingestionState", "ingestionAttempt",
+    "ingestionLeaseWorkerId", "ingestionLeaseToken", "ingestionLeaseExpiresAt",
+    "ingestionFencingToken", "ingestedAt", "acknowledgedAt", "leaseToken",
+    "leaseWorkerId", "cursor", "records"
+  ]) {
     assert.equal(schema.properties[privateField], undefined);
   }
 });

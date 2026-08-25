@@ -119,9 +119,18 @@ export class AcquisitionCrawlerWorker {
         }
         const status = await this.gateway.getCrawlJob(job.id, this.controller.signal);
         if (status.jobId !== job.id) throw new Error("mediacrawler_job_mismatch");
-        await this.repository.updateActivity(fence, {
-          activity: status.activity, now: this.now()
-        });
+        const terminal = status.state === "succeeded" || status.state === "partial";
+        if (!terminal) {
+          await this.repository.updateActivity(fence, {
+            activity: status.activity, now: this.now()
+          });
+        }
+        if (status.state === "paused") {
+          await this.repository.fail(
+            fence, "mediacrawler_job_paused", this.now(), true
+          );
+          return true;
+        }
         if (["failed", "cancelled"].includes(status.state)) {
           if (status.state === "cancelled") {
             await this.repository.requestCancel(job.workspaceId, job.runId, this.now());
@@ -146,7 +155,6 @@ export class AcquisitionCrawlerWorker {
         if (availablePageCount < 0) {
           throw new Error("mediacrawler_page_count_regressed");
         }
-        const terminal = status.state === "succeeded" || status.state === "partial";
         let cursor = current.cursor;
         let terminalPagePersisted = false;
         for (let pageOffset = 0; pageOffset < availablePageCount; pageOffset += 1) {
@@ -167,7 +175,8 @@ export class AcquisitionCrawlerWorker {
             done: page.done,
             ...(page.done ? {
               terminalState: status.state as "succeeded" | "partial",
-              terminalErrorCode: status.failureCode
+              terminalErrorCode: status.failureCode,
+              terminalActivity: status.activity
             } : {}),
             now: this.now()
           });

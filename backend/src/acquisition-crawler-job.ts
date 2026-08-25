@@ -132,6 +132,7 @@ export interface AcquisitionCrawlerStatus {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  candidateProjectionState: "pending" | "ready" | "failed";
   activity: AcquisitionCrawlerActivity;
 }
 
@@ -192,6 +193,22 @@ export function assertAcquisitionCrawlerActivity(
     || !["visible", "headless"].includes(activity.browserMode)
     || !Number.isSafeInteger(activity.sequence) || activity.sequence < 0) {
     throw new TypeError("invalid_crawler_activity");
+  }
+}
+
+export function assertCrawlerActivityObserved(value: unknown): asserts value is boolean {
+  if (typeof value !== "boolean") {
+    throw new TypeError("invalid_crawler_activity_observation");
+  }
+}
+
+export function assertTerminalCrawlerActivity(
+  activity: AcquisitionCrawlerActivity | undefined
+): asserts activity is AcquisitionCrawlerActivity {
+  if (!activity) throw new TypeError("invalid_crawler_terminal_activity");
+  assertAcquisitionCrawlerActivity(activity);
+  if (activity.phase !== "completed" || activity.currentKeyword !== null) {
+    throw new TypeError("invalid_crawler_terminal_activity");
   }
 }
 
@@ -260,6 +277,18 @@ export function normalizedDouyinLegacyContentHash(
 }
 
 export function crawlerStatus(job: AcquisitionCrawlerJob, runId: string): AcquisitionCrawlerStatus {
+  assertAcquisitionCrawlerActivity(job.activity);
+  assertCrawlerActivityObserved(job.activityObserved);
+  const candidateProjectionState = (() => {
+    if (["scheduled", "queued", "running"].includes(job.state)) {
+      return "pending" as const;
+    }
+    if (["paused", "cancelled", "failed"].includes(job.state)) {
+      return "ready" as const;
+    }
+    if (job.ingestionState === "failed") return "failed" as const;
+    return job.ingestionState === "succeeded" ? "ready" as const : "pending" as const;
+  })();
   return Object.freeze({
     runId, state: job.state, attempt: job.attempt,
     cursorPersisted: job.cursor !== null, recordCount: job.recordCount,
@@ -267,6 +296,12 @@ export function crawlerStatus(job: AcquisitionCrawlerJob, runId: string): Acquis
     candidateBudgetLimit: job.dailyCandidateLimit,
     lastErrorCode: job.lastErrorCode, createdAt: job.createdAt,
     updatedAt: job.updatedAt, completedAt: job.completedAt,
-    activity: structuredClone(job.activity)
+    candidateProjectionState,
+    activity: Object.freeze({
+      phase: job.activity.phase,
+      currentKeyword: job.activity.currentKeyword,
+      browserMode: job.activity.browserMode,
+      sequence: job.activity.sequence
+    })
   });
 }

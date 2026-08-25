@@ -10,6 +10,10 @@ const queuedActivity = {
   phase: "queued" as const, currentKeyword: null,
   browserMode: "headless" as const, sequence: 0
 };
+const completedActivity = {
+  phase: "completed" as const, currentKeyword: null,
+  browserMode: "headless" as const, sequence: 1
+};
 const job: AcquisitionCrawlerJobInput = {
   id: "crawler-1", workspaceId: "workspace-1", runId: "run-1",
   automationIntentId: "intent-1", planId: "plan-1",
@@ -35,7 +39,7 @@ test("worker resumes from persisted cursor and never acknowledges sidecar pages"
     }; },
     async getCrawlJob() { return {
       jobId: "crawler-1", state: "succeeded" as const,
-      recordCount: 1, pageCount: 2, failureCode: null, activity: queuedActivity
+      recordCount: 1, pageCount: 2, failureCode: null, activity: completedActivity
     }; },
     async getCrawlResults(_jobId: string, cursor: string | null) {
       cursors.push(cursor);
@@ -101,6 +105,119 @@ test("worker persists validated sidecar activity before a zero-page poll", async
   await worker.close();
 });
 
+test("worker requeues a paused sidecar job after preserving activity and restarts it on the next claim", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(job);
+  await repository.enqueue("workspace-1", "run-1", now);
+  let starts = 0;
+  let pausedPolls = 0;
+  const worker = new AcquisitionCrawlerWorker({
+    repository,
+    gateway: {
+      async startCrawlJob() {
+        starts += 1;
+        return {
+          jobId: "crawler-1", state: "running" as const,
+          recordCount: 0, pageCount: 0, failureCode: null,
+          activity: starts === 1
+            ? { phase: "starting_browser" as const, currentKeyword: null,
+              browserMode: "visible" as const, sequence: 1 }
+            : { phase: "opening_douyin" as const, currentKeyword: null,
+              browserMode: "visible" as const, sequence: 3 }
+        };
+      },
+      async getCrawlJob() {
+        if (starts === 1) {
+          pausedPolls += 1;
+          if (pausedPolls > 1) throw new Error("paused_status_polled_again");
+          return {
+            jobId: "crawler-1", state: "paused" as const,
+            recordCount: 0, pageCount: 0, failureCode: null,
+            activity: { phase: "searching" as const, currentKeyword: "pump",
+              browserMode: "visible" as const, sequence: 2 }
+          };
+        }
+        return {
+          jobId: "crawler-1", state: "cancelled" as const,
+          recordCount: 0, pageCount: 0, failureCode: null,
+          activity: { phase: "opening_douyin" as const, currentKeyword: null,
+            browserMode: "visible" as const, sequence: 3 }
+        };
+      },
+      async getCrawlResults() { throw new Error("not expected"); },
+      async cancelCrawlJob() {}
+    },
+    accounts: { async findById() { return {
+      id: "account-1", workspaceId: "workspace-1", platform: "douyin" as const,
+      accountHandle: "private-handle", state: "active" as const, loginStateVersion: 2
+    }; } },
+    workerId: "worker-paused", now: () => now
+  });
+
+  assert.equal(await worker.runOnce(), true);
+  const requeued = await repository.findByRun("workspace-1", "run-1");
+  assert.equal(pausedPolls, 1);
+  assert.equal(requeued?.state, "queued");
+  assert.equal(requeued?.lastErrorCode, "mediacrawler_job_paused");
+  assert.equal(requeued?.leaseToken, null);
+  assert.equal(requeued?.activity.phase, "searching");
+  assert.equal(await worker.runOnce(), true);
+  assert.equal(starts, 2);
+  await worker.close();
+});
+
+test("worker keeps completed activity inside the terminal page transaction", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(job);
+  await repository.enqueue("workspace-1", "run-1", now);
+  const originalPersistPage = repository.persistPage.bind(repository);
+  let terminalInput: Parameters<typeof repository.persistPage>[1] | undefined;
+  repository.persistPage = async (fence, input) => {
+    terminalInput = input;
+    throw new Error("terminal_page_write_failed");
+  };
+  const worker = new AcquisitionCrawlerWorker({
+    repository,
+    gateway: {
+      async startCrawlJob() { return {
+        jobId: "crawler-1", state: "running" as const,
+        recordCount: 0, pageCount: 0, failureCode: null,
+        activity: { phase: "searching" as const, currentKeyword: "pump",
+          browserMode: "visible" as const, sequence: 1 }
+      }; },
+      async getCrawlJob() { return {
+        jobId: "crawler-1", state: "succeeded" as const,
+        recordCount: 0, pageCount: 1, failureCode: null,
+        activity: { phase: "completed" as const, currentKeyword: null,
+          browserMode: "visible" as const, sequence: 2 }
+      }; },
+      async getCrawlResults() {
+        return { jobId: "crawler-1", cursor: null, nextCursor: null,
+          done: true, records: [] };
+      },
+      async cancelCrawlJob() {}
+    },
+    accounts: { async findById() { return {
+      id: "account-1", workspaceId: "workspace-1", platform: "douyin" as const,
+      accountHandle: "private-handle", state: "active" as const, loginStateVersion: 2
+    }; } },
+    workerId: "worker-terminal-atomic", now: () => now
+  });
+
+  try {
+    assert.equal(await worker.runOnce(), true);
+    assert.deepEqual(terminalInput?.terminalActivity, {
+      phase: "completed", currentKeyword: null, browserMode: "visible", sequence: 2
+    });
+    const retried = await repository.findByRun("workspace-1", "run-1");
+    assert.equal(retried?.state, "queued");
+    assert.equal(retried?.activity.phase, "searching");
+  } finally {
+    repository.persistPage = originalPersistPage;
+    await worker.close();
+  }
+});
+
 test("claims stay bounded-fair across workspaces", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   const workspaceA1 = { ...job, id: "crawler-a1", runId: "run-a1",
@@ -133,7 +250,8 @@ test("worker alternates crawl and ingestion lanes under sustained crawl load", a
   const terminalClaim = await repository.claimNext("setup-worker", now, 30_000);
   assert.ok(terminalClaim);
   await repository.persistPage(terminalClaim.fence, {
-    expectedCursor: null, nextCursor: null, records: [], done: true, now
+    expectedCursor: null, nextCursor: null, records: [], done: true,
+    terminalActivity: completedActivity, now
   });
   for (const input of [
     { ...job, id: "crawler-load-1", runId: "run-load-1",
@@ -155,7 +273,7 @@ test("worker alternates crawl and ingestion lanes under sustained crawl load", a
       },
       async getCrawlJob(jobId) {
         return { jobId, state: "succeeded" as const,
-          recordCount: 0, pageCount: 1, failureCode: null, activity: queuedActivity };
+          recordCount: 0, pageCount: 1, failureCode: null, activity: completedActivity };
       },
       async getCrawlResults(jobId, cursor) {
         return { jobId, cursor, nextCursor: null, done: true, records: [] };
@@ -215,7 +333,7 @@ test("worker recovers terminal ingestion and acknowledges only after domain pers
     }; },
     async getCrawlJob() { return {
       jobId: "crawler-1", state: "succeeded" as const,
-      recordCount: 0, pageCount: 1, failureCode: null, activity: queuedActivity
+      recordCount: 0, pageCount: 1, failureCode: null, activity: completedActivity
     }; },
     async getCrawlResults() {
       return { jobId: "crawler-1", cursor: null, nextCursor: null, done: true, records: [] };
@@ -288,7 +406,7 @@ test("worker projects immutable pages before terminal status and preserves sidec
       await terminalGate;
       return { jobId: "crawler-1", state: "partial" as const,
         recordCount: 1, pageCount: 2,
-        failureCode: "crawl_interrupted_after_partial_results", activity: queuedActivity };
+        failureCode: "crawl_interrupted_after_partial_results", activity: completedActivity };
     },
     async getCrawlResults(_jobId: string, cursor: string | null) {
       return cursor === null
@@ -355,7 +473,7 @@ test("a live projection failure does not discard persisted crawl pages", async (
           ? { jobId: "crawler-1", state: "running" as const,
             recordCount: 0, pageCount: 1, failureCode: null, activity: queuedActivity }
           : { jobId: "crawler-1", state: "succeeded" as const,
-            recordCount: 0, pageCount: 2, failureCode: null, activity: queuedActivity };
+            recordCount: 0, pageCount: 2, failureCode: null, activity: completedActivity };
       },
       async getCrawlResults(jobId, cursor) {
         return cursor === null

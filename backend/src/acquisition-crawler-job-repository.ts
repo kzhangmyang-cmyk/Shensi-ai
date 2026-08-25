@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import {
   assertAcquisitionCrawlerActivity,
+  assertCrawlerActivityObserved,
   assertCrawlerJobInput,
+  assertTerminalCrawlerActivity,
   defaultAcquisitionCrawlerActivity,
   assertNormalizedDouyinRecord,
   type AcquisitionCrawlerJob,
@@ -21,6 +23,7 @@ export interface PersistCrawlerPageInput {
   done: boolean;
   terminalState?: "succeeded" | "partial";
   terminalErrorCode?: string | null;
+  terminalActivity?: import("./acquisition-crawler-job.js").AcquisitionCrawlerActivity;
   now: string;
 }
 
@@ -79,6 +82,39 @@ function sameActivity(
   return left.phase === right.phase
     && left.currentKeyword === right.currentKeyword
     && left.browserMode === right.browserMode;
+}
+function applyActivity(
+  job: AcquisitionCrawlerJob,
+  activity: import("./acquisition-crawler-job.js").AcquisitionCrawlerActivity,
+  now: string
+) {
+  assertAcquisitionCrawlerActivity(activity);
+  assertAcquisitionCrawlerActivity(job.activity);
+  assertCrawlerActivityObserved(job.activityObserved);
+  if (activity.currentKeyword !== null
+    && !job.keywords.includes(activity.currentKeyword)) {
+    throw new TypeError("invalid_crawler_activity");
+  }
+  if (!job.activityObserved) {
+    job.activity = structuredClone(activity);
+    job.activityObserved = true;
+    job.updatedAt = now;
+    return;
+  }
+  if (activity.sequence < job.activity.sequence) {
+    throw new Error("crawler_activity_sequence_regressed");
+  }
+  if (activity.sequence === job.activity.sequence) {
+    if (!sameActivity(activity, job.activity)) {
+      throw new Error("crawler_activity_sequence_conflict");
+    }
+    return;
+  }
+  if (sameActivity(activity, job.activity)) {
+    throw new Error("crawler_activity_sequence_without_change");
+  }
+  job.activity = structuredClone(activity);
+  job.updatedAt = now;
 }
 
 export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawlerJobRepository {
@@ -238,30 +274,7 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
     assertAcquisitionCrawlerActivity(input.activity);
     return this.transaction((state) => {
       const job = this.fenced(state, fence, input.now);
-      if (input.activity.currentKeyword !== null
-        && !job.keywords.includes(input.activity.currentKeyword)) {
-        throw new TypeError("invalid_crawler_activity");
-      }
-      if (!job.activityObserved) {
-        job.activity = structuredClone(input.activity);
-        job.activityObserved = true;
-        job.updatedAt = input.now;
-        return job;
-      }
-      if (input.activity.sequence < job.activity.sequence) {
-        throw new Error("crawler_activity_sequence_regressed");
-      }
-      if (input.activity.sequence === job.activity.sequence) {
-        if (!sameActivity(input.activity, job.activity)) {
-          throw new Error("crawler_activity_sequence_conflict");
-        }
-        return job;
-      }
-      if (sameActivity(input.activity, job.activity)) {
-        throw new Error("crawler_activity_sequence_without_change");
-      }
-      job.activity = structuredClone(input.activity);
-      job.updatedAt = input.now;
+      applyActivity(job, input.activity, input.now);
       return job;
     });
   }
@@ -277,7 +290,8 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
         throw new TypeError("invalid_crawler_next_cursor");
       }
       const hasTerminalMetadata = input.terminalState !== undefined
-        || input.terminalErrorCode !== undefined;
+        || input.terminalErrorCode !== undefined
+        || input.terminalActivity !== undefined;
       if ((!input.done && hasTerminalMetadata)
         || (input.terminalState !== undefined
           && !["succeeded", "partial"].includes(input.terminalState))
@@ -288,6 +302,7 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
           && input.terminalErrorCode != null)) {
         throw new TypeError("invalid_crawler_terminal_metadata");
       }
+      if (input.done) assertTerminalCrawlerActivity(input.terminalActivity);
       if (input.nextCursor !== null && job.cursorHistory.includes(input.nextCursor)) {
         throw new Error("crawler_cursor_cycle");
       }
@@ -311,6 +326,8 @@ export class InMemoryAcquisitionCrawlerJobRepository implements AcquisitionCrawl
       if (input.nextCursor !== null) job.cursorHistory.push(input.nextCursor);
       job.updatedAt = input.now;
       if (input.done) {
+        assertTerminalCrawlerActivity(input.terminalActivity);
+        applyActivity(job, input.terminalActivity, input.now);
         const sidecarPartial = input.terminalState === "partial";
         const budgetExhausted = job.lastErrorCode
           === "crawler_candidate_budget_exhausted";

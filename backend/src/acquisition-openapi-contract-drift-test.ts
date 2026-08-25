@@ -20,6 +20,7 @@ const planRunOperations = {
   "/api/v1/acquisition/plans/{id}/revisions": ["post"],
   "/api/v1/acquisition/plans/{id}/approval": ["post"],
   "/api/v1/acquisition/plans/{id}/runs": ["post"],
+  "/api/v1/acquisition/runs/{runId}/crawler-status": ["get"],
   "/api/v1/acquisition/runs/{id}": ["get"],
   "/api/v1/acquisition/runs/{id}/shards": ["get"],
   "/api/v1/acquisition/runs/{id}/presentation": ["get"],

@@ -470,6 +470,109 @@ test("crawler MySQL persists a fenced activity snapshot and defaults old JSON sa
   }).activity?.sequence, 1);
 });
 
+test("crawler MySQL fails closed for corrupt persisted activity or observation sentinel", async () => {
+  for (const [activity, activityObserved, expected] of [
+    [{ phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0,
+      browserProfile: "/private/profile" }, false, /invalid_crawler_activity/u],
+    [{ phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0 }, "false", /invalid_crawler_activity_observation/u]
+  ] as const) {
+    const legacy = { ...scheduledCrawlerJob(), activity, activityObserved };
+    const repository = new MysqlAcquisitionCrawlerJobRepository({
+      async query() { return [[{ payload_json: JSON.stringify(legacy) }], []]; }
+    } as never);
+    await assert.rejects(repository.findByRun("workspace-1", "run-1"), expected);
+  }
+});
+
+test("crawler MySQL rolls back an invalid terminal activity before changing the fenced job", async () => {
+  let stored = {
+    ...scheduledCrawlerJob(), state: "running" as const, attempt: 1,
+    leaseWorkerId: "worker-1", leaseToken: "c".repeat(64),
+    leaseExpiresAt: "2026-08-24T01:03:00.000Z", fencingToken: 1,
+    activity: { phase: "searching" as const, currentKeyword: "pump",
+      browserMode: "visible" as const, sequence: 1 }, activityObserved: true
+  };
+  const pool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+        async query(sql: string, values: unknown[] = []) {
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE id=")) {
+            return [[{ payload_json: JSON.stringify(stored) }], []];
+          }
+          if (sql.startsWith("SELECT COALESCE(MAX(sequence_no)")) return [[{ sequence_no: 0 }], []];
+          if (sql.startsWith("UPDATE acquisition_crawler_jobs")) {
+            stored = JSON.parse(String(values[5]));
+            return [{ affectedRows: 1 }, []];
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        }
+      };
+    }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+  await assert.rejects(repository.persistPage({
+    jobId: stored.id, workerId: "worker-1", leaseToken: "c".repeat(64), fencingToken: 1
+  }, {
+    expectedCursor: null, nextCursor: null, records: [], done: true,
+    terminalState: "succeeded", terminalErrorCode: null,
+    terminalActivity: { phase: "finalizing", currentKeyword: "pump",
+      browserMode: "visible", sequence: 2 },
+    now: "2026-08-24T01:02:04.567Z"
+  }), /invalid_crawler_terminal_activity/u);
+  assert.equal(stored.state, "running");
+  assert.equal(stored.leaseToken, "c".repeat(64));
+  assert.equal(stored.activity.phase, "searching");
+});
+
+test("crawler MySQL commits terminal activity with the final page and lease release", async () => {
+  let stored = {
+    ...scheduledCrawlerJob(), state: "running" as const, attempt: 1,
+    leaseWorkerId: "worker-1", leaseToken: "c".repeat(64),
+    leaseExpiresAt: "2026-08-24T01:03:00.000Z", fencingToken: 1,
+    activity: { phase: "searching" as const, currentKeyword: "pump",
+      browserMode: "visible" as const, sequence: 1 }, activityObserved: true
+  };
+  const pool = {
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+        async query(sql: string, values: unknown[] = []) {
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE id=")) {
+            return [[{ payload_json: JSON.stringify(stored) }], []];
+          }
+          if (sql.startsWith("SELECT COALESCE(MAX(sequence_no)")) {
+            return [[{ sequence_no: 0 }], []];
+          }
+          if (sql.startsWith("UPDATE acquisition_crawler_jobs")) {
+            stored = JSON.parse(String(values[5]));
+            return [{ affectedRows: 1 }, []];
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        }
+      };
+    }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+  const terminal = await repository.persistPage({
+    jobId: stored.id, workerId: "worker-1", leaseToken: "c".repeat(64), fencingToken: 1
+  }, {
+    expectedCursor: null, nextCursor: null, records: [], done: true,
+    terminalState: "succeeded", terminalErrorCode: null,
+    terminalActivity: { phase: "completed", currentKeyword: null,
+      browserMode: "visible", sequence: 2 },
+    now: "2026-08-24T01:02:04.567Z"
+  });
+  assert.equal(terminal.state, "succeeded");
+  assert.equal(terminal.ingestionState, "pending");
+  assert.deepEqual(terminal.activity, {
+    phase: "completed", currentKeyword: null, browserMode: "visible", sequence: 2
+  });
+  assert.equal(terminal.leaseToken, null);
+  assert.equal(stored.state, "succeeded");
+  assert.equal(stored.leaseToken, null);
+});
+
 test("crawler MySQL repository persists pages with DATETIME-compatible timestamps", async () => {
   let stored = {
     ...scheduledCrawlerJob(), state: "running" as const, attempt: 1,
@@ -678,7 +781,8 @@ test("live MySQL preserves lease ABA fencing and cursor/record atomicity", {
     await repository.persistPage(second.fence, { expectedCursor: "opaque-A", nextCursor: "opaque-B", records: [], done: false, now: "2026-08-24T00:00:05.000Z" });
     await assert.rejects(repository.persistPage(second.fence, { expectedCursor: "opaque-B", nextCursor: "opaque-A", records: [], done: false, now: "2026-08-24T00:00:06.000Z" }), /crawler_cursor_cycle/u);
     await assert.rejects(repository.persistPage(second.fence, { expectedCursor: "opaque-B", nextCursor: "opaque-C", records: [], done: true, now: "2026-08-24T00:00:06.000Z" }), /invalid_crawler_next_cursor/u);
-    await repository.persistPage(second.fence, { expectedCursor: "opaque-B", nextCursor: null, records: [], done: true, now: "2026-08-24T00:00:06.000Z" });
+    await repository.persistPage(second.fence, { expectedCursor: "opaque-B", nextCursor: null, records: [], done: true,
+      terminalActivity: { phase: "completed", currentKeyword: null, browserMode: "headless", sequence: 1 }, now: "2026-08-24T00:00:06.000Z" });
     assert.equal((await repository.findByRun("workspace-1", "run-1"))?.state, "succeeded");
     assert.equal((await repository.listRecords(scheduled.job.id)).length, 1);
   } finally {

@@ -1399,13 +1399,14 @@ const douyinAutomationRunIntentSchema = {
 };
 const acquisitionCrawlerStatusSchema = {
   type: "object", additionalProperties: false,
-  required: ["runId", "state", "attempt", "cursorPersisted", "recordCount", "candidateBudgetUsed", "candidateBudgetLimit", "lastErrorCode", "createdAt", "updatedAt", "completedAt", "activity"],
+  required: ["runId", "state", "attempt", "cursorPersisted", "recordCount", "candidateBudgetUsed", "candidateBudgetLimit", "candidateProjectionState", "lastErrorCode", "createdAt", "updatedAt", "completedAt", "activity"],
   properties: {
     runId: { type: "string" },
     state: { type: "string", enum: ["scheduled", "queued", "running", "succeeded", "partial", "paused", "cancelled", "failed"] },
     attempt: { type: "integer", minimum: 0 }, cursorPersisted: { type: "boolean" },
     recordCount: { type: "integer", minimum: 0 }, candidateBudgetUsed: { type: "integer", minimum: 0 },
     candidateBudgetLimit: { type: "integer", minimum: 1, maximum: 200 },
+    candidateProjectionState: { type: "string", enum: ["pending", "ready", "failed"] },
     lastErrorCode: { type: "string", nullable: true, maxLength: 100 },
     createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
     completedAt: { type: "string", format: "date-time", nullable: true },
