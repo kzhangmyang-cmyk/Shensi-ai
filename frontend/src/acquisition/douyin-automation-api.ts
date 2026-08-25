@@ -172,11 +172,13 @@ function validDateTime(value: unknown): value is string {
 
 function crawlerActivityShape(value: unknown): boolean {
   if (!isRecord(value) || Object.keys(value).length !== 4
+    || typeof value.phase !== "string"
     || !["queued", "starting_browser", "opening_douyin", "searching",
-      "collecting_comments", "finalizing", "completed"].includes(String(value.phase))
+      "collecting_comments", "finalizing", "completed"].includes(value.phase)
     || (value.currentKeyword !== null
       && (!validString(value.currentKeyword) || unicodeLength(value.currentKeyword) > 100))
-    || !["visible", "headless"].includes(String(value.browserMode))
+    || typeof value.browserMode !== "string"
+    || !["visible", "headless"].includes(value.browserMode)
     || !Number.isSafeInteger(value.sequence) || Number(value.sequence) < 0) return false;
   return Object.keys(value).every((key) => [
     "phase", "currentKeyword", "browserMode", "sequence"
@@ -192,7 +194,8 @@ function crawlerStatusShape(value: Record<string, unknown>, runId: string): bool
   return Object.keys(value).length === keys.length
     && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key))
     && value.runId === runId
-    && ["scheduled", "queued", "running", "succeeded", "partial", "paused", "cancelled", "failed"].includes(String(value.state))
+    && typeof value.state === "string"
+    && ["scheduled", "queued", "running", "succeeded", "partial", "paused", "cancelled", "failed"].includes(value.state)
     && Number.isSafeInteger(value.attempt) && Number(value.attempt) >= 0
     && typeof value.cursorPersisted === "boolean"
     && Number.isSafeInteger(value.recordCount) && Number(value.recordCount) >= 0

@@ -137,6 +137,38 @@ AssertionError: a validated terminal status must survive a candidate-read failur
 GREEN verification includes the focused controller self-test plus the complete
 frontend self-tests, TypeScript checks, production build, and `git diff --check`.
 
+## Final decoder and queued-placeholder hardening
+
+- The crawler status decoder now verifies that `state`, `activity.phase`, and
+  `activity.browserMode` are primitive strings before closed-enum membership.
+  Arrays, numbers, and objects fail closed rather than being coerced through
+  `String(...)`.
+- The pre-status queued placeholder keeps its own run token on the host. It is
+  polite once per outstanding run and off on same-run rerenders; a matching
+  status, no run intent, or a new intent resets the token as appropriate.
+
+RED evidence before the production edits:
+
+```text
+douyin-automation-api.self-test.ts
+AssertionError: Missing expected rejection.
+
+douyin-automation-view.self-test.ts
+AssertionError: the same pre-status run must not repeat its announcement
+'polite' !== 'off'
+```
+
+Final GREEN verification:
+
+```text
+npx tsx src/acquisition/douyin-automation-api.self-test.ts
+{"ok":true,"suite":"douyin-automation-api"}
+npx tsx src/acquisition/douyin-automation-view.self-test.ts
+{"ok":true,"suite":"douyin-automation-view"}
+npx tsx src/acquisition/douyin-automation-controller.self-test.ts
+{"ok":true,"suite":"douyin-automation-controller"}
+```
+
 ## Self-review and limitations
 
 - The decoder rejects only forbidden keys, recursively through records and

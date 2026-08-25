@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { parseHTML } from "linkedom";
+import type { DouyinAutomationState } from "./douyin-automation-controller";
 import type { DouyinCrawlerStatus } from "./douyin-automation-api";
 import { renderDouyinAutomationView } from "./douyin-automation-view";
 
@@ -123,6 +124,22 @@ const observedState = (crawlerStatus: DouyinCrawlerStatus, error: string | null 
   account: connectedAccount, loginSession: null, policy: null, draftPolicy: { ...draftPolicy, keywords: ["袜子"] },
   runIntent: { ...queuedRunIntent, acquisitionRunId: crawlerStatus.runId }, crawlerStatus, candidates: [], selectedCandidateIds: [], error, suggestionError: null, closed: false
 });
+const queuedPlaceholderState = (runIntent = queuedRunIntent): DouyinAutomationState => ({
+  phase: "ready", planId: "plan-1", planName: "袜子获客计划", planStatus: "approved",
+  account: connectedAccount, loginSession: null, policy: null, draftPolicy: { ...draftPolicy, keywords: ["袜子"] },
+  runIntent, crawlerStatus: null, candidates: [], selectedCandidateIds: [], error: null, suggestionError: null, closed: false
+});
+renderDouyinAutomationView(host, queuedPlaceholderState());
+assert.equal(host.querySelector<HTMLElement>(".douyin-run-panel .douyin-empty[role=status]")?.getAttribute("aria-live"), "polite", "the first pre-status run announcement may be polite");
+renderDouyinAutomationView(host, queuedPlaceholderState());
+assert.equal(host.querySelector<HTMLElement>(".douyin-run-panel .douyin-empty[role=status]")?.getAttribute("aria-live"), "off", "the same pre-status run must not repeat its announcement");
+renderDouyinAutomationView(host, observedState({ ...queuedStatus, runId: queuedRunIntent.acquisitionRunId }));
+const nextQueuedIntent = { ...queuedRunIntent, id: "intent-waiting-2", acquisitionRunId: "run-waiting-2" };
+renderDouyinAutomationView(host, queuedPlaceholderState(nextQueuedIntent));
+assert.equal(host.querySelector<HTMLElement>(".douyin-run-panel .douyin-empty[role=status]")?.getAttribute("aria-live"), "polite", "a new run must announce after status reset");
+renderDouyinAutomationView(host, { ...queuedPlaceholderState(nextQueuedIntent), runIntent: null });
+renderDouyinAutomationView(host, queuedPlaceholderState(nextQueuedIntent));
+assert.equal(host.querySelector<HTMLElement>(".douyin-run-panel .douyin-empty[role=status]")?.getAttribute("aria-live"), "polite", "clearing the run intent must reset a later queued announcement");
 renderDouyinAutomationView(host, observedState(queuedStatus));
 const firstObservation = host.querySelector<HTMLElement>(".douyin-run-live-activity")!;
 assert.match(firstObservation.textContent ?? "", /等待浏览器启动/u);

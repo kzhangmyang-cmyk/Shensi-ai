@@ -9,9 +9,11 @@ const browserModeLabel: Record<string, string> = { visible: "可视窗口已打�
 const terminalRunStates = new Set(["succeeded", "partial", "paused", "cancelled", "failed"]);
 const renderedActivitySequence = Symbol("renderedActivitySequence");
 const renderedErrorCode = Symbol("renderedErrorCode");
+const renderedQueuedRunToken = Symbol("renderedQueuedRunToken");
 type ObservationHost = HTMLElement & {
   [renderedActivitySequence]?: number | null;
   [renderedErrorCode]?: string | null;
+  [renderedQueuedRunToken]?: string | null;
 };
 
 function activityBrowserLabel(phase: string, browserMode: string): string {
@@ -84,6 +86,11 @@ export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutom
   const errorCode = status?.lastErrorCode ?? null;
   const errorLive = errorCode !== null && activityHost[renderedErrorCode] !== errorCode ? "polite" : "off";
   activityHost[renderedErrorCode] = errorCode;
+  const queuedRunToken = hasOutstandingRun && state.runIntent
+    ? `${state.runIntent.id}:${state.runIntent.acquisitionRunId}` : null;
+  const queuedLive = queuedRunToken !== null && activityHost[renderedQueuedRunToken] !== queuedRunToken
+    ? "polite" : "off";
+  activityHost[renderedQueuedRunToken] = queuedRunToken;
   const candidates = hasOutstandingRun ? [] : state.candidates;
   const selected = new Set(state.selectedCandidateIds);
   const inspector = candidates.find((candidate) => selected.has(candidate.id)) ?? candidates[0] ?? null;
@@ -125,7 +132,7 @@ export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutom
       </div>
       <article class="douyin-panel douyin-run-panel">
         <div class="douyin-panel-title"><span class="douyin-step">03</span><div><h3>实时采集</h3><p>${status ? escape(runLabel[status.state] ?? status.state) : state.runIntent ? "排队中" : "保存计划后可立即运行"}</p></div></div>
-        ${status ? `<div class="douyin-run-observation"><div class="douyin-run-live-activity" role="status" aria-live="${activityLive}" aria-atomic="true"><div class="douyin-run-observation-head"><strong>${escape(phaseLabel[status.activity.phase] ?? status.activity.phase)}</strong><span>${escape(activityBrowserLabel(status.activity.phase, status.activity.browserMode))}</span></div><span>当前关键词：${escape(status.activity.currentKeyword ?? "等待服务器分配关键词")}</span></div><div class="douyin-run-observation-details"><span>第 ${status.attempt} 次尝试</span><span>更新于 ${escape(new Date(status.updatedAt).toLocaleString("zh-CN", { hour12: false }))}</span></div></div><div class="douyin-run-metrics"><div><span>公开记录</span><strong>${status.recordCount}</strong></div><div><span>候选人额度</span><strong>${status.candidateBudgetUsed} / ${status.candidateBudgetLimit}</strong></div></div>${status.lastErrorCode ? `<p class="douyin-safe-reason" role="status" aria-live="${errorLive}">运行提示：${escape(localizedCrawlerError(status.lastErrorCode, status.state))}</p>` : ""}` : state.runIntent ? `<div class="douyin-empty" role="status" aria-live="polite" aria-atomic="true"><strong>排队中</strong><p>已提交采集，等待服务器返回首次观测状态。</p></div>` : `<div class="douyin-empty"><strong>暂无采集运行</strong><p>系统不会用演示数据替代服务器状态。</p></div>`}
+        ${status ? `<div class="douyin-run-observation"><div class="douyin-run-live-activity" role="status" aria-live="${activityLive}" aria-atomic="true"><div class="douyin-run-observation-head"><strong>${escape(phaseLabel[status.activity.phase] ?? status.activity.phase)}</strong><span>${escape(activityBrowserLabel(status.activity.phase, status.activity.browserMode))}</span></div><span>当前关键词：${escape(status.activity.currentKeyword ?? "等待服务器分配关键词")}</span></div><div class="douyin-run-observation-details"><span>第 ${status.attempt} 次尝试</span><span>更新于 ${escape(new Date(status.updatedAt).toLocaleString("zh-CN", { hour12: false }))}</span></div></div><div class="douyin-run-metrics"><div><span>公开记录</span><strong>${status.recordCount}</strong></div><div><span>候选人额度</span><strong>${status.candidateBudgetUsed} / ${status.candidateBudgetLimit}</strong></div></div>${status.lastErrorCode ? `<p class="douyin-safe-reason" role="status" aria-live="${errorLive}">运行提示：${escape(localizedCrawlerError(status.lastErrorCode, status.state))}</p>` : ""}` : state.runIntent ? `<div class="douyin-empty" role="status" aria-live="${queuedLive}" aria-atomic="true"><strong>排队中</strong><p>已提交采集，等待服务器返回首次观测状态。</p></div>` : `<div class="douyin-empty"><strong>暂无采集运行</strong><p>系统不会用演示数据替代服务器状态。</p></div>`}
       </article>
       <article class="douyin-panel douyin-candidates-panel">
         <div class="douyin-panel-title"><span class="douyin-step">04</span><div><h3>候选人与证据</h3><p>选中后生成待审批批次；取消选中即排除，不执行联系。</p></div></div>

@@ -175,6 +175,9 @@ for (const malformedCrawler of [
   { ...crawler, candidateProjectionState: ["ready"] },
   (() => { const { candidateProjectionState: _candidateProjectionState, ...missing } = crawler; return missing; })(),
   { ...crawler, state: "unknown" },
+  { ...crawler, state: ["partial"] },
+  { ...crawler, state: 1 },
+  { ...crawler, state: { value: "partial" } },
   { ...crawler, attempt: -1 },
   { ...crawler, cursorPersisted: "yes" },
   { ...crawler, recordCount: 1.5 },
@@ -190,6 +193,12 @@ for (const malformedCrawler of [
   { ...crawler, updatedAt: "not-a-date" },
   { ...crawler, completedAt: "not-a-date" },
   (() => { const { recordCount: _recordCount, ...missing } = crawler; return missing; })(),
+  { ...crawler, activity: { ...crawler.activity, phase: ["collecting_comments"] } },
+  { ...crawler, activity: { ...crawler.activity, phase: 1 } },
+  { ...crawler, activity: { ...crawler.activity, phase: { value: "collecting_comments" } } },
+  { ...crawler, activity: { ...crawler.activity, browserMode: ["visible"] } },
+  { ...crawler, activity: { ...crawler.activity, browserMode: 1 } },
+  { ...crawler, activity: { ...crawler.activity, browserMode: { value: "visible" } } },
   { ...crawler, activity: { ...crawler.activity, activityObserved: true } }
 ]) {
   await assert.rejects(
