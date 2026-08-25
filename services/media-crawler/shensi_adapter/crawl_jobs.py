@@ -205,6 +205,7 @@ class _VisibleDouyinObserver:
         self._activity_path = activity_path
         self._current_keyword: str | None = None
         self._observation_page: object | None = None
+        self._navigation_task: asyncio.Task[None] | None = None
 
     def _publish(self, phase: str, current_keyword: str | None = None) -> None:
         _write_activity_snapshot(
@@ -220,23 +221,44 @@ class _VisibleDouyinObserver:
             if self._observation_page is None:
                 self._observation_page = await crawler.browser_context.new_page()  # type: ignore[attr-defined]
             await self._observation_page.goto(url)  # type: ignore[attr-defined]
+        except asyncio.CancelledError:
+            return
         except Exception:
             return
 
-    async def _open_search(self, crawler: object, keyword: object) -> None:
+    @staticmethod
+    def _consume_navigation_result(task: asyncio.Task[None]) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            return
+
+    def _schedule_navigation(self, crawler: object, url: str) -> None:
+        if self._navigation_task and not self._navigation_task.done():
+            return
+        try:
+            task = asyncio.create_task(self._navigate(crawler, url))
+        except RuntimeError:
+            return
+        self._navigation_task = task
+        task.add_done_callback(self._consume_navigation_result)
+
+    def _open_search(self, crawler: object, keyword: object) -> None:
         normalized_keyword = str(keyword)
         self._current_keyword = normalized_keyword
         self._publish("searching", normalized_keyword)
-        await self._navigate(
+        self._schedule_navigation(
             crawler,
             f"https://www.douyin.com/search/{quote(normalized_keyword, safe='')}?type=general"
         )
 
-    async def _open_video(self, crawler: object, aweme_id: object) -> None:
+    def _open_video(self, crawler: object, aweme_id: object) -> None:
         normalized_aweme_id = str(aweme_id)
         self._publish("collecting_comments", self._current_keyword)
         if re.fullmatch(r"[0-9]{1,32}", normalized_aweme_id):
-            await self._navigate(
+            self._schedule_navigation(
                 crawler,
                 f"https://www.douyin.com/video/{normalized_aweme_id}"
             )
@@ -263,19 +285,23 @@ class _VisibleDouyinObserver:
                 keyword = unquote(str(encoded_keyword))
                 from var import source_keyword_var
                 source_keyword_var.set(keyword)
-                await self._open_search(crawler, keyword)
+                self._open_search(crawler, keyword)
                 if "keyword" in kwargs:
                     kwargs = {**kwargs, "keyword": keyword}
                 elif args:
                     args = (keyword, *args[1:])
-                return await original_search_info(*args, **kwargs)
+                result = await original_search_info(*args, **kwargs)
+                await asyncio.sleep(0)
+                return result
 
             client.search_info_by_keyword = observed_search_info
             return await original_search()
 
         async def observed_get_comments(aweme_id, *args, **kwargs):
-            await self._open_video(crawler, aweme_id)
-            return await original_get_comments(aweme_id, *args, **kwargs)
+            self._open_video(crawler, aweme_id)
+            result = await original_get_comments(aweme_id, *args, **kwargs)
+            await asyncio.sleep(0)
+            return result
 
         crawler.search = observed_search  # type: ignore[attr-defined]
         crawler.get_comments = observed_get_comments  # type: ignore[attr-defined]
@@ -299,8 +325,17 @@ class MediaCrawlerRunner:
 
     def __call__(self, request: CrawlJobRequest, profile: Path,
                  cancelled: threading.Event):
-        output = self._service_root / ".shensi-crawl-output" / request.job_id
-        output.mkdir(mode=0o700, parents=True, exist_ok=True)
+        job_output = self._service_root / ".shensi-crawl-output" / request.job_id
+        job_output.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for _ in range(8):
+            output = job_output / f"attempt-{secrets.token_hex(16)}"
+            try:
+                output.mkdir(mode=0o700)
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise RuntimeError("crawl_attempt_directory_unavailable")
         spec = output / "request.json"
         _atomic_json(spec, {
             "profile": str(profile), "output": str(output),
@@ -545,12 +580,23 @@ class CrawlJobManager:
         if persist:
             self._persist(job)
 
+    def _persisted_record_ids(self, job: dict) -> set[str]:
+        record_ids: set[str] = set()
+        directory = self._directory(job["request"]["job_id"])
+        for descriptor in job["pages"]:
+            page = CrawlJobPage.model_validate_json(
+                (directory / descriptor["file"]).read_text(encoding="utf-8")
+            )
+            record_ids.update(record.record_id for record in page.records)
+        return record_ids
+
     def _execute(self, request: CrawlJobRequest, profile: Path, cancelled: threading.Event) -> None:
         pending: list[NormalizedDouyinRecord] = []
         seen: set[str] = set()
         try:
             with self._lock:
                 job = self._jobs[request.job_id]
+                seen = self._persisted_record_ids(job)
                 job["state"], job["updated_at"] = "running", self._now().isoformat()
                 previous = CrawlActivity.model_validate(job["activity"])
                 self._publish_activity(

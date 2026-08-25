@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import json
 import threading
@@ -15,7 +16,7 @@ from shensi_adapter.crawl_jobs import (
     _read_output_rows,
 )
 from shensi_adapter.douyin_normalizer import normalize_douyin_records
-from shensi_adapter.schemas import CrawlActivity, CrawlJobRequest
+from shensi_adapter.schemas import CrawlActivity, CrawlJobPage, CrawlJobRequest
 
 
 NOW = datetime(2026, 8, 24, 1, 2, 3, tzinfo=UTC)
@@ -377,6 +378,94 @@ def test_observer_page_creation_failure_does_not_interrupt_collection(tmp_path):
     assert crawler.browser_context.new_page_calls == 2
 
 
+def test_hung_observation_navigation_does_not_block_the_original_collector(tmp_path):
+    spec = tmp_path / "request.json"
+    spec.write_text(json.dumps({
+        "profile": str(tmp_path / "profile"),
+        "output": str(tmp_path / "output"),
+        "keywords": ["袜子"],
+        "max_videos": 2,
+        "max_comments_per_video": 2,
+        "max_pages_per_video": 1,
+        "collect_creators": False,
+        "collect_demand_comments": True,
+        "headless": False,
+    }), encoding="utf-8")
+    collector_called = threading.Event()
+    execution_finished = threading.Event()
+    failures = []
+
+    class HungPage:
+        def __init__(self):
+            self.entered = threading.Event()
+            self.loop = None
+            self.release_event = None
+
+        async def goto(self, _url):
+            self.loop = asyncio.get_running_loop()
+            self.release_event = asyncio.Event()
+            self.entered.set()
+            await self.release_event.wait()
+
+        def release(self):
+            if self.loop and self.release_event and not self.loop.is_closed():
+                self.loop.call_soon_threadsafe(self.release_event.set)
+
+    class FakeBrowserContext:
+        async def new_page(self):
+            return observation_page
+
+    class FakeClient:
+        async def search_info_by_keyword(self, *, keyword):
+            collector_called.set()
+            return f"search-{keyword}"
+
+    class FakeCrawler:
+        def __init__(self):
+            self.browser_context = FakeBrowserContext()
+            self.dy_client = FakeClient()
+
+        async def search(self):
+            return await self.dy_client.search_info_by_keyword(keyword="袜子")
+
+        async def get_comments(self, aweme_id, _semaphore):
+            return f"comments-{aweme_id}"
+
+        async def start(self):
+            self.search_result = await self.search()
+            self.comments_result = await self.get_comments("73001", None)
+
+    observation_page = HungPage()
+    crawler = FakeCrawler()
+
+    def execute():
+        try:
+            _execute_upstream(
+                spec,
+                config_module=SimpleNamespace(),
+                crawler_factory=lambda: crawler,
+                capture_installer=lambda *_: None,
+            )
+        except BaseException as error:  # Test harness records unexpected worker failures.
+            failures.append(error)
+        finally:
+            execution_finished.set()
+
+    worker = threading.Thread(target=execute, daemon=True)
+    worker.start()
+    assert observation_page.entered.wait(1)
+    try:
+        assert collector_called.wait(1), "collector was blocked by observation navigation"
+        assert execution_finished.wait(1), "upstream execution waited for observation navigation"
+    finally:
+        observation_page.release()
+        worker.join(1)
+
+    assert failures == []
+    assert crawler.search_result == "search-袜子"
+    assert crawler.comments_result == "comments-73001"
+
+
 def test_execute_upstream_publishes_opening_only_after_standard_browser_launch(
     tmp_path, monkeypatch,
 ):
@@ -441,9 +530,7 @@ def test_runner_reads_each_activity_snapshot_once_when_replaced_during_a_poll(
     request_value = request("activity-race").model_copy(update={
         "deadline_at": datetime.now(UTC) + timedelta(minutes=5),
     })
-    activity_path = (
-        service_root / ".shensi-crawl-output" / "activity-race" / "activity.json"
-    )
+    activity_paths = []
     starting = json.dumps({
         "phase": "starting_browser", "current_keyword": None,
         "browser_mode": "visible",
@@ -468,7 +555,10 @@ def test_runner_reads_each_activity_snapshot_once_when_replaced_during_a_poll(
 
     process = FakeProcess()
 
-    def popen(*_args, **_kwargs):
+    def popen(command, **_kwargs):
+        output = Path(json.loads(Path(command[-1]).read_text(encoding="utf-8"))["output"])
+        activity_path = output / "activity.json"
+        activity_paths.append(activity_path)
         activity_path.parent.mkdir(parents=True, exist_ok=True)
         activity_path.write_text(opening, encoding="utf-8")
         return process
@@ -477,7 +567,7 @@ def test_runner_reads_each_activity_snapshot_once_when_replaced_during_a_poll(
     reads = iter([starting, opening, opening, opening])
 
     def read_text(path, *args, **kwargs):
-        if path == activity_path:
+        if activity_paths and path == activity_paths[0]:
             return next(reads)
         return original_read_text(path, *args, **kwargs)
 
@@ -499,6 +589,46 @@ def test_runner_reads_each_activity_snapshot_once_when_replaced_during_a_poll(
             browser_mode="visible", sequence=0,
         ),
     ]
+
+
+def test_runner_isolates_each_attempt_from_stale_job_output(tmp_path, monkeypatch):
+    service_root = tmp_path / "service"
+    job_output = service_root / ".shensi-crawl-output" / "isolated-attempt"
+    stale_jsonl = job_output / "douyin" / "jsonl"
+    stale_jsonl.mkdir(parents=True)
+    (job_output / "activity.json").write_text(json.dumps({
+        "phase": "finalizing", "current_keyword": None, "browser_mode": "headless",
+    }), encoding="utf-8")
+    (stale_jsonl / "search_contents.jsonl").write_text(
+        json.dumps(fixtures()[0][1]) + "\n", encoding="utf-8",
+    )
+    outputs = []
+
+    class CompletedProcess:
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+    def popen(command, **_kwargs):
+        value = json.loads(Path(command[-1]).read_text(encoding="utf-8"))
+        outputs.append(Path(value["output"]))
+        return CompletedProcess()
+
+    monkeypatch.setattr("shensi_adapter.crawl_jobs.subprocess.Popen", popen)
+    runner = MediaCrawlerRunner(service_root)
+    request_value = request("isolated-attempt").model_copy(update={
+        "deadline_at": datetime.now(UTC) + timedelta(minutes=5),
+    })
+
+    first = list(runner(request_value, tmp_path / "profile", threading.Event()))
+    second = list(runner(request_value, tmp_path / "profile", threading.Event()))
+
+    assert first == []
+    assert second == []
+    assert len(outputs) == 2
+    assert outputs[0] != outputs[1]
+    assert all(output != job_output and output.is_relative_to(job_output) for output in outputs)
 
 
 def test_manager_persists_only_authorized_activity_keywords_with_monotonic_sequence(tmp_path):
@@ -844,6 +974,69 @@ def test_manager_publishes_full_pages_while_the_runner_is_still_running(tmp_path
     manager.close()
 
 
+def test_manager_deduplicates_persisted_page_record_ids_after_paused_restart(tmp_path):
+    job_id = "paused-restart"
+    request_value = request(job_id)
+    record = normalize_douyin_records(fixtures(), observed_at=NOW)[0]
+    directory = tmp_path / "crawl-jobs" / job_id
+    directory.mkdir(parents=True)
+    first_page = CrawlJobPage(
+        job_id=job_id,
+        cursor=None,
+        next_cursor="resume-cursor",
+        done=False,
+        records=[record],
+    )
+    (directory / "page-00000000.json").write_text(
+        json.dumps(first_page.model_dump(mode="json")), encoding="utf-8",
+    )
+    (directory / "job.json").write_text(json.dumps({
+        "request": request_value.model_dump(mode="json"),
+        "created_at": NOW.isoformat(),
+        "updated_at": NOW.isoformat(),
+        "completed_at": None,
+        "acknowledged_at": None,
+        "state": "running",
+        "record_count": 1,
+        "pages": [{
+            "cursor": None,
+            "next_cursor": "resume-cursor",
+            "file": "page-00000000.json",
+        }],
+        "failure_code": None,
+        "activity": CrawlActivity(
+            phase="searching",
+            current_keyword="industrial pump",
+            browser_mode="headless",
+            sequence=2,
+        ).model_dump(mode="json"),
+    }), encoding="utf-8")
+
+    def recrawling_runner(_request, _profile, _cancelled):
+        yield record
+
+    manager = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: tmp_path / "profile",
+        runner=recrawling_runner,
+        now=lambda: NOW,
+        page_size=1,
+    )
+    try:
+        assert manager.get(job_id).state == "paused"
+        manager.start(request_value)
+        terminal = wait_terminal(manager, job_id)
+
+        assert terminal.state == "succeeded"
+        assert terminal.record_count == 1
+        persisted = manager.page(job_id, None)
+        final_page = manager.page(job_id, persisted.next_cursor)
+        assert [stored.record_id for stored in persisted.records] == [record.record_id]
+        assert final_page.records == []
+    finally:
+        manager.close()
+
+
 def test_media_crawler_runner_streams_completed_jsonl_rows_before_process_exit(
     tmp_path, monkeypatch,
 ):
@@ -862,8 +1055,11 @@ def test_media_crawler_runner_streams_completed_jsonl_rows_before_process_exit(
     process = FakeProcess()
     service_root = tmp_path / "service"
 
-    def popen(*_args, **_kwargs):
-        output = service_root / ".shensi-crawl-output" / "runner-stream" / "douyin" / "jsonl"
+    def popen(command, **_kwargs):
+        output = (
+            Path(json.loads(Path(command[-1]).read_text(encoding="utf-8"))["output"])
+            / "douyin" / "jsonl"
+        )
         output.mkdir(parents=True)
         (output / "search_contents.jsonl").write_text(
             json.dumps(fixtures()[0][1]) + "\n", encoding="utf-8",

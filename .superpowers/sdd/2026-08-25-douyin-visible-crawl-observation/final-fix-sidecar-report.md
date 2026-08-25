@@ -108,3 +108,114 @@ Output:
 - The observation tab remains intentionally best-effort and can be unavailable
   without changing deterministic collection. It is not an activity event log;
   snapshots can still coalesce between runner polls by design.
+
+## D1 remediation — bounded observation and restart isolation
+
+### Scope
+
+Changed only the Python sidecar, its adapter tests, and this report. All new
+coverage uses fake crawler pages/processes and local files. No browser,
+Douyin request, network call, or real crawl was started.
+
+### RED
+
+After adding the three behavior tests before production changes, ran:
+
+```bash
+uv run --frozen --project services/media-crawler pytest -q \
+  services/media-crawler/tests/shensi_adapter/test_crawl_jobs.py \
+  -k 'hung_observation_navigation or isolates_each_attempt or deduplicates_persisted_page_record_ids'
+```
+
+Output:
+
+```text
+FFF                                                                      [100%]
+FAILED test_hung_observation_navigation_does_not_block_the_original_collector
+AssertionError: collector was blocked by observation navigation
+FAILED test_runner_isolates_each_attempt_from_stale_job_output
+assert [CrawlActivity(...), ('video', {...})] == []
+FAILED test_manager_deduplicates_persisted_page_record_ids_after_paused_restart
+assert 2 == 1
+3 failed, 30 deselected in 2.22s
+```
+
+The failures respectively prove the old awaited observation navigation held
+the search collector, that a second runner invocation read stale job-root
+`activity.json` and JSONL, and that a paused restart appended an already
+persisted record ID again.
+
+### Implementation
+
+- `_VisibleDouyinObserver` now schedules one observation navigation task rather
+  than awaiting it before invoking the original search/comment collector. It
+  retains at most one unfinished task, consumes ordinary failure and
+  cancellation safely, and gives a completed collector one scheduling turn so
+  a fast best-effort mirror can still advance without waiting for a hung one.
+- `MediaCrawlerRunner` creates a cryptographically random, `0700` attempt
+  subdirectory below the validated job output root. Its request spec, activity
+  snapshot, and JSONL reads all use that attempt path; existing job-scoped
+  cleanup still removes the enclosing job root and every retained attempt.
+- `CrawlJobManager` reads the IDs from all persisted pages before resuming the
+  runner and seeds its normal record de-duplication set from them.
+
+### GREEN
+
+The new regression tests:
+
+```bash
+uv run --frozen --project services/media-crawler pytest -q \
+  services/media-crawler/tests/shensi_adapter/test_crawl_jobs.py \
+  -k 'hung_observation_navigation or isolates_each_attempt or deduplicates_persisted_page_record_ids'
+```
+
+```text
+...                                                                      [100%]
+3 passed, 30 deselected in 0.14s
+```
+
+Focused Task 1 adapter tests:
+
+```bash
+uv run --frozen --project services/media-crawler pytest -q \
+  services/media-crawler/tests/shensi_adapter/test_crawl_jobs.py \
+  services/media-crawler/tests/shensi_adapter/test_contracts.py
+```
+
+```text
+....................................                                     [100%]
+36 passed in 0.72s
+```
+
+All sidecar adapter tests and whitespace verification:
+
+```bash
+uv run --frozen --project services/media-crawler pytest -q \
+  services/media-crawler/tests/shensi_adapter
+git diff --check
+```
+
+```text
+.......................................................................  [100%]
+71 passed in 3.38s
+```
+
+`git diff --check` produced no output and exited successfully.
+
+### Self-review and limitations
+
+- The hung-page regression withholds the fake page release until after the
+  original collector has run and upstream execution has finished; restoring the
+  old awaited navigation makes that test fail before release.
+- The attempt-isolation regression seeds stale finalizing activity and raw
+  JSONL at the old job root, invokes the runner twice, and proves neither
+  invocation emits those rows while their attempt output paths differ.
+- The restart regression starts from a durable nonterminal page, lets the
+  resumed runner emit its same record, and proves the terminal count remains
+  one with an empty final page.
+- A hung observation intentionally suppresses later mirror navigations until
+  it finishes or is cancelled. This bounds task growth and leaves collection
+  authoritative; it does not queue an unbounded UI-navigation backlog.
+- Per-attempt private output is retained under the job root until the existing
+  acknowledgement/retention cleanup. Live browser and Douyin coverage remains
+  intentionally out of scope.
