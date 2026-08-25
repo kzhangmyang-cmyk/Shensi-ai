@@ -220,11 +220,18 @@ function boundedString(value: unknown, maxLength: number): value is string {
   return typeof value === "string" && unicodeLength(value) <= maxLength;
 }
 
+function nonEmptyBoundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && unicodeLength(value) > 0 && unicodeLength(value) <= maxLength;
+}
+
 function publicHttpUrl(value: unknown): value is string {
-  if (typeof value !== "string") return false;
+  if (typeof value !== "string" || value.length === 0
+    || /[\p{White_Space}\p{Cc}\p{Cf}]/u.test(value)
+    || /%(?![0-9A-Fa-f]{2})/u.test(value)) return false;
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
+    return (parsed.protocol === "http:" || parsed.protocol === "https:")
+      && parsed.hostname.length > 0;
   } catch { return false; }
 }
 
@@ -238,8 +245,8 @@ function candidateEvidenceShape(value: unknown): boolean {
 function runCandidateShape(value: unknown): boolean {
   return isRecord(value)
     && exactKeys(value, ["id", "status", "displayName", "evidence"])
-    && typeof value.id === "string"
-    && typeof value.status === "string"
+    && validString(value.id)
+    && validString(value.status)
     && boundedString(value.displayName, 200)
     && candidateEvidenceShape(value.evidence);
 }
@@ -248,7 +255,7 @@ function runCandidatePageShape(value: Record<string, unknown>): boolean {
   return exactKeys(value, ["items", "nextCursor"])
     && Array.isArray(value.items) && value.items.length <= 100
     && value.items.every(runCandidateShape)
-    && (value.nextCursor === null || boundedString(value.nextCursor, 8_192));
+    && (value.nextCursor === null || nonEmptyBoundedString(value.nextCursor, 8_192));
 }
 
 export function createDouyinAutomationApi(

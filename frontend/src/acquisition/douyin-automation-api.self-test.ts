@@ -230,11 +230,19 @@ for (const malformedCandidatePage of [
   { items: [{ ...canonicalCandidatePage.items[0], private: true }], nextCursor: null },
   { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, unknown: true } }], nextCursor: null },
   { items: [{ ...canonicalCandidatePage.items[0], evidence: null }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], id: "" }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], status: "" }], nextCursor: null },
   { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "ftp://public.example/video" } }], nextCursor: null },
   { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "not a url" } }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: " https://www.douyin.com/video/741234567890" } }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "https://www.douyin.com/video/741234567890\u00a0" } }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "\u0000https://www.douyin.com/video/741234567890" } }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "https:///" } }], nextCursor: null },
+  { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, sourceUrl: "https://www.douyin.com/%ZZ" } }], nextCursor: null },
   { items: [{ ...canonicalCandidatePage.items[0], displayName: "x".repeat(201) }], nextCursor: null },
   { items: [{ ...canonicalCandidatePage.items[0], evidence: { ...canonicalCandidatePage.items[0].evidence, excerpt: "x".repeat(501) } }], nextCursor: null },
   { items: Array.from({ length: 101 }, () => canonicalCandidatePage.items[0]), nextCursor: null },
+  { ...canonicalCandidatePage, nextCursor: "" },
   { ...canonicalCandidatePage, nextCursor: "x".repeat(8_193) }
 ]) {
   await assert.rejects(

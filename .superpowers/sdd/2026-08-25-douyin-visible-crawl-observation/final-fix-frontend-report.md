@@ -195,6 +195,27 @@ This was the old shallow page check accepting `items: [null]` and extra or
 malformed nested candidate data. The canonical valid page now passes; all
 listed malformed-page cases reject with `malformed_response`.
 
+## Final candidate identifier and URL hardening
+
+Candidate `id` and `status` now require nonempty primitive strings, and a
+non-null `nextCursor` must be nonempty and no more than 8,192 Unicode
+codepoints. Public evidence URLs must be nonempty HTTP(S) URLs with a hostname
+and are rejected before URL parsing if their raw value contains whitespace,
+control/format characters, or malformed percent escapes. This prevents
+WHATWG URL parsing from silently trimming or normalizing an unsafe raw input.
+
+RED evidence:
+
+```text
+npx tsx src/acquisition/douyin-automation-api.self-test.ts
+AssertionError: Missing expected rejection.
+```
+
+The prior decoder accepted an empty candidate identifier. The added regression
+set also covers empty status/cursor, ASCII and Unicode padding, a NUL prefix,
+hostless URL input, and malformed percent encoding. Canonical public data
+continues to pass.
+
 ## Self-review and limitations
 
 - The decoder rejects only forbidden keys, recursively through records and
