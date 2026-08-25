@@ -599,21 +599,21 @@ extends AuthoritativeDouyinCrawlerIngestionRepository {
   ) { super(domain); }
 
   private source() { return this.mysqlContext.getStore() ?? this.pool; }
+  withTransactionConnection<T>(connection: mysql.PoolConnection, work: () => Promise<T>) {
+    return this.mysqlContext.run(connection, () =>
+      (this.domain as MysqlAcquisitionDomainRepository)
+        .withTransactionConnection(connection, () =>
+          this.planRuns.withTransactionConnection(connection, work)));
+  }
   async transaction<T>(scope: IngestionScope, work: () => Promise<T>) {
     const active = this.mysqlContext.getStore();
     if (active) return work();
     const connection = await this.pool.getConnection();
     try {
       await connection.beginTransaction();
-      const result = await this.mysqlContext.run(connection, () =>
-        (this.domain as MysqlAcquisitionDomainRepository)
-          .withTransactionConnection(connection, () =>
-            this.planRuns.withTransactionConnection(connection, () =>
-              this.planRuns.transaction((plan) =>
-                this.context.run({ scope, plan }, work))
-            )
-          )
-      );
+      const result = await this.withTransactionConnection(connection, () =>
+        this.planRuns.transaction((plan) =>
+          this.context.run({ scope, plan }, work)));
       await connection.commit();
       return result;
     } catch (error) {

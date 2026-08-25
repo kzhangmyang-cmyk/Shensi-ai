@@ -21,7 +21,9 @@ Do not add parallel handwritten DTOs.
   provider connections, Douyin QR login/workspace accounts, immutable Douyin
   automation policies, server-derived keyword suggestions, and run-now intents with distinct authoritative
   acquisition-run IDs, persisted run crawler status, run-scoped candidate
-  feeds, visual reader, copilot, outcomes, performance, advisor, and
+  feeds, immutable outreach batch revisions, human approval, and ordered
+  comment-then-message action outbox reads, visual reader, copilot, outcomes,
+  performance, advisor, and
   ROI-related acquisition projections.
 - `/api/v1/catalog`: catalog items, package versions, and pricing policies.
 - `/api/v1/quotes`: quote cases, versions, approvals, publication, and deal

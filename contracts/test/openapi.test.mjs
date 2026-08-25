@@ -43,6 +43,13 @@ const section16 = {
   "/api/v1/acquisition/runs/{id}/cancel": ["post"],
   "/api/v1/acquisition/runs/{runId}/candidates": ["get"],
   "/api/v1/acquisition/runs/{runId}/crawler-status": ["get"],
+  "/api/v1/acquisition/runs/{runId}/outreach-batches": ["post"],
+  "/api/v1/acquisition/outreach-batches/{batchId}": ["get", "put"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/approve": ["post"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/reject": ["post"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/pause": ["post"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/resume": ["post"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/actions": ["get"],
   "/api/v1/acquisition/visual-reader-sessions": ["post"],
   "/api/v1/acquisition/visual-reader-sessions/{sessionId}": ["get"],
   "/api/v1/acquisition/visual-reader-sessions/{sessionId}/observations:batch": ["post"],
@@ -101,6 +108,7 @@ const reads = {
   "/api/v1/acquisition/runs/{id}": "AcquisitionRun",
   "/api/v1/acquisition/runs/{id}/presentation": "AcquisitionRunPresentation",
   "/api/v1/acquisition/runs/{runId}/crawler-status": "AcquisitionCrawlerStatus",
+  "/api/v1/acquisition/outreach-batches/{batchId}": "AcquisitionOutreachBatch",
   "/api/v1/acquisition/visual-reader-sessions/{sessionId}": "VisualReaderSession",
   "/api/v1/acquisition/candidates/{id}": "Candidate",
   "/api/v1/acquisition/candidate-intelligence-operations/{operationId}": "CandidateIntelligenceOperation",
@@ -184,6 +192,7 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
               || !isPlanRunOperation
               || path === "/api/v1/acquisition/plans"
               || path === "/api/v1/acquisition/plans/{id}/runs"
+              || path.includes("outreach-batches")
         );
       }
     }
@@ -437,6 +446,24 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
   );
   assert.deepEqual(presentation.properties.candidateEvents.items.properties.financialValue.type, ["null", "object"]);
   assert.equal(presentation.properties.summary.properties.expectedRevenueByCurrency.type, "array");
+});
+
+test("outreach approval is a closed human confirmation that publishes exact ordered outbox DTOs", async () => {
+  const document = await loadOpenApiSource();
+  const approval = document.paths["/api/v1/acquisition/outreach-batches/{batchId}/approve"].post;
+  const schema = approval.requestBody.content["application/json"].schema;
+  assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(schema.required, ["revision", "batchHash", "confirm"]);
+  assert.equal(schema.properties.confirm.const, true);
+  assert.equal(approval.responses["200"].content["application/json"].schema.$ref,
+    "#/components/schemas/AcquisitionOutreachBatch");
+  assert.equal(document.paths["/api/v1/acquisition/outreach-batches/{batchId}/actions"]
+    .get.responses["200"].content["application/json"].schema.$ref,
+  "#/components/schemas/AcquisitionOutreachActionList");
+  assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.properties.kind.enum,
+    ["comment", "direct_message"]);
+  assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.properties.status.enum,
+    ["queued", "blocked_by_predecessor"]);
 });
 
 test("authorized visual reader routes reuse the acquisition API style and binary artifact boundary", async () => {

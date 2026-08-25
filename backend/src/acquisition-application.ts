@@ -345,6 +345,16 @@ import {
 import { AcquisitionCrawlerRecoverySweeper } from "./acquisition-crawler-recovery-sweeper.js";
 import { AcquisitionDouyinScheduler } from "./acquisition-douyin-scheduler.js";
 import {
+  InMemoryAcquisitionOutreachBatchRepository,
+  type AcquisitionOutreachBatchRepository
+} from "./acquisition-outreach-batch-repository.js";
+import {
+  ensureAcquisitionOutreachBatchMysqlSchema,
+  MysqlAcquisitionOutreachBatchRepository
+} from "./acquisition-outreach-batch-mysql-repository.js";
+import { AcquisitionOutreachBatchService } from "./acquisition-outreach-batch-service.js";
+import { createAcquisitionOutreachBatchRouter } from "./acquisition-outreach-batch-router.js";
+import {
   AcquisitionVisualCommentIngestionService
 } from "./acquisition-visual-comment-ingestion.js";
 import {
@@ -549,6 +559,8 @@ export interface CreateAcquisitionApplicationOptions {
   /** Required for Task 6 draft generation when custom repositories prevent
    * the application from constructing a built-in atomic authority adapter. */
   outreachFinalAuthority?: AcquisitionOutreachFinalAuthority;
+  /** Test/runtime override for immutable outreach batch and ordered outbox persistence. */
+  outreachBatchRepository?: AcquisitionOutreachBatchRepository;
   crawlerWorkerIntervalMs?: number;
   crawlerRecoveryIntervalMs?: number;
   crawlerEvidenceRetentionIntervalMs?: number;
@@ -1283,6 +1295,7 @@ export async function createAcquisitionApplication(
       await ensureAcquisitionDouyinAutomationMysqlSchema(pool);
       await ensureAcquisitionCrawlerJobMysqlSchema(pool);
       await ensureAcquisitionDouyinCrawlerIngestionMysqlSchema(pool);
+      await ensureAcquisitionOutreachBatchMysqlSchema(pool);
       await ensureAdvisorCandidateAuthorityMysqlSchema(pool);
       const mysqlAuthority = options.advisorCandidateAuthority
         instanceof MysqlAdvisorCandidateAuthorityRepository
@@ -2251,6 +2264,65 @@ export async function createAcquisitionApplication(
           : createAcquisitionModelGatewayForSnapshot(options.store, snapshot);
       }
     });
+    const outreachBatches = new AcquisitionOutreachBatchService({
+      repository: options.outreachBatchRepository
+        ?? (options.store.mode === "mysql"
+          ? new MysqlAcquisitionOutreachBatchRepository(pool!,
+              crawlerIngestion instanceof MysqlAcquisitionDouyinCrawlerIngestionRepository
+                ? crawlerIngestion : undefined)
+          : new InMemoryAcquisitionOutreachBatchRepository({
+              memoryTransactions: planMemoryTransactions ?? undefined
+            })),
+      idFactory,
+      now,
+      async loadRunAuthority(scope, runId) {
+        const [run, job] = await Promise.all([
+          repositories.planRun.getRun(runId),
+          crawlerJobs.findByRun(scope.workspaceId, runId)
+        ]);
+        if (!run || !job || run.ownerId !== scope.ownerId || run.teamId !== scope.teamId
+          || job.workspaceId !== scope.workspaceId || job.runId !== run.id
+          || job.planId !== run.planId || job.planVersionId !== run.planVersionId
+          || job.planSnapshotHash !== run.planSnapshotHash) return null;
+        return { workspaceId: job.workspaceId, runId: run.id, planId: run.planId,
+          planVersionId: run.planVersionId, planVersion: run.planVersion,
+          planSnapshotHash: run.planSnapshotHash, policyVersionId: job.policyVersionId,
+          policyHash: job.policyHash, accountId: job.accountId,
+          accountLoginStateVersion: job.accountLoginStateVersion,
+          dailyBudgetId: job.dailyBudgetId, localDate: job.localDate,
+          dailyCandidateLimit: job.dailyCandidateLimit };
+      },
+      async listRunCandidateIds(scope, runId) {
+        const run = await repositories.planRun.getRun(runId);
+        if (!run || run.ownerId !== scope.ownerId || run.teamId !== scope.teamId) return [];
+        return (await repositories.planRun.listRunCandidateLinks(runId)).map((link) => link.candidateId);
+      },
+      generateDraft: (scope, candidateId) => outreachDraftService.generate({ scope, candidateId }),
+      async loadCandidateAuthority(scope, candidateId) {
+        const candidate = await repositories.domain.findCandidate(scope, candidateId);
+        if (!candidate || candidate.ownerId !== scope.ownerId || candidate.teamId !== scope.teamId
+          || candidate.profile.kind !== "individual" || candidate.profile.sourcePlatform !== "douyin"
+          || !candidate.profile.publicActorKey) return null;
+        const evidence = await Promise.all(candidate.evidenceIds.map((id) => repositories.domain.findEvidence(scope, id)));
+        if (evidence.some((item) => !item)) return null;
+        const trusted = evidence.filter((item): item is NonNullable<typeof item> => Boolean(item));
+        const verified = await finalAuthority.verify({ scope, candidateId,
+          evidenceIds: [...candidate.evidenceIds].sort(), publicActorKey: candidate.profile.publicActorKey,
+          expectedCandidate: candidate, expectedEvidence: trusted });
+        return { candidateId: verified.candidate.id,
+          candidateRevision: verified.candidate.version,
+          evidenceHashes: verified.evidence.map((item) => item.contentHash),
+          evidenceText: verified.evidence.map((item) => item.sourceSnippet),
+          publicActorKey: candidate.profile.publicActorKey,
+          doNotContact: verified.candidate.status === "do_not_contact"
+            || await finalAuthority.hasDoNotContact(scope, candidate.profile.publicActorKey) };
+      },
+      async loadAccountAuthority(scope, accountId) {
+        const account = await socialAccountRepository.findById(scope.workspaceId, accountId);
+        return account ? { accountId: account.id, state: account.state,
+          loginStateVersion: account.loginStateVersion } : null;
+      }
+    });
     const enqueueCrawlerJob = async (
       run: import("./acquisition-douyin-automation.js").DouyinAutomationRunIntent,
       policy: import("./acquisition-douyin-automation.js").DouyinAutomationPolicyVersion
@@ -2335,6 +2407,13 @@ export async function createAcquisitionApplication(
       "/api/v1/acquisition",
       createAcquisitionCrawlerJobRouter({
         repository: crawlerJobs,
+        requestIdFactory: () => idFactory("request")
+      })
+    );
+    router.use(
+      "/api/v1/acquisition",
+      createAcquisitionOutreachBatchRouter({
+        service: outreachBatches,
         requestIdFactory: () => idFactory("request")
       })
     );

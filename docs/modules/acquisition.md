@@ -98,7 +98,8 @@ one-way platform identity hash and minimum policy reason.
 
 Authenticated `/api/v1/acquisition/*` routes cover plans, runs, presentation,
 candidates, evidence, reviews, outcomes, performance, providers/connections,
-operations, visual-reader sessions/artifacts, copilot, and advisor projections.
+operations, versioned outreach batches and their ordered action outbox,
+visual-reader sessions/artifacts, copilot, and advisor projections.
 The Douyin account family provides QR-session create/poll, workspace account
 list, and disconnect. POST and DELETE require authentication, the browser CSRF
 cookie/header pair, and semantic `Idempotency-Key`; DELETE also requires the
@@ -133,7 +134,9 @@ code consumes `frontend/src/generated/ai-acquisition.ts`.
 workspace-bound persisted projection. It excludes the private account handle,
 lease, raw cursor, records, and live sidecar state.
 
-Outreach generation is a private service boundary until Task 7 creates a batch.
+Outreach generation is a private service boundary consumed only by the batch
+service. `POST /runs/{runId}/outreach-batches` persists its exact values as
+candidate draft revision 1; generation itself still performs no persistence.
 It loads only persisted workspace-owned candidates and their exact evidence,
 parses normalized refusal and age phrases again before any model call, uses the
 active official snapshot with closed structured output, and validates one-line,
@@ -153,6 +156,26 @@ available but Task 6 draft generation fails before model traffic. The returned
 authority projection is deeply immutable. The server recomputes the immutable
 content hash and discards raw model output; Task 6 does not persist drafts or
 create a competing revision ledger.
+
+The public batch family provides create, read, `PUT` revision, approve, reject,
+pause, resume, and action-list routes. Every mutation is authenticated,
+CSRF-protected for cookie sessions, capability-gated by
+`acquisition.outreach.approve`, and semantically idempotent; revision-bound
+mutations also require the current `If-Match`. A human edit is validated by
+the same Task 6 message validator, keeps the source model snapshot, recomputes
+content hashes, and creates draft revision 2 inside a new immutable batch
+revision. Approval and every lifecycle transition rotate the response ETag,
+so a pre-transition `If-Match` cannot authorize later state changes. Approval
+is the required human second confirmation of the supplied
+revision and batch hash. It rechecks account/login, candidate revision,
+evidence membership/hashes, DNC, and the actual selected policy limit before
+atomically recording the approver and exact content. It creates, but does not
+execute, one `comment` action with sequence 1 and status `queued`, followed by
+one `direct_message` action with sequence 2 and status
+`blocked_by_predecessor` per selected candidate. Memory uses the shared
+reentrant authority coordinator; MySQL locks the account and reuses one
+connection for candidate/evidence/DNC locks, approval, replay, daily-limit
+reservation, and both action inserts.
 
 ## Tests
 
@@ -196,9 +219,9 @@ linked evidence, DNC identity hashes, and audit events.
 
 ## Known Limitations
 
-Memory mode coordinates account and automation replays only inside one
+Memory mode coordinates account, automation, and outreach approval only inside one
 application process and does not prove crash/restart recovery; production
-account and automation idempotency require MySQL. Generic search is not guaranteed
+account, automation, and outreach idempotency require MySQL. Generic search is not guaranteed
 to provide Douyin coverage, and authorized visual reading is intentionally
 bounded to the visible, consented surface. Live-provider success cannot be
 claimed without configured provider connections. Reserved schemas without

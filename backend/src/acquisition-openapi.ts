@@ -1123,6 +1123,14 @@ const acquisitionOperationIds: Record<string, string> = {
   "post /api/v1/acquisition/plans/{planId}/run-now": "runAcquisitionDouyinAutomationNow",
   "get /api/v1/acquisition/runs/{runId}/crawler-status": "getAcquisitionCrawlerStatus",
   "get /api/v1/acquisition/runs/{runId}/candidates": "listAcquisitionRunCandidates",
+  "post /api/v1/acquisition/runs/{runId}/outreach-batches": "createAcquisitionOutreachBatch",
+  "get /api/v1/acquisition/outreach-batches/{batchId}": "getAcquisitionOutreachBatch",
+  "put /api/v1/acquisition/outreach-batches/{batchId}": "updateAcquisitionOutreachBatch",
+  "post /api/v1/acquisition/outreach-batches/{batchId}/approve": "approveAcquisitionOutreachBatch",
+  "post /api/v1/acquisition/outreach-batches/{batchId}/reject": "rejectAcquisitionOutreachBatch",
+  "post /api/v1/acquisition/outreach-batches/{batchId}/pause": "pauseAcquisitionOutreachBatch",
+  "post /api/v1/acquisition/outreach-batches/{batchId}/resume": "resumeAcquisitionOutreachBatch",
+  "get /api/v1/acquisition/outreach-batches/{batchId}/actions": "listAcquisitionOutreachActions",
   "get /api/v1/acquisition/providers": "listAcquisitionProviders",
   "get /api/v1/acquisition/provider-connections":
     "listAcquisitionProviderConnections",
@@ -1419,6 +1427,87 @@ const acquisitionRunCandidatesSchema = {
     nextCursor: { type: "string", nullable: true }
   }
 };
+const acquisitionOutreachBatchCandidateSchema = {
+  type: "object", additionalProperties: false,
+  required: ["candidateId", "selected", "candidateRevision", "evidenceHashes",
+    "draftRevision", "comment", "commentHash", "directMessage", "directMessageHash",
+    "rationaleCodes", "modelSnapshotId", "sourceModelSnapshotId", "contentHash"],
+  properties: {
+    candidateId: { type: "string", minLength: 1, maxLength: 255 }, selected: { type: "boolean" },
+    candidateRevision: { type: "integer", minimum: 1 },
+    evidenceHashes: { type: "array", minItems: 1, maxItems: 20, uniqueItems: true,
+      items: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" } },
+    draftRevision: { type: "integer", minimum: 1 }, comment: { type: "string", minLength: 1, maxLength: 300 },
+    commentHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+    directMessage: { type: "string", minLength: 1, maxLength: 800 },
+    directMessageHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+    rationaleCodes: { type: "array", minItems: 1, maxItems: 5, uniqueItems: true,
+      items: { type: "string", enum: ["evidence_grounded", "public_need_signal", "manual_review_required"] } },
+    modelSnapshotId: { type: "string", minLength: 1, maxLength: 255 },
+    sourceModelSnapshotId: { type: "string", minLength: 1, maxLength: 255 },
+    contentHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" }
+  }
+};
+const acquisitionOutreachBatchSchema = {
+  type: "object", additionalProperties: false,
+  required: ["id", "workspaceId", "runId", "planId", "planVersionId", "planVersion",
+    "planSnapshotHash", "policyVersionId", "policyHash", "accountId", "accountLoginStateVersion",
+    "dailyBudgetId", "localDate", "dailyCandidateLimit", "dailyRemainingLimit", "revision", "etag",
+    "state", "candidates", "batchHash", "approvedBy", "approvedAt", "approvalHash", "rejectedBy",
+    "rejectedAt", "rejectionReason", "pauseReason", "createdBy", "createdAt", "updatedBy", "updatedAt"],
+  properties: {
+    id: { type: "string", minLength: 1, maxLength: 255 },
+    workspaceId: { type: "string", minLength: 1, maxLength: 255 },
+    runId: { type: "string", minLength: 1, maxLength: 160 },
+    planId: { type: "string", minLength: 1, maxLength: 160 },
+    planVersionId: { type: "string", minLength: 1, maxLength: 160 },
+    planVersion: { type: "integer", minimum: 1 },
+    planSnapshotHash: { type: "string", minLength: 1, maxLength: 200 },
+    policyVersionId: { type: "string", minLength: 1, maxLength: 255 },
+    policyHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+    accountId: { type: "string", minLength: 1, maxLength: 255 },
+    accountLoginStateVersion: { type: "integer", minimum: 1 },
+    dailyBudgetId: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+    localDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+    dailyCandidateLimit: { type: "integer", minimum: 1, maximum: 200 },
+    dailyRemainingLimit: { type: "integer", minimum: 0, maximum: 200 },
+    revision: { type: "integer", minimum: 1 },
+    etag: { type: "string", minLength: 1, maxLength: 255 },
+    state: { type: "string", enum: ["awaiting_approval", "approved", "rejected", "paused"] },
+    candidates: { type: "array", minItems: 1, maxItems: 200, items: acquisitionOutreachBatchCandidateSchema },
+    batchHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+    approvedBy: { type: "string", nullable: true, maxLength: 255 }, approvedAt: { type: "string", format: "date-time", nullable: true },
+    approvalHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$", nullable: true },
+    rejectedBy: { type: "string", nullable: true, maxLength: 255 }, rejectedAt: { type: "string", format: "date-time", nullable: true },
+    rejectionReason: { type: "string", nullable: true, maxLength: 2_000 },
+    pauseReason: { type: "string", nullable: true, maxLength: 2_000 },
+    createdBy: { type: "string", minLength: 1, maxLength: 255 }, createdAt: { type: "string", format: "date-time" },
+    updatedBy: { type: "string", minLength: 1, maxLength: 255 }, updatedAt: { type: "string", format: "date-time" }
+  }
+};
+const acquisitionOutreachActionSchema = {
+  type: "object", additionalProperties: false,
+  required: ["id", "workspaceId", "batchId", "batchRevision", "candidateId", "accountId",
+    "accountLoginStateVersion", "policyVersionId", "localDate", "kind", "sequence", "status",
+    "predecessorActionId", "content", "contentHash", "approvalHash", "createdAt"],
+  properties: {
+    id: { type: "string", minLength: 1, maxLength: 255 },
+    workspaceId: { type: "string", minLength: 1, maxLength: 255 },
+    batchId: { type: "string", minLength: 1, maxLength: 255 },
+    batchRevision: { type: "integer", minimum: 1 },
+    candidateId: { type: "string", minLength: 1, maxLength: 255 },
+    accountId: { type: "string", minLength: 1, maxLength: 255 },
+    accountLoginStateVersion: { type: "integer", minimum: 1 },
+    policyVersionId: { type: "string", minLength: 1, maxLength: 255 },
+    localDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+    kind: { type: "string", enum: ["comment", "direct_message"] }, sequence: { type: "integer", enum: [1, 2] },
+    status: { type: "string", enum: ["queued", "blocked_by_predecessor"] },
+    predecessorActionId: { type: "string", nullable: true, maxLength: 255 }, content: { type: "string", minLength: 1, maxLength: 800 },
+    contentHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+    approvalHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+    createdAt: { type: "string", format: "date-time" }
+  }
+};
 function addSocialAccountPaths(paths: AcquisitionOpenApiPaths) {
   add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions", "post", operation("post", "开始抖音二维码登录", { parameters: [idempotencyParameter(1)], requestBody: jsonBody({ type: "object", required: ["platform"], properties: { platform: { type: "string", enum: ["douyin"] } }, additionalProperties: false }), responses: { ...standardResponses(201, "二维码登录会话", socialLoginSessionSchema), "200": { ...response("幂等重放", socialLoginSessionSchema), headers: { "Idempotency-Replayed": { schema: { type: "string", enum: ["true"] } } } } } }));
   add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}", "get", operation("get", "查询抖音二维码登录", { parameters: [idParameter(255, "sessionId")], responses: standardResponses(200, "二维码登录会话", socialLoginSessionSchema) }));
@@ -1484,6 +1573,57 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
       { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
       { name: "cursor", in: "query", required: false, schema: { type: "string", minLength: 1, maxLength: 8192 } }],
     responses: standardResponses(200, "候选页", acquisitionRunCandidatesSchema)
+  }));
+  const batchParameter = idParameter(255, "batchId");
+  const batchSuccess = (description: string, replay = false) => ({ ...response(description, acquisitionOutreachBatchSchema),
+    headers: { ETag: { required: true, schema: { type: "string" } },
+      ...(replay ? { "Idempotency-Replayed": { required: false,
+        schema: { type: "string", enum: ["true"] } } } : {}) } });
+  add(paths, "/api/v1/acquisition/runs/{runId}/outreach-batches", "post", operation("post", "创建不可变外联批次", {
+    parameters: [idParameter(160, "runId"), idempotencyParameter(8)],
+    requestBody: jsonBody({ type: "object", additionalProperties: false, required: ["candidateIds"],
+      properties: { candidateIds: { type: "array", minItems: 1, maxItems: 200, uniqueItems: true,
+        items: { type: "string", minLength: 1, maxLength: 255 } } } }),
+    responses: { ...standardResponses(201, "已创建批次", acquisitionOutreachBatchSchema), "201": batchSuccess("已创建批次", true) }
+  }));
+  add(paths, "/api/v1/acquisition/outreach-batches/{batchId}", "get", operation("get", "读取外联批次", {
+    parameters: [batchParameter], responses: { ...standardResponses(200, "外联批次", acquisitionOutreachBatchSchema), "200": batchSuccess("外联批次") }
+  }));
+  add(paths, "/api/v1/acquisition/outreach-batches/{batchId}", "put", operation("put", "创建新批次修订", {
+    parameters: [batchParameter, idempotencyParameter(8), ifMatchParameter()],
+    requestBody: jsonBody({ type: "object", additionalProperties: false, required: ["candidates"], properties: {
+      candidates: { type: "array", minItems: 1, maxItems: 200, items: { type: "object", additionalProperties: false,
+        required: ["candidateId", "selected", "comment", "directMessage"], properties: {
+          candidateId: { type: "string", minLength: 1, maxLength: 255 }, selected: { type: "boolean" },
+          comment: { type: "string", minLength: 1, maxLength: 300 }, directMessage: { type: "string", minLength: 1, maxLength: 800 }
+        } } }
+    } }), responses: { ...standardResponses(200, "已修订批次", acquisitionOutreachBatchSchema), "200": batchSuccess("已修订批次", true),
+      "428": response("缺少 If-Match", errorSchema) }
+  }));
+  add(paths, "/api/v1/acquisition/outreach-batches/{batchId}/approve", "post", operation("post", "人工二次确认并写入有序 outbox", {
+    parameters: [batchParameter, idempotencyParameter(8), ifMatchParameter()],
+    requestBody: jsonBody({ type: "object", additionalProperties: false, required: ["revision", "batchHash", "confirm"], properties: {
+      revision: { type: "integer", minimum: 1 }, batchHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+      confirm: { type: "boolean", enum: [true] }
+    } }), responses: { ...standardResponses(200, "已审批批次", acquisitionOutreachBatchSchema), "200": batchSuccess("已审批批次", true),
+      "428": response("缺少 If-Match", errorSchema) }
+  }));
+  for (const control of ["reject", "pause"] as const) add(paths,
+    `/api/v1/acquisition/outreach-batches/{batchId}/${control}`, "post", operation("post", `${control} 外联批次`, {
+      parameters: [batchParameter, idempotencyParameter(8), ifMatchParameter()],
+      requestBody: jsonBody({ type: "object", additionalProperties: false, properties: { reason: { type: "string", maxLength: 2_000 } } }),
+      responses: { ...standardResponses(200, "已更新批次", acquisitionOutreachBatchSchema), "200": batchSuccess("已更新批次", true),
+        "428": response("缺少 If-Match", errorSchema) }
+    }));
+  add(paths, "/api/v1/acquisition/outreach-batches/{batchId}/resume", "post", operation("post", "恢复外联批次", {
+    parameters: [batchParameter, idempotencyParameter(8), ifMatchParameter()],
+    requestBody: jsonBody({ type: "object", additionalProperties: false, maxProperties: 0 }),
+    responses: { ...standardResponses(200, "已恢复批次", acquisitionOutreachBatchSchema), "200": batchSuccess("已恢复批次", true),
+      "428": response("缺少 If-Match", errorSchema) }
+  }));
+  add(paths, "/api/v1/acquisition/outreach-batches/{batchId}/actions", "get", operation("get", "读取有序 outbox", {
+    parameters: [batchParameter], responses: standardResponses(200, "有序 outbox", { type: "object", additionalProperties: false,
+      required: ["items"], properties: { items: { type: "array", items: acquisitionOutreachActionSchema } } })
   }));
 }
 function addProviderPaths(paths: AcquisitionOpenApiPaths) {

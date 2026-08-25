@@ -24,6 +24,7 @@ export const GROWTH_CAPABILITIES = [
   "roi.close",
   "growth.performance.team.read",
   "growth.performance.workspace.read",
+  "acquisition.outreach.approve",
   "acquisition.outcome.reconcile.internal"
 ] as const;
 

@@ -100,6 +100,19 @@ the pinned ICANN public-suffix data rather than treating every alphabetic final
 label as a domain, so grounded names such as `Node.js` and `Qwen.VL` remain
 usable while real domains stay prohibited.
 
+The outreach-batch service is the sole draft persistence owner. It freezes the
+authoritative run, policy, account/login, candidate/evidence, model, selected
+daily limit, exact message, and canonical hash identities into immutable batch
+revisions. Human edits reuse the draft validator and append a revision without
+changing source-model provenance. Approval is a human second confirmation,
+not execution: one transaction rechecks account/login, candidate/evidence,
+DNC, and the remaining account-local-date allowance; records the approval;
+and writes an exact comment action followed by a blocked direct-message
+action. Memory shares a reentrant coordinator with DNC writers. MySQL uses the
+batch transaction connection for account and Task 6 final-authority locks,
+replay, daily allowance, and action inserts, so a failed second insert rolls
+back the whole approval.
+
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a
 development and focused-test implementation; MySQL mode is required for

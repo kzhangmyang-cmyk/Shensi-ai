@@ -3402,6 +3402,7 @@ test("mysql acquisition application owns schema setup and pool lifecycle", async
   };
   const pool = {
     query,
+    execute: query,
     async getConnection() {
       return {
         query,
@@ -3577,7 +3578,7 @@ test("provider versions prefer an explicit credential version", () => {
   );
 });
 
-test("acquisition application always mounts Douyin automation routes", async () => {
+test("acquisition application always mounts Douyin automation and outreach routes", async () => {
   const fixture = isolatedMemoryStore();
   const runtime = await createAcquisitionApplication({
     store: fixture.store,
@@ -3590,7 +3591,7 @@ test("acquisition application always mounts Douyin automation routes", async () 
       actorId: OWNER,
       role: "admin",
       teamId: TEAM,
-      capabilities: [],
+      capabilities: ["acquisition.outreach.approve"],
       capabilityRegistryVersion: "test"
     };
     runtime.handler(req, res, next);
@@ -3601,6 +3602,11 @@ test("acquisition application always mounts Douyin automation routes", async () 
     );
     assert.equal(result.response.status, 404);
     assert.equal(result.json.code, "automation_plan_not_found");
+    const outreach = await server.request(
+      "/api/v1/acquisition/outreach-batches/missing"
+    );
+    assert.equal(outreach.response.status, 404);
+    assert.equal(outreach.json.code, "outreach_batch_not_found");
   } finally {
     await server.close();
     await runtime.close();

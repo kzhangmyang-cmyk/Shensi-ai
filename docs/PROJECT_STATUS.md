@@ -103,6 +103,16 @@ ledger.
   projection, recomputes immutable content hashes, and discards raw model
   output. Draft persistence remains exclusively with the later outreach-batch
   revision authority.
+- Outreach batches persist those Task 6 values as immutable candidate draft
+  revision 1 and append validated human edits as revision 2 without changing
+  source-model provenance. Public create/read/revise/approve/reject/pause/
+  resume/action routes enforce workspace, capability, CSRF, idempotency, and
+  ETag authority. Approval is the required human second confirmation and
+  executes nothing: after account/login, DNC, candidate/evidence, and selected
+  policy-limit rechecks, it atomically stores the approval plus an exact
+  queued comment and predecessor-blocked direct message per candidate. Memory
+  and MySQL roll back approval if either action insert fails; MySQL reuses one
+  locked authority transaction connection.
 
 ## Active
 

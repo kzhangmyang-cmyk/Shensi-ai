@@ -2922,3 +2922,51 @@ CREATE TABLE acquisition_douyin_do_not_contact (
   PRIMARY KEY (workspace_id,identity_hash),
   CONSTRAINT acquisition_douyin_dnc_hash CHECK (identity_hash REGEXP '^dnc:sha256:[0-9a-f]{64}$')
 ) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_batches (
+  id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  run_id VARCHAR(160) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  revision INT NOT NULL, state VARCHAR(40) NOT NULL, account_id VARCHAR(255) NOT NULL,
+  local_date DATE NOT NULL, daily_candidate_limit INT NOT NULL, etag VARCHAR(255) NOT NULL,
+  batch_hash CHAR(71) NOT NULL, payload_json JSON NOT NULL, created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (id, revision), UNIQUE KEY uk_acquisition_outreach_batch_revision (workspace_id, id, revision),
+  KEY ix_acquisition_outreach_batch_head (workspace_id, id, revision)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_batch_candidates (
+  batch_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, batch_revision INT NOT NULL,
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  candidate_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  draft_revision INT NOT NULL, selected BOOLEAN NOT NULL,
+  candidate_revision INT NOT NULL, evidence_hashes_json JSON NOT NULL, comment_hash CHAR(71) NOT NULL,
+  direct_message_hash CHAR(71) NOT NULL, model_snapshot_id VARCHAR(255) NOT NULL, payload_json JSON NOT NULL,
+  PRIMARY KEY (batch_id, batch_revision, candidate_id),
+  CONSTRAINT fk_acquisition_outreach_batch_candidate FOREIGN KEY (batch_id, batch_revision)
+    REFERENCES acquisition_outreach_batches (id, revision)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_batch_command_replays (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  operation_name VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(71) NOT NULL,
+  response_json JSON NOT NULL, created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id, operation_name, idempotency_key_hash)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_actions (
+  id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  batch_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, batch_revision INT NOT NULL,
+  candidate_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  account_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  local_date DATE NOT NULL, kind VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  sequence INT NOT NULL, status VARCHAR(40) NOT NULL, predecessor_action_id VARCHAR(255) NULL,
+  content_text TEXT NOT NULL, content_hash CHAR(71) NOT NULL, approval_hash CHAR(71) NOT NULL,
+  payload_json JSON NOT NULL, created_at DATETIME(3) NOT NULL,
+  UNIQUE KEY uk_acquisition_outreach_action_sequence (batch_id, batch_revision, candidate_id, sequence),
+  UNIQUE KEY uk_acquisition_outreach_daily_candidate (workspace_id, account_id, local_date, candidate_id, kind),
+  CONSTRAINT fk_acquisition_outreach_action_batch FOREIGN KEY (batch_id, batch_revision)
+    REFERENCES acquisition_outreach_batches (id, revision)
+) ENGINE=InnoDB;

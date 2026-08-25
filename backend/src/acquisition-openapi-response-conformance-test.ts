@@ -35,6 +35,34 @@ const TEAM = "response-contract-team";
 const NOW = "2026-08-05T00:00:00.000Z";
 const openApiPaths = createAcquisitionOpenApiPaths();
 
+test("outreach batch and ordered action responses conform without private evidence or account handles", () => {
+  const hash = `sha256:${"a".repeat(64)}`;
+  const candidate = { candidateId: "candidate-1", selected: true,
+    candidateRevision: 1, evidenceHashes: [hash], draftRevision: 1,
+    comment: "需要获客方案", commentHash: hash,
+    directMessage: "看到你公开提到需要获客方案", directMessageHash: hash,
+    rationaleCodes: ["evidence_grounded"], modelSnapshotId: "snapshot-1",
+    sourceModelSnapshotId: "snapshot-1", contentHash: hash };
+  const batch = { id: "batch-1", workspaceId: TEAM, runId: "run-1", planId: "plan-1",
+    planVersionId: "plan-version-1", planVersion: 1, planSnapshotHash: hash,
+    policyVersionId: "policy-1", policyHash: hash, accountId: "account-1",
+    accountLoginStateVersion: 2, dailyBudgetId: hash, localDate: "2026-08-05",
+    dailyCandidateLimit: 50, dailyRemainingLimit: 49, revision: 1,
+    etag: '"outreach-batch:batch-1:1"', state: "approved", candidates: [candidate],
+    batchHash: hash, approvedBy: OWNER, approvedAt: NOW, approvalHash: hash,
+    rejectedBy: null, rejectedAt: null, rejectionReason: null, pauseReason: null,
+    createdBy: OWNER, createdAt: NOW, updatedBy: OWNER, updatedAt: NOW };
+  assertResponseConforms("/api/v1/acquisition/outreach-batches/{batchId}", "get", 200, batch);
+  const actions = { items: [{ id: "action-1", workspaceId: TEAM, batchId: "batch-1",
+    batchRevision: 1, candidateId: "candidate-1", accountId: "account-1",
+    accountLoginStateVersion: 2, policyVersionId: "policy-1", localDate: "2026-08-05",
+    kind: "comment", sequence: 1, status: "queued", predecessorActionId: null,
+    content: candidate.comment, contentHash: hash, approvalHash: hash, createdAt: NOW }] };
+  assertResponseConforms("/api/v1/acquisition/outreach-batches/{batchId}/actions", "get", 200, actions);
+  assert.equal(JSON.stringify(batch).includes("evidenceText"), false);
+  assert.equal(JSON.stringify(batch).includes("accountHandle"), false);
+});
+
 test("run candidate page conforms and omits private crawler state", async () => {
   const http = await mount(createAcquisitionRunCandidatesRouter({
     repository: {

@@ -367,6 +367,88 @@ components:
           properties:
             sourceUrl: { type: string, format: uri }
             excerpt: { type: string, maxLength: 500 }
+    AcquisitionOutreachBatchCandidate:
+      type: object
+      additionalProperties: false
+      required: [candidateId, selected, candidateRevision, evidenceHashes, draftRevision, comment, commentHash, directMessage, directMessageHash, rationaleCodes, modelSnapshotId, sourceModelSnapshotId, contentHash]
+      properties:
+        candidateId: { type: string, minLength: 1, maxLength: 255 }
+        selected: { type: boolean }
+        candidateRevision: { type: integer, minimum: 1 }
+        evidenceHashes: { type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: { type: string, pattern: '^sha256:[a-f0-9]{64}$' } }
+        draftRevision: { type: integer, minimum: 1 }
+        comment: { type: string, minLength: 1, maxLength: 300 }
+        commentHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+        directMessage: { type: string, minLength: 1, maxLength: 800 }
+        directMessageHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+        rationaleCodes: { type: array, minItems: 1, maxItems: 5, uniqueItems: true, items: { type: string, enum: [evidence_grounded, public_need_signal, manual_review_required] } }
+        modelSnapshotId: { type: string, minLength: 1, maxLength: 255 }
+        sourceModelSnapshotId: { type: string, minLength: 1, maxLength: 255 }
+        contentHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+    AcquisitionOutreachBatch:
+      type: object
+      additionalProperties: false
+      required: [id, workspaceId, runId, planId, planVersionId, planVersion, planSnapshotHash, policyVersionId, policyHash, accountId, accountLoginStateVersion, dailyBudgetId, localDate, dailyCandidateLimit, dailyRemainingLimit, revision, etag, state, candidates, batchHash, approvedBy, approvedAt, approvalHash, rejectedBy, rejectedAt, rejectionReason, pauseReason, createdBy, createdAt, updatedBy, updatedAt]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 255 }
+        workspaceId: { type: string, minLength: 1, maxLength: 255 }
+        runId: { type: string, minLength: 1, maxLength: 160 }
+        planId: { type: string, minLength: 1, maxLength: 160 }
+        planVersionId: { type: string, minLength: 1, maxLength: 160 }
+        planVersion: { type: integer, minimum: 1 }
+        planSnapshotHash: { type: string, minLength: 1, maxLength: 200 }
+        policyVersionId: { type: string, minLength: 1, maxLength: 255 }
+        policyHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+        accountId: { type: string, minLength: 1, maxLength: 255 }
+        accountLoginStateVersion: { type: integer, minimum: 1 }
+        dailyBudgetId: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+        localDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        dailyCandidateLimit: { type: integer, minimum: 1, maximum: 200 }
+        dailyRemainingLimit: { type: integer, minimum: 0, maximum: 200 }
+        revision: { type: integer, minimum: 1 }
+        etag: { type: string, minLength: 1, maxLength: 255 }
+        state: { type: string, enum: [awaiting_approval, approved, rejected, paused] }
+        candidates: { type: array, minItems: 1, maxItems: 200, items: { $ref: '#/components/schemas/AcquisitionOutreachBatchCandidate' } }
+        batchHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+        approvedBy: { type: [string, 'null'], maxLength: 255 }
+        approvedAt: { type: [string, 'null'], format: date-time }
+        approvalHash: { type: [string, 'null'], pattern: '^sha256:[a-f0-9]{64}$' }
+        rejectedBy: { type: [string, 'null'], maxLength: 255 }
+        rejectedAt: { type: [string, 'null'], format: date-time }
+        rejectionReason: { type: [string, 'null'], maxLength: 2000 }
+        pauseReason: { type: [string, 'null'], maxLength: 2000 }
+        createdBy: { type: string, minLength: 1, maxLength: 255 }
+        createdAt: { type: string, format: date-time }
+        updatedBy: { type: string, minLength: 1, maxLength: 255 }
+        updatedAt: { type: string, format: date-time }
+    AcquisitionOutreachAction:
+      type: object
+      additionalProperties: false
+      required: [id, workspaceId, batchId, batchRevision, candidateId, accountId, accountLoginStateVersion, policyVersionId, localDate, kind, sequence, status, predecessorActionId, content, contentHash, approvalHash, createdAt]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 255 }
+        workspaceId: { type: string, minLength: 1, maxLength: 255 }
+        batchId: { type: string, minLength: 1, maxLength: 255 }
+        batchRevision: { type: integer, minimum: 1 }
+        candidateId: { type: string, minLength: 1, maxLength: 255 }
+        accountId: { type: string, minLength: 1, maxLength: 255 }
+        accountLoginStateVersion: { type: integer, minimum: 1 }
+        policyVersionId: { type: string, minLength: 1, maxLength: 255 }
+        localDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        kind: { type: string, enum: [comment, direct_message] }
+        sequence: { type: integer, enum: [1, 2] }
+        status: { type: string, enum: [queued, blocked_by_predecessor] }
+        predecessorActionId: { type: [string, 'null'], maxLength: 255 }
+        content: { type: string, minLength: 1, maxLength: 800 }
+        contentHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+        approvalHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+        createdAt: { type: string, format: date-time }
+    AcquisitionOutreachActionList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AcquisitionOutreachAction' } }
     DouyinAutomationFailureCode:
       type: string
       enum: [unauthorized, workspace_required, workspace_context_invalid, invalid_request, invalid_automation_scope, invalid_automation_policy, invalid_automation_keywords, invalid_automation_schedule, invalid_automation_local_time, invalid_automation_time_zone, invalid_automation_collection, automation_collection_required, invalid_automation_limits, invalid_daily_candidate_limit, invalid_run_now_input, invalid_idempotency_key, invalid_if_match, if_match_required, automation_plan_not_found, automation_plan_snapshot_corrupt, active_douyin_account_required, active_douyin_account_workspace_mismatch, automation_policy_required, approved_automation_plan_required, automation_policy_plan_version_mismatch, automation_account_login_state_changed, automation_idempotency_conflict, automation_precondition_failed, automation_policy_binding_conflict, automation_run_binding_conflict, automation_policy_binding_corrupt, automation_idempotency_record_corrupt, automation_internal_error]
@@ -838,6 +920,84 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/AcquisitionRunCandidate' } }
                   nextCursor: { type: [string, 'null'] }
+  /api/v1/acquisition/runs/{runId}/outreach-batches:
+    parameters: [{ name: runId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }]
+    post:
+      operationId: createAcquisitionOutreachBatch
+      summary: Persist Task 6 drafts as immutable revision one
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [candidateIds], properties: { candidateIds: { type: array, minItems: 1, maxItems: 200, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 255 } } } } } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '201': { description: Outreach batch created, headers: { ETag: { required: true, schema: { type: string } }, Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachBatch' } } } }
+  /api/v1/acquisition/outreach-batches/{batchId}:
+    parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    get:
+      operationId: getAcquisitionOutreachBatch
+      summary: Read current immutable outreach batch revision
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Outreach batch, headers: { ETag: { required: true, schema: { type: string } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachBatch' } } } }
+    put:
+      operationId: updateAcquisitionOutreachBatch
+      summary: Create a new immutable batch revision after edits
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }, { $ref: '#/components/parameters/ifMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [candidates], properties: { candidates: { type: array, minItems: 1, maxItems: 200, items: { type: object, additionalProperties: false, required: [candidateId, selected, comment, directMessage], properties: { candidateId: { type: string, minLength: 1, maxLength: 255 }, selected: { type: boolean }, comment: { type: string, minLength: 1, maxLength: 300 }, directMessage: { type: string, minLength: 1, maxLength: 800 } } } } } } } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Outreach batch revised, headers: { ETag: { required: true, schema: { type: string } }, Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachBatch' } } } }
+        '428': *apiError
+  /api/v1/acquisition/outreach-batches/{batchId}/approve:
+    parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post:
+      operationId: approveAcquisitionOutreachBatch
+      summary: Human second confirmation; persist ordered actions without executing them
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }, { $ref: '#/components/parameters/ifMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [revision, batchHash, confirm], properties: { revision: { type: integer, minimum: 1 }, batchHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }, confirm: { type: boolean, const: true } } } } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Outreach batch approved, headers: { ETag: { required: true, schema: { type: string } }, Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachBatch' } } } }
+        '428': *apiError
+  /api/v1/acquisition/outreach-batches/{batchId}/reject:
+    parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post: &outreachReasonControl
+      operationId: rejectAcquisitionOutreachBatch
+      summary: Reject an awaiting outreach batch
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }, { $ref: '#/components/parameters/ifMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, properties: { reason: { type: string, maxLength: 2000 } } } } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Outreach batch updated, headers: { ETag: { required: true, schema: { type: string } }, Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachBatch' } } } }
+        '428': *apiError
+  /api/v1/acquisition/outreach-batches/{batchId}/pause:
+    parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post: { <<: *outreachReasonControl, operationId: pauseAcquisitionOutreachBatch, summary: Pause an approved outreach batch }
+  /api/v1/acquisition/outreach-batches/{batchId}/resume:
+    parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post:
+      operationId: resumeAcquisitionOutreachBatch
+      summary: Resume a paused approved outreach batch
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }, { $ref: '#/components/parameters/ifMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, maxProperties: 0 } } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Outreach batch resumed, headers: { ETag: { required: true, schema: { type: string } }, Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachBatch' } } } }
+        '428': *apiError
+  /api/v1/acquisition/outreach-batches/{batchId}/actions:
+    parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    get:
+      operationId: listAcquisitionOutreachActions
+      summary: List ordered persisted actions without executing them
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Ordered outreach actions, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachActionList' } } } }
   /api/v1/acquisition/providers:
     get:
       operationId: listAcquisitionProviders

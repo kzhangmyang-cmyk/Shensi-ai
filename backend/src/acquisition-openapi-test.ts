@@ -214,12 +214,28 @@ test("every published acquisition operation has a unique stable camelCase id", (
     }
   }
 
-  assert.equal(ids.length, 68);
+  assert.equal(ids.length, 76);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(
     paths["/api/v1/acquisition/plans/{id}/approval"]?.post?.operationId,
     "approveAcquisitionPlan"
   );
+});
+
+test("outreach batch OpenAPI publishes all eight secure revision and outbox operations", () => {
+  const paths = createAcquisitionOpenApiPaths();
+  const approval = paths["/api/v1/acquisition/outreach-batches/{batchId}/approve"]!.post as Record<string, any>;
+  assert.equal(approval.operationId, "approveAcquisitionOutreachBatch");
+  assert.deepEqual(approval.security, [
+    { bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }
+  ]);
+  assert.deepEqual(approval.requestBody.content["application/json"].schema.required,
+    ["revision", "batchHash", "confirm"]);
+  assert.deepEqual(approval.requestBody.content["application/json"].schema.properties.confirm.enum, [true]);
+  const actions = paths["/api/v1/acquisition/outreach-batches/{batchId}/actions"]!.get as Record<string, any>;
+  const item = actions.responses["200"].content["application/json"].schema.properties.items.items;
+  assert.deepEqual(item.properties.kind.enum, ["comment", "direct_message"]);
+  assert.deepEqual(item.properties.status.enum, ["queued", "blocked_by_predecessor"]);
 });
 
 test("Douyin automation OpenAPI closes policy and run-now inputs and outputs", () => {

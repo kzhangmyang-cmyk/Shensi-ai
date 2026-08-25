@@ -79,6 +79,16 @@ const visualReaderOperations = {
   "/api/v1/acquisition/visual-reader-artifacts/{artifactId}": ["get"]
 } as const;
 
+const outreachBatchOperations = {
+  "/api/v1/acquisition/runs/{runId}/outreach-batches": ["post"],
+  "/api/v1/acquisition/outreach-batches/{batchId}": ["get", "put"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/approve": ["post"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/reject": ["post"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/pause": ["post"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/resume": ["post"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/actions": ["get"]
+} as const;
+
 const blockedDirectWrites = [
   "/api/v1/acquisition/evidence",
   "/api/v1/acquisition/candidates",
@@ -316,6 +326,24 @@ test("published visual reader operations exactly match production", async () => 
         operationSurface(productionPath[method]!),
         `${method.toUpperCase()} ${path}`
       );
+    }
+  }
+});
+
+test("published outreach batch operations exactly match production", async () => {
+  const published = await loadPublishedAcquisitionPaths();
+  const production = await loadValidatedProductionAcquisitionPaths();
+
+  for (const [path, methods] of Object.entries(outreachBatchOperations)) {
+    const publishedPath = published[path];
+    const productionPath = production[path];
+    assert.ok(publishedPath, path);
+    assert.ok(productionPath, `production ${path}`);
+    assert.deepEqual(Object.keys(publishedPath).sort(), [...methods].sort(), path);
+    assert.deepEqual(Object.keys(productionPath).sort(), [...methods].sort(), `production ${path}`);
+    for (const method of methods) {
+      assert.deepEqual(operationSurface(publishedPath[method]!),
+        operationSurface(productionPath[method]!), `${method.toUpperCase()} ${path}`);
     }
   }
 });

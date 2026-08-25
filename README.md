@@ -91,6 +91,11 @@ pnpm --filter ./backend dev
 pnpm --filter ./frontend dev
 ```
 
+The authenticated acquisition API includes immutable Douyin outreach-batch
+review and approval. Approval only persists the exact ordered
+comment-then-direct-message outbox; the separate executor owns external
+actions and is never invoked by the approval route.
+
 The repository also exposes MySQL-backed development:
 
 ```bash

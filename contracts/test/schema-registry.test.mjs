@@ -699,7 +699,7 @@ test("Douyin identity operations expose only the strict public DTO", async () =>
   assert.equal(validate({ ...operation, ownerId: "owner-1" }), false);
 });
 
-test("platform and action placeholder components are published without routes", async () => {
+test("platform and legacy action placeholder components remain unpublished by routes", async () => {
   const document = await loadOpenApiSource();
   const componentRefs = {
     PlatformConnection: "../json-schema/platform-connection.v1.schema.json",
@@ -712,10 +712,10 @@ test("platform and action placeholder components are published without routes", 
   for (const [name, ref] of Object.entries(componentRefs)) {
     assert.equal(document.components.schemas[name]?.$ref, ref);
   }
-  assert.equal(
-    Object.keys(document.paths).some((route) => /platform|action/i.test(route)),
-    false
-  );
+  assert.equal(Object.keys(document.paths).some((route) => /platform/i.test(route)), false);
+  const publishedPaths = JSON.stringify(document.paths);
+  assert.equal(publishedPaths.includes("#/components/schemas/ActionPolicy"), false);
+  assert.equal(publishedPaths.includes("#/components/schemas/ActionReceipt"), false);
 });
 
 test("Douyin comment events publish a strict top-level public sample", async () => {

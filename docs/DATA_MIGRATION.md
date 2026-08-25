@@ -215,6 +215,14 @@ acceptance and must not be forced back to source equality.
 
 ## Douyin acquisition schema upgrade
 
+Backend startup also creates the versioned outreach authority tables:
+`acquisition_outreach_batches`, `acquisition_outreach_batch_candidates`,
+`acquisition_outreach_batch_command_replays`, and
+`acquisition_outreach_actions`. Apply this schema with no outreach worker
+traffic after the normal encrypted backup. The action table's account/local
+date/candidate uniqueness and batch-revision foreign key are approval and
+daily-limit authority; do not remove or backfill them from mutable UI state.
+
 Before enabling the MediaCrawler worker against an existing target, take the
 normal encrypted backup and let backend schema setup finish with no worker
 traffic. The upgrade widens `acquisition_douyin_run_bindings.acquisition_run_id`
