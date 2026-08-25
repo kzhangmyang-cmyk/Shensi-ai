@@ -23,6 +23,8 @@ services:
       MEDIACRAWLER_SERVICE_SECRET_FILE: /run/secrets/mediacrawler_service_secret
       MEDIACRAWLER_ENCRYPTED_VOLUME: /var/lib/shensi-mediacrawler
       MEDIACRAWLER_PROFILE_ROOT: /var/lib/shensi-mediacrawler/profiles
+      MEDIACRAWLER_BROWSER_HEADLESS: ${MEDIACRAWLER_BROWSER_HEADLESS:-true}
+      MEDIACRAWLER_BROWSER_CHANNEL: ${MEDIACRAWLER_BROWSER_CHANNEL:-}
     secrets:
       - source: mediacrawler_service_secret
         target: /run/secrets/mediacrawler_service_secret

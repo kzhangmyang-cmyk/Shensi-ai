@@ -162,6 +162,22 @@ MEDIACRAWLER_ENCRYPTED_VOLUME=/run/shensi-encrypted/mediacrawler
 MEDIACRAWLER_PROFILE_ROOT=/run/shensi-encrypted/mediacrawler/profiles
 ```
 
+Browser login mode is explicit:
+
+```dotenv
+# Local macOS operator login with installed Chrome
+MEDIACRAWLER_BROWSER_HEADLESS=false
+MEDIACRAWLER_BROWSER_CHANNEL=chrome
+```
+
+Douyin may return a verification interstitial instead of a QR to a headless
+browser. A server/container deployment must therefore provide and acceptance-
+test its chosen visible browser/display or CDP arrangement before claiming QR
+login support. The Compose defaults remain headless and channel-neutral so an
+image never silently assumes a host Chrome installation. Login-session
+creation allows 35 seconds for cold browser startup; ordinary health and poll
+requests retain the shorter gateway timeout.
+
 Compose bind-mounts that directory at `/var/lib/shensi-mediacrawler` and
 refuses to create a missing host path. Stop the sidecar before backup or
 restore. Copy browser state only with approved encrypted-at-rest backup

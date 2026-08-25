@@ -86,6 +86,15 @@ rather than selecting a different port. The wrapper forwards `SIGINT` and
 shutdown window.
 Do not use memory mode as evidence for this runtime.
 
+Douyin currently serves a verification interstitial to the bundled headless
+browser during QR-login startup. For local operator login, keep
+`MEDIACRAWLER_BROWSER_HEADLESS=false` and
+`MEDIACRAWLER_BROWSER_CHANNEL=chrome` in `.env.local`; Chrome opens only for
+the private account session and the QR is also rendered in `#acquisition`.
+The first QR can take up to 35 seconds on a cold browser profile. The operator
+must scan it manually; the application never treats a test fixture or a poll
+count as proof of login.
+
 The following direct commands are retained for focused development work; they
 are not the canonical runtime path:
 

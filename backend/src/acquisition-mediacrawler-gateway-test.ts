@@ -71,6 +71,30 @@ test("health maps timeouts to mediacrawler_unavailable without exposing the secr
   });
 });
 
+test("login creation allows interactive browser startup beyond the general timeout", async () => {
+  await withServer((_request, response) => {
+    setTimeout(() => {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({
+        session_id: "login-1",
+        state: "awaiting_scan",
+        qr_image_data_url: "data:image/png;base64,cXI=",
+        expires_at: "2026-08-25T05:30:00.000Z",
+        account_handle: null,
+        account_display_name: null,
+        login_state_version: null,
+      }));
+    }, 25);
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({
+      baseUrl,
+      serviceSecret,
+      timeoutMs: 5,
+    });
+    assert.equal((await gateway.createLoginSession()).state, "awaiting_scan");
+  });
+});
+
 test("gateway rejects a secret with fewer than 32 non-whitespace bytes", () => {
   assert.throws(
     () => createDouyinMediaCrawlerGateway({

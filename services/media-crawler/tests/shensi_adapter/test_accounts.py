@@ -13,9 +13,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from shensi_adapter.accounts import AccountManager
-from shensi_adapter.browser_state import MediaCrawlerDouyinBrowserState
+from shensi_adapter.browser_state import MediaCrawlerDouyinBrowserState, _open_context
 from shensi_adapter.app import (
     create_app,
+    create_deployment_account_manager,
     deployment_service_secret,
     validate_encrypted_profile_root,
 )
@@ -179,6 +180,38 @@ class _FakeChromium:
         return _FakeContext()
 
 
+class _InteractiveChromeOnlyChromium:
+    def launch_persistent_context(self, _profile_path, **kwargs):
+        assert kwargs == {"headless": False, "channel": "chrome"}
+        return _FakeContext()
+
+
+class _ColdStartQrImage(_FakeImage):
+    def wait_for(self, **kwargs):
+        assert kwargs["timeout"] >= 25_000
+
+
+class _ColdStartQrPage(_FakePage):
+    def locator(self, selector):
+        if selector == "#animate_qrcode_container img":
+            return _ColdStartQrImage()
+        return _FakeImage()
+
+
+class _ColdStartQrContext(_FakeContext):
+    def __init__(self):
+        self.pages = [_ColdStartQrPage()]
+
+
+class _ColdStartQrChromium:
+    def launch_persistent_context(self, _profile_path, **_kwargs):
+        return _ColdStartQrContext()
+
+
+class _ColdStartQrPlaywright:
+    chromium = _ColdStartQrChromium()
+
+
 class _BlockingChromium:
     def launch_persistent_context(self, _profile_path, **_kwargs):
         threading.Event().wait()
@@ -198,6 +231,13 @@ class _BlockingChildChromium:
 
 class _FakePlaywright:
     chromium = _FakeChromium()
+
+    def stop(self):
+        return None
+
+
+class _InteractiveChromeOnlyPlaywright:
+    chromium = _InteractiveChromeOnlyChromium()
 
     def stop(self):
         return None
@@ -224,6 +264,10 @@ class _ShutdownFailurePlaywright(_FakePlaywright):
 
 def _working_playwright_factory():
     return _FakePlaywright()
+
+
+def _interactive_chrome_only_playwright_factory():
+    return _InteractiveChromeOnlyPlaywright()
 
 
 def _blocking_playwright_factory():
@@ -459,6 +503,64 @@ def test_browser_process_routes_create_poll_disconnect_without_exposing_context(
         browser.close(opened)
     finally:
         browser.close_browser()
+
+
+def test_browser_process_propagates_interactive_chrome_login_configuration(tmp_path):
+    browser = MediaCrawlerDouyinBrowserState(
+        playwright_factory=_interactive_chrome_only_playwright_factory,
+        startup_timeout=2,
+        command_timeout=2,
+        headless=False,
+        browser_channel="chrome",
+    )
+    try:
+        opened = browser.open_douyin_login(tmp_path)
+        assert opened["qr_image_data_url"] == "data:image/png;base64,cXI="
+    finally:
+        browser.close_browser()
+
+
+def test_interactive_login_allows_a_cold_start_before_requiring_the_qr(tmp_path):
+    context, qr = _open_context(
+        _ColdStartQrPlaywright(),
+        str(tmp_path),
+        headless=False,
+        browser_channel="chrome",
+    )
+    try:
+        assert qr == "data:image/png;base64,cXI="
+    finally:
+        context.close()
+
+
+def test_deployment_account_manager_uses_explicit_interactive_browser_settings(
+    tmp_path, monkeypatch
+):
+    volume = tmp_path / "volume"
+    profiles = volume / "profiles"
+    profiles.mkdir(parents=True, mode=0o700)
+    os.chmod(volume, 0o700)
+    os.chmod(profiles, 0o700)
+    monkeypatch.setenv("MEDIACRAWLER_ENCRYPTED_VOLUME", str(volume))
+    monkeypatch.setenv("MEDIACRAWLER_PROFILE_ROOT", str(profiles))
+    monkeypatch.setenv("MEDIACRAWLER_BROWSER_HEADLESS", "false")
+    monkeypatch.setenv("MEDIACRAWLER_BROWSER_CHANNEL", "chrome")
+    created_with = []
+
+    def browser_factory(**kwargs):
+        created_with.append(kwargs)
+        return FakeBrowser()
+
+    monkeypatch.setattr(
+        "shensi_adapter.app.MediaCrawlerDouyinBrowserState", browser_factory
+    )
+    manager = create_deployment_account_manager()
+    try:
+        assert created_with == [
+            {"headless": False, "browser_channel": "chrome"}
+        ]
+    finally:
+        manager.close()
 
 
 def test_unknown_poll_and_close_handles_return_stable_closed_errors(tmp_path):

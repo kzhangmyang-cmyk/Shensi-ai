@@ -3,6 +3,18 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 const PORT = 5391;
 const NOW = "2026-08-25T09:30:00.000Z";
 const hash = (char: string) => `sha256:${char.repeat(64)}`;
+const TEST_QR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240" shape-rendering="crispEdges">
+  <rect width="240" height="240" fill="#fff"/>
+  <g fill="#111">
+    <path d="M12 12h64v64H12zM164 12h64v64h-64zM12 164h64v64H12z"/>
+    <path d="M92 12h12v12H92zM116 12h24v12h-24zM92 36h12v24H92zM116 36h12v12h-12zM140 36h12v24h-12zM92 72h24v12H92zM128 72h24v12h-24zM84 96h12v24H84zM108 96h12v12h-12zM132 96h24v12h-24zM168 96h12v24h-12zM204 96h24v12h-24zM84 132h24v12H84zM120 120h12v24h-12zM144 132h24v12h-24zM180 132h12v24h-12zM216 120h12v24h-12zM96 156h24v12H96zM132 156h12v24h-12zM156 168h24v12h-24zM192 168h36v12h-36zM84 192h12v36H84zM108 192h24v12h-24zM144 204h12v24h-12zM168 192h12v12h-12zM192 204h24v12h-24z"/>
+  </g>
+  <g fill="#fff"><path d="M24 24h40v40H24zM176 24h40v40h-40zM24 176h40v40H24z"/></g>
+  <g fill="#111"><path d="M32 32h24v24H32zM184 32h24v24h-24zM32 184h24v24H32z"/></g>
+  <rect x="50" y="103" width="140" height="34" rx="4" fill="#fff" stroke="#d71935" stroke-width="4"/>
+  <text x="120" y="126" fill="#d71935" font-family="Arial, sans-serif" font-size="17" font-weight="700" text-anchor="middle" shape-rendering="auto">TEST ONLY</text>
+</svg>`;
+const TEST_QR_IMAGE_DATA_URL = `data:image/svg+xml;base64,${Buffer.from(TEST_QR_SVG).toString("base64")}`;
 type FixtureState = { loginPolls: number; runPolls: number; actionPolls: number; approvalConflicted: boolean; policyRevision: number; batchRevision: number; batchState: "awaiting_approval" | "approved" | "paused" };
 let state: FixtureState;
 const reset = () => { state = { loginPolls: 0, runPolls: 0, actionPolls: 0, approvalConflicted: false, policyRevision: 0, batchRevision: 1, batchState: "awaiting_approval" }; };
@@ -22,7 +34,7 @@ const error = (response: ServerResponse, status: number, code: string, message: 
 const authenticated = (request: IncomingMessage) => /(?:^|;\s*)gj_session=fixture-session(?:;|$)/u.test(request.headers.cookie ?? "");
 const writeAuthorized = (request: IncomingMessage) => request.headers["x-csrf-token"] === "fixture-csrf" && typeof request.headers["idempotency-key"] === "string";
 
-const account = (accountState: "active" | "risk_paused" = "active") => ({ id: "account-fixture", workspaceId: "workspace-fixture", platform: "douyin" as const, displayName: "华东专用获客账号", state: accountState, loginStateVersion: 3, revision: 3, etag: '"account:3"', lastValidatedAt: NOW, createdAt: NOW, updatedAt: NOW });
+const account = (accountState: "active" | "risk_paused" = "active") => ({ id: "account-fixture", workspaceId: "workspace-fixture", platform: "douyin" as const, displayName: "测试模拟账号", state: accountState, loginStateVersion: 3, revision: 3, etag: '"account:3"', lastValidatedAt: NOW, createdAt: NOW, updatedAt: NOW });
 const limits = { maxVideos: 30, maxCommentsPerVideo: 50, maxPagesPerVideo: 3, maxDurationSeconds: 3600 };
 const policy = () => ({ id: state.policyRevision ? "policy-fixture" : null, source: state.policyRevision ? "version" : "default", workspaceId: "workspace-fixture", planId: "plan-fixture", planVersionId: "plan-version-fixture", planVersion: 1, planSnapshotHash: hash("1"), accountId: state.loginPolls > 1 ? "account-fixture" : null, accountLoginStateVersion: state.loginPolls > 1 ? 3 : null, version: state.policyRevision, revision: state.policyRevision, etag: `"policy:${state.policyRevision}"`, policyHash: hash("2"), keywords: state.policyRevision ? ["工业除尘改造", "工厂节能"] : ["工业除尘"], schedule: { enabled: state.policyRevision > 0, localTime: "09:30", timeZone: "Asia/Shanghai" }, dailyCandidateLimit: state.policyRevision ? 50 : 50, collectCreators: true, collectDemandComments: true, limits, createdBy: state.policyRevision ? "user-fixture" : null, createdAt: state.policyRevision ? NOW : null });
 const candidates = [
@@ -45,8 +57,8 @@ const server = createServer(async (request, response) => {
   if (url.pathname === "/api/v1/acquisition/tasks/plan-fixture") return send(response, { task: { id: "task-fixture", planId: "plan-fixture", name: "抖音工业需求获客", objective: "发现工厂环保改造需求", platform: "douyin", discoveryMethods: ["official_authorized"], planStatus: "approved", latestRun: null, updatedAt: NOW }, plan: { id: "plan-fixture", status: "approved", version: 1 }, latestRun: null, shards: [], presentation: null });
   if (url.pathname === "/api/v1/acquisition/performance") return send(response, { counts: { discovered: 2, highIntent: 2, approved: 0, converted: 0, contacted: 0, quoted: 0, won: 0, lost: 0 }, rates: { highIntentRate: 1, approvalRate: 0, crmConversionRate: 0, contactRate: 0, quoteRate: 0, winRate: 0 }, valuesByCurrency: [], cost: { status: "not_aggregatable", executionCostMinor: null, currency: null, coverage: "recorded_api_execution_only" }, roi: { status: "not_computable", reason: "channel_cost_or_verified_margin_unavailable" }, dataQuality: { missingAttribution: 0, missingFinancial: 2, truncated: false, lastReconciledAt: NOW }, briefingFacts: { headlines: [], risks: [], actions: [], metricIds: [] } });
   if (url.pathname === "/api/v1/acquisition/social-accounts/douyin" && request.method === "GET") return send(response, { items: state.loginPolls > 1 ? [account()] : [] });
-  if (url.pathname === "/api/v1/acquisition/social-accounts/douyin/login-sessions" && request.method === "POST") return send(response, { id: "login-fixture", platform: "douyin", state: "awaiting_scan", qrImageDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z8L8AAAAASUVORK5CYII=", expiresAt: "2026-08-25T10:30:00.000Z", account: null }, 201);
-  if (url.pathname === "/api/v1/acquisition/social-accounts/douyin/login-sessions/login-fixture") { state.loginPolls += 1; const active = state.loginPolls > 1; return send(response, { id: "login-fixture", platform: "douyin", state: active ? "active" : "awaiting_scan", qrImageDataUrl: active ? null : "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z8L8AAAAASUVORK5CYII=", expiresAt: "2026-08-25T10:30:00.000Z", account: active ? account() : null }); }
+  if (url.pathname === "/api/v1/acquisition/social-accounts/douyin/login-sessions" && request.method === "POST") return send(response, { id: "login-fixture", platform: "douyin", state: "awaiting_scan", qrImageDataUrl: TEST_QR_IMAGE_DATA_URL, expiresAt: "2026-08-25T10:30:00.000Z", account: null }, 201);
+  if (url.pathname === "/api/v1/acquisition/social-accounts/douyin/login-sessions/login-fixture") { state.loginPolls += 1; const active = state.loginPolls > 1; return send(response, { id: "login-fixture", platform: "douyin", state: active ? "active" : "awaiting_scan", qrImageDataUrl: active ? null : TEST_QR_IMAGE_DATA_URL, expiresAt: "2026-08-25T10:30:00.000Z", account: active ? account() : null }); }
   if (url.pathname === "/api/v1/acquisition/plans/plan-fixture/automation" && request.method === "GET") return send(response, policy());
   if (url.pathname === "/api/v1/acquisition/plans/plan-fixture/automation/keyword-suggestions" && request.method === "POST") return send(response, { keywords: ["工业除尘改造", "工厂节能"], modelSnapshotId: "model-snapshot-public" });
   if (url.pathname === "/api/v1/acquisition/plans/plan-fixture/automation" && request.method === "PUT") { await readBody(request); state.policyRevision += 1; return send(response, policy()); }

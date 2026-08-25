@@ -152,10 +152,17 @@ ledger.
   and cleaned its owned schemas/account; the no-route-interception Playwright
   flow passed 1 test with real Shensi auth/session/CSRF, MySQL repositories,
   Node workers and the real sidecar service. Backend and frontend builds and
-  frontend type checks passed. No request reached a Douyin/iesdouyin host.
-- Dedicated-account external acceptance is not performed. No QR was scanned,
-  CAPTCHA handled, production traffic changed, or real comment/direct message
-  sent. It remains a separately authorized operator checkpoint after the exact
+  frontend type checks passed. That deterministic gate made no request to a
+  Douyin/iesdouyin host.
+- Real QR-generation smoke on 2026-08-25 reached Douyin from a visible local
+  Chrome profile and rendered the returned scannable QR in the authenticated
+  `#acquisition` dialog. The same login in headless Chromium returned Douyin's
+  verification interstitial, so local startup now explicitly supports visible
+  Chrome and gives cold QR creation a separate bounded deadline. No QR was
+  scanned and no account authentication was completed.
+- Dedicated-account external action acceptance is not performed. No CAPTCHA
+  was handled, production traffic changed, or real comment/direct message sent.
+  It remains a separately authorized operator checkpoint after the exact
   dedicated account and test-owned target URLs are displayed and the user gives
   action-time confirmation.
 

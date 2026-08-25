@@ -220,7 +220,18 @@ def create_deployment_account_manager() -> AccountManager:
         raise RuntimeError("MEDIACRAWLER_ENCRYPTED_VOLUME and MEDIACRAWLER_PROFILE_ROOT are required")
     root_path = validate_encrypted_profile_root(Path(volume), Path(root))
     # Validate containment before the Playwright owner thread is even created.
-    return AccountManager(root_path, MediaCrawlerDouyinBrowserState())
+    headless = os.environ.get(
+        "MEDIACRAWLER_BROWSER_HEADLESS", "true"
+    ).strip().lower() != "false"
+    browser_channel = (
+        os.environ.get("MEDIACRAWLER_BROWSER_CHANNEL", "").strip() or None
+    )
+    return AccountManager(
+        root_path,
+        MediaCrawlerDouyinBrowserState(
+            headless=headless, browser_channel=browser_channel
+        ),
+    )
 
 
 # Deployment entry point: fail closed rather than placing browser state on an

@@ -41,8 +41,11 @@ test("real session controls automatic Douyin acquisition, approval, receipts, an
   await workspace.getByRole("button", { name: "扫码连接" }).click();
   const qrDialog = page.getByRole("dialog", { name: "请使用抖音扫码" });
   await expect(qrDialog).toBeVisible();
-  await expect(qrDialog.getByRole("img", { name: "抖音登录二维码" })).toBeVisible();
-  await expect(page.getByText("华东专用获客账号")).toBeVisible({ timeout: 8_000 });
+  const qrImage = qrDialog.getByRole("img", { name: "抖音登录二维码" });
+  await expect(qrImage).toBeVisible();
+  await expect.poll(() => qrImage.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBeGreaterThanOrEqual(128);
+  await expect.poll(() => qrImage.evaluate((image) => (image as HTMLImageElement).naturalHeight)).toBeGreaterThanOrEqual(128);
+  await expect(page.getByText("测试模拟账号")).toBeVisible({ timeout: 8_000 });
   await page.getByRole("button", { name: "关闭", exact: true }).click();
 
   await workspace.getByRole("button", { name: "智能生成" }).click();

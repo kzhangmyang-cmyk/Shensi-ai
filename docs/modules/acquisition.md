@@ -243,6 +243,14 @@ durable metadata and is removed only by explicit disconnect or replacement.
 Malformed, symlinked, or unreadable durable account metadata is quarantined;
 missing or malformed ephemeral QR metadata does not invalidate a valid
 connected account.
+The browser launch mode is configured by `MEDIACRAWLER_BROWSER_HEADLESS` and
+optional `MEDIACRAWLER_BROWSER_CHANNEL`. Local real-QR acceptance uses visible
+installed Chrome (`false` / `chrome`) because Douyin can replace the QR with a
+verification interstitial in headless mode. Login creation has a dedicated
+35-second gateway deadline and the adapter waits up to 25 seconds for a cold-
+start QR; short health and polling deadlines are unchanged. A displayed QR is
+not account authority: only the private browser session observing an actual
+authenticated state publishes a connected account.
 Terminal crawler pages are immutable and replayable by opaque cursor until
 Node atomically persists authoritative evidence/candidates/run links and sends
 a durable acknowledgement. The acknowledgement timestamp, not a read or crawl

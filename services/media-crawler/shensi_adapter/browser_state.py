@@ -33,9 +33,17 @@ def _start_playwright(factory: Callable[[], object] | None) -> object:
     return sync_playwright().start()
 
 
-def _open_context(playwright: object, profile_path: str) -> tuple[object, str]:
+def _launch_options(headless: bool, browser_channel: str | None) -> dict[str, object]:
+    options: dict[str, object] = {"headless": headless}
+    if browser_channel:
+        options["channel"] = browser_channel
+    return options
+
+
+def _open_context(playwright: object, profile_path: str, *, headless: bool,
+                  browser_channel: str | None) -> tuple[object, str]:
     context = playwright.chromium.launch_persistent_context(
-        profile_path, headless=True
+        profile_path, **_launch_options(headless, browser_channel)
     )
     try:
         page = context.pages[0] if context.pages else context.new_page()
@@ -45,7 +53,7 @@ def _open_context(playwright: object, profile_path: str) -> tuple[object, str]:
         except Exception:
             pass
         image = page.locator("#animate_qrcode_container img")
-        image.wait_for(timeout=10_000)
+        image.wait_for(timeout=25_000)
         source = image.get_attribute("src") or ""
         if not source.startswith("data:image/"):
             source = page.evaluate(
@@ -65,9 +73,12 @@ def _open_context(playwright: object, profile_path: str) -> tuple[object, str]:
 
 
 def _execute_action(playwright: object, profile_path: str,
-                    raw_request: object) -> dict[str, object]:
+                    raw_request: object, *, headless: bool,
+                    browser_channel: str | None) -> dict[str, object]:
     request = ActionRequest.model_validate(raw_request)
-    context = playwright.chromium.launch_persistent_context(profile_path, headless=True)
+    context = playwright.chromium.launch_persistent_context(
+        profile_path, **_launch_options(headless, browser_channel)
+    )
     try:
         page = context.pages[0] if context.pages else context.new_page()
         return DouyinActionExecutor().execute(page, request).model_dump(mode="json")
@@ -75,7 +86,8 @@ def _execute_action(playwright: object, profile_path: str,
         context.close()
 
 
-def _browser_worker(connection: Connection, factory: Callable[[], object] | None) -> None:
+def _browser_worker(connection: Connection, factory: Callable[[], object] | None,
+                    headless: bool, browser_channel: str | None) -> None:
     playwright = None
     contexts: dict[str, object] = {}
     shutdown_requested = False
@@ -117,7 +129,8 @@ def _browser_worker(connection: Connection, factory: Callable[[], object] | None
             try:
                 if operation == "open":
                     context, qr_image_data_url = _open_context(
-                        playwright, str(command["profile_path"])
+                        playwright, str(command["profile_path"]),
+                        headless=headless, browser_channel=browser_channel
                     )
                     handle = secrets.token_urlsafe(24)
                     contexts[handle] = context
@@ -151,7 +164,8 @@ def _browser_worker(connection: Connection, factory: Callable[[], object] | None
                 elif operation == "action":
                     try:
                         value = _execute_action(playwright,
-                            str(command["profile_path"]), command["request"])
+                            str(command["profile_path"]), command["request"],
+                            headless=headless, browser_channel=browser_channel)
                     except DouyinActionFailure:
                         raise
                     except BaseException as error:
@@ -194,6 +208,8 @@ class MediaCrawlerDouyinBrowserState:
         playwright_factory: Callable[[], object] | None = None,
         startup_timeout: float = 15,
         command_timeout: float = 30,
+        headless: bool = True,
+        browser_channel: str | None = None,
     ) -> None:
         if startup_timeout <= 0 or command_timeout <= 0:
             raise ValueError("browser timeouts must be positive")
@@ -202,7 +218,7 @@ class MediaCrawlerDouyinBrowserState:
         self._connection = parent
         self._process = context.Process(
             target=_browser_worker,
-            args=(child, playwright_factory),
+            args=(child, playwright_factory, headless, browser_channel),
             name="douyin-browser",
         )
         self._timeout = command_timeout

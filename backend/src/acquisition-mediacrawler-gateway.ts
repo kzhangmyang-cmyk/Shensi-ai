@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 5_000;
+const DEFAULT_LOGIN_CREATION_TIMEOUT_MS = 35_000;
 export const MEDIACRAWLER_PINNED_UPSTREAM_COMMIT = "d6f7c5bb906b6dac40ddf343ef9e26438a3de092" as const;
 
 const healthResponseSchema = z.object({
@@ -128,6 +129,7 @@ export interface DouyinMediaCrawlerGatewayOptions {
   baseUrl: string;
   serviceSecret: string;
   timeoutMs?: number;
+  loginCreationTimeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
 
@@ -201,7 +203,11 @@ export function createDouyinMediaCrawlerGateway(
   const baseUrl = isPrivateHttpUrl(options.baseUrl);
   const serviceSecret = normalizedSecret(options.serviceSecret);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+  const loginCreationTimeoutMs = options.loginCreationTimeoutMs
+    ?? DEFAULT_LOGIN_CREATION_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0
+    || !Number.isFinite(loginCreationTimeoutMs)
+    || loginCreationTimeoutMs <= 0) {
     throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
   }
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -209,7 +215,10 @@ export function createDouyinMediaCrawlerGateway(
   async function loginSessionRequest(
     method: "GET" | "POST", path: string, signal?: AbortSignal
   ): Promise<DouyinLoginSession> {
-    const request = requestAbortSignal(signal, timeoutMs);
+    const request = requestAbortSignal(
+      signal,
+      method === "POST" ? loginCreationTimeoutMs : timeoutMs,
+    );
     try {
       if (request.signal.aborted) throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
       const response = await fetchImpl(new URL(path, baseUrl), {
