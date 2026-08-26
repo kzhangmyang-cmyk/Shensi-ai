@@ -42,9 +42,10 @@ current backend, provider connections the operator has actually configured, and
 the `#acquisition` MediaCrawler path for QR login, plan approval, manual
 keywords, controlled collection, persisted status/candidates/evidence, draft
 review, and CRM conversion. In an authenticated real session, `#conversations`
-also reads those existing Douyin tasks' latest-run public candidate evidence.
-It labels the records as `真实 · 抖音公开互动`, not as private messages or an
-inbox, and never substitutes local seeded conversations. `#growth/quotes` without a case shows a
+is the public-evidence controlled outreach workspace for those same tasks. It
+labels records as `真实 · 抖音公开互动`, never presents an official inbox or
+two-party message thread, and never substitutes local seeded conversations.
+`#growth/quotes` without a case shows a
 customer-readable empty state; it does not invent a quote or expose
 `quote_case_required`.
 
@@ -55,19 +56,29 @@ controls remain visible but explain that a healthy model connection is required.
 Generic public-web acquisition remains an optional separate path; a missing
 search or model provider never blocks manual-keyword MediaCrawler collection.
 
-The real `#conversations` page is read-only. Its reply field and send button are
-disabled and explain that the product has no connected official inbox, private-
-message, comment, or reply API. The current outreach contract can list actions
-only for a known batch ID and cannot discover a batch from an acquisition run;
-the page therefore states that receipt limitation instead of guessing or
-fabricating a receipt. Operators review any known approved batch in
-`#acquisition`; the conversations page never creates, approves, or executes one.
+`#acquisition` and `#conversations` use the same server batch authority. The
+conversations page reads overview/latest-run candidates, discovers the latest
+batch by `runId + candidateId`, then loads that batch and its action receipts;
+reload repeats those reads instead of relying on browser selection order. An
+exact `https://www.douyin.com/video/{id}` candidate can create one single-
+candidate pending batch, edit exact comment/private-message text, save a new
+revision, and enter the shared review/final-approval flow. Profile-only public
+evidence stays visible but its create CTA is disabled and it cannot create a
+comment batch. The browser has no direct-send control and does not claim an
+official Douyin inbox or DM API.
 
-Outreach drafts can be edited and reviewed, but this launch does not allow final
-outreach approval. With the fixed disabled action gate, final approval returns
-`503 outreach_actions_disabled`, creates neither approval nor actions, and sends
-no comment or direct message. Plan approval for collection is a separate real
-authority and remains available.
+Outreach drafts can be edited and reviewed while the action gate is disabled.
+In that default mode, final approval returns `503 outreach_actions_disabled`,
+creates neither approval nor actions, and sends no comment or direct message.
+A specific live trial may enable final outreach only after explicit user
+authorization and a read-only audit proving that no historical action is queued
+or reclaimable. Both backend and sidecar must then start with the flag enabled.
+The page's second approval confirmation becomes the send authorization; it is
+not followed by another send button. Plan approval for collection is a separate
+real authority and remains available. Only a candidate backed by an exact
+Douyin video URL is selectable for this comment-then-message flow. Profile-only
+creator candidates stay visible but cannot be queued; final approval rechecks
+the video target and Douyin profile target before writing any action.
 
 ## Isolated topology
 
@@ -183,10 +194,24 @@ Whitespace, `1`, `yes`, an empty value, and omission remain false. While false:
   manager/executor lookup;
 - the crawler worker and collection remain available.
 
-This launch fixes the value to false. QR display is not account authority;
-account connection does not authorize collection; collection does not authorize
-external sending. Never bypass CAPTCHA, verification, rate limits, or platform
-warnings.
+The generated trial defaults the value to false. An explicitly authorized
+action trial may override it to true only after an empty-queue audit and must
+restart both backend and sidecar. Use
+`DOUYIN_OUTREACH_ACTIONS_ENABLED=true pnpm trial:publish` for that one publish;
+all other values remain false. The action worker starts immediately, so an
+approved queued comment may be claimed as soon as approval commits; its direct
+message remains predecessor-blocked until the comment succeeds and the minimum
+delay of 180 seconds from the successful comment receipt elapses. MediaCrawler
+upstream is the collection/browser foundation; comment/private-message
+execution is a Shensi extension, not an official Douyin inbox/API or an
+upstream-native feature. Visible verification is manual-only: Shensi waits up
+to 120 seconds and revalidates the same action after the user completes a
+slider, CAPTCHA, login check, or platform prompt. The enclosing defaults are a
+150-second Node action deadline, 160-second gateway HTTP timeout, 170-second
+browser-action IPC timeout, and 180-second minimum claim lease. Timeout pauses
+risk; no solver, token injection, third-party bypass, or alternate write route
+is allowed. QR display is not account authority; account connection does not
+authorize collection; collection does not authorize external sending.
 
 ## Lifecycle commands
 
@@ -283,8 +308,16 @@ tree proves all of the following:
 7. Douyin QR creation and polling work. If the customer is absent, stop at the
    visible QR-ready state. After an authorized scan, one manual-keyword
    collection produces candidates that persist after refresh.
-8. Final outreach approval and the private sidecar action endpoint remain
-   `outreach_actions_disabled`; no comment or direct message is sent.
+8. In the default disabled mode, final outreach approval and the private sidecar
+   action endpoint remain `outreach_actions_disabled`. In an explicitly
+   authorized enabled trial, verify the empty action queue before startup and
+   never use a real action request as an automated health probe. Automated
+   `trial:publish` / `trial:verify` acceptance may read, create, edit, save, and
+   reload a pending batch to verify the confirmation gate, but it stops before
+   the final user approval and therefore queues no external action. Select only
+   candidates marked as backed by a commentable video; profile-only rows must
+   remain clickable for evidence inspection while their outreach controls stay
+   disabled and no candidate-scoped batch is created for them.
 
 The 2026-08-26 launch passed the fresh source gates, isolated startup/status,
 local and public boundary verification, tenant-admin login, MySQL-backed CRM
@@ -293,12 +326,13 @@ page checks. Six durable runtime processes are tracked: MySQL, backend,
 MediaCrawler, frontend, gateway, and tunnel. The current temporary origin must
 still be read from `trial:status`.
 
-Customer-interactive acceptance remains bounded to the authenticated full-page
+Customer-interactive acceptance requires the authenticated full-page
 walk-through and an authorized Douyin QR scan followed by one manual-keyword
-collection. Those steps require the customer to be present. External comment
-and direct-message actions remain disabled and are not part of this launch. Do
-not retire the older protected link until those customer-interactive checks are
-complete.
+collection. External comments and direct messages require a separately recorded
+user authorization plus the page's second approval confirmation. Publish and
+automated verification stop at that confirmation boundary; only the user may
+cross it in the separate action-time acceptance. Do not retire the older
+protected link until those customer-interactive checks are complete.
 
 ## Retirement checklist
 

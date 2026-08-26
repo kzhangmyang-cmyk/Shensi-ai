@@ -15,9 +15,51 @@ const TEST_QR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height=
   <text x="120" y="126" fill="#d71935" font-family="Arial, sans-serif" font-size="17" font-weight="700" text-anchor="middle" shape-rendering="auto">TEST ONLY</text>
 </svg>`;
 const TEST_QR_IMAGE_DATA_URL = `data:image/svg+xml;base64,${Buffer.from(TEST_QR_SVG).toString("base64")}`;
-type FixtureState = { loginPolls: number; runPolls: number; actionPolls: number; approvalConflicted: boolean; policyRevision: number; batchRevision: number; batchState: "awaiting_approval" | "approved" | "paused"; planCreated: boolean; planApproved: boolean; planName: string };
+type FixtureState = {
+  loginPolls: number;
+  runPolls: number;
+  actionPolls: number;
+  approvalConflicted: boolean;
+  policyRevision: number;
+  batchRevision: number;
+  batchState: "awaiting_approval" | "approved" | "paused";
+  planCreated: boolean;
+  planApproved: boolean;
+  planName: string;
+  runStarted: boolean;
+  batchCreated: boolean;
+  activeCandidateIds: string[];
+  approvedCandidateIds: string[];
+  createdCandidateIds: string[][];
+  collectionReads: Array<{
+    runId: string | null;
+    candidateId: string | null;
+    limit: string | null;
+  }>;
+  drafts: Record<string, { comment: string; directMessage: string }>;
+};
 let state: FixtureState;
-const reset = () => { state = { loginPolls: 0, runPolls: 0, actionPolls: 0, approvalConflicted: false, policyRevision: 0, batchRevision: 1, batchState: "awaiting_approval", planCreated: false, planApproved: false, planName: "" }; };
+const reset = () => {
+  state = {
+    loginPolls: 0,
+    runPolls: 0,
+    actionPolls: 0,
+    approvalConflicted: false,
+    policyRevision: 0,
+    batchRevision: 1,
+    batchState: "awaiting_approval",
+    planCreated: false,
+    planApproved: false,
+    planName: "",
+    runStarted: false,
+    batchCreated: false,
+    activeCandidateIds: [],
+    approvedCandidateIds: [],
+    createdCandidateIds: [],
+    collectionReads: [],
+    drafts: {}
+  };
+};
 reset();
 
 const readBody = async (request: IncomingMessage) => {
@@ -39,22 +81,57 @@ const limits = { maxVideos: 30, maxCommentsPerVideo: 50, maxPagesPerVideo: 3, ma
 const policy = () => ({ id: state.policyRevision ? "policy-fixture" : null, source: state.policyRevision ? "version" : "default", workspaceId: "workspace-fixture", planId: "plan-fixture", planVersionId: "plan-version-fixture", planVersion: 1, planSnapshotHash: hash("1"), accountId: state.loginPolls > 1 ? "account-fixture" : null, accountLoginStateVersion: state.loginPolls > 1 ? 3 : null, version: state.policyRevision, revision: state.policyRevision, etag: `"policy:${state.policyRevision}"`, policyHash: hash("2"), keywords: state.policyRevision ? ["工业除尘改造", "工厂节能"] : ["工业除尘"], schedule: { enabled: state.policyRevision > 0, localTime: "09:30", timeZone: "Asia/Shanghai" }, dailyCandidateLimit: state.policyRevision ? 50 : 50, collectCreators: true, collectDemandComments: true, limits, createdBy: state.policyRevision ? "user-fixture" : null, createdAt: state.policyRevision ? NOW : null });
 const candidates = [
   { id: "candidate-creator", status: "creator_candidate", displayName: "节能设备观察员", evidence: { sourceUrl: "https://www.douyin.com/video/741234567890", excerpt: "正在对比工厂除尘改造的能耗与交付周期。" } },
-  { id: "candidate-commenter", status: "commenter_candidate", displayName: "需求评论者", evidence: { sourceUrl: "https://www.douyin.com/video/741234567891", excerpt: "想了解一下工业除尘方案的预算和实施周期。" } }
+  { id: "candidate-commenter", status: "commenter_candidate", displayName: "需求评论者", evidence: { sourceUrl: "https://www.douyin.com/video/741234567891", excerpt: "想了解一下工业除尘方案的预算和实施周期。" } },
+  { id: "candidate-profile", status: "creator_candidate", displayName: "主页证据观察员", evidence: { sourceUrl: "https://www.douyin.com/user/profile-only-fixture", excerpt: "安全暂停原因：douyin_collection_partial；仅保存公开主页证据。" } }
 ];
-const batchCandidates = () => candidates.map((candidate) => ({ candidateId: candidate.id, selected: true, candidateRevision: 1, evidenceHashes: [hash(candidate.id.endsWith("creator") ? "3" : "4")], draftRevision: state.batchRevision, comment: candidate.id.endsWith("creator") ? "您好，看到您在对比工厂除尘改造的能耗与交付周期。" : "您好，看到您在了解工业除尘方案的预算和实施周期。", commentHash: hash("5"), directMessage: state.batchRevision > 1 && candidate.id.endsWith("creator") ? "您好，这是人工修订后的精确私信，可以为您整理能耗与交付对比。" : "您好，可以为您整理一份与公开需求对应的方案参考。", directMessageHash: hash("6"), rationaleCodes: ["evidence_grounded", "manual_review_required"], modelSnapshotId: "model-snapshot-public", sourceModelSnapshotId: "model-snapshot-public", contentHash: hash("7") }));
-const batch = () => ({ id: "batch-fixture", workspaceId: "workspace-fixture", runId: "run-fixture", planId: "plan-fixture", planVersionId: "plan-version-fixture", planVersion: 1, planSnapshotHash: hash("1"), policyVersionId: "policy-fixture", policyHash: hash("2"), accountId: "account-fixture", accountLoginStateVersion: 3, dailyBudgetId: "daily-budget-fixture", localDate: "2026-08-25", dailyCandidateLimit: 50, dailyRemainingLimit: 48, revision: state.batchRevision, etag: `"batch:${state.batchRevision}:${state.batchState}"`, state: state.batchState, candidates: batchCandidates(), batchHash: hash(String(Math.min(9, state.batchRevision))), approvedBy: state.batchState === "approved" ? "reviewer-fixture" : null, approvedAt: state.batchState === "approved" ? NOW : null, approvalHash: state.batchState === "approved" ? hash("8") : null, rejectedBy: null, rejectedAt: null, rejectionReason: null, pauseReason: state.batchState === "paused" ? "人工暂停" : null, createdBy: "reviewer-fixture", createdAt: NOW, updatedBy: "reviewer-fixture", updatedAt: NOW });
+const defaultDraft = (candidateId: string) => candidateId === "candidate-creator"
+  ? {
+      comment: "您好，看到您在对比工厂除尘改造的能耗与交付周期。",
+      directMessage: "您好，可以为您整理一份与公开需求对应的方案参考。"
+    }
+  : {
+      comment: "您好，看到您在了解工业除尘方案的预算和实施周期。",
+      directMessage: "您好，可以为您整理一份与公开需求对应的方案参考。"
+    };
+const batchCandidates = () => state.activeCandidateIds.map((candidateId) => {
+  const draft = state.drafts[candidateId] ?? defaultDraft(candidateId);
+  return {
+    candidateId,
+    selected: true,
+    candidateRevision: 1,
+    evidenceHashes: [hash(candidateId === "candidate-creator" ? "3" : "4")],
+    draftRevision: state.batchRevision,
+    comment: draft.comment,
+    commentHash: hash("5"),
+    directMessage: draft.directMessage,
+    directMessageHash: hash("6"),
+    rationaleCodes: ["evidence_grounded", "manual_review_required"],
+    modelSnapshotId: "model-snapshot-public",
+    sourceModelSnapshotId: "model-snapshot-public",
+    contentHash: hash("7")
+  };
+});
+const batch = () => ({ id: "batch-fixture", workspaceId: "workspace-fixture", runId: "run-fixture", planId: "plan-fixture", planVersionId: "plan-version-fixture", planVersion: 1, planSnapshotHash: hash("1"), policyVersionId: "policy-fixture", policyHash: hash("2"), accountId: "account-fixture", accountLoginStateVersion: 3, dailyBudgetId: hash("9"), localDate: "2026-08-25", dailyCandidateLimit: 50, dailyRemainingLimit: 48, revision: state.batchRevision, etag: `"batch:${state.batchRevision}:${state.batchState}"`, state: state.batchState, candidates: batchCandidates(), batchHash: hash(String(Math.min(9, state.batchRevision))), approvedBy: state.batchState === "approved" ? "reviewer-fixture" : null, approvedAt: state.batchState === "approved" ? NOW : null, approvalHash: state.batchState === "approved" ? hash("8") : null, rejectedBy: null, rejectedAt: null, rejectionReason: null, pauseReason: state.batchState === "paused" ? "人工暂停" : null, createdBy: "reviewer-fixture", createdAt: NOW, updatedBy: "reviewer-fixture", updatedAt: NOW });
+const latestRun = () => ({ id: "run-fixture", status: "partial_success", updatedAt: NOW, completedAt: NOW, evidenceCount: 3, consumedBudget: { requests: 1, results: 3, durationSeconds: 12 } });
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${PORT}`);
   if (url.pathname === "/healthz") return send(response, { ok: true });
   if (url.pathname === "/__fixture/reset" && request.method === "POST") { reset(); return send(response, { ok: true }); }
+  if (url.pathname === "/__fixture/state" && request.method === "GET") return send(response, {
+    createdCandidateIds: state.createdCandidateIds,
+    activeCandidateIds: state.activeCandidateIds,
+    approvedCandidateIds: state.approvedCandidateIds,
+    collectionReads: state.collectionReads,
+    externalWriteCount: 0
+  });
   if (url.pathname === "/api/auth/login" && request.method === "POST") return send(response, { id: "user-fixture", name: "默认管理员", email: "admin@example.com", role: "admin", teamId: "team-fixture", avatar: "AD" }, 200, { "set-cookie": ["gj_session=fixture-session; Path=/; HttpOnly; SameSite=Lax", "gj_csrf=fixture-csrf; Path=/; SameSite=Lax"] });
   if (url.pathname === "/api/auth/logout" && request.method === "POST") return send(response, { ok: true }, 200, { "set-cookie": ["gj_session=; Path=/; Max-Age=0", "gj_csrf=; Path=/; Max-Age=0"] });
   if (!authenticated(request)) return error(response, 401, "unauthorized", "请先登录");
   if (url.pathname === "/api/auth/me") return send(response, { id: "user-fixture", name: "默认管理员", email: "admin@example.com", role: "admin", teamId: "team-fixture", avatar: "AD" });
   if (!["GET", "HEAD"].includes(request.method ?? "GET") && !writeAuthorized(request)) return error(response, 403, "csrf_invalid", "请求校验失败");
-  if (url.pathname === "/api/v1/acquisition/overview") return send(response, { generatedAt: NOW, platform: "douyin", totals: { tasks: state.planCreated ? 1 : 0 }, statusCounts: state.planCreated ? { not_started: 1 } : {}, discoveryMethodCounts: state.planCreated ? { official_authorized: 1 } : {}, tasks: state.planCreated ? [{ id: "task-fixture", planId: "plan-fixture", name: state.planName, objective: "通过 MediaCrawler 采集抖音公开内容", platform: "douyin", discoveryMethods: ["official_authorized"], planStatus: state.planApproved ? "approved" : "draft", latestRun: null, updatedAt: NOW }] : [] });
-  if (url.pathname === "/api/v1/acquisition/tasks/plan-fixture" && state.planCreated) return send(response, { task: { id: "task-fixture", planId: "plan-fixture", name: state.planName, objective: "通过 MediaCrawler 采集抖音公开内容", platform: "douyin", discoveryMethods: ["official_authorized"], planStatus: state.planApproved ? "approved" : "draft", latestRun: null, updatedAt: NOW }, plan: { id: "plan-fixture", status: state.planApproved ? "approved" : "draft", version: 1 }, latestRun: null, shards: [], presentation: null });
+  if (url.pathname === "/api/v1/acquisition/overview") return send(response, { generatedAt: NOW, platform: "douyin", totals: { tasks: state.planCreated ? 1 : 0 }, statusCounts: state.planCreated ? state.runStarted ? { partial_success: 1 } : { not_started: 1 } : {}, discoveryMethodCounts: state.planCreated ? { official_authorized: 1 } : {}, tasks: state.planCreated ? [{ id: "task-fixture", planId: "plan-fixture", name: state.planName, objective: "通过 MediaCrawler 采集抖音公开内容", platform: "douyin", discoveryMethods: ["official_authorized"], planStatus: state.planApproved ? "approved" : "draft", latestRun: state.runStarted ? latestRun() : null, latestResultRunId: state.runStarted ? "run-fixture" : null, updatedAt: NOW }] : [] });
+  if (url.pathname === "/api/v1/acquisition/tasks/plan-fixture" && state.planCreated) return send(response, { task: { id: "task-fixture", planId: "plan-fixture", name: state.planName, objective: "通过 MediaCrawler 采集抖音公开内容", platform: "douyin", discoveryMethods: ["official_authorized"], planStatus: state.planApproved ? "approved" : "draft", latestRun: state.runStarted ? latestRun() : null, latestResultRunId: state.runStarted ? "run-fixture" : null, updatedAt: NOW }, plan: { id: "plan-fixture", status: state.planApproved ? "approved" : "draft", version: 1 }, latestRun: state.runStarted ? latestRun() : null, shards: [], presentation: null });
   if (url.pathname === "/api/v1/acquisition/performance") return send(response, { counts: { discovered: 2, highIntent: 2, approved: 0, converted: 0, contacted: 0, quoted: 0, won: 0, lost: 0 }, rates: { highIntentRate: 1, approvalRate: 0, crmConversionRate: 0, contactRate: 0, quoteRate: 0, winRate: 0 }, valuesByCurrency: [], cost: { status: "not_aggregatable", executionCostMinor: null, currency: null, coverage: "recorded_api_execution_only" }, roi: { status: "not_computable", reason: "channel_cost_or_verified_margin_unavailable" }, dataQuality: { missingAttribution: 0, missingFinancial: 2, truncated: false, lastReconciledAt: NOW }, briefingFacts: { headlines: [], risks: [], actions: [], metricIds: [] } });
   if (url.pathname === "/api/v1/acquisition/social-accounts/douyin" && request.method === "GET") return send(response, { items: state.loginPolls > 1 ? [account()] : [] });
   if (url.pathname === "/api/v1/acquisition/social-accounts/douyin/login-sessions" && request.method === "POST") return send(response, { id: "login-fixture", platform: "douyin", state: "awaiting_scan", qrImageDataUrl: TEST_QR_IMAGE_DATA_URL, expiresAt: "2026-08-25T10:30:00.000Z", account: null }, 201);
@@ -76,16 +153,86 @@ const server = createServer(async (request, response) => {
   if (url.pathname === "/api/v1/acquisition/plans/plan-fixture/automation" && request.method === "GET") return send(response, policy());
   if (url.pathname === "/api/v1/acquisition/plans/plan-fixture/automation/keyword-suggestions" && request.method === "POST") return send(response, { keywords: ["工业除尘改造", "工厂节能"], modelSnapshotId: "model-snapshot-public" });
   if (url.pathname === "/api/v1/acquisition/plans/plan-fixture/automation" && request.method === "PUT") { await readBody(request); state.policyRevision += 1; return send(response, policy()); }
-  if (url.pathname === "/api/v1/acquisition/plans/plan-fixture/run-now" && request.method === "POST") return send(response, { id: "intent-fixture", acquisitionRunId: "run-fixture", workspaceId: "workspace-fixture", planId: "plan-fixture", planVersionId: "plan-version-fixture", planVersion: 1, planSnapshotHash: hash("1"), policyVersionId: "policy-fixture", policyHash: hash("2"), accountId: "account-fixture", accountLoginStateVersion: 3, dailyBudgetId: "daily-budget-fixture", localDate: "2026-08-25", trigger: "run_now", collectCreators: true, collectDemandComments: true, status: "queued", reason: null, createdBy: "user-fixture", createdAt: NOW }, 202);
+  if (url.pathname === "/api/v1/acquisition/plans/plan-fixture/run-now" && request.method === "POST") { state.runStarted = true; return send(response, { id: "intent-fixture", acquisitionRunId: "run-fixture", workspaceId: "workspace-fixture", planId: "plan-fixture", planVersionId: "plan-version-fixture", planVersion: 1, planSnapshotHash: hash("1"), policyVersionId: "policy-fixture", policyHash: hash("2"), accountId: "account-fixture", accountLoginStateVersion: 3, dailyBudgetId: hash("9"), localDate: "2026-08-25", trigger: "run_now", collectCreators: true, collectDemandComments: true, status: "queued", reason: null, createdBy: "user-fixture", createdAt: NOW }, 202); }
   if (url.pathname === "/api/v1/acquisition/runs/run-fixture/crawler-status") { state.runPolls += 1; const running = state.runPolls < 2; return send(response, { runId: "run-fixture", state: running ? "running" : "partial", attempt: 1, cursorPersisted: true, recordCount: running ? 12 : 26, candidateBudgetUsed: running ? 0 : 2, candidateBudgetLimit: 50, candidateProjectionState: running ? "pending" : "ready", lastErrorCode: running ? null : "mediacrawler_partial", createdAt: NOW, updatedAt: NOW, completedAt: running ? null : NOW, activity: { phase: running ? "collecting_comments" : "completed", currentKeyword: running ? "工业除尘" : null, browserMode: "visible", sequence: running ? 4 : 5 } }); }
   if (url.pathname === "/api/v1/acquisition/runs/run-fixture/candidates") return send(response, { items: state.runPolls < 2 ? [] : candidates, nextCursor: null });
-  if (url.pathname === "/api/v1/acquisition/runs/run-fixture/outreach-batches" && request.method === "POST") return send(response, batch(), 201, { ETag: batch().etag });
-  if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture" && request.method === "GET") return send(response, batch(), 200, { ETag: batch().etag });
-  if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture" && request.method === "PUT") { await readBody(request); state.batchRevision = 2; return send(response, batch(), 200, { ETag: batch().etag }); }
-  if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture/approve" && request.method === "POST") { if (!state.approvalConflicted) { state.approvalConflicted = true; return error(response, 412, "outreach_batch_stale", "批次修订已变更"); } state.batchState = "approved"; return send(response, batch(), 200, { ETag: batch().etag }); }
+  if (url.pathname === "/api/v1/acquisition/outreach-batches" && request.method === "GET") {
+    const lookup = {
+      runId: url.searchParams.get("runId"),
+      candidateId: url.searchParams.get("candidateId"),
+      limit: url.searchParams.get("limit")
+    };
+    state.collectionReads.push(lookup);
+    const matches = state.batchCreated
+      && lookup.runId === "run-fixture"
+      && lookup.limit === "1"
+      && lookup.candidateId !== null
+      && state.activeCandidateIds.includes(lookup.candidateId);
+    return send(response, {
+      items: matches ? [batch()] : [],
+      nextCursor: null
+    });
+  }
+  if (url.pathname === "/api/v1/acquisition/runs/run-fixture/outreach-batches" && request.method === "POST") {
+    const body = await readBody(request);
+    const candidateIds = Array.isArray(body.candidateIds)
+      ? body.candidateIds.filter((candidateId): candidateId is string =>
+          typeof candidateId === "string")
+      : [];
+    const knownEligible = candidateIds.length > 0
+      && candidateIds.length === new Set(candidateIds).size
+      && candidateIds.every((candidateId) => candidateId !== "candidate-profile"
+        && candidates.some((candidate) => candidate.id === candidateId));
+    if (!knownEligible) return error(response, 400, "candidate_not_outreach_eligible", "候选人缺少精确视频证据");
+    state.batchCreated = true;
+    state.activeCandidateIds = [...candidateIds];
+    state.createdCandidateIds.push([...candidateIds]);
+    state.approvedCandidateIds = [];
+    state.batchRevision = 1;
+    state.batchState = "awaiting_approval";
+    state.approvalConflicted = false;
+    state.actionPolls = 0;
+    state.drafts = Object.fromEntries(candidateIds.map((candidateId) => [
+      candidateId,
+      defaultDraft(candidateId)
+    ]));
+    return send(response, batch(), 201, { ETag: batch().etag });
+  }
+  if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture" && request.method === "GET" && state.batchCreated) return send(response, batch(), 200, { ETag: batch().etag });
+  if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture" && request.method === "PUT" && state.batchCreated) {
+    const body = await readBody(request);
+    if (!Array.isArray(body.candidates)) return error(response, 400, "invalid_batch_revision", "修订候选人无效");
+    const revisions = body.candidates.filter((candidate): candidate is Record<string, unknown> =>
+      typeof candidate === "object" && candidate !== null && !Array.isArray(candidate));
+    if (revisions.length !== state.activeCandidateIds.length
+      || revisions.some((candidate) => typeof candidate.candidateId !== "string"
+        || !state.activeCandidateIds.includes(candidate.candidateId)
+        || typeof candidate.comment !== "string"
+        || typeof candidate.directMessage !== "string")) {
+      return error(response, 400, "invalid_batch_revision", "修订候选人无效");
+    }
+    state.drafts = Object.fromEntries(revisions.map((candidate) => [
+      candidate.candidateId as string,
+      {
+        comment: candidate.comment as string,
+        directMessage: candidate.directMessage as string
+      }
+    ]));
+    state.batchRevision += 1;
+    return send(response, batch(), 200, { ETag: batch().etag });
+  }
+  if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture/approve" && request.method === "POST" && state.batchCreated) { if (!state.approvalConflicted) { state.approvalConflicted = true; return error(response, 412, "outreach_batch_stale", "批次修订已变更"); } state.batchState = "approved"; state.approvedCandidateIds = [...state.activeCandidateIds]; return send(response, batch(), 200, { ETag: batch().etag }); }
   if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture/pause" && request.method === "POST") { state.batchState = "paused"; return send(response, batch(), 200, { ETag: batch().etag }); }
   if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture/resume" && request.method === "POST") { state.batchState = "approved"; return send(response, batch(), 200, { ETag: batch().etag }); }
-  if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture/actions") { state.actionPolls += 1; const commentSucceeded = state.actionPolls >= 2; const messageSucceeded = state.actionPolls >= 3; return send(response, { items: [{ id: "action-comment", workspaceId: "workspace-fixture", batchId: "batch-fixture", batchRevision: 2, candidateId: "candidate-creator", accountId: "account-fixture", accountLoginStateVersion: 3, policyVersionId: "policy-fixture", localDate: "2026-08-25", kind: "comment", sequence: 1, status: commentSucceeded ? "succeeded" : "queued", predecessorActionId: null, targetPublicUrl: "https://www.douyin.com/video/741234567890", content: "您好，看到您在对比工厂除尘改造。", contentHash: hash("5"), approvalHash: hash("8"), createdAt: NOW, attemptCount: commentSucceeded ? 1 : 0, platformReceiptReference: commentSucceeded ? "DY-COMMENT-RECEIPT" : null, occurredAt: commentSucceeded ? NOW : null, failureCode: null }, { id: "action-message", workspaceId: "workspace-fixture", batchId: "batch-fixture", batchRevision: 2, candidateId: "candidate-creator", accountId: "account-fixture", accountLoginStateVersion: 3, policyVersionId: "policy-fixture", localDate: "2026-08-25", kind: "direct_message", sequence: 2, status: messageSucceeded ? "succeeded" : commentSucceeded ? "queued" : "blocked_by_predecessor", predecessorActionId: "action-comment", targetPublicUrl: "https://www.douyin.com/user/public-profile", content: "您好，这是人工修订后的精确私信。", contentHash: hash("6"), approvalHash: hash("8"), createdAt: NOW, attemptCount: messageSucceeded ? 1 : 0, platformReceiptReference: messageSucceeded ? "DY-MESSAGE-RECEIPT" : null, occurredAt: messageSucceeded ? NOW : null, failureCode: null }] }); }
+  if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture/actions" && state.batchCreated) {
+    if (state.batchState !== "approved") return send(response, { items: [] });
+    state.actionPolls += 1;
+    const commentSucceeded = state.actionPolls >= 2;
+    const messageSucceeded = state.actionPolls >= 3;
+    const candidateId = state.activeCandidateIds[0] ?? "candidate-creator";
+    const draft = state.drafts[candidateId] ?? defaultDraft(candidateId);
+    return send(response, { items: [{ id: "action-comment", workspaceId: "workspace-fixture", batchId: "batch-fixture", batchRevision: state.batchRevision, candidateId, accountId: "account-fixture", accountLoginStateVersion: 3, policyVersionId: "policy-fixture", localDate: "2026-08-25", kind: "comment", sequence: 1, status: commentSucceeded ? "succeeded" : "queued", predecessorActionId: null, targetPublicUrl: "https://www.douyin.com/video/741234567890", content: draft.comment, contentHash: hash("5"), approvalHash: hash("8"), createdAt: NOW, attemptCount: commentSucceeded ? 1 : 0, platformReceiptReference: commentSucceeded ? "DY-COMMENT-RECEIPT" : null, occurredAt: commentSucceeded ? NOW : null, failureCode: null }, { id: "action-message", workspaceId: "workspace-fixture", batchId: "batch-fixture", batchRevision: state.batchRevision, candidateId, accountId: "account-fixture", accountLoginStateVersion: 3, policyVersionId: "policy-fixture", localDate: "2026-08-25", kind: "direct_message", sequence: 2, status: messageSucceeded ? "succeeded" : commentSucceeded ? "queued" : "blocked_by_predecessor", predecessorActionId: "action-comment", targetPublicUrl: "https://www.douyin.com/user/public-profile", content: draft.directMessage, contentHash: hash("6"), approvalHash: hash("8"), createdAt: NOW, attemptCount: messageSucceeded ? 1 : 0, platformReceiptReference: messageSucceeded ? "DY-MESSAGE-RECEIPT" : null, occurredAt: messageSucceeded ? "2026-08-25T09:33:00.000Z" : null, failureCode: null }] });
+  }
   return error(response, 404, "fixture_route_missing", `${request.method} ${url.pathname}`);
 });
 

@@ -262,13 +262,34 @@ a candidate-read failure retains the validated terminal status while receiving
 at most three exponentially backed-off retries. Success, run change, closure,
 or exhaustion stops that retry loop. Paused, failed, and cancelled crawler jobs
 project the matching recognizable state into every still-active authoritative
-run alias. Recovery is read-only: it does
-not create or approve a batch and never submits a comment or direct message;
+run alias. Restoring an acquisition run is observational: that restore alone
+does not create or approve a batch and never submits a comment or direct message;
 those external actions remain behind explicit second confirmation, the exact
 backend/sidecar action flag, and the separate fenced executor. The real-customer
-trial fixes that flag to false: drafts remain editable/reviewable, but final
+trial defaults that flag to false: drafts remain editable/reviewable, but final
 approval returns `503 outreach_actions_disabled`, creates no actions, and sends
-nothing.
+nothing. A specific trial may enable both processes only after explicit user
+authorization and a zero-queued-action audit. In that mode, the page's second
+approval confirmation is the send authorization: approval atomically queues the
+comment and predecessor-blocked direct message, and the worker may claim the
+comment immediately after commit.
+Only candidates whose persisted public evidence points to an exact
+`https://www.douyin.com/video/{id}` URL can enter the comment-then-message
+approval flow. Profile-only creator candidates remain clickable for evidence
+inspection, while their outreach checkbox is disabled and labelled
+`仅查看证据 · 缺少可评论视频`; inspecting a row never selects it for outreach.
+`#acquisition` and authenticated real-mode `#conversations` share this same
+server batch, revision, approval, action, and receipt authority. The
+conversations route is a public-evidence controlled outreach workspace, not an
+official Douyin inbox or private-message thread. Selecting an eligible public
+interaction calls
+`GET /api/v1/acquisition/outreach-batches?runId={runId}&candidateId={candidateId}&limit=1`;
+the latest returned head is then loaded through the batch GET. An empty list
+permits creation of exactly one pending batch containing that candidate only.
+Reload repeats overview → candidate page → candidate-scoped collection GET →
+batch GET, so server `runId + candidateId` ownership, not session selection
+order, recovers revisions and receipts. Profile-only evidence remains readable,
+but does not call batch discovery and cannot create a comment batch.
 The decoder accepts crawler state, activity phase, browser mode, and projection
 state only as primitive strings in their closed enums. The candidate response is
 also a closed trust boundary: the page is exactly `{items,nextCursor}`, each
@@ -324,8 +345,12 @@ authority projection is deeply immutable. The server recomputes the immutable
 content hash and discards raw model output; Task 6 does not persist drafts or
 create a competing revision ledger.
 
-The public batch family provides create, read, `PUT` revision, approve, reject,
-pause, resume, and action-list routes. Every mutation is authenticated,
+The public batch family provides candidate-scoped collection GET, create, read,
+`PUT` revision, approve, reject, pause, resume, and action-list routes. The
+collection GET requires `runId` and `candidateId`, accepts limit 1–50 plus an
+opaque filter-bound cursor, returns only current head revisions in stable
+descending order, and requires the outreach-approval capability without CSRF
+or idempotency headers. Every mutation is authenticated,
 CSRF-protected for cookie sessions, capability-gated by
 `acquisition.outreach.approve`, and semantically idempotent; revision-bound
 mutations also require the current `If-Match`. A human edit is validated by
@@ -335,8 +360,9 @@ revision. Approval and every lifecycle transition rotate the response ETag,
 so a pre-transition `If-Match` cannot authorize later state changes. In an
 explicitly action-enabled runtime, approval is the required human second
 confirmation of the supplied revision and batch hash. It rechecks account/login,
-candidate revision, evidence membership/hashes, DNC, and the actual selected
-policy limit before atomically recording the approver and exact content. It
+candidate revision, evidence membership/hashes, DNC, the actual selected policy
+limit, and exact Douyin video/profile action targets before atomically recording
+the approver and exact content. It
 creates, but does not execute, one `comment` action with sequence 1 and status
 `queued`, followed by one `direct_message` action with sequence 2 and status
 `blocked_by_predecessor` per selected candidate. Memory uses the shared
@@ -360,7 +386,17 @@ enforce at least 60 seconds between any account actions and 180 seconds from a
 comment receipt to its matching direct message across restart or clock skew.
 The sidecar receives only the frozen public video/profile URL and exact
 approved text, reuses the account's authenticated browser profile, submits
-once, and returns a sanitized platform receipt reference. Verification,
+once, and returns a sanitized platform receipt reference. MediaCrawler upstream
+provides the collection/browser foundation; comment and private-message
+execution is a Shensi extension and is not an official inbox or upstream-
+native action API. In visible mode, CAPTCHA, slider, login verification, and
+platform warnings permit only a bounded wait for the user to complete the
+challenge, followed by full revalidation of the same action. There is no
+solver, token injection, alternate write path, or bypass service. The current
+defaults are 120 seconds for manual verification, 150 seconds for the Node
+action deadline, 160 seconds for gateway HTTP, 170 seconds for browser-action
+IPC, and a 180-second minimum claim lease. Timeout remains a closed
+`risk_paused` result rather than authorizing a new action. Other verification,
 rate-limit, account-warning, login-expiry, missing-control, and timeout states
 are closed failures; no alternate selector or bypass route is attempted. A
 comment receipt remains succeeded if the later message fails. Three
@@ -446,7 +482,10 @@ lifecycle are maintained in `docs/operations/real-customer-trial.md`.
 For the trial-disabled action check, leave
 `DOUYIN_OUTREACH_ACTIONS_ENABLED=false`, confirm crawler status still advances,
 confirm final batch approval returns the stable 503, and confirm no queued test
-fixture is claimed. Do not enable the flag merely to pass trial acceptance.
+fixture is claimed. For an explicitly authorized action trial, first confirm the
+action table has no historical queued or expired-executing work, then set the
+flag to `true` in both backend and sidecar and restart both. Do not enable the
+flag merely to pass trial acceptance.
 
 For an incompatible backend/sidecar runtime, treat `crawler_worker_failed` as a
 closed boundary failure rather than evidence that no records were collected.

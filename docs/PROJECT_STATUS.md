@@ -162,10 +162,15 @@ ledger.
   source-model provenance. Public create/read/revise/approve/reject/pause/
   resume/action routes enforce workspace, capability, CSRF, idempotency, and
   ETag authority. When external actions are explicitly enabled, approval is the
-  required human second confirmation and executes nothing: after account/login,
-  DNC, candidate/evidence, and selected policy-limit rechecks, it atomically
-  stores the approval plus an exact queued comment and predecessor-blocked
-  direct message per candidate. Memory and MySQL roll back approval if either
+  required human send confirmation. After account/login, DNC,
+  candidate/evidence, and selected policy-limit rechecks, it atomically stores
+  the approval plus an exact queued comment and predecessor-blocked direct
+  message per candidate; the worker may claim the comment immediately after
+  commit. Candidates without an exact Douyin video comment target or exact
+  Douyin profile message target are rejected before approval/action persistence;
+  profile-only creator rows remain clickable for evidence inspection while only
+  their outreach checkboxes are disabled.
+  Memory and MySQL roll back approval if either
   action insert fails; MySQL reuses one locked authority transaction connection.
   When the action gate is disabled, final approval returns
   `503 outreach_actions_disabled` before approval or action persistence.
@@ -186,6 +191,14 @@ ledger.
   stale writes; three consecutive failures or an immediate platform-risk state
   pause the account and all queued work. Focused fake-page, Memory, and live
   MySQL 8.4 gates exercise this behavior without making a real Douyin action.
+  MediaCrawler upstream remains the collection/browser foundation; comment and
+  private-message execution is a Shensi extension, not an upstream-native or
+  official Douyin inbox/API capability. In a visible browser, platform
+  verification is manual-only: the adapter waits and rechecks the same action
+  for a bounded 120-second window and never solves a slider/CAPTCHA, injects a
+  token, or calls a bypass service. The enclosing defaults are a 150-second
+  Node action deadline, 160-second gateway HTTP timeout, 170-second browser IPC
+  timeout, and 180-second minimum claim lease.
 - The authenticated `#acquisition` dashboard now makes controlled Douyin
   collection the primary workflow. With no existing task it still loads the
   workspace account and can create, approve, configure, and optionally run a
@@ -201,7 +214,9 @@ ledger.
   recovered persisted state is confirmed. Recovery itself creates or approves
   no batch and sends no comment or direct message; those actions still require
   explicit second confirmation, the explicit backend/sidecar action gate, and
-  the fenced executor. The real-customer trial fixes that gate to false. The
+  the fenced executor. Generated real-customer trials default that gate to
+  false; an enabled trial requires a separate recorded authorization and
+  empty-queue audit. The
   separate generic
   public-search entry is labelled as an optional enhancement with its
   search-API and AI dependencies.
@@ -215,24 +230,27 @@ ledger.
   Candidate selection creates an editable outreach batch; revision conflicts
   reload current authority before another review. In an action-enabled runtime,
   explicit approval, pause/resume, and sanitized comment/direct-message receipts
-  survive page reload. In this trial final approval remains unavailable and no
-  action is created. Authorized
+  survive page reload. Publishing or automated trial verification does not
+  approve a batch: it stops before the user's final confirmation. Authorized
   public-link import remains a collapsed secondary fallback. The existing
   Shensi shell, session/CSRF behavior and accessible navigation are preserved;
   desktop uses a table with evidence inspector, while narrow viewports use
   one-column candidate cards and normal body scrolling.
-- An authenticated real session now routes `#conversations` to a read-only
-  Douyin public-interaction projection instead of the browser-local seeded
-  inbox. It reads the existing acquisition overview and each task's latest-run
-  candidate page, renders the persisted public excerpt and source link as
-  candidate evidence, and reports failed runs or an unconsumed next cursor
-  without substituting demo rows. The surface explicitly says it is not a
-  platform private-message inbox. Its reply field and send button are disabled;
-  no comment, reply, or direct-message command is wired. The existing outreach
-  API can read actions only when a batch ID is already known and has no
-  run-to-batch listing route, so this page states that receipt boundary rather
-  than guessing or fabricating receipts. Demo sessions retain the deterministic
-  local conversation preview.
+- An authenticated real session routes `#conversations` to the Douyin public-
+  evidence controlled outreach workspace instead of the browser-local seeded
+  inbox. It is not an official Douyin inbox and does not present a two-party
+  message thread. The page reads the acquisition overview and each task's
+  latest-run candidates, then uses the shared server batch authority to list
+  the selected candidate's latest batch by `runId + candidateId`, load its
+  current revision, and recover drafts, approval state, actions, and receipts
+  after reload. An exact `https://www.douyin.com/video/{id}` candidate can
+  create one single-candidate pending batch, edit and save a new revision, and
+  enter the same review/final-approval flow used by `#acquisition`. Profile-only
+  evidence remains readable but its create CTA is disabled. Final approval is
+  the only send authorization and, when both action gates are enabled, queues
+  the exact comment followed by the predecessor-blocked private message; the
+  browser never sends directly. Demo sessions retain the deterministic local
+  conversation preview.
 - Visible local MediaCrawler observation is a dedicated standard-Playwright
   Douyin window when `MEDIACRAWLER_BROWSER_HEADLESS=false`; Shensi disables CDP,
   while production may set headless mode to `true`. Its visible tab is a
@@ -270,8 +288,9 @@ ledger.
   The pre-status queued placeholder announces once per outstanding run. The UI
   prevents duplicate submission until the current intent is observed and no
   longer pending. Manual automation keywords still require neither a public-
-  search API nor AI. Comment and direct-message approval remains human approved;
-  no automatic external action was run.
+  search API nor AI. Comment and direct-message approval remains human approved.
+  Automated and fixture verification never clicks final approval against a
+  real batch, calls the sidecar action endpoint, or writes to Douyin.
 
 - The complete trial frontend surface is present. All nine primary entries are
   visible: 自动营销总览、获客中心、社媒对话、私域客户池、成交工作台、智能体中心、
@@ -314,9 +333,12 @@ ledger.
 - Authenticated full-page visual inspection and an authorized Douyin QR
   scan/manual-keyword collection remain customer-interactive acceptance work;
   they do not authorize an external comment or direct message.
-- Dedicated-account external-action acceptance remains outside this launch.
-  `DOUYIN_OUTREACH_ACTIONS_ENABLED=false` is fixed for the trial; no CAPTCHA is
-  automated and no real comment or direct message is authorized.
+- A dedicated-account comment/private-message acceptance remains a separate
+  Task 7 action-time step. Before enabling both gates, the operator must record
+  user authorization and an empty-queue audit. Publishing and automated trial
+  verification stop before final user approval. If the later visible browser
+  presents CAPTCHA, slider, login verification, limits, or platform warnings,
+  only the user may complete verification; no bypass is permitted.
 
 ## Blocked
 
@@ -331,8 +353,9 @@ ledger.
 1. Have the customer log in through the current `trial:status` origin and finish
    the authenticated all-module visual walk-through.
 2. Stop at QR-ready if the customer is not present. After an authorized scan,
-   verify one manual-keyword collection and persisted candidates while keeping
-   the external-action flag false.
+   verify one manual-keyword collection and persisted candidates. Keep external
+   actions disabled unless the separate explicit authorization and empty-queue
+   activation checks are both recorded.
 3. Only after those checks pass may the operator retire the old static link;
    `trial:stop` must stop only validated trial process groups and retain data
    until the documented export/profile retention decision is complete.

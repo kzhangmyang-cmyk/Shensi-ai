@@ -200,7 +200,11 @@ the pinned ICANN public-suffix data rather than treating every alphabetic final
 label as a domain, so grounded names such as `Node.js` and `Qwen.VL` remain
 usable while real domains stay prohibited.
 
-The outreach-batch service is the sole draft persistence owner. It freezes the
+The outreach-batch service is the sole draft persistence owner. Its candidate-
+scoped collection read resolves current batch heads by workspace, run, and
+candidate with a filter-bound opaque cursor; both acquisition and conversations
+use that server query rather than a browser-known batch ID as recovery
+authority. It freezes the
 authoritative run, policy, account/login, candidate/evidence, model, selected
 daily limit, exact message, and canonical hash identities into immutable batch
 revisions. Human edits reuse the draft validator and append a revision without
@@ -228,7 +232,15 @@ rejected. Three consecutive failures, or a verification/rate-limit/account-
 warning/login risk response, atomically pauses the account and all queued work.
 The sidecar reuses only that account's authenticated profile, centralizes UI
 selectors and closed page-state errors, clicks once, and never implements a
-bypass path.
+bypass path. MediaCrawler upstream remains the collection/browser foundation;
+comment and private-message execution is a Shensi extension, not an upstream-
+native or official Douyin inbox/API capability. Visible verification permits a
+bounded, manual-only wait and full recheck of the same action. Current defaults
+are 120 seconds for manual verification, 150 seconds for the Node action
+deadline, 160 seconds for gateway HTTP, 170 seconds for browser-action IPC, and
+a 180-second minimum claim lease. No solver, verification-token injection,
+third-party bypass, alternate action ID, or automatic retry after an uncertain
+receipt is allowed.
 
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a
@@ -285,20 +297,23 @@ The desktop candidate table and evidence inspector collapse to one-column
 cards at the mobile breakpoint, and page scrolling remains owned by the body/
 main document rather than nested frozen panes.
 
-The real-session `#conversations` controller is a separate read-only consumer
-of the same acquisition public contract. It first reads the Douyin-filtered
-task overview, then reads the first candidate page for each task's latest run.
-It renders these records as public interactions and candidate evidence, never
-as a platform inbox or a two-party message transcript. Run-level failures stay
-visible as partial-read warnings, a non-null candidate cursor is disclosed as
-an incomplete page, and no local seed is used as fallback. Route deactivation,
-logout, or another load aborts/stales the prior generation. The controller has
-no write method; its disabled composer explains that no official inbox,
-comment, reply, or direct-message API is connected. Outreach actions remain
-owned by the acquisition batch controller. Because the current contract can
-list actions only for a known batch ID and cannot discover batches from a run,
-the conversations inspector reports that receipt limitation and does not infer
-receipts.
+The real-session `#conversations` controller composes the same acquisition
+public-evidence and outreach-batch authorities. It first reads the Douyin-
+filtered task overview, then the first candidate page for each latest run. It
+renders these records as public evidence, never as an official platform inbox
+or two-party message transcript. For an eligible exact-video candidate it
+lists batches by `runId + candidateId`, loads the newest current batch, and
+reuses `OutreachBatchController` for exact-text revision, final confirmation,
+action polling, and receipts. If the collection is empty, create is limited to
+that one candidate. Profile-only evidence remains readable but does not issue a
+batch list/create command. Reload repeats overview → candidate → collection GET
+→ batch GET, making server authority independent of session selection order.
+Run-level failures stay visible as partial-read warnings, a non-null candidate
+cursor is disclosed as an incomplete page, and no local seed is used as
+fallback. Route deactivation, logout, or another load aborts/stales the prior
+generation. The browser contains no direct-send path: final approval only
+queues actions when both server/sidecar gates are enabled, and the separate
+fenced worker performs any platform click.
 
 ## Persistence
 

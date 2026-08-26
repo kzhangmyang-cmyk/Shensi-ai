@@ -33,6 +33,15 @@ Do not add parallel handwritten DTOs.
   performance, advisor, and
   ROI-related acquisition projections.
 
+`GET /api/v1/acquisition/outreach-batches?runId={runId}&candidateId={candidateId}&limit={1..50}&cursor={opaque}`
+discovers current batch heads for one workspace/run/candidate in stable newest-
+first order. It requires authentication plus `acquisition.outreach.approve`,
+but no CSRF or idempotency header. The opaque cursor is bound to workspace,
+run, and candidate. `#acquisition` and `#conversations` use this collection as
+the shared server recovery authority; the conversations workspace reloads
+overview, candidate evidence, this collection, then the selected batch GET.
+It does not infer ownership from a locally remembered batch ID.
+
 `GET /api/v1/acquisition/runs/{runId}/candidates` keeps the generated response
 type but the browser treats it as a closed trust boundary. The page, each
 candidate, and its evidence must have exactly the declared keys; the client
@@ -72,6 +81,10 @@ public APIs. They require the mounted bearer secret, accept only a private or
 loopback backend connection, and are never routed by Nginx. Raw handles,
 cookies, browser profiles, leases, raw ingestion state, and upstream payloads
 must not be added to the acquisition OpenAPI surface.
+MediaCrawler upstream is the collection/browser foundation. The exact comment
+and private-message action command is a Shensi extension behind this private
+boundary; it must not be described as an upstream-native feature, an official
+Douyin inbox, or an official DM/comment API.
 
 ## Protocol conventions
 
