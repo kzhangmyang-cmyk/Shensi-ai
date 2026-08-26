@@ -93,10 +93,11 @@ The frontend recognizes an explicit `VITE_REAL_TRIAL=true` mode. This mode:
 
 MediaCrawler accepts an explicit output root so trial crawl artifacts cannot
 land in another runtime's source-owned output directory. Its external action
-worker is disabled unless a separate affirmative flag is present. The same
-flag also prevents the backend from starting its action claim/recovery workers;
-the backend and sidecar therefore both fail closed without consuming approved
-actions into failed receipts.
+worker is disabled unless `DOUYIN_OUTREACH_ACTIONS_ENABLED=true` is present.
+The same flag prevents the backend from accepting final outreach approval or
+starting its action claim/recovery workers; the backend and sidecar therefore
+both fail closed without accumulating dormant sends or consuming approvals into
+failed receipts.
 
 ## Deployment and recovery
 

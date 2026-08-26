@@ -84,6 +84,8 @@
 **Files:**
 - Modify: `backend/src/acquisition-application.ts`
 - Modify: `backend/src/acquisition-application-test.ts`
+- Modify: `backend/src/acquisition-outreach-batch-service.ts`
+- Modify: `backend/src/acquisition-outreach-batch-test.ts`
 - Modify: `backend/src/server.ts`
 - Modify: `backend/src/douyin-mediacrawler-real-e2e-server-test.ts`
 - Modify: `services/media-crawler/shensi_adapter/app.py`
@@ -93,8 +95,8 @@
 - Modify: `services/media-crawler/.env.example`
 
 **Interfaces:**
-- Consumes: `MEDIACRAWLER_OUTPUT_ROOT` as an absolute owner-controlled directory and `MEDIACRAWLER_EXTERNAL_ACTIONS_ENABLED` as the only external-action enable flag.
-- Produces: `deployment_external_actions_enabled() -> bool`; `readMediaCrawlerExternalActionsEnabled(environment) -> boolean`; `CreateAcquisitionApplicationOptions.outreachExternalActionsEnabled`; `MediaCrawlerRunner(..., output_root: Path | None = None)` whose creation and cleanup use the same resolved output root.
+- Consumes: `MEDIACRAWLER_CRAWL_OUTPUT_ROOT` as an absolute owner-controlled directory and `DOUYIN_OUTREACH_ACTIONS_ENABLED` as the only external-action enable flag.
+- Produces: `deployment_outreach_actions_enabled() -> bool`; `readDouyinOutreachActionsEnabled(environment) -> boolean`; `CreateAcquisitionApplicationOptions.douyinOutreachActionsEnabled`; `MediaCrawlerRunner(..., output_root: Path | None = None)` whose creation and cleanup use the same resolved output root.
 
 - [ ] **Step 1: Write the failing custom-output test**
 
@@ -110,9 +112,9 @@
 
 - [ ] **Step 4: Write the failing action-gate tests**
 
-  Verify `deployment_external_actions_enabled()` is false when unset, false for every value except case-insensitive `true`, and true for `true`. Exercise the deployment app factory with the default disabled state and assert an authenticated POST to `/internal/v1/douyin/actions/<id>` returns `503` without invoking an executor.
+  Verify `deployment_outreach_actions_enabled()` is false when unset, false for every value except case-insensitive `true`, and true for `true`. Exercise the deployment app factory with the default disabled state and assert an authenticated POST to `/internal/v1/douyin/actions/<id>` returns `503 outreach_actions_disabled` without invoking an executor.
 
-  In the backend application test, configure a MediaCrawler gateway with `outreachExternalActionsEnabled: false`, seed an approved action, wait beyond the worker interval, and assert the repository action remains unclaimed. In the server configuration test, assert the environment parser returns true only for literal case-insensitive `true`.
+  In the backend application test, configure a MediaCrawler gateway with `douyinOutreachActionsEnabled: false`, seed an approved action, wait beyond the worker interval, and assert the repository action remains unclaimed. In the batch-service test, assert final approval returns `503 outreach_actions_disabled` before persisting actions. In the server configuration test, assert the environment parser returns true only for literal case-insensitive `true`.
 
 - [ ] **Step 5: Run the focused contract test and confirm RED**
 
@@ -120,7 +122,7 @@
 
 - [ ] **Step 6: Implement both fail-closed boundaries**
 
-  Create the deployment `ActionJobManager` only when `MEDIACRAWLER_EXTERNAL_ACTIONS_ENABLED=true`; otherwise leave it `None` so the existing route returns `action_job_manager_unconfigured`. In the backend, keep crawler collection workers enabled but create neither the outreach recovery sweeper nor outreach action worker unless `outreachExternalActionsEnabled` is true. Server composition passes the parsed environment flag. Do not change injected `create_app(...)` test behavior or the default of direct application tests that explicitly exercise the worker.
+  Create the deployment `ActionJobManager` only when `DOUYIN_OUTREACH_ACTIONS_ENABLED=true`; otherwise return the stable disabled response before manager lookup. In the backend, keep crawler collection workers enabled but reject final batch approval and create neither the outreach recovery sweeper nor outreach action worker unless `douyinOutreachActionsEnabled` is true. Server composition passes the parsed environment flag. Preserve injected `create_app(...)` behavior and direct unit fixtures by supplying an explicit enabled option where those tests exercise actions.
 
 - [ ] **Step 7: Verify sidecar GREEN**
 
@@ -152,7 +154,7 @@
 
 - [ ] **Step 3: Implement deterministic preparation**
 
-  Generate missing secrets with `randomBytes(48).toString("base64url")` and preserve existing secret files on repeat runs. Create `.runtime/real-trial` under the repository by default and ignore `.runtime/`. Write a `0600` environment file containing the required production variables, `CRM_STORE=mysql`, `CRM_SEED_DEVELOPMENT_DATA=false`, `SESSION_COOKIE_SECURE=true`, the five fixed ports, `VITE_REAL_TRIAL=true`, the two alias fields, `MEDIACRAWLER_BROWSER_HEADLESS=false`, `MEDIACRAWLER_BROWSER_CHANNEL=chrome`, `MEDIACRAWLER_EXTERNAL_ACTIONS_ENABLED=false`, and the dedicated output/profile paths. Never serialize the public URL until a tunnel is obtained.
+  Generate missing secrets with `randomBytes(48).toString("base64url")` and preserve existing secret files on repeat runs. Create `.runtime/real-trial` under the repository by default and ignore `.runtime/`. Write a `0600` environment file containing the required production variables, `CRM_STORE=mysql`, `CRM_SEED_DEVELOPMENT_DATA=false`, `SESSION_COOKIE_SECURE=true`, the five fixed ports, `VITE_REAL_TRIAL=true`, the two alias fields, `MEDIACRAWLER_BROWSER_HEADLESS=false`, `MEDIACRAWLER_BROWSER_CHANNEL=chrome`, `DOUYIN_OUTREACH_ACTIONS_ENABLED=false`, and the dedicated output/profile paths. Never serialize the public URL until a tunnel is obtained.
 
 - [ ] **Step 4: Write failing gateway behavior tests**
 
