@@ -1,0 +1,2 @@
+export async function verifyTrialRuntime({ origin, fetchImpl = fetch }) { const response = await fetchImpl(`${origin}/healthz`); if (!response.ok) throw new Error("TRIAL_GATEWAY_UNHEALTHY"); return { ok: true }; }
+if (process.argv[1]?.endsWith("real-trial-verify.mjs")) { const origin = process.env.SHENSI_TRIAL_ORIGIN; if (!origin) throw new Error("SHENSI_TRIAL_ORIGIN_REQUIRED"); verifyTrialRuntime({ origin }).then(() => console.log("TRIAL_VERIFY_OK")).catch((error) => { console.error(error.message); process.exitCode = 1; }); }

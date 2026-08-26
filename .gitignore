@@ -17,6 +17,7 @@ services/media-crawler/.shensi-crawl-output/
 .superpowers/
 .worktrees/
 .env.local
+.runtime/
 .env.production.local
 backups/
 *.sql
