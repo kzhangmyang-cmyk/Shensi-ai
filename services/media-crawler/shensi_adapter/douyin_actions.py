@@ -14,6 +14,7 @@ import re
 
 from .douyin_action_controls import (
     ActionControlsFailure,
+    capture_receipt_baseline,
     detect_page_failure,
     find_visible_receipt,
     locate_action_controls,
@@ -42,16 +43,25 @@ class DouyinActionExecutor:
         self._receipt_poll_ms = receipt_poll_ms
 
     def execute(self, page: object, request: ActionRequest) -> ActionReceipt:
-        target = urlsplit(str(request.target_public_url))
-        expected = (r"/video/[A-Za-z0-9_-]{1,300}" if request.kind == "comment"
-                    else r"/user/[A-Za-z0-9_-]{1,300}")
-        if (target.scheme != "https" or target.hostname != "www.douyin.com"
-                or target.port is not None or target.query or target.fragment
-                or re.fullmatch(expected, target.path) is None):
+        target_url = str(request.target_public_url)
+        expected = (
+            r"https://www\.douyin\.com/video/[A-Za-z0-9_-]{1,300}"
+            if request.kind == "comment"
+            else r"https://www\.douyin\.com/user/[A-Za-z0-9_-]{1,300}"
+        )
+        target = urlsplit(target_url)
+        if (re.fullmatch(expected, target_url) is None
+                or target.username is not None or target.password is not None):
             raise DouyinActionFailure("action_rejected")
         if self._now() >= request.deadline_at:
             raise DouyinActionFailure("deadline_exceeded")
-        page.goto(str(request.target_public_url), wait_until="domcontentloaded")
+        page.goto(target_url, wait_until="domcontentloaded")
+        try:
+            final_url = page.url  # type: ignore[attr-defined]
+        except Exception:
+            raise DouyinActionFailure("action_rejected") from None
+        if not isinstance(final_url, str) or final_url != target_url:
+            raise DouyinActionFailure("action_rejected")
         failure = detect_page_failure(page)
         if failure is not None:
             raise DouyinActionFailure(failure)
@@ -66,12 +76,16 @@ class DouyinActionExecutor:
         if read_composer_content(controls.composer) != request.content:
             raise DouyinActionFailure("douyin_action_content_mismatch")
         try:
+            baseline = capture_receipt_baseline(page, request)
+        except ActionControlsFailure as error:
+            raise DouyinActionFailure(error.code) from None
+        try:
             controls.submit.click(timeout=5_000)  # type: ignore[attr-defined]
         except Exception:
             raise DouyinActionFailure("douyin_action_control_missing") from None
         for attempt in range(self._receipt_attempts):
             try:
-                reference = find_visible_receipt(page, request)
+                reference = find_visible_receipt(page, request, baseline)
             except ActionControlsFailure as error:
                 raise DouyinActionFailure(error.code) from None
             if reference is not None:

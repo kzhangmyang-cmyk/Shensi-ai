@@ -17,6 +17,22 @@ from .douyin_actions import DouyinActionExecutor, DouyinActionFailure
 from .schemas import ActionRequest
 
 
+_CLOSED_ACTION_FAILURE_CODES = frozenset({
+    "action_unavailable",
+    "action_rejected",
+    "deadline_exceeded",
+    "douyin_verification_required",
+    "douyin_rate_limited",
+    "douyin_account_warning",
+    "douyin_login_expired",
+    "douyin_action_control_missing",
+    "douyin_action_control_ambiguous",
+    "douyin_action_content_mismatch",
+    "douyin_action_receipt_ambiguous",
+    "douyin_action_timeout",
+})
+
+
 class BrowserState(Protocol):
     def open_douyin_login(self, profile_path: Path) -> dict[str, str]: ...
     def close(self, context: object) -> None: ...
@@ -173,6 +189,14 @@ def _browser_worker(connection: Connection, factory: Callable[[], object] | None
                 else:
                     raise RuntimeError("douyin_browser_invalid_command")
                 connection.send({"id": command_id, "kind": "ok", "value": value})
+            except DouyinActionFailure as error:
+                code = (error.code if error.code in _CLOSED_ACTION_FAILURE_CODES
+                        else "action_unavailable")
+                connection.send({
+                    "id": command_id,
+                    "kind": "action_failure",
+                    "code": code,
+                })
             except BaseException as error:
                 connection.send(
                     {"id": command_id, "kind": "error", "message": str(error)}
@@ -340,6 +364,15 @@ class MediaCrawlerDouyinBrowserState:
             if response.get("id") != command_id:
                 self._hard_stop()
                 raise RuntimeError("douyin_browser_protocol_error")
+            if response.get("kind") == "action_failure":
+                code = response.get("code")
+                if (operation != "action"
+                        or set(response) != {"id", "kind", "code"}
+                        or not isinstance(code, str)
+                        or code not in _CLOSED_ACTION_FAILURE_CODES):
+                    self._hard_stop()
+                    raise RuntimeError("douyin_browser_protocol_error")
+                raise DouyinActionFailure(code)
             if response.get("kind") == "error":
                 raise RuntimeError(
                     str(response.get("message") or "douyin_browser_command_failed")

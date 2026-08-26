@@ -9,6 +9,7 @@ import pytest
 
 from shensi_adapter.douyin_action_controls import (
     ActionControlsFailure,
+    ReceiptBaseline,
     find_visible_receipt,
 )
 from shensi_adapter.douyin_actions import DouyinActionExecutor, DouyinActionFailure
@@ -37,6 +38,12 @@ class FakeElement:
     visible_after_submit: bool = False
     comment_item: bool = False
     contains_editor: bool = False
+    descendant_texts: list[str] = field(default_factory=list)
+    descendant_editors: set[str] = field(default_factory=set)
+    tag_name: str = "div"
+    attribute_errors: set[str] = field(default_factory=set)
+    visibility_error_after: int | None = None
+    visibility_reads: int = 0
 
 
 class FakeLocator:
@@ -62,6 +69,10 @@ class FakeLocator:
 
     def is_visible(self, **_kwargs):
         element = self._one()
+        element.visibility_reads += 1
+        if (element.visibility_error_after is not None
+                and element.visibility_reads > element.visibility_error_after):
+            raise RuntimeError("fake_locator_detached")
         return element.visible and (
             not element.visible_after_submit or self.page.after_submit
         )
@@ -93,14 +104,25 @@ class FakeLocator:
         self.page.after_submit = True
 
     def get_attribute(self, name: str, **_kwargs):
-        return self._one().attributes.get(name)
+        element = self._one()
+        if name in element.attribute_errors:
+            raise RuntimeError("fake_attribute_read_failed")
+        return element.attributes.get(name)
 
     def get_by_text(self, text: str, *, exact: bool):
         if exact:
-            matches = [
-                item for item in self.elements
-                if item.text == text or text in item.exact_texts
-            ]
+            normalized = " ".join(text.split())
+            matches = []
+            for item in self.elements:
+                if " ".join(item.text.split()) == normalized:
+                    matches.append(item)
+                for index, descendant in enumerate([
+                    *sorted(item.exact_texts), *item.descendant_texts,
+                ]):
+                    if " ".join(descendant.split()) == normalized:
+                        matches.append(FakeElement(
+                            name=f"{item.name}-text-{index}", text=descendant,
+                        ))
         else:
             matches = [item for item in self.elements if text in item.text]
         return FakeLocator(self.page, matches)
@@ -111,13 +133,28 @@ class FakeLocator:
                 item for item in self.elements
                 if item.contains_editor or item.attributes.get("contenteditable") == "true"
             ])
+        if selector == '[contenteditable], textarea, input, [role="textbox"]':
+            descendants = []
+            for item in self.elements:
+                for index, editor_kind in enumerate(sorted(item.descendant_editors)):
+                    descendants.append(FakeElement(
+                        name=f"{item.name}-editor-{index}", tag_name=editor_kind,
+                    ))
+                if item.contains_editor:
+                    descendants.append(FakeElement(name=f"{item.name}-editor"))
+            return FakeLocator(self.page, descendants)
         return FakeLocator(self.page, [])
+
+    def evaluate(self, _expression: str, **_kwargs):
+        return self._one().tag_name.lower()
 
 
 class FakePage:
-    def __init__(self, elements: list[FakeElement]):
+    def __init__(self, elements: list[FakeElement], *, redirect_url: str | None = None):
         self.elements = elements
         self.after_submit = False
+        self.url = "about:blank"
+        self.redirect_url = redirect_url
         self.urls: list[str] = []
         self.fills: list[tuple[str, str]] = []
         self.clicks: list[str] = []
@@ -126,6 +163,7 @@ class FakePage:
 
     def goto(self, url: str, **_kwargs):
         self.urls.append(url)
+        self.url = self.redirect_url or url
 
     def locator(self, selector: str):
         self.locator_queries.append(selector)
@@ -247,6 +285,38 @@ def test_non_unique_hidden_or_unusable_controls_fail_before_click(elements, code
     assert page.clicks == []
 
 
+def test_hidden_and_visible_same_priority_controls_are_ambiguous_before_click():
+    page = FakePage([
+        composer(name="hidden-composer", visible=False),
+        composer(name="visible-composer"),
+        submit(),
+        comment_item(),
+    ])
+
+    with pytest.raises(DouyinActionFailure, match="^douyin_action_control_ambiguous$"):
+        DouyinActionExecutor(now=lambda: NOW).execute(page, action_request())
+
+    assert page.clicks == []
+
+
+def test_hidden_real_control_does_not_fall_through_to_fixture_control():
+    page = FakePage([
+        composer(visible=False),
+        FakeElement(
+            name="fixture-composer",
+            selectors={'[data-e2e="comment-input"]'},
+            editable=True,
+        ),
+        submit(),
+        comment_item(),
+    ])
+
+    with pytest.raises(DouyinActionFailure, match="^douyin_action_control_missing$"):
+        DouyinActionExecutor(now=lambda: NOW).execute(page, action_request())
+
+    assert page.clicks == []
+
+
 def test_composer_readback_mismatch_fails_before_click_without_leaking_text():
     page = FakePage([composer(readback="不是批准文本"), submit()])
 
@@ -261,7 +331,20 @@ def test_composer_readback_mismatch_fails_before_click_without_leaking_text():
 def test_non_exact_receipt_text_is_not_accepted_and_does_not_click():
     page = FakePage([comment_item(text="前缀冻结的批准文本后缀", visible_after_submit=False)])
 
-    assert find_visible_receipt(page, action_request()) is None
+    assert find_visible_receipt(page, action_request(), ReceiptBaseline()) is None
+    assert page.clicks == []
+
+
+def test_playwright_normalized_whitespace_match_is_not_a_byte_exact_receipt():
+    content = "冻结 的批准文本"
+    page = FakePage([comment_item(
+        text="冻结\n的批准文本",
+        visible_after_submit=False,
+    )])
+
+    assert find_visible_receipt(
+        page, action_request(content), ReceiptBaseline(),
+    ) is None
     assert page.clicks == []
 
 
@@ -273,7 +356,7 @@ def test_multiple_exact_receipts_fail_ambiguous_without_click():
     ])
 
     with pytest.raises(ActionControlsFailure, match="^douyin_action_receipt_ambiguous$"):
-        find_visible_receipt(page, action_request())
+        find_visible_receipt(page, action_request(), ReceiptBaseline())
 
     assert page.clicks == []
 
@@ -285,7 +368,9 @@ def test_unique_exact_receipt_is_accepted_among_unrelated_comment_items():
                      attributes={"data-cid": "comment-456"}),
     ])
 
-    assert find_visible_receipt(page, action_request()) == "douyin-comment:comment-456"
+    assert find_visible_receipt(
+        page, action_request(), ReceiptBaseline(),
+    ) == "douyin-comment:comment-456"
     assert page.clicks == []
 
 
@@ -296,7 +381,9 @@ def test_exact_text_descendant_is_accepted_inside_a_comment_item_with_metadata()
         visible_after_submit=False,
     )])
 
-    assert find_visible_receipt(page, action_request()) == "douyin-comment:comment-123"
+    assert find_visible_receipt(
+        page, action_request(), ReceiptBaseline(),
+    ) == "douyin-comment:comment-123"
     assert page.clicks == []
 
 
@@ -306,7 +393,7 @@ def test_editor_with_exact_text_is_not_accepted_as_a_receipt():
         attributes={"contenteditable": "true", "data-comment-id": "editor-1"},
     )])
 
-    assert find_visible_receipt(page, action_request()) is None
+    assert find_visible_receipt(page, action_request(), ReceiptBaseline()) is None
     assert page.clicks == []
 
 
@@ -317,15 +404,156 @@ def test_comment_item_containing_an_editor_is_not_accepted_as_a_receipt():
         contains_editor=True,
     )])
 
-    assert find_visible_receipt(page, action_request()) is None
+    assert find_visible_receipt(page, action_request(), ReceiptBaseline()) is None
+    assert page.clicks == []
+
+
+@pytest.mark.parametrize("changes", [
+    {"attributes": {"contenteditable": "", "data-comment-id": "editor-empty"}},
+    {"attributes": {"contenteditable": "plaintext-only",
+                    "data-comment-id": "editor-plaintext"}},
+    {"attributes": {"role": "textbox", "data-comment-id": "editor-role"}},
+    {"tag_name": "textarea"},
+    {"tag_name": "input"},
+    {"editable": True},
+    {"descendant_editors": {"textarea"}, "exact_texts": {"冻结的批准文本"}},
+    {"descendant_editors": {"input"}, "exact_texts": {"冻结的批准文本"}},
+    {"descendant_editors": {"contenteditable-empty"},
+     "exact_texts": {"冻结的批准文本"}},
+    {"descendant_editors": {"textbox"}, "exact_texts": {"冻结的批准文本"}},
+])
+def test_all_editor_variants_are_excluded_from_receipts(changes):
+    page = FakePage([comment_item(visible_after_submit=False, **changes)])
+
+    assert find_visible_receipt(page, action_request(), ReceiptBaseline()) is None
+    assert page.clicks == []
+
+
+def test_receipt_attribute_read_error_fails_ambiguous_without_click():
+    page = FakePage([comment_item(
+        visible_after_submit=False,
+        attribute_errors={"data-comment-id"},
+    )])
+
+    with pytest.raises(ActionControlsFailure,
+                       match="^douyin_action_receipt_ambiguous$"):
+        find_visible_receipt(page, action_request(), ReceiptBaseline())
+
+    assert page.clicks == []
+
+
+def test_detached_receipt_during_reference_revalidation_fails_without_click():
+    page = FakePage([comment_item(
+        text="作者冻结的批准文本刚刚",
+        exact_texts={"冻结的批准文本"},
+        visible_after_submit=False,
+        visibility_error_after=1,
+    )])
+
+    with pytest.raises(ActionControlsFailure,
+                       match="^douyin_action_receipt_ambiguous$"):
+        find_visible_receipt(page, action_request(), ReceiptBaseline())
+
     assert page.clicks == []
 
 
 def test_unique_exact_receipt_without_platform_id_uses_stable_safe_reference():
     page = FakePage([comment_item(visible_after_submit=False, attributes={})])
 
-    assert find_visible_receipt(page, action_request()) == (
+    assert find_visible_receipt(page, action_request(), ReceiptBaseline()) == (
         "douyin-visible-comment:"
         "871c223a57c19b0f73e0c90e6ed03ec882b9271ea987292fb6f29a71b3fd8857"
     )
+    assert page.clicks == []
+
+
+@pytest.mark.parametrize("attributes", [
+    {"data-comment-id": "comment-123"},
+    {},
+])
+def test_preexisting_identical_comment_cannot_prove_submission_success_or_reclick(
+    attributes,
+):
+    page = FakePage([
+        composer(), submit(),
+        comment_item(visible_after_submit=False, attributes=attributes),
+    ])
+
+    with pytest.raises(DouyinActionFailure, match="^douyin_action_timeout$"):
+        DouyinActionExecutor(
+            now=lambda: NOW, receipt_attempts=2, receipt_poll_ms=1,
+        ).execute(page, action_request())
+
+    assert page.clicks == ["submit-1"]
+
+
+def test_new_unidentified_comment_uses_synthetic_receipt_only_after_baseline_absence():
+    page = FakePage([
+        composer(), submit(), comment_item(attributes={}),
+    ])
+
+    receipt = DouyinActionExecutor(now=lambda: NOW).execute(page, action_request())
+
+    assert receipt.platform_receipt_reference.startswith("douyin-visible-comment:")
+    assert page.clicks == ["submit-1"]
+
+
+def test_new_platform_id_is_bound_when_an_identical_old_comment_preexists():
+    page = FakePage([
+        composer(), submit(),
+        comment_item(visible_after_submit=False),
+        comment_item(
+            name="comment-new",
+            attributes={"data-comment-id": "comment-456"},
+        ),
+    ])
+
+    receipt = DouyinActionExecutor(now=lambda: NOW).execute(page, action_request())
+
+    assert receipt.platform_receipt_reference == "douyin-comment:comment-456"
+    assert page.clicks == ["submit-1"]
+
+
+@pytest.mark.parametrize("changes", [
+    {"attribute_errors": {"data-comment-id"}},
+    {"text": "作者冻结的批准文本刚刚",
+     "exact_texts": {"冻结的批准文本"}, "visibility_error_after": 2},
+])
+def test_post_submit_receipt_error_never_retries_the_submit_click(changes):
+    page = FakePage([
+        composer(), submit(), comment_item(**changes),
+    ])
+
+    with pytest.raises(DouyinActionFailure,
+                       match="^douyin_action_receipt_ambiguous$"):
+        DouyinActionExecutor(now=lambda: NOW).execute(page, action_request())
+
+    assert page.clicks == ["submit-1"]
+
+
+def test_redirected_wrong_video_id_is_rejected_before_fill_or_click():
+    page = FakePage(
+        [composer(), submit(), comment_item()],
+        redirect_url="https://www.douyin.com/video/7350000000000000002",
+    )
+
+    with pytest.raises(DouyinActionFailure, match="^action_rejected$"):
+        DouyinActionExecutor(now=lambda: NOW).execute(page, action_request())
+
+    assert page.fills == []
+    assert page.clicks == []
+
+
+def test_userinfo_target_is_rejected_before_navigation_or_click():
+    value = action_request().model_copy(update={
+        "target_public_url": (
+            "https://user@www.douyin.com/video/7350000000000000001"
+        ),
+    })
+    page = FakePage([composer(), submit(), comment_item()])
+
+    with pytest.raises(DouyinActionFailure, match="^action_rejected$"):
+        DouyinActionExecutor(now=lambda: NOW).execute(page, value)
+
+    assert page.urls == []
     assert page.clicks == []

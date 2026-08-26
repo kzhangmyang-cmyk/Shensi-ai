@@ -1,5 +1,8 @@
+import hashlib
+import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,6 +10,8 @@ from pydantic import ValidationError
 
 import shensi_adapter.app as deployment_app
 from shensi_adapter.app import create_app
+from shensi_adapter.action_jobs import ActionJobManager
+from shensi_adapter.browser_state import MediaCrawlerDouyinBrowserState
 from shensi_adapter.schemas import (
     ActionReceipt,
     ActionRequest,
@@ -21,6 +26,142 @@ from shensi_adapter.schemas import (
 
 SERVICE_SECRET = "mediacrawler-test-secret-that-is-at-least-32-bytes"
 NOW = datetime(2026, 8, 24, tzinfo=timezone.utc)
+
+
+class _IpcActionElement:
+    def __init__(self, page, kind):
+        self.page = page
+        self.kind = kind
+
+
+class _IpcActionLocator:
+    def __init__(self, page, elements=()):
+        self.page = page
+        self.elements = list(elements)
+
+    def _one(self):
+        if len(self.elements) != 1:
+            raise RuntimeError("fixture_locator_not_unique")
+        return self.elements[0]
+
+    def count(self):
+        return len(self.elements)
+
+    def nth(self, index):
+        return _IpcActionLocator(self.page, [self.elements[index]])
+
+    def and_(self, other):
+        return _IpcActionLocator(self.page, [
+            item for item in self.elements if item in other.elements
+        ])
+
+    def is_visible(self, **_kwargs):
+        element = self._one()
+        return element.kind != "receipt" or self.page.after_submit
+
+    def is_enabled(self, **_kwargs):
+        return True
+
+    def is_editable(self, **_kwargs):
+        return self._one().kind == "composer"
+
+    def fill(self, value, **_kwargs):
+        self.page.value = value
+
+    def input_value(self, **_kwargs):
+        if self._one().kind != "composer":
+            raise RuntimeError("fixture_input_value_unsupported")
+        if self.page.failure_code == "douyin_action_content_mismatch":
+            return "fixture-mismatch"
+        return self.page.value
+
+    def text_content(self, **_kwargs):
+        kind = self._one().kind
+        if kind == "submit":
+            return "发送"
+        if kind == "receipt":
+            return self.page.approved_content
+        return self.page.value
+
+    def click(self, **_kwargs):
+        self.page.after_submit = True
+
+    def get_attribute(self, name, **_kwargs):
+        if (self._one().kind == "receipt" and name == "data-comment-id"
+                and self.page.failure_code == "douyin_action_receipt_ambiguous"):
+            raise RuntimeError("fixture_attribute_failure_must_not_cross_ipc")
+        return None
+
+    def get_by_text(self, text, *, exact):
+        assert exact is True
+        element = self._one()
+        return _IpcActionLocator(
+            self.page,
+            [element] if element.kind == "receipt" and text == self.page.approved_content else [],
+        )
+
+    def locator(self, _selector):
+        return _IpcActionLocator(self.page)
+
+    def evaluate(self, _expression, **_kwargs):
+        return "div"
+
+
+class _IpcActionPage:
+    def __init__(self, failure_code):
+        self.failure_code = failure_code
+        self.url = "about:blank"
+        self.after_submit = False
+        self.value = ""
+        self.approved_content = "ipc frozen approved content"
+        self.composers = [_IpcActionElement(self, "composer")]
+        if failure_code == "douyin_action_control_ambiguous":
+            self.composers.append(_IpcActionElement(self, "composer"))
+        self.submit = _IpcActionElement(self, "submit")
+        self.receipt = _IpcActionElement(self, "receipt")
+
+    def goto(self, url, **_kwargs):
+        self.url = url
+
+    def locator(self, selector):
+        if selector == '[contenteditable="true"][aria-label*="评论"]':
+            return _IpcActionLocator(self, self.composers)
+        if selector == 'button:has-text("发送")':
+            return _IpcActionLocator(self, [self.submit])
+        if "comment-item" in selector:
+            return _IpcActionLocator(self, [self.receipt])
+        return _IpcActionLocator(self)
+
+    def get_by_role(self, role, *, name, exact):
+        assert (role, name, exact) == ("button", "发送", True)
+        return _IpcActionLocator(self, [self.submit])
+
+    def wait_for_timeout(self, _milliseconds):
+        return None
+
+
+class _IpcActionContext:
+    def __init__(self, failure_code):
+        self.pages = [_IpcActionPage(failure_code)]
+
+    def close(self):
+        return None
+
+
+class _IpcActionChromium:
+    def launch_persistent_context(self, profile_path, **_kwargs):
+        return _IpcActionContext(Path(profile_path).name)
+
+
+class _IpcActionPlaywright:
+    chromium = _IpcActionChromium()
+
+    def stop(self):
+        return None
+
+
+def _ipc_action_playwright_factory():
+    return _IpcActionPlaywright()
 
 
 def test_service_schemas_are_closed():
@@ -102,6 +243,68 @@ def test_service_schemas_are_closed():
     for model in models:
         with pytest.raises(ValidationError):
             type(model).model_validate({**model.model_dump(mode="json"), "unexpected": True})
+
+
+@pytest.mark.parametrize("failure_code", [
+    "douyin_action_control_ambiguous",
+    "douyin_action_content_mismatch",
+    "douyin_action_receipt_ambiguous",
+])
+def test_closed_action_failure_survives_browser_ipc_to_fastapi(
+    tmp_path, failure_code,
+):
+    profile = tmp_path / failure_code
+    profile.mkdir()
+    browser = MediaCrawlerDouyinBrowserState(
+        playwright_factory=_ipc_action_playwright_factory,
+        startup_timeout=2,
+        command_timeout=2,
+    )
+    content = "ipc frozen approved content"
+    content_hash = "sha256:" + hashlib.sha256(json.dumps(
+        {"content": content}, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"),
+    ).encode()).hexdigest()
+    manager = ActionJobManager(
+        tmp_path / "jobs",
+        account_resolver=lambda _handle, _version: profile,
+        executor=browser.execute_douyin_action,
+    )
+    body = {
+        "action_id": f"ipc-{failure_code}",
+        "account_handle": "private-handle",
+        "login_state_version": 1,
+        "kind": "comment",
+        "target_public_url": "https://www.douyin.com/video/7350000000000000001",
+        "content": content,
+        "deadline_at": (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat(),
+        "approved_content_hash": content_hash,
+    }
+    try:
+        with TestClient(
+            create_app(SERVICE_SECRET, action_job_manager=manager),
+            raise_server_exceptions=False,
+        ) as client:
+            response = client.post(
+                f"/internal/v1/douyin/actions/{body['action_id']}",
+                headers={"Authorization": f"Bearer {SERVICE_SECRET}"},
+                json=body,
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "action_id": body["action_id"],
+            "state": "failed",
+            "platform_receipt_reference": None,
+            "occurred_at": response.json()["occurred_at"],
+            "failure_code": failure_code,
+        }
+        assert content not in response.text
+        assert "fixture_attribute_failure_must_not_cross_ipc" not in response.text
+        assert "cookie" not in response.text.lower()
+        assert "html" not in response.text.lower()
+    finally:
+        browser.close_browser()
 
 
 def test_health_requires_valid_bearer_authentication_without_echoing_header():

@@ -59,6 +59,7 @@ class FakePage:
         self.receipt = receipt
         self.late_receipt = late_receipt
         self.after_submit = False
+        self.url = "about:blank"
         self.urls: list[str] = []
         self.fills: list[tuple[str, str]] = []
         self.values: dict[str, str] = {}
@@ -73,6 +74,7 @@ class FakePage:
 
     def goto(self, url: str, **_kwargs):
         self.urls.append(url)
+        self.url = url
 
     def locator(self, selector: str):
         return FakeLocator(self, selector)
