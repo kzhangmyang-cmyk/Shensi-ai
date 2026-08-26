@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+
 export async function verifyTrialRuntime({ origin, fetchImpl = fetch }) {
   const gateway = await fetchImpl(`${origin}/healthz`);
   const backend = await fetchImpl(`${origin}/api/health`);
@@ -15,5 +18,3 @@ if (process.argv[1]?.endsWith("real-trial-verify.mjs")) {
   if (typeof origin !== "string" || !origin) throw new Error("TRIAL_ORIGIN_UNAVAILABLE");
   verifyTrialRuntime({ origin }).then(() => console.log("TRIAL_VERIFY_OK")).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
