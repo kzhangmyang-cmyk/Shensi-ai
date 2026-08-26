@@ -93,6 +93,9 @@
 - Modify: `services/media-crawler/tests/shensi_adapter/test_contracts.py`
 - Modify: `services/media-crawler/tests/shensi_adapter/test_crawl_jobs.py`
 - Modify: `services/media-crawler/.env.example`
+- Modify: `scripts/dev.mjs`
+- Modify: `deploy/compose.yaml`
+- Modify: `tools/mediacrawler-deployment.test.mjs`
 
 **Interfaces:**
 - Consumes: `MEDIACRAWLER_CRAWL_OUTPUT_ROOT` as an absolute owner-controlled directory and `DOUYIN_OUTREACH_ACTIONS_ENABLED` as the only external-action enable flag.
@@ -108,7 +111,7 @@
 
 - [ ] **Step 3: Implement one resolved output root**
 
-  Resolve `output_root` once in the constructor, defaulting to the existing source-local directory for backward compatibility. Use it for both attempt creation and `cleanup(job_id)`. The deployment factory must require and pass `MEDIACRAWLER_OUTPUT_ROOT` so production-like trial runs never use the source-local default.
+  Resolve `output_root` once in the constructor, defaulting to the existing source-local directory for backward compatibility. Use it for both attempt creation and `cleanup(job_id)`. The deployment factory must require `MEDIACRAWLER_CRAWL_OUTPUT_ROOT`, verify that it is a non-symlinked `0700` directory strictly inside (not equal to) `MEDIACRAWLER_ENCRYPTED_VOLUME`, and pass it to the runner. Set the Compose value inside its sole writable encrypted mount and have `scripts/dev.mjs` pass the configured value.
 
 - [ ] **Step 4: Write the failing action-gate tests**
 
@@ -126,7 +129,7 @@
 
 - [ ] **Step 7: Verify sidecar GREEN**
 
-  Run `uv run --frozen --project services/media-crawler pytest -q services/media-crawler/tests/shensi_adapter` and `pnpm --filter ./backend test:acquisition`. Expected: both commands exit `0`.
+  Run `uv run --frozen --project services/media-crawler pytest -q services/media-crawler/tests/shensi_adapter`, `pnpm --filter ./backend test:acquisition`, and `node --test tools/mediacrawler-deployment.test.mjs`. Expected: all commands exit `0`.
 
 ### Task 3: Add repeatable isolated trial runtime tooling
 
@@ -137,12 +140,14 @@
 - Create: `scripts/real-trial-gateway.test.mjs`
 - Create: `scripts/real-trial-runtime.mjs`
 - Create: `scripts/real-trial-runtime.test.mjs`
+- Create: `scripts/real-trial-verify.mjs`
+- Create: `backend/scripts/setup-trial-mysql.ts`
 - Modify: `package.json`
 - Modify: `.gitignore`
 
 **Interfaces:**
 - Consumes: `SHENSI_TRIAL_RUNTIME_ROOT`, `SHENSI_TRIAL_MYSQL_BASEDIR`, `SHENSI_TRIAL_CLOUDFLARED`, and the one-time `SHENSI_TRIAL_APP_PASSWORD`; defaults bind only the ports in Global Constraints.
-- Produces: `prepareTrialRuntime(root, options)`, `createTrialGateway(options)`, `startTrialRuntime(root, options)`, and package scripts `trial:prepare`, `trial:start`, `trial:status`, `trial:stop`.
+- Produces: `prepareTrialRuntime(root, options)`, `createTrialGateway(options)`, `startTrialRuntime(root, options)`, `verifyTrialRuntime(options)`, and package scripts `trial:prepare`, `trial:start`, `trial:status`, `trial:verify`, `trial:stop`.
 
 - [ ] **Step 1: Write failing configuration and permission tests**
 
@@ -154,7 +159,7 @@
 
 - [ ] **Step 3: Implement deterministic preparation**
 
-  Generate missing secrets with `randomBytes(48).toString("base64url")` and preserve existing secret files on repeat runs. Create `.runtime/real-trial` under the repository by default and ignore `.runtime/`. Write a `0600` environment file containing the required production variables, `CRM_STORE=mysql`, `CRM_SEED_DEVELOPMENT_DATA=false`, `SESSION_COOKIE_SECURE=true`, the five fixed ports, `VITE_REAL_TRIAL=true`, the two alias fields, `MEDIACRAWLER_BROWSER_HEADLESS=false`, `MEDIACRAWLER_BROWSER_CHANNEL=chrome`, `DOUYIN_OUTREACH_ACTIONS_ENABLED=false`, and the dedicated output/profile paths. Never serialize the public URL until a tunnel is obtained.
+  Generate missing secrets with `randomBytes(48).toString("base64url")` and preserve existing secret files on repeat runs. Create `.runtime/real-trial` under the repository by default and ignore `.runtime/`. Write a `0600` environment file containing every production key, including `ACQUISITION_V1_CURSOR_SECRET`, plus `CRM_STORE=mysql`, `CRM_SEED_DEVELOPMENT_DATA=false`, `SESSION_COOKIE_SECURE=true`, the five fixed ports, `VITE_REAL_TRIAL=true`, the two alias fields, `MEDIACRAWLER_BROWSER_HEADLESS=false`, `MEDIACRAWLER_BROWSER_CHANNEL=chrome`, `DOUYIN_OUTREACH_ACTIONS_ENABLED=false`, and the dedicated output/profile paths. Copy the configured fixed cloudflared binary into the runtime tool directory only after verifying its configured SHA-256. Never serialize the public URL until a tunnel is obtained.
 
 - [ ] **Step 4: Write failing gateway behavior tests**
 
@@ -174,11 +179,11 @@
 
 - [ ] **Step 8: Implement the lifecycle supervisor**
 
-  Initialize MySQL 8.4 with `--initialize-insecure` only for a new dedicated data directory, launch it with `--no-defaults`, create `shensi_trial` and `shensi_trial_app@127.0.0.1` through its private socket, then launch tunnel, sidecar, built backend, Vite preview, and gateway. Poll each health boundary. Bootstrap an internal random super-admin, create or verify the tenant admin through the real account API, and never log either password. Refuse to reuse PIDs not matching the recorded command metadata.
+  Initialize MySQL 8.4 with `--initialize-insecure` only for a new dedicated data directory, launch it with `--no-defaults`, and use `backend/scripts/setup-trial-mysql.ts` through its private socket to create `shensi_trial` and least-privilege `shensi_trial_app@127.0.0.1`. Then launch tunnel, sidecar, built backend, Vite preview, and gateway and poll each health boundary. Bootstrap an internal random super-admin, create or verify the tenant admin through the real account API, stop the backend, remove `INITIAL_ADMIN_*` from its child environment, restart it, and never log either password. Refuse to reuse PIDs not matching recorded command and nonce metadata.
 
 - [ ] **Step 9: Verify runtime tooling GREEN**
 
-  Run `node --test scripts/real-trial-config.test.mjs scripts/real-trial-gateway.test.mjs scripts/real-trial-runtime.test.mjs`. Expected: all tests exit `0`.
+  Run `node --test scripts/real-trial-config.test.mjs scripts/real-trial-gateway.test.mjs scripts/real-trial-runtime.test.mjs` and exercise `scripts/real-trial-verify.mjs` against injected local fixtures. Expected: all tests exit `0`.
 
 ### Task 4: Synchronize current operating documentation
 
