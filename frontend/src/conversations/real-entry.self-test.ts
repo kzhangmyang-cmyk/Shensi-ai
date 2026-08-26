@@ -6,12 +6,12 @@ const demoApp = readFileSync(new URL("../demo/demo-app.ts", import.meta.url), "u
 assert.match(
   demoApp,
   /shouldUseRealConversations\(\s*router\.current\(\),\s*document\.body\.dataset\.sessionMode\s*\)/u,
-  "real authenticated #conversations must select the read-only real controller"
+  "real authenticated #conversations must select the public-evidence outreach controller"
 );
 assert.match(
   demoApp,
   /realConversationsController\.open\(\)/u,
-  "the real conversations route must load server-backed public interactions"
+  "the real conversations route must load server-backed public interactions and approvals"
 );
 assert.match(
   demoApp,

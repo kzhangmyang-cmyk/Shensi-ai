@@ -1,5 +1,10 @@
 import { strict as assert } from "node:assert";
-import { AcquisitionHttpError, createDouyinAutomationApi, type DouyinPolicyInput } from "./douyin-automation-api";
+import {
+  AcquisitionHttpError,
+  createDouyinAutomationApi,
+  isDouyinCommentOutreachCandidate,
+  type DouyinPolicyInput
+} from "./douyin-automation-api";
 
 const now = "2026-08-25T09:30:00.000Z";
 const policy = {
@@ -23,6 +28,22 @@ const crawler = { runId: "run/1", state: "partial", attempt: 1, cursorPersisted:
 const candidates = { items: [{ id: "candidate-1", status: "creator_candidate", displayName: "候选人", evidence: { sourceUrl: "https://www.douyin.com/video/1", excerpt: "公开证据" } }], nextCursor: null };
 const draftPlan = { id: "plan/1", payload: { name: "工业需求计划" }, status: "draft", version: 1 };
 const approvedPlan = { ...draftPlan, status: "approved" };
+
+assert.equal(isDouyinCommentOutreachCandidate({
+  evidence: { sourceUrl: "https://www.douyin.com/video/741234567890", excerpt: "公开评论" }
+}), true);
+for (const sourceUrl of [
+  "https://www.douyin.com/user/public-user",
+  "https://www.douyin.com/video/741234567890?share=1",
+  "https://www.douyin.com/video/741234567890#comments",
+  "http://www.douyin.com/video/741234567890",
+  "https://douyin.com/video/741234567890",
+  "https://example.com/video/741234567890"
+]) {
+  assert.equal(isDouyinCommentOutreachCandidate({
+    evidence: { sourceUrl, excerpt: "仍可阅读的公开证据" }
+  }), false, sourceUrl);
+}
 
 const calls: Array<{ url: string; init?: RequestInit }> = [];
 const api = createDouyinAutomationApi(async (input, init) => {

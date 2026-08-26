@@ -31,6 +31,7 @@ import "./acquisition/douyin-automation-controller.self-test";
 import "./acquisition/douyin-automation-view.self-test";
 import "./acquisition/outreach-batch-api.self-test";
 import "./acquisition/outreach-batch-controller.self-test";
+import "./acquisition/outreach-batch-selection.self-test";
 import "./acquisition/outreach-batch-view.self-test";
 import "./private-domain/runtime-api.self-test";
 import "./private-domain/controller.self-test";

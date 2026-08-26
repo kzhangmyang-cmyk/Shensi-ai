@@ -59,6 +59,14 @@ const api = createRealConversationsApi(async (input, init) => {
           sourceUrl: "https://www.douyin.com/video/123",
           excerpt: "公开评论：正在找展厅设计团队"
         }
+      }, {
+        id: "candidate-profile-1",
+        status: "creator_candidate",
+        displayName: "公开创作者 B",
+        evidence: {
+          sourceUrl: "https://www.douyin.com/user/public-profile",
+          excerpt: "公开主页证据仍需人工查看"
+        }
       }],
       nextCursor: "more-public-evidence"
     }), { status: 200, headers: { "content-type": "application/json" } });
@@ -80,7 +88,7 @@ assert.deepEqual(requests.map((request) => String(request.input)), [
 assert.ok(requests.every((request) => request.init?.method === "GET"));
 assert.ok(requests.every((request) => request.init?.body === undefined));
 assert.ok(requests.every((request) => !String(request.input).includes("outreach-batches")));
-assert.equal(snapshot.interactions.length, 1);
+assert.equal(snapshot.interactions.length, 2);
 assert.deepEqual(snapshot.interactions[0], {
   key: "run/public 1:candidate-public-1",
   candidateId: "candidate-public-1",
@@ -92,7 +100,22 @@ assert.deepEqual(snapshot.interactions[0], {
   displayName: "公开用户 A",
   candidateStatus: "new",
   excerpt: "公开评论：正在找展厅设计团队",
-  sourceUrl: "https://www.douyin.com/video/123"
+  sourceUrl: "https://www.douyin.com/video/123",
+  outreachEligible: true
+});
+assert.deepEqual(snapshot.interactions[1], {
+  key: "run/public 1:candidate-profile-1",
+  candidateId: "candidate-profile-1",
+  runId: "run/public 1",
+  taskId: "task-public-1",
+  taskName: "展厅公开需求",
+  runStatus: "succeeded",
+  runUpdatedAt: "2026-08-26T07:50:00.000Z",
+  displayName: "公开创作者 B",
+  candidateStatus: "creator_candidate",
+  excerpt: "公开主页证据仍需人工查看",
+  sourceUrl: "https://www.douyin.com/user/public-profile",
+  outreachEligible: false
 });
 assert.deepEqual(snapshot.failedRuns, [{
   runId: "run-failed",

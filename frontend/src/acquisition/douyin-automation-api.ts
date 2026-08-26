@@ -13,6 +13,13 @@ export type DouyinAccountList = operations["listAcquisitionDouyinSocialAccounts"
 export type DouyinAccount = DouyinAccountList["items"][number];
 export type DouyinCandidatePage = operations["listAcquisitionRunCandidates"]["responses"][200]["content"]["application/json"];
 
+export function isDouyinCommentOutreachCandidate(
+  candidate: Pick<DouyinRunCandidate, "evidence">
+): boolean {
+  return /^https:\/\/www\.douyin\.com\/video\/[A-Za-z0-9_-]{1,300}$/u
+    .test(candidate.evidence.sourceUrl);
+}
+
 export interface DouyinAutomationPlanCreateInput {
   name: string;
   keywords: string[];

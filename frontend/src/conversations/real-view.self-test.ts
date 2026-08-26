@@ -1,12 +1,113 @@
 import { strict as assert } from "node:assert";
-import { renderRealConversationsView, type RealConversationsViewState } from "./real-view";
+import { parseHTML } from "linkedom";
+import type {
+  OutreachAction,
+  OutreachBatch
+} from "../acquisition/outreach-batch-api";
+import type { OutreachBatchState } from "../acquisition/outreach-batch-controller";
+import {
+  renderRealConversationsView,
+  type RealConversationsViewState
+} from "./real-view";
 
-const main = { innerHTML: "" } as HTMLElement;
-const inspector = { innerHTML: "" } as HTMLElement;
-const state: RealConversationsViewState = {
+function batch(state: OutreachBatch["state"] = "awaiting_approval"): OutreachBatch {
+  return {
+    id: "batch-1",
+    workspaceId: "workspace-1",
+    runId: "run-1",
+    planId: "plan-1",
+    planVersionId: "plan-version-1",
+    planVersion: 1,
+    planSnapshotHash: `sha256:${"0".repeat(64)}`,
+    policyVersionId: "policy-version-1",
+    policyHash: `sha256:${"1".repeat(64)}`,
+    accountId: "account-1",
+    accountLoginStateVersion: 1,
+    dailyBudgetId: `sha256:${"2".repeat(64)}`,
+    localDate: "2026-08-27",
+    dailyCandidateLimit: 20,
+    dailyRemainingLimit: 19,
+    revision: 2,
+    etag: '"batch:2"',
+    state,
+    candidates: [{
+      candidateId: "candidate-1",
+      selected: true,
+      candidateRevision: 1,
+      evidenceHashes: [`sha256:${"3".repeat(64)}`],
+      draftRevision: 2,
+      comment: "精确公开评论",
+      commentHash: `sha256:${"4".repeat(64)}`,
+      directMessage: "审批后的精确私信",
+      directMessageHash: `sha256:${"5".repeat(64)}`,
+      rationaleCodes: ["evidence_grounded"],
+      modelSnapshotId: "model-snapshot-1",
+      sourceModelSnapshotId: "source-model-snapshot-1",
+      contentHash: `sha256:${"6".repeat(64)}`
+    }],
+    batchHash: `sha256:${"7".repeat(64)}`,
+    approvedBy: state === "approved" ? "operator-1" : null,
+    approvedAt: state === "approved" ? "2026-08-27T08:01:00.000Z" : null,
+    approvalHash: state === "approved" ? `sha256:${"8".repeat(64)}` : null,
+    rejectedBy: null,
+    rejectedAt: null,
+    rejectionReason: null,
+    pauseReason: null,
+    createdBy: "operator-1",
+    createdAt: "2026-08-27T08:00:00.000Z",
+    updatedBy: "operator-1",
+    updatedAt: "2026-08-27T08:00:00.000Z"
+  };
+}
+
+const idleOutreach = (): OutreachBatchState => ({
+  phase: "idle",
+  batch: null,
+  drafts: {},
+  actions: [],
+  error: null,
+  conflict: false,
+  closed: false
+});
+
+const deliveredAction: OutreachAction = {
+  id: "action-1",
+  workspaceId: "workspace-1",
+  batchId: "batch-1",
+  batchRevision: 2,
+  candidateId: "candidate-1",
+  accountId: "account-1",
+  accountLoginStateVersion: 1,
+  policyVersionId: "policy-version-1",
+  localDate: "2026-08-27",
+  kind: "comment",
+  sequence: 1,
+  status: "succeeded",
+  predecessorActionId: null,
+  targetPublicUrl: "https://www.douyin.com/video/123",
+  content: "精确公开评论",
+  contentHash: `sha256:${"9".repeat(64)}`,
+  approvalHash: `sha256:${"8".repeat(64)}`,
+  createdAt: "2026-08-27T08:01:00.000Z",
+  attemptCount: 1,
+  platformReceiptReference: "receipt-<script>alert('receipt')</script>",
+  occurredAt: "2026-08-27T08:02:00.000Z",
+  failureCode: null
+};
+
+function hosts() {
+  const { document } = parseHTML("<main id='main'></main><aside id='inspector'></aside>");
+  return {
+    main: document.querySelector<HTMLElement>("#main")!,
+    inspector: document.querySelector<HTMLElement>("#inspector")!
+  };
+}
+
+const baseState: RealConversationsViewState = {
   status: "ready",
   error: null,
   selectedInteractionKey: "run-1:candidate-1",
+  outreach: idleOutreach(),
   snapshot: {
     generatedAt: "2026-08-26T08:00:00.000Z",
     runsRead: 1,
@@ -24,54 +125,126 @@ const state: RealConversationsViewState = {
       displayName: "公开用户 <img src=x onerror=alert('name')>",
       candidateStatus: "new",
       excerpt: "公开评论：正在找展厅设计团队",
-      sourceUrl: "https://www.douyin.com/video/123"
+      sourceUrl: "https://www.douyin.com/video/123",
+      outreachEligible: true
+    }, {
+      key: "run-1:candidate-profile",
+      candidateId: "candidate-profile",
+      runId: "run-1",
+      taskId: "task-1",
+      taskName: "展厅公开需求",
+      runStatus: "succeeded",
+      runUpdatedAt: "2026-08-26T07:49:00.000Z",
+      displayName: "公开创作者主页",
+      candidateStatus: "creator_candidate",
+      excerpt: "公开主页证据仍可阅读",
+      sourceUrl: "https://www.douyin.com/user/public-profile",
+      outreachEligible: false
     }]
   }
 };
 
-renderRealConversationsView(state, main, inspector);
-const html = main.innerHTML + inspector.innerHTML;
-assert.match(html, /真实 · 抖音公开互动/);
-assert.match(html, /公开互动与候选证据/);
-assert.match(html, /不是平台私信会话/);
-assert.match(html, /公开评论：正在找展厅设计团队/);
-assert.match(html, /https:\/\/www\.douyin\.com\/video\/123/);
-assert.match(html, /textarea[^>]*disabled/);
-assert.match(html, /button[^>]*disabled[^>]*>发送不可用/);
-assert.match(html, /没有接入官方 inbox、私信或评论发送 API/);
-assert.match(html, /外联回执/);
-assert.match(html, /已知批次 ID/);
-assert.match(html, /本页不会发起评论、回复或私信/);
-assert.doesNotMatch(html, /演示模式|林女士|会话收件箱/);
-assert.doesNotMatch(html, /<script>|<img src=x/);
-assert.match(html, /&lt;script&gt;|&lt;img/);
+{
+  const { main, inspector } = hosts();
+  renderRealConversationsView(baseState, main, inspector);
+  const html = main.innerHTML + inspector.innerHTML;
+  assert.match(html, /真实 · 抖音公开互动/u);
+  assert.match(html, /公开评论：正在找展厅设计团队/u);
+  assert.match(html, /data-real-conversations-action="create-outreach"/u);
+  assert.match(html, /创建单候选待审批批次/u);
+  assert.match(html, /非官方 inbox/u);
+  assert.doesNotMatch(html, /发送不可用|平台回复（未接入）/u);
+  assert.doesNotMatch(html, /<script>|<img src=x/u);
+  assert.match(html, /&lt;script&gt;|&lt;img/u);
+}
 
-const emptyMain = { innerHTML: "" } as HTMLElement;
-const emptyInspector = { innerHTML: "" } as HTMLElement;
-renderRealConversationsView({
-  status: "ready",
-  error: null,
-  selectedInteractionKey: null,
-  snapshot: {
-    generatedAt: "2026-08-26T08:00:00.000Z",
-    runsRead: 0,
-    receiptAccess: "known_batch_id_only",
-    truncatedRunIds: [],
-    failedRuns: [],
-    interactions: []
-  }
-}, emptyMain, emptyInspector);
-assert.match(emptyMain.innerHTML, /暂无已采集的抖音公开互动/);
-assert.match(emptyMain.innerHTML + emptyInspector.innerHTML, /发送不可用/);
+{
+  const { main, inspector } = hosts();
+  renderRealConversationsView({
+    ...baseState,
+    selectedInteractionKey: "run-1:candidate-profile"
+  }, main, inspector);
+  assert.match(main.innerHTML, /公开主页证据仍可阅读/u);
+  assert.match(main.innerHTML, /公开来源不符合精确评论条件/u);
+  assert.match(main.innerHTML, /button[^>]*disabled[^>]*>无法创建待审批批次/u);
+}
 
-const errorMain = { innerHTML: "" } as HTMLElement;
-const errorInspector = { innerHTML: "" } as HTMLElement;
-renderRealConversationsView({
-  status: "error",
-  error: "真实公开互动读取失败",
-  selectedInteractionKey: null,
-  snapshot: null
-}, errorMain, errorInspector);
-assert.match(errorMain.innerHTML, /真实公开互动读取失败/);
-assert.match(errorMain.innerHTML, /data-real-conversations-action="retry"/);
-assert.match(errorMain.innerHTML + errorInspector.innerHTML, /发送不可用/);
+{
+  const { main, inspector } = hosts();
+  renderRealConversationsView({
+    ...baseState,
+    outreach: { ...idleOutreach(), phase: "loading" }
+  }, main, inspector);
+  assert.match(main.innerHTML, /正在查询该候选人的最新审批批次/u);
+  assert.match(main.innerHTML, /button[^>]*disabled/u);
+}
+
+{
+  const { main, inspector } = hosts();
+  renderRealConversationsView({
+    ...baseState,
+    outreach: {
+      ...idleOutreach(),
+      phase: "ready",
+      batch: batch(),
+      drafts: {
+        "candidate-1": {
+          comment: "精确公开评论",
+          directMessage: "审批后的精确私信"
+        }
+      }
+    }
+  }, main, inspector);
+  const html = main.innerHTML;
+  assert.match(html, /data-real-conversations-outreach-host/u);
+  assert.match(html, /精确公开评论/u);
+  assert.match(html, /审批后的精确私信/u);
+  assert.match(html, /data-outreach-confirm/u);
+  assert.match(html, /data-outreach-action="approve" disabled/u);
+}
+
+{
+  const { main, inspector } = hosts();
+  renderRealConversationsView({
+    ...baseState,
+    outreach: {
+      ...idleOutreach(),
+      phase: "ready",
+      batch: batch("approved"),
+      actions: [deliveredAction]
+    }
+  }, main, inspector);
+  assert.match(main.innerHTML, /动作回执/u);
+  assert.match(main.innerHTML, /公开评论 · 已送达/u);
+  assert.match(main.innerHTML, /receipt-&lt;script&gt;/u);
+  assert.doesNotMatch(main.innerHTML, /<script>alert\('receipt'\)<\/script>/u);
+}
+
+{
+  const { main, inspector } = hosts();
+  renderRealConversationsView({
+    status: "loading",
+    error: null,
+    selectedInteractionKey: null,
+    snapshot: null,
+    outreach: idleOutreach()
+  }, main, inspector);
+  assert.match(main.innerHTML, /正在读取真实公开互动/u);
+  assert.doesNotMatch(main.innerHTML, /发送不可用/u);
+}
+
+{
+  const { main, inspector } = hosts();
+  renderRealConversationsView({
+    status: "error",
+    error: "真实公开互动读取失败 <unsafe>",
+    selectedInteractionKey: null,
+    snapshot: null,
+    outreach: idleOutreach()
+  }, main, inspector);
+  assert.match(main.innerHTML, /真实公开互动读取失败 &lt;unsafe&gt;/u);
+  assert.match(main.innerHTML, /data-real-conversations-action="retry"/u);
+  assert.doesNotMatch(main.innerHTML, /发送不可用/u);
+}
+
+console.log(JSON.stringify({ ok: true, suite: "real-conversations-view" }));

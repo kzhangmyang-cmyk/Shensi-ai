@@ -27,6 +27,7 @@ import { createDouyinAutomationController } from "./douyin-automation-controller
 import { mountDouyinAutomationView } from "./douyin-automation-view";
 import { createOutreachBatchApi } from "./outreach-batch-api";
 import { createOutreachBatchController } from "./outreach-batch-controller";
+import { outreachBatchSelection } from "./outreach-batch-selection";
 import { mountOutreachBatchView } from "./outreach-batch-view";
 
 type AcquisitionMode = "demo" | "real";
@@ -72,7 +73,6 @@ const ACTIVE_RUN_STATUSES = new Set<AcquisitionRunStatus>([
 ]);
 const OVERVIEW_POLL_BASE_DELAY_MS = 2_000;
 const OVERVIEW_POLL_MAX_DELAY_MS = 30_000;
-const LAST_OUTREACH_BATCH_KEY = "shensi:acquisition:last-outreach-batch";
 
 let started = false;
 let waitingForDom = false;
@@ -187,11 +187,15 @@ function initialiseRuntime(): void {
     ? mountDouyinAutomationView(automationHost, automationController, (runId, candidateIds) => {
       void outreachController.create(runId, candidateIds).then(() => {
         const batchId = outreachController.getState().batch?.id;
-        if (batchId) sessionStorage.setItem(LAST_OUTREACH_BATCH_KEY, batchId);
+        if (batchId) outreachBatchSelection.remember(batchId);
         outreachHost?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     })
     : () => undefined;
+  const unsubscribeBatchSelection = outreachBatchSelection.subscribe((batchId) => {
+    if (batchId) void outreachController.load(batchId);
+    else outreachController.abort();
+  });
   const restoreActions: Array<() => void> = [];
   let mode: AcquisitionMode = defaultMode();
   let overviewRequestVersion = 0;
@@ -1077,14 +1081,14 @@ function initialiseRuntime(): void {
     const isAuthenticated = document.body.classList.contains("is-authenticated");
     if (mode === "real" && isAuthenticated && !wasAuthenticated) {
       void refreshOverview();
-      const batchId = sessionStorage.getItem(LAST_OUTREACH_BATCH_KEY);
+      const batchId = outreachBatchSelection.read();
       if (batchId) void outreachController.load(batchId);
     }
     if (mode === "real" && !isAuthenticated && wasAuthenticated) {
       stopOverviewPolling();
       automationController.abort();
       outreachController.abort();
-      sessionStorage.removeItem(LAST_OUTREACH_BATCH_KEY);
+      outreachBatchSelection.clear();
       overviewRequestVersion += 1;
       detailRequestVersion += 1;
       importRequestVersion += 1;
@@ -1098,7 +1102,7 @@ function initialiseRuntime(): void {
     attributeFilter: ["class"]
   });
   if (wasAuthenticated) {
-    const batchId = sessionStorage.getItem(LAST_OUTREACH_BATCH_KEY);
+    const batchId = outreachBatchSelection.read();
     if (batchId) void outreachController.load(batchId);
   }
 
@@ -1108,6 +1112,7 @@ function initialiseRuntime(): void {
     outreachController.close();
     unmountAutomation();
     unmountOutreach();
+    unsubscribeBatchSelection();
   }, { once: true });
 
   const visibilityObserver = new MutationObserver(enforceRealVisibility);

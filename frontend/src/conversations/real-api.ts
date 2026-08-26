@@ -1,6 +1,7 @@
 import { createAcquisitionApi } from "../acquisition/runtime-api";
 import {
   createDouyinAutomationApi,
+  isDouyinCommentOutreachCandidate,
   type DouyinRunCandidate
 } from "../acquisition/douyin-automation-api";
 import type { AcquisitionRunStatus } from "../acquisition/runtime-model";
@@ -17,6 +18,7 @@ export interface RealPublicInteraction {
   candidateStatus: string;
   excerpt: string;
   sourceUrl: string;
+  outreachEligible: boolean;
 }
 
 export interface RealConversationRunFailure {
@@ -63,7 +65,8 @@ function interaction(
     displayName: candidate.displayName,
     candidateStatus: candidate.status,
     excerpt: candidate.evidence.excerpt,
-    sourceUrl: candidate.evidence.sourceUrl
+    sourceUrl: candidate.evidence.sourceUrl,
+    outreachEligible: isDouyinCommentOutreachCandidate(candidate)
   };
 }
 export function createRealConversationsApi(

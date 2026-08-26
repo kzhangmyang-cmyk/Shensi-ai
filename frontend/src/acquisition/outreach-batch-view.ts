@@ -17,12 +17,65 @@ export function renderOutreachBatchView(host: HTMLElement, state: OutreachBatchS
   </section>`;
 }
 
+export function bindOutreachBatchActions(
+  eventRoot: HTMLElement,
+  controller: OutreachBatchController
+): () => void {
+  const input = (event: Event) => {
+    const target = event.target as HTMLTextAreaElement | null;
+    if (!target) return;
+    const candidate = controller.getState().batch?.candidates[
+      Number(target.dataset.outreachIndex)
+    ];
+    const field = target.dataset.outreachField;
+    if (candidate && (field === "comment" || field === "directMessage")) {
+      controller.editMessage(candidate.candidateId, field, target.value);
+    }
+  };
+  const change = (event: Event) => {
+    const target = event.target as HTMLInputElement | null;
+    if (!target?.matches("[data-outreach-confirm]")) return;
+    const button = eventRoot.querySelector<HTMLButtonElement>(
+      "[data-outreach-action=approve]"
+    );
+    if (button) button.disabled = !target.checked;
+  };
+  const click = (event: Event) => {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+      "[data-outreach-action]"
+    );
+    if (!target || !eventRoot.contains(target)) return;
+    const action = target.dataset.outreachAction;
+    if (action === "save") void controller.saveRevision();
+    else if (action === "approve") {
+      const confirmation = eventRoot.querySelector<HTMLInputElement>(
+        "[data-outreach-confirm]"
+      );
+      if (!confirmation?.checked) return;
+      void controller.approve();
+    }
+    else if (action === "pause") void controller.pause();
+    else if (action === "resume") void controller.resume();
+    else if (action === "refresh") void controller.refreshActions();
+  };
+  eventRoot.addEventListener("input", input);
+  eventRoot.addEventListener("change", change);
+  eventRoot.addEventListener("click", click);
+  return () => {
+    eventRoot.removeEventListener("input", input);
+    eventRoot.removeEventListener("change", change);
+    eventRoot.removeEventListener("click", click);
+  };
+}
+
 export function mountOutreachBatchView(host: HTMLElement, controller: OutreachBatchController): () => void {
-  let current = controller.getState();
-  const unsubscribe = controller.subscribe((state) => { current = state; renderOutreachBatchView(host, state); host.querySelector<HTMLElement>("[role=alert]")?.focus(); });
-  const input = (event: Event) => { const target = event.target as HTMLTextAreaElement | null; const candidate = current.batch?.candidates[Number(target?.dataset.outreachIndex)]; const field = target?.dataset.outreachField; if (candidate && (field === "comment" || field === "directMessage")) controller.editMessage(candidate.candidateId, field, target!.value); };
-  const change = (event: Event) => { const target = event.target as HTMLInputElement | null; if (!target?.matches("[data-outreach-confirm]")) return; const button = host.querySelector<HTMLButtonElement>("[data-outreach-action=approve]"); if (button) button.disabled = !target.checked; };
-  const click = (event: Event) => { const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-outreach-action]"); if (!target) return; const action = target.dataset.outreachAction; if (action === "save") void controller.saveRevision(); else if (action === "approve") void controller.approve(); else if (action === "pause") void controller.pause(); else if (action === "resume") void controller.resume(); else if (action === "refresh") void controller.refreshActions(); };
-  host.addEventListener("input", input); host.addEventListener("change", change); host.addEventListener("click", click);
-  return () => { unsubscribe(); host.removeEventListener("input", input); host.removeEventListener("change", change); host.removeEventListener("click", click); };
+  const unsubscribe = controller.subscribe((state) => {
+    renderOutreachBatchView(host, state);
+    host.querySelector<HTMLElement>("[role=alert]")?.focus();
+  });
+  const unbind = bindOutreachBatchActions(host, controller);
+  return () => {
+    unsubscribe();
+    unbind();
+  };
 }

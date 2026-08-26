@@ -1,5 +1,11 @@
 import { strict as assert } from "node:assert";
-import { createRealConversationsController, shouldUseRealConversations } from "./real-controller";
+import { parseHTML } from "linkedom";
+import type { OutreachBatch, OutreachBatchApi } from "../acquisition/outreach-batch-api";
+import { createOutreachBatchSelectionStore } from "../acquisition/outreach-batch-selection";
+import {
+  createRealConversationsController,
+  shouldUseRealConversations
+} from "./real-controller";
 import type { RealConversationsApi, RealConversationsSnapshot } from "./real-api";
 
 function deferred<T>() {
@@ -8,16 +14,92 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function fakeElement() {
-  const listeners = new Map<string, (event: Event) => void>();
+function domFixture() {
+  const { document, window } = parseHTML(
+    "<main id='main'></main><aside id='inspector'></aside>"
+  );
   return {
-    innerHTML: "",
-    addEventListener(type: string, listener: (event: Event) => void) {
-      listeners.set(type, listener);
-    },
-    removeEventListener(type: string) { listeners.delete(type); },
-    contains() { return true; },
-    dispatch(type: string, event: Event) { listeners.get(type)?.(event); }
+    main: document.querySelector<HTMLElement>("#main")!,
+    inspector: document.querySelector<HTMLElement>("#inspector")!,
+    window
+  };
+}
+
+function selectionFixture() {
+  const values = new Map<string, string>();
+  return createOutreachBatchSelectionStore({
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => { values.set(key, value); },
+    removeItem: (key) => { values.delete(key); }
+  });
+}
+
+function batch(
+  candidateId = "candidate-1",
+  state: OutreachBatch["state"] = "awaiting_approval",
+  id = "batch-1"
+): OutreachBatch {
+  return {
+    id,
+    workspaceId: "workspace-1",
+    runId: "run-1",
+    planId: "plan-1",
+    planVersionId: "plan-version-1",
+    planVersion: 1,
+    planSnapshotHash: `sha256:${"0".repeat(64)}`,
+    policyVersionId: "policy-version-1",
+    policyHash: `sha256:${"1".repeat(64)}`,
+    accountId: "account-1",
+    accountLoginStateVersion: 1,
+    dailyBudgetId: `sha256:${"2".repeat(64)}`,
+    localDate: "2026-08-27",
+    dailyCandidateLimit: 20,
+    dailyRemainingLimit: 19,
+    revision: 1,
+    etag: '"batch:1"',
+    state,
+    candidates: [{
+      candidateId,
+      selected: true,
+      candidateRevision: 1,
+      evidenceHashes: [`sha256:${"3".repeat(64)}`],
+      draftRevision: 1,
+      comment: "您好，看到您的公开评论。",
+      commentHash: `sha256:${"4".repeat(64)}`,
+      directMessage: "您好，可以提供一份公开需求方案参考。",
+      directMessageHash: `sha256:${"5".repeat(64)}`,
+      rationaleCodes: ["evidence_grounded"],
+      modelSnapshotId: "model-snapshot-1",
+      sourceModelSnapshotId: "source-model-snapshot-1",
+      contentHash: `sha256:${"6".repeat(64)}`
+    }],
+    batchHash: `sha256:${"7".repeat(64)}`,
+    approvedBy: state === "approved" ? "operator-1" : null,
+    approvedAt: state === "approved" ? "2026-08-27T00:01:00.000Z" : null,
+    approvalHash: state === "approved" ? `sha256:${"8".repeat(64)}` : null,
+    rejectedBy: null,
+    rejectedAt: null,
+    rejectionReason: null,
+    pauseReason: null,
+    createdBy: "operator-1",
+    createdAt: "2026-08-27T00:00:00.000Z",
+    updatedBy: "operator-1",
+    updatedAt: "2026-08-27T00:00:00.000Z"
+  };
+}
+
+function outreachApi(overrides: Partial<OutreachBatchApi> = {}): OutreachBatchApi {
+  return {
+    async listBatches() { return { items: [], nextCursor: null }; },
+    async createBatch() { return batch(); },
+    async getBatch() { return batch(); },
+    async updateBatch() { return batch(); },
+    async approveBatch() { return batch("candidate-1", "approved"); },
+    async rejectBatch() { return batch("candidate-1", "rejected"); },
+    async pauseBatch() { return batch("candidate-1", "paused"); },
+    async resumeBatch() { return batch("candidate-1", "approved"); },
+    async listActions() { return { items: [] }; },
+    ...overrides
   };
 }
 
@@ -38,7 +120,8 @@ const snapshot: RealConversationsSnapshot = {
     displayName: "公开用户 A",
     candidateStatus: "new",
     excerpt: "公开评论证据",
-    sourceUrl: "https://www.douyin.com/video/123"
+    sourceUrl: "https://www.douyin.com/video/123",
+    outreachEligible: true
   }]
 };
 
@@ -47,29 +130,163 @@ assert.equal(shouldUseRealConversations("conversations", "demo"), false);
 assert.equal(shouldUseRealConversations("dashboard", "real"), false);
 
 {
-  const main = fakeElement();
-  const inspector = fakeElement();
-  let reads = 0;
-  const api: RealConversationsApi = {
-    async load() { reads += 1; return snapshot; }
+  const { main, inspector } = domFixture();
+  const selection = selectionFixture();
+  const listCalls: Array<{
+    runId: string;
+    candidateId: string;
+    limit: number | undefined;
+    cursor: string | null | undefined;
+  }> = [];
+  const createCalls: Array<{ runId: string; candidateIds: string[] }> = [];
+  const controller = createRealConversationsController({
+    api: { async load() { return snapshot; } },
+    outreachApi: outreachApi({
+      async listBatches(runId, candidateId, limit, cursor) {
+        listCalls.push({ runId, candidateId, limit, cursor });
+        return { items: [], nextCursor: null };
+      },
+      async createBatch(runId, candidateIds) {
+        createCalls.push({ runId, candidateIds: [...candidateIds] });
+        return batch();
+      }
+    }),
+    batchSelection: selection,
+    outreachPollDelayMs: 1,
+    main,
+    inspector
+  });
+
+  await controller.open();
+  assert.deepEqual(listCalls, [{
+    runId: "run-1",
+    candidateId: "candidate-1",
+    limit: 1,
+    cursor: null
+  }]);
+  await controller.createOutreachForSelected();
+  assert.deepEqual(createCalls, [{ runId: "run-1", candidateIds: ["candidate-1"] }]);
+  assert.equal(selection.read(), "batch-1");
+  assert.match(main.innerHTML, /精确公开评论/u);
+  assert.doesNotMatch(main.innerHTML, /发送不可用|平台回复（未接入）/u);
+  controller.destroy();
+}
+
+{
+  const { main, inspector } = domFixture();
+  let listCount = 0;
+  let createCount = 0;
+  const profileSnapshot: RealConversationsSnapshot = {
+    ...snapshot,
+    interactions: [{
+      ...snapshot.interactions[0]!,
+      key: "run-1:candidate-profile",
+      candidateId: "candidate-profile",
+      sourceUrl: "https://www.douyin.com/user/public-profile",
+      outreachEligible: false
+    }]
   };
   const controller = createRealConversationsController({
-    api,
-    main: main as unknown as HTMLElement,
-    inspector: inspector as unknown as HTMLElement
+    api: { async load() { return profileSnapshot; } },
+    outreachApi: outreachApi({
+      async listBatches() { listCount += 1; return { items: [], nextCursor: null }; },
+      async createBatch() { createCount += 1; return batch(); }
+    }),
+    batchSelection: selectionFixture(),
+    main,
+    inspector
   });
   await controller.open();
-  assert.equal(reads, 1);
-  assert.equal(controller.getState().status, "ready");
-  assert.equal(controller.getState().selectedInteractionKey, "run-1:candidate-1");
-  assert.match(main.innerHTML, /公开用户 A/);
-  assert.match(main.innerHTML + inspector.innerHTML, /发送不可用/);
+  await controller.createOutreachForSelected();
+  assert.equal(listCount, 0, "profile-only evidence must remain readable without batch recovery");
+  assert.equal(createCount, 0, "profile-only evidence must never create outreach");
+  assert.match(main.innerHTML, /公开来源不符合精确评论条件/u);
+  controller.destroy();
+}
+
+{
+  const { main, inspector } = domFixture();
+  const listCalls: Array<[string, string, number | undefined, string | null | undefined]> = [];
+  const getCalls: string[] = [];
+  const selection = selectionFixture();
+  const latest = batch();
+  const controller = createRealConversationsController({
+    api: { async load() { return snapshot; } },
+    outreachApi: outreachApi({
+      async listBatches(runId, candidateId, limit, cursor) {
+        listCalls.push([runId, candidateId, limit, cursor]);
+        return { items: [latest], nextCursor: null };
+      },
+      async getBatch(batchId) { getCalls.push(batchId); return latest; }
+    }),
+    batchSelection: selection,
+    main,
+    inspector
+  });
+  await controller.open();
+  assert.deepEqual(listCalls, [["run-1", "candidate-1", 1, null]]);
+  assert.deepEqual(getCalls, ["batch-1"]);
+  assert.equal(controller.getState().outreach.batch?.id, "batch-1");
+  assert.equal(selection.read(), "batch-1");
+  controller.destroy();
+}
+
+{
+  const { main, inspector } = domFixture();
+  const selection = selectionFixture();
+  selection.remember("batch-stale");
+  const controller = createRealConversationsController({
+    api: { async load() { return snapshot; } },
+    outreachApi: outreachApi({
+      async listBatches() {
+        return { items: [batch("candidate-other", "awaiting_approval", "batch-other")], nextCursor: null };
+      },
+      async getBatch() {
+        return batch("candidate-other", "awaiting_approval", "batch-other");
+      }
+    }),
+    batchSelection: selection,
+    main,
+    inspector
+  });
+  await controller.open();
+  assert.equal(controller.getState().outreach.batch, null);
+  assert.doesNotMatch(main.innerHTML, /原始精确评论|候选人 1/u);
+  controller.destroy();
+}
+
+{
+  const { main, inspector } = domFixture();
+  let actionSignal: AbortSignal | undefined;
+  const controller = createRealConversationsController({
+    api: { async load() { return snapshot; } },
+    outreachApi: outreachApi({
+      async listBatches() {
+        return { items: [batch("candidate-1", "approved")], nextCursor: null };
+      },
+      async getBatch() { return batch("candidate-1", "approved"); },
+      listActions(_batchId, signal) {
+        actionSignal = signal;
+        return new Promise(() => undefined);
+      }
+    }),
+    batchSelection: selectionFixture(),
+    outreachPollDelayMs: 1,
+    main,
+    inspector
+  });
+  await controller.open();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(actionSignal?.aborted, false);
+  controller.deactivate();
+  assert.equal(actionSignal?.aborted, true, "deactivate must abort receipt polling");
   controller.destroy();
 }
 
 {
   const first = deferred<RealConversationsSnapshot>();
   let reads = 0;
+  const { main, inspector } = domFixture();
   const api: RealConversationsApi = {
     load() {
       reads += 1;
@@ -78,12 +295,12 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
         : Promise.resolve({ ...snapshot, interactions: [] });
     }
   };
-  const main = fakeElement();
-  const inspector = fakeElement();
   const controller = createRealConversationsController({
     api,
-    main: main as unknown as HTMLElement,
-    inspector: inspector as unknown as HTMLElement
+    outreachApi: outreachApi(),
+    batchSelection: selectionFixture(),
+    main,
+    inspector
   });
   const oldRequest = controller.open();
   await controller.open();
@@ -95,12 +312,13 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
 
 {
   const pending = deferred<RealConversationsSnapshot>();
-  const main = fakeElement();
-  const inspector = fakeElement();
+  const { main, inspector } = domFixture();
   const controller = createRealConversationsController({
     api: { load: () => pending.promise },
-    main: main as unknown as HTMLElement,
-    inspector: inspector as unknown as HTMLElement
+    outreachApi: outreachApi(),
+    batchSelection: selectionFixture(),
+    main,
+    inspector
   });
   const operation = controller.open();
   controller.deactivate();
@@ -114,11 +332,46 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
 }
 
 {
+  const { main, inspector, window } = domFixture();
+  let reads = 0;
   const controller = createRealConversationsController({
-    api: { async load() { throw new Error("真实公开互动读取失败"); } }
+    api: { async load() { reads += 1; return snapshot; } },
+    outreachApi: outreachApi({
+      async listBatches() { return { items: [batch()], nextCursor: null }; }
+    }),
+    batchSelection: selectionFixture(),
+    main,
+    inspector
   });
-  await assert.rejects(() => controller.open(), /真实公开互动读取失败/);
+  await controller.open();
+  const originalDraft = controller.getState().outreach.drafts["candidate-1"]?.comment;
+  controller.destroy();
+  main.querySelector<HTMLElement>("[data-real-conversations-action=retry]")
+    ?.dispatchEvent(new window.Event("click", { bubbles: true }));
+  const textarea = main.querySelector<HTMLTextAreaElement>("[data-outreach-field=comment]");
+  if (textarea) {
+    textarea.value = "销毁后不应写入";
+    textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(reads, 1, "destroy must remove real-conversation click delegation");
+  assert.equal(
+    controller.getState().outreach.drafts["candidate-1"]?.comment,
+    originalDraft,
+    "destroy must remove outreach input delegation"
+  );
+}
+
+{
+  const controller = createRealConversationsController({
+    api: { async load() { throw new Error("真实公开互动读取失败"); } },
+    outreachApi: outreachApi(),
+    batchSelection: selectionFixture()
+  });
+  await assert.rejects(() => controller.open(), /真实公开互动读取失败/u);
   assert.equal(controller.getState().status, "error");
   assert.equal(controller.getState().error, "真实公开互动读取失败");
   controller.destroy();
 }
+
+console.log(JSON.stringify({ ok: true, suite: "real-conversations-controller" }));
