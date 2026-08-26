@@ -1,9 +1,11 @@
+import os
 from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+import shensi_adapter.app as deployment_app
 from shensi_adapter.app import create_app
 from shensi_adapter.schemas import (
     ActionReceipt,
@@ -130,3 +132,105 @@ def test_service_secret_requires_32_non_whitespace_bytes():
 
     with pytest.raises(ValueError, match="32 non-whitespace bytes"):
         create_app("a" + (" " * 64) + "b")
+
+
+def test_deployment_crawl_output_root_is_a_distinct_owner_only_directory(
+    tmp_path, monkeypatch,
+):
+    volume = tmp_path / "encrypted"
+    volume.mkdir(mode=0o700)
+    output_root = volume / "crawl-output"
+    output_root.mkdir(mode=0o700)
+    monkeypatch.setenv("MEDIACRAWLER_ENCRYPTED_VOLUME", str(volume))
+    monkeypatch.setenv("MEDIACRAWLER_CRAWL_OUTPUT_ROOT", str(output_root))
+
+    assert deployment_app.deployment_crawl_output_root() == output_root.resolve()
+
+    monkeypatch.setenv("MEDIACRAWLER_CRAWL_OUTPUT_ROOT", str(volume))
+    with pytest.raises(RuntimeError, match="strictly inside"):
+        deployment_app.deployment_crawl_output_root()
+
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o700)
+    monkeypatch.setenv("MEDIACRAWLER_CRAWL_OUTPUT_ROOT", str(outside))
+    with pytest.raises(RuntimeError, match="strictly inside"):
+        deployment_app.deployment_crawl_output_root()
+
+    linked = volume / "linked-output"
+    linked.symlink_to(output_root, target_is_directory=True)
+    monkeypatch.setenv("MEDIACRAWLER_CRAWL_OUTPUT_ROOT", str(linked))
+    with pytest.raises(RuntimeError, match="non-symlinked"):
+        deployment_app.deployment_crawl_output_root()
+
+    os.chmod(output_root, 0o755)
+    monkeypatch.setenv("MEDIACRAWLER_CRAWL_OUTPUT_ROOT", str(output_root))
+    with pytest.raises(RuntimeError, match="0700"):
+        deployment_app.deployment_crawl_output_root()
+
+
+def test_deployment_rejects_missing_crawl_output_before_browser_start(
+    tmp_path, monkeypatch,
+):
+    volume = tmp_path / "encrypted"
+    volume.mkdir(mode=0o700)
+    monkeypatch.setenv("MEDIACRAWLER_ENCRYPTED_VOLUME", str(volume))
+    monkeypatch.setenv("MEDIACRAWLER_PROFILE_ROOT", str(volume / "profiles"))
+    monkeypatch.delenv("MEDIACRAWLER_CRAWL_OUTPUT_ROOT", raising=False)
+    secret_file = tmp_path / "service-secret"
+    secret_file.write_text(SERVICE_SECRET, encoding="utf-8")
+    os.chmod(secret_file, 0o600)
+    monkeypatch.setenv("MEDIACRAWLER_SERVICE_SECRET_FILE", str(secret_file))
+    browser_starts = 0
+
+    class BrowserMustNotStart:
+        def __init__(self, **_kwargs):
+            nonlocal browser_starts
+            browser_starts += 1
+            raise AssertionError("browser_started_before_output_validation")
+
+    monkeypatch.setattr(
+        deployment_app, "MediaCrawlerDouyinBrowserState", BrowserMustNotStart,
+    )
+
+    with pytest.raises(RuntimeError, match="MEDIACRAWLER_CRAWL_OUTPUT_ROOT"):
+        with TestClient(deployment_app.create_deployment_app()):
+            pass
+    assert browser_starts == 0
+
+
+def test_deployment_outreach_actions_require_literal_true(monkeypatch):
+    monkeypatch.delenv("DOUYIN_OUTREACH_ACTIONS_ENABLED", raising=False)
+    assert deployment_app.deployment_outreach_actions_enabled() is False
+    for value in ["", "false", "1", "yes", " true ", "true-ish"]:
+        monkeypatch.setenv("DOUYIN_OUTREACH_ACTIONS_ENABLED", value)
+        assert deployment_app.deployment_outreach_actions_enabled() is False
+    for value in ["true", "TRUE", "TrUe"]:
+        monkeypatch.setenv("DOUYIN_OUTREACH_ACTIONS_ENABLED", value)
+        assert deployment_app.deployment_outreach_actions_enabled() is True
+
+
+def test_deployment_app_rejects_actions_when_default_disabled(tmp_path, monkeypatch):
+    secret_file = tmp_path / "service-secret"
+    secret_file.write_text(SERVICE_SECRET, encoding="utf-8")
+    os.chmod(secret_file, 0o600)
+    monkeypatch.setenv("MEDIACRAWLER_SERVICE_SECRET_FILE", str(secret_file))
+    monkeypatch.delenv("DOUYIN_OUTREACH_ACTIONS_ENABLED", raising=False)
+
+    client = TestClient(deployment_app.create_deployment_app())
+    response = client.post(
+        "/internal/v1/douyin/actions/action-disabled",
+        headers={"Authorization": f"Bearer {SERVICE_SECRET}"},
+        json={
+            "action_id": "action-disabled",
+            "account_handle": "private-handle",
+            "login_state_version": 1,
+            "kind": "comment",
+            "target_public_url": "https://www.douyin.com/video/1",
+            "content": "frozen approved content",
+            "deadline_at": NOW.isoformat(),
+            "approved_content_hash": f"sha256:{'a' * 64}",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "outreach_actions_disabled"}

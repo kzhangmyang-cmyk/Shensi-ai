@@ -631,6 +631,38 @@ def test_runner_isolates_each_attempt_from_stale_job_output(tmp_path, monkeypatc
     assert all(output != job_output and output.is_relative_to(job_output) for output in outputs)
 
 
+def test_runner_uses_custom_output_root_for_completed_job(tmp_path, monkeypatch):
+    service_root = tmp_path / "service"
+    output_root = tmp_path / "trial-output"
+    outputs = []
+
+    class CompletedProcess:
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+    def popen(command, **_kwargs):
+        value = json.loads(Path(command[-1]).read_text(encoding="utf-8"))
+        outputs.append(Path(value["output"]))
+        return CompletedProcess()
+
+    monkeypatch.setattr("shensi_adapter.crawl_jobs.subprocess.Popen", popen)
+    runner = MediaCrawlerRunner(
+        headless=False, service_root=service_root, output_root=output_root,
+    )
+    request_value = request("custom-output").model_copy(update={
+        "deadline_at": datetime.now(UTC) + timedelta(minutes=5),
+    })
+
+    assert list(runner(request_value, tmp_path / "profile", threading.Event())) == []
+    assert len(outputs) == 1
+    assert outputs[0].is_relative_to(output_root / "custom-output")
+    assert not (service_root / ".shensi-crawl-output").exists()
+    runner.cleanup("custom-output")
+    assert not (output_root / "custom-output").exists()
+
+
 def test_manager_persists_only_authorized_activity_keywords_with_monotonic_sequence(tmp_path):
     entered = threading.Event()
     release = threading.Event()

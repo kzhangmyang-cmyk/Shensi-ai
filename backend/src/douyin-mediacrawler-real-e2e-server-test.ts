@@ -5,6 +5,20 @@ import {
   createDouyinMediaCrawlerRealE2eRuntime,
   readDouyinMediaCrawlerRealE2eConfiguration
 } from "./douyin-mediacrawler-real-e2e-server.js";
+import * as serverConfiguration from "./server.js";
+
+test("Douyin outreach action configuration requires literal case-insensitive true", () => {
+  for (const value of [undefined, "", "false", "1", "yes", " true ", "true-ish"]) {
+    assert.equal(serverConfiguration.readDouyinOutreachActionsEnabled(
+      value === undefined ? {} : { DOUYIN_OUTREACH_ACTIONS_ENABLED: value }
+    ), false);
+  }
+  for (const value of ["true", "TRUE", "TrUe"]) {
+    assert.equal(serverConfiguration.readDouyinOutreachActionsEnabled({
+      DOUYIN_OUTREACH_ACTIONS_ENABLED: value
+    }), true);
+  }
+});
 
 test("real Douyin E2E configuration fails closed without MySQL and sidecar secret file", () => {
   assert.throws(

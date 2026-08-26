@@ -110,16 +110,21 @@ export async function runDevelopment(root, environment, options = {}) {
       return true;
     };
     const waitForStoppedChildren = () => Promise.all(records.map(({ exited }) => exited));
+    const outreachActionsEnabled = environment.DOUYIN_OUTREACH_ACTIONS_ENABLED ?? "false";
+    const crawlOutputRoot = environment.MEDIACRAWLER_CRAWL_OUTPUT_ROOT
+      ?? resolve(environment.MEDIACRAWLER_ENCRYPTED_VOLUME, "crawl-output");
     const mediaEnvironment = { ...environment,
       MEDIACRAWLER_SERVICE_SECRET_FILE: resolve(root, environment.MEDIACRAWLER_SERVICE_SECRET_FILE),
       MEDIACRAWLER_ENCRYPTED_VOLUME: resolve(root, environment.MEDIACRAWLER_ENCRYPTED_VOLUME),
-      MEDIACRAWLER_PROFILE_ROOT: resolve(root, environment.MEDIACRAWLER_ENCRYPTED_VOLUME, "profiles")
+      MEDIACRAWLER_PROFILE_ROOT: resolve(root, environment.MEDIACRAWLER_ENCRYPTED_VOLUME, "profiles"),
+      MEDIACRAWLER_CRAWL_OUTPUT_ROOT: resolve(root, crawlOutputRoot),
+      DOUYIN_OUTREACH_ACTIONS_ENABLED: outreachActionsEnabled
     };
     if (!launch("uv", ["run", "--frozen", "--project", "services/media-crawler", "uvicorn", "shensi_adapter.app:app", "--app-dir", "services/media-crawler", "--host", "127.0.0.1", "--port", String(ports.mediaCrawler), "--workers", "1", "--timeout-graceful-shutdown", "20"], mediaEnvironment)) {
       await waitForStoppedChildren();
       return;
     }
-    if (!launch("pnpm", ["--filter", "./backend", "dev:mysql"], { ...environment, CRM_STORE: "mysql", PORT: String(ports.backend), BACKEND_HOST: hosts.backend, MEDIACRAWLER_BASE_URL: `http://127.0.0.1:${ports.mediaCrawler}`, MEDIACRAWLER_SERVICE_SECRET_FILE: mediaEnvironment.MEDIACRAWLER_SERVICE_SECRET_FILE })) {
+    if (!launch("pnpm", ["--filter", "./backend", "dev:mysql"], { ...environment, CRM_STORE: "mysql", PORT: String(ports.backend), BACKEND_HOST: hosts.backend, MEDIACRAWLER_BASE_URL: `http://127.0.0.1:${ports.mediaCrawler}`, MEDIACRAWLER_SERVICE_SECRET_FILE: mediaEnvironment.MEDIACRAWLER_SERVICE_SECRET_FILE, DOUYIN_OUTREACH_ACTIONS_ENABLED: outreachActionsEnabled })) {
       await waitForStoppedChildren();
       return;
     }

@@ -311,13 +311,17 @@ class MediaCrawlerRunner:
     """Runs the pinned in-tree API in an isolated process; no user shell text."""
 
     def __init__(self, headless: bool | Path = True,
-                 service_root: Path | None = None) -> None:
+                 service_root: Path | None = None,
+                 output_root: Path | None = None) -> None:
         # Keep the earlier positional service-root seam compatible with focused
         # tests while making browser mode explicit for all new callers.
         if isinstance(headless, Path):
             service_root, headless = headless, True
         self._headless = bool(headless)
         self._service_root = service_root or Path(__file__).resolve().parents[1]
+        self._output_root = (
+            output_root or self._service_root / ".shensi-crawl-output"
+        ).resolve()
 
     @property
     def browser_mode(self) -> str:
@@ -325,7 +329,7 @@ class MediaCrawlerRunner:
 
     def __call__(self, request: CrawlJobRequest, profile: Path,
                  cancelled: threading.Event):
-        job_output = self._service_root / ".shensi-crawl-output" / request.job_id
+        job_output = self._output_root / request.job_id
         job_output.mkdir(mode=0o700, parents=True, exist_ok=True)
         for _ in range(8):
             output = job_output / f"attempt-{secrets.token_hex(16)}"
@@ -405,8 +409,7 @@ class MediaCrawlerRunner:
     def cleanup(self, job_id: str) -> None:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,254}", job_id):
             raise ValueError("invalid_crawl_job_id")
-        shutil.rmtree(self._service_root / ".shensi-crawl-output" / job_id,
-                      ignore_errors=True)
+        shutil.rmtree(self._output_root / job_id, ignore_errors=True)
 
 
 class CrawlJobManager:

@@ -26,6 +26,10 @@ def deployment_browser_headless() -> bool:
     ).strip().lower() != "false"
 
 
+def deployment_outreach_actions_enabled() -> bool:
+    return os.environ.get("DOUYIN_OUTREACH_ACTIONS_ENABLED", "").lower() == "true"
+
+
 def deployment_service_secret() -> str:
     secret_file = os.environ.get("MEDIACRAWLER_SERVICE_SECRET_FILE", "").strip()
     if not secret_file:
@@ -56,19 +60,57 @@ def validate_encrypted_profile_root(volume: Path, root: Path) -> Path:
     return root_path
 
 
+def deployment_crawl_output_root() -> Path:
+    volume_value = os.environ.get("MEDIACRAWLER_ENCRYPTED_VOLUME", "").strip()
+    root_value = os.environ.get("MEDIACRAWLER_CRAWL_OUTPUT_ROOT", "").strip()
+    if not volume_value or not root_value:
+        raise RuntimeError(
+            "MEDIACRAWLER_ENCRYPTED_VOLUME and "
+            "MEDIACRAWLER_CRAWL_OUTPUT_ROOT are required"
+        )
+    volume = Path(volume_value)
+    root = Path(root_value)
+    if not root.is_absolute():
+        raise RuntimeError("MEDIACRAWLER_CRAWL_OUTPUT_ROOT must be absolute")
+    if not volume.exists() or volume.is_symlink() or not volume.is_dir():
+        raise RuntimeError("MEDIACRAWLER_ENCRYPTED_VOLUME must be a directory")
+    volume_path = volume.resolve(strict=True)
+    if root.is_symlink() or not root.is_dir():
+        raise RuntimeError(
+            "MEDIACRAWLER_CRAWL_OUTPUT_ROOT must be a non-symlinked directory"
+        )
+    metadata = root.stat()
+    if stat.S_IMODE(metadata.st_mode) != 0o700:
+        raise RuntimeError("MEDIACRAWLER_CRAWL_OUTPUT_ROOT must have mode 0700")
+    if metadata.st_uid != os.getuid():
+        raise RuntimeError(
+            "MEDIACRAWLER_CRAWL_OUTPUT_ROOT must be owned by the current user"
+        )
+    root_path = root.resolve(strict=True)
+    if root_path == volume_path or not root_path.is_relative_to(volume_path):
+        raise RuntimeError(
+            "MEDIACRAWLER_CRAWL_OUTPUT_ROOT must be strictly inside "
+            "MEDIACRAWLER_ENCRYPTED_VOLUME"
+        )
+    return root_path
+
+
 def _build_app(secret_provider: Callable[[], str], account_manager: AccountManager | None = None,
                deployment_manager_factory: Callable[[], AccountManager] | None = None,
                crawl_job_manager: CrawlJobManager | None = None,
                deployment_crawl_factory: Callable[[AccountManager], CrawlJobManager] | None = None,
                action_job_manager: ActionJobManager | None = None,
-               deployment_action_factory: Callable[[AccountManager], ActionJobManager] | None = None) -> FastAPI:
+               deployment_action_factory: Callable[[AccountManager], ActionJobManager] | None = None,
+               outreach_actions_enabled: bool = True) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         if application.state.account_manager is None and deployment_manager_factory is not None:
             application.state.account_manager = deployment_manager_factory()
         if application.state.crawl_job_manager is None and deployment_crawl_factory is not None:
             application.state.crawl_job_manager = deployment_crawl_factory(application.state.account_manager)
-        if application.state.action_job_manager is None and deployment_action_factory is not None:
+        if (application.state.outreach_actions_enabled
+                and application.state.action_job_manager is None
+                and deployment_action_factory is not None):
             application.state.action_job_manager = deployment_action_factory(application.state.account_manager)
         try:
             yield
@@ -90,6 +132,7 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
     application.state.account_manager = account_manager
     application.state.crawl_job_manager = crawl_job_manager
     application.state.action_job_manager = action_job_manager
+    application.state.outreach_actions_enabled = outreach_actions_enabled
 
     @application.get("/internal/v1/health", response_model=HealthView)
     def health(authorization: str | None = Header(default=None)) -> HealthView:
@@ -197,6 +240,8 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
     def execute_action(action_id: str, request: ActionRequest,
                        authorization: str | None = Header(default=None)) -> ActionReceipt:
         authorize_bearer(authorization, require_service_secret(secret_provider()))
+        if not application.state.outreach_actions_enabled:
+            raise HTTPException(status_code=503, detail="outreach_actions_disabled")
         manager = application.state.action_job_manager
         if manager is None:
             raise HTTPException(status_code=503, detail="action_job_manager_unconfigured")
@@ -238,14 +283,44 @@ def create_deployment_account_manager() -> AccountManager:
     )
 
 
+def create_deployment_crawl_job_manager(manager: AccountManager) -> CrawlJobManager:
+    return CrawlJobManager(
+        manager._root,
+        account_resolver=manager.resolve_crawl_profile,
+        runner=MediaCrawlerRunner(
+            headless=deployment_browser_headless(),
+            output_root=deployment_crawl_output_root(),
+        ),
+    )
+
+
+def create_deployment_action_job_manager(manager: AccountManager) -> ActionJobManager:
+    return ActionJobManager(
+        manager._root,
+        account_resolver=manager.resolve_action_profile,
+        executor=manager.execute_action,
+    )
+
+
+def _create_preflighted_deployment_account_manager() -> AccountManager:
+    deployment_crawl_output_root()
+    return create_deployment_account_manager()
+
+
+def create_deployment_app() -> FastAPI:
+    outreach_actions_enabled = deployment_outreach_actions_enabled()
+    return _build_app(
+        deployment_service_secret,
+        deployment_manager_factory=_create_preflighted_deployment_account_manager,
+        deployment_crawl_factory=create_deployment_crawl_job_manager,
+        deployment_action_factory=(
+            create_deployment_action_job_manager
+            if outreach_actions_enabled else None
+        ),
+        outreach_actions_enabled=outreach_actions_enabled,
+    )
+
+
 # Deployment entry point: fail closed rather than placing browser state on an
 # unencrypted/default filesystem. Unit tests use create_app with an injected manager.
-app = _build_app(deployment_service_secret,
-                 deployment_manager_factory=create_deployment_account_manager,
-                 deployment_crawl_factory=lambda manager: CrawlJobManager(
-                     manager._root, account_resolver=manager.resolve_crawl_profile,
-                     runner=MediaCrawlerRunner(headless=deployment_browser_headless()),
-                 ), deployment_action_factory=lambda manager: ActionJobManager(
-                     manager._root, account_resolver=manager.resolve_action_profile,
-                     executor=manager.execute_action
-                 ))
+app = create_deployment_app()

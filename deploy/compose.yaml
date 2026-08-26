@@ -23,6 +23,8 @@ services:
       MEDIACRAWLER_SERVICE_SECRET_FILE: /run/secrets/mediacrawler_service_secret
       MEDIACRAWLER_ENCRYPTED_VOLUME: /var/lib/shensi-mediacrawler
       MEDIACRAWLER_PROFILE_ROOT: /var/lib/shensi-mediacrawler/profiles
+      MEDIACRAWLER_CRAWL_OUTPUT_ROOT: /var/lib/shensi-mediacrawler/crawl-output
+      DOUYIN_OUTREACH_ACTIONS_ENABLED: ${DOUYIN_OUTREACH_ACTIONS_ENABLED:-false}
       MEDIACRAWLER_BROWSER_HEADLESS: ${MEDIACRAWLER_BROWSER_HEADLESS:-true}
       MEDIACRAWLER_BROWSER_CHANNEL: ${MEDIACRAWLER_BROWSER_CHANNEL:-}
     secrets:
@@ -72,6 +74,7 @@ services:
       TRUSTED_PROXY_CIDRS: 172.30.0.4/32
       MEDIACRAWLER_BASE_URL: http://media-crawler:8899
       MEDIACRAWLER_SERVICE_SECRET_FILE: /run/secrets/mediacrawler_service_secret
+      DOUYIN_OUTREACH_ACTIONS_ENABLED: ${DOUYIN_OUTREACH_ACTIONS_ENABLED:-false}
     secrets:
       - source: mediacrawler_service_secret
         target: /run/secrets/mediacrawler_service_secret

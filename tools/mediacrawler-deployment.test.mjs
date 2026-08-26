@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import {
   assertMediaCrawlerHostPrerequisites,
   validateMediaCrawlerComposeConfig
 } from "../scripts/mediacrawler-runtime.mjs";
+import { runDevelopment } from "../scripts/dev.mjs";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -36,6 +38,8 @@ test("production compose keeps MediaCrawler private, read-only, bounded, and sec
   assert.doesNotMatch(media, /^\s+ports:/mu);
   assert.match(media, /read_only: true/u);
   assert.match(media, /MEDIACRAWLER_SERVICE_SECRET_FILE: \/run\/secrets\/mediacrawler_service_secret/u);
+  assert.match(media, /MEDIACRAWLER_CRAWL_OUTPUT_ROOT: \/var\/lib\/shensi-mediacrawler\/crawl-output/u);
+  assert.match(media, /DOUYIN_OUTREACH_ACTIONS_ENABLED: \$\{DOUYIN_OUTREACH_ACTIONS_ENABLED:-false\}/u);
   assert.match(media, /target: \/var\/lib\/shensi-mediacrawler/u);
   assert.match(media, /bind:\s*\n\s+create_host_path: false/u);
   assert.match(media, /healthcheck:/u);
@@ -50,12 +54,55 @@ test("production compose keeps MediaCrawler private, read-only, bounded, and sec
   const backend = compose.split("\n  backend:\n")[1]?.split(/\n  (?:media-crawler|mysql|frontend|gateway):\n/u)[0] ?? "";
   assert.match(backend, /MEDIACRAWLER_BASE_URL: http:\/\/media-crawler:8899/u);
   assert.match(backend, /MEDIACRAWLER_SERVICE_SECRET_FILE: \/run\/secrets\/mediacrawler_service_secret/u);
+  assert.match(backend, /DOUYIN_OUTREACH_ACTIONS_ENABLED: \$\{DOUYIN_OUTREACH_ACTIONS_ENABLED:-false\}/u);
   assert.match(backend, /target: \/run\/secrets\/mediacrawler_service_secret\s+uid: "1000"\s+gid: "1000"\s+mode: 0400/u);
   assert.doesNotMatch(backend, /MEDIACRAWLER_SERVICE_SECRET:/u);
   assert.match(backend, /networks: \[shensi_internal, shensi_mediacrawler, shensi_egress\]/u);
 
   const gateway = compose.split("\n  gateway:\n")[1]?.split(/\n(?:secrets|volumes|networks):\n/u)[0] ?? "";
   assert.doesNotMatch(gateway, /shensi_mediacrawler|media-crawler/u);
+});
+
+test("development passes one resolved crawl root and one action gate to both processes", async () => {
+  const processRef = new EventEmitter();
+  const children = [101, 102, 103].map((pid) => {
+    const child = new EventEmitter();
+    child.pid = pid;
+    return child;
+  });
+  const launches = [];
+  await runDevelopment("/workspace", {
+    DATABASE_URL: "mysql://fixture.invalid/shensi",
+    JWT_SECRET: "fixture-security-value-that-is-longer-than-32-characters",
+    PROVIDER_CREDENTIAL_KEY: "fixture-security-value-that-is-longer-than-32-characters",
+    AGENT_JOB_ENCRYPTION_KEY: "fixture-security-value-that-is-longer-than-32-characters",
+    ACQUISITION_MASTER_SECRET: "fixture-security-value-that-is-longer-than-32-characters",
+    MEDIACRAWLER_SERVICE_SECRET_FILE: "secrets/mediacrawler",
+    MEDIACRAWLER_ENCRYPTED_VOLUME: "encrypted",
+    MEDIACRAWLER_CRAWL_OUTPUT_ROOT: "encrypted/crawl-output",
+    DOUYIN_OUTREACH_ACTIONS_ENABLED: "true"
+  }, {
+    processRef,
+    assertMediaCrawler: () => {},
+    assertPorts: async () => {},
+    spawnProcess(command, argumentsList, options) {
+      launches.push({ command, argumentsList, options });
+      const child = children.shift();
+      if (!children.length) queueMicrotask(() => launches.forEach(({ child: running }) => running?.emit("exit", 0, null)));
+      launches.at(-1).child = child;
+      return child;
+    },
+    terminateTree(child, signal) {
+      queueMicrotask(() => child.emit("exit", 0, signal));
+    }
+  });
+
+  assert.equal(
+    launches[0].options.env.MEDIACRAWLER_CRAWL_OUTPUT_ROOT,
+    "/workspace/encrypted/crawl-output"
+  );
+  assert.equal(launches[0].options.env.DOUYIN_OUTREACH_ACTIONS_ENABLED, "true");
+  assert.equal(launches[1].options.env.DOUYIN_OUTREACH_ACTIONS_ENABLED, "true");
 });
 
 test("host prerequisite validation fails closed on missing, weak, linked, or exposed state", () => {

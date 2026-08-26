@@ -125,6 +125,16 @@ import {
   ACQUISITION_DOUYIN_DRAFT_PROMPT_ID,
   ACQUISITION_OUTREACH_DRAFT_TOOL
 } from "./acquisition-outreach-model-content.js";
+import {
+  InMemoryAcquisitionOutreachBatchRepository
+} from "./acquisition-outreach-batch-repository.js";
+import type {
+  AcquisitionOutreachAction,
+  AcquisitionOutreachBatch
+} from "./acquisition-outreach-batch.js";
+import type {
+  DouyinMediaCrawlerGateway
+} from "./acquisition-mediacrawler-gateway.js";
 
 const OWNER = "owner-application";
 const TEAM = "team-application";
@@ -4009,6 +4019,96 @@ test("custom repository startup stays compatible and draft generation fails clos
       candidateId: seeded.candidate.id
     }), /acquisition_outreach_final_authority_required/u);
     assert.equal(gatewayCalls, 0);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("disabled Douyin outreach leaves approved actions unclaimed while crawler gateway remains configured", async () => {
+  const fixture = isolatedMemoryStore();
+  const repository = new InMemoryAcquisitionOutreachBatchRepository();
+  const at = "2026-08-26T02:00:00.000Z";
+  const digest = (value: string) =>
+    `sha256:${createHash("sha256").update(value).digest("hex")}`;
+  const awaiting: AcquisitionOutreachBatch = {
+    id: "disabled-batch", workspaceId: TEAM, runId: "disabled-run",
+    planId: "disabled-plan", planVersionId: "disabled-plan-version",
+    planVersion: 1, planSnapshotHash: digest("plan"),
+    policyVersionId: "disabled-policy-version", policyHash: digest("policy"),
+    accountId: "disabled-account", accountLoginStateVersion: 1,
+    dailyBudgetId: "disabled-budget", localDate: "2026-08-26",
+    dailyCandidateLimit: 1, dailyRemainingLimit: 1, revision: 1,
+    etag: '"disabled-batch:1"', state: "awaiting_approval", candidates: [],
+    batchHash: digest("batch"), approvedBy: null, approvedAt: null,
+    approvalHash: null, rejectedBy: null, rejectedAt: null,
+    rejectionReason: null, pauseReason: null, createdBy: OWNER, createdAt: at,
+    updatedBy: OWNER, updatedAt: at
+  };
+  await repository.create({
+    workspaceId: TEAM, operation: "create", idempotencyKey: "disabled-create",
+    requestHash: digest("create"), batch: awaiting
+  });
+  const approvalHash = digest("approval");
+  const action: AcquisitionOutreachAction = {
+    id: "disabled-action", workspaceId: TEAM, batchId: awaiting.id,
+    batchRevision: 1, candidateId: "disabled-candidate",
+    accountId: awaiting.accountId, accountLoginStateVersion: 1,
+    policyVersionId: awaiting.policyVersionId, localDate: awaiting.localDate,
+    kind: "comment", sequence: 1, status: "queued",
+    predecessorActionId: null,
+    targetPublicUrl: "https://www.douyin.com/video/7536012345678909999",
+    content: "frozen approved comment", contentHash: digest("content"),
+    approvalHash, createdAt: at
+  };
+  await repository.approve({
+    workspaceId: TEAM, batchId: awaiting.id, ifMatch: awaiting.etag,
+    idempotencyKey: "disabled-approve", requestHash: digest("approve"),
+    async build() {
+      return {
+        batch: {
+          ...awaiting, state: "approved", approvedBy: OWNER,
+          approvedAt: at, approvalHash, etag: '"disabled-batch:approved"'
+        },
+        actions: [action]
+      };
+    }
+  });
+  let actionExecutions = 0;
+  const gateway = {
+    async startCrawlJob() {
+      throw new Error("no_crawler_jobs_expected");
+    },
+    async getCrawlJob() {
+      throw new Error("no_crawler_jobs_expected");
+    },
+    async getCrawlResults() {
+      throw new Error("no_crawler_jobs_expected");
+    },
+    async acknowledgeCrawlJob() {
+      throw new Error("no_crawler_jobs_expected");
+    },
+    async cancelCrawlJob() {},
+    async executeAction() {
+      actionExecutions += 1;
+      throw new Error("disabled_outreach_must_not_execute");
+    }
+  } as unknown as DouyinMediaCrawlerGateway;
+  const runtime = await createAcquisitionApplication({
+    store: fixture.store,
+    masterSecret: MASTER_SECRET,
+    outreachBatchRepository: repository,
+    douyinMediaCrawlerGateway: gateway,
+    douyinOutreachActionsEnabled: false,
+    crawlerWorkerIntervalMs: 5,
+    outreachActionWorkerIntervalMs: 5,
+    outreachActionRecoveryIntervalMs: 5
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const actions = await repository.listActions(TEAM, awaiting.id);
+    assert.equal(actions?.[0]?.status, "queued");
+    assert.equal(actions?.[0]?.attemptCount, 0);
+    assert.equal(actionExecutions, 0);
   } finally {
     await runtime.close();
   }

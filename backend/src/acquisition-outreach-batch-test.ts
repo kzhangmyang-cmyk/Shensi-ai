@@ -15,7 +15,11 @@ const now = "2026-08-25T02:00:00.000Z";
 const evidenceHash = `sha256:${"a".repeat(64)}`;
 const draftHash = `sha256:${"b".repeat(64)}`;
 
-function fixture(options: { dailyLimit?: number; failActionInsertAt?: number } = {}) {
+function fixture(options: {
+  dailyLimit?: number;
+  failActionInsertAt?: number;
+  douyinOutreachActionsEnabled?: boolean;
+} = {}) {
   const repository = new InMemoryAcquisitionOutreachBatchRepository({
     failActionInsertAt: options.failActionInsertAt
   });
@@ -24,6 +28,8 @@ function fixture(options: { dailyLimit?: number; failActionInsertAt?: number } =
   let accountVersion = 3;
   const service = new AcquisitionOutreachBatchService({
     repository,
+    douyinOutreachActionsEnabled:
+      options.douyinOutreachActionsEnabled ?? true,
     idFactory: (kind) => `${kind}-${crypto.randomUUID()}`,
     now: () => now,
     loadRunAuthority: async (requestedScope, runId) => {
@@ -137,6 +143,27 @@ test("approval creates an ordered queued comment and blocked direct message with
   ]);
   assert.equal(actions[0]?.content, batch.candidates[0]?.comment);
   assert.equal(actions[1]?.content, batch.candidates[0]?.directMessage);
+});
+
+test("final approval fails closed before persisting actions when outreach is disabled", async () => {
+  const { value, batch } = await created(fixture({
+    douyinOutreachActionsEnabled: false
+  }));
+
+  await assert.rejects(
+    value.service.approve(
+      scope,
+      batch.id,
+      batch.etag,
+      "approve-disabled",
+      { revision: 1, batchHash: batch.batchHash, confirm: true }
+    ),
+    (error: unknown) => error instanceof AcquisitionOutreachBatchError
+      && error.code === "outreach_actions_disabled"
+      && error.status === 503
+  );
+  assert.equal((await value.service.get(scope, batch.id)).state, "awaiting_approval");
+  assert.equal((await value.service.actions(scope, batch.id)).length, 0);
 });
 
 test("the selected policy limit is authoritative and remaining allowance is shared by account and local date", async () => {

@@ -54,6 +54,7 @@ function requestResult(result: OutreachRepositoryResult<AcquisitionOutreachBatch
 export class AcquisitionOutreachBatchService {
   constructor(private readonly options: {
     repository: AcquisitionOutreachBatchRepository;
+    douyinOutreachActionsEnabled: boolean;
     idFactory(kind: string): string;
     now(): string;
     loadRunAuthority(scope: OutreachScope, runId: string): Promise<OutreachRunAuthority | null>;
@@ -163,6 +164,9 @@ export class AcquisitionOutreachBatchService {
 
   async approve(scope: OutreachScope, batchId: string, ifMatch: string,
     idempotencyKey: string, input: { revision: number; batchHash: string; confirm: true }) {
+    if (!this.options.douyinOutreachActionsEnabled) {
+      throw new AcquisitionOutreachBatchError("outreach_actions_disabled", 503);
+    }
     if (!input.confirm || !Number.isSafeInteger(input.revision)
       || !/^sha256:[a-f0-9]{64}$/u.test(input.batchHash)) throw new AcquisitionOutreachBatchError("invalid_request", 400);
     let result: OutreachRepositoryResult<AcquisitionOutreachBatch>;

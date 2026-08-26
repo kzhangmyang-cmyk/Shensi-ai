@@ -552,6 +552,8 @@ export interface CreateAcquisitionApplicationOptions {
   nowMs?: () => number;
   /** The internal-only MediaCrawler transport; account HTTP routes mount when configured. */
   douyinMediaCrawlerGateway?: DouyinMediaCrawlerGateway;
+  /** Literal deployment opt-in; every omitted or false value keeps external actions disabled. */
+  douyinOutreachActionsEnabled?: boolean;
   /** Test/runtime override; production selects Memory or MySQL from the store mode. */
   socialAccountRepository?: AcquisitionSocialAccountRepository;
   /** Test/runtime override for immutable policy and run-intent authority. */
@@ -2284,6 +2286,8 @@ export async function createAcquisitionApplication(
             }));
     const outreachBatches = new AcquisitionOutreachBatchService({
       repository: outreachBatchRepository,
+      douyinOutreachActionsEnabled:
+        options.douyinOutreachActionsEnabled === true,
       idFactory,
       now,
       async loadRunAuthority(scope, runId) {
@@ -2611,73 +2615,75 @@ export async function createAcquisitionApplication(
         ingestTerminalJob: ingestCrawlerJob
       });
       crawlerWorker.start(options.crawlerWorkerIntervalMs);
-      outreachActionRecoverySweeper = new AcquisitionOutreachActionRecoverySweeper({
-        repository: outreachBatchRepository, now,
-        intervalMs: options.outreachActionRecoveryIntervalMs
-      });
-      outreachActionRecoverySweeper.start();
-      const actionWorkerId = idFactory("outreach-action-worker");
-      outreachActionWorker = new AcquisitionOutreachActionWorker({
-        repository: outreachBatchRepository, workerId: actionWorkerId, now,
-        intervalMs: options.outreachActionWorkerIntervalMs,
-        execute: (input) => options.douyinMediaCrawlerGateway!.executeAction(input),
-        async accountAuthority(action) {
-          const [batch, account] = await Promise.all([
-            outreachBatchRepository.find(action.workspaceId, action.batchId),
-            socialAccountRepository.findById(action.workspaceId, action.accountId)
-          ]);
-          if (!batch || batch.state !== "approved" || batch.revision !== action.batchRevision
-            || batch.approvalHash !== action.approvalHash || !account
-            || account.state !== "active" || !account.accountHandle
-            || account.loginStateVersion !== action.accountLoginStateVersion) return null;
-          const frozen = batch.candidates.find((value) => value.candidateId === action.candidateId);
-          if (!frozen || (action.kind === "comment"
-            ? frozen.commentHash !== action.contentHash
-              || frozen.commentTargetPublicUrl !== action.targetPublicUrl
-            : frozen.directMessageHash !== action.contentHash
-              || frozen.publicProfileUrl !== action.targetPublicUrl)) return null;
-          const [authoritativeRun, crawlerJob, policyVersions] = await Promise.all([
-            repositories.planRun.getRun(batch.runId),
-            crawlerJobs.findByRun(action.workspaceId, batch.runId),
-            douyinAutomationRepository.listVersions(action.workspaceId, batch.planId)
-          ]);
-          const policy = policyVersions.find((value) => value.id === batch.policyVersionId);
-          if (!authoritativeRun || !crawlerJob || !policy
-            || policy.policyHash !== batch.policyHash
-            || crawlerJob.policyVersionId !== batch.policyVersionId
-            || crawlerJob.policyHash !== batch.policyHash
-            || crawlerJob.accountId !== batch.accountId
-            || crawlerJob.accountLoginStateVersion !== batch.accountLoginStateVersion
-            || crawlerJob.dailyBudgetId !== batch.dailyBudgetId
-            || crawlerJob.localDate !== batch.localDate
-            || crawlerJob.dailyCandidateLimit !== batch.dailyCandidateLimit) return null;
-          const scope = { workspaceId: action.workspaceId, ownerId: authoritativeRun.ownerId,
-            teamId: authoritativeRun.teamId, actorId: actionWorkerId };
-          const candidate = await repositories.domain.findCandidate(scope, action.candidateId);
-          if (!candidate || candidate.version !== frozen.candidateRevision
-            || candidate.profile.kind !== "individual"
-            || candidate.profile.publicActorKey !== frozen.publicActorKey
-            || candidate.profile.publicProfileUrl !== frozen.publicProfileUrl) return null;
-          const evidence = await Promise.all(candidate.evidenceIds.map((id) =>
-            repositories.domain.findEvidence(scope, id)));
-          if (evidence.some((value) => !value)) return null;
-          const hashes = evidence.filter((value): value is NonNullable<typeof value> => Boolean(value))
-            .map((value) => value.contentHash).sort();
-          if (canonicalJsonStringify(hashes) !== canonicalJsonStringify([...frozen.evidenceHashes].sort())
-            || candidate.status === "do_not_contact"
-            || await finalAuthority.hasDoNotContact(scope, frozen.publicActorKey)) return null;
-          return { accountHandle: account.accountHandle };
-        },
-        async pauseAccount(workspaceId, accountId, loginStateVersion, occurredAt) {
-          const account = await socialAccountRepository.findById(workspaceId, accountId);
-          if (!account || account.state !== "active"
-            || account.loginStateVersion !== loginStateVersion) return;
-          const revision = account.revision + 1;
-          await socialAccountRepository.upsert({ ...account, state: "risk_paused",
-            revision, etag: `"account-v${revision}"`, updatedAt: occurredAt });
-        }
-      });
-      outreachActionWorker.start();
+      if (options.douyinOutreachActionsEnabled === true) {
+        outreachActionRecoverySweeper = new AcquisitionOutreachActionRecoverySweeper({
+          repository: outreachBatchRepository, now,
+          intervalMs: options.outreachActionRecoveryIntervalMs
+        });
+        outreachActionRecoverySweeper.start();
+        const actionWorkerId = idFactory("outreach-action-worker");
+        outreachActionWorker = new AcquisitionOutreachActionWorker({
+          repository: outreachBatchRepository, workerId: actionWorkerId, now,
+          intervalMs: options.outreachActionWorkerIntervalMs,
+          execute: (input) => options.douyinMediaCrawlerGateway!.executeAction(input),
+          async accountAuthority(action) {
+            const [batch, account] = await Promise.all([
+              outreachBatchRepository.find(action.workspaceId, action.batchId),
+              socialAccountRepository.findById(action.workspaceId, action.accountId)
+            ]);
+            if (!batch || batch.state !== "approved" || batch.revision !== action.batchRevision
+              || batch.approvalHash !== action.approvalHash || !account
+              || account.state !== "active" || !account.accountHandle
+              || account.loginStateVersion !== action.accountLoginStateVersion) return null;
+            const frozen = batch.candidates.find((value) => value.candidateId === action.candidateId);
+            if (!frozen || (action.kind === "comment"
+              ? frozen.commentHash !== action.contentHash
+                || frozen.commentTargetPublicUrl !== action.targetPublicUrl
+              : frozen.directMessageHash !== action.contentHash
+                || frozen.publicProfileUrl !== action.targetPublicUrl)) return null;
+            const [authoritativeRun, crawlerJob, policyVersions] = await Promise.all([
+              repositories.planRun.getRun(batch.runId),
+              crawlerJobs.findByRun(action.workspaceId, batch.runId),
+              douyinAutomationRepository.listVersions(action.workspaceId, batch.planId)
+            ]);
+            const policy = policyVersions.find((value) => value.id === batch.policyVersionId);
+            if (!authoritativeRun || !crawlerJob || !policy
+              || policy.policyHash !== batch.policyHash
+              || crawlerJob.policyVersionId !== batch.policyVersionId
+              || crawlerJob.policyHash !== batch.policyHash
+              || crawlerJob.accountId !== batch.accountId
+              || crawlerJob.accountLoginStateVersion !== batch.accountLoginStateVersion
+              || crawlerJob.dailyBudgetId !== batch.dailyBudgetId
+              || crawlerJob.localDate !== batch.localDate
+              || crawlerJob.dailyCandidateLimit !== batch.dailyCandidateLimit) return null;
+            const scope = { workspaceId: action.workspaceId, ownerId: authoritativeRun.ownerId,
+              teamId: authoritativeRun.teamId, actorId: actionWorkerId };
+            const candidate = await repositories.domain.findCandidate(scope, action.candidateId);
+            if (!candidate || candidate.version !== frozen.candidateRevision
+              || candidate.profile.kind !== "individual"
+              || candidate.profile.publicActorKey !== frozen.publicActorKey
+              || candidate.profile.publicProfileUrl !== frozen.publicProfileUrl) return null;
+            const evidence = await Promise.all(candidate.evidenceIds.map((id) =>
+              repositories.domain.findEvidence(scope, id)));
+            if (evidence.some((value) => !value)) return null;
+            const hashes = evidence.filter((value): value is NonNullable<typeof value> => Boolean(value))
+              .map((value) => value.contentHash).sort();
+            if (canonicalJsonStringify(hashes) !== canonicalJsonStringify([...frozen.evidenceHashes].sort())
+              || candidate.status === "do_not_contact"
+              || await finalAuthority.hasDoNotContact(scope, frozen.publicActorKey)) return null;
+            return { accountHandle: account.accountHandle };
+          },
+          async pauseAccount(workspaceId, accountId, loginStateVersion, occurredAt) {
+            const account = await socialAccountRepository.findById(workspaceId, accountId);
+            if (!account || account.state !== "active"
+              || account.loginStateVersion !== loginStateVersion) return;
+            const revision = account.revision + 1;
+            await socialAccountRepository.upsert({ ...account, state: "risk_paused",
+              revision, etag: `"account-v${revision}"`, updatedAt: occurredAt });
+          }
+        });
+        outreachActionWorker.start();
+      }
     }
     const visualReaderService = new AcquisitionVisualReaderService({
       repository: repositories.visualReader,

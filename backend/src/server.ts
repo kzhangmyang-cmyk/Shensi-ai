@@ -12315,6 +12315,12 @@ export function readMediaCrawlerGatewayConfiguration(environment: NodeJS.Process
   return Object.freeze({ baseUrl, serviceSecret });
 }
 
+export function readDouyinOutreachActionsEnabled(
+  environment: NodeJS.ProcessEnv = process.env
+) {
+  return environment.DOUYIN_OUTREACH_ACTIONS_ENABLED?.toLowerCase() === "true";
+}
+
 async function startServer() {
   const mysqlRequested = process.env.CRM_STORE === "mysql"
     || (process.env.CRM_STORE !== "memory" && Boolean(process.env.DATABASE_URL || process.env.MYSQL_URL));
@@ -12397,6 +12403,8 @@ async function startServer() {
         growthRuntime.integrations.probabilityAssessments,
       quoteProjectedDocumentAuthority:
         growthRuntime.integrations.quoteProjectedDocumentAuthority,
+      douyinOutreachActionsEnabled:
+        readDouyinOutreachActionsEnabled(),
       ...(mediaCrawlerConfiguration
         ? { douyinMediaCrawlerGateway: createDouyinMediaCrawlerGateway({
             baseUrl: mediaCrawlerConfiguration.baseUrl,
