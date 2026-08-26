@@ -215,6 +215,18 @@ ledger.
   Shensi shell, session/CSRF behavior and accessible navigation are preserved;
   desktop uses a table with evidence inspector, while narrow viewports use
   one-column candidate cards and normal body scrolling.
+- An authenticated real session now routes `#conversations` to a read-only
+  Douyin public-interaction projection instead of the browser-local seeded
+  inbox. It reads the existing acquisition overview and each task's latest-run
+  candidate page, renders the persisted public excerpt and source link as
+  candidate evidence, and reports failed runs or an unconsumed next cursor
+  without substituting demo rows. The surface explicitly says it is not a
+  platform private-message inbox. Its reply field and send button are disabled;
+  no comment, reply, or direct-message command is wired. The existing outreach
+  API can read actions only when a batch ID is already known and has no
+  run-to-batch listing route, so this page states that receipt boundary rather
+  than guessing or fabricating receipts. Demo sessions retain the deterministic
+  local conversation preview.
 - Visible local MediaCrawler observation is a dedicated standard-Playwright
   Douyin window when `MEDIACRAWLER_BROWSER_HEADLESS=false`; Shensi disables CDP,
   while production may set headless mode to `true`. Its visible tab is a

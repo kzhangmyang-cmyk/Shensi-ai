@@ -230,9 +230,9 @@ restart, lease, transaction, and live-runtime evidence.
 ## Frontend composition
 
 `frontend/src/app-session.ts` is the authenticated shell controller. Feature
-code is grouped under `acquisition/`, `private-domain/`, `connections/`, and
-`growth/`. Growth contains advisor, catalog, finance, quotes, ROI, agent-center,
-and council controllers and views. Shared transport types are imported from
+code is grouped under `acquisition/`, `conversations/`, `private-domain/`,
+`connections/`, and `growth/`. Growth contains advisor, catalog, finance,
+quotes, ROI, agent-center, and council controllers and views. Shared transport types are imported from
 `frontend/src/generated/`, which is generated from `contracts/`; new DTOs must
 not be hand-written in feature code.
 
@@ -273,6 +273,21 @@ or direct-message approval authority.
 The desktop candidate table and evidence inspector collapse to one-column
 cards at the mobile breakpoint, and page scrolling remains owned by the body/
 main document rather than nested frozen panes.
+
+The real-session `#conversations` controller is a separate read-only consumer
+of the same acquisition public contract. It first reads the Douyin-filtered
+task overview, then reads the first candidate page for each task's latest run.
+It renders these records as public interactions and candidate evidence, never
+as a platform inbox or a two-party message transcript. Run-level failures stay
+visible as partial-read warnings, a non-null candidate cursor is disclosed as
+an incomplete page, and no local seed is used as fallback. Route deactivation,
+logout, or another load aborts/stales the prior generation. The controller has
+no write method; its disabled composer explains that no official inbox,
+comment, reply, or direct-message API is connected. Outreach actions remain
+owned by the acquisition batch controller. Because the current contract can
+list actions only for a known batch ID and cannot discover batches from a run,
+the conversations inspector reports that receipt limitation and does not infer
+receipts.
 
 ## Persistence
 

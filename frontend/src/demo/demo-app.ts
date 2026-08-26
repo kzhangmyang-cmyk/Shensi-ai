@@ -23,6 +23,10 @@ import { parseGrowthHash } from "../growth/router";
 import { createGrowthHttpClient } from "../growth/http";
 import { createRealAgentCenterApi } from "../growth/agents/real-api";
 import { createRealAgentCenterController } from "../growth/agents/real-controller";
+import {
+  createRealConversationsController,
+  shouldUseRealConversations
+} from "../conversations/real-controller";
 
 let agentsDemoController: ReturnType<typeof createAgentsController> | null = null;
 let agentsAuthority: "demo" | "real" | null = null;
@@ -117,13 +121,20 @@ export function startDemoApp(): void {
     main: host,
     inspector
   });
+  const realConversationsController = createRealConversationsController({
+    main: host,
+    inspector
+  });
   createDealCreateController();
   let realPrivateDomainActive = false;
+  let realConversationsActive = false;
   let requestedRealCustomerId = "";
   const render = () => {
     if (parseGrowthHash(window.location.hash)) {
       if (realPrivateDomainActive) privateDomainController.deactivate();
       realPrivateDomainActive = false;
+      if (realConversationsActive) realConversationsController.deactivate();
+      realConversationsActive = false;
       agentsDemoController?.dispose();
       agentsDemoController = null;
       agentsAuthority = null;
@@ -133,6 +144,8 @@ export function startDemoApp(): void {
     }
     if (router.current() === "private-domain"
       && shell.dataset.acquisitionMode !== "demo") {
+      if (realConversationsActive) realConversationsController.deactivate();
+      realConversationsActive = false;
       if (!realPrivateDomainActive || requestedRealCustomerId) {
         realPrivateDomainActive = true;
         const preferred = requestedRealCustomerId || undefined;
@@ -141,8 +154,25 @@ export function startDemoApp(): void {
       }
       return;
     }
+    if (shouldUseRealConversations(
+      router.current(),
+      document.body.dataset.sessionMode
+    )) {
+      if (realPrivateDomainActive) privateDomainController.deactivate();
+      realPrivateDomainActive = false;
+      agentsDemoController?.dispose();
+      agentsDemoController = null;
+      agentsAuthority = null;
+      if (!realConversationsActive) {
+        realConversationsActive = true;
+        void realConversationsController.open().catch(() => undefined);
+      }
+      return;
+    }
     if (realPrivateDomainActive) privateDomainController.deactivate();
     realPrivateDomainActive = false;
+    if (realConversationsActive) realConversationsController.deactivate();
+    realConversationsActive = false;
     agentsDemoController?.dispose();
     agentsDemoController = null;
     agentsAuthority = null;
@@ -552,6 +582,8 @@ export function startDemoApp(): void {
     router.navigate(router.current());
   });
   document.addEventListener("goodjob:auth-state-changed", (event) => {
+    if (realConversationsActive) realConversationsController.deactivate();
+    realConversationsActive = false;
     agentsDemoController?.dispose();
     agentsDemoController = null;
     agentsAuthority = null;

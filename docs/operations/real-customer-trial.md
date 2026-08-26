@@ -41,15 +41,27 @@ private-domain records, Growth catalog/quote/finance/ROI flows supported by the
 current backend, provider connections the operator has actually configured, and
 the `#acquisition` MediaCrawler path for QR login, plan approval, manual
 keywords, controlled collection, persisted status/candidates/evidence, draft
-review, and CRM conversion. `#growth/quotes` without a case shows a
+review, and CRM conversion. In an authenticated real session, `#conversations`
+also reads those existing Douyin tasks' latest-run public candidate evidence.
+It labels the records as `真实 · 抖音公开互动`, not as private messages or an
+inbox, and never substitutes local seeded conversations. `#growth/quotes` without a case shows a
 customer-readable empty state; it does not invent a quote or expose
 `quote_case_required`.
 
-The browser-local dashboard, conversations, conversion, automation, and
-overseas-marketing presentations stay visible as `预览 · 待接入`. AI-only
+The browser-local dashboard, conversion, automation, and overseas-marketing
+presentations stay visible as `预览 · 待接入`; demo sessions also retain the
+deterministic local conversations preview. AI-only
 controls remain visible but explain that a healthy model connection is required.
 Generic public-web acquisition remains an optional separate path; a missing
 search or model provider never blocks manual-keyword MediaCrawler collection.
+
+The real `#conversations` page is read-only. Its reply field and send button are
+disabled and explain that the product has no connected official inbox, private-
+message, comment, or reply API. The current outreach contract can list actions
+only for a known batch ID and cannot discover a batch from an acquisition run;
+the page therefore states that receipt limitation instead of guessing or
+fabricating a receipt. Operators review any known approved batch in
+`#acquisition`; the conversations page never creates, approves, or executes one.
 
 Outreach drafts can be edited and reviewed, but this launch does not allow final
 outreach approval. With the fixed disabled action gate, final approval returns
