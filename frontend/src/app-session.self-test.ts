@@ -65,8 +65,19 @@ function createDocument() {
     email: "test@shensi.local",
     password: "trial-password"
   });
+  await controller.login(" Other.Account@Example.com ", "unmatched-password");
+  assert.equal(requests.length, 2);
+  assert.deepEqual(JSON.parse(requests[1].body), {
+    email: " Other.Account@Example.com ",
+    password: "unmatched-password"
+  });
   assert.equal(resolveLoginIdentity(" TEST ", { test: "test@shensi.local" }), "test@shensi.local");
   assert.equal(resolveLoginIdentity("owner@example.com", { test: "test@shensi.local" }), "owner@example.com");
+  assert.equal(
+    resolveLoginIdentity(" Other.Account@Example.com ", { test: "test@shensi.local" }),
+    " Other.Account@Example.com "
+  );
+  assert.equal(resolveLoginIdentity("constructor", { test: "test@shensi.local" }), "constructor");
   assert.equal(resolveLoginIdentity("test1", { test: "test@shensi.local" }), "test1");
   assert.equal(resolveLoginIdentity("tester", { test: "test@shensi.local" }), "tester");
   controller.destroy();

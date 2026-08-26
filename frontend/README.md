@@ -4,10 +4,10 @@
 
 ## 当前范围
 
-- 唯一产品前端为黑色智能体业务壳；`#agents` 的六张智能体卡牌是产品首页
-- 获客、社媒对话、私域客户池、成交工作台、自动工作流与财务委员会深链继续由同一黑色壳承载；`#demoModuleMain` 是唯一可见主内容宿主
-- `/`、空 Hash、`#dashboard` 和未知 Hash 自动回到 `#agents`；旧白色 CRM 已删除且不再提供入口
-- 演示模式只使用本地确定性数据；真实模式继续使用现有同源 API、会话、CSRF、RBAC 和 workspace 边界
+- 唯一产品前端为黑色智能体业务壳；`#agents` 的六张智能体卡牌是智能体首页，`#dashboard` 是可用的自动营销总览
+- 原有九个主导航入口继续可见；获客、社媒对话、私域客户池、成交工作台、自动工作流与财务委员会深链继续由同一黑色壳承载；`#demoModuleMain` 是唯一可见主内容宿主
+- 侧栏提供 `#growth/advisor`、`#growth/catalog`、`#growth/quotes`、`#growth/finance`、`#growth/roi` 和 `#financial-council` 六个真实 Growth 入口；`/`、空 Hash 和未知 Hash 自动回到 `#agents`，旧白色 CRM 不再提供入口
+- 本地演示和待接入模块明确标记为“预览 · 待接入”，并只使用本地确定性数据；真实模式继续使用现有同源 API、会话、CSRF、RBAC 和 workspace 边界
 - 真实模式从 Shensi 企业登录开始，页面不内置账号或密码，且只恢复经服务端 `/api/auth/me` 验证的会话
 - 本次壳迁移未删除或改动后端、数据库、合同、权限边界或既有业务数据
 
@@ -18,7 +18,7 @@ pnpm install --frozen-lockfile
 pnpm --filter goodjob-crm-frontend dev
 ```
 
-从 Monorepo 根目录运行上述命令后，访问 `http://127.0.0.1:5188/#agents`。页面首先显示 Shensi 登录；真实部署使用管理员分配的企业账号。旧 `#dashboard` 会自动回到智能体中心。
+从 Monorepo 根目录运行上述命令后，访问 `http://127.0.0.1:5188/#agents`。页面首先显示 Shensi 登录；真实部署使用管理员分配的企业账号。访问 `#dashboard` 可查看本地演示数据的自动营销总览。
 
 ## 验证
 

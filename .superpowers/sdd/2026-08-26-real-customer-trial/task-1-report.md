@@ -46,3 +46,35 @@ Final Task 1 commit: `HEAD` (the final handoff includes its resolved SHA).
 - The sidebar contains literal links for all six requested Growth routes. Growth route metadata drives titles/subtitles and active link state. A direct `#growth/quotes` visit without `case` stops before the Growth runtime and shows a customer-readable path to the catalog instead of `quote_case_required`.
 - Local dashboard, conversations, conversion, automation, and overseas surfaces now expose `预览 · 待接入`; connected acquisition and real Growth labels remain distinct.
 - Scope review found an unrelated in-progress edit at `docs/superpowers/plans/2026-08-26-real-customer-trial.md`; it was not staged or changed here. `frontend/README.md` contains now-stale route descriptions, so Task 4 documentation synchronization should update it rather than leave that change in this Task 1 commit.
+
+## Fix round 1 — alias identity preservation and README sync
+
+### RED evidence
+
+1. After adding regression coverage, `pnpm --filter ./frontend test` failed at `app-session.self-test.ts:70`: the real login request body changed the unmatched input `" Other.Account@Example.com "` into `"other.account@example.com"`. This reproduced the review finding that unmatched identities were not preserved.
+2. The same RED test includes a direct `constructor` lookup assertion, so inherited object properties cannot be accepted as aliases.
+3. The first GREEN implementation exposed a TypeScript-library compatibility issue: `Object.hasOwn` was not declared by this project's configured `lib`. The final implementation keeps `Object.hasOwn` semantics through a local typed view of `Object`, without broadening compiler configuration.
+
+### GREEN evidence
+
+- `pnpm --filter ./frontend test` exited `0`; output included `{ "ok": true, "checked": 57 }`.
+- `pnpm --filter ./frontend test:types` exited `0` for application, test, and visual-reader TypeScript projects.
+- `git diff --check` exited `0`.
+
+### Fix-round files
+
+- `frontend/src/app-session.ts`
+- `frontend/src/app-session.self-test.ts`
+- `frontend/README.md`
+- `.superpowers/sdd/2026-08-26-real-customer-trial/task-1-report.md`
+
+### Fix-round commit
+
+Final fix-round commit: `HEAD` (the final handoff includes its resolved SHA).
+
+### Fix-round self-review
+
+- `resolveLoginIdentity` now calculates a trim/lowercase lookup key but returns the mapped canonical value only when that key is an own alias property; every unmatched value, including mixed-case/space input and `constructor`, is returned byte-for-byte unchanged.
+- The controller-level request-body regression proves that the unmatched identifier and its password are submitted unchanged.
+- `frontend/README.md` now documents the working dashboard, the retained nine primary navigation entries, six visible Growth links, and `预览 · 待接入` labeling in present tense.
+- The pre-existing unstaged `docs/superpowers/plans/2026-08-26-real-customer-trial.md` edit remains excluded from this fix round.

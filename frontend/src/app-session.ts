@@ -51,7 +51,10 @@ export function resolveLoginIdentity(
   aliases: Readonly<Record<string, string>>
 ): string {
   const normalized = value.trim().toLowerCase();
-  return aliases[normalized] ?? normalized;
+  const hasOwn = (Object as typeof Object & {
+    hasOwn(object: object, property: PropertyKey): boolean;
+  }).hasOwn;
+  return hasOwn(aliases, normalized) ? aliases[normalized] : value;
 }
 
 const roleLabels: Record<AppUser["role"], string> = {
