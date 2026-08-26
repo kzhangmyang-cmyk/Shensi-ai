@@ -451,8 +451,8 @@ backend remains email-only and the customer receives tenant `admin`, never
 The generated runtime fixes visible Chrome mode and
 `DOUYIN_OUTREACH_ACTIONS_ENABLED=false`. QR readiness or account connection
 does not authorize collection; collection does not authorize external sending.
-Task 5 verifies that final outreach approval and the sidecar action route remain
-fail-closed. It does not set the flag true.
+The public trial launch verifies that final outreach approval and the sidecar
+action route remain fail-closed. It does not set the flag true.
 
 Stopping preserves the dedicated MySQL data, encrypted profile, crawl state,
 logs, and secrets. Before deleting the runtime root, export the trial database

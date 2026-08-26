@@ -284,10 +284,14 @@ ledger.
 
 ## Active
 
-- Task 5 fresh source gates, isolated-stack launch, tenant/persistence/network
-  acceptance, complete UI inspection, and bounded QR/collection readiness are
-  not yet performed. No temporary HTTPS origin is recorded as accepted, and the
-  tooling must not be described as customer-ready before every gate passes.
+- The isolated real-customer stack is running behind a temporary HTTPS origin
+  reported only by `pnpm trial:status`. Fresh source/build gates, six-process
+  lifecycle status, local/public route isolation, tenant-admin login, and a
+  MySQL-backed CRM write/restart/read/cleanup cycle passed on 2026-08-26. The
+  public browser shows the current Shensi login surface.
+- Authenticated full-page visual inspection and an authorized Douyin QR
+  scan/manual-keyword collection remain customer-interactive acceptance work;
+  they do not authorize an external comment or direct message.
 - Dedicated-account external-action acceptance remains outside this launch.
   `DOUYIN_OUTREACH_ACTIONS_ENABLED=false` is fixed for the trial; no CAPTCHA is
   automated and no real comment or direct message is authorized.
@@ -302,18 +306,15 @@ ledger.
 
 ## Next
 
-1. Run fresh current-tree context, focused, aggregate, build, and whitespace
-   gates; previous counts are historical and do not replace Task 5 evidence.
-2. Run `trial:prepare`, `trial:start`, `trial:status`, and `trial:verify`; verify
-   tenant-admin login, CSRF write, backend-restart persistence, tenant isolation,
-   public route isolation, and the complete truthful UI surface.
-3. Stop at QR-ready if the customer is not present. After an authorized scan,
+1. Have the customer log in through the current `trial:status` origin and finish
+   the authenticated all-module visual walk-through.
+2. Stop at QR-ready if the customer is not present. After an authorized scan,
    verify one manual-keyword collection and persisted candidates while keeping
    the external-action flag false.
-4. Only after those checks pass may the operator retire the old static link;
+3. Only after those checks pass may the operator retire the old static link;
    `trial:stop` must stop only validated trial process groups and retain data
    until the documented export/profile retention decision is complete.
-5. Separately, in a Docker-equipped environment, render and build production
+4. Separately, in a Docker-equipped environment, render and build production
    Compose and inspect its private networks and health/shutdown behavior.
 
 The two executing design/plan documents are retained under

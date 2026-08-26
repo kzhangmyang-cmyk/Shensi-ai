@@ -26,11 +26,12 @@ cp .env.production.example .env.production.local
 
 ## Isolated real-customer trial
 
-The repository also provides one isolated, repeatable trial runtime. The
-tooling is present, but the public trial is not customer-ready until the
-acceptance checklist in
+The repository also provides one isolated, repeatable trial runtime. When
+`pnpm trial:status` reports `running: true`, its reported temporary origin is
+the only current public trial link. Operational and customer-interactive gates
+are tracked in
 [`docs/operations/real-customer-trial.md`](docs/operations/real-customer-trial.md)
-passes on the current revision. Supply the customer password only through the
+and must remain truthful. Supply the customer password only through the
 owner-controlled process environment or an owner-only password file; never put
 it in a command, tracked file, or log.
 

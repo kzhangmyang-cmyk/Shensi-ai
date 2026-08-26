@@ -1,10 +1,11 @@
 # Real Customer Trial Runtime
 
 This document is the current operating contract for the temporary Shensi
-customer trial. The isolated runtime tooling is implemented, but the trial is
-not public, customer-ready, or accepted until Task 5 passes every gate below on
-the current revision. Never write a temporary tunnel URL, password, token,
-cookie, provider key, browser profile, or crawl output into tracked files.
+customer trial. The isolated runtime is publicly reachable when
+`pnpm trial:status` reports `running: true`; that owner-only runtime state is the
+authority for the current temporary origin. Never write a temporary tunnel URL,
+password, token, cookie, provider key, browser profile, or crawl output into
+tracked files.
 
 ## Goal and truthful product scope
 
@@ -266,8 +267,19 @@ tree proves all of the following:
 8. Final outreach approval and the private sidecar action endpoint remain
    `outreach_actions_disabled`; no comment or direct message is sent.
 
-Task 5 has not yet supplied this evidence. Do not call the trial launched or
-accepted, and do not retire the old static link before every item passes.
+The 2026-08-26 launch passed the fresh source gates, isolated startup/status,
+local and public boundary verification, tenant-admin login, MySQL-backed CRM
+write/restart/read, cleanup of the unique verification record, and public login
+page checks. Six durable runtime processes are tracked: MySQL, backend,
+MediaCrawler, frontend, gateway, and tunnel. The current temporary origin must
+still be read from `trial:status`.
+
+Customer-interactive acceptance remains bounded to the authenticated full-page
+walk-through and an authorized Douyin QR scan followed by one manual-keyword
+collection. Those steps require the customer to be present. External comment
+and direct-message actions remain disabled and are not part of this launch. Do
+not retire the older protected link until those customer-interactive checks are
+complete.
 
 ## Retirement checklist
 
