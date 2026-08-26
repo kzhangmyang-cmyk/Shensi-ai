@@ -357,7 +357,10 @@ import {
 } from "./acquisition-outreach-batch-mysql-repository.js";
 import { AcquisitionOutreachBatchService } from "./acquisition-outreach-batch-service.js";
 import { createAcquisitionOutreachBatchRouter } from "./acquisition-outreach-batch-router.js";
-import { AcquisitionOutreachActionWorker } from "./acquisition-outreach-action-worker.js";
+import {
+  AcquisitionOutreachActionWorker,
+  douyinActionDeadlineMs
+} from "./acquisition-outreach-action-worker.js";
 import { AcquisitionOutreachActionRecoverySweeper } from "./acquisition-outreach-action-recovery-sweeper.js";
 import {
   AcquisitionVisualCommentIngestionService
@@ -2654,6 +2657,7 @@ export async function createAcquisitionApplication(
         outreachActionWorker = new AcquisitionOutreachActionWorker({
           repository: outreachBatchRepository, workerId: actionWorkerId, now,
           intervalMs: options.outreachActionWorkerIntervalMs,
+          actionDeadlineMs: douyinActionDeadlineMs(),
           execute: (input) => options.douyinMediaCrawlerGateway!.executeAction(input),
           async accountAuthority(action) {
             const [batch, account] = await Promise.all([

@@ -26,6 +26,7 @@ test("prepareTrialRuntime creates private deterministic runtime state without ex
   assert.match(environment, /@127\.0\.0\.1:3310\/shensi_trial$/m);
   assert.match(environment, /^VITE_REAL_TRIAL=true$/m);
   assert.match(environment, /^DOUYIN_OUTREACH_ACTIONS_ENABLED=false$/m);
+  assert.match(environment, /^DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS=120$/m);
   assert.match(environment, /^MEDIACRAWLER_BASE_URL=http:\/\/127\.0\.0\.1:5612$/m);
   for (const name of ["SHENSI_MYSQL_APP_PASSWORD", "TRADE_OBSERVATION_CURSOR_SECRET", "MARKET_OPPORTUNITY_CURSOR_SECRET", "PROSPECT_RUN_IDEMPOTENCY_SECRET", "PROSPECT_RUN_CURSOR_SECRET", "PROSPECT_EXECUTION_CLAIM_SECRET", "ORGANIZATION_IDENTITY_MASTER_SECRET", "PROSPECT_SOURCE_RAW_ENVELOPE_SECRET", "PROSPECT_COVERAGE_MASTER_SECRET"]) {
     assert.match(environment, new RegExp(`^${name}=.{32,}$`, "m"));

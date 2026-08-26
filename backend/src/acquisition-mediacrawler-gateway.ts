@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { douyinActionDeadlineMs } from "./acquisition-outreach-action-worker.js";
 
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -153,6 +154,7 @@ export interface DouyinMediaCrawlerGatewayOptions {
   serviceSecret: string;
   timeoutMs?: number;
   loginCreationTimeoutMs?: number;
+  actionTimeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
 
@@ -228,9 +230,12 @@ export function createDouyinMediaCrawlerGateway(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const loginCreationTimeoutMs = options.loginCreationTimeoutMs
     ?? DEFAULT_LOGIN_CREATION_TIMEOUT_MS;
+  const actionTimeoutMs = options.actionTimeoutMs
+    ?? douyinActionDeadlineMs() + 10_000;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0
     || !Number.isFinite(loginCreationTimeoutMs)
-    || loginCreationTimeoutMs <= 0) {
+    || loginCreationTimeoutMs <= 0
+    || !Number.isFinite(actionTimeoutMs) || actionTimeoutMs <= 0) {
     throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
   }
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -271,8 +276,9 @@ export function createDouyinMediaCrawlerGateway(
   }
 
   async function jsonRequest(method: "GET" | "POST", path: string, body: unknown,
-                             signal?: AbortSignal, allowNotFound = false) {
-    const request = requestAbortSignal(signal, timeoutMs);
+                             signal?: AbortSignal, allowNotFound = false,
+                             requestTimeoutMs = timeoutMs) {
+    const request = requestAbortSignal(signal, requestTimeoutMs);
     try {
       const response = await fetchImpl(new URL(path, baseUrl), {
         method, headers: { authorization: `Bearer ${serviceSecret}`, ...(body ? { "content-type": "application/json" } : {}) },
@@ -395,7 +401,7 @@ export function createDouyinMediaCrawlerGateway(
           login_state_version: input.loginStateVersion, kind: input.kind,
           target_public_url: input.targetPublicUrl, content: input.content,
           deadline_at: input.deadlineAt, approved_content_hash: input.approvedContentHash
-        }, signal));
+        }, signal, false, actionTimeoutMs));
       if (!parsed.success || parsed.data.action_id !== input.actionId) {
         throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
       }

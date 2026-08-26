@@ -71,6 +71,96 @@ test("health maps timeouts to mediacrawler_unavailable without exposing the secr
   });
 });
 
+test("actions use an independent timeout while health and crawl stay bounded", async () => {
+  await withServer((request, response) => {
+    response.setHeader("connection", "close");
+    setTimeout(() => {
+      response.setHeader("content-type", "application/json");
+      if (request.url === "/internal/v1/health") {
+        response.end(JSON.stringify(validHealth));
+      } else if (request.url === "/internal/v1/douyin/crawl-jobs/job-timeout") {
+        response.end(JSON.stringify({
+          job_id: "job-timeout", state: "running",
+          created_at: "2026-08-25T04:00:00.000Z",
+          updated_at: "2026-08-25T04:00:01.000Z",
+          completed_at: null, acknowledged_at: null,
+          record_count: 0, page_count: 0, failure_code: null,
+          activity: {
+            phase: "queued", current_keyword: null,
+            browser_mode: "headless", sequence: 0
+          }
+        }));
+      } else {
+        assert.equal(request.url, "/internal/v1/douyin/actions/action-timeout");
+        response.end(JSON.stringify({
+          action_id: "action-timeout", state: "failed",
+          platform_receipt_reference: null,
+          occurred_at: "2026-08-25T04:00:01.000Z",
+          failure_code: "douyin_verification_required"
+        }));
+      }
+    }, 25);
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({
+      baseUrl, serviceSecret, timeoutMs: 5, actionTimeoutMs: 50
+    });
+    await assert.rejects(gateway.health(), { code: "mediacrawler_unavailable" });
+    await assert.rejects(gateway.getCrawlJob("job-timeout"), {
+      code: "mediacrawler_unavailable"
+    });
+    const receipt = await gateway.executeAction({
+      actionId: "action-timeout", accountHandle: "private-handle",
+      loginStateVersion: 3, kind: "comment",
+      targetPublicUrl: "https://www.douyin.com/video/video-1",
+      content: "exact approved content",
+      approvedContentHash: `sha256:${"a".repeat(64)}`,
+      deadlineAt: "2026-08-25T04:02:30.000Z"
+    });
+    assert.equal(receipt.failureCode, "douyin_verification_required");
+  });
+});
+
+test("default action HTTP timeout is the 150-second deadline plus ten seconds", async () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const previousManualWindow = process.env.DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS;
+  const observedTimeouts: number[] = [];
+  delete process.env.DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS;
+  globalThis.setTimeout = ((callback: () => void, delay?: number) => {
+    observedTimeouts.push(delay ?? 0);
+    queueMicrotask(callback);
+    return 0 as unknown as NodeJS.Timeout;
+  }) as typeof setTimeout;
+  try {
+    const gateway = createDouyinMediaCrawlerGateway({
+      baseUrl: "http://127.0.0.1:8000",
+      serviceSecret,
+      fetchImpl: (async (_input, init) => new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) reject(new Error("aborted"));
+        else signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true
+        });
+      })) as typeof fetch
+    });
+    await assert.rejects(gateway.executeAction({
+      actionId: "action-default-timeout", accountHandle: "private-handle",
+      loginStateVersion: 3, kind: "comment",
+      targetPublicUrl: "https://www.douyin.com/video/video-1",
+      content: "exact approved content",
+      approvedContentHash: `sha256:${"a".repeat(64)}`,
+      deadlineAt: "2026-08-25T04:02:30.000Z"
+    }), { code: "mediacrawler_unavailable" });
+    assert.deepEqual(observedTimeouts, [160_000]);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    if (previousManualWindow === undefined) {
+      delete process.env.DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS;
+    } else {
+      process.env.DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS = previousManualWindow;
+    }
+  }
+});
+
 test("login creation allows interactive browser startup beyond the general timeout", async () => {
   await withServer((_request, response) => {
     setTimeout(() => {

@@ -4,7 +4,10 @@ import { createHash } from "node:crypto";
 import { InMemoryAcquisitionOutreachBatchRepository } from "./acquisition-outreach-batch-repository.js";
 import { outreachContentHash, type AcquisitionOutreachAction,
   type AcquisitionOutreachBatch } from "./acquisition-outreach-batch.js";
-import { AcquisitionOutreachActionWorker } from "./acquisition-outreach-action-worker.js";
+import {
+  AcquisitionOutreachActionWorker,
+  douyinActionDeadlineMs
+} from "./acquisition-outreach-action-worker.js";
 import { AcquisitionOutreachActionRecoverySweeper } from "./acquisition-outreach-action-recovery-sweeper.js";
 
 const BASE = Date.parse("2026-08-25T00:00:00.000Z");
@@ -57,6 +60,7 @@ function worker(repository: InMemoryAcquisitionOutreachBatchRepository,
   responses: Array<{ state: "succeeded" | "failed"; failureCode?: string }> = []) {
   let nowMs = BASE;
   const calls: Array<{ actionId: string; content: string }> = [];
+  const deadlines: string[] = [];
   const paused: string[] = [];
   const instance = new AcquisitionOutreachActionWorker({
     repository, workerId: "worker-1", now: () => new Date(nowMs).toISOString(),
@@ -64,6 +68,7 @@ function worker(repository: InMemoryAcquisitionOutreachBatchRepository,
       ? { accountHandle: "private-account-handle" } : null,
     execute: async (value) => {
       calls.push({ actionId: value.actionId, content: value.content });
+      deadlines.push(value.deadlineAt);
       const response = responses.shift() ?? { state: "succeeded" as const };
       return response.state === "succeeded" ? {
         actionId: value.actionId, state: "succeeded" as const,
@@ -75,8 +80,18 @@ function worker(repository: InMemoryAcquisitionOutreachBatchRepository,
     },
     pauseAccount: async (_workspaceId, accountId) => { paused.push(accountId); }
   });
-  return { instance, calls, paused, setNow(value: number) { nowMs = value; } };
+  return { instance, calls, deadlines, paused,
+    setNow(value: number) { nowMs = value; } };
 }
+
+test("manual verification timing validates 30..300 seconds and adds 30 seconds", () => {
+  assert.equal(douyinActionDeadlineMs(30), 60_000);
+  assert.equal(douyinActionDeadlineMs(120), 150_000);
+  assert.equal(douyinActionDeadlineMs(300), 330_000);
+  for (const invalid of [29, 301, 30.5, " 120 ", "bad"]) {
+    assert.throws(() => douyinActionDeadlineMs(invalid), /manual verification/u);
+  }
+});
 
 test("claim fencing, account concurrency one, and restart recovery reject stale completion", async () => {
   const repository = await repositoryWith([
@@ -162,6 +177,9 @@ test("verification and account-risk failures pause immediately without bypass", 
   const runtime = worker(repository, [{ state: "failed",
     failureCode: "douyin_verification_required" }]);
   await runtime.instance.runOnce();
+  assert.deepEqual(runtime.deadlines, [new Date(BASE + 150_000).toISOString()]);
+  assert.equal(await runtime.instance.runOnce(), false);
+  assert.equal(runtime.calls.length, 1);
   assert.deepEqual(runtime.paused, ["account-1"]);
   assert.deepEqual((await repository.listActions("workspace-1", "batch-1"))!
     .map((value) => value.status), ["failed", "risk_paused"]);

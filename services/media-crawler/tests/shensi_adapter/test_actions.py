@@ -53,11 +53,31 @@ class FakeLocator:
         return None
 
 
+class FakeMouse:
+    def __init__(self, calls: list[str]):
+        self.calls = calls
+
+    def move(self, *_args, **_kwargs):
+        self.calls.append("mouse.move")
+
+    def down(self, *_args, **_kwargs):
+        self.calls.append("mouse.down")
+
+    def up(self, *_args, **_kwargs):
+        self.calls.append("mouse.up")
+
+    def click(self, *_args, **_kwargs):
+        self.calls.append("mouse.click")
+
+
 class FakePage:
-    def __init__(self, *, visible=(), receipt=False, late_receipt=False):
+    def __init__(self, *, visible=(), receipt=False, late_receipt=False,
+                 clock=None, after_wait=None):
         self.visible = set(visible)
         self.receipt = receipt
         self.late_receipt = late_receipt
+        self.clock = clock
+        self.after_wait = after_wait
         self.after_submit = False
         self.url = "about:blank"
         self.urls: list[str] = []
@@ -65,6 +85,9 @@ class FakePage:
         self.values: dict[str, str] = {}
         self.clicks: list[str] = []
         self.waits = 0
+        self.brought_to_front = 0
+        self.verification_bypass_calls: list[str] = []
+        self.mouse = FakeMouse(self.verification_bypass_calls)
 
     @property
     def receipt_visible(self):
@@ -83,17 +106,44 @@ class FakePage:
         assert name == "发送" and exact is True
         return FakeLocator(self, "[fake-missing-exact-send-role]")
 
-    def wait_for_timeout(self, _milliseconds: int):
+    def bring_to_front(self):
+        self.brought_to_front += 1
+
+    def wait_for_timeout(self, milliseconds: int):
         self.waits += 1
+        if self.clock is not None:
+            self.clock.advance(milliseconds)
+        if self.after_wait is not None:
+            self.after_wait(self)
+
+    def screenshot(self, **_kwargs):
+        self.verification_bypass_calls.append("screenshot")
+
+    def evaluate(self, *_args, **_kwargs):
+        self.verification_bypass_calls.append("evaluate")
+
+    def drag_and_drop(self, *_args, **_kwargs):
+        self.verification_bypass_calls.append("drag_and_drop")
 
 
-def request(kind="comment", *, content="冻结的批准文本"):
+class FakeClock:
+    def __init__(self):
+        self.current = NOW
+
+    def now(self):
+        return self.current
+
+    def advance(self, milliseconds: int):
+        self.current += timedelta(milliseconds=milliseconds)
+
+
+def request(kind="comment", *, content="冻结的批准文本", deadline_at=None):
     target = ("https://www.douyin.com/video/123" if kind == "comment"
               else "https://www.douyin.com/user/public_actor")
     return ActionRequest(action_id=f"action-{kind}", account_handle="private-handle",
                          login_state_version=3, kind=kind,
                          target_public_url=target, content=content,
-                         deadline_at=NOW + timedelta(minutes=1),
+                         deadline_at=deadline_at or NOW + timedelta(minutes=1),
                          approved_content_hash="sha256:" + hashlib.sha256(
                              json.dumps({"content": content}, ensure_ascii=False,
                                         sort_keys=True, separators=(",", ":")).encode()
@@ -127,7 +177,100 @@ def test_executes_exact_frozen_text_once_and_returns_sanitized_receipt(kind, com
 def test_closed_page_states_never_try_an_alternate_control(visible, code):
     page = FakePage(visible=visible)
     with pytest.raises(DouyinActionFailure, match=code):
-        DouyinActionExecutor(now=lambda: NOW).execute(page, request())
+        DouyinActionExecutor(now=lambda: NOW, headless=True).execute(page, request())
+    assert page.fills == []
+    assert page.clicks == []
+
+
+def test_visible_verification_handoff_rechecks_and_completes_the_same_action_once():
+    clock = FakeClock()
+    page = FakePage(
+        visible={'[data-e2e="verification"]'},
+        receipt=True,
+        clock=clock,
+        after_wait=lambda value: value.visible.update({
+            '[data-e2e="comment-input"]',
+            '[data-e2e="comment-submit"]',
+            '[data-e2e-receipt-id]',
+        }) or value.visible.discard('[data-e2e="verification"]'),
+    )
+
+    receipt = DouyinActionExecutor(
+        now=clock.now, verification_poll_ms=1,
+    ).execute(page, request(deadline_at=clock.now() + timedelta(seconds=5)))
+
+    assert page.brought_to_front == 1
+    assert page.verification_bypass_calls == []
+    assert page.fills == [('[data-e2e="comment-input"]', "冻结的批准文本")]
+    assert page.clicks == ['[data-e2e="comment-submit"]']
+    assert receipt.action_id == "action-comment"
+    assert receipt.state == "succeeded"
+
+
+def test_visible_verification_at_deadline_fails_without_fill_click_or_bypass():
+    clock = FakeClock()
+    page = FakePage(
+        visible={'[data-e2e="verification"]'},
+        clock=clock,
+    )
+
+    with pytest.raises(DouyinActionFailure, match="douyin_verification_required"):
+        DouyinActionExecutor(
+            now=clock.now, verification_poll_ms=1,
+        ).execute(page, request(
+            deadline_at=clock.now() + timedelta(milliseconds=3),
+        ))
+
+    assert page.brought_to_front == 1
+    assert page.waits == 3
+    assert page.verification_bypass_calls == []
+    assert page.fills == []
+    assert page.clicks == []
+
+
+def test_visible_verification_clear_then_redirect_rejects_before_fill_or_click():
+    clock = FakeClock()
+
+    def redirect_after_wait(page):
+        page.visible.discard('[data-e2e="verification"]')
+        page.visible.update({
+            '[data-e2e="comment-input"]',
+            '[data-e2e="comment-submit"]',
+        })
+        page.url = "https://www.douyin.com/video/different"
+
+    page = FakePage(
+        visible={'[data-e2e="verification"]'},
+        clock=clock,
+        after_wait=redirect_after_wait,
+    )
+
+    with pytest.raises(DouyinActionFailure, match="action_rejected"):
+        DouyinActionExecutor(
+            now=clock.now, verification_poll_ms=1,
+        ).execute(page, request(deadline_at=clock.now() + timedelta(seconds=5)))
+
+    assert page.brought_to_front == 1
+    assert page.verification_bypass_calls == []
+    assert page.fills == []
+    assert page.clicks == []
+
+
+def test_headless_verification_fails_immediately_without_handoff_or_bypass():
+    clock = FakeClock()
+    page = FakePage(
+        visible={'[data-e2e="verification"]'},
+        clock=clock,
+    )
+
+    with pytest.raises(DouyinActionFailure, match="douyin_verification_required"):
+        DouyinActionExecutor(
+            now=clock.now, verification_poll_ms=1, headless=True,
+        ).execute(page, request(deadline_at=clock.now() + timedelta(seconds=5)))
+
+    assert page.brought_to_front == 0
+    assert page.waits == 0
+    assert page.verification_bypass_calls == []
     assert page.fills == []
     assert page.clicks == []
 

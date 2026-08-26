@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+import re
 import secrets
 import signal
 import threading
@@ -15,6 +16,27 @@ from typing import Protocol
 
 from .douyin_actions import DouyinActionExecutor, DouyinActionFailure
 from .schemas import ActionRequest
+
+
+DEFAULT_ACTION_MANUAL_VERIFICATION_SECONDS = 120
+MIN_ACTION_MANUAL_VERIFICATION_SECONDS = 30
+MAX_ACTION_MANUAL_VERIFICATION_SECONDS = 300
+ACTION_DEADLINE_OVERHEAD_SECONDS = 30
+ACTION_IPC_OVERHEAD_SECONDS = 20
+
+
+def configured_action_manual_verification_seconds(value: object) -> int:
+    if value is None:
+        return DEFAULT_ACTION_MANUAL_VERIFICATION_SECONDS
+    if type(value) is int:
+        seconds = value
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
+        seconds = int(value)
+    else:
+        raise ValueError("manual verification seconds must be an integer")
+    if not MIN_ACTION_MANUAL_VERIFICATION_SECONDS <= seconds <= MAX_ACTION_MANUAL_VERIFICATION_SECONDS:
+        raise ValueError("manual verification seconds must be between 30 and 300")
+    return seconds
 
 
 _CLOSED_ACTION_FAILURE_CODES = frozenset({
@@ -90,20 +112,25 @@ def _open_context(playwright: object, profile_path: str, *, headless: bool,
 
 def _execute_action(playwright: object, profile_path: str,
                     raw_request: object, *, headless: bool,
-                    browser_channel: str | None) -> dict[str, object]:
+                    browser_channel: str | None,
+                    manual_verification_seconds: int) -> dict[str, object]:
     request = ActionRequest.model_validate(raw_request)
     context = playwright.chromium.launch_persistent_context(
         profile_path, **_launch_options(headless, browser_channel)
     )
     try:
         page = context.pages[0] if context.pages else context.new_page()
-        return DouyinActionExecutor().execute(page, request).model_dump(mode="json")
+        return DouyinActionExecutor(
+            headless=headless,
+            manual_verification_seconds=manual_verification_seconds,
+        ).execute(page, request).model_dump(mode="json")
     finally:
         context.close()
 
 
 def _browser_worker(connection: Connection, factory: Callable[[], object] | None,
-                    headless: bool, browser_channel: str | None) -> None:
+                    headless: bool, browser_channel: str | None,
+                    manual_verification_seconds: int) -> None:
     playwright = None
     contexts: dict[str, object] = {}
     shutdown_requested = False
@@ -181,7 +208,10 @@ def _browser_worker(connection: Connection, factory: Callable[[], object] | None
                     try:
                         value = _execute_action(playwright,
                             str(command["profile_path"]), command["request"],
-                            headless=headless, browser_channel=browser_channel)
+                            headless=headless, browser_channel=browser_channel,
+                            manual_verification_seconds=(
+                                manual_verification_seconds
+                            ))
                     except DouyinActionFailure:
                         raise
                     except BaseException as error:
@@ -234,18 +264,28 @@ class MediaCrawlerDouyinBrowserState:
         command_timeout: float = 30,
         headless: bool = True,
         browser_channel: str | None = None,
+        manual_verification_seconds: int | None = None,
     ) -> None:
         if startup_timeout <= 0 or command_timeout <= 0:
             raise ValueError("browser timeouts must be positive")
+        manual_seconds = configured_action_manual_verification_seconds(
+            os.environ.get("DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS")
+            if manual_verification_seconds is None else manual_verification_seconds
+        )
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe()
         self._connection = parent
         self._process = context.Process(
             target=_browser_worker,
-            args=(child, playwright_factory, headless, browser_channel),
+            args=(child, playwright_factory, headless, browser_channel,
+                  manual_seconds),
             name="douyin-browser",
         )
         self._timeout = command_timeout
+        self._action_timeout = (
+            manual_seconds + ACTION_DEADLINE_OVERHEAD_SECONDS
+            + ACTION_IPC_OVERHEAD_SECONDS
+        )
         self._lock = threading.Lock()
         self._closed = False
         self._shutdown_failed = False
@@ -353,7 +393,10 @@ class MediaCrawlerDouyinBrowserState:
             except (BrokenPipeError, EOFError, OSError) as error:
                 self._hard_stop()
                 raise RuntimeError("douyin_browser_unavailable") from error
-            if not self._connection.poll(self._timeout):
+            command_timeout = (
+                self._action_timeout if operation == "action" else self._timeout
+            )
+            if not self._connection.poll(command_timeout):
                 self._hard_stop()
                 raise RuntimeError("douyin_browser_command_timeout")
             try:

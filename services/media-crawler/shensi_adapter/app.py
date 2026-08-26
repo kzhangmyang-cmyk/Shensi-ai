@@ -8,7 +8,10 @@ from fastapi import FastAPI, Header, HTTPException, Query
 
 from .accounts import AccountManager
 from .action_jobs import ActionJobManager, ActionReplayConflict
-from .browser_state import MediaCrawlerDouyinBrowserState
+from .browser_state import (
+    MediaCrawlerDouyinBrowserState,
+    configured_action_manual_verification_seconds,
+)
 from .crawl_jobs import CrawlJobManager, CursorConflict, MediaCrawlerRunner
 from .schemas import (
     ActionReceipt, ActionRequest, CrawlJobAcknowledgement, CrawlJobPage,
@@ -28,6 +31,18 @@ def deployment_browser_headless() -> bool:
 
 def deployment_outreach_actions_enabled() -> bool:
     return os.environ.get("DOUYIN_OUTREACH_ACTIONS_ENABLED", "").lower() == "true"
+
+
+def deployment_action_manual_verification_seconds() -> int:
+    try:
+        return configured_action_manual_verification_seconds(
+            os.environ.get("DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS")
+        )
+    except ValueError as error:
+        raise RuntimeError(
+            "DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS must be an integer "
+            "between 30 and 300"
+        ) from error
 
 
 def deployment_service_secret() -> str:
@@ -271,6 +286,7 @@ def create_deployment_account_manager() -> AccountManager:
         raise RuntimeError("MEDIACRAWLER_ENCRYPTED_VOLUME and MEDIACRAWLER_PROFILE_ROOT are required")
     root_path = validate_encrypted_profile_root(Path(volume), Path(root))
     # Validate containment before the Playwright owner thread is even created.
+    deployment_action_manual_verification_seconds()
     headless = deployment_browser_headless()
     browser_channel = (
         os.environ.get("MEDIACRAWLER_BROWSER_CHANNEL", "").strip() or None

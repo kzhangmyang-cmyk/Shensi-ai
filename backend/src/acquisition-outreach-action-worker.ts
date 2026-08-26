@@ -10,6 +10,29 @@ const CLOSED_FAILURES = new Set([
   "douyin_action_timeout"
 ]);
 
+const DEFAULT_MANUAL_VERIFICATION_SECONDS = 120;
+const MIN_MANUAL_VERIFICATION_SECONDS = 30;
+const MAX_MANUAL_VERIFICATION_SECONDS = 300;
+const ACTION_DEADLINE_OVERHEAD_MS = 30_000;
+
+export function douyinActionDeadlineMs(
+  value: unknown = process.env.DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS
+) {
+  const configured = value ?? DEFAULT_MANUAL_VERIFICATION_SECONDS;
+  const seconds = typeof configured === "number"
+    ? configured
+    : typeof configured === "string" && /^[0-9]+$/u.test(configured)
+      ? Number(configured) : Number.NaN;
+  if (!Number.isSafeInteger(seconds)
+    || seconds < MIN_MANUAL_VERIFICATION_SECONDS
+    || seconds > MAX_MANUAL_VERIFICATION_SECONDS) {
+    throw new TypeError(
+      "manual verification seconds must be an integer between 30 and 300"
+    );
+  }
+  return seconds * 1_000 + ACTION_DEADLINE_OVERHEAD_MS;
+}
+
 export interface OutreachActionExecutionRequest {
   actionId: string;
   accountHandle: string;
@@ -44,6 +67,7 @@ export class AcquisitionOutreachActionWorker {
   private timer: NodeJS.Timeout | null = null;
   private running: Promise<unknown> = Promise.resolve();
   private closed = false;
+  private readonly actionDeadlineMs: number;
 
   constructor(private readonly options: {
     repository: AcquisitionOutreachBatchRepository;
@@ -56,7 +80,13 @@ export class AcquisitionOutreachActionWorker {
     leaseDurationMs?: number;
     actionDeadlineMs?: number;
     intervalMs?: number;
-  }) {}
+  }) {
+    this.actionDeadlineMs = options.actionDeadlineMs ?? douyinActionDeadlineMs();
+    if (!Number.isSafeInteger(this.actionDeadlineMs)
+      || this.actionDeadlineMs <= 0) {
+      throw new TypeError("action deadline must be a positive integer");
+    }
+  }
 
   async runOnce(): Promise<boolean> {
     if (this.closed) return false;
@@ -86,7 +116,7 @@ export class AcquisitionOutreachActionWorker {
         return true;
       }
       const started = Date.parse(claimedAt);
-      const deadlineAt = new Date(started + (this.options.actionDeadlineMs ?? 25_000)).toISOString();
+      const deadlineAt = new Date(started + this.actionDeadlineMs).toISOString();
       const receipt = await this.options.execute({
         actionId: action.id, accountHandle: authority!.accountHandle,
         loginStateVersion: action.accountLoginStateVersion, kind: action.kind,
