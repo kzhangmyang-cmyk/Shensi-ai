@@ -302,6 +302,8 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
     records.push(record); return record;
   };
   const killKnown = async (pid, signal) => records.find((record) => record.pid === pid)?.child?.kill?.(signal);
+  const signalKnown = options.signalProcessGroup
+    ?? (spawn === nodeSpawn && wrapCommands ? defaultSignalProcessGroup : killKnown);
   try {
     await clearMissingRecordsBeforeStart(runtime, readCommand);
     for (const port of Object.values(TRIAL_PORTS)) if (!await available(port)) throw new Error(`TRIAL_PORT_OCCUPIED:${port}`);
@@ -321,7 +323,10 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
     const temporaryBackend = await run("backend-bootstrap", backendCommand[0], backendCommand.slice(1), { PORT: String(TRIAL_PORTS.backend), CORS_ORIGINS: origin, NODE_ENV: "production", DOUYIN_OUTREACH_ACTIONS_ENABLED: "false", INITIAL_ADMIN_EMAIL: "internal-trial-bootstrap@shensi.local", INITIAL_ADMIN_PASSWORD: bootstrapPassword });
     await waitForHealth(`http://127.0.0.1:${TRIAL_PORTS.backend}/api/health`);
     await (options.provisionAdmin ?? defaultProvisionAdmin)({ backendOrigin: `http://127.0.0.1:${TRIAL_PORTS.backend}`, bootstrapPassword, runtime, email: "test@shensi.local", role: "admin", tenantId: "trial-pilot-001" });
-    const bootstrapStop = await stopTrialRuntime({ records: [temporaryBackend] }, { isRecordedProcess: async () => true, signalProcessGroup: killKnown });
+    const bootstrapStop = await stopTrialRuntime({ records: [temporaryBackend] }, {
+      isRecordedProcess: async () => true,
+      signalProcessGroup: signalKnown
+    });
     if (bootstrapStop.stale.length) throw new Error("TRIAL_BOOTSTRAP_STOP_FAILED");
     records.splice(records.indexOf(temporaryBackend), 1);
     await (options.waitForPortRelease ?? waitForPortRelease)(TRIAL_PORTS.backend, available);
@@ -356,7 +361,10 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
     await writeFile(resolve(runtime.root, "status.json"), JSON.stringify({ version: 1, running: true, origin, records: records.map(({ name, pid }) => ({ name, pid })) }), { mode: 0o600 });
     return { ...runtime, origin, records };
   } catch (error) {
-    await stopTrialRuntime({ records }, { isRecordedProcess: async () => true, signalProcessGroup: killKnown });
+    await stopTrialRuntime({ records }, {
+      isRecordedProcess: async () => true,
+      signalProcessGroup: signalKnown
+    });
     for (const record of records) if (!await isRecordedProcess(record)) await unlink(record.path).catch(() => {});
     throw error;
   }

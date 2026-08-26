@@ -254,14 +254,23 @@ export class MysqlAcquisitionOutreachBatchRepository implements AcquisitionOutre
         throw new TypeError("invalid_outreach_action_claim");
       }
       const atSql = dateTime(at.toISOString());
+      let afterCreatedAt: string | null = null;
+      let afterId: string | null = null;
       while (true) {
-        const [candidates] = await connection.execute<mysql.RowDataPacket[]>(`SELECT a.*,
+        const afterSql: string = afterCreatedAt && afterId
+          ? " AND (a.created_at > ? OR (a.created_at = ? AND a.id > ?))"
+          : "";
+        const values: string[] = afterCreatedAt && afterId
+          ? [afterCreatedAt, afterCreatedAt, afterId]
+          : [];
+        const result = await connection.execute<mysql.RowDataPacket[]>(`SELECT a.*,
           b.payload_json AS batch_payload_json
           FROM acquisition_outreach_actions a JOIN acquisition_outreach_batches b
             ON b.id=a.batch_id AND b.revision=a.batch_revision
           WHERE a.status IN ('queued','blocked_by_predecessor') AND b.state='approved'
-          ORDER BY a.created_at,a.id LIMIT 100 FOR UPDATE SKIP LOCKED`);
-        let terminalizedStaleLogin = false;
+          ${afterSql} ORDER BY a.created_at,a.id LIMIT 100 FOR UPDATE SKIP LOCKED`, values);
+        const candidates: mysql.RowDataPacket[] = result[0];
+        if (candidates.length === 0) return null;
         for (const row of candidates) {
         const action = (typeof row.payload_json === "string" ? JSON.parse(row.payload_json)
           : row.payload_json) as AcquisitionOutreachAction;
@@ -289,7 +298,6 @@ export class MysqlAcquisitionOutreachBatchRepository implements AcquisitionOutre
             SET status='risk_paused' WHERE workspace_id=? AND account_id=?
               AND status IN ('queued','blocked_by_predecessor')`,
           [action.workspaceId, action.accountId]);
-          terminalizedStaleLogin = true;
           continue;
         }
         const [busy] = await connection.execute<mysql.RowDataPacket[]>(`SELECT id FROM acquisition_outreach_actions
@@ -326,7 +334,10 @@ export class MysqlAcquisitionOutreachBatchRepository implements AcquisitionOutre
           attemptCount: Number(row.attempt_count) + 1 }, claimedAt: at.toISOString(), leaseExpiresAt,
           fence: { actionId: action.id, workerId: input.workerId, leaseToken, fencingToken } };
         }
-        if (!terminalizedStaleLogin || candidates.length === 0) return null;
+        if (candidates.length < 100) return null;
+        const last: mysql.RowDataPacket = candidates[candidates.length - 1]!;
+        afterCreatedAt = dateTime(iso(last.created_at));
+        afterId = String(last.id);
       }
     });
   }

@@ -227,7 +227,10 @@ private MediaCrawler gateway is configured and
 `DOUYIN_OUTREACH_ACTIONS_ENABLED=true`. A configured gateway with the flag false
 still supports collection but starts neither action process. Claims are random-
 token leased and monotonically fenced, serialize each account, and reserve
-persisted server-time eligibility before the sidecar call.
+persisted server-time eligibility before the sidecar call. The MySQL worker
+pages through the stable ascending `(created_at,id)` claim order, rather than
+re-reading one fixed window, so any full window of currently ineligible rows
+cannot starve a later eligible action.
 The repository enforces at least 60 seconds between account actions and at
 least 180 seconds from a successful comment receipt to its direct-message
 claim. The worker then revalidates the active account/login version, approved

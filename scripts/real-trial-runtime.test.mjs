@@ -162,6 +162,42 @@ test("publish tears down the newly started runtime when verification fails", asy
   ]);
 });
 
+test("start failure signals the owned process group instead of only the wrapper", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-start-cleanup-group-"));
+  const signals = [];
+  let wrapperKillCalls = 0;
+  const wrapper = child(4_445);
+  wrapper.kill = () => {
+    wrapperKillCalls += 1;
+    wrapper.emit("exit", 0);
+  };
+
+  await assert.rejects(startTrialRuntime(root, {
+    prepare: async () => ({
+      root,
+      stateDirectory: join(root, "state"),
+      logsDirectory: join(root, "logs"),
+      pidsDirectory: join(root, "pids"),
+      toolsDirectory: join(root, "tools"),
+      mysqlDirectory: join(root, "mysql"),
+      secretsDirectory: join(root, "secrets"),
+      environment: {}
+    }),
+    isPortAvailable: async () => true,
+    runCommand: async () => undefined,
+    spawn: () => wrapper,
+    waitForMysql: async () => { throw new Error("fixture_mysql_start_failed"); },
+    signalProcessGroup: async (pid, signal) => {
+      signals.push([pid, signal]);
+    },
+    readProcessCommand: async () => null,
+    mysqlBinary: "/fixture/mysqld"
+  }), /fixture_mysql_start_failed/u);
+
+  assert.deepEqual(signals, [[4_445, "SIGTERM"]]);
+  assert.equal(wrapperKillCalls, 0);
+});
+
 test("trial status recomputes aggregate running from owned process records", async () => {
   const root = await mkdtemp(join(tmpdir(), "shensi-trial-status-"));
   const pidsDirectory = join(root, "pids");

@@ -262,6 +262,85 @@ test("MySQL claim terminalizes a full stale-login window and advances to later e
   assert.equal(staleTerminalizations, 100);
 });
 
+test("MySQL claim paginates past a full future-ineligible window", async () => {
+  const futureBatch = {
+    ...liveBatch("batch-future-window", "candidate-future-window"),
+    state: "approved" as const,
+    approvalHash: digest("9")
+  };
+  const futureRows = Array.from({ length: 100 }, (_, index) => {
+    const [value] = liveActions(futureBatch);
+    const id = `future-${String(index).padStart(3, "0")}`;
+    const action = { ...value, id };
+    return {
+      ...action,
+      payload_json: JSON.stringify(action),
+      batch_payload_json: JSON.stringify(futureBatch),
+      workspace_id: "workspace-live",
+      account_id: "account-future",
+      attempt_count: 0,
+      fencing_token: 0,
+      created_at: "2026-08-25T02:00:00.000Z"
+    };
+  });
+  const eligibleBatch = {
+    ...liveBatch("batch-after-future-window", "candidate-after-future-window"),
+    state: "approved" as const,
+    approvalHash: digest("9")
+  };
+  const [eligibleAction] = liveActions(eligibleBatch);
+  const eligibleRow = {
+    ...eligibleAction,
+    payload_json: JSON.stringify(eligibleAction),
+    batch_payload_json: JSON.stringify(eligibleBatch),
+    workspace_id: "workspace-live",
+    account_id: "account-live",
+    attempt_count: 0,
+    fencing_token: 0,
+    created_at: "2026-08-25T03:00:00.000Z"
+  };
+  const candidateQueryValues: unknown[][] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async execute(sql: string, values: unknown[] = []) {
+      if (/SELECT a\.\*,\s*b\.payload_json AS batch_payload_json/u.test(sql)) {
+        candidateQueryValues.push(values);
+        return [candidateQueryValues.length === 1 ? futureRows : [eligibleRow], undefined];
+      }
+      if (/INSERT IGNORE INTO acquisition_outreach_action_accounts/u.test(sql)) {
+        return [{ affectedRows: 1 }, undefined];
+      }
+      if (/FROM acquisition_outreach_action_accounts/u.test(sql)) {
+        return [[{ risk_paused: 0, eligible: values[2] === "account-future" ? 0 : 1 }], undefined];
+      }
+      if (/FROM acquisition_social_accounts/u.test(sql)) return [[{ id: "account-live" }], undefined];
+      if (/status='executing' LIMIT 1/u.test(sql)) return [[], undefined];
+      if (/COUNT\(DISTINCT candidate_id\) AS used/u.test(sql)) return [[{ used: 0 }], undefined];
+      return [{ affectedRows: 1 }, undefined];
+    }
+  };
+  const repository = new MysqlAcquisitionOutreachBatchRepository({
+    getConnection: async () => connection as never
+  } as never);
+
+  const claim = await repository.claimNextAction({
+    workerId: "worker-future-window",
+    now: "2026-08-25T04:00:00.000Z",
+    leaseDurationMs: 180_000
+  });
+
+  assert.equal(claim?.action.id, eligibleAction!.id);
+  assert.equal(candidateQueryValues.length, 2);
+  assert.deepEqual(candidateQueryValues[1], [
+    "2026-08-25 02:00:00.000",
+    "2026-08-25 02:00:00.000",
+    "future-099"
+  ]);
+});
+
 test("MySQL expired external-write recovery freezes related queued work", async () => {
   const calls: string[] = [];
   const connection = {

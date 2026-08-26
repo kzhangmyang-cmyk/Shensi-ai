@@ -271,7 +271,11 @@ The supervisor starts the backend, frontend preview, and MediaCrawler uvicorn
 directly from their built/runtime executables, not through a package-manager or
 environment-runner launcher that could exit after spawning the service. Each
 recorded nonce-bearing wrapper therefore remains the direct parent of its
-long-running service. Start removes only records whose PID no longer exists;
+long-running service. The wrapper is also the owned process-group leader:
+normal stop, bootstrap replacement, verification failure, and partial-start
+cleanup signal the complete group with `SIGTERM`, then use `SIGKILL` after the
+bounded wait if needed, so killing a wrapper cannot leave its service behind.
+Start removes only records whose PID no longer exists;
 any live PID with a different command or nonce remains recorded and blocks the
 start rather than being replaced or signalled.
 `trial:verify` reads that owner-only runtime status by default; an explicit

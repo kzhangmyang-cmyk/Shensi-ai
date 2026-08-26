@@ -414,7 +414,11 @@ exactly enabled. The deployment sidecar likewise constructs no
 `ActionJobManager` while disabled and rejects the action route before manager or
 executor lookup; its crawler worker remains available. When enabled, the action
 worker claims the earliest eligible action under a random lease and monotonic
-fence, with one in-flight action per account. Before the private sidecar call it
+fence, with one in-flight action per account. The MySQL claim scan advances by
+the ordered `(created_at,id)` keyset until it finds eligible work, so a complete
+window of future-delayed, risk-paused, busy, stale-authority, over-limit, or
+predecessor-blocked rows cannot indefinitely hide a later eligible action.
+Before the private sidecar call it
 rechecks the active account/login version, approval and action
 hashes, candidate revision/evidence hashes, DNC, policy/job/budget bindings,
 predecessor receipt, daily allowance, and persisted delay. Server timestamps
