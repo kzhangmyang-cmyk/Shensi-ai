@@ -93,6 +93,21 @@ export async function isRecordedProcess(record, options = {}) {
   const current = await (options.readProcessCommand ?? readProcessCommand)(record.pid);
   return current === expectedPsCommand(record) && current.includes(`--runtime-nonce ${record.nonce}`);
 }
+async function removeMissingRecord(record) {
+  if (!record.path) return;
+  await unlink(record.path).catch((error) => {
+    if (error?.code !== "ENOENT") throw error;
+  });
+}
+async function clearMissingRecordsBeforeStart(runtime, readCommand) {
+  for (const record of await readRuntimeRecords(runtime)) {
+    if ((await readCommand(record.pid)) === null) {
+      await removeMissingRecord(record);
+      continue;
+    }
+    throw new Error(`TRIAL_PID_RECORD_ACTIVE_OR_REUSED:${record.name}`);
+  }
+}
 async function defaultSignalProcessGroup(pid, signal) { process.kill(-pid, signal); }
 export async function stopTrialRuntime(runtime, options = {}) {
   const records = runtime.records ?? await readRuntimeRecords(runtime);
@@ -102,7 +117,12 @@ export async function stopTrialRuntime(runtime, options = {}) {
   const stopped = [], stale = [];
   for (const record of [...records].reverse()) {
     const matches = options.isRecordedProcess ? await options.isRecordedProcess(record) : await isRecordedProcess(record, { readProcessCommand: readCommand });
-    if (!matches) { stale.push(record.name); continue; }
+    if (!matches) {
+      if ((await readCommand(record.pid)) === null) {
+        await removeMissingRecord(record);
+      } else stale.push(record.name);
+      continue;
+    }
     await signal(record.pid, "SIGTERM");
     const exited = options.waitForExit
       ? await options.waitForExit(record)
@@ -207,7 +227,7 @@ async function defaultProvisionAdmin({ backendOrigin, bootstrapPassword, runtime
 
 export async function startTrialRuntime(repositoryRoot, options = {}) {
   const runtime = await (options.prepare ?? prepareTrialRuntime)(repositoryRoot, { cloudflared: options.cloudflared ?? { path: options.cloudflaredBinary ?? cloudflared, sha256: cloudflaredSha256 }, ...options });
-  const spawn = options.spawn ?? nodeSpawn, available = options.isPortAvailable ?? isTrialPortAvailable, waitForHealth = options.waitForHealth ?? defaultWaitForHealth, waitForMysql = options.waitForMysql ?? defaultWaitForMysql, runCommand = options.runCommand ?? defaultRunCommand, readSidecarSecret = options.readSidecarSecret ?? ((path) => readFile(path, "utf8")), wrapCommands = options.wrapCommands !== false;
+  const spawn = options.spawn ?? nodeSpawn, available = options.isPortAvailable ?? isTrialPortAvailable, readCommand = options.readProcessCommand ?? readProcessCommand, waitForHealth = options.waitForHealth ?? defaultWaitForHealth, waitForMysql = options.waitForMysql ?? defaultWaitForMysql, runCommand = options.runCommand ?? defaultRunCommand, readSidecarSecret = options.readSidecarSecret ?? ((path) => readFile(path, "utf8")), wrapCommands = options.wrapCommands !== false;
   const records = [];
   const run = async (name, command, args, environment = {}) => {
     const nonce = randomBytes(16).toString("hex"), logPath = resolve(runtime.logsDirectory, `${name}.log`);
@@ -221,6 +241,7 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
   };
   const killKnown = async (pid, signal) => records.find((record) => record.pid === pid)?.child?.kill?.(signal);
   try {
+    await clearMissingRecordsBeforeStart(runtime, readCommand);
     for (const port of Object.values(TRIAL_PORTS)) if (!await available(port)) throw new Error(`TRIAL_PORT_OCCUPIED:${port}`);
     await runCommand(pnpm, ["--filter", "./backend", "build"], { cwd: repositoryRoot, env: oneShotEnvironment(runtime.environment, { NODE_ENV: "production" }) });
     await runCommand(pnpm, ["--filter", "./frontend", "build"], { cwd: repositoryRoot, env: oneShotEnvironment(runtime.environment, { NODE_ENV: "production" }) });

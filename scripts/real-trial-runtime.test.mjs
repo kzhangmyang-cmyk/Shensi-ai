@@ -97,6 +97,57 @@ test("persisted lifecycle only signals a PID whose command and nonce still match
   assert.equal(JSON.parse(await readFile(join(pidsDirectory, "gateway.json"), "utf8")).pid, 9123);
 });
 
+test("stop removes a record for a PID that no longer exists without signaling", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-records-missing-"));
+  const pidsDirectory = join(root, "pids");
+  const stored = await writeRecord({ pidsDirectory }, {
+    name: "gateway", pid: 9124, command: "/fixture/node",
+    args: ["/fixture/child.mjs", "--runtime-nonce", "d".repeat(32)],
+    nonce: "d".repeat(32)
+  });
+  const signals = [];
+  const result = await stopTrialRuntime({ records: [stored] }, {
+    readProcessCommand: async () => null,
+    signalProcessGroup: async (...call) => signals.push(call)
+  });
+  assert.deepEqual(signals, []);
+  assert.deepEqual(result, { stopped: [], stale: [] });
+  await assert.rejects(readFile(stored.path, "utf8"), /ENOENT/u);
+});
+
+test("start removes records for missing PIDs before the port preflight", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-start-missing-"));
+  const pidsDirectory = join(root, "pids");
+  const stored = await writeRecord({ pidsDirectory }, {
+    name: "retired", pid: 9125, command: "/fixture/node",
+    args: ["/fixture/child.mjs", "--runtime-nonce", "e".repeat(32)],
+    nonce: "e".repeat(32)
+  });
+  await assert.rejects(startTrialRuntime(root, {
+    prepare: async () => ({ root, pidsDirectory }),
+    readProcessCommand: async () => null,
+    isPortAvailable: async () => false
+  }), /TRIAL_PORT_OCCUPIED/u);
+  await assert.rejects(readFile(stored.path, "utf8"), /ENOENT/u);
+});
+
+test("start preserves a record when its PID belongs to another process", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-start-reused-"));
+  const pidsDirectory = join(root, "pids");
+  const stored = await writeRecord({ pidsDirectory }, {
+    name: "backend", pid: 9126, command: "/fixture/node",
+    args: ["/fixture/child.mjs", "--runtime-nonce", "f".repeat(32)],
+    nonce: "f".repeat(32)
+  });
+  const before = await readFile(stored.path, "utf8");
+  await assert.rejects(startTrialRuntime(root, {
+    prepare: async () => ({ root, pidsDirectory }),
+    readProcessCommand: async () => "/different/process --runtime-nonce " + "f".repeat(32),
+    isPortAvailable: async () => false
+  }), /TRIAL_PID_RECORD_ACTIVE_OR_REUSED:backend/u);
+  assert.equal(await readFile(stored.path, "utf8"), before);
+});
+
 test("persisted lifecycle refuses symlinked PID records without signaling", async () => {
   const root = await mkdtemp(join(tmpdir(), "shensi-trial-records-symlink-"));
   const pidsDirectory = join(root, "pids");
