@@ -17,12 +17,16 @@ export interface OutreachBatchApi {
   pauseBatch(batchId: string, reason: string, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<OutreachBatch>;
   resumeBatch(batchId: string, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<OutreachBatch>;
   listActions(batchId: string, signal?: AbortSignal): Promise<OutreachActionList>;
+  reconcileAction?(batchId: string, action: Pick<OutreachAction,
+    "id" | "batchRevision" | "approvalHash" | "contentHash">,
+    idempotencyKey: string, signal?: AbortSignal): Promise<OutreachAction>;
 }
 
 function segment(value: string): string { return encodeURIComponent(value); }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 type Validator = (value: unknown) => boolean;
 type OutreachBatchCandidate = OutreachBatch["candidates"][number];
+type OutreachActionItem = OutreachActionList["items"][number];
 
 function closedShape(value: unknown, validators: Record<string, Validator>): boolean {
   if (!record(value)) return false;
@@ -103,6 +107,72 @@ const batchListValidators = {
     || (typeof value === "string" && value.length <= 8_192)
 } satisfies Record<keyof OutreachBatchList, Validator>;
 
+const actionFailureCodes = new Set([
+  "action_unavailable", "action_rejected", "deadline_exceeded",
+  "douyin_verification_required", "douyin_rate_limited",
+  "douyin_account_warning", "douyin_login_expired",
+  "douyin_direct_message_unavailable", "douyin_action_control_missing",
+  "douyin_action_control_ambiguous", "douyin_action_content_mismatch",
+  "douyin_action_receipt_ambiguous", "douyin_action_timeout"
+]);
+const actionValidators = {
+  id: boundedString(1, 255),
+  workspaceId: boundedString(1, 255),
+  batchId: boundedString(1, 255),
+  batchRevision: boundedInteger(1),
+  candidateId: boundedString(1, 255),
+  accountId: boundedString(1, 255),
+  accountLoginStateVersion: boundedInteger(1),
+  policyVersionId: boundedString(1, 255),
+  localDate: (value) => typeof value === "string"
+    && /^\d{4}-\d{2}-\d{2}$/u.test(value),
+  kind: (value) => value === "comment" || value === "direct_message",
+  sequence: (value) => value === 1 || value === 2,
+  status: (value) => typeof value === "string" && [
+    "queued", "blocked_by_predecessor", "executing", "succeeded", "failed",
+    "risk_paused"
+  ].includes(value),
+  predecessorActionId: nullable(boundedString(1, 255)),
+  targetPublicUrl: boundedString(1, 2_000),
+  content: boundedString(1, 800),
+  contentHash: sha256,
+  approvalHash: sha256,
+  createdAt: dateTime,
+  attemptCount: boundedInteger(0),
+  platformReceiptReference: nullable(boundedString(1, 255)),
+  occurredAt: nullable(dateTime),
+  failureCode: nullable((value) => typeof value === "string"
+    && actionFailureCodes.has(value))
+} satisfies Record<keyof OutreachActionItem, Validator>;
+const actionShape = (value: unknown): boolean => {
+  if (!closedShape(value, actionValidators)) return false;
+  const action = value as Record<string, unknown>;
+  const target = action.targetPublicUrl;
+  const kind = action.kind;
+  const targetValid = kind === "comment"
+    ? typeof target === "string"
+      && /^https:\/\/www\.douyin\.com\/video\/[A-Za-z0-9_-]{1,300}$/u.test(target)
+    : kind === "direct_message" && typeof target === "string"
+      && /^https:\/\/www\.douyin\.com\/user\/[A-Za-z0-9_-]{1,300}$/u.test(target);
+  const status = action.status;
+  const receiptValid = status === "succeeded"
+    ? typeof action.platformReceiptReference === "string"
+      && typeof action.occurredAt === "string" && action.failureCode === null
+    : status === "failed" || status === "risk_paused"
+      ? action.platformReceiptReference === null
+        && typeof action.occurredAt === "string"
+        && typeof action.failureCode === "string"
+      : action.platformReceiptReference === null
+        && action.occurredAt === null && action.failureCode === null;
+  return targetValid && receiptValid && (kind === "comment"
+    ? action.sequence === 1 && action.predecessorActionId === null
+    : action.sequence === 2 && typeof action.predecessorActionId === "string");
+};
+const actionListShape = (body: Record<string, unknown>) => closedShape(body, {
+  items: (value) => Array.isArray(value) && value.length <= 400
+    && value.every(actionShape)
+});
+
 export function createOutreachBatchApi(fetchImpl: typeof fetch = fetch, options: { cookie?: string; cookieSource?: () => string } = {}): OutreachBatchApi {
   const cookieSource = options.cookieSource ?? (() => options.cookie ?? (typeof document === "undefined" ? "" : document.cookie));
   async function request<T>(path: string, init: RequestInit, validate: (body: Record<string, unknown>) => boolean): Promise<T> {
@@ -112,8 +182,10 @@ export function createOutreachBatchApi(fetchImpl: typeof fetch = fetch, options:
       const root = record(body) ? body : {};
       const nested = record(root.error) ? root.error : {};
       throw new AcquisitionHttpError(response.status,
-        typeof nested.code === "string" ? nested.code : `http_${response.status}`,
-        typeof nested.message === "string" ? nested.message.slice(0, 300) : `请求失败（HTTP ${response.status}）`);
+        typeof nested.code === "string" ? nested.code
+          : typeof root.code === "string" ? root.code : `http_${response.status}`,
+        (typeof nested.message === "string" ? nested.message
+          : typeof root.message === "string" ? root.message : `请求失败（HTTP ${response.status}）`).slice(0, 300));
     }
     if (!record(body) || !validate(body) || /cookie|accountHandle|leaseToken|serviceSecret/iu.test(JSON.stringify(body))) {
       throw new AcquisitionHttpError(502, "malformed_response", "服务器返回了无法识别的数据");
@@ -160,7 +232,17 @@ export function createOutreachBatchApi(fetchImpl: typeof fetch = fetch, options:
     resumeBatch(batchId, etag, key, signal) { return transition(batchId, "resume", {}, etag, key, signal); },
     listActions(batchId, signal) {
       return request(`/api/v1/acquisition/outreach-batches/${segment(batchId)}/actions`, { method: "GET", signal },
-        (body) => Array.isArray(body.items));
+        actionListShape);
+    },
+    reconcileAction(batchId, action, key, signal) {
+      return request(`/api/v1/acquisition/outreach-batches/${segment(batchId)}/actions/${segment(action.id)}/reconcile`, {
+        method: "POST", signal, headers: headers(key), body: JSON.stringify({
+          batchRevision: action.batchRevision,
+          approvalHash: action.approvalHash,
+          contentHash: action.contentHash,
+          confirm: true
+        })
+      }, actionShape);
     }
   };
 }

@@ -5,6 +5,7 @@ const now = new Date().toISOString();
 const activeAccount = { id: "account-1", workspaceId: "workspace-1", platform: "douyin" as const, displayName: "测试账号", state: "active" as const, loginStateVersion: 1, revision: 1, etag: '"account:1"', lastValidatedAt: null, createdAt: now, updatedAt: now };
 const defaultPolicy = { id: null, source: "default" as const, workspaceId: "workspace-1", planId: "plan-1", planVersionId: "version-1", planVersion: 1, planSnapshotHash: "hash", accountId: null, accountLoginStateVersion: null, version: 0, revision: 0, etag: '"policy:0"', policyHash: "hash", keywords: [], schedule: { enabled: false, localTime: "09:30", timeZone: "Asia/Shanghai" }, dailyCandidateLimit: 50, collectCreators: true, collectDemandComments: true, limits: { maxVideos: 30, maxCommentsPerVideo: 50, maxPagesPerVideo: 3, maxDurationSeconds: 3600 }, createdBy: null, createdAt: null };
 const liveCandidate = { id: "candidate-live-1", status: "comment_candidate", displayName: "袜子采购用户", evidence: { sourceUrl: "https://www.douyin.com/video/live-1", excerpt: "公开评论中询问袜子批发" } };
+const profileOnlyCandidate = { id: "candidate-profile-1", status: "creator_candidate", displayName: "内容创作者", evidence: { sourceUrl: "https://www.douyin.com/user/creator-1", excerpt: "公开主页资料" } };
 
 const controller = createDouyinAutomationController({
   api: {
@@ -92,7 +93,7 @@ const liveCandidateController = createDouyinAutomationController({
     getCrawlerStatus: async () => ({ runId: "run-live-1", state: "running", attempt: 1, cursorPersisted: true, recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50, candidateProjectionState: "pending", lastErrorCode: null, createdAt: now, updatedAt: now, completedAt: null, activity: { phase: "collecting_comments", currentKeyword: "袜子", browserMode: "visible", sequence: 4 } }),
     listRunCandidates: async () => {
       liveCandidateReads += 1;
-      return { items: [liveCandidate], nextCursor: null };
+      return { items: [liveCandidate, profileOnlyCandidate], nextCursor: null };
     }
   },
   pollDelayMs: 250,
@@ -109,7 +110,12 @@ await liveCandidateController.runNow();
 assert.equal(liveCandidateController.getState().crawlerStatus?.state, "running");
 await liveCandidateController.runNow();
 assert.equal(liveRunStarts, 1, "a non-terminal crawler status must block direct duplicate launches");
-assert.deepEqual(liveCandidateController.getState().candidates, [liveCandidate]);
+assert.deepEqual(liveCandidateController.getState().candidates, [liveCandidate, profileOnlyCandidate]);
+liveCandidateController.toggleCandidate(profileOnlyCandidate.id);
+assert.deepEqual(liveCandidateController.getState().selectedCandidateIds, [],
+  "a profile-only candidate must not enter a comment-then-message approval batch");
+liveCandidateController.toggleCandidate(liveCandidate.id);
+assert.deepEqual(liveCandidateController.getState().selectedCandidateIds, [liveCandidate.id]);
 assert.equal(liveCandidateReads, 1);
 assert.equal(scheduledRunPolls.length, 1, "running crawl must schedule another poll after publishing candidates");
 scheduledRunPolls.shift()?.();

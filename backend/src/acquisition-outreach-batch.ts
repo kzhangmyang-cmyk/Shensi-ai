@@ -93,6 +93,15 @@ function hash(value: unknown) {
 
 export function outreachContentHash(value: string) { return hash({ content: value }); }
 
+export function validOutreachTarget(
+  kind: AcquisitionOutreachActionKind,
+  value: string
+) {
+  return kind === "comment"
+    ? /^https:\/\/www\.douyin\.com\/video\/[A-Za-z0-9_-]{1,300}$/u.test(value)
+    : /^https:\/\/www\.douyin\.com\/user\/[A-Za-z0-9_-]{1,300}$/u.test(value);
+}
+
 export function outreachBatchEtag(batchId: string, revision: number) {
   return `"outreach-batch:${batchId}:${revision}"`;
 }

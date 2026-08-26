@@ -885,9 +885,31 @@ def test_capture_derives_bounded_sidecar_rows_from_real_mediacrawler_authors():
         "author": {"sec_uid": "MS4wLjABCreator", "nickname": "Maker"},
     }, "industrial pump")
     assert creator == {
-        "sec_uid": "MS4wLjABCreator", "nickname": "Maker",
+        "aweme_id": "73001", "sec_uid": "MS4wLjABCreator", "nickname": "Maker",
         "desc": "industrial pump", "source_keyword": "industrial pump",
     }
+
+
+def test_creator_capture_preserves_the_exact_commentable_source_video():
+    creator = _public_creator_capture({
+        "aweme_id": "73001", "desc": "industrial pump",
+        "author": {"sec_uid": "MS4wLjABCreator", "nickname": "Maker"},
+    }, "industrial pump")
+
+    assert creator == {
+        "aweme_id": "73001",
+        "sec_uid": "MS4wLjABCreator",
+        "nickname": "Maker",
+        "desc": "industrial pump",
+        "source_keyword": "industrial pump",
+    }
+    record = normalize_douyin_records(
+        [("creator", creator)], observed_at=NOW,
+    )[0]
+    assert str(record.canonical_url) == "https://www.douyin.com/video/73001"
+    assert str(record.public_profile_url) == (
+        "https://www.douyin.com/user/MS4wLjABCreator"
+    )
 
 
 def test_normalizer_rejects_commenters_without_a_non_root_public_identity():

@@ -231,7 +231,7 @@ test("every published acquisition operation has a unique stable camelCase id", (
     }
   }
 
-  assert.equal(ids.length, 77);
+  assert.equal(ids.length, 78);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(
     paths["/api/v1/acquisition/plans/{id}/approval"]?.post?.operationId,
@@ -286,10 +286,25 @@ test("outreach batch OpenAPI publishes secure revision and outbox operations", (
   assert.deepEqual(item.properties.failureCode.enum, [
     "action_unavailable", "action_rejected", "deadline_exceeded",
     "douyin_verification_required", "douyin_rate_limited", "douyin_account_warning",
-    "douyin_login_expired", "douyin_action_control_missing",
+    "douyin_login_expired", "douyin_direct_message_unavailable",
+    "douyin_action_control_missing",
     "douyin_action_control_ambiguous", "douyin_action_content_mismatch",
     "douyin_action_receipt_ambiguous", "douyin_action_timeout", null
   ]);
+  const reconciliation = paths[
+    "/api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile"
+  ]!.post as Record<string, any>;
+  assert.equal(reconciliation.operationId,
+    "reconcileAcquisitionOutreachAction");
+  assert.deepEqual(reconciliation.security, [
+    { bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }
+  ]);
+  assert.deepEqual(reconciliation.requestBody.content["application/json"]
+    .schema.required, [
+    "batchRevision", "approvalHash", "contentHash", "confirm"
+  ]);
+  assert.deepEqual(reconciliation.requestBody.content["application/json"]
+    .schema.properties.confirm.enum, [true]);
 });
 
 test("Douyin automation OpenAPI closes policy and run-now inputs and outputs", () => {

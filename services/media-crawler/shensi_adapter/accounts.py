@@ -303,6 +303,12 @@ class AccountManager:
             raise DouyinActionFailure("action_unavailable")
         return execute(profile, request)
 
+    def reconcile_action(self, profile: Path, request: object) -> object:
+        reconcile = getattr(self._browser, "reconcile_douyin_action", None)
+        if reconcile is None:
+            raise DouyinActionFailure("action_unavailable")
+        return reconcile(profile, request)
+
     def close(self) -> None:
         if self._closed.is_set():
             return

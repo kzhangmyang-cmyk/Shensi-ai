@@ -17,11 +17,13 @@ from .douyin_action_controls import (
     ActionControlsFailure,
     capture_receipt_baseline,
     detect_page_failure,
+    find_existing_outgoing_receipt,
     find_visible_receipt,
     locate_action_controls,
+    open_direct_message_panel,
     read_composer_content,
 )
-from .schemas import ActionReceipt, ActionRequest
+from .schemas import ActionReceipt, ActionReconciliationRequest, ActionRequest
 
 
 class DouyinActionFailure(RuntimeError):
@@ -64,10 +66,10 @@ class DouyinActionExecutor:
     def _require_action_ready(
         self, page: object, request: ActionRequest, target_url: str,
     ) -> None:
-        self._require_exact_target(page, target_url)
         failure = detect_page_failure(page)
         if failure is not None:
             raise DouyinActionFailure(failure)
+        self._require_exact_target(page, target_url)
         if self._now() >= request.deadline_at:
             raise DouyinActionFailure("deadline_exceeded")
 
@@ -98,9 +100,9 @@ class DouyinActionExecutor:
                 raise DouyinActionFailure(
                     "douyin_verification_required"
                 ) from None
-            self._require_exact_target(page, target_url)
             failure = detect_page_failure(page)
             if failure is None:
+                self._require_exact_target(page, target_url)
                 if self._now() >= request.deadline_at:
                     raise DouyinActionFailure("deadline_exceeded")
                 return
@@ -121,25 +123,45 @@ class DouyinActionExecutor:
         if self._now() >= request.deadline_at:
             raise DouyinActionFailure("deadline_exceeded")
         page.goto(target_url, wait_until="domcontentloaded")
-        self._require_exact_target(page, target_url)
         failure = detect_page_failure(page)
         if failure == "douyin_verification_required":
             self._wait_for_manual_verification(page, request, target_url)
-            self._require_exact_target(page, target_url)
             failure = detect_page_failure(page)
         if failure is not None:
             raise DouyinActionFailure(failure)
+        self._require_exact_target(page, target_url)
         if self._now() >= request.deadline_at:
             raise DouyinActionFailure("deadline_exceeded")
+        if request.kind == "direct_message":
+            try:
+                open_direct_message_panel(page)
+            except ActionControlsFailure as error:
+                raise DouyinActionFailure(error.code) from None
+            self._require_action_ready(page, request, target_url)
         try:
             controls = locate_action_controls(page, request.kind)
         except ActionControlsFailure as error:
             raise DouyinActionFailure(error.code) from None
         self._require_action_ready(page, request, target_url)
         try:
-            controls.composer.fill(request.content, timeout=5_000)  # type: ignore[attr-defined]
+            if request.kind == "direct_message":
+                controls.composer.click(timeout=5_000)  # type: ignore[attr-defined]
+                controls.composer.press(  # type: ignore[attr-defined]
+                    "ControlOrMeta+A", timeout=5_000,
+                )
+                controls.composer.press("Backspace", timeout=5_000)  # type: ignore[attr-defined]
+                controls.composer.press_sequentially(  # type: ignore[attr-defined]
+                    request.content, delay=0, timeout=5_000,
+                )
+            else:
+                controls.composer.fill(  # type: ignore[attr-defined]
+                    request.content, timeout=5_000,
+                )
         except Exception:
-            raise DouyinActionFailure("douyin_action_control_missing") from None
+            code = ("douyin_direct_message_unavailable"
+                    if request.kind == "direct_message"
+                    else "douyin_action_control_missing")
+            raise DouyinActionFailure(code) from None
         if read_composer_content(controls.composer) != request.content:
             raise DouyinActionFailure("douyin_action_content_mismatch")
         try:
@@ -169,3 +191,55 @@ class DouyinActionExecutor:
         # The final read above is the only late-success recovery path.  We
         # never submit again after an ambiguous timeout.
         raise DouyinActionFailure("douyin_action_timeout")
+
+
+class DouyinActionReconciler:
+    """Read-only proof for one uncertain action; never locates a send control."""
+
+    def __init__(self, *, now: Callable[[], datetime] | None = None) -> None:
+        self._now = now or (lambda: datetime.now(UTC))
+
+    def reconcile(self, page: object,
+                  request: ActionReconciliationRequest) -> ActionReceipt:
+        target_url = str(request.target_public_url)
+        expected = (
+            r"https://www\.douyin\.com/video/[A-Za-z0-9_-]{1,300}"
+            if request.kind == "comment"
+            else r"https://www\.douyin\.com/user/[A-Za-z0-9_-]{1,300}"
+        )
+        if re.fullmatch(expected, target_url) is None:
+            raise DouyinActionFailure("action_rejected")
+        if self._now() >= request.deadline_at:
+            raise DouyinActionFailure("deadline_exceeded")
+        try:
+            page.goto(target_url, wait_until="domcontentloaded")  # type: ignore[attr-defined]
+        except Exception:
+            raise DouyinActionFailure("action_unavailable") from None
+        failure = detect_page_failure(page)
+        if failure is not None:
+            raise DouyinActionFailure(failure)
+        DouyinActionExecutor._require_exact_target(page, target_url)
+        if request.kind == "direct_message":
+            try:
+                open_direct_message_panel(page)
+            except ActionControlsFailure as error:
+                raise DouyinActionFailure(error.code) from None
+            failure = detect_page_failure(page)
+            if failure is not None:
+                raise DouyinActionFailure(failure)
+            DouyinActionExecutor._require_exact_target(page, target_url)
+        if self._now() >= request.deadline_at:
+            raise DouyinActionFailure("deadline_exceeded")
+        try:
+            reference = find_existing_outgoing_receipt(page, request)
+        except ActionControlsFailure as error:
+            raise DouyinActionFailure(error.code) from None
+        if reference is None:
+            raise DouyinActionFailure("douyin_action_receipt_ambiguous")
+        return ActionReceipt(
+            action_id=request.action_id,
+            state="succeeded",
+            platform_receipt_reference=reference,
+            occurred_at=self._now(),
+            failure_code=None,
+        )

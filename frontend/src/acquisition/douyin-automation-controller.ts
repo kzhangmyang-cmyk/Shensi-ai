@@ -1,6 +1,8 @@
-import type {
-  DouyinAccount, DouyinAutomationApi, DouyinCandidatePage, DouyinCrawlerStatus,
-  DouyinLoginSession, DouyinPolicy, DouyinPolicyInput, DouyinRunCandidate, DouyinRunIntent
+import {
+  isDouyinCommentOutreachCandidate,
+  type DouyinAccount, type DouyinAutomationApi, type DouyinCandidatePage,
+  type DouyinCrawlerStatus, type DouyinLoginSession, type DouyinPolicy,
+  type DouyinPolicyInput, type DouyinRunCandidate, type DouyinRunIntent
 } from "./douyin-automation-api";
 
 export type DouyinAutomationPhase = "idle" | "loading" | "ready" | "saving" | "running" | "error";
@@ -313,6 +315,8 @@ export function createDouyinAutomationController(options: {
       return flight;
     },
     toggleCandidate(candidateId) {
+      const candidate = state.candidates.find((item) => item.id === candidateId);
+      if (!candidate || !isDouyinCommentOutreachCandidate(candidate)) return;
       const selected = new Set(state.selectedCandidateIds);
       if (selected.has(candidateId)) selected.delete(candidateId); else selected.add(candidateId);
       emit({ selectedCandidateIds: [...selected] });

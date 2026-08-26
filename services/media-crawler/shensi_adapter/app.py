@@ -267,6 +267,28 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
         except ActionReplayConflict as error:
             raise HTTPException(status_code=409, detail="action_replay_conflict") from error
 
+    @application.post(
+        "/internal/v1/douyin/actions/{action_id}/reconcile",
+        response_model=ActionReceipt,
+    )
+    def reconcile_action(action_id: str, request: ActionRequest,
+                         authorization: str | None = Header(default=None)) -> ActionReceipt:
+        authorize_bearer(authorization, require_service_secret(secret_provider()))
+        if not application.state.outreach_actions_enabled:
+            raise HTTPException(status_code=503, detail="outreach_actions_disabled")
+        manager = application.state.action_job_manager
+        if manager is None:
+            raise HTTPException(status_code=503, detail="action_job_manager_unconfigured")
+        if action_id != request.action_id:
+            raise HTTPException(status_code=409, detail="action_id_mismatch")
+        try:
+            return manager.reconcile(request)
+        except ActionReplayConflict as error:
+            raise HTTPException(
+                status_code=409,
+                detail="action_reconciliation_unavailable",
+            ) from error
+
     return application
 
 
@@ -315,6 +337,7 @@ def create_deployment_action_job_manager(manager: AccountManager) -> ActionJobMa
         manager._root,
         account_resolver=manager.resolve_action_profile,
         executor=manager.execute_action,
+        reconciler=manager.reconcile_action,
     )
 
 

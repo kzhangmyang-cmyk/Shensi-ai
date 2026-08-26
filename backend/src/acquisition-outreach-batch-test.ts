@@ -7,7 +7,11 @@ import {
   AcquisitionOutreachBatchService,
   AcquisitionOutreachBatchError
 } from "./acquisition-outreach-batch-service.js";
-import { outreachBatchEtag, type AcquisitionOutreachBatch } from "./acquisition-outreach-batch.js";
+import {
+  outreachBatchEtag,
+  validOutreachTarget,
+  type AcquisitionOutreachBatch
+} from "./acquisition-outreach-batch.js";
 import { AcquisitionMemoryTransactionCoordinator } from "./acquisition-memory-transaction-coordinator.js";
 
 const scope = { workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", actorId: "approver-1" };
@@ -19,6 +23,15 @@ function fixture(options: {
   dailyLimit?: number;
   failActionInsertAt?: number;
   douyinOutreachActionsEnabled?: boolean;
+  commentTargetPublicUrl?: string;
+  publicProfileUrl?: string;
+  reconcileAction?: (input: {
+    actionId: string; accountHandle: string; loginStateVersion: number;
+    kind: "comment" | "direct_message"; targetPublicUrl: string;
+    content: string; approvedContentHash: string; deadlineAt: string;
+  }) => Promise<{ actionId: string; state: "succeeded" | "failed";
+    platformReceiptReference: string | null; occurredAt: string;
+    failureCode: string | null }>;
 } = {}) {
   const repository = new InMemoryAcquisitionOutreachBatchRepository({
     failActionInsertAt: options.failActionInsertAt
@@ -26,6 +39,9 @@ function fixture(options: {
   let candidateRevision = 1;
   let dnc = false;
   let accountVersion = 3;
+  let accountState = "active";
+  let commentTargetPublicUrl = options.commentTargetPublicUrl
+    ?? "https://www.douyin.com/video/video-1";
   const service = new AcquisitionOutreachBatchService({
     repository,
     douyinOutreachActionsEnabled:
@@ -55,18 +71,23 @@ function fixture(options: {
     loadCandidateAuthority: async (_requestedScope, candidateId) => ({
       candidateId, candidateRevision, evidenceHashes: [evidenceHash],
       evidenceText: ["需要获客方案"], publicActorKey: "actor-hash-1", doNotContact: dnc
-      , publicProfileUrl: "https://www.douyin.com/user/actor-1",
-      commentTargetPublicUrl: "https://www.douyin.com/video/video-1"
+      , publicProfileUrl: options.publicProfileUrl
+        ?? "https://www.douyin.com/user/actor-1",
+      commentTargetPublicUrl
     }),
     loadAccountAuthority: async () => ({
-      accountId: "account-1", state: "active", loginStateVersion: accountVersion
-    })
+      accountId: "account-1", state: accountState, loginStateVersion: accountVersion,
+      accountHandle: "private-handle"
+    }),
+    reconcileAction: options.reconcileAction
   });
   return {
     repository, service,
     setCandidateRevision: (value: number) => { candidateRevision = value; },
     setDnc: (value: boolean) => { dnc = value; },
-    setAccountVersion: (value: number) => { accountVersion = value; }
+    setAccountVersion: (value: number) => { accountVersion = value; },
+    setAccountState: (value: string) => { accountState = value; },
+    setCommentTargetPublicUrl: (value: string) => { commentTargetPublicUrl = value; }
   };
 }
 
@@ -207,6 +228,23 @@ test("PUT removes candidates and valid human edits create batch and draft revisi
   );
 });
 
+test("PUT rejects a canonical target that drifted from the frozen candidate", async () => {
+  const { value, batch } = await created();
+  value.setCommentTargetPublicUrl("https://www.douyin.com/video/video-2");
+
+  await assert.rejects(
+    value.service.put(scope, batch.id, batch.etag, "put-target-drift", {
+      candidates: [{
+        candidateId: "candidate-1", selected: true,
+        comment: batch.candidates[0]!.comment,
+        directMessage: batch.candidates[0]!.directMessage
+      }]
+    }),
+    (error: unknown) => error instanceof AcquisitionOutreachBatchError
+      && error.code === "candidate_evidence_invalid"
+  );
+});
+
 test("approval rejects stale revisions, replays an exact command, and conflicts on changed semantics", async () => {
   const { value, batch } = await created();
   await assert.rejects(
@@ -242,6 +280,163 @@ test("approval creates an ordered queued comment and blocked direct message with
   assert.equal(actions[1]?.content, batch.candidates[0]?.directMessage);
 });
 
+test("manual reconciliation proves an uncertain action read-only and never requeues it", async () => {
+  const reconciliationCalls: string[] = [];
+  const value = fixture({
+    reconcileAction: async (input) => {
+      reconciliationCalls.push(input.actionId);
+      return {
+        actionId: input.actionId,
+        state: "succeeded",
+        platformReceiptReference: "douyin-comment:reconciled-123",
+        occurredAt: "2026-08-25T02:05:00.000Z",
+        failureCode: null
+      };
+    }
+  });
+  const created = await value.service.create(scope, "run-1", "create-reconcile", {
+    candidateIds: ["candidate-1"]
+  });
+  await value.service.approve(scope, created.value.id, created.value.etag,
+    "approve-reconcile", {
+      revision: created.value.revision,
+      batchHash: created.value.batchHash,
+      confirm: true
+    });
+  const claim = await value.repository.claimNextAction({
+    workerId: "worker-reconcile",
+    now: "2026-08-25T02:01:00.000Z",
+    leaseDurationMs: 180_000
+  });
+  assert.ok(claim);
+  await value.repository.completeActionFailure(
+    claim.fence,
+    "douyin_action_receipt_ambiguous",
+    "2026-08-25T02:04:00.000Z"
+  );
+  value.setAccountState("risk_paused");
+
+  const reconciled = await value.service.reconcileAction(
+    scope,
+    created.value.id,
+    claim.action.id,
+    {
+      batchRevision: claim.action.batchRevision,
+      approvalHash: claim.action.approvalHash,
+      contentHash: claim.action.contentHash,
+      confirm: true
+    }
+  );
+
+  assert.equal(reconciled.status, "succeeded");
+  assert.equal(reconciled.platformReceiptReference,
+    "douyin-comment:reconciled-123");
+  assert.deepEqual(reconciliationCalls, [claim.action.id]);
+  const actions = await value.service.actions(scope, created.value.id);
+  assert.deepEqual(actions.map((action) => action.status), [
+    "succeeded", "risk_paused"
+  ]);
+  assert.equal(await value.repository.claimNextAction({
+    workerId: "worker-must-not-resend",
+    now: "2026-08-25T02:10:00.000Z",
+    leaseDurationMs: 180_000
+  }), null);
+});
+
+test("manual reconciliation rejects disconnected or stale account authority before sidecar", async () => {
+  let calls = 0;
+  const value = fixture({
+    reconcileAction: async (input) => {
+      calls += 1;
+      return {
+        actionId: input.actionId,
+        state: "succeeded",
+        platformReceiptReference: "douyin-comment:must-not-be-used",
+        occurredAt: now,
+        failureCode: null
+      };
+    }
+  });
+  const created = await value.service.create(scope, "run-1", "create-reconcile-authority", {
+    candidateIds: ["candidate-1"]
+  });
+  await value.service.approve(scope, created.value.id, created.value.etag,
+    "approve-reconcile-authority", {
+      revision: created.value.revision,
+      batchHash: created.value.batchHash,
+      confirm: true
+    });
+  const claim = await value.repository.claimNextAction({
+    workerId: "worker-reconcile-authority",
+    now: "2026-08-25T02:01:00.000Z",
+    leaseDurationMs: 180_000
+  });
+  assert.ok(claim);
+  await value.repository.completeActionFailure(
+    claim.fence,
+    "douyin_action_timeout",
+    "2026-08-25T02:04:00.000Z"
+  );
+  const command = {
+    batchRevision: claim.action.batchRevision,
+    approvalHash: claim.action.approvalHash,
+    contentHash: claim.action.contentHash,
+    confirm: true as const
+  };
+
+  value.setAccountState("disconnected");
+  await assert.rejects(value.service.reconcileAction(
+    scope, created.value.id, claim.action.id, command
+  ), (error: unknown) => error instanceof AcquisitionOutreachBatchError
+    && error.code === "douyin_login_expired");
+
+  value.setAccountState("risk_paused");
+  value.setAccountVersion(4);
+  await assert.rejects(value.service.reconcileAction(
+    scope, created.value.id, claim.action.id, command
+  ), (error: unknown) => error instanceof AcquisitionOutreachBatchError
+    && error.code === "douyin_login_expired");
+  assert.equal(calls, 0);
+});
+
+test("manual reconciliation fails closed before sidecar unless authority is exact and uncertain", async () => {
+  let calls = 0;
+  const { value, batch } = await created(fixture({
+    reconcileAction: async (input) => {
+      calls += 1;
+      return {
+        actionId: input.actionId,
+        state: "succeeded",
+        platformReceiptReference: "douyin-comment:must-not-be-used",
+        occurredAt: now,
+        failureCode: null
+      };
+    }
+  }));
+  await value.service.approve(scope, batch.id, batch.etag,
+    "approve-reconcile-reject", {
+      revision: batch.revision,
+      batchHash: batch.batchHash,
+      confirm: true
+    });
+  const [action] = await value.service.actions(scope, batch.id);
+  assert.ok(action);
+
+  await assert.rejects(value.service.reconcileAction(
+    scope,
+    batch.id,
+    action.id,
+    {
+      batchRevision: action.batchRevision,
+      approvalHash: action.approvalHash,
+      contentHash: action.contentHash,
+      confirm: true
+    }
+  ), (error: unknown) => error instanceof AcquisitionOutreachBatchError
+    && error.code === "outreach_action_reconciliation_unavailable");
+  assert.equal(calls, 0);
+});
+
 test("final approval fails closed before persisting actions when outreach is disabled", async () => {
   const { value, batch } = await created(fixture({
     douyinOutreachActionsEnabled: false
@@ -258,6 +453,84 @@ test("final approval fails closed before persisting actions when outreach is dis
     (error: unknown) => error instanceof AcquisitionOutreachBatchError
       && error.code === "outreach_actions_disabled"
       && error.status === 503
+  );
+  assert.equal((await value.service.get(scope, batch.id)).state, "awaiting_approval");
+  assert.equal((await value.service.actions(scope, batch.id)).length, 0);
+});
+
+test("creation rejects a candidate without an exact Douyin video comment target", async () => {
+  const value = fixture({
+    commentTargetPublicUrl: "https://www.douyin.com/user/actor-1"
+  });
+
+  await assert.rejects(
+    value.service.create(scope, "run-1", "create-invalid-target", {
+      candidateIds: ["candidate-1"]
+    }),
+    (error: unknown) => error instanceof AcquisitionOutreachBatchError
+      && error.code === "outreach_comment_target_invalid"
+  );
+});
+
+test("outreach target validation accepts only byte-canonical public Douyin URLs", () => {
+  assert.equal(
+    validOutreachTarget(
+      "comment",
+      "https://www.douyin.com/video/AbC_123-xyz"
+    ),
+    true
+  );
+  assert.equal(
+    validOutreachTarget(
+      "direct_message",
+      "https://www.douyin.com/user/MS4wLjAB_creator-1"
+    ),
+    true
+  );
+  for (const [kind, target] of [
+    ["comment", "https://user@www.douyin.com/video/123"],
+    ["comment", "https://www.douyin.com:443/video/123"],
+    ["comment", "https://WWW.douyin.com/video/123"],
+    ["comment", "https://www.douyin.com/video/123?share=1"],
+    ["comment", "https://www.douyin.com/video/123#comment"],
+    ["comment", "https://www.douyin.com/video/123/"],
+    ["direct_message", "https://www.douyin.com/user/actor?from=video"],
+    ["direct_message", "https://www.douyin.com/%75ser/actor"],
+    ["direct_message", "https://www.douyin.com/user/actor/"],
+    ["direct_message", "https://www.douyin.com/video/123"]
+  ] as const) {
+    assert.equal(
+      validOutreachTarget(kind, target),
+      false,
+      `${kind} must reject non-canonical target ${target}`
+    );
+  }
+});
+
+test("creation rejects a candidate without an exact Douyin profile message target", async () => {
+  const value = fixture({
+    publicProfileUrl: "https://www.douyin.com/video/video-1"
+  });
+
+  await assert.rejects(
+    value.service.create(scope, "run-1", "create-invalid-profile", {
+      candidateIds: ["candidate-1"]
+    }),
+    (error: unknown) => error instanceof AcquisitionOutreachBatchError
+      && error.code === "outreach_direct_message_target_invalid"
+  );
+});
+
+test("approval rechecks the exact Douyin video comment target before queuing actions", async () => {
+  const { value, batch } = await created();
+  value.setCommentTargetPublicUrl("https://www.douyin.com/user/actor-1");
+
+  await assert.rejects(
+    value.service.approve(scope, batch.id, batch.etag, "approve-invalid-target", {
+      revision: 1, batchHash: batch.batchHash, confirm: true
+    }),
+    (error: unknown) => error instanceof AcquisitionOutreachBatchError
+      && error.code === "outreach_comment_target_invalid"
   );
   assert.equal((await value.service.get(scope, batch.id)).state, "awaiting_approval");
   assert.equal((await value.service.actions(scope, batch.id)).length, 0);

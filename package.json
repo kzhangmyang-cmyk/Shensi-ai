@@ -17,6 +17,7 @@
     "dev:real": "node --env-file-if-exists=.env.real.local tools/start-real-local.mjs",
     "trial:prepare": "node scripts/real-trial-runtime.mjs prepare",
     "trial:start": "node scripts/real-trial-runtime.mjs start",
+    "trial:publish": "node scripts/real-trial-runtime.mjs publish",
     "trial:status": "node scripts/real-trial-runtime.mjs status",
     "trial:verify": "node scripts/real-trial-verify.mjs",
     "trial:stop": "node scripts/real-trial-runtime.mjs stop",

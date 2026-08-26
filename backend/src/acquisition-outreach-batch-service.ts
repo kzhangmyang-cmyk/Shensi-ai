@@ -7,6 +7,7 @@ import {
   outreachBatchLifecycleEtag,
   outreachContentHash,
   publicOutreachBatch,
+  validOutreachTarget,
   type AcquisitionOutreachAction,
   type AcquisitionOutreachBatch,
   type AcquisitionOutreachBatchCandidate
@@ -63,6 +64,14 @@ function requestResult(result: OutreachRepositoryResult<AcquisitionOutreachBatch
   if (result.kind === "stale") throw new AcquisitionOutreachBatchError("outreach_batch_stale");
   return { value: publicOutreachBatch(result.value), replayed: result.kind === "replay" };
 }
+function assertOutreachTargets(authority: OutreachCandidateAuthority) {
+  if (!validOutreachTarget("comment", authority.commentTargetPublicUrl)) {
+    throw new AcquisitionOutreachBatchError("outreach_comment_target_invalid");
+  }
+  if (!validOutreachTarget("direct_message", authority.publicProfileUrl)) {
+    throw new AcquisitionOutreachBatchError("outreach_direct_message_target_invalid");
+  }
+}
 
 export class AcquisitionOutreachBatchService {
   constructor(private readonly options: {
@@ -74,7 +83,15 @@ export class AcquisitionOutreachBatchService {
     listRunCandidateIds(scope: OutreachScope, runId: string): Promise<string[]>;
     generateDraft(scope: OutreachScope, candidateId: string): Promise<Readonly<AcquisitionOutreachDraft>>;
     loadCandidateAuthority(scope: OutreachScope, candidateId: string): Promise<OutreachCandidateAuthority | null>;
-    loadAccountAuthority(scope: OutreachScope, accountId: string): Promise<{ accountId: string; state: string; loginStateVersion: number | null } | null>;
+    loadAccountAuthority(scope: OutreachScope, accountId: string): Promise<{ accountId: string;
+      state: string; loginStateVersion: number | null; accountHandle?: string | null } | null>;
+    reconcileAction?(input: { actionId: string; accountHandle: string;
+      loginStateVersion: number; kind: "comment" | "direct_message";
+      targetPublicUrl: string; content: string; approvedContentHash: string;
+      deadlineAt: string }): Promise<{ actionId: string;
+        state: "succeeded" | "failed"; platformReceiptReference: string | null;
+        occurredAt: string; failureCode: string | null }>;
+    reconciliationDeadlineMs?: number;
   }) {}
 
   async create(scope: OutreachScope, runId: string, idempotencyKey: string,
@@ -94,6 +111,7 @@ export class AcquisitionOutreachBatchService {
         || canonicalJsonStringify([...current.evidenceHashes].sort()) !== canonicalJsonStringify([...draft.evidenceHashes].sort())) {
         throw new AcquisitionOutreachBatchError("candidate_evidence_invalid");
       }
+      assertOutreachTargets(current);
       candidates.push({ candidateId, selected: true, candidateRevision: draft.candidateRevision,
         evidenceHashes: Object.freeze([...draft.evidenceHashes]), evidenceText: Object.freeze([...current.evidenceText]),
         publicActorKey: current.publicActorKey,
@@ -168,7 +186,14 @@ export class AcquisitionOutreachBatchService {
         for (const old of current.candidates) {
           const edit = requested.get(old.candidateId); if (!edit) continue;
           const authority = await this.options.loadCandidateAuthority(scope, old.candidateId);
-          if (!authority || authority.doNotContact || authority.candidateRevision !== old.candidateRevision
+          if (!authority || authority.doNotContact) {
+            throw new AcquisitionOutreachBatchError("candidate_evidence_invalid");
+          }
+          assertOutreachTargets(authority);
+          if (authority.candidateRevision !== old.candidateRevision
+            || authority.publicActorKey !== old.publicActorKey
+            || authority.publicProfileUrl !== old.publicProfileUrl
+            || authority.commentTargetPublicUrl !== old.commentTargetPublicUrl
             || canonicalJsonStringify([...authority.evidenceHashes].sort()) !== canonicalJsonStringify([...old.evidenceHashes].sort())) {
             throw new AcquisitionOutreachBatchError("candidate_evidence_invalid");
           }
@@ -223,7 +248,11 @@ export class AcquisitionOutreachBatchService {
         if (selected.length > remaining) throw new AcquisitionOutreachBatchError("outreach_daily_limit_exhausted");
         for (const candidate of selected) {
           const authority = await this.options.loadCandidateAuthority(scope, candidate.candidateId);
-          if (!authority || authority.doNotContact || authority.publicActorKey !== candidate.publicActorKey
+          if (!authority || authority.doNotContact) {
+            throw new AcquisitionOutreachBatchError("candidate_evidence_invalid");
+          }
+          assertOutreachTargets(authority);
+          if (authority.publicActorKey !== candidate.publicActorKey
             || authority.publicProfileUrl !== candidate.publicProfileUrl
             || authority.commentTargetPublicUrl !== candidate.commentTargetPublicUrl
             || authority.candidateRevision !== candidate.candidateRevision
@@ -302,5 +331,105 @@ export class AcquisitionOutreachBatchService {
     const actions = await this.options.repository.listActions(scope.workspaceId, batchId);
     if (!actions) throw new AcquisitionOutreachBatchError("outreach_batch_not_found", 404);
     return Object.freeze(actions.map((action) => Object.freeze(action)));
+  }
+
+  async reconcileAction(scope: OutreachScope, batchId: string, actionId: string,
+    input: { batchRevision: number; approvalHash: string; contentHash: string;
+      confirm: true }) {
+    if (!this.options.douyinOutreachActionsEnabled
+      || !this.options.reconcileAction) {
+      throw new AcquisitionOutreachBatchError("outreach_actions_disabled", 503);
+    }
+    if (!input.confirm || !Number.isSafeInteger(input.batchRevision)
+      || input.batchRevision < 1
+      || !/^sha256:[a-f0-9]{64}$/u.test(input.approvalHash)
+      || !/^sha256:[a-f0-9]{64}$/u.test(input.contentHash)) {
+      throw new AcquisitionOutreachBatchError("invalid_request", 400);
+    }
+    const actions = await this.options.repository.listActions(
+      scope.workspaceId,
+      batchId,
+    );
+    if (!actions) {
+      throw new AcquisitionOutreachBatchError("outreach_batch_not_found", 404);
+    }
+    const action = actions.find((candidate) => candidate.id === actionId);
+    if (!action) {
+      throw new AcquisitionOutreachBatchError(
+        "outreach_action_not_found",
+        404,
+      );
+    }
+    if (action.batchRevision !== input.batchRevision
+      || action.approvalHash !== input.approvalHash
+      || action.contentHash !== input.contentHash
+      || !validOutreachTarget(action.kind, action.targetPublicUrl)) {
+      throw new AcquisitionOutreachBatchError("outreach_action_stale");
+    }
+    if (action.status === "succeeded") return Object.freeze(action);
+    const reconcilableFailures = new Set([
+      "action_unavailable",
+      "douyin_action_timeout",
+      "douyin_action_receipt_ambiguous"
+    ]);
+    if (action.status !== "risk_paused" || !action.failureCode
+      || !reconcilableFailures.has(action.failureCode)) {
+      throw new AcquisitionOutreachBatchError(
+        "outreach_action_reconciliation_unavailable",
+      );
+    }
+    const account = await this.options.loadAccountAuthority(
+      scope,
+      action.accountId,
+    );
+    if (!account || !["active", "risk_paused"].includes(account.state)
+      || account.loginStateVersion !== action.accountLoginStateVersion
+      || !account.accountHandle) {
+      throw new AcquisitionOutreachBatchError("douyin_login_expired");
+    }
+    const deadlineMs = this.options.reconciliationDeadlineMs ?? 150_000;
+    if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1) {
+      throw new AcquisitionOutreachBatchError("outreach_internal_error", 500);
+    }
+    const startedAt = Date.parse(this.options.now());
+    if (!Number.isFinite(startedAt)) {
+      throw new AcquisitionOutreachBatchError("outreach_internal_error", 500);
+    }
+    const receipt = await this.options.reconcileAction({
+      actionId: action.id,
+      accountHandle: account.accountHandle,
+      loginStateVersion: action.accountLoginStateVersion,
+      kind: action.kind,
+      targetPublicUrl: action.targetPublicUrl,
+      content: action.content,
+      approvedContentHash: action.contentHash,
+      deadlineAt: new Date(startedAt + deadlineMs).toISOString()
+    });
+    if (receipt.actionId !== action.id || receipt.state !== "succeeded"
+      || !receipt.platformReceiptReference
+      || receipt.platformReceiptReference.length > 255
+      || receipt.failureCode !== null
+      || !Number.isFinite(Date.parse(receipt.occurredAt))) {
+      throw new AcquisitionOutreachBatchError(
+        "outreach_action_reconciliation_unconfirmed",
+      );
+    }
+    const completed = await this.options.repository.reconcileActionSuccess({
+      workspaceId: scope.workspaceId,
+      batchId,
+      actionId,
+      expectedFailureCode: action.failureCode as "action_unavailable" |
+        "douyin_action_timeout" | "douyin_action_receipt_ambiguous",
+      receipt: {
+        platformReceiptReference: receipt.platformReceiptReference,
+        occurredAt: receipt.occurredAt
+      }
+    });
+    if (!completed) {
+      throw new AcquisitionOutreachBatchError("outreach_action_stale");
+    }
+    return Object.freeze({ ...action, status: "succeeded" as const,
+      platformReceiptReference: receipt.platformReceiptReference,
+      occurredAt: receipt.occurredAt, failureCode: null });
   }
 }

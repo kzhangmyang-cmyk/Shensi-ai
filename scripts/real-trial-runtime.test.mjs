@@ -5,15 +5,220 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  auditTrialOutreachQueue,
+  assertOutreachQueueAuditEmpty,
+  effectiveTrialOutreachActionsEnabled,
   isRecordedProcess,
+  parseTrialCli,
+  publishTrialRuntime,
   readRuntimeRecords,
   startTrialRuntime,
   stopTrialRuntime,
+  trialStatus,
   writeRecord
 } from "./real-trial-runtime.mjs";
 import { verifyTrialRuntime } from "./real-trial-verify.mjs";
 
 function child(pid) { const value = new EventEmitter(); value.pid = pid; value.stdout = new EventEmitter(); value.stderr = new EventEmitter(); value.kill = () => value.emit("exit", 0); return value; }
+
+test("outreach runtime authorization requires request and a usable configured sidecar", () => {
+  const configured = {
+    baseUrl: "http://127.0.0.1:5612",
+    serviceSecretFile: "/private/runtime/service-secret"
+  };
+  assert.equal(effectiveTrialOutreachActionsEnabled({
+    requested: false, sidecarReady: false, ...configured
+  }), false);
+  assert.equal(effectiveTrialOutreachActionsEnabled({
+    requested: false, sidecarReady: true, ...configured
+  }), false);
+  assert.equal(effectiveTrialOutreachActionsEnabled({
+    requested: true, sidecarReady: false, ...configured
+  }), false);
+  assert.equal(effectiveTrialOutreachActionsEnabled({
+    requested: true, sidecarReady: true, ...configured
+  }), true);
+  assert.equal(effectiveTrialOutreachActionsEnabled({
+    requested: true, sidecarReady: true,
+    baseUrl: "http://127.0.0.1:9999",
+    serviceSecretFile: configured.serviceSecretFile
+  }), false);
+});
+
+test("CLI outreach authorization is an explicit one-shot publish or start flag", () => {
+  assert.deepEqual(parseTrialCli(["publish"]), {
+    command: "publish", outreachActionsEnabled: false
+  });
+  assert.deepEqual(parseTrialCli([
+    "publish", "--enable-outreach-after-empty-audit"
+  ]), { command: "publish", outreachActionsEnabled: true });
+  assert.deepEqual(parseTrialCli([
+    "start", "--enable-outreach-after-empty-audit"
+  ]), { command: "start", outreachActionsEnabled: true });
+  assert.throws(() => parseTrialCli([
+    "status", "--enable-outreach-after-empty-audit"
+  ]), /TRIAL_CLI_FLAG_NOT_ALLOWED/u);
+  assert.throws(() => parseTrialCli(["publish", "--unknown"]),
+    /TRIAL_CLI_ARGUMENT_INVALID/u);
+});
+
+test("outreach queue audit accepts only an exact all-zero aggregate", () => {
+  const empty = { counts: {
+    queued: 0, blockedByPredecessor: 0, executing: 0
+  }, nonterminalCount: 0 };
+  assert.deepEqual(assertOutreachQueueAuditEmpty(empty), empty);
+  assert.throws(() => assertOutreachQueueAuditEmpty({
+    counts: { ...empty.counts, blockedByPredecessor: 1 },
+    nonterminalCount: 1
+  }), /TRIAL_OUTREACH_QUEUE_NOT_EMPTY/u);
+  assert.throws(() => assertOutreachQueueAuditEmpty({
+    nonterminalCount: 0
+  }), /TRIAL_OUTREACH_QUEUE_AUDIT_INVALID/u);
+});
+
+test("outreach queue audit uses a read-only transaction and aggregates every nonterminal status", async () => {
+  const calls = [];
+  const connection = {
+    async query(sql) {
+      calls.push(sql.replace(/\s+/gu, " ").trim());
+      if (/^SELECT\b/u.test(sql.trim())) return [[{
+        queued_count: "2", blocked_count: "3", executing_count: "4"
+      }], undefined];
+      return [[], undefined];
+    },
+    async rollback() { calls.push("ROLLBACK"); },
+    async end() { calls.push("END"); }
+  };
+
+  const result = await auditTrialOutreachQueue({
+    databaseUrl: "mysql://fixture.invalid/trial",
+    createConnection: async () => connection
+  });
+
+  assert.deepEqual(result, {
+    counts: { queued: 2, blockedByPredecessor: 3, executing: 4 },
+    nonterminalCount: 9
+  });
+  assert.equal(calls[0], "START TRANSACTION READ ONLY");
+  assert.match(calls[1], /status IN \('queued','blocked_by_predecessor','executing'\)/u);
+  assert.deepEqual(calls.slice(-2), ["ROLLBACK", "END"]);
+});
+
+test("publish stops the current trial before rebuilding the same retained runtime", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-publish-"));
+  const runtimeRoot = join(root, ".runtime", "real-trial");
+  const calls = [];
+  const published = await publishTrialRuntime(root, {
+    runtimeRoot,
+    stop: async (runtime) => {
+      calls.push(["stop", runtime.pidsDirectory]);
+      return { stopped: ["frontend", "backend"], stale: [] };
+    },
+    removeStatus: async (path) => calls.push(["remove-status", path]),
+    start: async (repositoryRoot) => {
+      calls.push(["start", repositoryRoot]);
+      return { origin: "https://published.trycloudflare.com" };
+    },
+    verify: async (runtime) => calls.push(["verify", runtime.origin])
+  });
+  assert.deepEqual(calls, [
+    ["stop", join(runtimeRoot, "pids")],
+    ["remove-status", join(runtimeRoot, "status.json")],
+    ["start", root],
+    ["verify", "https://published.trycloudflare.com"]
+  ]);
+  assert.equal(published.origin, "https://published.trycloudflare.com");
+  assert.deepEqual(published.stopped, ["frontend", "backend"]);
+});
+
+test("publish tears down the newly started runtime when verification fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-publish-verify-failure-"));
+  const runtimeRoot = join(root, ".runtime", "real-trial");
+  const calls = [];
+  const started = {
+    origin: "https://failed-verification.trycloudflare.com",
+    records: [{ name: "backend", pid: 4444 }]
+  };
+
+  await assert.rejects(
+    publishTrialRuntime(root, {
+      runtimeRoot,
+      stop: async (runtime) => {
+        calls.push(["stop", runtime.records?.map((record) => record.name) ?? "old"]);
+        return { stopped: [], stale: [] };
+      },
+      removeStatus: async (path) => calls.push(["remove-status", path]),
+      start: async () => started,
+      verify: async () => { throw new Error("fixture_verification_failed"); }
+    }),
+    /fixture_verification_failed/u
+  );
+
+  assert.deepEqual(calls, [
+    ["stop", "old"],
+    ["remove-status", join(runtimeRoot, "status.json")],
+    ["stop", ["backend"]],
+    ["remove-status", join(runtimeRoot, "status.json")]
+  ]);
+});
+
+test("trial status recomputes aggregate running from owned process records", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-status-"));
+  const pidsDirectory = join(root, "pids");
+  await writeFile(join(root, "status.json"), JSON.stringify({
+    version: 1,
+    running: true,
+    origin: "https://stale.trycloudflare.com"
+  }), { mode: 0o600 });
+  await writeRecord({ pidsDirectory }, {
+    name: "backend",
+    pid: 4555,
+    command: "/fixture/node",
+    args: ["/fixture/backend.js", "--runtime-nonce", "9".repeat(32)],
+    nonce: "9".repeat(32)
+  });
+
+  const status = await trialStatus(root, {
+    readProcessCommand: async () => null
+  });
+
+  assert.equal(status.running, false);
+  assert.deepEqual(status.records, [{
+    name: "backend",
+    pid: 4555,
+    running: false
+  }]);
+});
+
+test("trial status is running only when all six owned service records are live", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-status-complete-"));
+  const pidsDirectory = join(root, "pids");
+  await writeFile(join(root, "status.json"), JSON.stringify({
+    version: 1,
+    running: true,
+    origin: "https://complete.trycloudflare.com"
+  }), { mode: 0o600 });
+  let pid = 4_600;
+  let nonceValue = 1;
+  for (const name of ["mysql", "tunnel", "backend", "sidecar", "frontend", "gateway"]) {
+    const nonce = String(nonceValue++).repeat(32);
+    await writeRecord({ pidsDirectory }, {
+      name,
+      pid: pid++,
+      command: "/fixture/node",
+      args: [name, "--runtime-nonce", nonce],
+      nonce
+    });
+  }
+  const status = await trialStatus(root, {
+    readProcessCommand: async (recordPid) => {
+      const record = (await readRuntimeRecords({ pidsDirectory }))
+        .find((value) => value.pid === recordPid);
+      return record?.expectedPsCommand ?? null;
+    }
+  });
+  assert.equal(status.running, true);
+});
 
 test("supervisor orders isolated loopback processes around the tunnel origin and stops only recorded children", async () => {
   const root = await mkdtemp(join(tmpdir(), "shensi-trial-runtime-"));
@@ -21,16 +226,22 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
   const children = new Map();
   let nextPid = 900;
   const runtime = await startTrialRuntime(root, {
-    prepare: async () => ({ root, environmentFile: join(root, "trial.env"), stateDirectory: join(root, "state"), logsDirectory: join(root, "logs"), pidsDirectory: join(root, "pids"), toolsDirectory: join(root, "tools"), mysqlDirectory: join(root, "mysql"), secretsDirectory: join(root, "secrets"), environment: { DATABASE_URL: "mysql://shensi_trial_app:fixture@127.0.0.1:3310/shensi_trial", SHENSI_TRIAL_APP_PASSWORD_FILE: join(root, "secrets/app-password"), MEDIACRAWLER_SERVICE_SECRET_FILE: join(root, "secrets/service-secret") } }),
+    prepare: async () => ({ root, environmentFile: join(root, "trial.env"), stateDirectory: join(root, "state"), logsDirectory: join(root, "logs"), pidsDirectory: join(root, "pids"), toolsDirectory: join(root, "tools"), mysqlDirectory: join(root, "mysql"), secretsDirectory: join(root, "secrets"), environment: { DATABASE_URL: "mysql://shensi_trial_app:fixture@127.0.0.1:3310/shensi_trial", SHENSI_TRIAL_APP_PASSWORD_FILE: join(root, "secrets/app-password"), MEDIACRAWLER_BASE_URL: "http://127.0.0.1:5612", MEDIACRAWLER_SERVICE_SECRET_FILE: join(root, "secrets/service-secret"), DOUYIN_OUTREACH_ACTIONS_ENABLED: "true" } }),
     isPortAvailable: async () => true,
     wrapCommands: false,
     runCommand: async (command, args, options) => calls.push({ oneShot: [command, ...args], options }),
     waitForMysql: async () => calls.push({ mysqlReady: true }),
     waitForTunnelOrigin: async () => "https://trial-fixture.trycloudflare.com",
-    readSidecarSecret: async () => "fixture-sidecar-secret",
+    readSidecarSecret: async () => "s".repeat(40),
     spawn: (command, args, options) => { const value = child(nextPid++); children.set(value.pid, value); calls.push({ command, args, options, pid: value.pid }); if (command.includes("cloudflared")) queueMicrotask(() => value.stderr.emit("data", "https://trial-fixture.trycloudflare.com")); return value; },
     waitForHealth: async (url) => calls.push({ health: url }),
     provisionAdmin: async (input) => calls.push({ provision: input }),
+    auditOutreachQueue: async () => {
+      calls.push({ outreachQueueAudit: true });
+      return { counts: {
+        queued: 0, blockedByPredecessor: 0, executing: 0
+      }, nonterminalCount: 0 };
+    },
     mysqlBinary: "/fixture/mysqld",
     cloudflaredBinary: "/fixture/cloudflared",
     backendCommand: ["node", "backend.js"],
@@ -42,9 +253,17 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
   const mysql = calls.find((call) => call.command === "/fixture/mysqld");
   assert.ok(mysql.args.includes("--socket=/private/tmp/shensi-real-trial-3310.sock"));
   const tunnel = calls.findIndex((call) => call.command === "/fixture/cloudflared");
-  const backend = calls.findIndex((call) => call.args?.includes("backend.js"));
+  const backendCalls = calls.filter((call) => call.args?.includes("backend.js"));
+  const backend = calls.findIndex((call) => call === backendCalls.at(-1));
   assert.ok(tunnel >= 0 && backend > tunnel);
   assert.equal(calls[backend].options.env.CORS_ORIGINS, "https://trial-fixture.trycloudflare.com");
+  assert.equal(backendCalls[0].options.env.DOUYIN_OUTREACH_ACTIONS_ENABLED, "false");
+  assert.equal(backendCalls[1].options.env.DOUYIN_OUTREACH_ACTIONS_ENABLED, "true");
+  const audit = calls.findIndex((call) => call.outreachQueueAudit);
+  const sidecar = calls.findIndex((call) => call.args?.includes("sidecar.js"));
+  assert.ok(audit > calls.findIndex((call) => call.provision));
+  assert.ok(sidecar >= 0 && sidecar < audit);
+  assert.ok(audit < backend);
   assert.deepEqual(
     (({ email, role, tenantId }) => ({ email, role, tenantId }))(calls.find((call) => call.provision)?.provision),
     { email: "test@shensi.local", role: "admin", tenantId: "trial-pilot-001" }
@@ -80,7 +299,7 @@ test("supervisor wraps direct long-lived service commands so recorded wrapper PI
     runCommand: async () => undefined,
     waitForMysql: async () => undefined,
     waitForTunnelOrigin: async () => "https://trial-fixture.trycloudflare.com",
-    readSidecarSecret: async () => "fixture-sidecar-secret",
+    readSidecarSecret: async () => "s".repeat(40),
     spawn: (command, args, options) => {
       const value = child(nextPid++);
       calls.push({ command, args, options, value });

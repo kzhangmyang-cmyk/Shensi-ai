@@ -583,6 +583,55 @@ test("MySQL crawler ingestion converts ISO instants before DATETIME writes", asy
   ]);
 });
 
+test("MySQL crawler ingestion establishes scope inside a pre-bound transaction connection", async () => {
+  const statements: string[] = [];
+  let logicalTransactions = 0;
+  const connection = {
+    async query(sql: string) {
+      statements.push(sql.replace(/\s+/gu, " ").trim());
+      return [[], []];
+    }
+  };
+  const repository = new MysqlAcquisitionDouyinCrawlerIngestionRepository(
+    { async getConnection() { throw new Error("unexpected_new_connection"); } } as never,
+    {
+      withTransactionConnection(bound: unknown, work: () => Promise<unknown>) {
+        assert.equal(bound, connection);
+        return work();
+      }
+    } as never,
+    {
+      withTransactionConnection(bound: unknown, work: () => Promise<unknown>) {
+        assert.equal(bound, connection);
+        return work();
+      },
+      transaction(work: (plan: object) => Promise<unknown>) {
+        logicalTransactions += 1;
+        return work({});
+      }
+    } as never
+  );
+
+  await repository.withTransactionConnection(connection as never, () =>
+    repository.transaction(SCOPE, async () => {
+      await repository.lockOutreachDraftAuthority(
+        SCOPE,
+        "candidate-1",
+        ["evidence-1"],
+        `dnc:sha256:${"a".repeat(64)}`
+      );
+      await repository.transaction(SCOPE, async () => undefined);
+    })
+  );
+
+  assert.equal(logicalTransactions, 1);
+  assert.deepEqual(statements.map((sql) =>
+    sql.includes("acquisition_candidates") ? "candidate"
+      : sql.includes("acquisition_discovery_evidence") ? "evidence"
+        : sql.includes("acquisition_douyin_do_not_contact") ? "dnc" : "other"),
+  ["candidate", "evidence", "dnc"]);
+});
+
 test("live MySQL commits and rolls back authoritative crawler ingestion", {
   skip: !process.env.MYSQL_TEST_ADMIN_URL
     ? "MYSQL_TEST_ADMIN_URL is required; no database is provisioned implicitly"

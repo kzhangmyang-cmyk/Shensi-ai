@@ -6,7 +6,11 @@ import {
   ACQUISITION_OUTREACH_DRAFT_TOOL,
   acquisitionOutreachModelRequest
 } from "./acquisition-outreach-model-content.js";
-import { validateAcquisitionOutreachDraft, type AcquisitionOutreachDraft } from "./acquisition-outreach-draft.js";
+import {
+  buildValidatedAcquisitionOutreachFallback,
+  validateAcquisitionOutreachDraft,
+  type AcquisitionOutreachDraft
+} from "./acquisition-outreach-draft.js";
 import type { AcquisitionOutreachDraftFinalAuthorityPort } from "./acquisition-outreach-draft-authority.js";
 
 export function assertDraftableDouyinCandidate(input: { id: string; version: number; status: string; evidence: Array<{ id: string; contentHash: string; text: string }> }) {
@@ -75,11 +79,27 @@ export class AcquisitionOutreachDraftService {
     const currentEvidence = verified.evidence;
     assertDraftableDouyinCandidate({ id: current.id, version: current.version, status: current.status,
       evidence: currentEvidence.map((item) => ({ id: item.id, contentHash: item.contentHash, text: item.sourceSnippet })) });
-    return validateAcquisitionOutreachDraft({ candidateId: candidate.id, candidateRevision: candidate.version,
-      evidenceHashes: trusted.map((item) => item.contentHash), comment: args.comment,
-      directMessage: args.directMessage, rationaleCodes: args.rationaleCodes, modelSnapshotId: snapshot.jobId }, {
-      candidateId: candidate.id, candidateRevision: candidate.version, evidenceHashes: trusted.map((item) => item.contentHash), evidenceText: trusted.map((item) => item.sourceSnippet), modelSnapshotId: snapshot.jobId
-    });
+    const authority = {
+      candidateId: current.id,
+      candidateRevision: current.version,
+      evidenceHashes: currentEvidence.map((item) => item.contentHash),
+      evidenceText: currentEvidence.map((item) => item.sourceSnippet),
+      modelSnapshotId: snapshot.jobId
+    };
+    try {
+      return validateAcquisitionOutreachDraft({
+        candidateId: current.id,
+        candidateRevision: current.version,
+        evidenceHashes: currentEvidence.map((item) => item.contentHash),
+        comment: args.comment,
+        directMessage: args.directMessage,
+        rationaleCodes: args.rationaleCodes,
+        modelSnapshotId: snapshot.jobId
+      }, authority);
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== "OUTREACH_DRAFT_INVALID") throw error;
+      return buildValidatedAcquisitionOutreachFallback(authority);
+    }
   }
 }
 function canonicalIds(values: string[]) { return JSON.stringify([...values].sort()); }

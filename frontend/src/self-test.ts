@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { strict as assert } from "node:assert";
+import { parseHTML } from "linkedom";
 import "./app-route.self-test";
 import "./app-session.self-test";
 import "./demo/demo-store.self-test";
+import "./replica-flow-selection.self-test";
 import "./conversations/real-api.self-test";
 import "./conversations/real-view.self-test";
 import "./conversations/real-controller.self-test";
@@ -86,6 +88,51 @@ const demoCapabilitiesView = readFileSync(
 const acquisitionRuntime = readFileSync(
   new URL("./acquisition/runtime.ts", import.meta.url),
   "utf8"
+);
+assert.match(replicaStyles,
+  /\.real-conversations-outreach-cta button\s*\{[^}]*color:\s*var\(--replica-on-accent\)/su);
+assert.match(replicaStyles,
+  /\.real-conversations-outreach-cta button:disabled\s*\{[^}]*background:\s*var\(--replica-control-disabled\)/su);
+
+const prototypeDocument = parseHTML(prototype).document;
+const acquisitionSections = Array.from(
+  prototypeDocument.querySelectorAll<HTMLElement>(
+    '[data-replica-module-panel="acquisition"] > section'
+  )
+);
+const platformSelectorPosition = acquisitionSections.findIndex((section) =>
+  section.querySelector("#replicaFlowStage") !== null
+);
+const automationWorkspacePosition = acquisitionSections.findIndex((section) =>
+  section.id === "douyinAutomationWorkspace"
+);
+const performancePosition = acquisitionSections.findIndex((section) =>
+  section.id === "replicaAcquisitionPerformance"
+);
+const platformSelector = prototypeDocument.querySelector<HTMLElement>("#replicaFlowStage");
+const platformSelectorTitle = prototypeDocument.querySelector<HTMLElement>("#replicaFlowTitle");
+assert.ok(platformSelectorPosition >= 0, "platform selector must remain in the acquisition page");
+assert.ok(automationWorkspacePosition >= 0, "Douyin automation workspace must remain in the acquisition page");
+assert.ok(performancePosition >= 0, "acquisition performance must remain in the acquisition page");
+assert.ok(
+  platformSelectorPosition < automationWorkspacePosition,
+  "platform selection cards must appear before the selected platform workspace"
+);
+assert.ok(
+  platformSelectorPosition < performancePosition,
+  "platform selection cards must appear before platform-specific performance details"
+);
+assert.equal(platformSelectorTitle?.textContent?.trim(), "选择获客平台");
+assert.equal(platformSelector?.getAttribute("aria-labelledby"), "replicaFlowTitle");
+assert.match(
+  replicaStyles,
+  /@media \(min-width: 901px\) and \(max-width: 1399px\)/,
+  "mid-sized desktop layout must free the platform carousel from the inspector column"
+);
+assert.match(
+  replicaStyles,
+  /\.replica-shell\[data-acquisition-mode="real"\] \.replica-board\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s,
+  "real acquisition mode must give the platform selector a full-width decision row"
 );
 
 for (const customerFacingSource of [

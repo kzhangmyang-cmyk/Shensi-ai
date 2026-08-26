@@ -234,8 +234,14 @@ claim. The worker then revalidates the active account/login version, approved
 batch and action hashes, candidate/evidence authority, predecessor receipt,
 policy binding, and daily allowance. Only the frozen public video/profile URL
 and exact approved text cross the private action port. Receipts commit under
-the fence; an expired lease requeues exact replay, while stale completions are
-rejected. Three consecutive failures, or a verification/rate-limit/account-
+the fence; an expired external-write lease moves the action and related account
+work to `risk_paused`, while stale completions are rejected. There is no
+distributed exactly-once claim. A durable pre-click journal prevents automatic
+replay after a possible click, and an operator-confirmed read-only
+reconciliation may mark only the same frozen action succeeded when the platform
+exposes a unique post-start receipt. It never re-executes or automatically
+resumes the account or successor. Three consecutive failures, or a
+verification/rate-limit/account-
 warning/login risk response, atomically pauses the account and all queued work.
 The sidecar reuses only that account's authenticated profile, centralizes UI
 selectors and closed page-state errors, clicks once, and never implements a
@@ -248,6 +254,12 @@ deadline, 160 seconds for gateway HTTP, 170 seconds for browser-action IPC, and
 a 180-second minimum claim lease. No solver, verification-token injection,
 third-party bypass, alternate action ID, or automatic retry after an uncertain
 receipt is allowed.
+For direct messages the canonical profile page must expose one visible entry
+into a same-page panel, one editable Draft editor, and one send button. Native
+Playwright key presses must round-trip the exact text. Success requires one new
+self/outgoing message with a stable platform ID and an allowlisted timestamp no
+earlier than the journal start; a `/messages` route transition without a stable
+recipient binding or any ambiguous DOM remains a closed failure.
 
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a
@@ -301,8 +313,9 @@ nonterminal run, or a terminal run whose candidate projection is still
 controller command path. This observation does not alter the existing comment
 or direct-message approval authority.
 The desktop candidate table and evidence inspector collapse to one-column
-cards at the mobile breakpoint, and page scrolling remains owned by the body/
-main document rather than nested frozen panes.
+cards at the mobile breakpoint. Desktop scrolling belongs to the bounded
+`.replica-shell`; mobile returns to document scrolling without horizontal
+overflow.
 
 The real-session `#conversations` controller composes the same acquisition
 public-evidence and outreach-batch authorities. It first reads the Douyin-

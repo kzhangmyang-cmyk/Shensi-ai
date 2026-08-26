@@ -716,7 +716,7 @@ export interface paths {
         };
         /**
          * List evidence-bound candidates for an acquisition run
-         * @description Cursor is bound to the active workspace, run, full filter set, and candidate snapshot. Only bounded public evidence is returned.
+         * @description Cursor is bound to the active workspace, run, full filter set, and candidate snapshot. Only bounded public evidence is returned. When a candidate has multiple Douyin evidence rows, an exact commentable video is projected before a profile-only inspection fallback.
          */
         get: operations["listAcquisitionRunCandidates"];
         put?: never;
@@ -875,6 +875,26 @@ export interface paths {
         get: operations["listAcquisitionOutreachActions"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+                actionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read-only reconcile one uncertain action after explicit operator verification */
+        post: operations["reconcileAcquisitionOutreachAction"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2022,7 +2042,10 @@ export interface components {
             status: string;
             displayName: string;
             evidence: {
-                /** Format: uri */
+                /**
+                 * Format: uri
+                 * @description Prefers an exact commentable Douyin video URL; profile-only evidence is returned only as an inspectable fallback and cannot enter a comment batch.
+                 */
                 sourceUrl: string;
                 excerpt: string;
             };
@@ -2113,7 +2136,7 @@ export interface components {
             /** Format: date-time */
             occurredAt: string | null;
             /** @enum {string|null} */
-            failureCode: "action_unavailable" | "action_rejected" | "deadline_exceeded" | "douyin_verification_required" | "douyin_rate_limited" | "douyin_account_warning" | "douyin_login_expired" | "douyin_action_control_missing" | "douyin_action_control_ambiguous" | "douyin_action_content_mismatch" | "douyin_action_receipt_ambiguous" | "douyin_action_timeout" | null;
+            failureCode: "action_unavailable" | "action_rejected" | "deadline_exceeded" | "douyin_verification_required" | "douyin_rate_limited" | "douyin_account_warning" | "douyin_login_expired" | "douyin_direct_message_unavailable" | "douyin_action_control_missing" | "douyin_action_control_ambiguous" | "douyin_action_content_mismatch" | "douyin_action_receipt_ambiguous" | "douyin_action_timeout" | null;
         };
         AcquisitionOutreachActionList: {
             items: components["schemas"]["AcquisitionOutreachAction"][];
@@ -6379,6 +6402,87 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AcquisitionOutreachActionList"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reconcileAcquisitionOutreachAction: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                batchId: string;
+                actionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    batchRevision: number;
+                    approvalHash: string;
+                    contentHash: string;
+                    /** @constant */
+                    confirm: true;
+                };
+            };
+        };
+        responses: {
+            /** @description Reconciled persisted action; no platform write was attempted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachAction"];
                 };
             };
             /** @description Unified API error */

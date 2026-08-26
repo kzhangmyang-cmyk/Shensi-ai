@@ -70,8 +70,11 @@ def _record(kind: str, raw: Mapping[str, object], observed_at: datetime):
         excerpt = _text(raw.get("content") or raw.get("text"), 500)
     elif kind == "creator":
         upstream_id = _actor_id(raw, "author")
-        url = f"https://www.douyin.com/user/{quote(upstream_id, safe='')}"
-        profile_url = url
+        profile_url = f"https://www.douyin.com/user/{quote(upstream_id, safe='')}"
+        aweme_id = _text(raw.get("aweme_id"), 160)
+        url = (f"https://www.douyin.com/video/{quote(aweme_id, safe='')}"
+               if re.fullmatch(r"[A-Za-z0-9_-]{1,160}", aweme_id)
+               else profile_url)
         actor_kind = "creator"
         excerpt = _text(raw.get("signature") or raw.get("desc"), 500)
     else:

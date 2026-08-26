@@ -14,8 +14,12 @@ from multiprocessing.connection import Connection
 from pathlib import Path
 from typing import Protocol
 
-from .douyin_actions import DouyinActionExecutor, DouyinActionFailure
-from .schemas import ActionRequest
+from .douyin_actions import (
+    DouyinActionExecutor,
+    DouyinActionFailure,
+    DouyinActionReconciler,
+)
+from .schemas import ActionReconciliationRequest, ActionRequest
 
 
 DEFAULT_ACTION_MANUAL_VERIFICATION_SECONDS = 120
@@ -47,6 +51,7 @@ _CLOSED_ACTION_FAILURE_CODES = frozenset({
     "douyin_rate_limited",
     "douyin_account_warning",
     "douyin_login_expired",
+    "douyin_direct_message_unavailable",
     "douyin_action_control_missing",
     "douyin_action_control_ambiguous",
     "douyin_action_content_mismatch",
@@ -61,6 +66,8 @@ class BrowserState(Protocol):
     def poll_douyin_login(self, context: object) -> dict[str, object]: ...
     def execute_douyin_action(self, profile_path: Path,
                               request: ActionRequest) -> dict[str, object]: ...
+    def reconcile_douyin_action(self, profile_path: Path,
+                                request: ActionRequest) -> dict[str, object]: ...
 
 
 def _start_playwright(factory: Callable[[], object] | None) -> object:
@@ -124,6 +131,22 @@ def _execute_action(playwright: object, profile_path: str,
             headless=headless,
             manual_verification_seconds=manual_verification_seconds,
         ).execute(page, request).model_dump(mode="json")
+    finally:
+        context.close()
+
+
+def _reconcile_action(playwright: object, profile_path: str,
+                      raw_request: object, *, headless: bool,
+                      browser_channel: str | None) -> dict[str, object]:
+    request = ActionReconciliationRequest.model_validate(raw_request)
+    context = playwright.chromium.launch_persistent_context(
+        profile_path, **_launch_options(headless, browser_channel)
+    )
+    try:
+        page = context.pages[0] if context.pages else context.new_page()
+        return DouyinActionReconciler().reconcile(
+            page, request
+        ).model_dump(mode="json")
     finally:
         context.close()
 
@@ -212,6 +235,19 @@ def _browser_worker(connection: Connection, factory: Callable[[], object] | None
                             manual_verification_seconds=(
                                 manual_verification_seconds
                             ))
+                    except DouyinActionFailure:
+                        raise
+                    except BaseException as error:
+                        raise DouyinActionFailure("action_unavailable") from error
+                elif operation == "reconcile":
+                    try:
+                        value = _reconcile_action(
+                            playwright,
+                            str(command["profile_path"]),
+                            command["request"],
+                            headless=headless,
+                            browser_channel=browser_channel,
+                        )
                     except DouyinActionFailure:
                         raise
                     except BaseException as error:
@@ -394,7 +430,9 @@ class MediaCrawlerDouyinBrowserState:
                 self._hard_stop()
                 raise RuntimeError("douyin_browser_unavailable") from error
             command_timeout = (
-                self._action_timeout if operation == "action" else self._timeout
+                self._action_timeout
+                if operation in {"action", "reconcile"}
+                else self._timeout
             )
             if not self._connection.poll(command_timeout):
                 self._hard_stop()
@@ -409,7 +447,7 @@ class MediaCrawlerDouyinBrowserState:
                 raise RuntimeError("douyin_browser_protocol_error")
             if response.get("kind") == "action_failure":
                 code = response.get("code")
-                if (operation != "action"
+                if (operation not in {"action", "reconcile"}
                         or set(response) != {"id", "kind", "code"}
                         or not isinstance(code, str)
                         or code not in _CLOSED_ACTION_FAILURE_CODES):
@@ -438,6 +476,14 @@ class MediaCrawlerDouyinBrowserState:
                               request: ActionRequest) -> dict[str, object]:
         return self._call("action", profile_path=str(profile_path),
                           request=request.model_dump(mode="json"))  # type: ignore[return-value]
+
+    def reconcile_douyin_action(self, profile_path: Path,
+                                request: ActionRequest) -> dict[str, object]:
+        return self._call(
+            "reconcile",
+            profile_path=str(profile_path),
+            request=request.model_dump(mode="json"),
+        )  # type: ignore[return-value]
 
     def close_browser(self) -> None:
         with self._lock:

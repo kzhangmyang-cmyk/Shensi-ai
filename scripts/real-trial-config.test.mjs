@@ -57,6 +57,38 @@ test("prepareTrialRuntime refuses every occupied fixed port", async () => {
   );
 });
 
+test("prepareTrialRuntime enables outreach only for exact explicit authorization", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-config-outreach-"));
+  const enabled = await prepareTrialRuntime(root, {
+    appPassword: fixturePassword,
+    isPortAvailable: async () => true,
+    outreachActionsEnabled: true
+  });
+  assert.equal(enabled.environment.DOUYIN_OUTREACH_ACTIONS_ENABLED, "true");
+
+  const disabled = await prepareTrialRuntime(root, {
+    isPortAvailable: async () => true,
+    outreachActionsEnabled: " true "
+  });
+  assert.equal(disabled.environment.DOUYIN_OUTREACH_ACTIONS_ENABLED, "false");
+});
+
+test("prepareTrialRuntime never treats a retained process environment flag as fresh authorization", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-config-no-inherit-"));
+  const previous = process.env.DOUYIN_OUTREACH_ACTIONS_ENABLED;
+  process.env.DOUYIN_OUTREACH_ACTIONS_ENABLED = "true";
+  try {
+    const runtime = await prepareTrialRuntime(root, {
+      appPassword: fixturePassword,
+      isPortAvailable: async () => true
+    });
+    assert.equal(runtime.environment.DOUYIN_OUTREACH_ACTIONS_ENABLED, "false");
+  } finally {
+    if (previous === undefined) delete process.env.DOUYIN_OUTREACH_ACTIONS_ENABLED;
+    else process.env.DOUYIN_OUTREACH_ACTIONS_ENABLED = previous;
+  }
+});
+
 test("prepareTrialRuntime rejects an explicitly relative root and a symlinked private directory", async () => {
   await assert.rejects(
     prepareTrialRuntime(process.cwd(), {

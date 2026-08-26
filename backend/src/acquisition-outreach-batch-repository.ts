@@ -50,6 +50,10 @@ export interface AcquisitionOutreachBatchRepository {
     receipt: OutreachActionSuccessReceipt): Promise<boolean>;
   completeActionFailure(fence: OutreachActionFence, failureCode: string,
     occurredAt: string): Promise<{ completed: boolean; accountPaused: boolean }>;
+  reconcileActionSuccess(input: { workspaceId: string; batchId: string;
+    actionId: string; expectedFailureCode: "douyin_action_timeout" |
+      "douyin_action_receipt_ambiguous" | "action_unavailable";
+    receipt: OutreachActionSuccessReceipt }): Promise<boolean>;
   recoverExpiredActionClaims(now: string): Promise<number>;
 }
 
@@ -322,20 +326,47 @@ implements AcquisitionOutreachBatchRepository {
       if (!located || located.status !== "executing" || !runtime
         || runtime.workerId !== fence.workerId || runtime.leaseToken !== fence.leaseToken
         || runtime.fencingToken !== fence.fencingToken) return { completed: false, accountPaused: false };
-      located.status = "failed"; located.failureCode = failureCode;
+      located.status = ["action_unavailable", "douyin_action_timeout",
+        "douyin_action_receipt_ambiguous"].includes(failureCode)
+        ? "risk_paused" : "failed";
+      located.failureCode = failureCode;
       located.occurredAt = occurredAt; located.platformReceiptReference = null;
       runtime.workerId = null; runtime.leaseToken = null; runtime.leaseExpiresAt = null;
       const accountKey = `${located.workspaceId}\u0000${located.accountId}`;
       const account = state.accounts.get(accountKey)!;
       account.consecutiveFailures += 1;
       const immediatePause = ["douyin_verification_required", "douyin_rate_limited",
-        "douyin_account_warning", "douyin_login_expired"].includes(failureCode);
+        "douyin_account_warning", "douyin_login_expired", "action_unavailable",
+        "douyin_action_timeout", "douyin_action_receipt_ambiguous"].includes(failureCode);
       account.paused = immediatePause || account.consecutiveFailures >= 3;
       if (account.paused) for (const action of actions) {
         if (action.workspaceId === located.workspaceId && action.accountId === located.accountId
           && ["queued", "blocked_by_predecessor"].includes(action.status)) action.status = "risk_paused";
       }
       return { completed: true, accountPaused: account.paused };
+    });
+  }
+
+  reconcileActionSuccess(input: { workspaceId: string; batchId: string;
+    actionId: string; expectedFailureCode: "douyin_action_timeout" |
+      "douyin_action_receipt_ambiguous" | "action_unavailable";
+    receipt: OutreachActionSuccessReceipt }) {
+    return this.transaction<boolean>((state) => {
+      const located = (state.actions.get(batchKey(input.workspaceId, input.batchId)) ?? [])
+        .find((action) => action.id === input.actionId);
+      if (!located || located.status !== "risk_paused"
+        || located.failureCode !== input.expectedFailureCode) return false;
+      located.status = "succeeded";
+      located.failureCode = null;
+      located.platformReceiptReference = input.receipt.platformReceiptReference;
+      located.occurredAt = input.receipt.occurredAt;
+      const runtime = state.actionRuntime.get(located.id);
+      if (runtime) {
+        runtime.workerId = null;
+        runtime.leaseToken = null;
+        runtime.leaseExpiresAt = null;
+      }
+      return true;
     });
   }
 
@@ -346,8 +377,24 @@ implements AcquisitionOutreachBatchRepository {
         const runtime = state.actionRuntime.get(action.id);
         if (action.status !== "executing" || !runtime?.leaseExpiresAt
           || Date.parse(runtime.leaseExpiresAt) > at) continue;
-        action.status = action.kind === "direct_message" ? "blocked_by_predecessor" : "queued";
+        action.status = "risk_paused";
+        action.failureCode = "douyin_action_receipt_ambiguous";
+        action.occurredAt = now;
+        action.platformReceiptReference = null;
         runtime.workerId = null; runtime.leaseToken = null; runtime.leaseExpiresAt = null;
+        const accountKey = `${action.workspaceId}\u0000${action.accountId}`;
+        const account = state.accounts.get(accountKey) ?? {
+          nextEligibleAt: null, consecutiveFailures: 0, paused: false
+        };
+        account.paused = true;
+        state.accounts.set(accountKey, account);
+        for (const related of [...state.actions.values()].flat()) {
+          if (related.workspaceId === action.workspaceId
+            && related.accountId === action.accountId
+            && ["queued", "blocked_by_predecessor"].includes(related.status)) {
+            related.status = "risk_paused";
+          }
+        }
         recovered += 1;
       }
       return recovered;

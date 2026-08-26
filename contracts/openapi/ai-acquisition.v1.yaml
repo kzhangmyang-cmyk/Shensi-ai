@@ -375,7 +375,7 @@ components:
           additionalProperties: false
           required: [sourceUrl, excerpt]
           properties:
-            sourceUrl: { type: string, format: uri }
+            sourceUrl: { type: string, format: uri, description: Prefers an exact commentable Douyin video URL; profile-only evidence is returned only as an inspectable fallback and cannot enter a comment batch. }
             excerpt: { type: string, maxLength: 500 }
     AcquisitionOutreachBatchCandidate:
       type: object
@@ -469,7 +469,7 @@ components:
         occurredAt: { type: [string, 'null'], format: date-time }
         failureCode:
           type: [string, 'null']
-          enum: [action_unavailable, action_rejected, deadline_exceeded, douyin_verification_required, douyin_rate_limited, douyin_account_warning, douyin_login_expired, douyin_action_control_missing, douyin_action_control_ambiguous, douyin_action_content_mismatch, douyin_action_receipt_ambiguous, douyin_action_timeout, null]
+          enum: [action_unavailable, action_rejected, deadline_exceeded, douyin_verification_required, douyin_rate_limited, douyin_account_warning, douyin_login_expired, douyin_direct_message_unavailable, douyin_action_control_missing, douyin_action_control_ambiguous, douyin_action_content_mismatch, douyin_action_receipt_ambiguous, douyin_action_timeout, null]
     AcquisitionOutreachActionList:
       type: object
       additionalProperties: false
@@ -1081,7 +1081,7 @@ paths:
     get:
       operationId: listAcquisitionRunCandidates
       summary: List evidence-bound candidates for an acquisition run
-      description: Cursor is bound to the active workspace, run, full filter set, and candidate snapshot. Only bounded public evidence is returned.
+      description: Cursor is bound to the active workspace, run, full filter set, and candidate snapshot. Only bounded public evidence is returned. When a candidate has multiple Douyin evidence rows, an exact commentable video is projected before a profile-only inspection fallback.
       security: [{ bearerAuth: [] }, { cookieAuth: [] }]
       parameters:
         - { name: status, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 100 } }
@@ -1193,6 +1193,31 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '200': { description: Ordered outreach actions, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachActionList' } } } }
+  /api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile:
+    parameters:
+      - { name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+      - { name: actionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+    post:
+      operationId: reconcileAcquisitionOutreachAction
+      summary: Read-only reconcile one uncertain action after explicit operator verification
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [batchRevision, approvalHash, contentHash, confirm]
+              properties:
+                batchRevision: { type: integer, minimum: 1 }
+                approvalHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+                contentHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+                confirm: { type: boolean, const: true }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Reconciled persisted action; no platform write was attempted, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachAction' } } } }
   /api/v1/acquisition/providers:
     get:
       operationId: listAcquisitionProviders

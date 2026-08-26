@@ -329,6 +329,10 @@ import {
 import { createAcquisitionCrawlerJobRouter } from "./acquisition-crawler-job-router.js";
 import { createAcquisitionRunCandidatesRouter } from "./acquisition-run-candidates-router.js";
 import { discoveryEvidencePublicSourceUrl } from "./acquisition-domain.js";
+import {
+  orderedCandidateEvidenceIds,
+  selectDouyinCandidateEvidence
+} from "./acquisition-douyin-evidence-selection.js";
 import { AcquisitionCrawlerWorker } from "./acquisition-crawler-worker.js";
 import {
   ingestDouyinCrawlerPage,
@@ -577,6 +581,15 @@ export interface CreateAcquisitionApplicationOptions {
   douyinSchedulerIntervalMs?: number;
   outreachActionWorkerIntervalMs?: number;
   outreachActionRecoveryIntervalMs?: number;
+}
+
+export function effectiveDouyinOutreachActionsEnabled(input: {
+  enabled: boolean;
+  gateway: unknown;
+}) {
+  return input.enabled === true
+    && typeof (input.gateway as { executeAction?: unknown } | null)?.executeAction
+      === "function";
 }
 
 export interface AcquisitionApplicationRuntime
@@ -2290,10 +2303,13 @@ export async function createAcquisitionApplication(
           : new InMemoryAcquisitionOutreachBatchRepository({
               memoryTransactions: planMemoryTransactions ?? undefined
             }));
+    const outreachActionsEnabled = effectiveDouyinOutreachActionsEnabled({
+      enabled: options.douyinOutreachActionsEnabled === true,
+      gateway: options.douyinMediaCrawlerGateway
+    });
     const outreachBatches = new AcquisitionOutreachBatchService({
       repository: outreachBatchRepository,
-      douyinOutreachActionsEnabled:
-        options.douyinOutreachActionsEnabled === true,
+      douyinOutreachActionsEnabled: outreachActionsEnabled,
       idFactory,
       now,
       async loadRunAuthority(scope, runId) {
@@ -2324,16 +2340,20 @@ export async function createAcquisitionApplication(
         if (!candidate || candidate.ownerId !== scope.ownerId || candidate.teamId !== scope.teamId
           || candidate.profile.kind !== "individual" || candidate.profile.sourcePlatform !== "douyin"
           || !candidate.profile.publicActorKey) return null;
-        const evidence = await Promise.all(candidate.evidenceIds.map((id) => repositories.domain.findEvidence(scope, id)));
+        const evidenceIds = orderedCandidateEvidenceIds(candidate);
+        const evidence = await Promise.all(evidenceIds.map((id) =>
+          repositories.domain.findEvidence(scope, id)));
         if (evidence.some((item) => !item)) return null;
         const trusted = evidence.filter((item): item is NonNullable<typeof item> => Boolean(item));
         const verified = await finalAuthority.verify({ scope, candidateId,
-          evidenceIds: [...candidate.evidenceIds].sort(), publicActorKey: candidate.profile.publicActorKey,
+          evidenceIds, publicActorKey: candidate.profile.publicActorKey,
           expectedCandidate: candidate, expectedEvidence: trusted });
-        const firstProvenance = verified.evidence[0]?.provenance;
-        const commentTargetPublicUrl = !firstProvenance
-          || firstProvenance.kind === "import_artifact_row"
-          ? null : firstProvenance.sourceUrl;
+        const commentEvidence = selectDouyinCandidateEvidence(
+          verified.evidence as readonly import("./acquisition-domain.js").DiscoveryEvidence[],
+          { requireVideo: true }
+        );
+        const commentTargetPublicUrl = commentEvidence
+          ? discoveryEvidencePublicSourceUrl(commentEvidence) : null;
         if (!commentTargetPublicUrl) return null;
         return { candidateId: verified.candidate.id,
           candidateRevision: verified.candidate.version,
@@ -2348,8 +2368,13 @@ export async function createAcquisitionApplication(
       async loadAccountAuthority(scope, accountId) {
         const account = await socialAccountRepository.findById(scope.workspaceId, accountId);
         return account ? { accountId: account.id, state: account.state,
-          loginStateVersion: account.loginStateVersion } : null;
-      }
+          loginStateVersion: account.loginStateVersion,
+          accountHandle: account.accountHandle } : null;
+      },
+      reconciliationDeadlineMs: douyinActionDeadlineMs(),
+      reconcileAction: options.douyinMediaCrawlerGateway
+        ? (input) => options.douyinMediaCrawlerGateway!.reconcileAction(input)
+        : undefined
     });
     const enqueueCrawlerJob = async (
       run: import("./acquisition-douyin-automation.js").DouyinAutomationRunIntent,
@@ -2459,8 +2484,16 @@ export async function createAcquisitionApplication(
           for (const link of links) {
             const candidate = await repositories.domain.findCandidate(scope, link.candidateId);
             if (!candidate) continue;
-            const evidence = await Promise.all(candidate.evidenceIds.map((id) => repositories.domain.findEvidence(scope, id)));
-            const publicEvidence = evidence.find((item) => item && item.sourcePlatform === "douyin" && discoveryEvidencePublicSourceUrl(item));
+            const evidence = await Promise.all(
+              orderedCandidateEvidenceIds(candidate).map((id) =>
+                repositories.domain.findEvidence(scope, id))
+            );
+            const trusted = evidence.filter(
+              (item): item is NonNullable<typeof item> => Boolean(item)
+            );
+            const publicEvidence = selectDouyinCandidateEvidence(trusted, {
+              requireVideo: false
+            });
             if (!publicEvidence) continue;
             const sourceUrl = discoveryEvidencePublicSourceUrl(publicEvidence);
             if (!sourceUrl) continue;
@@ -2647,7 +2680,7 @@ export async function createAcquisitionApplication(
         projectTerminalJob: projectTerminalCrawlerJob
       });
       crawlerWorker.start(options.crawlerWorkerIntervalMs);
-      if (options.douyinOutreachActionsEnabled === true) {
+      if (outreachActionsEnabled) {
         outreachActionRecoverySweeper = new AcquisitionOutreachActionRecoverySweeper({
           repository: outreachBatchRepository, now,
           intervalMs: options.outreachActionRecoveryIntervalMs
@@ -2696,12 +2729,21 @@ export async function createAcquisitionApplication(
               || candidate.profile.kind !== "individual"
               || candidate.profile.publicActorKey !== frozen.publicActorKey
               || candidate.profile.publicProfileUrl !== frozen.publicProfileUrl) return null;
-            const evidence = await Promise.all(candidate.evidenceIds.map((id) =>
+            const evidence = await Promise.all(orderedCandidateEvidenceIds(candidate).map((id) =>
               repositories.domain.findEvidence(scope, id)));
             if (evidence.some((value) => !value)) return null;
-            const hashes = evidence.filter((value): value is NonNullable<typeof value> => Boolean(value))
-              .map((value) => value.contentHash).sort();
+            const trustedEvidence = evidence.filter(
+              (value): value is NonNullable<typeof value> => Boolean(value)
+            );
+            const exactVideoEvidence = selectDouyinCandidateEvidence(
+              trustedEvidence,
+              { requireVideo: true }
+            );
+            const exactVideoUrl = exactVideoEvidence
+              ? discoveryEvidencePublicSourceUrl(exactVideoEvidence) : null;
+            const hashes = trustedEvidence.map((value) => value.contentHash).sort();
             if (canonicalJsonStringify(hashes) !== canonicalJsonStringify([...frozen.evidenceHashes].sort())
+              || exactVideoUrl !== frozen.commentTargetPublicUrl
               || candidate.status === "do_not_contact"
               || await finalAuthority.hasDoNotContact(scope, frozen.publicActorKey)) return null;
             return { accountHandle: account.accountHandle };

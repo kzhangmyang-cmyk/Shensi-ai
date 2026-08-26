@@ -1,5 +1,11 @@
-import type { DouyinAutomationController, DouyinAutomationDraft, DouyinAutomationState } from "./douyin-automation-controller";
-import type { DouyinPolicyInput, DouyinRunCandidate } from "./douyin-automation-api";
+import {
+  type DouyinAutomationController, type DouyinAutomationDraft,
+  type DouyinAutomationState } from "./douyin-automation-controller";
+import {
+  isDouyinCommentOutreachCandidate,
+  type DouyinPolicyInput,
+  type DouyinRunCandidate
+} from "./douyin-automation-api";
 
 const escape = (value: string) => value.replace(/[&<>"']/gu, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char);
 const stateLabel: Record<string, string> = { awaiting_scan: "等待扫码", active: "已连接", login_expired: "登录已失效", risk_paused: "风险暂停", disconnected: "未连接" };
@@ -71,7 +77,8 @@ function formDraft(form: HTMLFormElement, state: DouyinAutomationState): DouyinA
   };
 }
 
-export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutomationState): void {
+export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutomationState,
+  inspectedCandidateId: string | null = null): void {
   const policy = state.policy;
   const account = state.account;
   const session = state.loginSession;
@@ -93,7 +100,8 @@ export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutom
   activityHost[renderedQueuedRunToken] = queuedRunToken;
   const candidates = hasOutstandingRun ? [] : state.candidates;
   const selected = new Set(state.selectedCandidateIds);
-  const inspector = candidates.find((candidate) => selected.has(candidate.id)) ?? candidates[0] ?? null;
+  const inspector = candidates.find((candidate) => candidate.id === inspectedCandidateId)
+    ?? candidates.find((candidate) => selected.has(candidate.id)) ?? candidates[0] ?? null;
   const draft = state.draftPolicy;
   const keywordInputs = draft.keywords.map((keyword, index) => `<label class="douyin-keyword"><span class="sr-only">关键词 ${index + 1}</span><input data-douyin-keyword value="${escape(keyword)}" maxlength="100"><button type="button" data-douyin-action="remove-keyword" aria-label="删除关键词 ${escape(keyword)}">×</button></label>`).join("");
   const disabledReason = saveDisabledReason(state, state.planName, draft.keywords);
@@ -135,8 +143,8 @@ export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutom
         ${status ? `<div class="douyin-run-observation"><div class="douyin-run-live-activity" role="status" aria-live="${activityLive}" aria-atomic="true"><div class="douyin-run-observation-head"><strong>${escape(phaseLabel[status.activity.phase] ?? status.activity.phase)}</strong><span>${escape(activityBrowserLabel(status.activity.phase, status.activity.browserMode))}</span></div><span>当前关键词：${escape(status.activity.currentKeyword ?? "等待服务器分配关键词")}</span></div><div class="douyin-run-observation-details"><span>第 ${status.attempt} 次尝试</span><span>更新于 ${escape(new Date(status.updatedAt).toLocaleString("zh-CN", { hour12: false }))}</span></div></div><div class="douyin-run-metrics"><div><span>公开记录</span><strong>${status.recordCount}</strong></div><div><span>候选人额度</span><strong>${status.candidateBudgetUsed} / ${status.candidateBudgetLimit}</strong></div></div>${status.lastErrorCode ? `<p class="douyin-safe-reason" role="status" aria-live="${errorLive}">运行提示：${escape(localizedCrawlerError(status.lastErrorCode, status.state))}</p>` : ""}` : state.runIntent ? `<div class="douyin-empty" role="status" aria-live="${queuedLive}" aria-atomic="true"><strong>排队中</strong><p>已提交采集，等待服务器返回首次观测状态。</p></div>` : `<div class="douyin-empty"><strong>暂无采集运行</strong><p>系统不会用演示数据替代服务器状态。</p></div>`}
       </article>
       <article class="douyin-panel douyin-candidates-panel">
-        <div class="douyin-panel-title"><span class="douyin-step">04</span><div><h3>候选人与证据</h3><p>选中后生成待审批批次；取消选中即排除，不执行联系。</p></div></div>
-        ${candidates.length ? `<div class="douyin-candidate-workspace"><div class="douyin-candidate-table" role="listbox" aria-label="候选人列表">${candidates.map((candidate, index) => `<label class="douyin-candidate-row ${inspector?.id === candidate.id ? "is-active" : ""}" role="option" aria-selected="${selected.has(candidate.id)}" tabindex="${index === 0 ? 0 : -1}" data-candidate-index="${index}"><input type="checkbox" data-douyin-candidate data-candidate-index="${index}" ${selected.has(candidate.id) ? "checked" : ""}><span class="douyin-candidate-kind">${candidateKind(candidate)}</span><strong>${escape(candidate.displayName)}</strong><span>${escape(candidate.evidence.excerpt.slice(0, 70))}</span><em>${selected.has(candidate.id) ? "已选中" : "排除本批次"}</em></label>`).join("")}</div>${inspector ? `<aside class="douyin-evidence-inspector" aria-label="证据查看器"><span class="douyin-eyebrow">EVIDENCE</span><h4>${escape(inspector.displayName)}</h4><p>${escape(inspector.evidence.excerpt)}</p><a href="${escape(inspector.evidence.sourceUrl)}" target="_blank" rel="noreferrer">查看公开来源</a><small>仅展示服务器保存的公开证据摘要；永久不联系身份已由服务器过滤。</small></aside>` : ""}</div><div class="douyin-actions"><span>已选 ${state.selectedCandidateIds.length} 人</span><button type="button" class="primary" data-douyin-action="create-batch" ${state.selectedCandidateIds.length === 0 ? "disabled" : ""}>生成待审批批次</button></div>` : `<div class="douyin-empty"><strong>${status?.candidateProjectionState === "pending" && terminalRunStates.has(status.state) ? "正在整理候选人" : status?.state === "running" ? "正在发现候选人" : "暂无候选人"}</strong><p>${status?.candidateProjectionState === "pending" && terminalRunStates.has(status.state) ? "公开记录已保存，候选人正在整理。" : status?.state === "partial" ? "本次为部分结果，已保留可用公开证据。" : "运行自动采集后，创作者与需求评论者将显示在这里。"}</p></div>`}
+        <div class="douyin-panel-title"><span class="douyin-step">04</span><div><h3>候选人与证据</h3><p>点击候选人查看证据；仅勾选具备可评论视频的候选人进入待审批批次。</p></div></div>
+        ${candidates.length ? `<div class="douyin-candidate-workspace"><div class="douyin-candidate-table" role="listbox" aria-label="候选人列表">${candidates.map((candidate, index) => { const eligible = isDouyinCommentOutreachCandidate(candidate); const inspected = inspector?.id === candidate.id; return `<div class="douyin-candidate-row ${inspected ? "is-active" : ""} ${eligible ? "" : "is-outreach-ineligible"}" role="option" aria-selected="${inspected}" tabindex="${inspected ? 0 : -1}" data-candidate-index="${index}"><input type="checkbox" data-douyin-candidate data-candidate-index="${index}" aria-label="${escape(eligible ? `选择 ${candidate.displayName} 加入待审批批次` : `${candidate.displayName} 缺少可评论视频，不能加入待审批批次`)}" ${eligible && selected.has(candidate.id) ? "checked" : ""} ${eligible ? "" : "disabled"}><span class="douyin-candidate-kind">${candidateKind(candidate)}</span><strong>${escape(candidate.displayName)}</strong><span>${escape(candidate.evidence.excerpt.slice(0, 70))}</span><em>${!eligible ? "仅查看证据 · 缺少可评论视频" : selected.has(candidate.id) ? "已选中" : "排除本批次"}</em></div>`; }).join("")}</div>${inspector ? `<aside class="douyin-evidence-inspector" aria-label="证据查看器"><span class="douyin-eyebrow">EVIDENCE</span><h4>${escape(inspector.displayName)}</h4><p>${escape(inspector.evidence.excerpt)}</p><a href="${escape(inspector.evidence.sourceUrl)}" target="_blank" rel="noreferrer">查看公开来源</a><small>仅展示服务器保存的公开证据摘要；永久不联系身份已由服务器过滤。</small></aside>` : ""}</div><div class="douyin-actions"><span>已选 ${state.selectedCandidateIds.length} 人</span><button type="button" class="primary" data-douyin-action="create-batch" ${state.selectedCandidateIds.length === 0 ? "disabled" : ""}>生成待审批批次</button></div>` : `<div class="douyin-empty"><strong>${status?.candidateProjectionState === "pending" && terminalRunStates.has(status.state) ? "正在整理候选人" : status?.state === "running" ? "正在发现候选人" : "暂无候选人"}</strong><p>${status?.candidateProjectionState === "pending" && terminalRunStates.has(status.state) ? "公开记录已保存，候选人正在整理。" : status?.state === "partial" ? "本次为部分结果，已保留可用公开证据。" : "运行自动采集后，创作者与需求评论者将显示在这里。"}</p></div>`}
       </article>
       ${session ? `<dialog class="douyin-qr-dialog" open aria-labelledby="douyinQrTitle"><div><span class="douyin-eyebrow">SECURE QR LOGIN</span><h3 id="douyinQrTitle">${session.state === "awaiting_scan" ? "请使用抖音扫码" : session.state === "active" ? "账号已连接" : "二维码已过期"}</h3>${session.qrImageDataUrl ? `<img src="${escape(session.qrImageDataUrl)}" alt="抖音登录二维码">` : ""}<p>${session.state === "awaiting_scan" ? `二维码有效至 ${escape(new Date(session.expiresAt).toLocaleTimeString("zh-CN", { hour12: false }))}` : escape(stateLabel[session.state] ?? session.state)}</p><div class="douyin-actions">${session.state === "login_expired" ? `<button type="button" class="primary" data-douyin-action="connect">重新生成</button>` : ""}<button type="button" class="secondary" data-douyin-action="close-qr">关闭</button></div></div></dialog>` : ""}
     </section>`;
@@ -144,25 +152,46 @@ export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutom
 
 export function mountDouyinAutomationView(host: HTMLElement, controller: DouyinAutomationController, onCreateBatch: (runId: string, candidateIds: string[]) => void): () => void {
   let state = controller.getState();
-  const unsubscribe = controller.subscribe((next) => { state = next; renderDouyinAutomationView(host, state); host.querySelector<HTMLElement>("[role=alert]")?.focus(); });
-  const click = (event: Event) => {
-    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-douyin-action]"); if (!target) return;
-    const action = target.dataset.douyinAction;
-    if (action === "connect") void controller.connect();
-    else if (action === "disconnect") void controller.disconnect();
-    else if (action === "suggest") void controller.suggestKeywords();
-    else if (action === "save-only" || action === "save-and-run") {
-      const form = target.closest<HTMLFormElement>("[data-douyin-policy-form]");
-      if (form && form.reportValidity()) {
-        const draft = formDraft(form, state);
-        if (action === "save-only") void controller.save(draft);
-        else void controller.saveAndRun(draft);
-      }
+  let inspectedCandidateId: string | null = null;
+  const render = () => {
+    if (inspectedCandidateId && !state.candidates.some((candidate) => candidate.id === inspectedCandidateId)) {
+      inspectedCandidateId = null;
     }
-    else if (action === "retry") void controller.load(state.planId, state.planName, state.activeRunId);
-    else if (action === "close-qr") { host.querySelector<HTMLDialogElement>(".douyin-qr-dialog")?.close(); host.querySelector<HTMLElement>("[data-douyin-action=connect]")?.focus(); }
-    else if (action === "remove-keyword") { target.closest(".douyin-keyword")?.remove(); updateActionAvailability(); }
-    else if (action === "create-batch" && state.activeRunId) onCreateBatch(state.activeRunId, state.selectedCandidateIds);
+    renderDouyinAutomationView(host, state, inspectedCandidateId);
+  };
+  const inspectCandidate = (index: number, focus = false) => {
+    const candidate = state.candidates[index];
+    if (!candidate) return;
+    inspectedCandidateId = candidate.id;
+    render();
+    if (focus) host.querySelector<HTMLElement>(`.douyin-candidate-row[data-candidate-index="${index}"]`)?.focus();
+  };
+  const unsubscribe = controller.subscribe((next) => { state = next; render(); host.querySelector<HTMLElement>("[role=alert]")?.focus(); });
+  const click = (event: Event) => {
+    const element = event.target as HTMLElement | null;
+    const target = element?.closest<HTMLElement>("[data-douyin-action]");
+    if (target) {
+      const action = target.dataset.douyinAction;
+      if (action === "connect") void controller.connect();
+      else if (action === "disconnect") void controller.disconnect();
+      else if (action === "suggest") void controller.suggestKeywords();
+      else if (action === "save-only" || action === "save-and-run") {
+        const form = target.closest<HTMLFormElement>("[data-douyin-policy-form]");
+        if (form && form.reportValidity()) {
+          const draft = formDraft(form, state);
+          if (action === "save-only") void controller.save(draft);
+          else void controller.saveAndRun(draft);
+        }
+      }
+      else if (action === "retry") void controller.load(state.planId, state.planName, state.activeRunId);
+      else if (action === "close-qr") { host.querySelector<HTMLDialogElement>(".douyin-qr-dialog")?.close(); host.querySelector<HTMLElement>("[data-douyin-action=connect]")?.focus(); }
+      else if (action === "remove-keyword") { target.closest(".douyin-keyword")?.remove(); updateActionAvailability(); }
+      else if (action === "create-batch" && state.activeRunId) onCreateBatch(state.activeRunId, state.selectedCandidateIds);
+      return;
+    }
+    if (element?.matches("[data-douyin-candidate]")) return;
+    const row = element?.closest<HTMLElement>(".douyin-candidate-row");
+    if (row) inspectCandidate(Number(row.dataset.candidateIndex));
   };
   const updateActionAvailability = () => {
     const form = host.querySelector<HTMLFormElement>("[data-douyin-policy-form]");
@@ -176,14 +205,18 @@ export function mountDouyinAutomationView(host: HTMLElement, controller: DouyinA
     if (accessible) accessible.textContent = reason ?? "计划可以保存并运行";
   };
   const input = () => updateActionAvailability();
-  const change = (event: Event) => { updateActionAvailability(); const target = event.target as HTMLInputElement | null; if (!target?.matches("[data-douyin-candidate]")) return; const candidate = state.candidates[Number(target.dataset.candidateIndex)]; if (candidate) controller.toggleCandidate(candidate.id); };
+  const change = (event: Event) => { updateActionAvailability(); const target = event.target as HTMLInputElement | null; if (!target?.matches("[data-douyin-candidate]")) return; const index = Number(target.dataset.candidateIndex); const candidate = state.candidates[index]; if (candidate) { inspectedCandidateId = candidate.id; controller.toggleCandidate(candidate.id); } };
   const submit = (event: Event) => {
     const form = event.target as HTMLFormElement; if (!form.matches("[data-douyin-policy-form]")) return; event.preventDefault();
     if (form.reportValidity()) void controller.saveAndRun(formDraft(form, state));
   };
   const keydown = (event: KeyboardEvent) => {
-    const row = (event.target as HTMLElement | null)?.closest<HTMLElement>(".douyin-candidate-row"); if (!row || !["ArrowDown", "ArrowUp", " "].includes(event.key)) return; event.preventDefault();
-    if (event.key === " ") { const candidate = state.candidates[Number(row.dataset.candidateIndex)]; if (candidate) controller.toggleCandidate(candidate.id); return; }
+    const eventTarget = event.target as HTMLElement | null;
+    const row = eventTarget?.closest<HTMLElement>(".douyin-candidate-row"); if (!row || !["ArrowDown", "ArrowUp", " ", "Enter"].includes(event.key)) return;
+    if (eventTarget?.matches("[data-douyin-candidate]") && event.key === " ") return;
+    event.preventDefault();
+    if (event.key === "Enter") { inspectCandidate(Number(row.dataset.candidateIndex), true); return; }
+    if (event.key === " ") { const index = Number(row.dataset.candidateIndex); const candidate = state.candidates[index]; if (candidate) { inspectedCandidateId = candidate.id; controller.toggleCandidate(candidate.id); if (!isDouyinCommentOutreachCandidate(candidate)) render(); } return; }
     const rows = [...host.querySelectorAll<HTMLElement>(".douyin-candidate-row")]; const index = rows.indexOf(row); const next = rows[(index + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length]; next?.focus();
   };
   host.addEventListener("click", click); host.addEventListener("input", input); host.addEventListener("change", change); host.addEventListener("submit", submit); host.addEventListener("keydown", keydown);

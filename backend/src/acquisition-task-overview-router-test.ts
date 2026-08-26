@@ -404,6 +404,7 @@ test("overview returns the real tenant-scoped task aggregate", async () => {
         discoveryMethods: ["public_search"],
         planStatus: "approved",
         latestRun: null,
+        latestResultRunId: null,
         updatedAt: plan.updatedAt
       }]
     });

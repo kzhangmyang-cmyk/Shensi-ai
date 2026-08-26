@@ -188,11 +188,52 @@ test("worker rejects instead of reporting success after losing its failure fence
   assert.deepEqual(runtime.paused, []);
   assert.equal(
     (await repository.listActions("workspace-1", "batch-1"))![0]!.status,
-    "queued"
+    "risk_paused"
   );
 });
 
-test("claim fencing, account concurrency one, and restart recovery reject stale completion", async () => {
+test("worker rejects instead of reporting success after losing its success fence", async () => {
+  const repository = await repositoryWith([
+    action("comment-1", "candidate-1", "comment")
+  ]);
+  let release!: (receipt: OutreachActionExecutionReceipt) => void;
+  let started!: () => void;
+  const executing = new Promise<void>((resolve) => { started = resolve; });
+  const receipt = new Promise<OutreachActionExecutionReceipt>((resolve) => {
+    release = resolve;
+  });
+  let nowMs = BASE;
+  const runtime = new AcquisitionOutreachActionWorker({
+    repository,
+    workerId: "worker-success-fence",
+    now: () => new Date(nowMs).toISOString(),
+    accountAuthority: async () => ({ accountHandle: "private-account-handle" }),
+    execute: async () => { started(); return receipt; },
+    pauseAccount: async () => undefined
+  });
+  const pending = runtime.runOnce();
+  await executing;
+  nowMs = BASE + 180_000;
+  assert.equal(
+    await repository.recoverExpiredActionClaims(new Date(nowMs).toISOString()),
+    1
+  );
+  release({
+    actionId: "comment-1",
+    state: "succeeded",
+    platformReceiptReference: "receipt-comment-1",
+    occurredAt: new Date(nowMs).toISOString(),
+    failureCode: null
+  });
+
+  await assert.rejects(pending, /outreach_action_fence_lost/u);
+  assert.equal(
+    (await repository.listActions("workspace-1", "batch-1"))![0]!.status,
+    "risk_paused"
+  );
+});
+
+test("expired external-write claims freeze for manual audit and reject stale completion", async () => {
   const repository = await repositoryWith([
     action("comment-1", "candidate-1", "comment"),
     action("comment-2", "candidate-2", "comment")
@@ -205,10 +246,36 @@ test("claim fencing, account concurrency one, and restart recovery reject stale 
   await repository.recoverExpiredActionClaims(new Date(BASE + 1_001).toISOString());
   const second = await repository.claimNextAction({ workerId: "worker-b",
     now: new Date(BASE + 60_000).toISOString(), leaseDurationMs: 1_000 });
-  assert.equal(second?.fence.fencingToken, 2);
+  assert.equal(second, null);
   assert.equal(await repository.completeActionSuccess(first!.fence, {
     platformReceiptReference: "stale", occurredAt: new Date(BASE).toISOString()
   }), false);
+  const actions = await repository.listActions("workspace-1", "batch-1");
+  assert.equal(actions?.[0]?.status, "risk_paused");
+  assert.equal(actions?.[0]?.failureCode, "douyin_action_receipt_ambiguous");
+});
+
+test("unavailable and uncertain execution failures pause the account immediately", async () => {
+  for (const failureCode of [
+    "action_unavailable",
+    "douyin_action_timeout",
+    "douyin_action_receipt_ambiguous"
+  ]) {
+    const repository = await repositoryWith([
+      action("comment-1", "candidate-1", "comment"),
+      action("comment-2", "candidate-2", "comment")
+    ]);
+    const runtime = worker(repository, [{ state: "failed", failureCode }]);
+
+    await runtime.instance.runOnce();
+
+    assert.deepEqual(runtime.paused, ["account-1"]);
+    assert.deepEqual(
+      (await repository.listActions("workspace-1", "batch-1"))!
+        .map((value) => value.status),
+      ["risk_paused", "risk_paused"]
+    );
+  }
 });
 
 test("worker replays exact content, persists receipt, and never repeats after success", async () => {

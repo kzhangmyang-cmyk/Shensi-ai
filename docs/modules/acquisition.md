@@ -233,6 +233,12 @@ The authenticated browser consumes these generated projections through
 redeclare transport DTOs. Bounded field-level validation details from failed
 plan requests are preserved by the transport error and the first field path
 and reason are shown to the operator; malformed detail objects are discarded.
+Outreach-batch creation publishes controlled errors for an ineligible
+candidate, changed evidence, unavailable active model, provider throttling or
+an invalid model draft. Provider response bodies and arbitrary exception
+messages remain private. The browser accepts both the standard nested error
+envelope and the batch routes' root-level `code`/`message` envelope, while
+discarding non-string error values.
 The `#acquisition` workspace preserves the existing
 Shensi shell and session controller, presents QR connect/reconnect, editable
 keywords, local schedule/timezone and the 1–200 daily limit (default 50), then
@@ -269,7 +275,8 @@ backend/sidecar action flag, and the separate fenced executor. The real-customer
 trial defaults that flag to false: drafts remain editable/reviewable, but final
 approval returns `503 outreach_actions_disabled`, creates no actions, and sends
 nothing. A specific trial may enable both processes only after explicit user
-authorization and a zero-queued-action audit. In that mode, the page's second
+authorization and a global all-zero audit of `queued`,
+`blocked_by_predecessor`, and `executing`. In that mode, the page's second
 approval confirmation is the send authorization: approval atomically queues the
 comment and predecessor-blocked direct message, and the worker may claim the
 comment immediately after commit.
@@ -278,6 +285,16 @@ Only candidates whose persisted public evidence points to an exact
 approval flow. Profile-only creator candidates remain clickable for evidence
 inspection, while their outreach checkbox is disabled and labelled
 `仅查看证据 · 缺少可评论视频`; inspecting a row never selects it for outreach.
+The MediaCrawler creator capture retains the source `aweme_id`: normalization
+uses that exact video as evidence while keeping `/user/{sec_uid}` as the direct-
+message profile. If a candidate accumulates multiple evidence rows, both the
+run feed and batch authority sort the frozen evidence IDs and prefer a valid
+video. Legacy profile-only evidence remains inspectable but is never promoted
+to a comment target; a fresh collection is required to obtain the missing
+source-video binding.
+The backend repeats
+the exact video/profile target validation during batch creation, revision, and
+final approval; invalid targets create no approval or action rows.
 `#acquisition` and authenticated real-mode `#conversations` share this same
 server batch, revision, approval, action, and receipt authority. The
 conversations route is a public-evidence controlled outreach workspace, not an
@@ -324,13 +341,29 @@ same MediaCrawler guidance rather than a raw internal error code.
 
 Outreach generation is a private service boundary consumed only by the batch
 service. `POST /runs/{runId}/outreach-batches` persists its exact values as
-candidate draft revision 1; generation itself still performs no persistence.
+candidate draft revision 1. Generation does not persist a draft or batch until
+every selected candidate validates; the separate model-call audit ledger is
+persisted for both successful and failed provider attempts.
 It loads only persisted workspace-owned candidates and their exact evidence,
 parses normalized refusal and age phrases again before any model call, uses the
 active official snapshot with closed structured output, and validates one-line,
 bounded comment/direct-message text. Only fixed safe template clauses may be
 ungrounded; every other complete clause must occur in one approved evidence
-record. Evidence rows are never concatenated. URLs, Unicode/IDN/punycode
+record. The versioned model contract tells providers to copy evidence phrases
+verbatim, enumerates the only permitted evidence prefixes and safe template
+clauses, and closes `rationaleCodes` to `evidence_grounded`,
+`public_need_signal`, and `manual_review_required`. The same constants drive
+the final validator and the tool schema, so provider guidance cannot drift from
+the server authority. If otherwise well-formed model prose fails only this final
+grounding validation, the service first completes the atomic final-authority
+check, then assembles a conservative review draft from one bounded exact segment
+of the currently verified public evidence and the same fixed safe clauses. That
+fallback is also required to pass the unchanged final validator, carries
+`evidence_grounded` plus `manual_review_required`, and remains a pending human-
+approval draft; it never approves or executes outreach. Gateway/tool-shape,
+DNC, tenant, evidence-authority, and unsafe-content failures are not converted
+into drafts, and no safe evidence segment still fails closed. Evidence rows are
+never concatenated. URLs, Unicode/IDN/punycode
 domains recognized by the pinned ICANN public-suffix data, phone numbers,
 forbidden claims/words, and malformed output are rejected. Grounded dotted
 product/technology names whose final label is not an ICANN suffix are allowed.
@@ -346,7 +379,8 @@ content hash and discards raw model output; Task 6 does not persist drafts or
 create a competing revision ledger.
 
 The public batch family provides candidate-scoped collection GET, create, read,
-`PUT` revision, approve, reject, pause, resume, and action-list routes. The
+`PUT` revision, approve, reject, pause, resume, action-list, and exact-action
+read-only reconciliation routes. The
 collection GET requires `runId` and `candidateId`, accepts limit 1–50 plus an
 opaque filter-bound cursor, returns only current head revisions in stable
 descending order, and requires the outreach-approval capability without CSRF
@@ -368,7 +402,9 @@ creates, but does not execute, one `comment` action with sequence 1 and status
 `blocked_by_predecessor` per selected candidate. Memory uses the shared
 reentrant authority coordinator; MySQL locks the account and reuses one
 connection for candidate/evidence/DNC locks, approval, replay, daily-limit
-reservation, and both action inserts. When the flag is missing or false,
+reservation, and both action inserts. A nested authority transaction on that
+pre-bound connection restores and tenant-checks the ingestion scope before any
+candidate/evidence/DNC lock. When the flag is missing or false,
 approval returns `503 outreach_actions_disabled` before approval, replay,
 allowance, or action persistence; this is not a dormant approved outbox.
 
@@ -396,13 +432,22 @@ solver, token injection, alternate write path, or bypass service. The current
 defaults are 120 seconds for manual verification, 150 seconds for the Node
 action deadline, 160 seconds for gateway HTTP, 170 seconds for browser-action
 IPC, and a 180-second minimum claim lease. Timeout remains a closed
-`risk_paused` result rather than authorizing a new action. Other verification,
+`risk_paused` result rather than authorizing a new action. Direct messages start
+at the canonical frozen `/user/{id}` page and support only a unique visible
+same-page panel, Draft editor, and send button. Native keyboard input must
+round-trip exactly; receipt proof must be a new self/outgoing stable-ID message
+with an allowlisted platform timestamp after the durable action start. An
+unbound `/messages` route transition or ambiguous DOM fails closed. Other verification,
 rate-limit, account-warning, login-expiry, missing-control, and timeout states
 are closed failures; no alternate selector or bypass route is attempted. A
 comment receipt remains succeeded if the later message fails. Three
 consecutive failures, and immediate account-risk failures, persistently pause
-the account and all its queued work. Expired claims are swept for exact replay,
-and stale completions cannot overwrite the current fence.
+the account and all its queued work. Expired external-write claims and uncertain
+outcomes are moved to `risk_paused`, never swept for replay, and stale
+completions cannot overwrite the current fence. The page offers an explicit
+operator checkbox for strictly read-only reconciliation of that same frozen
+action. Unique post-start proof can mark only it succeeded; no proof stays
+frozen, and the account/successor are not automatically resumed.
 
 ## Tests
 
@@ -479,13 +524,25 @@ integrations; those surfaces use `预览 · 待接入` and must not be interpret
 acquisition results. The authoritative live/preview matrix and isolated trial
 lifecycle are maintained in `docs/operations/real-customer-trial.md`.
 
-For the trial-disabled action check, leave
+The platform carousel precedes the selected platform workspace. Douyin is the
+only enabled real acquisition card; Kuaishou, Xiaohongshu, Weibo, and WeChat
+remain visible as dark `待接入` cards. Pointer, wheel, drag, and keyboard
+navigation skip those disabled cards, so a pending integration cannot replace
+the selected real Douyin context or expose hidden demo task detail. In real
+mode the selector owns a full-width decision row, the real task list follows
+it, and the selected platform workspace follows the task list. Mid-sized
+desktop layouts hide the secondary inspector so all five cards remain visible
+without changing the product's dark visual system.
+
+For a trial-disabled action check, leave
 `DOUYIN_OUTREACH_ACTIONS_ENABLED=false`, confirm crawler status still advances,
 confirm final batch approval returns the stable 503, and confirm no queued test
 fixture is claimed. For an explicitly authorized action trial, first confirm the
-action table has no historical queued or expired-executing work, then set the
-flag to `true` in both backend and sidecar and restart both. Do not enable the
-flag merely to pass trial acceptance.
+global action table has no `queued`, `blocked_by_predecessor`, or `executing`
+work, then use the supervisor's one-shot
+`--enable-outreach-after-empty-audit` flag so both processes receive the same
+effective gate. Ambient or retained true values are ignored by the trial
+supervisor. Do not enable the flag merely to pass trial acceptance.
 
 For an incompatible backend/sidecar runtime, treat `crawler_worker_failed` as a
 closed boundary failure rather than evidence that no records were collected.

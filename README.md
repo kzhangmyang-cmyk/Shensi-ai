@@ -38,6 +38,7 @@ it in a command, tracked file, or log.
 ```bash
 pnpm trial:prepare
 pnpm trial:start
+pnpm trial:publish
 pnpm trial:status
 pnpm trial:verify
 pnpm trial:stop
@@ -52,6 +53,21 @@ temporary origin; it may change after a tunnel restart and must not be copied
 into tracked documentation. `trial:stop` validates the recorded command, PID,
 and runtime nonce before terminating trial process groups and retains the
 runtime data for an explicit retention decision.
+
+Use `pnpm trial:publish` after verified source changes. It stops only the
+recorded trial processes, rebuilds the frontend and backend from this worktree,
+restarts the same retained MySQL/profile runtime, and verifies the new gateway.
+The customer-facing local URL is `http://127.0.0.1:5608`; it and the temporary
+HTTPS origin use the same frontend build, API, and database. Port `5588` is a
+developer hot-reload server and is not the local customer-trial URL.
+The normal command always regenerates an action-disabled runtime, even if the
+parent shell or retained `trial.env` contains an older true value. A separately
+authorized one-shot action launch uses
+`pnpm trial:publish -- --enable-outreach-after-empty-audit`; before any
+action-enabled backend starts, the supervisor performs a read-only global
+aggregate over `queued`, `blocked_by_predecessor`, and `executing` outreach
+actions. A nonzero or unreadable result aborts startup and cleans up the newly
+started processes.
 
 The trial build shows all nine primary modules—自动营销总览、获客中心、社媒对话、
 私域客户池、成交工作台、智能体中心、自动工作流、外贸营销、设置中心—and the six
@@ -185,13 +201,28 @@ crawler worker continues normally. When explicitly enabled after separate live
 acceptance, the worker rechecks the frozen approval/account/candidate/content/
 budget authority immediately before asking the sidecar to submit exact approved
 text.
+The direct-message adapter starts from the frozen canonical `/user/{id}` page
+and supports only a uniquely bound same-page message panel. A route transition
+without a stable recipient binding fails closed. Native Playwright keyboard
+input must round-trip the exact text; a receipt requires one new self/outgoing,
+stable-ID message with an allowlisted platform timestamp after the durable
+action start. An expired claim, timeout, unavailable result, or ambiguous
+post-click receipt is never requeued: the exact action and related account work
+remain `risk_paused`. After separately checking the platform, the operator may
+explicitly confirm a strictly read-only reconciliation of that same frozen
+action. Unique proof marks only that action succeeded; no proof keeps it frozen,
+and neither path automatically resumes the account or successor.
 
 The authenticated `#acquisition` dashboard uses that authority for the primary
 controlled Douyin collection workflow: QR account connection, editable local
 automation, run progress, creator/commenter evidence review, and revisioned
 exact-message drafting. Public-link import remains an authorized secondary
-fallback. This trial keeps final outreach approval, comments, and direct
-messages disabled; “automatic” describes collection, never external sending.
+fallback. Trial generation defaults final outreach approval, comments, and
+direct messages to disabled. A specifically authorized trial may enable both
+processes only through the one-shot CLI flag after a global empty audit of
+`queued`, `blocked_by_predecessor`, and `executing`; ambient or retained
+environment values are not authorization. Collection alone never authorizes
+external sending.
 The browser never
 receives MediaCrawler cookies, account handles, browser profiles or leases.
 Completed MediaCrawler JSONL records are published as immutable pages while a

@@ -108,13 +108,125 @@ assert.equal(defaultCalls[0]?.url,
 for (const status of [401, 403, 409, 412]) {
   await assert.rejects(
     createOutreachBatchApi(async () => new Response(JSON.stringify({ error: { code: `status_${status}`, message: "closed failure" } }), { status })).getBatch("batch-1"),
-    (error: unknown) => error instanceof AcquisitionHttpError && error.status === status && error.code === `status_${status}`
+    (error: unknown) => error instanceof AcquisitionHttpError
+      && error.status === status
+      && error.code === `status_${status}`
+      && error.message === "closed failure"
   );
 }
+await assert.rejects(
+  createOutreachBatchApi(async () => new Response(JSON.stringify({
+    code: "outreach_generation_failed",
+    message: "无法生成待审批批次",
+    details: { stage: "draft_generation" },
+    requestId: "request-1",
+    retryable: false
+  }), { status: 500 }), { cookie: "gj_csrf=csrf-value" })
+    .createBatch("run-1", ["candidate-1"], "create-key"),
+  (error: unknown) => error instanceof AcquisitionHttpError
+    && error.status === 500
+    && error.code === "outreach_generation_failed"
+    && error.message === "无法生成待审批批次"
+);
+await assert.rejects(
+  createOutreachBatchApi(async () => new Response(JSON.stringify({
+    code: { value: "must-not-cross" },
+    message: { accountHandle: "private-account" }
+  }), { status: 500 }), { cookie: "gj_csrf=csrf-value" })
+    .createBatch("run-1", ["candidate-1"], "create-key"),
+  (error: unknown) => error instanceof AcquisitionHttpError
+    && error.code === "http_500"
+    && error.message === "请求失败（HTTP 500）"
+    && !error.message.includes("private-account")
+    && !error.message.includes("must-not-cross")
+);
 await assert.rejects(
   createOutreachBatchApi(async () => new Response(JSON.stringify({ items: "not-an-array" }), { status: 200 })).listActions("batch-1"),
   (error: unknown) => error instanceof AcquisitionHttpError && error.code === "malformed_response"
 );
+const validAction = {
+  id: "action-1",
+  workspaceId: "workspace-1",
+  batchId: "batch/1",
+  batchRevision: 2,
+  candidateId: "candidate-1",
+  accountId: "account-1",
+  accountLoginStateVersion: 1,
+  policyVersionId: "policy-version-1",
+  localDate: "2026-08-27",
+  kind: "comment",
+  sequence: 1,
+  status: "queued",
+  predecessorActionId: null,
+  targetPublicUrl: "https://www.douyin.com/video/123",
+  content: "精确评论",
+  contentHash: `sha256:${"8".repeat(64)}`,
+  approvalHash: `sha256:${"9".repeat(64)}`,
+  createdAt: "2026-08-27T00:00:00.000Z",
+  attemptCount: 0,
+  platformReceiptReference: null,
+  occurredAt: null,
+  failureCode: null
+};
+await createOutreachBatchApi(async () => new Response(JSON.stringify({
+  items: [validAction]
+}), { status: 200 })).listActions("batch-1");
+const reconciliationCalls: Array<{ url: string; init?: RequestInit }> = [];
+const reconciledAction = {
+  ...validAction,
+  status: "succeeded",
+  attemptCount: 1,
+  platformReceiptReference: "douyin-comment:receipt-1",
+  occurredAt: "2026-08-27T00:05:00.000Z"
+};
+const reconciliationApi = createOutreachBatchApi(async (input, init) => {
+  reconciliationCalls.push({ url: String(input), init });
+  return new Response(JSON.stringify(reconciledAction), { status: 200 });
+}, { cookieSource: () => "gj_csrf=csrf-value" });
+const reconciliation = await reconciliationApi.reconcileAction!(
+  "batch/1",
+  validAction,
+  "reconcile-key",
+  signal
+);
+assert.equal(reconciliation.status, "succeeded");
+assert.equal(reconciliationCalls[0]?.url,
+  "/api/v1/acquisition/outreach-batches/batch%2F1/actions/action-1/reconcile");
+assert.equal(reconciliationCalls[0]?.init?.method, "POST");
+assert.equal(new Headers(reconciliationCalls[0]?.init?.headers)
+  .get("idempotency-key"), "reconcile-key");
+assert.deepEqual(JSON.parse(String(reconciliationCalls[0]?.init?.body)), {
+  batchRevision: validAction.batchRevision,
+  approvalHash: validAction.approvalHash,
+  contentHash: validAction.contentHash,
+  confirm: true
+});
+await assert.rejects(
+  createOutreachBatchApi(async () => new Response(JSON.stringify({
+    ...reconciledAction,
+    platformReceiptReference: null
+  }), { status: 200 }), { cookieSource: () => "gj_csrf=csrf-value" })
+    .reconcileAction!(
+    "batch-1", validAction, "reconcile-malformed"
+  ),
+  (error: unknown) => error instanceof AcquisitionHttpError
+    && error.code === "malformed_response"
+);
+for (const malformed of [
+  { ...validAction, unexpected: "authority" },
+  { ...validAction, status: "retried" },
+  { ...validAction, targetPublicUrl: "https://example.com/video/123" },
+  { ...validAction, attemptCount: -1 },
+  { ...validAction, failureCode: "raw_platform_text" }
+]) {
+  await assert.rejects(
+    createOutreachBatchApi(async () => new Response(JSON.stringify({
+      items: [malformed]
+    }), { status: 200 })).listActions("batch-1"),
+    (error: unknown) => error instanceof AcquisitionHttpError
+      && error.code === "malformed_response"
+  );
+}
 for (const malformed of [
   { items: "not-an-array", nextCursor: null },
   { items: [], nextCursor: 7 },

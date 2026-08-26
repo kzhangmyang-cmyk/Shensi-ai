@@ -77,7 +77,8 @@ const actionReceiptResponseSchema = z.object({
   occurred_at: z.string().datetime(),
   failure_code: z.enum(["action_unavailable", "action_rejected", "deadline_exceeded",
     "douyin_verification_required", "douyin_rate_limited", "douyin_account_warning",
-    "douyin_login_expired", "douyin_action_control_missing", "douyin_action_control_ambiguous",
+    "douyin_login_expired", "douyin_direct_message_unavailable",
+    "douyin_action_control_missing", "douyin_action_control_ambiguous",
     "douyin_action_content_mismatch", "douyin_action_receipt_ambiguous",
     "douyin_action_timeout"]).nullable()
 }).strict().superRefine((value, context) => {
@@ -118,6 +119,8 @@ export interface DouyinMediaCrawlerGateway {
   }>>;
   cancelCrawlJob(jobId: string, signal?: AbortSignal): Promise<void>;
   executeAction(input: import("./acquisition-outreach-action-worker.js").OutreachActionExecutionRequest,
+    signal?: AbortSignal): Promise<import("./acquisition-outreach-action-worker.js").OutreachActionExecutionReceipt>;
+  reconcileAction(input: import("./acquisition-outreach-action-worker.js").OutreachActionExecutionRequest,
     signal?: AbortSignal): Promise<import("./acquisition-outreach-action-worker.js").OutreachActionExecutionReceipt>;
 }
 
@@ -397,6 +400,22 @@ export function createDouyinMediaCrawlerGateway(
       signal?: AbortSignal) {
       const parsed = actionReceiptResponseSchema.safeParse(await jsonRequest("POST",
         `/internal/v1/douyin/actions/${encodeURIComponent(input.actionId)}`, {
+          action_id: input.actionId, account_handle: input.accountHandle,
+          login_state_version: input.loginStateVersion, kind: input.kind,
+          target_public_url: input.targetPublicUrl, content: input.content,
+          deadline_at: input.deadlineAt, approved_content_hash: input.approvedContentHash
+        }, signal, false, actionTimeoutMs));
+      if (!parsed.success || parsed.data.action_id !== input.actionId) {
+        throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
+      }
+      return Object.freeze({ actionId: parsed.data.action_id, state: parsed.data.state,
+        platformReceiptReference: parsed.data.platform_receipt_reference,
+        occurredAt: parsed.data.occurred_at, failureCode: parsed.data.failure_code });
+    },
+    async reconcileAction(input: import("./acquisition-outreach-action-worker.js").OutreachActionExecutionRequest,
+      signal?: AbortSignal) {
+      const parsed = actionReceiptResponseSchema.safeParse(await jsonRequest("POST",
+        `/internal/v1/douyin/actions/${encodeURIComponent(input.actionId)}/reconcile`, {
           action_id: input.actionId, account_handle: input.accountHandle,
           login_state_version: input.loginStateVersion, kind: input.kind,
           target_public_url: input.targetPublicUrl, content: input.content,

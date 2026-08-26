@@ -53,6 +53,12 @@ percent escapes, or parser-repaired authority. The OpenAPI `sourceUrl` remains
 HTTP(S) URL closure and the stable crawler error allowlist are runtime defenses,
 not parallel handwritten DTOs or generated enums.
 
+When one Douyin candidate has multiple persisted evidence rows, the run feed
+deterministically prefers an exact `https://www.douyin.com/video/{id}` row.
+Only when no such row exists does it expose a valid public profile as an
+inspection fallback. Batch creation repeats the selection fail-closed and never
+uses `/user/` as a comment target.
+
 Plan creation accepts an optional `executionMode`. Absence means the compatible
 `generic` provider-operation mode. `douyin_mediacrawler` is Douyin-only and
 uses empty provider/operation arrays, no model connection, and a nullable model
@@ -85,6 +91,13 @@ MediaCrawler upstream is the collection/browser foundation. The exact comment
 and private-message action command is a Shensi extension behind this private
 boundary; it must not be described as an upstream-native feature, an official
 Douyin inbox, or an official DM/comment API.
+The public acquisition contract includes
+`POST /api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile`.
+It requires the outreach capability, CSRF for cookie sessions, an idempotency
+key, the frozen batch revision/approval/content hashes, and literal human
+confirmation. The command is read-only at the platform: it can record one
+unique existing receipt for a `risk_paused` uncertain action but never submits
+or retries content and never resumes paused work.
 
 ## Protocol conventions
 

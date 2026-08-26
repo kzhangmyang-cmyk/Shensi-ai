@@ -120,6 +120,37 @@ test("actions use an independent timeout while health and crawl stay bounded", a
   });
 });
 
+test("action reconciliation calls only the read-only sidecar route", async () => {
+  await withServer(async (request, response) => {
+    assert.equal(request.method, "POST");
+    assert.equal(request.url,
+      "/internal/v1/douyin/actions/action-reconcile/reconcile");
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    assert.equal(JSON.parse(body).action_id, "action-reconcile");
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      action_id: "action-reconcile",
+      state: "succeeded",
+      platform_receipt_reference: "douyin-comment:reconciled-123",
+      occurred_at: "2026-08-25T04:00:01.000Z",
+      failure_code: null
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    const receipt = await gateway.reconcileAction({
+      actionId: "action-reconcile", accountHandle: "private-handle",
+      loginStateVersion: 3, kind: "comment",
+      targetPublicUrl: "https://www.douyin.com/video/video-1",
+      content: "exact approved content",
+      approvedContentHash: `sha256:${"a".repeat(64)}`,
+      deadlineAt: "2026-08-25T04:02:30.000Z"
+    });
+    assert.equal(receipt.platformReceiptReference,
+      "douyin-comment:reconciled-123");
+  });
+});
+
 test("default action HTTP timeout is the 150-second deadline plus ten seconds", async () => {
   const originalSetTimeout = globalThis.setTimeout;
   const previousManualWindow = process.env.DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS;
@@ -397,6 +428,7 @@ test("gateway sends the exact frozen action and accepts only a bound sanitized r
 
 test("gateway accepts every closed Douyin control failure code", async () => {
   for (const failureCode of [
+    "douyin_direct_message_unavailable",
     "douyin_action_control_ambiguous",
     "douyin_action_content_mismatch",
     "douyin_action_receipt_ambiguous"

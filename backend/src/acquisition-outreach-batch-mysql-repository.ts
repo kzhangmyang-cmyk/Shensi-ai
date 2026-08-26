@@ -53,6 +53,7 @@ export const acquisitionOutreachActionsDdl = `CREATE TABLE IF NOT EXISTS acquisi
   failure_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NULL,
   UNIQUE KEY uk_acquisition_outreach_action_sequence (batch_id, batch_revision, candidate_id, sequence),
   UNIQUE KEY uk_acquisition_outreach_daily_candidate (workspace_id, account_id, local_date, candidate_id, kind),
+  KEY ix_acquisition_outreach_action_claim (status,created_at,id),
   CONSTRAINT fk_acquisition_outreach_action_batch FOREIGN KEY (batch_id, batch_revision)
     REFERENCES acquisition_outreach_batches (id, revision)
 ) ENGINE=InnoDB`;
@@ -253,13 +254,17 @@ export class MysqlAcquisitionOutreachBatchRepository implements AcquisitionOutre
         throw new TypeError("invalid_outreach_action_claim");
       }
       const atSql = dateTime(at.toISOString());
-      const [candidates] = await connection.execute<mysql.RowDataPacket[]>(`SELECT a.*,
-        b.payload_json AS batch_payload_json
-        FROM acquisition_outreach_actions a JOIN acquisition_outreach_batches b
-          ON b.id=a.batch_id AND b.revision=a.batch_revision
-        WHERE a.status IN ('queued','blocked_by_predecessor') AND b.state='approved'
-        ORDER BY a.created_at,a.id LIMIT 100 FOR UPDATE SKIP LOCKED`);
-      for (const row of candidates) {
+      while (true) {
+        const [candidates] = await connection.execute<mysql.RowDataPacket[]>(`SELECT a.*,
+          b.payload_json AS batch_payload_json
+          FROM acquisition_outreach_actions a JOIN acquisition_outreach_batches b
+            ON b.id=a.batch_id AND b.revision=a.batch_revision
+          WHERE a.status IN ('queued','blocked_by_predecessor') AND b.state='approved'
+          ORDER BY a.created_at,a.id LIMIT 100 FOR UPDATE SKIP LOCKED`);
+        let terminalizedStaleLogin = false;
+        for (const row of candidates) {
+        const action = (typeof row.payload_json === "string" ? JSON.parse(row.payload_json)
+          : row.payload_json) as AcquisitionOutreachAction;
         await connection.execute(`INSERT IGNORE INTO acquisition_outreach_action_accounts
           (workspace_id,account_id,next_eligible_at,consecutive_failures,risk_paused,updated_at)
           VALUES (?,?,NULL,0,FALSE,?)`, [row.workspace_id, row.account_id, atSql]);
@@ -271,15 +276,26 @@ export class MysqlAcquisitionOutreachBatchRepository implements AcquisitionOutre
         if (Boolean(account.risk_paused) || !Boolean(account.eligible)) continue;
         const [active] = await connection.execute<mysql.RowDataPacket[]>(`SELECT id FROM acquisition_social_accounts
           WHERE workspace_id=? AND id=? AND state='active' AND login_state_version=? FOR UPDATE`,
-        [row.workspace_id, row.account_id,
-          (typeof row.payload_json === "string" ? JSON.parse(row.payload_json) : row.payload_json).accountLoginStateVersion]);
-        if (active.length !== 1) continue;
+        [row.workspace_id, row.account_id, action.accountLoginStateVersion]);
+        if (active.length !== 1) {
+          await connection.execute(`UPDATE acquisition_outreach_actions
+            SET status='risk_paused',failure_code='douyin_login_expired',occurred_at=?
+            WHERE id=? AND status IN ('queued','blocked_by_predecessor')`,
+          [atSql, action.id]);
+          await connection.execute(`UPDATE acquisition_outreach_action_accounts
+            SET risk_paused=TRUE,updated_at=? WHERE workspace_id=? AND account_id=?`,
+          [atSql, action.workspaceId, action.accountId]);
+          await connection.execute(`UPDATE acquisition_outreach_actions
+            SET status='risk_paused' WHERE workspace_id=? AND account_id=?
+              AND status IN ('queued','blocked_by_predecessor')`,
+          [action.workspaceId, action.accountId]);
+          terminalizedStaleLogin = true;
+          continue;
+        }
         const [busy] = await connection.execute<mysql.RowDataPacket[]>(`SELECT id FROM acquisition_outreach_actions
           WHERE workspace_id=? AND account_id=? AND status='executing' LIMIT 1 FOR UPDATE`,
         [row.workspace_id, row.account_id]);
         if (busy.length) continue;
-        const action = (typeof row.payload_json === "string" ? JSON.parse(row.payload_json)
-          : row.payload_json) as AcquisitionOutreachAction;
         const batch = parseBatch(row.batch_payload_json);
         const [dailyRows] = await connection.execute<mysql.RowDataPacket[]>(`SELECT COUNT(DISTINCT candidate_id) AS used
           FROM acquisition_outreach_actions WHERE workspace_id=? AND account_id=? AND local_date=? AND kind='comment' FOR UPDATE`,
@@ -309,8 +325,9 @@ export class MysqlAcquisitionOutreachBatchRepository implements AcquisitionOutre
         return { action: { ...action, status: "executing",
           attemptCount: Number(row.attempt_count) + 1 }, claimedAt: at.toISOString(), leaseExpiresAt,
           fence: { actionId: action.id, workerId: input.workerId, leaseToken, fencingToken } };
+        }
+        if (!terminalizedStaleLogin || candidates.length === 0) return null;
       }
-      return null;
     });
   }
 
@@ -352,13 +369,18 @@ export class MysqlAcquisitionOutreachBatchRepository implements AcquisitionOutre
         FROM acquisition_outreach_action_accounts WHERE workspace_id=? AND account_id=? FOR UPDATE`,
       [row.workspace_id, row.account_id]);
       const immediate = ["douyin_verification_required", "douyin_rate_limited",
-        "douyin_account_warning", "douyin_login_expired"].includes(failureCode);
+        "douyin_account_warning", "douyin_login_expired", "action_unavailable",
+        "douyin_action_timeout", "douyin_action_receipt_ambiguous"].includes(failureCode);
       const paused = immediate || Number(accountRows[0]?.consecutive_failures) >= 3;
-      await connection.execute(`UPDATE acquisition_outreach_actions SET status='failed',failure_code=?,occurred_at=?,
-        lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL WHERE id=?`, [failureCode, at, fence.actionId]);
-      await connection.execute(`UPDATE acquisition_outreach_action_attempts SET completed_at=?,outcome='failed',failure_code=?
+      const uncertainExternalWrite = ["action_unavailable", "douyin_action_timeout",
+        "douyin_action_receipt_ambiguous"].includes(failureCode);
+      await connection.execute(`UPDATE acquisition_outreach_actions SET status=?,failure_code=?,occurred_at=?,
+        lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL WHERE id=?`,
+      [uncertainExternalWrite ? "risk_paused" : "failed", failureCode, at, fence.actionId]);
+      await connection.execute(`UPDATE acquisition_outreach_action_attempts SET completed_at=?,outcome=?,failure_code=?
         WHERE action_id=? AND fencing_token=? AND lease_token=?`,
-      [at, failureCode, fence.actionId, fence.fencingToken, fence.leaseToken]);
+      [at, uncertainExternalWrite ? "uncertain" : "failed", failureCode,
+        fence.actionId, fence.fencingToken, fence.leaseToken]);
       if (paused) {
         await connection.execute(`UPDATE acquisition_outreach_action_accounts SET risk_paused=TRUE,updated_at=?
           WHERE workspace_id=? AND account_id=?`, [at, row.workspace_id, row.account_id]);
@@ -377,17 +399,58 @@ export class MysqlAcquisitionOutreachBatchRepository implements AcquisitionOutre
     });
   }
 
+  reconcileActionSuccess(input: { workspaceId: string; batchId: string;
+    actionId: string; expectedFailureCode: "douyin_action_timeout" |
+      "douyin_action_receipt_ambiguous" | "action_unavailable";
+    receipt: OutreachActionSuccessReceipt }) {
+    return this.transaction<boolean>(async (connection) => {
+      const [rows] = await connection.execute<mysql.RowDataPacket[]>(`SELECT status,failure_code
+        FROM acquisition_outreach_actions
+        WHERE workspace_id=? AND batch_id=? AND id=? FOR UPDATE`,
+      [input.workspaceId, input.batchId, input.actionId]);
+      const row = rows[0];
+      if (!row || String(row.status) !== "risk_paused"
+        || String(row.failure_code) !== input.expectedFailureCode) return false;
+      const occurredAt = dateTime(new Date(input.receipt.occurredAt).toISOString());
+      const [result] = await connection.execute<mysql.ResultSetHeader>(`UPDATE acquisition_outreach_actions
+        SET status='succeeded',platform_receipt_reference=?,occurred_at=?,failure_code=NULL,
+          lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL
+        WHERE workspace_id=? AND batch_id=? AND id=? AND status='risk_paused'
+          AND failure_code=?`, [input.receipt.platformReceiptReference, occurredAt,
+        input.workspaceId, input.batchId, input.actionId, input.expectedFailureCode]);
+      if (result.affectedRows !== 1) return false;
+      await connection.execute(`UPDATE acquisition_outreach_action_attempts
+        SET completed_at=?,outcome='reconciled',failure_code=NULL,
+          platform_receipt_reference=? WHERE action_id=?
+        ORDER BY fencing_token DESC LIMIT 1`, [occurredAt,
+        input.receipt.platformReceiptReference, input.actionId]);
+      return true;
+    });
+  }
+
   recoverExpiredActionClaims(now: string) {
     return this.transaction<number>(async (connection) => {
       const at = dateTime(new Date(now).toISOString());
       await connection.execute(`UPDATE acquisition_outreach_action_attempts t
         JOIN acquisition_outreach_actions a ON a.id=t.action_id AND a.fencing_token=t.fencing_token
-        SET t.completed_at=?,t.outcome='lease_expired',t.failure_code='action_unavailable'
+        SET t.completed_at=?,t.outcome='uncertain',t.failure_code='douyin_action_receipt_ambiguous'
         WHERE a.status='executing' AND a.lease_expires_at<=? AND t.completed_at IS NULL`, [at, at]);
+      await connection.execute(`UPDATE acquisition_outreach_action_accounts p
+        JOIN (SELECT DISTINCT workspace_id,account_id FROM acquisition_outreach_actions
+          WHERE status='executing' AND lease_expires_at<=?) expired
+          ON expired.workspace_id=p.workspace_id AND expired.account_id=p.account_id
+        SET p.risk_paused=TRUE,p.updated_at=?`, [at, at]);
+      await connection.execute(`UPDATE acquisition_outreach_actions related
+        JOIN (SELECT DISTINCT workspace_id,account_id FROM acquisition_outreach_actions
+          WHERE status='executing' AND lease_expires_at<=?) expired
+          ON expired.workspace_id=related.workspace_id
+            AND expired.account_id=related.account_id
+        SET related.status='risk_paused'
+        WHERE related.status IN ('queued','blocked_by_predecessor')`, [at]);
       const [result] = await connection.execute<mysql.ResultSetHeader>(`UPDATE acquisition_outreach_actions
-        SET status=IF(kind='direct_message','blocked_by_predecessor','queued'),lease_owner=NULL,
-          lease_token=NULL,lease_expires_at=NULL WHERE status='executing' AND lease_expires_at<=?`,
-      [at]);
+        SET status='risk_paused',failure_code='douyin_action_receipt_ambiguous',occurred_at=?,
+          lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL
+        WHERE status='executing' AND lease_expires_at<=?`, [at, at]);
       return result.affectedRows;
     });
   }
@@ -419,7 +482,8 @@ export async function ensureAcquisitionOutreachBatchMysqlSchema(pool: Pick<mysql
   const [indexes] = await pool.execute<mysql.RowDataPacket[]>(`SELECT TABLE_NAME AS table_name,
     INDEX_NAME AS index_name, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',') AS column_names
     FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE()
-      AND TABLE_NAME IN ('acquisition_outreach_batches','acquisition_outreach_batch_candidates')
+      AND TABLE_NAME IN ('acquisition_outreach_batches','acquisition_outreach_batch_candidates',
+        'acquisition_outreach_actions')
     GROUP BY TABLE_NAME,INDEX_NAME`);
   const required = [
     { table: "acquisition_outreach_batches", name: "ix_acquisition_outreach_batch_run_page",
@@ -427,7 +491,10 @@ export async function ensureAcquisitionOutreachBatchMysqlSchema(pool: Pick<mysql
       alter: "ALTER TABLE acquisition_outreach_batches ADD KEY ix_acquisition_outreach_batch_run_page (workspace_id,run_id,created_at,id,revision)" },
     { table: "acquisition_outreach_batch_candidates", name: "ix_acquisition_outreach_candidate_page",
       columns: "workspace_id,candidate_id,batch_id,batch_revision",
-      alter: "ALTER TABLE acquisition_outreach_batch_candidates ADD KEY ix_acquisition_outreach_candidate_page (workspace_id,candidate_id,batch_id,batch_revision)" }
+      alter: "ALTER TABLE acquisition_outreach_batch_candidates ADD KEY ix_acquisition_outreach_candidate_page (workspace_id,candidate_id,batch_id,batch_revision)" },
+    { table: "acquisition_outreach_actions", name: "ix_acquisition_outreach_action_claim",
+      columns: "status,created_at,id",
+      alter: "ALTER TABLE acquisition_outreach_actions ADD KEY ix_acquisition_outreach_action_claim (status,created_at,id)" }
   ] as const;
   for (const index of required) {
     const exists = indexes.some((row) => String(row.table_name) === index.table

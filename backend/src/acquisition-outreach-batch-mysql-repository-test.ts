@@ -24,6 +24,7 @@ test("MySQL DDL carries immutable revision, tenant, replay, daily-limit, and ord
   assert.match(sql, /FOREIGN KEY \(batch_id, batch_revision\)/u);
   assert.match(sql, /KEY ix_acquisition_outreach_batch_run_page\s*\(workspace_id,run_id,created_at,id,revision\)/u);
   assert.match(sql, /KEY ix_acquisition_outreach_candidate_page\s*\(workspace_id,candidate_id,batch_id,batch_revision\)/u);
+  assert.match(sql, /KEY ix_acquisition_outreach_action_claim\s*\(status,created_at,id\)/u);
 });
 
 test("runtime outreach DDL stays byte-semantic with both deployable schema mirrors", async () => {
@@ -146,7 +147,7 @@ test("MySQL candidate discovery queries current heads with a descending keyset a
     "2026-08-25 03:00:00.000", "2026-08-25 03:00:00.000", "batch-anchor", 3]);
 });
 
-test("MySQL schema migration adds only missing candidate discovery indexes", async () => {
+test("MySQL schema migration adds only missing outreach indexes", async () => {
   const calls: string[] = [];
   const pool = {
     async execute(sql: string) {
@@ -165,6 +166,210 @@ test("MySQL schema migration adds only missing candidate discovery indexes", asy
   assert.equal(calls.some((sql) => /information_schema\.STATISTICS/u.test(sql)), true);
   assert.equal(calls.some((sql) => /ALTER TABLE acquisition_outreach_batches ADD KEY ix_acquisition_outreach_batch_run_page \(workspace_id,run_id,created_at,id,revision\)/u.test(sql)), false);
   assert.equal(calls.some((sql) => /ALTER TABLE acquisition_outreach_batch_candidates ADD KEY ix_acquisition_outreach_candidate_page \(workspace_id,candidate_id,batch_id,batch_revision\)/u.test(sql)), true);
+  assert.equal(calls.some((sql) => /ALTER TABLE acquisition_outreach_actions ADD KEY ix_acquisition_outreach_action_claim \(status,created_at,id\)/u.test(sql)), true);
+});
+
+test("MySQL claim terminalizes a full stale-login window and advances to later eligible work", async () => {
+  const staleBatch = {
+    ...liveBatch("batch-stale-window", "candidate-stale-window"),
+    state: "approved" as const,
+    approvalHash: digest("9")
+  };
+  const staleRows = Array.from({ length: 100 }, (_, index) => {
+    const [value] = liveActions(staleBatch);
+    return {
+      ...value,
+      id: `stale-${String(index).padStart(3, "0")}`,
+      accountId: `stale-account-${String(index).padStart(3, "0")}`,
+      accountLoginStateVersion: 1,
+      payload_json: JSON.stringify({
+        ...value,
+        id: `stale-${String(index).padStart(3, "0")}`,
+        accountId: `stale-account-${String(index).padStart(3, "0")}`,
+        accountLoginStateVersion: 1
+      }),
+      batch_payload_json: JSON.stringify(staleBatch),
+      workspace_id: "workspace-live",
+      account_id: `stale-account-${String(index).padStart(3, "0")}`,
+      attempt_count: 0,
+      fencing_token: 0,
+      created_at: "2026-08-25T02:00:00.000Z"
+    };
+  });
+  const eligibleBatch = {
+    ...liveBatch("batch-eligible-window", "candidate-eligible-window"),
+    state: "approved" as const,
+    approvalHash: digest("9")
+  };
+  const [eligibleAction] = liveActions(eligibleBatch);
+  const eligibleRow = {
+    ...eligibleAction,
+    payload_json: JSON.stringify(eligibleAction),
+    batch_payload_json: JSON.stringify(eligibleBatch),
+    workspace_id: "workspace-live",
+    account_id: "account-live",
+    attempt_count: 0,
+    fencing_token: 0,
+    created_at: "2026-08-25T03:00:00.000Z"
+  };
+  let candidateReads = 0;
+  let staleTerminalizations = 0;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async execute(sql: string, values: unknown[] = []) {
+      if (/SELECT a\.\*,\s*b\.payload_json AS batch_payload_json/u.test(sql)) {
+        candidateReads += 1;
+        return [candidateReads === 1 ? staleRows : [eligibleRow], undefined];
+      }
+      if (/INSERT IGNORE INTO acquisition_outreach_action_accounts/u.test(sql)) {
+        return [{ affectedRows: 1 }, undefined];
+      }
+      if (/FROM acquisition_outreach_action_accounts/u.test(sql)) {
+        return [[{ risk_paused: 0, eligible: 1 }], undefined];
+      }
+      if (/FROM acquisition_social_accounts/u.test(sql)) {
+        return [String(values[1]).startsWith("stale-account-") ? [] : [{ id: "account-live" }], undefined];
+      }
+      if (/SET status='risk_paused'.*douyin_login_expired/su.test(sql)) {
+        staleTerminalizations += 1;
+        return [{ affectedRows: 1 }, undefined];
+      }
+      if (/status='executing' LIMIT 1/u.test(sql)) return [[], undefined];
+      if (/COUNT\(DISTINCT candidate_id\) AS used/u.test(sql)) {
+        return [[{ used: 0 }], undefined];
+      }
+      if (/UPDATE acquisition_outreach_actions SET status='executing'/u.test(sql)) {
+        return [{ affectedRows: 1 }, undefined];
+      }
+      return [{ affectedRows: 1 }, undefined];
+    }
+  };
+  const repository = new MysqlAcquisitionOutreachBatchRepository({
+    getConnection: async () => connection as never
+  } as never);
+
+  const claim = await repository.claimNextAction({
+    workerId: "worker-window",
+    now: "2026-08-25T04:00:00.000Z",
+    leaseDurationMs: 180_000
+  });
+
+  assert.equal(claim?.action.id, eligibleAction!.id);
+  assert.equal(candidateReads, 2);
+  assert.equal(staleTerminalizations, 100);
+});
+
+test("MySQL expired external-write recovery freezes related queued work", async () => {
+  const calls: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async execute(sql: string) {
+      calls.push(sql.replace(/\s+/gu, " ").trim());
+      return [{ affectedRows: /WHERE status='executing'/u.test(sql) ? 1 : 0 }, undefined];
+    }
+  };
+  const repository = new MysqlAcquisitionOutreachBatchRepository({
+    getConnection: async () => connection as never
+  } as never);
+
+  assert.equal(
+    await repository.recoverExpiredActionClaims("2026-08-25T04:00:00.000Z"),
+    1
+  );
+  assert.equal(calls.some((sql) =>
+    /UPDATE acquisition_outreach_actions related JOIN \(SELECT DISTINCT workspace_id,account_id FROM acquisition_outreach_actions WHERE status='executing' AND lease_expires_at<=\?\) expired/u.test(sql)
+    && /related\.status IN \('queued','blocked_by_predecessor'\)/u.test(sql)
+    && /SET related\.status='risk_paused'/u.test(sql)
+  ), true);
+});
+
+test("MySQL uncertain external-write failure marks the attempt uncertain", async () => {
+  const batch = liveBatch("batch-uncertain-attempt", "candidate-uncertain-attempt");
+  const [action] = liveActions(batch);
+  const calls: Array<{ sql: string; values: unknown[] }> = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async execute(sql: string, values: unknown[] = []) {
+      const normalized = sql.replace(/\s+/gu, " ").trim();
+      calls.push({ sql: normalized, values });
+      if (/SELECT workspace_id,account_id,status,/u.test(sql)) return [[{
+        workspace_id: action!.workspaceId,
+        account_id: action!.accountId,
+        status: "executing",
+        lease_owner: "worker-uncertain",
+        lease_token: "lease-uncertain",
+        fencing_token: 4,
+        payload_json: JSON.stringify(action)
+      }], undefined];
+      if (/SELECT consecutive_failures/u.test(sql)) {
+        return [[{ consecutive_failures: 1 }], undefined];
+      }
+      return [{ affectedRows: 1 }, undefined];
+    }
+  };
+  const repository = new MysqlAcquisitionOutreachBatchRepository({
+    getConnection: async () => connection as never
+  } as never);
+
+  assert.deepEqual(await repository.completeActionFailure({
+    actionId: action!.id,
+    workerId: "worker-uncertain",
+    leaseToken: "lease-uncertain",
+    fencingToken: 4
+  }, "douyin_action_timeout", "2026-08-25T04:00:00.000Z"), {
+    completed: true,
+    accountPaused: true
+  });
+  assert.equal(calls.some(({ sql, values }) =>
+    /UPDATE acquisition_outreach_action_attempts SET completed_at=\?,outcome=\?/u.test(sql)
+    && values[1] === "uncertain"
+  ), true);
+});
+
+test("MySQL manual reconciliation fences one uncertain action and never requeues it", async () => {
+  const calls: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async execute(sql: string) {
+      calls.push(sql.replace(/\s+/gu, " ").trim());
+      if (/SELECT status,failure_code/u.test(sql)) {
+        return [[{
+          status: "risk_paused",
+          failure_code: "douyin_action_receipt_ambiguous"
+        }], undefined];
+      }
+      return [{ affectedRows: 1 }, undefined];
+    }
+  };
+  const repository = new MysqlAcquisitionOutreachBatchRepository({
+    getConnection: async () => connection as never
+  } as never);
+
+  assert.equal(await repository.reconcileActionSuccess({
+    workspaceId: "workspace-live",
+    batchId: "batch-live",
+    actionId: "action-live",
+    expectedFailureCode: "douyin_action_receipt_ambiguous",
+    receipt: {
+      platformReceiptReference: "douyin-comment:reconciled-123",
+      occurredAt: "2026-08-25T04:00:00.000Z"
+    }
+  }), true);
+  assert.equal(calls.some((sql) => /SET status='succeeded'/u.test(sql)), true);
+  assert.equal(calls.some((sql) => /outcome='reconciled'/u.test(sql)), true);
+  assert.equal(calls.some((sql) => /status='queued'/u.test(sql)), false);
 });
 
 test("live MySQL survives restart and rolls back the batch when the second action insert fails", {
@@ -305,6 +510,113 @@ test("live MySQL candidate discovery pages each current head exactly once", {
     } while (after);
     assert.deepEqual(discovered, ["batch-page-gamma:1", "batch-page-beta:1", "batch-page-alpha:2"]);
     assert.equal(new Set(discovered).size, 3);
+  } finally {
+    await pool.end();
+    await admin.query(`DROP DATABASE \`${database}\``);
+    await admin.end();
+  }
+});
+
+test("live MySQL advances past more than one stale-login claim window", {
+  skip: !process.env.MYSQL_TEST_ADMIN_URL && !process.env.MYSQL_TEST_ADMIN_SOCKET
+    ? "MYSQL_TEST_ADMIN_URL or MYSQL_TEST_ADMIN_SOCKET is required; no database is provisioned implicitly"
+    : false
+}, async () => {
+  const database = `goodjob_outreach_claim_window_${randomUUID().replaceAll("-", "")}`;
+  const adminUrl = process.env.MYSQL_TEST_ADMIN_URL ? new URL(process.env.MYSQL_TEST_ADMIN_URL) : null;
+  const socketPath = process.env.MYSQL_TEST_ADMIN_SOCKET?.trim() || null;
+  const admin = await mysql.createConnection(socketPath
+    ? { user: "root", password: "", socketPath, database: "mysql" }
+    : adminUrl!.toString());
+  await admin.query(`CREATE DATABASE \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+  const pool = socketPath
+    ? mysql.createPool({ user: "root", password: "", socketPath, database, connectionLimit: 4 })
+    : (() => {
+        const databaseUrl = new URL(adminUrl!);
+        databaseUrl.pathname = `/${database}`;
+        return mysql.createPool({ uri: databaseUrl.toString(), connectionLimit: 4 });
+      })();
+  try {
+    await ensureAcquisitionSocialAccountsMysqlSchema(pool);
+    await ensureAcquisitionOutreachBatchMysqlSchema(pool);
+    for (const [id, handle] of [
+      ["account-stale-window", "stale-window-handle"],
+      ["account-eligible-window", "eligible-window-handle"]
+    ]) await pool.execute(`INSERT INTO acquisition_social_accounts
+      (id,workspace_id,platform,account_handle,upstream_session_id,display_name,state,
+       login_state_version,revision,etag,last_validated_at,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, [id, "workspace-live", "douyin", handle,
+      `session-${id}`, id, "active", 3, 1, `"${id}:1"`,
+      "2026-08-25T00:00:00.000Z", "2026-08-25T00:00:00.000Z",
+      "2026-08-25T00:00:00.000Z"]);
+
+    const repository = new MysqlAcquisitionOutreachBatchRepository(pool);
+    const approve = async (batch: AcquisitionOutreachBatch, index: number) => {
+      await repository.create({
+        workspaceId: batch.workspaceId,
+        operation: `claim-window-create-${index}`,
+        idempotencyKey: `claim-window-create-${index}`,
+        requestHash: digest(String(index % 10)),
+        batch
+      });
+      const result = await repository.approve({
+        workspaceId: batch.workspaceId,
+        batchId: batch.id,
+        ifMatch: batch.etag,
+        idempotencyKey: `claim-window-approve-${index}`,
+        requestHash: digest(String((index + 1) % 10)),
+        build: async () => {
+          const approved = {
+            ...batch,
+            state: "approved" as const,
+            approvedBy: "approver-live",
+            approvedAt: batch.updatedAt,
+            approvalHash: digest("9")
+          };
+          return { batch: approved, actions: liveActions(approved) };
+        }
+      });
+      assert.equal(result.kind, "created");
+    };
+
+    for (let index = 0; index < 101; index += 1) {
+      const suffix = String(index).padStart(3, "0");
+      await approve({
+        ...liveBatch(`batch-stale-live-${suffix}`, `candidate-stale-live-${suffix}`),
+        accountId: "account-stale-window",
+        accountLoginStateVersion: 3,
+        createdAt: "2026-08-25T01:00:00.000Z",
+        updatedAt: "2026-08-25T01:00:00.000Z"
+      }, index);
+    }
+    const eligible = {
+      ...liveBatch("batch-eligible-live", "candidate-eligible-live"),
+      accountId: "account-eligible-window",
+      accountLoginStateVersion: 3,
+      createdAt: "2026-08-25T02:00:00.000Z",
+      updatedAt: "2026-08-25T02:00:00.000Z"
+    };
+    await approve(eligible, 101);
+    await pool.execute(`UPDATE acquisition_social_accounts
+      SET login_state_version=4 WHERE workspace_id=? AND id=?`,
+    ["workspace-live", "account-stale-window"]);
+
+    const claim = await repository.claimNextAction({
+      workerId: "worker-live-window",
+      now: "2026-08-25T04:00:00.000Z",
+      leaseDurationMs: 180_000
+    });
+    assert.equal(claim?.action.id, liveActions({
+      ...eligible,
+      state: "approved",
+      approvalHash: digest("9")
+    })[0]?.id);
+    const [counts] = await pool.execute<mysql.RowDataPacket[]>(`SELECT status,COUNT(*) AS count
+      FROM acquisition_outreach_actions WHERE account_id=? GROUP BY status`,
+    ["account-stale-window"]);
+    assert.deepEqual(counts.map((row) => [String(row.status), Number(row.count)]), [
+      ["risk_paused", 202]
+    ]);
   } finally {
     await pool.end();
     await admin.query(`DROP DATABASE \`${database}\``);

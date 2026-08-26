@@ -43,6 +43,17 @@ class FakeLocator:
         self.page.fills.append((self.selector, value))
         self.page.values[self.selector] = value
 
+    def press(self, key: str, **_kwargs):
+        self.page.native_keys.append((self.selector, key))
+        if key == "Backspace":
+            self.page.values[self.selector] = ""
+
+    def press_sequentially(self, value: str, **_kwargs):
+        self.page.native_types.append((self.selector, value))
+        self.page.values[self.selector] = (
+            self.page.values.get(self.selector, "") + value
+        )
+
     def input_value(self, **_kwargs):
         if self.page.after_readback is not None:
             callback, self.page.after_readback = self.page.after_readback, None
@@ -54,7 +65,8 @@ class FakeLocator:
 
     def click(self, **_kwargs):
         self.page.clicks.append(self.selector)
-        self.page.after_submit = True
+        if self.selector.endswith('-submit"]'):
+            self.page.after_submit = True
 
     def get_attribute(self, name: str, **_kwargs):
         if name == "data-e2e-receipt-id" and self.page.receipt_visible:
@@ -97,6 +109,8 @@ class FakePage:
         self.fills: list[tuple[str, str]] = []
         self.values: dict[str, str] = {}
         self.clicks: list[str] = []
+        self.native_keys: list[tuple[str, str]] = []
+        self.native_types: list[tuple[str, str]] = []
         self.waits = 0
         self.brought_to_front = 0
         self.verification_bypass_calls: list[str] = []
@@ -167,18 +181,35 @@ def request(kind="comment", *, content="冻结的批准文本", deadline_at=None
                          ).hexdigest())
 
 
-@pytest.mark.parametrize(("kind", "composer", "submit"), [
-    ("comment", '[data-e2e="comment-input"]', '[data-e2e="comment-submit"]'),
-    ("direct_message", '[data-e2e="message-input"]', '[data-e2e="message-submit"]'),
+@pytest.mark.parametrize(("kind", "composer", "submit", "entry"), [
+    ("comment", '[data-e2e="comment-input"]', '[data-e2e="comment-submit"]', None),
+    ("direct_message", '[data-e2e="message-input"]',
+     '[data-e2e="message-submit"]', '[data-e2e="message-entry"]'),
 ])
-def test_executes_exact_frozen_text_once_and_returns_sanitized_receipt(kind, composer, submit):
-    page = FakePage(visible={composer, submit, '[data-e2e-receipt-id]'}, receipt=True)
+def test_executes_exact_frozen_text_once_and_returns_sanitized_receipt(
+    kind, composer, submit, entry,
+):
+    visible = {composer, submit, '[data-e2e-receipt-id]'}
+    if entry is not None:
+        visible.add(entry)
+    page = FakePage(visible=visible, receipt=True)
 
     receipt = DouyinActionExecutor(now=lambda: NOW).execute(page, request(kind))
 
     assert page.urls == [str(request(kind).target_public_url)]
-    assert page.fills == [(composer, "冻结的批准文本")]
-    assert page.clicks == [submit]
+    if kind == "direct_message":
+        assert page.fills == []
+        assert page.native_keys == [
+            (composer, "ControlOrMeta+A"),
+            (composer, "Backspace"),
+        ]
+        assert page.native_types == [(composer, "冻结的批准文本")]
+        assert page.clicks == [entry, composer, submit]
+    else:
+        assert page.fills == [(composer, "冻结的批准文本")]
+        assert page.native_keys == []
+        assert page.native_types == []
+        assert page.clicks == [submit]
     assert receipt.platform_receipt_reference == "safe-receipt-123"
     assert receipt.failure_code is None
     assert "冻结的批准文本" not in receipt.model_dump_json()
@@ -413,6 +444,7 @@ def test_timeout_checks_once_for_late_success_and_never_clicks_twice():
 
 
 @pytest.mark.parametrize("failure_code", [
+    "douyin_direct_message_unavailable",
     "douyin_action_control_ambiguous",
     "douyin_action_content_mismatch",
     "douyin_action_receipt_ambiguous",
@@ -454,3 +486,210 @@ def test_action_job_exact_replay_is_durable_and_never_persists_raw_content(tmp_p
     changed = value.model_copy(update={"content": "changed"})
     with pytest.raises(ActionReplayConflict):
         manager.execute(changed)
+
+
+def test_action_job_replays_a_completed_receipt_when_only_deadline_changes(tmp_path):
+    calls = []
+
+    def executor(_profile, value):
+        calls.append(value.action_id)
+        return {
+            "action_id": value.action_id,
+            "state": "succeeded",
+            "platform_receipt_reference": "safe-receipt-deadline",
+            "occurred_at": NOW.isoformat(),
+            "failure_code": None,
+        }
+
+    manager = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda _handle, _version: tmp_path,
+        executor=executor,
+        now=lambda: NOW,
+    )
+    value = request()
+
+    first = manager.execute(value)
+    second = manager.execute(value.model_copy(update={
+        "deadline_at": value.deadline_at + timedelta(seconds=15),
+    }))
+
+    assert second == first
+    assert calls == [value.action_id]
+
+
+def test_action_job_persists_started_before_external_work_and_never_reexecutes_uncertain_job(
+    tmp_path,
+):
+    calls = []
+
+    def crashes_after_possible_click(_profile, value):
+        calls.append(value.action_id)
+        persisted = "".join(
+            path.read_text(encoding="utf-8")
+            for path in tmp_path.rglob("*.json")
+        )
+        assert '"state":"started"' in persisted
+        raise RuntimeError("simulated_process_loss_after_click")
+
+    value = request()
+    manager = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda _handle, _version: tmp_path,
+        executor=crashes_after_possible_click,
+        now=lambda: NOW,
+    )
+    with pytest.raises(RuntimeError, match="simulated_process_loss_after_click"):
+        manager.execute(value)
+
+    recovered = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda _handle, _version: tmp_path,
+        executor=crashes_after_possible_click,
+        now=lambda: NOW + timedelta(seconds=5),
+    ).execute(value.model_copy(update={
+        "deadline_at": value.deadline_at + timedelta(seconds=10),
+    }))
+
+    assert calls == [value.action_id]
+    assert recovered.state == "failed"
+    assert recovered.failure_code == "douyin_action_receipt_ambiguous"
+
+
+def test_uncertain_action_can_only_recover_through_read_only_reconciliation(
+    tmp_path,
+):
+    executions = []
+    reconciliations = []
+    value = request()
+
+    def crash_after_possible_click(_profile, action):
+        executions.append(action.action_id)
+        raise RuntimeError("simulated_process_loss_after_click")
+
+    manager = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda _handle, _version: tmp_path,
+        executor=crash_after_possible_click,
+        reconciler=lambda _profile, action: reconciliations.append(
+            action.action_id
+        ) or {
+            "action_id": action.action_id,
+            "state": "succeeded",
+            "platform_receipt_reference": "douyin-comment:reconciled-123",
+            "occurred_at": NOW.isoformat(),
+            "failure_code": None,
+        },
+        now=lambda: NOW,
+    )
+    with pytest.raises(RuntimeError, match="simulated_process_loss_after_click"):
+        manager.execute(value)
+
+    receipt = manager.reconcile(value.model_copy(update={
+        "deadline_at": value.deadline_at + timedelta(seconds=30),
+    }))
+
+    assert executions == [value.action_id]
+    assert reconciliations == [value.action_id]
+    assert receipt.state == "succeeded"
+    assert receipt.platform_receipt_reference == "douyin-comment:reconciled-123"
+    assert manager.execute(value).platform_receipt_reference == (
+        "douyin-comment:reconciled-123"
+    )
+    assert executions == [value.action_id]
+
+
+def test_completed_timeout_reconciliation_keeps_original_started_at(tmp_path):
+    reconciliation_not_before = []
+    value = request()
+    manager = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda _handle, _version: tmp_path,
+        executor=lambda _profile, action: {
+            "action_id": action.action_id,
+            "state": "failed",
+            "platform_receipt_reference": None,
+            "occurred_at": (NOW + timedelta(seconds=9)).isoformat(),
+            "failure_code": "douyin_action_timeout",
+        },
+        reconciler=lambda _profile, action: reconciliation_not_before.append(
+            action.not_before
+        ) or {
+            "action_id": action.action_id,
+            "state": "succeeded",
+            "platform_receipt_reference": "douyin-comment:after-timeout",
+            "occurred_at": (NOW + timedelta(seconds=12)).isoformat(),
+            "failure_code": None,
+        },
+        now=lambda: NOW,
+    )
+
+    assert manager.execute(value).failure_code == "douyin_action_timeout"
+    receipt = manager.reconcile(value.model_copy(update={
+        "deadline_at": value.deadline_at + timedelta(seconds=30),
+    }))
+
+    assert receipt.state == "succeeded"
+    assert reconciliation_not_before == [NOW]
+
+
+def test_completed_uncertain_journal_without_started_at_fails_closed(tmp_path):
+    value = request()
+    manager = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda _handle, _version: tmp_path,
+        executor=lambda _profile, action: {
+            "action_id": action.action_id,
+            "state": "failed",
+            "platform_receipt_reference": None,
+            "occurred_at": NOW.isoformat(),
+            "failure_code": "douyin_action_timeout",
+        },
+        reconciler=lambda _profile, _action: pytest.fail(
+            "malformed journal must not reach the read-only adapter"
+        ),
+        now=lambda: NOW,
+    )
+    manager.execute(value)
+    journal = next((tmp_path / "action-receipts").glob("*.json"))
+    persisted = json.loads(journal.read_text(encoding="utf-8"))
+    persisted.pop("started_at", None)
+    journal.write_text(json.dumps(persisted), encoding="utf-8")
+
+    receipt = manager.reconcile(value)
+
+    assert receipt.state == "failed"
+    assert receipt.failure_code == "action_unavailable"
+
+
+@pytest.mark.parametrize("started_at", ["not-a-time", "2026-08-25T10:00:00"])
+def test_completed_uncertain_journal_with_malformed_started_at_fails_closed(
+    tmp_path,
+    started_at,
+):
+    value = request()
+    manager = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda _handle, _version: tmp_path,
+        executor=lambda _profile, action: {
+            "action_id": action.action_id,
+            "state": "failed",
+            "platform_receipt_reference": None,
+            "occurred_at": NOW.isoformat(),
+            "failure_code": "douyin_action_timeout",
+        },
+        reconciler=lambda _profile, _action: pytest.fail(
+            "malformed journal must not reach the read-only adapter"
+        ),
+        now=lambda: NOW,
+    )
+    manager.execute(value)
+    journal = next((tmp_path / "action-receipts").glob("*.json"))
+    persisted = json.loads(journal.read_text(encoding="utf-8"))
+    persisted["started_at"] = started_at
+    journal.write_text(json.dumps(persisted), encoding="utf-8")
+
+    receipt = manager.reconcile(value)
+
+    assert receipt.state == "failed"
+    assert receipt.failure_code == "action_unavailable"

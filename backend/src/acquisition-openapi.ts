@@ -1132,6 +1132,7 @@ const acquisitionOperationIds: Record<string, string> = {
   "post /api/v1/acquisition/outreach-batches/{batchId}/pause": "pauseAcquisitionOutreachBatch",
   "post /api/v1/acquisition/outreach-batches/{batchId}/resume": "resumeAcquisitionOutreachBatch",
   "get /api/v1/acquisition/outreach-batches/{batchId}/actions": "listAcquisitionOutreachActions",
+  "post /api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile": "reconcileAcquisitionOutreachAction",
   "get /api/v1/acquisition/providers": "listAcquisitionProviders",
   "get /api/v1/acquisition/provider-connections":
     "listAcquisitionProviderConnections",
@@ -1432,7 +1433,8 @@ const acquisitionRunCandidatesSchema = {
         displayName: { type: "string", maxLength: 200 },
         evidence: { type: "object", additionalProperties: false,
           required: ["sourceUrl", "excerpt"], properties: {
-            sourceUrl: { type: "string", format: "uri" },
+            sourceUrl: { type: "string", format: "uri",
+              description: "优先返回可评论的抖音视频；仅主页证据只能查看，不能进入评论批次" },
             excerpt: { type: "string", maxLength: 500 }
           } }
       } } },
@@ -1534,7 +1536,8 @@ const acquisitionOutreachActionSchema = {
     occurredAt: { type: "string", format: "date-time", nullable: true },
     failureCode: { type: "string", nullable: true, enum: ["action_unavailable", "action_rejected",
       "deadline_exceeded", "douyin_verification_required", "douyin_rate_limited",
-      "douyin_account_warning", "douyin_login_expired", "douyin_action_control_missing",
+      "douyin_account_warning", "douyin_login_expired",
+      "douyin_direct_message_unavailable", "douyin_action_control_missing",
       "douyin_action_control_ambiguous", "douyin_action_content_mismatch",
       "douyin_action_receipt_ambiguous", "douyin_action_timeout", null] }
   }
@@ -1599,6 +1602,7 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
     responses: standardResponses(200, "采集状态", acquisitionCrawlerStatusSchema)
   }));
   add(paths, "/api/v1/acquisition/runs/{runId}/candidates", "get", operation("get", "读取运行的证据候选", {
+    description: "多条抖音证据优先投影可评论视频；仅主页证据作为只读查看回退。",
     parameters: [idParameter(160, "runId"),
       { name: "status", in: "query", required: false, schema: { type: "string", minLength: 1, maxLength: 100 } },
       { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
@@ -1673,6 +1677,19 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
     parameters: [batchParameter], responses: standardResponses(200, "有序 outbox", { type: "object", additionalProperties: false,
       required: ["items"], properties: { items: { type: "array", items: acquisitionOutreachActionSchema } } })
   }));
+  add(paths, "/api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile", "post",
+    operation("post", "人工确认后只读核验不确定平台回执", {
+      parameters: [batchParameter, { name: "actionId", in: "path", required: true,
+        schema: { type: "string", minLength: 1, maxLength: 255 } }, idempotencyParameter(8)],
+      requestBody: jsonBody({ type: "object", additionalProperties: false,
+        required: ["batchRevision", "approvalHash", "contentHash", "confirm"], properties: {
+          batchRevision: { type: "integer", minimum: 1 },
+          approvalHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+          contentHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+          confirm: { type: "boolean", enum: [true] }
+        } }),
+      responses: standardResponses(200, "已核验动作", acquisitionOutreachActionSchema)
+    }));
 }
 function addProviderPaths(paths: AcquisitionOpenApiPaths) {
   add(paths, "/api/v1/acquisition/providers", "get", operation(

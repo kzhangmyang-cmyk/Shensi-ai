@@ -37,8 +37,13 @@ export const ACQUISITION_PREVIOUS_MODEL_PROMPT_VERSION =
 export const ACQUISITION_PREVIOUS_MODEL_SCHEMA_VERSION =
   "acquisition-model-schema-bundle.v3";
 export const ACQUISITION_MODEL_PROMPT_VERSION =
-  "acquisition-model-prompt-bundle.v6";
+  "acquisition-model-prompt-bundle.v7";
 export const ACQUISITION_MODEL_SCHEMA_VERSION =
+  "acquisition-model-schema-bundle.v8";
+
+export const ACQUISITION_OUTREACH_V1_MODEL_PROMPT_VERSION =
+  "acquisition-model-prompt-bundle.v6";
+export const ACQUISITION_OUTREACH_V1_MODEL_SCHEMA_VERSION =
   "acquisition-model-schema-bundle.v7";
 
 const ACQUISITION_RETIRED_MODEL_PROMPT_VERSION =
@@ -684,7 +689,7 @@ function modelContentBundle(
   options: CreateAcquisitionModelContentBundleOptions,
   includePlanDraft: boolean,
   battleCardVersion: "battle-card.v1" | "battle-card.v2",
-  includeOutreach = false
+  outreachContract: "none" | "v1" | "v2" = "none"
 ): ModelContentBundle {
   const systemPrompt = options.systemPrompt?.trim()
     || DEFAULT_ACQUISITION_PI_SYSTEM_PROMPT;
@@ -711,9 +716,15 @@ function modelContentBundle(
     toolSchemas[ACQUISITION_PLAN_DRAFT_TOOL_SCHEMA_ID] =
       Object.freeze([acquisitionPlanDraftTool()]);
   }
-  if (includeOutreach) {
-    Object.assign(promptTemplates, acquisitionOutreachPromptTemplates());
-    Object.assign(toolSchemas, acquisitionOutreachToolSchemas());
+  if (outreachContract !== "none") {
+    Object.assign(
+      promptTemplates,
+      acquisitionOutreachPromptTemplates(outreachContract)
+    );
+    Object.assign(
+      toolSchemas,
+      acquisitionOutreachToolSchemas(outreachContract)
+    );
   }
   return Object.freeze({
     promptTemplates: Object.freeze(promptTemplates),
@@ -724,7 +735,7 @@ function modelContentBundle(
 export function createAcquisitionModelContentBundle(
   options: CreateAcquisitionModelContentBundleOptions = {}
 ): ModelContentBundle {
-  return modelContentBundle(options, true, "battle-card.v2", true);
+  return modelContentBundle(options, true, "battle-card.v2", "v2");
 }
 
 export const ACQUISITION_LEGACY_MODEL_CONTENT_BUNDLE =
@@ -748,6 +759,12 @@ export const ACQUISITION_PRE_TASK6_MODEL_CONTENT_BUNDLE =
   modelContentBundle({}, true, "battle-card.v2");
 export const ACQUISITION_PRE_TASK6_MODEL_CONTENT_HASHES =
   modelContentBundleHashes(ACQUISITION_PRE_TASK6_MODEL_CONTENT_BUNDLE);
+
+/** Exact v6/v7 outreach bundle retained for immutable in-flight snapshots. */
+export const ACQUISITION_OUTREACH_V1_MODEL_CONTENT_BUNDLE =
+  modelContentBundle({}, true, "battle-card.v2", "v1");
+export const ACQUISITION_OUTREACH_V1_MODEL_CONTENT_HASHES =
+  modelContentBundleHashes(ACQUISITION_OUTREACH_V1_MODEL_CONTENT_BUNDLE);
 
 export const ACQUISITION_MODEL_CONTENT_BUNDLE =
   createAcquisitionModelContentBundle();
@@ -782,6 +799,11 @@ const ACQUISITION_MODEL_CONTENT_REGISTRY = Object.freeze([{
   schemaVersion: ACQUISITION_RETIRED_MODEL_SCHEMA_VERSION,
   ...ACQUISITION_RETIRED_MODEL_CONTENT_HASHES,
   bundle: ACQUISITION_RETIRED_MODEL_CONTENT_BUNDLE
+}, {
+  promptVersion: ACQUISITION_OUTREACH_V1_MODEL_PROMPT_VERSION,
+  schemaVersion: ACQUISITION_OUTREACH_V1_MODEL_SCHEMA_VERSION,
+  ...ACQUISITION_OUTREACH_V1_MODEL_CONTENT_HASHES,
+  bundle: ACQUISITION_OUTREACH_V1_MODEL_CONTENT_BUNDLE
 }, {
   promptVersion: ACQUISITION_MODEL_PROMPT_VERSION,
   schemaVersion: ACQUISITION_MODEL_SCHEMA_VERSION,

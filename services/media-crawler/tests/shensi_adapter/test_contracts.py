@@ -124,9 +124,9 @@ class _IpcActionPage:
         self.url = url
 
     def locator(self, selector):
-        if selector == '[contenteditable="true"][aria-label*="评论"]':
+        if '[contenteditable="true"][aria-label*="评论"]' in selector:
             return _IpcActionLocator(self, self.composers)
-        if selector == 'button:has-text("发送")':
+        if 'button:has-text("发送")' in selector:
             return _IpcActionLocator(self, [self.submit])
         if "comment-item" in selector:
             return _IpcActionLocator(self, [self.receipt])
@@ -305,6 +305,61 @@ def test_closed_action_failure_survives_browser_ipc_to_fastapi(
         assert "html" not in response.text.lower()
     finally:
         browser.close_browser()
+
+
+def test_fastapi_reconciliation_is_read_only_and_requires_uncertain_journal(
+    tmp_path,
+):
+    content = "reconciliation frozen content"
+    content_hash = "sha256:" + hashlib.sha256(json.dumps(
+        {"content": content}, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"),
+    ).encode()).hexdigest()
+    body = {
+        "action_id": "reconcile-action-1",
+        "account_handle": "private-handle",
+        "login_state_version": 1,
+        "kind": "comment",
+        "target_public_url": "https://www.douyin.com/video/7350000000000000001",
+        "content": content,
+        "deadline_at": (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat(),
+        "approved_content_hash": content_hash,
+    }
+    sends = []
+    reads = []
+    manager = ActionJobManager(
+        tmp_path / "jobs",
+        account_resolver=lambda _handle, _version: tmp_path,
+        executor=lambda _profile, request: sends.append(request.action_id)
+        or (_ for _ in ()).throw(RuntimeError("crash_after_click")),
+        reconciler=lambda _profile, request: reads.append(request.action_id) or {
+            "action_id": request.action_id,
+            "state": "succeeded",
+            "platform_receipt_reference": "douyin-comment:reconciled-fastapi",
+            "occurred_at": NOW.isoformat(),
+            "failure_code": None,
+        },
+    )
+    with pytest.raises(RuntimeError, match="crash_after_click"):
+        manager.execute(ActionRequest.model_validate(body))
+
+    with TestClient(
+        create_app(SERVICE_SECRET, action_job_manager=manager),
+        raise_server_exceptions=False,
+    ) as client:
+        response = client.post(
+            "/internal/v1/douyin/actions/reconcile-action-1/reconcile",
+            headers={"Authorization": f"Bearer {SERVICE_SECRET}"},
+            json=body,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["platform_receipt_reference"] == (
+        "douyin-comment:reconciled-fastapi"
+    )
+    assert sends == ["reconcile-action-1"]
+    assert reads == ["reconcile-action-1"]
+    assert content not in response.text
 
 
 def test_health_requires_valid_bearer_authentication_without_echoing_header():

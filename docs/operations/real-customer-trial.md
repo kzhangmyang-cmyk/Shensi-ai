@@ -184,9 +184,11 @@ already exist, be a non-symlinked current-user-owned directory with exact mode
 runner resolves one output root and uses it for both creation and cleanup, so
 trial artifacts never fall back to a source-owned directory.
 
-Both backend and sidecar enable outreach only when
-`DOUYIN_OUTREACH_ACTIONS_ENABLED` is case-insensitively exactly `true`.
-Whitespace, `1`, `yes`, an empty value, and omission remain false. While false:
+Outside the trial supervisor, both backend and sidecar enable outreach only
+when `DOUYIN_OUTREACH_ACTIONS_ENABLED` is case-insensitively exactly `true`.
+Whitespace, `1`, `yes`, an empty value, and omission remain false. The trial
+supervisor does not treat an ambient or retained true value as authorization.
+While false:
 
 - the backend rejects final approval before approval/action persistence;
 - the backend creates neither the action claim worker nor recovery sweeper;
@@ -195,10 +197,12 @@ Whitespace, `1`, `yes`, an empty value, and omission remain false. While false:
 - the crawler worker and collection remain available.
 
 The generated trial defaults the value to false. An explicitly authorized
-action trial may override it to true only after an empty-queue audit and must
-restart both backend and sidecar. Use
-`DOUYIN_OUTREACH_ACTIONS_ENABLED=true pnpm trial:publish` for that one publish;
-all other values remain false. The action worker starts immediately, so an
+action trial uses
+`pnpm trial:publish -- --enable-outreach-after-empty-audit` for that one
+publish. It performs a read-only global aggregate over `queued`,
+`blocked_by_predecessor`, and `executing` before starting an action-enabled
+backend; any nonzero or unknown result aborts and cleans up new processes. The
+action worker starts immediately after the gate, so an
 approved queued comment may be claimed as soon as approval commits; its direct
 message remains predecessor-blocked until the comment succeeds and the minimum
 delay of 180 seconds from the successful comment receipt elapses. MediaCrawler
@@ -210,7 +214,11 @@ slider, CAPTCHA, login check, or platform prompt. The enclosing defaults are a
 150-second Node action deadline, 160-second gateway HTTP timeout, 170-second
 browser-action IPC timeout, and 180-second minimum claim lease. Timeout pauses
 risk; no solver, token injection, third-party bypass, or alternate write route
-is allowed. QR display is not account authority; account connection does not
+is allowed. An expired or uncertain external write is never automatically
+retried. The operator may use the page checkbox to request a strictly read-only
+check for a unique self/outgoing post-start receipt of that same frozen action;
+failure keeps it and related work paused, and success does not resume the
+account or successor. QR display is not account authority; account connection does not
 authorize collection; collection does not authorize external sending.
 
 ## Lifecycle commands
@@ -220,6 +228,7 @@ From the repository root, with the customer password supplied out of band:
 ```bash
 pnpm trial:prepare
 pnpm trial:start
+pnpm trial:publish
 pnpm trial:status
 pnpm trial:verify
 pnpm trial:stop
@@ -239,6 +248,20 @@ the least-privilege database/user, obtains the Quick Tunnel HTTPS origin before
 backend startup, injects that exact origin into `CORS_ORIGINS`, provisions the
 tenant admin through the real API, and starts only loopback listeners. Startup
 aborts on an unhealthy dependency or an occupied port.
+
+### Publish verified changes
+
+After the acceptance gates pass, `trial:publish` is the single refresh path for
+an already prepared trial. It validates and stops only the recorded process
+groups, keeps `.runtime/real-trial/state/` intact, rebuilds frontend and backend
+from the current worktree, restarts the complete loopback stack, and runs the
+bounded gateway verification. A new Quick Tunnel origin may be issued and must
+be read from `trial:status`.
+
+Use `http://127.0.0.1:5608` for the customer-facing local view. That local URL
+and the reported HTTPS origin both traverse the same gateway to frontend `5610`
+and backend `5611`. The Vite development server on `5588` is only a developer
+hot-reload surface and is never evidence that the published trial was updated.
 
 ### Status and verify
 
@@ -292,7 +315,8 @@ tree proves all of the following:
 
 1. `./scripts/context-check`, focused frontend/MediaCrawler/runtime tests,
    `pnpm test`, `pnpm build`, and `git diff --check` pass.
-2. `trial:prepare`, `trial:start`, `trial:status`, and `trial:verify` succeed;
+2. `trial:prepare`, `trial:start`, `trial:publish`, `trial:status`, and
+   `trial:verify` succeed;
    all protected older services remain unchanged.
 3. An unauthenticated protected API returns `401`; `test` logs into the exact
    tenant admin; a CSRF-protected write succeeds; logout invalidates the session.

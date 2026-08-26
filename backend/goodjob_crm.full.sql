@@ -934,6 +934,7 @@ CREATE TABLE acquisition_outreach_actions (
   failure_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NULL,
   UNIQUE KEY uk_acquisition_outreach_action_sequence (batch_id, batch_revision, candidate_id, sequence),
   UNIQUE KEY uk_acquisition_outreach_daily_candidate (workspace_id, account_id, local_date, candidate_id, kind),
+  KEY ix_acquisition_outreach_action_claim (status,created_at,id),
   CONSTRAINT fk_acquisition_outreach_action_batch FOREIGN KEY (batch_id, batch_revision)
     REFERENCES acquisition_outreach_batches (id, revision)
 ) ENGINE=InnoDB;

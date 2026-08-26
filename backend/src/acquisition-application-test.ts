@@ -4113,3 +4113,20 @@ test("disabled Douyin outreach leaves approved actions unclaimed while crawler g
     await runtime.close();
   }
 });
+
+test("effective Douyin outreach authorization requires both the explicit flag and a usable gateway", async () => {
+  const module = await import("./acquisition-application.js") as unknown as {
+    effectiveDouyinOutreachActionsEnabled?: (input: {
+      enabled: boolean;
+      gateway: unknown;
+    }) => boolean;
+  };
+  assert.equal(typeof module.effectiveDouyinOutreachActionsEnabled, "function");
+  const evaluate = module.effectiveDouyinOutreachActionsEnabled!;
+  const usableGateway = { executeAction: async () => undefined };
+  assert.equal(evaluate({ enabled: false, gateway: null }), false);
+  assert.equal(evaluate({ enabled: true, gateway: null }), false);
+  assert.equal(evaluate({ enabled: false, gateway: usableGateway }), false);
+  assert.equal(evaluate({ enabled: true, gateway: usableGateway }), true);
+  assert.equal(evaluate({ enabled: true, gateway: { executeAction: "not-a-function" } }), false);
+});

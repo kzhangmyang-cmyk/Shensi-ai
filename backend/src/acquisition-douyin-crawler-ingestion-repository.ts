@@ -723,7 +723,19 @@ extends AuthoritativeDouyinCrawlerIngestionRepository {
   }
   async transaction<T>(scope: IngestionScope, work: () => Promise<T>) {
     const active = this.mysqlContext.getStore();
-    if (active) return work();
+    if (active) {
+      const context = this.context.getStore();
+      if (context) {
+        if (context.scope.workspaceId !== scope.workspaceId
+          || context.scope.ownerId !== scope.ownerId
+          || context.scope.teamId !== scope.teamId) {
+          throw new Error("outreach_authority_scope_mismatch");
+        }
+        return work();
+      }
+      return this.planRuns.transaction((plan) =>
+        this.context.run({ scope, plan }, work));
+    }
     const connection = await this.pool.getConnection();
     try {
       await connection.beginTransaction();

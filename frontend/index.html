@@ -148,34 +148,6 @@
         </article>
       </section>
 
-      <section class="douyin-automation-workspace replica-glass" id="douyinAutomationWorkspace" hidden aria-label="抖音自动获客工作台">
-        <div id="douyinAutomationHost" aria-live="polite">
-          <div class="douyin-empty"><strong>选择一项真实抖音获客计划</strong><p>将从服务器读取账号、自动化与采集状态。</p></div>
-        </div>
-        <div id="douyinOutreachHost" aria-live="polite"></div>
-        <details class="douyin-link-fallback">
-          <summary>授权公开链接导入（备用）</summary>
-          <p>仅在自动采集暂不可用且你有权提交该公开链接时使用。</p>
-        </details>
-      </section>
-
-      <section class="replica-performance replica-glass" id="replicaAcquisitionPerformance" hidden aria-labelledby="replicaAcquisitionPerformanceTitle">
-        <header class="replica-performance-header">
-          <div>
-            <span class="replica-performance-eyebrow">真实经营结果</span>
-            <h2 id="replicaAcquisitionPerformanceTitle">渠道漏斗与老板简报</h2>
-            <p>数字由后端根据获客运行、CRM 活动和商机事件确定性聚合。</p>
-          </div>
-          <div class="replica-performance-filters" aria-label="经营结果筛选">
-            <label><span>开始日期</span><input id="replicaPerformanceFrom" type="date" /></label>
-            <label><span>结束日期</span><input id="replicaPerformanceTo" type="date" /></label>
-            <label><span>平台</span><select id="replicaPerformancePlatform"><option value="">全部平台</option><option value="douyin">抖音</option><option value="web">Web</option></select></label>
-            <button type="button" id="replicaPerformanceRefresh"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>刷新</button>
-          </div>
-        </header>
-        <div id="replicaAcquisitionPerformanceBody" aria-live="polite"></div>
-      </section>
-
       <section class="replica-boardbar" aria-label="任务看板工具栏">
         <div class="replica-boardbar-left">
           <h2>全渠道获客任务 <span class="demo-status" id="replicaAcquisitionModeBadge">演示模式</span></h2>
@@ -252,7 +224,12 @@
           </article>
         </div>
 
-        <div class="replica-flow" id="replicaFlowStage" aria-label="可滑动选择的获客项目" tabindex="0" aria-describedby="replicaFlowHint">
+        <div class="replica-flow" id="replicaFlowStage" aria-labelledby="replicaFlowTitle" tabindex="0" aria-describedby="replicaFlowHint replicaFlowAvailability">
+          <div class="replica-flow-heading">
+            <span>PLATFORM SELECTOR</span>
+            <strong id="replicaFlowTitle">选择获客平台</strong>
+            <small id="replicaFlowAvailability">抖音已接入 · 其他平台待接入</small>
+          </div>
           <button type="button" class="replica-flow-control previous" data-flow-direction="-1" aria-label="选择上一个项目">
             <i class="ph ph-caret-left" aria-hidden="true"></i>
           </button>
@@ -301,6 +278,34 @@
             <span class="replica-flow-position" id="replicaFlowPosition">1 / 5</span>
           </div>
         </div>
+      </section>
+
+      <section class="douyin-automation-workspace replica-glass" id="douyinAutomationWorkspace" hidden aria-label="抖音自动获客工作台">
+        <div id="douyinAutomationHost" aria-live="polite">
+          <div class="douyin-empty"><strong>选择一项真实抖音获客计划</strong><p>将从服务器读取账号、自动化与采集状态。</p></div>
+        </div>
+        <div id="douyinOutreachHost" aria-live="polite"></div>
+        <details class="douyin-link-fallback">
+          <summary>授权公开链接导入（备用）</summary>
+          <p>仅在自动采集暂不可用且你有权提交该公开链接时使用。</p>
+        </details>
+      </section>
+
+      <section class="replica-performance replica-glass" id="replicaAcquisitionPerformance" hidden aria-labelledby="replicaAcquisitionPerformanceTitle">
+        <header class="replica-performance-header">
+          <div>
+            <span class="replica-performance-eyebrow">真实经营结果</span>
+            <h2 id="replicaAcquisitionPerformanceTitle">渠道漏斗与老板简报</h2>
+            <p>数字由后端根据获客运行、CRM 活动和商机事件确定性聚合。</p>
+          </div>
+          <div class="replica-performance-filters" aria-label="经营结果筛选">
+            <label><span>开始日期</span><input id="replicaPerformanceFrom" type="date" /></label>
+            <label><span>结束日期</span><input id="replicaPerformanceTo" type="date" /></label>
+            <label><span>平台</span><select id="replicaPerformancePlatform"><option value="">全部平台</option><option value="douyin">抖音</option><option value="web">Web</option></select></label>
+            <button type="button" id="replicaPerformanceRefresh"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>刷新</button>
+          </div>
+        </header>
+        <div id="replicaAcquisitionPerformanceBody" aria-live="polite"></div>
       </section>
 
       <section class="replica-timeline replica-glass" id="replicaDemoTimeline" aria-label="获客转化链路">

@@ -1,10 +1,12 @@
-import { outreachContentHash, type AcquisitionOutreachAction } from "./acquisition-outreach-batch.js";
+import { outreachContentHash, validOutreachTarget,
+  type AcquisitionOutreachAction } from "./acquisition-outreach-batch.js";
 import type { AcquisitionOutreachBatchRepository } from "./acquisition-outreach-batch-repository.js";
 
 const CLOSED_FAILURES = new Set([
   "action_unavailable", "action_rejected", "deadline_exceeded",
   "douyin_verification_required", "douyin_rate_limited",
   "douyin_account_warning", "douyin_login_expired",
+  "douyin_direct_message_unavailable",
   "douyin_action_control_missing", "douyin_action_control_ambiguous",
   "douyin_action_content_mismatch", "douyin_action_receipt_ambiguous",
   "douyin_action_timeout"
@@ -57,17 +59,6 @@ export interface OutreachActionExecutionReceipt {
   failureCode: string | null;
 }
 
-function validTarget(action: AcquisitionOutreachAction) {
-  try {
-    const url = new URL(action.targetPublicUrl);
-    if (url.protocol !== "https:" || url.hostname !== "www.douyin.com"
-      || url.port || url.search || url.hash) return false;
-    return action.kind === "comment"
-      ? /^\/video\/[A-Za-z0-9_-]{1,300}$/u.test(url.pathname)
-      : /^\/user\/[A-Za-z0-9_-]{1,300}$/u.test(url.pathname);
-  } catch { return false; }
-}
-
 export class AcquisitionOutreachActionWorker {
   private timer: NodeJS.Timeout | null = null;
   private running: Promise<unknown> = Promise.resolve();
@@ -114,7 +105,8 @@ export class AcquisitionOutreachActionWorker {
     const action = claim.action;
     let failureCode: string | null = null;
     try {
-      if (outreachContentHash(action.content) !== action.contentHash || !validTarget(action)) {
+      if (outreachContentHash(action.content) !== action.contentHash
+        || !validOutreachTarget(action.kind, action.targetPublicUrl)) {
         failureCode = "action_rejected";
       }
       const authority = failureCode ? null : await this.options.accountAuthority(action);
@@ -146,11 +138,12 @@ export class AcquisitionOutreachActionWorker {
           || receipt.platformReceiptReference.length > 255 || receipt.failureCode !== null) {
           failureCode = "action_rejected";
         } else {
-          await this.options.repository.completeActionSuccess(claim.fence, {
+          const completed = await this.options.repository.completeActionSuccess(claim.fence, {
             platformReceiptReference: receipt.platformReceiptReference,
             occurredAt: new Date(Math.max(Date.parse(this.options.now()),
               Date.parse(claim.claimedAt))).toISOString()
           });
+          if (!completed) throw new OutreachActionFenceLost();
           return true;
         }
       } else {

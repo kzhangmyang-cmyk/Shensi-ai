@@ -127,9 +127,11 @@ def _public_creator_capture(raw: Mapping[str, object],
                             source_keyword: str) -> dict[str, object] | None:
     author = raw.get("author") if isinstance(raw.get("author"), Mapping) else {}
     actor = _capture_actor(author)
-    if not actor:
+    video_id = _capture_text(raw.get("aweme_id"), 160)
+    if not actor or not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", video_id):
         return None
     return {
+        "aweme_id": video_id,
         "sec_uid": actor,
         "nickname": _capture_text(author.get("nickname"), 200),
         "desc": _capture_text(raw.get("desc"), 500),

@@ -51,6 +51,7 @@ const section16 = {
   "/api/v1/acquisition/outreach-batches/{batchId}/pause": ["post"],
   "/api/v1/acquisition/outreach-batches/{batchId}/resume": ["post"],
   "/api/v1/acquisition/outreach-batches/{batchId}/actions": ["get"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile": ["post"],
   "/api/v1/acquisition/visual-reader-sessions": ["post"],
   "/api/v1/acquisition/visual-reader-sessions/{sessionId}": ["get"],
   "/api/v1/acquisition/visual-reader-sessions/{sessionId}/observations:batch": ["post"],
@@ -577,11 +578,23 @@ test("outreach approval is a closed human confirmation that publishes exact orde
     [
       "action_unavailable", "action_rejected", "deadline_exceeded",
       "douyin_verification_required", "douyin_rate_limited", "douyin_account_warning",
-      "douyin_login_expired", "douyin_action_control_missing",
+      "douyin_login_expired", "douyin_direct_message_unavailable",
+      "douyin_action_control_missing",
       "douyin_action_control_ambiguous", "douyin_action_content_mismatch",
       "douyin_action_receipt_ambiguous", "douyin_action_timeout", null
     ]
   );
+  const reconciliation = document.paths[
+    "/api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile"
+  ].post;
+  assert.equal(reconciliation.operationId,
+    "reconcileAcquisitionOutreachAction");
+  assert.equal(reconciliation.requestBody.content["application/json"].schema
+    .additionalProperties, false);
+  assert.deepEqual(reconciliation.requestBody.content["application/json"].schema
+    .required, ["batchRevision", "approvalHash", "contentHash", "confirm"]);
+  assert.equal(reconciliation.requestBody.content["application/json"].schema
+    .properties.confirm.const, true);
 });
 
 test("authorized visual reader routes reuse the acquisition API style and binary artifact boundary", async () => {

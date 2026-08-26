@@ -92,3 +92,64 @@ test("rejects post-call DNC and exact evidence provenance changes", async () => 
   });
   await assert.rejects(service.generate({ scope: { workspaceId: "workspace", ownerId: "owner", teamId: "team", actorId: "actor" }, candidateId: "candidate-1" }), /OUTREACH_CANDIDATE_AUTHORITY_CHANGED/u);
 });
+
+test("falls back to a validated evidence-grounded draft when the model prose is not grounded verbatim", async () => {
+  let gatewayCalls = 0;
+  const service = new AcquisitionOutreachDraftService({
+    domain: {
+      async findCandidate() {
+        return {
+          id: "candidate-1", ownerId: "owner", teamId: "team", version: 1,
+          status: "needs_research", evidenceIds: ["evidence-1"],
+          profile: {
+            kind: "individual", sourcePlatform: "douyin",
+            publicActorKey: "actor-1", publicDisplayName: "公开账号"
+          }
+        };
+      },
+      async findEvidence() {
+        return {
+          id: "evidence-1", ownerId: "owner", teamId: "team",
+          contentHash: `sha256:${"a".repeat(64)}`,
+          sourceSnippet: "无滤芯除尘？#涨知识",
+          sourcePlatform: "douyin",
+          provenance: {
+            kind: "mediacrawler_public_record",
+            sourceUrl: "https://www.douyin.com/video/7350000000000000001",
+            jobId: "job-1", recordId: "record-1", upstreamCommit: "commit-1"
+          }
+        };
+      }
+    } as any,
+    finalAuthority: stableFinalAuthority(),
+    async resolveSnapshot() { return { jobId: "snapshot-1" }; },
+    async gateway() {
+      return {
+        async callTools() {
+          gatewayCalls += 1;
+          return {
+            toolCalls: [{
+              id: "call-1", name: "__goodjob_submit_douyin_outreach_draft",
+              arguments: {
+                comment: "您好，看到您分享的无滤芯除尘知识，很有启发",
+                directMessage: "您好，想和您交流一下",
+                rationaleCodes: ["evidence_grounded"]
+              }
+            }],
+            usage: {}, providerRequestId: null
+          };
+        }
+      };
+    }
+  });
+
+  const draft = await service.generate({
+    scope: { workspaceId: "workspace", ownerId: "owner", teamId: "team", actorId: "actor" },
+    candidateId: "candidate-1"
+  });
+
+  assert.equal(gatewayCalls, 1);
+  assert.equal(draft.comment, "看到你公开提到无滤芯除尘,方便的话");
+  assert.equal(draft.directMessage, "看到你公开提到无滤芯除尘,如你愿意,可交流公开场景里的思路");
+  assert.deepEqual(draft.rationaleCodes, ["evidence_grounded", "manual_review_required"]);
+});

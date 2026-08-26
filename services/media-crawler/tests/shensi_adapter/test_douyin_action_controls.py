@@ -10,10 +10,15 @@ import pytest
 from shensi_adapter.douyin_action_controls import (
     ActionControlsFailure,
     ReceiptBaseline,
+    find_existing_outgoing_receipt,
     find_visible_receipt,
 )
-from shensi_adapter.douyin_actions import DouyinActionExecutor, DouyinActionFailure
-from shensi_adapter.schemas import ActionRequest
+from shensi_adapter.douyin_actions import (
+    DouyinActionExecutor,
+    DouyinActionFailure,
+    DouyinActionReconciler,
+)
+from shensi_adapter.schemas import ActionReconciliationRequest, ActionRequest
 
 
 NOW = datetime(2026, 8, 25, tzinfo=UTC)
@@ -44,6 +49,10 @@ class FakeElement:
     attribute_errors: set[str] = field(default_factory=set)
     visibility_error_after: int | None = None
     visibility_reads: int = 0
+    action: str | None = None
+    message_item: bool = False
+    visible_in_message_panel: bool = False
+    navigate_to: str | None = None
 
 
 class FakeLocator:
@@ -75,6 +84,8 @@ class FakeLocator:
             raise RuntimeError("fake_locator_detached")
         return element.visible and (
             not element.visible_after_submit or self.page.after_submit
+        ) and (
+            not element.visible_in_message_panel or self.page.message_panel_open
         )
 
     def is_enabled(self, **_kwargs):
@@ -87,6 +98,17 @@ class FakeLocator:
         element = self._one()
         self.page.fills.append((element.name, value))
         element.text = value
+
+    def press(self, key: str, **_kwargs):
+        element = self._one()
+        self.page.native_keys.append((element.name, key))
+        if key == "Backspace":
+            element.text = ""
+
+    def press_sequentially(self, value: str, **_kwargs):
+        element = self._one()
+        self.page.native_types.append((element.name, value))
+        element.text += value
 
     def input_value(self, **_kwargs):
         element = self._one()
@@ -101,7 +123,12 @@ class FakeLocator:
     def click(self, **_kwargs):
         element = self._one()
         self.page.clicks.append(element.name)
-        self.page.after_submit = True
+        if element.action == "open_message":
+            self.page.message_panel_open = True
+            if element.navigate_to is not None:
+                self.page.url = element.navigate_to
+        elif element.action == "submit":
+            self.page.after_submit = True
 
     def get_attribute(self, name: str, **_kwargs):
         element = self._one()
@@ -127,6 +154,15 @@ class FakeLocator:
             matches = [item for item in self.elements if text in item.text]
         return FakeLocator(self.page, matches)
 
+    def get_by_role(self, role: str):
+        if role != "textbox":
+            return FakeLocator(self.page, [])
+        return FakeLocator(self.page, [
+            item for item in self.elements
+            if item.tag_name in {"input", "textarea"}
+            or item.attributes.get("role") == "textbox"
+        ])
+
     def locator(self, selector: str):
         if selector == '[contenteditable="true"]':
             return FakeLocator(self.page, [
@@ -150,7 +186,8 @@ class FakeLocator:
 
 
 class FakePage:
-    def __init__(self, elements: list[FakeElement], *, redirect_url: str | None = None):
+    def __init__(self, elements: list[FakeElement], *, redirect_url: str | None = None,
+                 page_title: str = "抖音"):
         self.elements = elements
         self.after_submit = False
         self.url = "about:blank"
@@ -160,6 +197,10 @@ class FakePage:
         self.clicks: list[str] = []
         self.locator_queries: list[str] = []
         self.role_queries: list[tuple[str, str, bool]] = []
+        self.native_keys: list[tuple[str, str]] = []
+        self.native_types: list[tuple[str, str]] = []
+        self.message_panel_open = False
+        self.page_title = page_title
 
     def goto(self, url: str, **_kwargs):
         self.urls.append(url)
@@ -169,7 +210,13 @@ class FakePage:
         self.locator_queries.append(selector)
         if "comment-item" in selector or "data-comment-id" in selector or "data-cid" in selector:
             return FakeLocator(self, [item for item in self.elements if item.comment_item])
-        return FakeLocator(self, [item for item in self.elements if selector in item.selectors])
+        if ("data-message-id" in selector or "data-msg-id" in selector
+                or "message-item" in selector or "message-bubble" in selector):
+            return FakeLocator(self, [item for item in self.elements if item.message_item])
+        selectors = {candidate.strip() for candidate in selector.split(", ")}
+        return FakeLocator(self, [
+            item for item in self.elements if selectors.intersection(item.selectors)
+        ])
 
     def get_by_role(self, role: str, *, name: str, exact: bool):
         self.role_queries.append((role, name, exact))
@@ -185,14 +232,22 @@ class FakePage:
     def wait_for_timeout(self, _milliseconds: int):
         return None
 
+    def title(self):
+        return self.page_title
 
-def action_request(content: str = "冻结的批准文本") -> ActionRequest:
+
+def action_request(content: str = "冻结的批准文本",
+                   kind: str = "comment") -> ActionRequest:
     return ActionRequest(
-        action_id="action-comment",
+        action_id=f"action-{kind}",
         account_handle="private-handle",
         login_state_version=3,
-        kind="comment",
-        target_public_url="https://www.douyin.com/video/7350000000000000001",
+        kind=kind,
+        target_public_url=(
+            "https://www.douyin.com/video/7350000000000000001"
+            if kind == "comment"
+            else "https://www.douyin.com/user/MS4wLjABCreator"
+        ),
         content=content,
         deadline_at=NOW + timedelta(minutes=1),
         approved_content_hash="sha256:" + hashlib.sha256(json.dumps(
@@ -200,6 +255,290 @@ def action_request(content: str = "冻结的批准文本") -> ActionRequest:
             separators=(",", ":"),
         ).encode()).hexdigest(),
     )
+
+
+def reconciliation_request(
+    content: str = "冻结的批准文本",
+    kind: str = "comment",
+    *,
+    not_before: datetime = NOW - timedelta(seconds=1),
+) -> ActionReconciliationRequest:
+    return ActionReconciliationRequest(
+        **action_request(content, kind).model_dump(),
+        not_before=not_before,
+    )
+
+
+def dm_entry(name: str = "dm-entry", **changes: object) -> FakeElement:
+    values: dict[str, object] = {
+        "name": name,
+        "selectors": {'button:has-text("发私信")'},
+        "role": "button",
+        "accessible_name": "发私信",
+        "text": "发私信",
+        "action": "open_message",
+    }
+    values.update(changes)
+    return FakeElement(**values)
+
+
+def dm_composer(**changes: object) -> FakeElement:
+    values: dict[str, object] = {
+        "name": "dm-composer",
+        "selectors": {'.DraftEditor-editor [contenteditable="true"]'},
+        "editable": True,
+        "attributes": {"contenteditable": "true"},
+        "visible_in_message_panel": True,
+    }
+    values.update(changes)
+    return FakeElement(**values)
+
+
+def dm_submit(**changes: object) -> FakeElement:
+    values: dict[str, object] = {
+        "name": "dm-submit",
+        "selectors": {".e2e-send-msg-btn"},
+        "role": "button",
+        "accessible_name": "发送",
+        "text": "发送",
+        "visible_in_message_panel": True,
+        "action": "submit",
+    }
+    values.update(changes)
+    return FakeElement(**values)
+
+
+def message_item(**changes: object) -> FakeElement:
+    values: dict[str, object] = {
+        "name": "message-new",
+        "text": "冻结的批准文本",
+        "attributes": {
+            "data-message-id": "message-123",
+            "data-direction": "outgoing",
+        },
+        "visible_after_submit": True,
+        "visible_in_message_panel": True,
+        "message_item": True,
+    }
+    values.update(changes)
+    return FakeElement(**values)
+
+
+def test_real_direct_message_opens_unique_panel_types_natively_once_and_binds_new_receipt():
+    page = FakePage([dm_entry(), dm_composer(), dm_submit(), message_item()])
+
+    receipt = DouyinActionExecutor(now=lambda: NOW).execute(
+        page,
+        action_request(kind="direct_message"),
+    )
+
+    assert page.urls == ["https://www.douyin.com/user/MS4wLjABCreator"]
+    assert page.clicks == ["dm-entry", "dm-composer", "dm-submit"]
+    assert page.fills == []
+    assert page.native_types == [("dm-composer", "冻结的批准文本")]
+    assert page.native_keys == [
+        ("dm-composer", "ControlOrMeta+A"),
+        ("dm-composer", "Backspace"),
+    ]
+    assert receipt.platform_receipt_reference == "douyin-message:message-123"
+    assert '[data-e2e="message-input"]' not in page.locator_queries
+    assert '[data-e2e="message-submit"]' not in page.locator_queries
+    assert '[data-e2e-receipt-id]' not in page.locator_queries
+
+
+def test_read_only_reconciliation_accepts_only_unique_outgoing_dm_receipt_without_submit():
+    page = FakePage([
+        dm_entry(),
+        message_item(visible_after_submit=False, attributes={
+            "data-message-id": "message-123",
+            "data-direction": "outgoing",
+            "data-created-at": NOW.isoformat(),
+        }),
+    ])
+
+    receipt = DouyinActionReconciler(now=lambda: NOW).reconcile(
+        page,
+        reconciliation_request(kind="direct_message"),
+    )
+
+    assert receipt.platform_receipt_reference == "douyin-message:message-123"
+    assert page.clicks == ["dm-entry"]
+    assert page.fills == []
+    assert page.native_types == []
+    assert ".e2e-send-msg-btn" not in page.locator_queries
+
+
+def test_read_only_reconciliation_rejects_inbound_same_text_without_submit():
+    page = FakePage([
+        dm_entry(),
+        message_item(
+            visible_after_submit=False,
+            attributes={
+                "data-message-id": "message-inbound",
+                "data-direction": "incoming",
+                "data-created-at": NOW.isoformat(),
+            },
+        ),
+    ])
+
+    with pytest.raises(
+        DouyinActionFailure,
+        match="^douyin_action_receipt_ambiguous$",
+    ):
+        DouyinActionReconciler(now=lambda: NOW).reconcile(
+            page,
+            reconciliation_request(kind="direct_message"),
+        )
+
+    assert page.clicks == ["dm-entry"]
+    assert page.native_types == []
+
+
+def test_real_direct_message_never_accepts_same_text_inbound_as_a_send_receipt():
+    page = FakePage([
+        dm_entry(),
+        dm_composer(),
+        dm_submit(),
+        message_item(attributes={
+            "data-message-id": "message-inbound",
+            "data-direction": "incoming",
+        }),
+    ])
+
+    with pytest.raises(DouyinActionFailure, match="^douyin_action_timeout$"):
+        DouyinActionExecutor(
+            now=lambda: NOW,
+            receipt_attempts=1,
+        ).execute(page, action_request(kind="direct_message"))
+
+
+def test_real_direct_message_requires_a_stable_outgoing_platform_message_id():
+    page = FakePage([
+        dm_entry(), dm_composer(), dm_submit(),
+        message_item(attributes={"data-direction": "outgoing"}),
+    ])
+
+    with pytest.raises(
+        DouyinActionFailure,
+        match="^douyin_action_receipt_ambiguous$",
+    ):
+        DouyinActionExecutor(now=lambda: NOW).execute(
+            page,
+            action_request(kind="direct_message"),
+        )
+
+
+def test_direct_message_route_transition_without_frozen_actor_binding_fails_closed():
+    page = FakePage([
+        dm_entry(navigate_to="https://www.douyin.com/messages"),
+        dm_composer(), dm_submit(), message_item(),
+    ])
+
+    with pytest.raises(DouyinActionFailure, match="^action_rejected$"):
+        DouyinActionExecutor(now=lambda: NOW).execute(
+            page,
+            action_request(kind="direct_message"),
+        )
+
+    assert page.clicks == ["dm-entry"]
+    assert page.native_types == []
+
+
+@pytest.mark.parametrize("redirect_url", [
+    "https://passport.douyin.com/not-a-login",
+    "http://passport.douyin.com/login",
+])
+def test_non_allowlisted_passport_like_redirect_is_not_classified_as_login(
+    redirect_url,
+):
+    page = FakePage([], redirect_url=redirect_url)
+
+    with pytest.raises(DouyinActionFailure, match="^action_rejected$"):
+        DouyinActionExecutor(now=lambda: NOW, headless=True).execute(
+            page,
+            action_request(),
+        )
+
+
+def test_real_direct_message_fails_closed_when_profile_entry_is_ambiguous():
+    page = FakePage([
+        dm_entry("dm-entry-1"),
+        dm_entry("dm-entry-2"),
+        dm_composer(),
+        dm_submit(),
+    ])
+
+    with pytest.raises(
+        DouyinActionFailure,
+        match="^douyin_action_control_ambiguous$",
+    ):
+        DouyinActionExecutor(now=lambda: NOW).execute(
+            page,
+            action_request(kind="direct_message"),
+        )
+
+    assert page.clicks == []
+    assert page.native_types == []
+
+
+def test_real_direct_message_fails_closed_when_distinct_entry_selectors_both_match():
+    page = FakePage([
+        dm_entry("dm-entry-long"),
+        dm_entry(
+            "dm-entry-short",
+            selectors={'button:has-text("\u79c1\u4fe1")'},
+            accessible_name="\u79c1\u4fe1",
+            text="\u79c1\u4fe1",
+        ),
+        dm_composer(),
+        dm_submit(),
+        message_item(),
+    ])
+
+    with pytest.raises(
+        DouyinActionFailure,
+        match="^douyin_action_control_ambiguous$",
+    ):
+        DouyinActionExecutor(now=lambda: NOW).execute(
+            page,
+            action_request(kind="direct_message"),
+        )
+
+    assert page.clicks == []
+    assert page.native_types == []
+
+
+@pytest.mark.parametrize(("elements", "page_title", "redirect_url", "code"), [
+    ([FakeElement(name="captcha-image", selectors={"#captcha-verify-image"})],
+     "抖音", None, "douyin_verification_required"),
+    ([FakeElement(name="captcha-container", selectors={"#captcha_container"})],
+     "抖音", None, "douyin_verification_required"),
+    ([], "验证码中间页 - 抖音", None, "douyin_verification_required"),
+    ([], "抖音", "https://passport.douyin.com/login/", "douyin_login_expired"),
+    ([FakeElement(name="rate-limit", selectors={'text="操作频繁，请稍后再试"'})],
+     "抖音", None, "douyin_rate_limited"),
+])
+def test_real_page_failures_are_classified_before_any_editor_or_submit(
+    elements,
+    page_title,
+    redirect_url,
+    code,
+):
+    page = FakePage(
+        [*elements, composer(), submit()],
+        page_title=page_title,
+        redirect_url=redirect_url,
+    )
+
+    with pytest.raises(DouyinActionFailure, match=f"^{code}$"):
+        DouyinActionExecutor(now=lambda: NOW, headless=True).execute(
+            page,
+            action_request(),
+        )
+
+    assert page.fills == []
+    assert page.native_types == []
+    assert page.clicks == []
 
 
 def composer(**changes: object) -> FakeElement:
@@ -220,6 +559,7 @@ def submit(name: str = "submit-1", **changes: object) -> FakeElement:
         "role": "button",
         "accessible_name": "发送",
         "text": "发送",
+        "action": "submit",
     }
     values.update(changes)
     return FakeElement(**values)
@@ -252,17 +592,106 @@ def test_real_comment_structure_submits_exact_text_once_and_returns_bound_receip
     assert receipt.platform_receipt_reference == "douyin-comment:comment-123"
 
 
-def test_native_send_button_keeps_priority_over_exact_role_button_fallback():
+def test_real_comment_fails_closed_when_distinct_composer_selectors_both_match():
+    page = FakePage([
+        composer(),
+        composer(
+            name="composer-2",
+            selectors={'[contenteditable="true"][data-placeholder*="\u8bc4\u8bba"]'},
+            attributes={"contenteditable": "true", "data-placeholder": "\u5199\u4e0b\u8bc4\u8bba"},
+        ),
+        submit(),
+        comment_item(),
+    ])
+
+    with pytest.raises(
+        DouyinActionFailure,
+        match="^douyin_action_control_ambiguous$",
+    ):
+        DouyinActionExecutor(now=lambda: NOW).execute(page, action_request())
+
+    assert page.fills == []
+    assert page.clicks == []
+
+
+def test_read_only_reconciliation_requires_unique_self_owned_comment_platform_id():
+    owned = comment_item(
+        visible_after_submit=False,
+        attributes={
+            "data-comment-id": "comment-123",
+            "data-owner": "self",
+            "data-created-at": NOW.isoformat(),
+        },
+    )
+    page = FakePage([owned])
+
+    assert find_existing_outgoing_receipt(
+        page,
+        reconciliation_request(),
+    ) == "douyin-comment:comment-123"
+    receipt = DouyinActionReconciler(now=lambda: NOW).reconcile(
+        page,
+        reconciliation_request(),
+    )
+
+    assert receipt.platform_receipt_reference == "douyin-comment:comment-123"
+    assert page.clicks == []
+    assert page.fills == []
+
+
+def test_read_only_reconciliation_rejects_unowned_or_unidentified_comment():
+    page = FakePage([
+        comment_item(visible_after_submit=False),
+    ])
+
+    with pytest.raises(
+        DouyinActionFailure,
+        match="^douyin_action_receipt_ambiguous$",
+    ):
+        DouyinActionReconciler(now=lambda: NOW).reconcile(
+            page,
+            reconciliation_request(),
+        )
+
+    assert page.clicks == []
+
+
+def test_read_only_reconciliation_rejects_self_owned_same_text_from_before_attempt():
+    page = FakePage([comment_item(
+        visible_after_submit=False,
+        attributes={
+            "data-comment-id": "comment-old",
+            "data-owner": "self",
+            "data-created-at": (NOW - timedelta(minutes=5)).isoformat(),
+        },
+    )])
+
+    with pytest.raises(
+        DouyinActionFailure,
+        match="^douyin_action_receipt_ambiguous$",
+    ):
+        DouyinActionReconciler(now=lambda: NOW).reconcile(
+            page,
+            reconciliation_request(not_before=NOW),
+        )
+
+    assert page.clicks == []
+
+
+def test_distinct_native_and_role_send_buttons_fail_closed_as_ambiguous():
     role_submit = submit(
         "submit-role",
         selectors={'[role="button"]:has-text("发送")'},
     )
     page = FakePage([composer(), submit(), role_submit, comment_item()])
 
-    receipt = DouyinActionExecutor(now=lambda: NOW).execute(page, action_request())
+    with pytest.raises(
+        DouyinActionFailure,
+        match="^douyin_action_control_ambiguous$",
+    ):
+        DouyinActionExecutor(now=lambda: NOW).execute(page, action_request())
 
-    assert receipt.platform_receipt_reference == "douyin-comment:comment-123"
-    assert page.clicks == ["submit-1"]
+    assert page.clicks == []
 
 
 @pytest.mark.parametrize(("elements", "code"), [

@@ -114,6 +114,65 @@ assert.match(candidatePanel.textContent ?? "", /袜子采购用户/u);
 assert.match(candidatePanel.textContent ?? "", /公开评论中询问袜子批发/u);
 assert.doesNotMatch(candidatePanel.textContent ?? "", /正在发现候选人|暂无候选人/u);
 
+const candidateEvidenceState: DouyinAutomationState = {
+  phase: "ready", planId: "plan-1", planName: "袜子获客计划", planStatus: "approved",
+  account: connectedAccount, loginSession: null, policy: null,
+  draftPolicy: { ...draftPolicy, keywords: ["袜子"] }, runIntent: null,
+  activeRunId: "run-live-1", crawlerStatus: {
+    runId: "run-live-1", state: "succeeded", attempt: 1, cursorPersisted: true,
+    recordCount: 2, candidateBudgetUsed: 2, candidateBudgetLimit: 50,
+    candidateProjectionState: "ready", lastErrorCode: null,
+    createdAt: "2026-08-25T09:30:00.000Z", updatedAt: "2026-08-25T09:31:00.000Z",
+    completedAt: "2026-08-25T09:31:00.000Z",
+    activity: { phase: "completed", currentKeyword: null, browserMode: "headless", sequence: 5 }
+  }, candidates: [{
+    id: "candidate-profile-1", status: "creator_candidate", displayName: "内容创作者",
+    evidence: { sourceUrl: "https://www.douyin.com/user/creator-1", excerpt: "公开主页资料" }
+  }, {
+    id: "candidate-comment-1", status: "comment_candidate", displayName: "需求评论者",
+    evidence: { sourceUrl: "https://www.douyin.com/video/video-1", excerpt: "公开评论需求" }
+  }], selectedCandidateIds: [], error: null, suggestionError: null, closed: false
+};
+renderDouyinAutomationView(host, candidateEvidenceState);
+const candidateInputs = host.querySelectorAll<HTMLInputElement>("[data-douyin-candidate]");
+assert.equal(candidateInputs[0]?.disabled, true);
+assert.equal(candidateInputs[1]?.disabled, false);
+assert.match(host.querySelectorAll<HTMLElement>(".douyin-candidate-row")[0]?.textContent ?? "",
+  /缺少可评论视频/u);
+
+const inspectableEvidenceState: DouyinAutomationState = {
+  ...candidateEvidenceState,
+  candidates: [...candidateEvidenceState.candidates].reverse()
+};
+const inspectableEvidenceController = {
+  getState: () => inspectableEvidenceState,
+  subscribe(listener: (state: DouyinAutomationState) => void) {
+    listener(inspectableEvidenceState);
+    return () => undefined;
+  },
+  toggleCandidate() {
+    throw new Error("viewing evidence must not toggle outreach selection");
+  }
+} as unknown as DouyinAutomationController;
+const unmountInspectableEvidence = mountDouyinAutomationView(
+  host,
+  inspectableEvidenceController,
+  () => undefined
+);
+const inspectableRows = host.querySelectorAll<HTMLElement>(".douyin-candidate-row");
+assert.equal(host.querySelector<HTMLElement>(".douyin-evidence-inspector h4")?.textContent, "需求评论者");
+inspectableRows[1]?.querySelector<HTMLElement>("strong")?.click();
+assert.equal(host.querySelector<HTMLElement>(".douyin-evidence-inspector h4")?.textContent, "内容创作者",
+  "clicking a profile-only candidate must inspect its evidence without selecting it");
+assert.equal(host.querySelectorAll("[data-douyin-candidate]:checked").length, 0);
+const inspectWithKeyboard = new document.defaultView!.Event("keydown", { bubbles: true });
+Object.defineProperty(inspectWithKeyboard, "key", { value: "Enter" });
+host.querySelectorAll<HTMLElement>(".douyin-candidate-row")[0]?.dispatchEvent(inspectWithKeyboard);
+assert.equal(host.querySelector<HTMLElement>(".douyin-evidence-inspector h4")?.textContent, "需求评论者",
+  "Enter on a candidate row must inspect its evidence");
+assert.equal(host.querySelectorAll("[data-douyin-candidate]:checked").length, 0);
+unmountInspectableEvidence();
+
 const queuedStatus: DouyinCrawlerStatus = {
   runId: "run-queued-1", state: "queued" as const, attempt: 0, cursorPersisted: false,
   recordCount: 0, candidateBudgetUsed: 0, candidateBudgetLimit: 50, candidateProjectionState: "pending" as const,

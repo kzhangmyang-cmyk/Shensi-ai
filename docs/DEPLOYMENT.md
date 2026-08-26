@@ -189,9 +189,13 @@ expose it through the public gateway. Node then owns account serialization,
 fenced claims, persisted server-time delays, final authority revalidation,
 daily limits, and receipts. The sidecar owns only the single exact browser
 submission and closed platform-state detection. Platform verification, rate
-limiting, account warnings, and login expiry pause the persisted social account
-and all its queued actions; operators must resolve the account state through the
-normal account lifecycle, never by bypassing the platform control.
+limiting, account warnings, login expiry, expired external-write leases, and
+uncertain receipts pause the persisted social account and related work;
+operators must never bypass the platform control. For an uncertain exact
+action, the authenticated page exposes a separate operator-confirmed read-only
+reconciliation. It may store a unique existing post-start receipt, but it never
+clicks a send control, requeues the action, or automatically resumes the
+account/successor.
 
 On an existing MySQL installation, backend schema setup must complete before
 workers start. It widens Douyin authoritative-run alias columns to 160
@@ -413,6 +417,7 @@ generated secrets and requires the same supplied customer password.
 ```bash
 pnpm trial:prepare
 pnpm trial:start
+pnpm trial:publish
 pnpm trial:status
 pnpm trial:verify
 pnpm trial:stop
@@ -428,6 +433,13 @@ starts the loopback application stack. It bootstraps an internal random
 super-admin only long enough to create or verify
 `test@shensi.local` as tenant `admin` in `trial-pilot-001`; the backend is
 restarted without `INITIAL_ADMIN_*`.
+
+After tests and build gates pass, `trial:publish` stops only the owned trial
+process groups, preserves the dedicated MySQL and MediaCrawler state, rebuilds
+from the current worktree, restarts the stack, and verifies the gateway. The
+customer-facing local origin is `http://127.0.0.1:5608`; it is the same runtime
+as the temporary HTTPS origin. Development port `5588` is intentionally not a
+published-trial endpoint.
 
 `trial:status` is the current authority for process state and the temporary
 origin. Supply that origin to `trial:verify` through its requested process
@@ -448,11 +460,17 @@ unchanged, and incomplete enabled configuration fails before login traffic. The
 backend remains email-only and the customer receives tenant `admin`, never
 `super_admin`.
 
-The generated runtime fixes visible Chrome mode and
+The generated runtime uses visible Chrome mode and defaults
 `DOUYIN_OUTREACH_ACTIONS_ENABLED=false`. QR readiness or account connection
 does not authorize collection; collection does not authorize external sending.
 The public trial launch verifies that final outreach approval and the sidecar
-action route remain fail-closed. It does not set the flag true.
+action route remain fail-closed by default. Ambient and retained
+`DOUYIN_OUTREACH_ACTIONS_ENABLED=true` values do not grant trial authorization.
+After explicit authorization, publish that specific trial with
+`pnpm trial:publish -- --enable-outreach-after-empty-audit`. Before any
+action-enabled backend starts, the supervisor runs a read-only global aggregate
+over all `queued`, `blocked_by_predecessor`, and `executing` rows. Any nonzero,
+malformed, or unavailable result aborts and cleans up the new processes.
 
 Stopping preserves the dedicated MySQL data, encrypted profile, crawl state,
 logs, and secrets. Before deleting the runtime root, export the trial database

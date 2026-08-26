@@ -4,6 +4,11 @@ import { startAcquisitionDetailCenter } from "./acquisition/detail-center-contro
 import { acquisitionDetailRequestForAction } from "./acquisition/detail-center-entry";
 import { startAcquisitionPerformance } from "./acquisition/performance-controller";
 import { startConnectionCenter } from "./connections/connection-controller";
+import {
+  getFlowCardSpacing,
+  isSelectableFlowCard,
+  nextSelectableFlowIndex
+} from "./replica-flow-selection";
 
 type ReplicaTaskRow = HTMLButtonElement & {
   dataset: DOMStringMap & {
@@ -110,9 +115,7 @@ if (replica) {
     if (!flow || cards.length === 0) return;
     selectedFlowIndex = ((nextIndex % cards.length) + cards.length) % cards.length;
     const half = Math.floor(cards.length / 2);
-    const compact = flow.clientWidth < 620;
-    const firstStep = compact ? 68 : 96;
-    const nextStep = compact ? 48 : 72;
+    const { firstStep, nextStep } = getFlowCardSpacing(flow.clientWidth);
 
     cards.forEach((card, index) => {
       let offset = index - selectedFlowIndex;
@@ -159,11 +162,27 @@ if (replica) {
   function selectFlowProject(index: number, focusCard = false) {
     const cards = flowCards();
     if (cards.length === 0) return;
-    updateFlowLayout(index);
+    const normalizedIndex = ((index % cards.length) + cards.length) % cards.length;
+    const requestedCard = cards[normalizedIndex];
+    if (!requestedCard || !isSelectableFlowCard(requestedCard)) {
+      const platform = requestedCard
+        ?.querySelector<HTMLElement>(".replica-flow-card-name")
+        ?.textContent
+        ?.trim() || "该平台";
+      showToast(`${platform}真实获客正在接入，当前可使用抖音获客`);
+      return;
+    }
+    updateFlowLayout(normalizedIndex);
     const selectedCard = cards[selectedFlowIndex];
     const row = taskRows().find((task) => task.dataset.taskId === selectedCard.dataset.flowTaskId);
     if (row) renderTaskDetail(row, false);
     if (focusCard) selectedCard.focus({ preventScroll: true });
+  }
+
+  function moveFlowProject(direction: number, focusCard = false) {
+    const cards = flowCards();
+    const nextIndex = nextSelectableFlowIndex(cards, selectedFlowIndex, direction);
+    selectFlowProject(nextIndex, focusCard);
   }
 
   function updateGroupCounts() {
@@ -242,7 +261,7 @@ if (replica) {
     const flowControl = target.closest<HTMLButtonElement>("[data-flow-direction]");
     if (flowControl) {
       const direction = Number(flowControl.dataset.flowDirection || "0");
-      selectFlowProject(selectedFlowIndex + direction);
+      moveFlowProject(direction);
       return;
     }
 
@@ -350,7 +369,7 @@ if (replica) {
     const offset = event.clientX - flowDragStartX;
     if (Math.abs(offset) >= 34) {
       suppressFlowClickUntil = Date.now() + 260;
-      selectFlowProject(selectedFlowIndex + (offset < 0 ? 1 : -1));
+      moveFlowProject(offset < 0 ? 1 : -1);
     } else if (flowPointerCardIndex !== null && flowPointerCardIndex !== selectedFlowIndex) {
       suppressFlowClickUntil = Date.now() + 260;
       selectFlowProject(flowPointerCardIndex);
@@ -359,7 +378,7 @@ if (replica) {
       const sideOffset = event.clientX - (bounds.left + bounds.width / 2);
       if (Math.abs(sideOffset) >= 74) {
         suppressFlowClickUntil = Date.now() + 260;
-        selectFlowProject(selectedFlowIndex + (sideOffset > 0 ? 1 : -1));
+        moveFlowProject(sideOffset > 0 ? 1 : -1);
       }
     }
     flowDragStartX = null;
@@ -381,17 +400,21 @@ if (replica) {
     if (Math.abs(horizontalDelta) < 10 || Date.now() - lastFlowWheelAt < 420) return;
     event.preventDefault();
     lastFlowWheelAt = Date.now();
-    selectFlowProject(selectedFlowIndex + (horizontalDelta > 0 ? 1 : -1));
+    moveFlowProject(horizontalDelta > 0 ? 1 : -1);
   }, { passive: false });
 
   flow?.addEventListener("keydown", (event) => {
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
-      selectFlowProject(selectedFlowIndex + (event.key === "ArrowRight" ? 1 : -1), true);
+      moveFlowProject(event.key === "ArrowRight" ? 1 : -1, true);
     }
     if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
-      selectFlowProject(event.key === "Home" ? 0 : flowCards().length - 1, true);
+      const cards = flowCards();
+      const ordered = event.key === "Home" ? cards : [...cards].reverse();
+      const target = ordered.find(isSelectableFlowCard);
+      const index = target ? cards.indexOf(target) : selectedFlowIndex;
+      selectFlowProject(index, true);
     }
   });
 

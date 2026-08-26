@@ -14,6 +14,68 @@ const node = "/Users/mac/.local/node-22/bin/node";
 const pnpm = "/Users/mac/bin/pnpm";
 const mysqlSocket = "/private/tmp/shensi-real-trial-3310.sock";
 const childScript = fileURLToPath(new URL("./real-trial-child.mjs", import.meta.url));
+const requiredRuntimeRecords = Object.freeze([
+  "mysql", "tunnel", "backend", "sidecar", "frontend", "gateway"
+]);
+
+export function effectiveTrialOutreachActionsEnabled(input) {
+  return input?.requested === true
+    && input?.sidecarReady === true
+    && input?.baseUrl === `http://127.0.0.1:${TRIAL_PORTS.mediaCrawler}`
+    && typeof input?.serviceSecretFile === "string"
+    && input.serviceSecretFile.length > 0;
+}
+
+export function assertOutreachQueueAuditEmpty(value) {
+  const counts = value?.counts;
+  const keys = ["queued", "blockedByPredecessor", "executing"];
+  if (!counts || typeof counts !== "object"
+    || Object.keys(counts).sort().join(",") !== [...keys].sort().join(",")
+    || keys.some((key) => !Number.isSafeInteger(counts[key]) || counts[key] < 0)
+    || !Number.isSafeInteger(value?.nonterminalCount)
+    || value.nonterminalCount < 0
+    || value.nonterminalCount !== keys.reduce((total, key) => total + counts[key], 0)) {
+    throw new Error("TRIAL_OUTREACH_QUEUE_AUDIT_INVALID");
+  }
+  if (value.nonterminalCount !== 0) {
+    throw new Error("TRIAL_OUTREACH_QUEUE_NOT_EMPTY");
+  }
+  return value;
+}
+
+export async function auditTrialOutreachQueue({ databaseUrl, createConnection }) {
+  let connection;
+  try {
+    const connect = createConnection ?? (async (url) => {
+      const mysql = await import(new URL(
+        "../backend/node_modules/mysql2/promise.js",
+        import.meta.url
+      ));
+      return mysql.createConnection(url);
+    });
+    connection = await connect(databaseUrl);
+    await connection.query("START TRANSACTION READ ONLY");
+    const [rows] = await connection.query(`SELECT
+      COALESCE(SUM(status='queued'),0) AS queued_count,
+      COALESCE(SUM(status='blocked_by_predecessor'),0) AS blocked_count,
+      COALESCE(SUM(status='executing'),0) AS executing_count
+      FROM acquisition_outreach_actions
+      WHERE status IN ('queued','blocked_by_predecessor','executing')`);
+    await connection.rollback();
+    const row = Array.isArray(rows) ? rows[0] : null;
+    const counts = {
+      queued: Number(row?.queued_count),
+      blockedByPredecessor: Number(row?.blocked_count),
+      executing: Number(row?.executing_count)
+    };
+    return { counts, nonterminalCount: counts.queued
+      + counts.blockedByPredecessor + counts.executing };
+  } catch {
+    throw new Error("TRIAL_OUTREACH_QUEUE_AUDIT_FAILED");
+  } finally {
+    await connection?.end().catch(() => {});
+  }
+}
 
 function child(command, args, options, spawn) {
   const value = spawn(command, args, { ...options, stdio: options.stdio ?? "ignore" });
@@ -256,18 +318,37 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
     const origin = await (options.waitForTunnelOrigin ?? waitForTunnelOrigin)(resolve(runtime.logsDirectory, "tunnel.log"));
     const backendCommand = options.backendCommand ?? [node, resolve(repositoryRoot, "backend/dist/server.js")], frontendCommand = options.frontendCommand ?? [node, resolve(repositoryRoot, "frontend/node_modules/vite/bin/vite.js"), "preview", resolve(repositoryRoot, "frontend"), "--host", "127.0.0.1", "--port", "5610", "--strictPort"], sidecarCommand = options.sidecarCommand ?? [resolve(repositoryRoot, "services/media-crawler/.venv/bin/uvicorn"), "shensi_adapter.app:app", "--app-dir", "services/media-crawler", "--host", "127.0.0.1", "--port", "5612"], gatewayCommand = options.gatewayCommand ?? [node, "scripts/real-trial-gateway.mjs"];
     const bootstrapPassword = runtime.bootstrapPassword ?? randomBytes(32).toString("base64url");
-    const temporaryBackend = await run("backend-bootstrap", backendCommand[0], backendCommand.slice(1), { PORT: String(TRIAL_PORTS.backend), CORS_ORIGINS: origin, NODE_ENV: "production", INITIAL_ADMIN_EMAIL: "internal-trial-bootstrap@shensi.local", INITIAL_ADMIN_PASSWORD: bootstrapPassword });
+    const temporaryBackend = await run("backend-bootstrap", backendCommand[0], backendCommand.slice(1), { PORT: String(TRIAL_PORTS.backend), CORS_ORIGINS: origin, NODE_ENV: "production", DOUYIN_OUTREACH_ACTIONS_ENABLED: "false", INITIAL_ADMIN_EMAIL: "internal-trial-bootstrap@shensi.local", INITIAL_ADMIN_PASSWORD: bootstrapPassword });
     await waitForHealth(`http://127.0.0.1:${TRIAL_PORTS.backend}/api/health`);
     await (options.provisionAdmin ?? defaultProvisionAdmin)({ backendOrigin: `http://127.0.0.1:${TRIAL_PORTS.backend}`, bootstrapPassword, runtime, email: "test@shensi.local", role: "admin", tenantId: "trial-pilot-001" });
     const bootstrapStop = await stopTrialRuntime({ records: [temporaryBackend] }, { isRecordedProcess: async () => true, signalProcessGroup: killKnown });
     if (bootstrapStop.stale.length) throw new Error("TRIAL_BOOTSTRAP_STOP_FAILED");
     records.splice(records.indexOf(temporaryBackend), 1);
     await (options.waitForPortRelease ?? waitForPortRelease)(TRIAL_PORTS.backend, available);
-    await run("backend", backendCommand[0], backendCommand.slice(1), { PORT: String(TRIAL_PORTS.backend), CORS_ORIGINS: origin, NODE_ENV: "production", MEDIACRAWLER_BASE_URL: `http://127.0.0.1:${TRIAL_PORTS.mediaCrawler}` });
-    await waitForHealth(`http://127.0.0.1:${TRIAL_PORTS.backend}/api/health`);
     await run("sidecar", sidecarCommand[0], sidecarCommand.slice(1), { PORT: String(TRIAL_PORTS.mediaCrawler), NODE_ENV: "production" });
     const sidecarSecret = (await readSidecarSecret(runtime.environment.MEDIACRAWLER_SERVICE_SECRET_FILE)).trim();
+    if (Buffer.byteLength(sidecarSecret) < 32) {
+      throw new Error("TRIAL_SIDECAR_SECRET_INVALID");
+    }
     await waitForHealth(`http://127.0.0.1:${TRIAL_PORTS.mediaCrawler}/internal/v1/health`, { headers: { authorization: `Bearer ${sidecarSecret}` } });
+    const requestedOutreach = runtime.environment.DOUYIN_OUTREACH_ACTIONS_ENABLED === "true";
+    const outreachEnabled = effectiveTrialOutreachActionsEnabled({
+      requested: requestedOutreach,
+      sidecarReady: true,
+      baseUrl: runtime.environment.MEDIACRAWLER_BASE_URL,
+      serviceSecretFile: runtime.environment.MEDIACRAWLER_SERVICE_SECRET_FILE
+    });
+    if (requestedOutreach && !outreachEnabled) {
+      throw new Error("TRIAL_OUTREACH_GATEWAY_NOT_USABLE");
+    }
+    if (outreachEnabled) {
+      const audit = await (options.auditOutreachQueue ?? auditTrialOutreachQueue)({
+        databaseUrl: runtime.environment.DATABASE_URL
+      });
+      assertOutreachQueueAuditEmpty(audit);
+    }
+    await run("backend", backendCommand[0], backendCommand.slice(1), { PORT: String(TRIAL_PORTS.backend), CORS_ORIGINS: origin, NODE_ENV: "production", DOUYIN_OUTREACH_ACTIONS_ENABLED: outreachEnabled ? "true" : "false", MEDIACRAWLER_BASE_URL: `http://127.0.0.1:${TRIAL_PORTS.mediaCrawler}` });
+    await waitForHealth(`http://127.0.0.1:${TRIAL_PORTS.backend}/api/health`);
     await run("frontend", frontendCommand[0], frontendCommand.slice(1), { PORT: String(TRIAL_PORTS.frontend), NODE_ENV: "production" });
     await waitForHealth(`http://127.0.0.1:${TRIAL_PORTS.frontend}/`);
     await run("gateway", gatewayCommand[0], gatewayCommand.slice(1), { PORT: String(TRIAL_PORTS.gateway), NODE_ENV: "production", TRIAL_BACKEND_ORIGIN: `http://127.0.0.1:${TRIAL_PORTS.backend}`, TRIAL_FRONTEND_ORIGIN: `http://127.0.0.1:${TRIAL_PORTS.frontend}` });
@@ -280,19 +361,113 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
     throw error;
   }
 }
+
+export async function publishTrialRuntime(repositoryRoot, options = {}) {
+  const runtimeRoot = resolve(
+    options.runtimeRoot
+      ?? process.env.SHENSI_TRIAL_RUNTIME_ROOT
+      ?? resolve(repositoryRoot, ".runtime/real-trial")
+  );
+  const stop = options.stop ?? stopTrialRuntime;
+  const start = options.start ?? startTrialRuntime;
+  const verify = options.verify ?? (async (runtime) => {
+    const { verifyTrialRuntime } = await import("./real-trial-verify.mjs");
+    await verifyTrialRuntime({ origin: runtime.origin });
+  });
+  const removeStatus = options.removeStatus
+    ?? ((path) => rm(path, { force: true }));
+  const stopped = await stop(
+    { pidsDirectory: resolve(runtimeRoot, "pids") },
+    options.stopOptions ?? {}
+  );
+  if (stopped.stale.length > 0) {
+    throw new Error(`TRIAL_PUBLISH_STOP_INCOMPLETE:${stopped.stale.join(",")}`);
+  }
+  await removeStatus(resolve(runtimeRoot, "status.json"));
+  const runtime = await start(repositoryRoot, {
+    ...(options.startOptions ?? {}),
+    runtimeRoot
+  });
+  try {
+    await verify(runtime);
+  } catch (error) {
+    const cleanup = await stop(runtime, options.cleanupStopOptions ?? {});
+    await removeStatus(resolve(runtimeRoot, "status.json"));
+    if (cleanup.stale.length > 0) {
+      throw new Error(`TRIAL_PUBLISH_CLEANUP_INCOMPLETE:${cleanup.stale.join(",")}`);
+    }
+    throw error;
+  }
+  return { ...runtime, stopped: stopped.stopped };
+}
+
 export async function trialStatus(root, options = {}) {
   try {
     const status = JSON.parse(await readFile(resolve(root, "status.json"), "utf8"));
     const records = await readRuntimeRecords({ pidsDirectory: resolve(root, "pids") });
+    const projected = await Promise.all(records.map(async (record) => ({
+      name: record.name,
+      pid: record.pid,
+      running: await isRecordedProcess(record, options)
+    })));
+    const names = projected.map((record) => record.name).sort();
+    const complete = names.length === requiredRuntimeRecords.length
+      && names.every((name, index) => name === [...requiredRuntimeRecords].sort()[index]);
     return {
       ...status,
-      records: await Promise.all(records.map(async (record) => ({
-        name: record.name,
-        pid: record.pid,
-        running: await isRecordedProcess(record, options)
-      })))
+      running: status?.running === true && complete
+        && projected.every((record) => record.running),
+      records: projected
     };
   } catch { return { running: false }; }
 }
-async function main() { const root = resolve(import.meta.dirname, ".."), command = process.argv[2] ?? "start", runtimeRoot = resolve(process.env.SHENSI_TRIAL_RUNTIME_ROOT ?? resolve(root, ".runtime/real-trial")); if (command === "start") { const runtime = await startTrialRuntime(root); console.log(`TRIAL_STARTED:${runtime.origin}`); return; } if (command === "prepare") { const runtime = await prepareTrialRuntime(root); console.log(`TRIAL_PREPARED:${runtime.root}`); return; } if (command === "stop") { const result = await stopTrialRuntime({ pidsDirectory: resolve(runtimeRoot, "pids") }); await rm(resolve(runtimeRoot, "status.json"), { force: true }); if (result.stale.length) throw new Error("TRIAL_STOP_INCOMPLETE"); console.log("TRIAL_STOPPED"); return; } if (command === "status") console.log(JSON.stringify(await trialStatus(runtimeRoot))); }
+export function parseTrialCli(argv) {
+  const [command = "start", ...flags] = argv;
+  if (!["start", "publish", "prepare", "stop", "status"].includes(command)) {
+    throw new Error("TRIAL_CLI_ARGUMENT_INVALID");
+  }
+  const enableFlag = "--enable-outreach-after-empty-audit";
+  if (flags.some((flag) => flag !== enableFlag) || flags.length > 1) {
+    throw new Error("TRIAL_CLI_ARGUMENT_INVALID");
+  }
+  const outreachActionsEnabled = flags[0] === enableFlag;
+  if (outreachActionsEnabled && !["start", "publish"].includes(command)) {
+    throw new Error("TRIAL_CLI_FLAG_NOT_ALLOWED");
+  }
+  return { command, outreachActionsEnabled };
+}
+async function main() {
+  const root = resolve(import.meta.dirname, "..");
+  const { command, outreachActionsEnabled } = parseTrialCli(process.argv.slice(2));
+  const runtimeRoot = resolve(process.env.SHENSI_TRIAL_RUNTIME_ROOT
+    ?? resolve(root, ".runtime/real-trial"));
+  if (command === "start") {
+    const runtime = await startTrialRuntime(root, { outreachActionsEnabled });
+    console.log(`TRIAL_STARTED:${runtime.origin}`);
+    return;
+  }
+  if (command === "publish") {
+    const runtime = await publishTrialRuntime(root, {
+      runtimeRoot,
+      startOptions: { outreachActionsEnabled }
+    });
+    console.log(`TRIAL_PUBLISHED:${runtime.origin}`);
+    return;
+  }
+  if (command === "prepare") {
+    const runtime = await prepareTrialRuntime(root);
+    console.log(`TRIAL_PREPARED:${runtime.root}`);
+    return;
+  }
+  if (command === "stop") {
+    const result = await stopTrialRuntime({
+      pidsDirectory: resolve(runtimeRoot, "pids")
+    });
+    await rm(resolve(runtimeRoot, "status.json"), { force: true });
+    if (result.stale.length) throw new Error("TRIAL_STOP_INCOMPLETE");
+    console.log("TRIAL_STOPPED");
+    return;
+  }
+  console.log(JSON.stringify(await trialStatus(runtimeRoot)));
+}
 if (process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url) main().catch((error) => { console.error(error.message); process.exitCode = 1; });

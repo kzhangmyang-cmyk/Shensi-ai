@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateAcquisitionOutreachDraft } from "./acquisition-outreach-draft.js";
+import {
+  buildValidatedAcquisitionOutreachFallback,
+  validateAcquisitionOutreachDraft
+} from "./acquisition-outreach-draft.js";
 
 const base = {
   candidateId: "candidate-1", candidateRevision: 2, evidenceHashes: [`sha256:${"a".repeat(64)}`],
@@ -81,4 +84,21 @@ test("rejects recognized registry domains and protocol-obfuscated URLs", () => {
       evidenceText: [comment], modelSnapshotId: "snapshot-1"
     }), /OUTREACH_DRAFT_INVALID/u, comment);
   }
+});
+
+test("server fallback skips unsafe evidence segments and still fails closed without a safe segment", () => {
+  const authority = {
+    candidateId: "candidate-1", candidateRevision: 2,
+    evidenceHashes: [`sha256:${"a".repeat(64)}`],
+    evidenceText: ["请访问 example.com；正在调研工业除尘方案"],
+    modelSnapshotId: "snapshot-1"
+  };
+  const accepted = buildValidatedAcquisitionOutreachFallback(authority);
+  assert.equal(accepted.comment, "看到你公开提到正在调研工业除尘方案,方便的话");
+  assert.deepEqual(accepted.rationaleCodes, ["evidence_grounded", "manual_review_required"]);
+
+  assert.throws(() => buildValidatedAcquisitionOutreachFallback({
+    ...authority,
+    evidenceText: ["请访问 example.com"]
+  }), /OUTREACH_DRAFT_INVALID/u);
 });
