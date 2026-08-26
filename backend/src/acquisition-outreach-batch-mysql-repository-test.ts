@@ -254,3 +254,60 @@ test("live MySQL survives restart and rolls back the batch when the second actio
     await admin.end();
   }
 });
+
+test("live MySQL candidate discovery pages each current head exactly once", {
+  skip: !process.env.MYSQL_TEST_ADMIN_URL && !process.env.MYSQL_TEST_ADMIN_SOCKET
+    ? "MYSQL_TEST_ADMIN_URL or MYSQL_TEST_ADMIN_SOCKET is required; no database is provisioned implicitly"
+    : false
+}, async () => {
+  const database = `goodjob_outreach_discovery_${randomUUID().replaceAll("-", "")}`;
+  const adminUrl = process.env.MYSQL_TEST_ADMIN_URL ? new URL(process.env.MYSQL_TEST_ADMIN_URL) : null;
+  const socketPath = process.env.MYSQL_TEST_ADMIN_SOCKET?.trim() || null;
+  const admin = await mysql.createConnection(socketPath
+    ? { user: "root", password: "", socketPath, database: "mysql" }
+    : adminUrl!.toString());
+  await admin.query(`CREATE DATABASE \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+  const pool = socketPath
+    ? mysql.createPool({ user: "root", password: "", socketPath, database, connectionLimit: 4 })
+    : (() => {
+        const databaseUrl = new URL(adminUrl!);
+        databaseUrl.pathname = `/${database}`;
+        return mysql.createPool({ uri: databaseUrl.toString(), connectionLimit: 4 });
+      })();
+  try {
+    await ensureAcquisitionOutreachBatchMysqlSchema(pool);
+    const repository = new MysqlAcquisitionOutreachBatchRepository(pool);
+    const batches = [
+      { ...liveBatch("batch-page-alpha", "candidate-page-live"),
+        createdAt: "2026-08-25T01:00:00.000Z", updatedAt: "2026-08-25T01:00:00.000Z" },
+      { ...liveBatch("batch-page-beta", "candidate-page-live"),
+        createdAt: "2026-08-25T02:00:00.000Z", updatedAt: "2026-08-25T02:00:00.000Z" },
+      { ...liveBatch("batch-page-gamma", "candidate-page-live"),
+        createdAt: "2026-08-25T03:00:00.000Z", updatedAt: "2026-08-25T03:00:00.000Z" }
+    ];
+    for (const [index, batch] of batches.entries()) await repository.create({
+      workspaceId: batch.workspaceId, operation: `create-page-${index}`,
+      idempotencyKey: `live-create-page-${index}`, requestHash: digest(String(index)), batch
+    });
+    const alpha = batches[0]!;
+    await repository.replace({ workspaceId: alpha.workspaceId, batchId: alpha.id, ifMatch: alpha.etag,
+      operation: "put-page-alpha", idempotencyKey: "live-put-page-alpha", requestHash: digest("r"),
+      build: (current) => ({ ...current, revision: 2, etag: `"outreach-batch:${current.id}:2"`,
+        updatedAt: "2026-08-25T04:00:00.000Z" }) });
+
+    const discovered: string[] = [];
+    let after: { createdAt: string; batchId: string } | null = null;
+    do {
+      const page = await repository.listByRunCandidate({ workspaceId: "workspace-live",
+        runId: "run-live", candidateId: "candidate-page-live", limit: 1, after });
+      discovered.push(...page.items.map((batch) => `${batch.id}:${batch.revision}`));
+      after = page.next;
+    } while (after);
+    assert.deepEqual(discovered, ["batch-page-gamma:1", "batch-page-beta:1", "batch-page-alpha:2"]);
+    assert.equal(new Set(discovered).size, 3);
+  } finally {
+    await pool.end();
+    await admin.query(`DROP DATABASE \`${database}\``);
+    await admin.end();
+  }
+});

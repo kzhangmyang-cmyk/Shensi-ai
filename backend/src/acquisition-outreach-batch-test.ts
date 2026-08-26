@@ -156,6 +156,24 @@ test("candidate discovery recalculates remaining allowance and removes private e
   assert.equal(candidate.commentTargetPublicUrl, undefined);
 });
 
+test("candidate discovery normalizes an offset anchor before repository keyset lookup", async () => {
+  const value = fixture();
+  let receivedAnchor: { createdAt: string; batchId: string } | null = null;
+  const list = value.repository.listByRunCandidate.bind(value.repository);
+  value.repository.listByRunCandidate = async (input) => {
+    receivedAnchor = input.after;
+    return list(input);
+  };
+
+  await value.service.listByRunCandidate(scope, {
+    runId: "run-1", candidateId: "candidate-1", limit: 1,
+    after: { createdAt: "2026-08-25T11:00:00+08:00", batchId: "batch-offset-anchor" }
+  });
+  assert.deepEqual(receivedAnchor, {
+    createdAt: "2026-08-25T03:00:00.000Z", batchId: "batch-offset-anchor"
+  });
+});
+
 test("creation persists Task 6 values as immutable candidate revision 1 and freezes run authority", async () => {
   const { batch } = await created();
   assert.equal(batch.revision, 1);

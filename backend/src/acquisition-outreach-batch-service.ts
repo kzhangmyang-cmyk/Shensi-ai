@@ -55,7 +55,7 @@ function listAnchor(value: unknown) {
     || !Number.isFinite(new Date(anchor.createdAt).getTime())) {
     throw new AcquisitionOutreachBatchError("invalid_request", 400);
   }
-  return { createdAt: anchor.createdAt, batchId: anchor.batchId };
+  return { createdAt: new Date(anchor.createdAt).toISOString(), batchId: anchor.batchId };
 }
 function requestResult(result: OutreachRepositoryResult<AcquisitionOutreachBatch>) {
   if (result.kind === "conflict") throw new AcquisitionOutreachBatchError("outreach_idempotency_conflict");
