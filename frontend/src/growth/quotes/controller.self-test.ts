@@ -65,6 +65,27 @@ const controller = createQuoteController({
   hasCapability: () => true
 });
 
+const emptyCaseSelection = await controller.listCases();
+assert.deepEqual(emptyCaseSelection, { kind: "case_selection", cases: [] });
+
+const selectableCaseController = createQuoteController({
+  api: apiFixture({
+    async listCases() {
+      return { status: 200, etag: null, body: { items: [caseFixture()] } } as never;
+    }
+  }),
+  hasFeature: () => true,
+  hasCapability: () => true
+});
+const selectableCaseSelection = await selectableCaseController.listCases();
+assert.equal(selectableCaseSelection.kind, "case_selection");
+assert.deepEqual(
+  selectableCaseSelection.kind === "case_selection"
+    ? selectableCaseSelection.cases.map((item) => item.id)
+    : [],
+  ["case-1"]
+);
+
 const loaded = await controller.loadCase("case-1");
 assert.equal(loaded.kind, "editing");
 

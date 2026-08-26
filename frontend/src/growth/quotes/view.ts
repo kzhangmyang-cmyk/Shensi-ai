@@ -1,4 +1,5 @@
 import type {
+  QuoteCaseRow,
   QuoteVersionRow,
   QuoteWorkbenchState
 } from "./controller";
@@ -25,10 +26,28 @@ function versionRow(
   </li>`;
 }
 
+function caseSelectionRow(item: QuoteCaseRow): string {
+  return `<li class="quote-case-option" data-quote-case-id="${escapeHtml(item.id)}">
+    <strong>${escapeHtml(item.id)}</strong>
+    <span>${escapeHtml(item.status)} · rev ${item.revision}</span>
+    <a href="#growth/quotes?case=${encodeURIComponent(item.id)}">打开报价案例</a>
+  </li>`;
+}
+
 export function renderQuoteWorkbench(state: QuoteWorkbenchState): string {
   switch (state.kind) {
     case "loading_case":
       return `<section class="growth-panel"><p>正在加载报价…</p></section>`;
+    case "case_selection":
+      return `<section class="growth-panel quote-case-selection">
+        <h2>选择报价案例</h2>
+        ${state.cases.length === 0
+          ? `<p>当前还没有可打开的报价案例。</p>
+            <p>请先从客户目录或商机详情创建报价案例，系统会带入对应客户、需求和报价依据。</p>
+            <a href="#growth/catalog">前往客户目录</a>`
+          : `<p>请选择要继续处理的报价案例。</p>
+            <ul>${state.cases.map(caseSelectionRow).join("")}</ul>`}
+      </section>`;
     case "conflict":
       return `<section class="growth-panel"><p class="growth-conflict">
         ${escapeHtml(state.message)}</p></section>`;

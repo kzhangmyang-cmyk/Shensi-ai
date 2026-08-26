@@ -52,6 +52,10 @@ function toVersionRow(version: QuoteVersion): QuoteVersionRow {
 export type QuoteWorkbenchState =
   | { kind: "loading_case" }
   | {
+      kind: "case_selection";
+      cases: readonly QuoteCaseRow[];
+    }
+  | {
       kind: "editing";
       case: QuoteCaseRow;
       versions: readonly QuoteVersionRow[];
@@ -102,6 +106,7 @@ export interface QuoteControllerOptions {
 }
 
 export interface QuoteController {
+  listCases(signal?: AbortSignal): Promise<QuoteWorkbenchState>;
   loadCase(
     caseId: string,
     signal?: AbortSignal
@@ -168,6 +173,21 @@ export function createQuoteController(
   const controller: QuoteController = {
     nextIdempotencyKey(action: string) {
       return `${action}:${idFactory()}`;
+    },
+    async listCases(signal) {
+      if (!options.hasFeature("quotes")
+        || !options.hasCapability("catalog.read")) {
+        return { kind: "error", message: "quote_forbidden" };
+      }
+      try {
+        const response = await options.api.listCases({ limit: 100, signal });
+        return {
+          kind: "case_selection",
+          cases: Object.freeze((response.body.items ?? []).map(toCaseRow))
+        };
+      } catch (error) {
+        return asError(error, "error");
+      }
     },
     async loadCase(caseId, signal) {
       if (!options.hasFeature("quotes")

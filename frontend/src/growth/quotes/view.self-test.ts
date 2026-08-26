@@ -27,6 +27,23 @@ assert.equal(html.includes("报价工作台"), true);
 assert.equal(html.includes("quote-v1"), true);
 assert.equal(html.includes("<script>"), false);
 
+const emptySelectionHtml = renderQuoteWorkbench({
+  kind: "case_selection",
+  cases: []
+});
+assert.equal(emptySelectionHtml.includes("当前还没有可打开的报价案例"), true);
+assert.equal(emptySelectionHtml.includes("quote_case_required"), false);
+
+const selectableCasesHtml = renderQuoteWorkbench({
+  kind: "case_selection",
+  cases: [{
+    id: "case/1", revision: 4, status: "open", candidateId: "candidate-1",
+    customerId: null, dealId: null
+  }]
+});
+assert.equal(selectableCasesHtml.includes("#growth/quotes?case=case%2F1"), true);
+assert.equal(selectableCasesHtml.includes("打开报价案例"), true);
+
 assert.equal(
   renderQuoteWorkbench({ kind: "conflict", message: "revision_conflict" })
     .includes("revision_conflict"),
