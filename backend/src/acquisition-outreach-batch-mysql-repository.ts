@@ -13,7 +13,8 @@ export const acquisitionOutreachBatchesDdl = `CREATE TABLE IF NOT EXISTS acquisi
   local_date DATE NOT NULL, daily_candidate_limit INT NOT NULL, etag VARCHAR(255) NOT NULL,
   batch_hash CHAR(71) NOT NULL, payload_json JSON NOT NULL, created_at DATETIME(3) NOT NULL,
   PRIMARY KEY (id, revision), UNIQUE KEY uk_acquisition_outreach_batch_revision (workspace_id, id, revision),
-  KEY ix_acquisition_outreach_batch_head (workspace_id, id, revision)
+  KEY ix_acquisition_outreach_batch_head (workspace_id, id, revision),
+  KEY ix_acquisition_outreach_batch_run_page (workspace_id,run_id,created_at,id,revision)
 ) ENGINE=InnoDB`;
 export const acquisitionOutreachBatchCandidatesDdl = `CREATE TABLE IF NOT EXISTS acquisition_outreach_batch_candidates (
   batch_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, batch_revision INT NOT NULL,
@@ -23,6 +24,7 @@ export const acquisitionOutreachBatchCandidatesDdl = `CREATE TABLE IF NOT EXISTS
   candidate_revision INT NOT NULL, evidence_hashes_json JSON NOT NULL, comment_hash CHAR(71) NOT NULL,
   direct_message_hash CHAR(71) NOT NULL, model_snapshot_id VARCHAR(255) NOT NULL, payload_json JSON NOT NULL,
   PRIMARY KEY (batch_id, batch_revision, candidate_id),
+  KEY ix_acquisition_outreach_candidate_page (workspace_id,candidate_id,batch_id,batch_revision),
   CONSTRAINT fk_acquisition_outreach_batch_candidate FOREIGN KEY (batch_id, batch_revision)
     REFERENCES acquisition_outreach_batches (id, revision)
 ) ENGINE=InnoDB`;
@@ -144,6 +146,25 @@ export class MysqlAcquisitionOutreachBatchRepository implements AcquisitionOutre
       JSON.stringify(value), dateTime(value.updatedAt)]);
   }
   async find(workspaceId: string, batchId: string) { return this.current(this.pool as never, workspaceId, batchId); }
+  async listByRunCandidate(input: { workspaceId: string; runId: string; candidateId: string;
+    limit: number; after: { createdAt: string; batchId: string } | null }) {
+    const where = input.after ? " AND (b.created_at < ? OR (b.created_at = ? AND b.id < ?))" : "";
+    const values: Array<string | number> = [input.workspaceId, input.runId, input.workspaceId, input.candidateId];
+    if (input.after) values.push(dateTime(input.after.createdAt), dateTime(input.after.createdAt), input.after.batchId);
+    values.push(input.limit + 1);
+    const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(`SELECT b.payload_json
+      FROM acquisition_outreach_batches b JOIN acquisition_outreach_batch_candidates c
+        ON c.batch_id=b.id AND c.batch_revision=b.revision AND c.workspace_id=b.workspace_id
+      WHERE b.workspace_id=? AND b.run_id=? AND c.workspace_id=? AND c.candidate_id=?
+        AND NOT EXISTS (SELECT 1 FROM acquisition_outreach_batches newer
+          WHERE newer.workspace_id=b.workspace_id AND newer.id=b.id AND newer.revision>b.revision)${where}
+      ORDER BY b.created_at DESC,b.id DESC LIMIT ?`, values);
+    const window = rows.map((row) => parseBatch(row.payload_json));
+    const items = window.slice(0, input.limit);
+    const last = items.at(-1);
+    return { items, next: window.length > input.limit && last
+      ? { createdAt: last.createdAt, batchId: last.id } : null };
+  }
   create(input: { workspaceId: string; operation: string; idempotencyKey: string; requestHash: string; batch: AcquisitionOutreachBatch }) {
     return this.transaction<OutreachRepositoryResult<AcquisitionOutreachBatch>>(async (connection) => {
       const replay = await this.replay(connection, input.workspaceId, input.operation, input.idempotencyKey, input.requestHash);
@@ -394,5 +415,23 @@ export async function ensureAcquisitionOutreachBatchMysqlSchema(pool: Pick<mysql
       ADD COLUMN platform_receipt_reference VARCHAR(255) NULL AFTER claimed_at,
       ADD COLUMN occurred_at DATETIME(3) NULL AFTER platform_receipt_reference,
       ADD COLUMN failure_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER occurred_at`);
+  }
+  const [indexes] = await pool.execute<mysql.RowDataPacket[]>(`SELECT TABLE_NAME AS table_name,
+    INDEX_NAME AS index_name, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',') AS column_names
+    FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE()
+      AND TABLE_NAME IN ('acquisition_outreach_batches','acquisition_outreach_batch_candidates')
+    GROUP BY TABLE_NAME,INDEX_NAME`);
+  const required = [
+    { table: "acquisition_outreach_batches", name: "ix_acquisition_outreach_batch_run_page",
+      columns: "workspace_id,run_id,created_at,id,revision",
+      alter: "ALTER TABLE acquisition_outreach_batches ADD KEY ix_acquisition_outreach_batch_run_page (workspace_id,run_id,created_at,id,revision)" },
+    { table: "acquisition_outreach_batch_candidates", name: "ix_acquisition_outreach_candidate_page",
+      columns: "workspace_id,candidate_id,batch_id,batch_revision",
+      alter: "ALTER TABLE acquisition_outreach_batch_candidates ADD KEY ix_acquisition_outreach_candidate_page (workspace_id,candidate_id,batch_id,batch_revision)" }
+  ] as const;
+  for (const index of required) {
+    const exists = indexes.some((row) => String(row.table_name) === index.table
+      && String(row.index_name) === index.name && String(row.column_names) === index.columns);
+    if (!exists) await pool.execute(index.alter);
   }
 }

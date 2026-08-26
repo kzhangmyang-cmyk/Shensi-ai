@@ -7,7 +7,7 @@ import {
   AcquisitionOutreachBatchService,
   AcquisitionOutreachBatchError
 } from "./acquisition-outreach-batch-service.js";
-import { outreachBatchEtag } from "./acquisition-outreach-batch.js";
+import { outreachBatchEtag, type AcquisitionOutreachBatch } from "./acquisition-outreach-batch.js";
 import { AcquisitionMemoryTransactionCoordinator } from "./acquisition-memory-transaction-coordinator.js";
 
 const scope = { workspaceId: "workspace-1", ownerId: "owner-1", teamId: "team-1", actorId: "approver-1" };
@@ -76,6 +76,85 @@ async function created(value = fixture()) {
   });
   return { value, batch: result.value };
 }
+
+function discoveryBatch(input: {
+  id: string; workspaceId: string; runId: string; candidateId: string; createdAt: string;
+}): AcquisitionOutreachBatch {
+  return {
+    id: input.id, workspaceId: input.workspaceId, runId: input.runId,
+    planId: "plan-discovery", planVersionId: "plan-version-discovery", planVersion: 1,
+    planSnapshotHash: `sha256:${"d".repeat(64)}`, policyVersionId: "policy-discovery",
+    policyHash: `sha256:${"e".repeat(64)}`, accountId: "account-discovery",
+    accountLoginStateVersion: 1, dailyBudgetId: `sha256:${"f".repeat(64)}`,
+    localDate: "2026-08-27", dailyCandidateLimit: 9, dailyRemainingLimit: 9,
+    revision: 1, etag: outreachBatchEtag(input.id, 1), state: "awaiting_approval",
+    candidates: [{ candidateId: input.candidateId, selected: true, candidateRevision: 1,
+      evidenceHashes: [`sha256:${"a".repeat(64)}`], evidenceText: ["公开线索"],
+      publicActorKey: "actor-discovery", publicProfileUrl: "https://www.douyin.com/user/discovery",
+      commentTargetPublicUrl: "https://www.douyin.com/video/discovery", draftRevision: 1,
+      comment: "公开评论", commentHash: `sha256:${"b".repeat(64)}`,
+      directMessage: "公开私信", directMessageHash: `sha256:${"c".repeat(64)}`,
+      rationaleCodes: ["evidence_grounded"], modelSnapshotId: "model-discovery",
+      sourceModelSnapshotId: "model-discovery", contentHash: `sha256:${"0".repeat(64)}` }],
+    batchHash: `sha256:${"1".repeat(64)}`, approvedBy: null, approvedAt: null,
+    approvalHash: null, rejectedBy: null, rejectedAt: null, rejectionReason: null,
+    pauseReason: null, createdBy: "creator-discovery", createdAt: input.createdAt,
+    updatedBy: "creator-discovery", updatedAt: input.createdAt
+  };
+}
+
+test("candidate-scoped discovery returns only current heads in descending keyset pages", async () => {
+  const repository = new InMemoryAcquisitionOutreachBatchRepository();
+  const batches = [
+    discoveryBatch({ id: "batch-page-a", workspaceId: "workspace-1", runId: "run-1", candidateId: "candidate-1", createdAt: "2026-08-27T03:00:00.000Z" }),
+    discoveryBatch({ id: "batch-page-z", workspaceId: "workspace-1", runId: "run-1", candidateId: "candidate-1", createdAt: "2026-08-27T04:00:00.000Z" }),
+    discoveryBatch({ id: "batch-other-workspace", workspaceId: "workspace-2", runId: "run-1", candidateId: "candidate-1", createdAt: "2026-08-27T05:00:00.000Z" }),
+    discoveryBatch({ id: "batch-other-run", workspaceId: "workspace-1", runId: "run-2", candidateId: "candidate-1", createdAt: "2026-08-27T06:00:00.000Z" }),
+    discoveryBatch({ id: "batch-other-candidate", workspaceId: "workspace-1", runId: "run-1", candidateId: "candidate-2", createdAt: "2026-08-27T07:00:00.000Z" })
+  ];
+  for (const batch of batches) await repository.create({ workspaceId: batch.workspaceId,
+    operation: `create:${batch.id}`, idempotencyKey: `key:${batch.id}`,
+    requestHash: `sha256:${batch.id.padEnd(64, "0").slice(0, 64)}`, batch });
+  const revised = await repository.replace({ workspaceId: "workspace-1", batchId: "batch-page-a",
+    ifMatch: outreachBatchEtag("batch-page-a", 1), operation: "put", idempotencyKey: "key:revision",
+    requestHash: `sha256:${"2".repeat(64)}`, build: (current) => ({ ...current, revision: 2,
+      etag: outreachBatchEtag(current.id, 2), updatedAt: "2026-08-27T08:00:00.000Z" }) });
+  assert.equal(revised.kind, "created");
+
+  const firstPage = await repository.listByRunCandidate({
+    workspaceId: "workspace-1", runId: "run-1", candidateId: "candidate-1", limit: 1, after: null
+  });
+  assert.deepEqual(firstPage.items.map((batch) => batch.id), ["batch-page-z"]);
+  assert.ok(firstPage.next);
+  const secondPage = await repository.listByRunCandidate({
+    workspaceId: "workspace-1", runId: "run-1", candidateId: "candidate-1", limit: 1, after: firstPage.next
+  });
+  assert.deepEqual(secondPage.items.map((batch) => batch.id), ["batch-page-a"]);
+  assert.equal(secondPage.items[0]?.revision, 2);
+  assert.equal(secondPage.next, null);
+  assert.notEqual(secondPage.items[0]?.id, firstPage.items[0]?.id);
+});
+
+test("candidate discovery recalculates remaining allowance and removes private evidence fields", async () => {
+  const value = fixture({ dailyLimit: 3 });
+  const batch = await value.service.create(scope, "run-1", "create-discovery-public", {
+    candidateIds: ["candidate-1"]
+  });
+  await value.service.approve(scope, batch.value.id, batch.value.etag, "approve-discovery-public", {
+    revision: 1, batchHash: batch.value.batchHash, confirm: true
+  });
+
+  const publicPage = await value.service.listByRunCandidate(scope, {
+    runId: "run-1", candidateId: "candidate-1", limit: 4, after: null
+  });
+  assert.equal(publicPage.items.length, 1);
+  assert.equal(publicPage.items[0]?.dailyRemainingLimit, 2);
+  const candidate = publicPage.items[0]?.candidates[0] as Record<string, unknown>;
+  assert.equal(candidate.evidenceText, undefined);
+  assert.equal(candidate.publicActorKey, undefined);
+  assert.equal(candidate.publicProfileUrl, undefined);
+  assert.equal(candidate.commentTargetPublicUrl, undefined);
+});
 
 test("creation persists Task 6 values as immutable candidate revision 1 and freezes run authority", async () => {
   const { batch } = await created();

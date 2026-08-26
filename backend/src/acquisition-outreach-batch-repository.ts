@@ -12,8 +12,20 @@ export type OutreachRepositoryResult<T> =
   | { kind: "not_found" }
   | { kind: "stale" };
 
+export interface OutreachBatchListAnchor {
+  createdAt: string;
+  batchId: string;
+}
+
+export interface OutreachBatchRepositoryPage {
+  items: AcquisitionOutreachBatch[];
+  next: OutreachBatchListAnchor | null;
+}
+
 export interface AcquisitionOutreachBatchRepository {
   find(workspaceId: string, batchId: string): Promise<AcquisitionOutreachBatch | null>;
+  listByRunCandidate(input: { workspaceId: string; runId: string; candidateId: string;
+    limit: number; after: OutreachBatchListAnchor | null }): Promise<OutreachBatchRepositoryPage>;
   create(input: { workspaceId: string; operation: string; idempotencyKey: string;
     requestHash: string; batch: AcquisitionOutreachBatch }): Promise<OutreachRepositoryResult<AcquisitionOutreachBatch>>;
   replace(input: { workspaceId: string; batchId: string; ifMatch: string;
@@ -124,6 +136,22 @@ implements AcquisitionOutreachBatchRepository {
 
   async find(workspaceId: string, batchId: string) {
     return this.current(await this.snapshot(), workspaceId, batchId);
+  }
+  async listByRunCandidate(input: { workspaceId: string; runId: string; candidateId: string;
+    limit: number; after: OutreachBatchListAnchor | null }) {
+    const batches = [...(await this.snapshot()).batches.values()].map((revisions) => revisions.at(-1)!)
+      .filter((batch) => batch.workspaceId === input.workspaceId && batch.runId === input.runId
+        && batch.candidates.some((candidate) => candidate.candidateId === input.candidateId))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt)
+        || right.id.localeCompare(left.id));
+    const after = input.after;
+    const eligible = after ? batches.filter((batch) => batch.createdAt < after.createdAt
+      || (batch.createdAt === after.createdAt && batch.id < after.batchId)) : batches;
+    const window = eligible.slice(0, input.limit + 1);
+    const items = window.slice(0, input.limit);
+    const last = items.at(-1);
+    return { items, next: window.length > input.limit && last
+      ? { createdAt: last.createdAt, batchId: last.id } : null };
   }
   create(input: { workspaceId: string; operation: string; idempotencyKey: string;
     requestHash: string; batch: AcquisitionOutreachBatch }) {

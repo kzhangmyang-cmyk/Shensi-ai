@@ -44,6 +44,19 @@ function selectedIds(value: string[]) {
   if (new Set(result).size !== result.length) throw new AcquisitionOutreachBatchError("invalid_request", 400);
   return result.sort();
 }
+function validListId(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 255;
+}
+function listAnchor(value: unknown) {
+  if (value === null) return null;
+  if (!value || typeof value !== "object") throw new AcquisitionOutreachBatchError("invalid_request", 400);
+  const anchor = value as { createdAt?: unknown; batchId?: unknown };
+  if (!validListId(anchor.batchId) || typeof anchor.createdAt !== "string"
+    || !Number.isFinite(new Date(anchor.createdAt).getTime())) {
+    throw new AcquisitionOutreachBatchError("invalid_request", 400);
+  }
+  return { createdAt: anchor.createdAt, batchId: anchor.batchId };
+}
 function requestResult(result: OutreachRepositoryResult<AcquisitionOutreachBatch>) {
   if (result.kind === "conflict") throw new AcquisitionOutreachBatchError("outreach_idempotency_conflict");
   if (result.kind === "not_found") throw new AcquisitionOutreachBatchError("outreach_batch_not_found", 404);
@@ -110,6 +123,31 @@ export class AcquisitionOutreachBatchService {
     const dailyRemainingLimit = await this.options.repository.remaining(scope.workspaceId,
       batch.accountId, batch.localDate, batch.dailyCandidateLimit);
     return publicOutreachBatch({ ...batch, dailyRemainingLimit });
+  }
+
+  async listByRunCandidate(scope: OutreachScope, input: { runId: string; candidateId: string;
+    limit: number; after: { createdAt: string; batchId: string } | null }) {
+    if (!validListId(input.runId) || !validListId(input.candidateId)
+      || !Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 200) {
+      throw new AcquisitionOutreachBatchError("invalid_request", 400);
+    }
+    const after = listAnchor(input.after);
+    const authority = await this.options.loadRunAuthority(scope, input.runId);
+    if (!authority || authority.workspaceId !== scope.workspaceId) {
+      throw new AcquisitionOutreachBatchError("acquisition_run_not_found", 404);
+    }
+    if (!(await this.options.listRunCandidateIds(scope, input.runId)).includes(input.candidateId)) {
+      throw new AcquisitionOutreachBatchError("candidate_evidence_invalid");
+    }
+    const page = await this.options.repository.listByRunCandidate({
+      workspaceId: scope.workspaceId, runId: input.runId, candidateId: input.candidateId,
+      limit: input.limit, after
+    });
+    return { items: await Promise.all(page.items.map(async (batch) => publicOutreachBatch({
+      ...batch, dailyRemainingLimit: await this.options.repository.remaining(
+        batch.workspaceId, batch.accountId, batch.localDate, batch.dailyCandidateLimit
+      )
+    }))), next: page.next };
   }
 
   async put(scope: OutreachScope, batchId: string, ifMatch: string,

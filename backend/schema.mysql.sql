@@ -2931,7 +2931,8 @@ CREATE TABLE acquisition_outreach_batches (
   local_date DATE NOT NULL, daily_candidate_limit INT NOT NULL, etag VARCHAR(255) NOT NULL,
   batch_hash CHAR(71) NOT NULL, payload_json JSON NOT NULL, created_at DATETIME(3) NOT NULL,
   PRIMARY KEY (id, revision), UNIQUE KEY uk_acquisition_outreach_batch_revision (workspace_id, id, revision),
-  KEY ix_acquisition_outreach_batch_head (workspace_id, id, revision)
+  KEY ix_acquisition_outreach_batch_head (workspace_id, id, revision),
+  KEY ix_acquisition_outreach_batch_run_page (workspace_id,run_id,created_at,id,revision)
 ) ENGINE=InnoDB;
 
 CREATE TABLE acquisition_outreach_batch_candidates (
@@ -2942,6 +2943,7 @@ CREATE TABLE acquisition_outreach_batch_candidates (
   candidate_revision INT NOT NULL, evidence_hashes_json JSON NOT NULL, comment_hash CHAR(71) NOT NULL,
   direct_message_hash CHAR(71) NOT NULL, model_snapshot_id VARCHAR(255) NOT NULL, payload_json JSON NOT NULL,
   PRIMARY KEY (batch_id, batch_revision, candidate_id),
+  KEY ix_acquisition_outreach_candidate_page (workspace_id,candidate_id,batch_id,batch_revision),
   CONSTRAINT fk_acquisition_outreach_batch_candidate FOREIGN KEY (batch_id, batch_revision)
     REFERENCES acquisition_outreach_batches (id, revision)
 ) ENGINE=InnoDB;

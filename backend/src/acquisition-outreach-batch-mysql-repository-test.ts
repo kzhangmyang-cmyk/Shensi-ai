@@ -22,6 +22,8 @@ test("MySQL DDL carries immutable revision, tenant, replay, daily-limit, and ord
   assert.match(sql, /PRIMARY KEY \(workspace_id, operation_name, idempotency_key_hash\)/u);
   assert.match(sql, /UNIQUE KEY uk_acquisition_outreach_action_sequence/u);
   assert.match(sql, /FOREIGN KEY \(batch_id, batch_revision\)/u);
+  assert.match(sql, /KEY ix_acquisition_outreach_batch_run_page\s*\(workspace_id,run_id,created_at,id,revision\)/u);
+  assert.match(sql, /KEY ix_acquisition_outreach_candidate_page\s*\(workspace_id,candidate_id,batch_id,batch_revision\)/u);
 });
 
 test("runtime outreach DDL stays byte-semantic with both deployable schema mirrors", async () => {
@@ -119,6 +121,52 @@ function liveActions(batch: AcquisitionOutreachBatch, duplicateIds = false): Acq
   }];
 }
 
+test("MySQL candidate discovery queries current heads with a descending keyset and limit plus one", async () => {
+  const calls: Array<{ sql: string; values: unknown[] }> = [];
+  const batch = liveBatch("batch-query", "candidate-query");
+  const repository = new MysqlAcquisitionOutreachBatchRepository({
+    async execute(sql: string, values: unknown[]) {
+      calls.push({ sql: sql.replace(/\s+/gu, " ").trim(), values });
+      return [[{ payload_json: JSON.stringify(batch) }], undefined] as never;
+    }
+  } as never);
+
+  const page = await repository.listByRunCandidate({
+    workspaceId: "workspace-live", runId: "run-live", candidateId: "candidate-query", limit: 2,
+    after: { createdAt: "2026-08-25T03:00:00.000Z", batchId: "batch-anchor" }
+  });
+  assert.deepEqual(page.items.map((item) => item.id), ["batch-query"]);
+  assert.equal(page.next, null);
+  assert.match(calls[0]?.sql ?? "", /FROM acquisition_outreach_batches b JOIN acquisition_outreach_batch_candidates c/u);
+  assert.match(calls[0]?.sql ?? "", /b\.workspace_id=\? AND b\.run_id=\? AND c\.workspace_id=\? AND c\.candidate_id=\?/u);
+  assert.match(calls[0]?.sql ?? "", /NOT EXISTS \(SELECT 1 FROM acquisition_outreach_batches newer/u);
+  assert.match(calls[0]?.sql ?? "", /b\.created_at < \? OR \(b\.created_at = \? AND b\.id < \?\)/u);
+  assert.match(calls[0]?.sql ?? "", /ORDER BY b\.created_at DESC,b\.id DESC LIMIT \?/u);
+  assert.deepEqual(calls[0]?.values, ["workspace-live", "run-live", "workspace-live", "candidate-query",
+    "2026-08-25 03:00:00.000", "2026-08-25 03:00:00.000", "batch-anchor", 3]);
+});
+
+test("MySQL schema migration adds only missing candidate discovery indexes", async () => {
+  const calls: string[] = [];
+  const pool = {
+    async execute(sql: string) {
+      calls.push(sql.replace(/\s+/gu, " ").trim());
+      if (/information_schema\.COLUMNS/u.test(sql)) return [[{ column_name: "target_public_url" }], undefined];
+      if (/information_schema\.STATISTICS/u.test(sql)) return [[
+        { table_name: "acquisition_outreach_batches", index_name: "ix_acquisition_outreach_batch_run_page",
+          column_names: "workspace_id,run_id,created_at,id,revision" },
+        { table_name: "acquisition_outreach_batch_candidates", index_name: "PRIMARY",
+          columns: "batch_id,batch_revision,candidate_id" }
+      ], undefined];
+      return [[], undefined];
+    }
+  };
+  await ensureAcquisitionOutreachBatchMysqlSchema(pool as never);
+  assert.equal(calls.some((sql) => /information_schema\.STATISTICS/u.test(sql)), true);
+  assert.equal(calls.some((sql) => /ALTER TABLE acquisition_outreach_batches ADD KEY ix_acquisition_outreach_batch_run_page \(workspace_id,run_id,created_at,id,revision\)/u.test(sql)), false);
+  assert.equal(calls.some((sql) => /ALTER TABLE acquisition_outreach_batch_candidates ADD KEY ix_acquisition_outreach_candidate_page \(workspace_id,candidate_id,batch_id,batch_revision\)/u.test(sql)), true);
+});
+
 test("live MySQL survives restart and rolls back the batch when the second action insert fails", {
   skip: !process.env.MYSQL_TEST_ADMIN_URL && !process.env.MYSQL_TEST_ADMIN_SOCKET
     ? "MYSQL_TEST_ADMIN_URL or MYSQL_TEST_ADMIN_SOCKET is required; no database is provisioned implicitly"
@@ -165,6 +213,26 @@ test("live MySQL survives restart and rolls back the batch when the second actio
     assert.deepEqual((await new MysqlAcquisitionOutreachBatchRepository(pool)
       .listActions(first.workspaceId, first.id))?.map((action) => action.status),
     ["queued", "blocked_by_predecessor"]);
+
+    const older = { ...liveBatch("batch-page-old", "candidate-page"),
+      createdAt: "2026-08-25T01:00:00.000Z", updatedAt: "2026-08-25T01:00:00.000Z" };
+    const newer = { ...liveBatch("batch-page-new", "candidate-page"),
+      createdAt: "2026-08-25T03:00:00.000Z", updatedAt: "2026-08-25T03:00:00.000Z" };
+    await restarted.create({ workspaceId: older.workspaceId, operation: "create-page-old",
+      idempotencyKey: "live-create-page-old", requestHash: digest("c"), batch: older });
+    await restarted.create({ workspaceId: newer.workspaceId, operation: "create-page-new",
+      idempotencyKey: "live-create-page-new", requestHash: digest("d"), batch: newer });
+    await restarted.replace({ workspaceId: older.workspaceId, batchId: older.id, ifMatch: older.etag,
+      operation: "put-page-old", idempotencyKey: "live-put-page-old", requestHash: digest("e"),
+      build: (current) => ({ ...current, revision: 2, etag: `"outreach-batch:${current.id}:2"`,
+        updatedAt: "2026-08-25T04:00:00.000Z" }) });
+    const firstPage = await restarted.listByRunCandidate({ workspaceId: "workspace-live",
+      runId: "run-live", candidateId: "candidate-page", limit: 1, after: null });
+    const secondPage = await restarted.listByRunCandidate({ workspaceId: "workspace-live",
+      runId: "run-live", candidateId: "candidate-page", limit: 1, after: firstPage.next });
+    assert.deepEqual(firstPage.items.map((item) => item.id), ["batch-page-new"]);
+    assert.deepEqual(secondPage.items.map((item) => `${item.id}:${item.revision}`), ["batch-page-old:2"]);
+    assert.notEqual(firstPage.items[0]?.id, secondPage.items[0]?.id);
     assert.equal((await new MysqlAcquisitionOutreachBatchRepository(pool).approve({
       workspaceId: first.workspaceId, batchId: first.id, ifMatch: first.etag,
       idempotencyKey: "live-approve-restart", requestHash: digest("b"),
