@@ -155,17 +155,24 @@ ledger.
   revision 1 and append validated human edits as revision 2 without changing
   source-model provenance. Public create/read/revise/approve/reject/pause/
   resume/action routes enforce workspace, capability, CSRF, idempotency, and
-  ETag authority. Approval is the required human second confirmation and
-  executes nothing: after account/login, DNC, candidate/evidence, and selected
-  policy-limit rechecks, it atomically stores the approval plus an exact
-  queued comment and predecessor-blocked direct message per candidate. Memory
-  and MySQL roll back approval if either action insert fails; MySQL reuses one
-  locked authority transaction connection.
+  ETag authority. When external actions are explicitly enabled, approval is the
+  required human second confirmation and executes nothing: after account/login,
+  DNC, candidate/evidence, and selected policy-limit rechecks, it atomically
+  stores the approval plus an exact queued comment and predecessor-blocked
+  direct message per candidate. Memory and MySQL roll back approval if either
+  action insert fails; MySQL reuses one locked authority transaction connection.
+  When the action gate is disabled, final approval returns
+  `503 outreach_actions_disabled` before approval or action persistence.
 - Approved outreach actions now execute through an application-owned fenced
   worker and recovery sweeper only when the private MediaCrawler gateway is
-  configured. Claims serialize each account and persist server-time delays of
-  at least 60 seconds between actions and 180 seconds from comment receipt to
-  direct message. The worker revalidates active account/login, approval,
+  configured and `DOUYIN_OUTREACH_ACTIONS_ENABLED` is case-insensitively
+  exactly `true` at both backend and sidecar. Every other value is disabled:
+  the backend starts neither action claimant nor recovery sweeper, the sidecar
+  returns a stable 503 before manager/executor lookup, and the crawler worker
+  continues normally. Enabled claims serialize each account and persist
+  server-time delays of at least 60 seconds between actions and 180 seconds
+  from comment receipt to direct message. The worker revalidates active
+  account/login, approval,
   candidate/evidence, DNC, content, predecessor, policy/job/budget, and daily
   allowance authority before each call. The sidecar reuses the encrypted
   authenticated profile, submits the exact approved text once to the frozen
@@ -173,8 +180,8 @@ ledger.
   stale writes; three consecutive failures or an immediate platform-risk state
   pause the account and all queued work. Focused fake-page, Memory, and live
   MySQL 8.4 gates exercise this behavior without making a real Douyin action.
-- The authenticated `#acquisition` dashboard now makes automatic Douyin
-  acquisition the primary workflow. With no existing task it still loads the
+- The authenticated `#acquisition` dashboard now makes controlled Douyin
+  collection the primary workflow. With no existing task it still loads the
   workspace account and can create, approve, configure, and optionally run a
   MediaCrawler-only plan from a plan name plus manual keywords. It connects or
   reconnects a workspace account by expiring QR session, edits and enables
@@ -187,7 +194,9 @@ ledger.
   fabricating a new run-now intent. A duplicate run remains blocked until the
   recovered persisted state is confirmed. Recovery itself creates or approves
   no batch and sends no comment or direct message; those actions still require
-  explicit second confirmation and the fenced executor. The separate generic
+  explicit second confirmation, the explicit backend/sidecar action gate, and
+  the fenced executor. The real-customer trial fixes that gate to false. The
+  separate generic
   public-search entry is labelled as an optional enhancement with its
   search-API and AI dependencies.
   The real-mode header action focuses the MediaCrawler form without requesting
@@ -198,8 +207,10 @@ ledger.
   preserve bounded backend validation details and show the first field path
   and reason instead of only the generic contract-error message.
   Candidate selection creates an editable outreach batch; revision conflicts
-  reload current authority before explicit approval, and pause/resume plus
-  sanitized comment/direct-message receipts survive page reload. Authorized
+  reload current authority before another review. In an action-enabled runtime,
+  explicit approval, pause/resume, and sanitized comment/direct-message receipts
+  survive page reload. In this trial final approval remains unavailable and no
+  action is created. Authorized
   public-link import remains a collapsed secondary fallback. The existing
   Shensi shell, session/CSRF behavior and accessible navigation are preserved;
   desktop uses a table with evidence inspector, while narrow viewports use
@@ -240,71 +251,67 @@ ledger.
   search API nor AI. Comment and direct-message approval remains human approved;
   no automatic external action was run.
 
+- The complete trial frontend surface is present. All nine primary entries are
+  visible: 自动营销总览、获客中心、社媒对话、私域客户池、成交工作台、智能体中心、
+  自动工作流、外贸营销、设置中心. The sidebar also exposes
+  `#growth/advisor`, `#growth/catalog`, `#growth/quotes`, `#growth/finance`,
+  `#growth/roi`, and `#financial-council`. Real API/MySQL pages retain their
+  authority; local-only and pending integrations remain visible with the exact
+  `预览 · 待接入` label and never present local fixture values as live results.
+  A trial-only exact alias maps `test` to `test@shensi.local` only when all three
+  Vite trial values are complete; unmatched identities and passwords remain
+  unchanged, and incomplete enabled configuration fails before login traffic.
+- Deployment MediaCrawler now requires an absolute, existing, non-symlinked,
+  current-user-owned `0700` `MEDIACRAWLER_CRAWL_OUTPUT_ROOT` strictly inside,
+  and not equal to, `MEDIACRAWLER_ENCRYPTED_VOLUME`. Runner creation and cleanup
+  use that one resolved root. The Compose and development boundaries pass the
+  same root and default the two-layer action gate to false.
+- The isolated trial tooling is available through `trial:prepare`,
+  `trial:start`, `trial:status`, `trial:verify`, and `trial:stop`. It uses the
+  ignored `.runtime/real-trial/` root and fixed loopback ports `3310`, `5608`,
+  `5610`, `5611`, and `5612`; only gateway `5608` is eligible for the temporary
+  Quick Tunnel. Runtime, secret/state, log, PID, MySQL, profile, and crawl-output
+  paths are owner-only. Stop validates recorded PID/command/nonce authority
+  before terminating trial process groups and does not repurpose the protected
+  older local services.
+- The 2026-08-25 visible-Chrome QR login and later 305-record/13-candidate
+  ingestion recovery remain useful **pre-trial historical local evidence**.
+  They used an earlier local runtime, made no comment or direct-message action,
+  and are not acceptance evidence for the isolated trial ports or public link.
+
 ## Active
 
-- Task 10 deterministic implementation and repository-wide final gates are
-  complete. The pinned Python 3.11/uv/Playwright sidecar is private-only,
-  non-root and read-only, uses a mounted owner-only service-secret file and a
-  pre-existing encrypted-state bind, and has bounded resources, health and
-  shutdown behavior. Development, deployment and verification wrappers fail
-  closed on missing prerequisites or a publicly routed sidecar.
-- Focused deterministic evidence for the observation, projection, and dashboard
-  behavior is recorded in the task reports. The latest aggregate evidence
-  preceding the runtime-compatibility recovery changes is at code commit
-  `72bb512`:
-  `./scripts/context-check` returned `SHENSI_CONTEXT_OK`, all 71 sidecar adapter
-  tests passed, `pnpm test` passed 94 contract tests plus the backend, frontend,
-  and Baota suites, `pnpm check:acquisition-contracts` passed 19 drift checks,
-  security checks, 41 OpenAPI/conformance checks, frontend checks, and Baota
-  checks, and `pnpm build` passed with only the existing Vite 500 kB chunk
-  advisory. Independent inspection returned GO for the lifecycle/legacy code
-  snapshot and no finding for the later SQL repair. The focused crawler slice
-  passed 103 tests with two live-MySQL environment skips, and the focused task-
-  presentation slice passed 105 tests with one isolated live-MySQL fixture
-  skip; their exact commands are in the current Task 4 report. The live local
-  MySQL account and task-detail APIs returned 200 after the visual-session query
-  was aligned with its persisted `updated_at, session_id` index. The integrated
-  documentation diff passed `git diff --check`. These checks did not request a
-  Douyin/iesdouyin host.
-- Real QR login on 2026-08-25 reached Douyin from a visible local Chrome
-  profile, rendered the returned QR in the authenticated `#acquisition`
-  dialog, and completed the operator's scan into an active workspace account.
-  The same login in headless Chromium returned Douyin's verification
-  interstitial, so local startup explicitly supports visible Chrome and gives
-  cold QR creation a separate bounded deadline. No crawl, comment, direct
-  message, or other external action was triggered during that login check.
-- A later authorized real-local crawl exposed a mixed-version private runtime:
-  the older sidecar returned a terminal `partial` descriptor without activity,
-  while the backend interpreted the missing live-required field as a protocol
-  failure and exhausted its retry budget. The retained terminal job contained
-  305 normalized records across 13 pages. A controlled ingestion-only recovery
-  adopted that existing job without another crawl, persisted 64 records under
-  the frozen policy and daily candidate limit (14 videos plus 50 candidate-
-  eligible records), projected 13 final candidates, and completed the normal
-  sidecar acknowledgement. The authoritative run remains truthfully `partial`.
-  No comment or direct message was approved or sent during collection or
-  recovery.
-- Dedicated-account external action acceptance is not performed. No CAPTCHA
-  was handled, production traffic changed, or real comment/direct message sent.
-  It remains a separately authorized operator checkpoint after the exact
-  dedicated account and test-owned target URLs are displayed and the user gives
-  action-time confirmation.
+- Task 5 fresh source gates, isolated-stack launch, tenant/persistence/network
+  acceptance, complete UI inspection, and bounded QR/collection readiness are
+  not yet performed. No temporary HTTPS origin is recorded as accepted, and the
+  tooling must not be described as customer-ready before every gate passes.
+- Dedicated-account external-action acceptance remains outside this launch.
+  `DOUYIN_OUTREACH_ACTIONS_ENABLED=false` is fixed for the trial; no CAPTCHA is
+  automated and no real comment or direct message is authorized.
 
 ## Blocked
 
 - Docker Engine and Docker Compose are unavailable in the current execution
   environment (`docker` is absent from `PATH`; Colima is installed but reports
   `colima is not running`), so Compose rendering and image builds remain an
-  exact deployment blocker requiring a Docker-equipped environment.
+  exact production-deployment blocker requiring a Docker-equipped environment.
+  This does not block the separate non-Docker local trial supervisor.
 
 ## Next
 
-1. In a Docker-equipped environment, render `deploy/compose.yaml`, build every
-   image, inspect the private networks and run container health/shutdown checks.
-2. If external acceptance is requested, first display the dedicated test
-   account and exact test-owned video/profile URLs, then request action-time
-   confirmation before approving any comment/direct-message batch. Never
-   automate CAPTCHA or continue after a platform warning.
+1. Run fresh current-tree context, focused, aggregate, build, and whitespace
+   gates; previous counts are historical and do not replace Task 5 evidence.
+2. Run `trial:prepare`, `trial:start`, `trial:status`, and `trial:verify`; verify
+   tenant-admin login, CSRF write, backend-restart persistence, tenant isolation,
+   public route isolation, and the complete truthful UI surface.
+3. Stop at QR-ready if the customer is not present. After an authorized scan,
+   verify one manual-keyword collection and persisted candidates while keeping
+   the external-action flag false.
+4. Only after those checks pass may the operator retire the old static link;
+   `trial:stop` must stop only validated trial process groups and retain data
+   until the documented export/profile retention decision is complete.
+5. Separately, in a Docker-equipped environment, render and build production
+   Compose and inspect its private networks and health/shutdown behavior.
 
 The two executing design/plan documents are retained under
 `docs/superpowers/` until final acceptance, but they are not progress authority.

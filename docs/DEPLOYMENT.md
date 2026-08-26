@@ -107,6 +107,8 @@ accepted:
 ```dotenv
 MEDIACRAWLER_BASE_URL=http://media-crawler:8899
 MEDIACRAWLER_SERVICE_SECRET_FILE=/run/secrets/mediacrawler_service_secret
+MEDIACRAWLER_CRAWL_OUTPUT_ROOT=/var/lib/shensi-mediacrawler/crawl-output
+DOUYIN_OUTREACH_ACTIONS_ENABLED=false
 ```
 
 The URL validator accepts only private/loopback plain HTTP targets. The secret
@@ -172,16 +174,24 @@ the normal acknowledgement. Never recover by deleting the sidecar job,
 acknowledging it manually, resetting the whole database, or creating a
 replacement run that repeats the external crawl.
 
-The same configured gateway enables the backend-owned outreach-action worker
-and expired-claim sweeper. The sidecar action endpoint is private and must use
-the existing encrypted authenticated profile; do not expose it through the
-public gateway. Node owns account serialization, fenced claims, persisted
-server-time delays, final authority revalidation, daily limits, and receipts.
-The sidecar owns only the single exact browser submission and closed platform
-state detection. Platform verification, rate limiting, account warnings, and
-login expiry pause the persisted social account and all its queued actions;
-operators must resolve the account state through the normal account lifecycle,
-never by bypassing the platform control.
+A configured gateway enables the backend crawler worker; it does not enable
+external actions. The backend action worker/recovery sweeper and the sidecar
+action manager exist only when `DOUYIN_OUTREACH_ACTIONS_ENABLED` is
+case-insensitively exactly `true`. Leading/trailing spaces, `1`, `yes`, an empty
+value, and omission all remain disabled. In that default state, final approval
+returns `503 outreach_actions_disabled` before approval or action persistence,
+the backend starts neither action process, and the sidecar returns the same
+stable 503 before manager/executor lookup. Collection remains available.
+
+Only a separately accepted action-enabled environment may use the private
+sidecar action endpoint and existing encrypted authenticated profile; never
+expose it through the public gateway. Node then owns account serialization,
+fenced claims, persisted server-time delays, final authority revalidation,
+daily limits, and receipts. The sidecar owns only the single exact browser
+submission and closed platform-state detection. Platform verification, rate
+limiting, account warnings, and login expiry pause the persisted social account
+and all its queued actions; operators must resolve the account state through the
+normal account lifecycle, never by bypassing the platform control.
 
 On an existing MySQL installation, backend schema setup must complete before
 workers start. It widens Douyin authoritative-run alias columns to 160
@@ -216,12 +226,24 @@ target from a private handle.
 
 Before starting the sidecar, create and mount an encrypted-at-rest host
 directory. It must already exist, must not be a symlink, and must have exact
-POSIX mode `0700`. The profile root must remain beneath that mount:
+POSIX mode `0700`. The profile root must remain beneath that mount. The crawl
+output root must be absolute, already exist, be a non-symlinked directory owned
+by the current runtime user with exact mode `0700`, and resolve strictly inside
+but not equal to the encrypted volume:
 
 ```dotenv
 MEDIACRAWLER_ENCRYPTED_VOLUME=/run/shensi-encrypted/mediacrawler
 MEDIACRAWLER_PROFILE_ROOT=/run/shensi-encrypted/mediacrawler/profiles
+MEDIACRAWLER_CRAWL_OUTPUT_ROOT=/run/shensi-encrypted/mediacrawler/crawl-output
 ```
+
+The runner resolves one output root at construction and uses it for both job
+creation and acknowledgement cleanup. Deployment must never fall back to the
+source-local `.shensi-crawl-output` compatibility path. In Compose, the
+corresponding container root is
+`/var/lib/shensi-mediacrawler/crawl-output`. Create the host-side directory
+with the correct UID/GID and mode before launch; do not rely on a bind mount to
+silently create it with broader or wrong ownership.
 
 Browser login mode is explicit:
 
@@ -352,6 +374,92 @@ production configuration. Restore a database backup only under the separate
 approved restore/migration procedure; source databases remain read-only
 migration inputs.
 
+## Isolated real-customer trial
+
+The real-customer trial is a separate local supervisor, not Production Compose,
+`./scripts/dev`, or `pnpm dev:real`. Its tooling is available, but it is not a
+published or accepted customer environment until every check in
+`docs/operations/real-customer-trial.md` passes on the current revision.
+
+### Fixed topology and runtime root
+
+All five services bind loopback:
+
+| Component | Address | Exposure |
+| --- | --- | --- |
+| MySQL | `127.0.0.1:3310` | private dedicated database |
+| Gateway | `127.0.0.1:5608` | the only Quick Tunnel target |
+| Frontend | `127.0.0.1:5610` | gateway upstream only |
+| Backend | `127.0.0.1:5611` | gateway upstream only |
+| MediaCrawler | `127.0.0.1:5612` | backend/private only |
+
+The ignored default root is `.runtime/real-trial/`. Preparation makes its
+runtime, `secrets/`, `state/`, `logs/`, `pids/`, and `tools/` directories
+owner-only (`0700`) and writes credential/environment files as `0600`. Current
+state paths are `state/mysql/`, `state/mediacrawler-profile/`, and
+`state/mediacrawler-output/`; the generated environment is
+`.runtime/real-trial/trial.env`. The profile and output paths are distinct
+children of the encrypted state root. No `.env.real.local`, ordinary development
+state, or source-local crawl output is reused.
+
+### Lifecycle commands
+
+Provide `SHENSI_TRIAL_APP_PASSWORD` only through the current owner-controlled
+process environment, or point `SHENSI_TRIAL_APP_PASSWORD_FILE` at a regular
+owner-only file. Do not place the value in the command line, shell history,
+tracked files, PID/status metadata, or logs. Repeated preparation preserves the
+generated secrets and requires the same supplied customer password.
+
+```bash
+pnpm trial:prepare
+pnpm trial:start
+pnpm trial:status
+pnpm trial:verify
+pnpm trial:stop
+```
+
+`trial:prepare` refuses occupied fixed ports, creates the protected runtime,
+generates independent production secrets, writes the canonical encoded MySQL
+URL, and copies the configured fixed cloudflared binary only after its SHA-256
+matches. `trial:start` initializes a new dedicated MySQL data directory,
+provisions the least-privilege `shensi_trial_app@127.0.0.1`, obtains the Quick
+Tunnel HTTPS origin, injects that exact origin into backend CORS, and then
+starts the loopback application stack. It bootstraps an internal random
+super-admin only long enough to create or verify
+`test@shensi.local` as tenant `admin` in `trial-pilot-001`; the backend is
+restarted without `INITIAL_ADMIN_*`.
+
+`trial:status` is the current authority for process state and the temporary
+origin. Supply that origin to `trial:verify` through its requested process
+environment without copying it into tracked documentation. A tunnel restart
+may change it, and the trial is unavailable while the host sleeps or is
+offline. `trial:stop` validates every recorded PID, command, and runtime nonce,
+then terminates only matching trial process groups with bounded TERM/KILL
+handling and removes live status. It does not stop the protected older services
+or delete trial data.
+
+### Login, action gate, and retention
+
+The frontend alias is enabled only when `VITE_REAL_TRIAL=true`,
+`VITE_TRIAL_LOGIN_ALIAS=test`, and
+`VITE_TRIAL_LOGIN_EMAIL=test@shensi.local` are all complete. Only the exact
+trim/lowercase alias match is mapped; unmatched identities and passwords remain
+unchanged, and incomplete enabled configuration fails before login traffic. The
+backend remains email-only and the customer receives tenant `admin`, never
+`super_admin`.
+
+The generated runtime fixes visible Chrome mode and
+`DOUYIN_OUTREACH_ACTIONS_ENABLED=false`. QR readiness or account connection
+does not authorize collection; collection does not authorize external sending.
+Task 5 verifies that final outreach approval and the sidecar action route remain
+fail-closed. It does not set the flag true.
+
+Stopping preserves the dedicated MySQL data, encrypted profile, crawl state,
+logs, and secrets. Before deleting the runtime root, export the trial database
+and record whether the customer-approved Douyin profile is disconnected and
+deleted or retained only in approved encrypted-at-rest storage. Never delete
+the runtime tree merely to stop processes.
+
 ## Local and Baota entry points
 
 Canonical local development uses the ignored `.env.local` with real MySQL and
@@ -369,6 +477,7 @@ the API, and `5191` for Vite before starting any process, forces
 `VITE_API_TARGET=http://127.0.0.1:4191`. `./scripts/verify` runs the context,
 contract, backend-build, frontend-test/type/build, and local health gates;
 keep the local runtime running while it performs its health checks.
+These are ordinary integrated-development ports, not isolated trial ports.
 
 The following root scripts remain useful for focused work:
 
@@ -387,7 +496,9 @@ stopping the complete local process tree and restarting `./scripts/dev`.
 
 `pnpm dev:real` uses the ignored `.env.real.local`, MySQL on `127.0.0.1:3307`,
 database `shensi_sales`, API port `4188`, and Vite port `5188`. It is not the
-production Compose procedure and starts only backend plus frontend.
+production Compose procedure and starts only backend plus frontend. It is also
+not the isolated trial; do not reuse its data, state, processes, or tunnel as
+trial evidence.
 
 `deploy/baota/` remains the existing Linux/Baota package path. Its upgrade
 mode uses `REUSE_EXISTING_DATABASE=true`; `REPLACE_DATABASE=true` is a
@@ -426,5 +537,10 @@ CAPTCHA, verification, rate-limit, or account-warning state. Immediately before
 approval, the user must see the selected account, target URL, exact test comment
 and exact test direct message and give action-time confirmation. Without that
 confirmation, do not approve the batch and do not send either action. The owned
-local UI is `http://127.0.0.1:5191/#acquisition`; production acceptance uses the
-configured HTTPS `CORS_ORIGINS` origin with `#acquisition` appended.
+ordinary-development UI is `http://127.0.0.1:5191/#acquisition`. The isolated
+trial local UI goes through `http://127.0.0.1:5608/#acquisition`, and its
+customer-facing entry is the current temporary HTTPS origin reported by
+`trial:status`. This launch accepts only the disabled-action boundary; the
+one-comment/one-message procedure remains a later, separately authorized gate.
+Production acceptance uses the configured HTTPS `CORS_ORIGINS` origin with
+`#acquisition` appended.

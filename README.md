@@ -24,6 +24,49 @@ cp .env.production.example .env.production.local
 ./scripts/deploy
 ```
 
+## Isolated real-customer trial
+
+The repository also provides one isolated, repeatable trial runtime. The
+tooling is present, but the public trial is not customer-ready until the
+acceptance checklist in
+[`docs/operations/real-customer-trial.md`](docs/operations/real-customer-trial.md)
+passes on the current revision. Supply the customer password only through the
+owner-controlled process environment or an owner-only password file; never put
+it in a command, tracked file, or log.
+
+```bash
+pnpm trial:prepare
+pnpm trial:start
+pnpm trial:status
+pnpm trial:verify
+pnpm trial:stop
+```
+
+The fixed loopback ports are MySQL `3310`, gateway `5608`, frontend `5610`,
+backend `5611`, and MediaCrawler `5612`. A Cloudflare Quick Tunnel publishes
+only the gateway. The ignored default root is `.runtime/real-trial/`, including
+the owner-only `trial.env`, secrets, logs, PID records, MySQL data, browser
+profile, and crawl-output directories. `trial:status` reports the current
+temporary origin; it may change after a tunnel restart and must not be copied
+into tracked documentation. `trial:stop` validates the recorded command, PID,
+and runtime nonce before terminating trial process groups and retains the
+runtime data for an explicit retention decision.
+
+The trial build shows all nine primary modules—自动营销总览、获客中心、社媒对话、
+私域客户池、成交工作台、智能体中心、自动工作流、外贸营销、设置中心—and the six
+Growth/finance entries at `#growth/advisor`, `#growth/catalog`,
+`#growth/quotes`, `#growth/finance`, `#growth/roi`, and `#financial-council`.
+Real API/MySQL surfaces remain real. Browser-local or pending integrations are
+visible and carry the exact label `预览 · 待接入`; their values are not live
+customer results.
+
+With `VITE_REAL_TRIAL=true`, a non-empty `VITE_TRIAL_LOGIN_ALIAS=test`, and a
+non-empty `VITE_TRIAL_LOGIN_EMAIL=test@shensi.local`, the frontend maps only an
+exact trim/lowercase alias match to the canonical tenant-admin email before
+calling the email-only backend login API. Unmatched identities and every
+password remain unchanged. An enabled but incomplete mapping fails before a
+network request. The customer is a tenant `admin`, never `super_admin`.
+
 ## Start here
 
 Read these files in order before changing the system:
@@ -84,7 +127,17 @@ Node runtime/workers, and Vite. Vite uses `--strictPort`, so a port race fails
 rather than selecting a different port. The wrapper forwards `SIGINT` and
 `SIGTERM` to all child process trees and force-terminates them after a bounded
 shutdown window.
-Do not use memory mode as evidence for this runtime.
+This is the ordinary integrated development runtime, not the isolated customer
+trial; do not use its ports, database, state, PID files, or tunnel as trial
+evidence. Do not use memory mode as evidence for either runtime.
+
+Deployment MediaCrawler must also receive
+`MEDIACRAWLER_CRAWL_OUTPUT_ROOT`. It must be an absolute, existing,
+non-symlinked, current-user-owned directory with exact mode `0700`, resolve
+strictly inside `MEDIACRAWLER_ENCRYPTED_VOLUME`, and not equal the volume root.
+Runner creation and acknowledgement cleanup use that same resolved root, so
+trial or deployment output never falls back to the source-local compatibility
+directory.
 
 The Node and Vite development children may reload source, but the Python
 MediaCrawler sidecar does not auto-reload. Treat the backend gateway and the
@@ -113,22 +166,32 @@ pnpm --filter ./frontend dev
 
 Those commands start only the named process. They neither start nor reload the
 private sidecar and must not be attached to an older independently running
-sidecar as evidence for the automatic Douyin workflow.
+sidecar as evidence for the controlled Douyin collection workflow.
 
 The authenticated acquisition API includes immutable Douyin outreach-batch
-review and approval. Approval only persists the exact ordered
-comment-then-direct-message outbox; the separately leased executor owns
-external actions and is never invoked by the approval route. When the private
-MediaCrawler gateway is configured, the acquisition application owns the
-fenced action worker and expired-claim sweeper lifecycle. The worker rechecks
-the frozen approval/account/candidate/content/budget authority immediately
-before asking the sidecar to submit exact approved text.
+review and approval. When external actions are explicitly enabled, approval
+only persists the exact ordered comment-then-direct-message outbox; the
+separately leased executor owns external actions and is never invoked by the
+approval route. A configured
+private MediaCrawler gateway starts collection, but it does not enable external
+actions. Both backend and sidecar enable outreach only when
+`DOUYIN_OUTREACH_ACTIONS_ENABLED` is case-insensitively exactly `true`; spaces,
+`1`, `yes`, an empty value, and omission remain disabled. While disabled, final
+approval returns `503 outreach_actions_disabled` before approval or action
+persistence, the backend starts neither its action worker nor recovery sweeper,
+and the sidecar returns the same stable 503 before manager/executor lookup. The
+crawler worker continues normally. When explicitly enabled after separate live
+acceptance, the worker rechecks the frozen approval/account/candidate/content/
+budget authority immediately before asking the sidecar to submit exact approved
+text.
 
 The authenticated `#acquisition` dashboard uses that authority for the primary
-automatic Douyin workflow: QR account connection, editable local automation,
-run progress, creator/commenter evidence review, revisioned exact-message
-editing, explicit approval, pause/resume and sanitized action receipts. Public-
-link import remains an authorized secondary fallback. The browser never
+controlled Douyin collection workflow: QR account connection, editable local
+automation, run progress, creator/commenter evidence review, and revisioned
+exact-message drafting. Public-link import remains an authorized secondary
+fallback. This trial keeps final outreach approval, comments, and direct
+messages disabled; “automatic” describes collection, never external sending.
+The browser never
 receives MediaCrawler cookies, account handles, browser profiles or leases.
 Completed MediaCrawler JSONL records are published as immutable pages while a
 crawl is still running. The backend persists each available page and projects
@@ -255,7 +318,8 @@ unavailable. It starts only the backend and frontend; MediaCrawler work requires
 a separately managed sidecar from the same source revision, so `./scripts/dev`
 remains the canonical integrated path. See
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) before treating any local command as a
-production procedure.
+production procedure. It is also not the isolated customer trial and must not
+lend its database, state, ports, processes, or tunnel to trial acceptance.
 
 ## Verification
 

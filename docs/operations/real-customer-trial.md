@@ -1,138 +1,284 @@
 # Real Customer Trial Runtime
 
 This document is the current operating contract for the temporary Shensi
-customer trial. It describes a real, isolated runtime; it is not a static demo
-and it must not reuse the developer database or the already-running local
-services.
+customer trial. The isolated runtime tooling is implemented, but the trial is
+not public, customer-ready, or accepted until Task 5 passes every gate below on
+the current revision. Never write a temporary tunnel URL, password, token,
+cookie, provider key, browser profile, or crawl output into tracked files.
 
-## Goal
+## Goal and truthful product scope
 
-Publish the latest frontend and backend behind one temporary HTTPS address so
-one invited customer can see every feature developed so far and use every
-feature whose real integration is currently ready. The
-trial login alias is `test`; the canonical backend identity remains an email
-address and the alias is resolved only by the explicitly enabled trial build.
+The trial publishes the latest frontend and backend behind one temporary HTTPS
+origin so one invited customer can see every feature developed so far. Visible
+does not mean live: real API/MySQL surfaces remain real, while browser-local or
+pending integrations remain visible and carry the exact label
+`预览 · 待接入`. They never present fixture values as live customer results.
 
-## Complete but truthful product scope
+All nine primary navigation entries are present:
 
-The trial navigation exposes every module and page developed in the latest
-frontend. Modules backed by real APIs and persistent MySQL data are directly
-usable, including:
+- 自动营销总览
+- 获客中心
+- 社媒对话
+- 私域客户池
+- 成交工作台
+- 智能体中心
+- 自动工作流
+- 外贸营销
+- 设置中心
 
-- login, session and workspace-scoped authorization;
-- CRM records and the private-domain handoff into opportunities and quotes;
-- real Growth catalog, finance, ROI and quote workflows that do not require a
-  missing provider;
-- connection management for providers the operator has actually enabled;
-- Douyin QR login, manual-keyword acquisition, live collection, candidates,
-  CRM conversion and human approval.
+The same sidebar exposes the six connected Growth/finance entries:
 
-Pages whose data or actions are still browser-local demonstrations remain
-visible, but the page and relevant actions carry a clear `预览·待接入` status so a
-customer cannot mistake them for a completed live channel. AI-only controls
-remain visible and explain that a healthy model connection is required when
-none is configured. Generic public-web acquisition remains visible and
-optional; its missing provider does not block Douyin manual-keyword collection.
+- `#growth/advisor`
+- `#growth/catalog`
+- `#growth/quotes`
+- `#growth/finance`
+- `#growth/roi`
+- `#financial-council`
 
-Real Douyin comments and direct messages remain unavailable to customers until
-both actions pass a one-comment and one-message acceptance run against
-operator-owned targets. The runtime must default the external-action worker to
-disabled. Enabling it later requires an explicit environment flag, the
-existing approval flow, exact target and text confirmation, and the platform's
-normal warning, verification and rate-limit boundaries. The crawler must never
-bypass CAPTCHA or platform warnings.
+Real connected scope includes authenticated session/workspace authority, CRM and
+private-domain records, Growth catalog/quote/finance/ROI flows supported by the
+current backend, provider connections the operator has actually configured, and
+the `#acquisition` MediaCrawler path for QR login, plan approval, manual
+keywords, controlled collection, persisted status/candidates/evidence, draft
+review, and CRM conversion. `#growth/quotes` without a case shows a
+customer-readable empty state; it does not invent a quote or expose
+`quote_case_required`.
+
+The browser-local dashboard, conversations, conversion, automation, and
+overseas-marketing presentations stay visible as `预览 · 待接入`. AI-only
+controls remain visible but explain that a healthy model connection is required.
+Generic public-web acquisition remains an optional separate path; a missing
+search or model provider never blocks manual-keyword MediaCrawler collection.
+
+Outreach drafts can be edited and reviewed, but this launch does not allow final
+outreach approval. With the fixed disabled action gate, final approval returns
+`503 outreach_actions_disabled`, creates neither approval nor actions, and sends
+no comment or direct message. Plan approval for collection is a separate real
+authority and remains available.
 
 ## Isolated topology
 
-The first pilot serves one customer and uses these loopback-only addresses:
+The first pilot uses only these fixed loopback addresses:
 
 | Component | Address | Rule |
 | --- | --- | --- |
-| Public gateway | `127.0.0.1:5608` | The only service published by the tunnel |
-| Frontend | `127.0.0.1:5610` | Latest worktree build |
-| Backend | `127.0.0.1:5611` | Production mode, MySQL store |
-| MediaCrawler sidecar | `127.0.0.1:5612` | One worker, dedicated secret and state |
-| MySQL | `127.0.0.1:3310` | Dedicated data directory and database |
+| MySQL | `127.0.0.1:3310` | dedicated `shensi_trial` database |
+| Public gateway | `127.0.0.1:5608` | the only Quick Tunnel target |
+| Frontend | `127.0.0.1:5610` | gateway upstream only |
+| Backend | `127.0.0.1:5611` | production mode, MySQL store, gateway upstream only |
+| MediaCrawler sidecar | `127.0.0.1:5612` | private backend integration only |
 
-The database is `shensi_trial` and its application user has privileges only on
-that database. The existing services on `3307`, `5488`, `5492`, `5588` and
-`5590` are not modified or stopped until the new public runtime has passed its
-acceptance checks.
+The `shensi_trial_app@127.0.0.1` database account has privileges only on
+`shensi_trial`. The gateway owns `/healthz` and sends only `/api` and `/api/*`
+to the backend; all other allowed application paths go to the frontend. It
+preserves cookies, CSRF headers, HTTP methods, and the HTTPS forwarded scheme.
+MySQL, backend, and MediaCrawler are never direct tunnel targets.
 
-The public gateway transparently forwards the frontend and `/api` traffic. It
-preserves `Host`, `X-Forwarded-Proto: https`, cookies, CSRF headers and all
-required HTTP methods, and never publishes MySQL, the backend or the sidecar
-directly. The application login is the customer access boundary; its existing
-rate limiting remains enabled.
+The existing services on `3307`, `5488`, `5492`, `5588`, and `5590` are
+protected. Preparation, start, verification, and stop must not modify, signal,
+or reuse them. The ordinary `./scripts/dev` ports `4491/4191/5191` and
+`pnpm dev:real` ports `3307/4188/5188` are not trial endpoints or acceptance
+evidence.
 
-## Identities and secrets
+## Runtime files and permissions
 
-- The customer receives a tenant `admin`, never `super_admin`.
-- The requested application credential is accepted as `test` plus the
-  separately delivered password. The database stores an internal identity such
-  as `test@shensi.local`; the backend login API continues to require email.
-- Initial bootstrap super-admin credentials are operator-only and are removed
-  from the running environment after the tenant admin has been provisioned.
-- All JWT, encryption, cursor, claim, database, gateway and sidecar secrets are
-  independent random values. They live only in owner-readable ignored runtime
-  files and are never printed, committed, or copied from another environment.
-- Previously pasted provider keys are considered exposed and are not reused.
-- The Douyin Playwright profile and login state persist in a dedicated
-  owner-only directory. The customer is told that the session remains on the
-  trial host until disconnect or environment removal.
+The ignored default runtime root is `.runtime/real-trial/`:
 
-## Runtime mode contract
+```text
+.runtime/real-trial/
+  trial.env
+  secrets/
+  logs/
+  pids/
+  tools/
+  state/
+    mysql/
+    mediacrawler-profile/
+    mediacrawler-output/
+```
 
-The frontend recognizes an explicit `VITE_REAL_TRIAL=true` mode. This mode:
+Runtime, state, secret, log, PID, and tool directories are `0700`; generated
+credential and environment files are `0600`. `trial.env` is the current
+generated runtime environment. Do not create or document a parallel
+`.env.real-trial.local`; `.env.real.local` belongs to the older non-trial
+wrapper.
 
-1. maps the configured login alias to the configured internal email before
-   calling `/api/auth/login`;
-2. shows every developed module and labels preview-only integrations clearly;
-3. does not enable frontend demo mode or synthesize records;
-4. targets only the isolated backend.
+Preparation generates independent JWT, encryption, cursor, claim, database,
+gateway, and sidecar values. It preserves existing generated secrets on an
+exact repeat. The configured fixed cloudflared binary is copied into `tools/`
+only after its SHA-256 matches. Logs and status may expose bounded component
+names, paths, PIDs, health, and the current temporary origin; they must never
+expose environment values or secrets.
 
-MediaCrawler accepts an explicit output root so trial crawl artifacts cannot
-land in another runtime's source-owned output directory. Its external action
-worker is disabled unless `DOUYIN_OUTREACH_ACTIONS_ENABLED=true` is present.
-The same flag prevents the backend from accepting final outreach approval or
-starting its action claim/recovery workers; the backend and sidecar therefore
-both fail closed without accumulating dormant sends or consuming approvals into
-failed receipts.
+## Identities and login alias
 
-## Deployment and recovery
+- The customer receives tenant `admin` in `trial-pilot-001`, never
+  `super_admin`.
+- The visible login alias is `test`; the canonical backend email is
+  `test@shensi.local`.
+- Alias mapping exists only when `VITE_REAL_TRIAL` is exactly `true` and both
+  `VITE_TRIAL_LOGIN_ALIAS` and `VITE_TRIAL_LOGIN_EMAIL` are non-empty.
+- Matching trims and lowercases only the lookup key and requires an exact own
+  alias property. A match submits the canonical email. Every unmatched identity
+  is submitted byte-for-byte unchanged, and the password is never normalized or
+  rewritten.
+- Enabled but incomplete alias configuration fails before a login request. The
+  backend `/api/auth/login` remains email-only; it does not natively accept a
+  username.
 
-Repository scripts prepare and launch the isolated runtime without embedding
-secret values. Runtime state is stored beneath one ignored directory with
-`0700` directories and `0600` credential files. Every component writes a PID
-and log file so the operator can inspect status and stop only the exact trial
-processes. Startup is fail-closed: occupied ports, missing secret files,
-insecure permissions, a non-empty unexpected data directory, or an unhealthy
-dependency abort the launch.
+On a new empty database, the supervisor starts the backend once with an internal
+random bootstrap super-admin, uses the real login/accounts APIs to create or
+verify the tenant admin, stops the backend, removes every `INITIAL_ADMIN_*`
+value from the child environment, and restarts it. Existing-account conflicts
+are accepted only after exact email/role/team/status lookup and a successful
+tenant-admin login with the supplied customer password.
 
-The temporary Cloudflare Quick Tunnel URL may change after the tunnel restarts,
-and the environment is unavailable while the Mac sleeps or is offline. Trial
-data survives application restarts because it lives in the dedicated MySQL
-data directory. Before removing the environment, export the database and
-preserve or explicitly delete the Douyin profile according to the trial data
-retention decision.
+Supply the customer password only through `SHENSI_TRIAL_APP_PASSWORD` in the
+owner-controlled process environment or an owner-only file selected by
+`SHENSI_TRIAL_APP_PASSWORD_FILE`. Do not put the value in a command line, shell
+history, tracked file, report, status file, PID record, or log. A repeated
+preparation with a different password fails closed rather than silently
+rotating the customer credential.
+
+## MediaCrawler filesystem and action boundaries
+
+The generated runtime uses visible standard Playwright Chrome:
+
+```dotenv
+MEDIACRAWLER_BROWSER_HEADLESS=false
+MEDIACRAWLER_BROWSER_CHANNEL=chrome
+DOUYIN_OUTREACH_ACTIONS_ENABLED=false
+```
+
+The sidecar consumes `MEDIACRAWLER_SERVICE_SECRET_FILE`; raw secret environment
+values are not a deployment interface.
+The MediaCrawler encrypted volume, profile root, and crawl-output root point to
+the dedicated trial state. `MEDIACRAWLER_CRAWL_OUTPUT_ROOT` must be absolute,
+already exist, be a non-symlinked current-user-owned directory with exact mode
+`0700`, and resolve strictly inside but not equal to
+`MEDIACRAWLER_ENCRYPTED_VOLUME`. Profile and output roots are distinct. The
+runner resolves one output root and uses it for both creation and cleanup, so
+trial artifacts never fall back to a source-owned directory.
+
+Both backend and sidecar enable outreach only when
+`DOUYIN_OUTREACH_ACTIONS_ENABLED` is case-insensitively exactly `true`.
+Whitespace, `1`, `yes`, an empty value, and omission remain false. While false:
+
+- the backend rejects final approval before approval/action persistence;
+- the backend creates neither the action claim worker nor recovery sweeper;
+- the sidecar creates no action manager and returns the stable 503 before
+  manager/executor lookup;
+- the crawler worker and collection remain available.
+
+This launch fixes the value to false. QR display is not account authority;
+account connection does not authorize collection; collection does not authorize
+external sending. Never bypass CAPTCHA, verification, rate limits, or platform
+warnings.
+
+## Lifecycle commands
+
+From the repository root, with the customer password supplied out of band:
+
+```bash
+pnpm trial:prepare
+pnpm trial:start
+pnpm trial:status
+pnpm trial:verify
+pnpm trial:stop
+```
+
+### Prepare
+
+`trial:prepare` refuses an occupied fixed port, unsafe runtime path/file state,
+missing password input, mismatched repeated password, or cloudflared checksum
+failure. It creates the protected runtime and canonical encoded MySQL URL
+without printing a credential.
+
+### Start
+
+`trial:start` starts a newly initialized MySQL data directory first, provisions
+the least-privilege database/user, obtains the Quick Tunnel HTTPS origin before
+backend startup, injects that exact origin into `CORS_ORIGINS`, provisions the
+tenant admin through the real API, and starts only loopback listeners. Startup
+aborts on an unhealthy dependency or an occupied port.
+
+### Status and verify
+
+`trial:status` validates recorded PID/command/nonce authority before reporting a
+component as running and is the authority for the current temporary origin.
+Pass that origin to `trial:verify` only through the process environment expected
+by the verifier; do not copy it into this document or another tracked file.
+`trial:verify` is a bounded runtime check, not a substitute for the complete
+Task 5 acceptance checklist.
+
+The Quick Tunnel origin may change after a tunnel restart. The trial is
+unavailable while the Mac sleeps or is offline; the URL is not a permanent
+domain or an acceptance record.
+
+### Stop
+
+`trial:stop` operates only on recorded trial process groups. Before TERM and
+again before any bounded KILL escalation, it verifies the recorded PID,
+expected command, and runtime nonce against the live process. A mismatch or PID
+reuse fails closed instead of signalling an unrelated process. Stop removes
+live status but retains the protected runtime data.
+
+## Customer-data retention and retirement
+
+Stopping the stack does not delete the dedicated MySQL data, browser profile,
+crawl state, logs, or secrets. The normal application lifecycle still applies:
+
+- an acknowledged sidecar job starts its 24-hour result cleanup clock;
+- unlinked crawler evidence is removed 90 days after backend ingestion;
+- linked evidence, permanent DNC identity hashes, and audit authority are not
+  removed by that 90-day cleanup.
+
+Before removing `.runtime/real-trial/`, record the customer's retention choice,
+export the database with approved encrypted tooling, and either disconnect and
+delete the Douyin profile through the normal account lifecycle or preserve it
+only in approved encrypted-at-rest storage. Do not delete the runtime tree as a
+stop shortcut and do not extract its state into unencrypted staging.
 
 ## Acceptance gate
 
-The link is customer-ready only when all of these checks pass against the new
-environment:
+The temporary link is customer-ready only after fresh evidence from the current
+tree proves all of the following:
 
-1. unauthenticated protected API requests return `401`;
-2. the `test` alias logs into a tenant `admin`, CSRF-protected writes work, and
-   logout invalidates the session;
-3. a CRM record persists after the backend restarts;
-4. another tenant cannot read the pilot tenant's record;
-5. public traffic cannot reach MediaCrawler internal endpoints, API docs,
-   source files or secret files;
-6. every developed navigation module is visible, with preview-only integrations
-   clearly distinguished from live integrations;
-7. Douyin QR creation and polling work, and a manual-keyword run can produce
-   persistent candidates after the customer scans the QR code;
-8. external comments and messages remain fail-closed until their separate live
-   acceptance gate is completed;
-9. `./scripts/context-check`, the focused tests, `pnpm test`, `pnpm build` and
-   `git diff --check` pass from the latest worktree.
+1. `./scripts/context-check`, focused frontend/MediaCrawler/runtime tests,
+   `pnpm test`, `pnpm build`, and `git diff --check` pass.
+2. `trial:prepare`, `trial:start`, `trial:status`, and `trial:verify` succeed;
+   all protected older services remain unchanged.
+3. An unauthenticated protected API returns `401`; `test` logs into the exact
+   tenant admin; a CSRF-protected write succeeds; logout invalidates the session.
+4. A CRM record persists after restarting only the trial backend, and a second
+   temporary tenant cannot read it; that verification tenant is then removed or
+   disabled.
+5. Public traffic cannot reach MediaCrawler/internal routes, backend API docs,
+   source files, runtime files, or secret files. MySQL/backend/sidecar remain
+   loopback-only.
+6. Every developed primary and Growth module is reachable. Real surfaces use
+   persisted authority; every preview/pending surface visibly says
+   `预览 · 待接入`; normal body scrolling and navigation work.
+7. Douyin QR creation and polling work. If the customer is absent, stop at the
+   visible QR-ready state. After an authorized scan, one manual-keyword
+   collection produces candidates that persist after refresh.
+8. Final outreach approval and the private sidecar action endpoint remain
+   `outreach_actions_disabled`; no comment or direct message is sent.
+
+Task 5 has not yet supplied this evidence. Do not call the trial launched or
+accepted, and do not retire the old static link before every item passes.
+
+## Retirement checklist
+
+1. Run `trial:stop` and confirm only validated trial process groups stopped.
+2. Keep the older protected services untouched until the new link has passed
+   acceptance.
+3. Export/verify the trial database and complete the approved profile-retention
+   choice.
+4. Retire an old static tunnel/link only after Task 5 acceptance.
+5. Delete the ignored runtime root only after data and profile disposition is
+   complete.
+
+A future one-comment/one-message acceptance is a separate, action-time operator
+authorization against a dedicated account and test-owned targets. It is not part
+of this launch and never permits CAPTCHA or warning bypass.

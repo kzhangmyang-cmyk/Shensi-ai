@@ -26,7 +26,10 @@ services, MySQL repositories/named locks, Growth finance and ROI projections,
 generated acquisition contract types, and the optional private
 `services/media-crawler` Douyin login sidecar. The sidecar is enabled only when
 the backend receives both `MEDIACRAWLER_BASE_URL` and
-`MEDIACRAWLER_SERVICE_SECRET`.
+`MEDIACRAWLER_SERVICE_SECRET_FILE`. That gateway enables collection only;
+external outreach additionally requires
+`DOUYIN_OUTREACH_ACTIONS_ENABLED` to be case-insensitively exactly `true` at
+both backend and sidecar.
 
 ## Database Tables
 
@@ -255,8 +258,11 @@ candidate read. Polling stops after the read paired with `ready` or `failed`, a
 terminal `ready` response with zero candidates is valid, and a candidate-read
 failure retains the validated terminal status. Recovery is read-only: it does
 not create or approve a batch and never submits a comment or direct message;
-those external actions remain behind explicit second confirmation and the
-separate fenced executor.
+those external actions remain behind explicit second confirmation, the exact
+backend/sidecar action flag, and the separate fenced executor. The real-customer
+trial fixes that flag to false: drafts remain editable/reviewable, but final
+approval returns `503 outreach_actions_disabled`, creates no actions, and sends
+nothing.
 The decoder accepts crawler state, activity phase, browser mode, and projection
 state only as primitive strings in their closed enums. The candidate response is
 also a closed trust boundary: the page is exactly `{items,nextCursor}`, each
@@ -320,21 +326,28 @@ mutations also require the current `If-Match`. A human edit is validated by
 the same Task 6 message validator, keeps the source model snapshot, recomputes
 content hashes, and creates draft revision 2 inside a new immutable batch
 revision. Approval and every lifecycle transition rotate the response ETag,
-so a pre-transition `If-Match` cannot authorize later state changes. Approval
-is the required human second confirmation of the supplied
-revision and batch hash. It rechecks account/login, candidate revision,
-evidence membership/hashes, DNC, and the actual selected policy limit before
-atomically recording the approver and exact content. It creates, but does not
-execute, one `comment` action with sequence 1 and status `queued`, followed by
-one `direct_message` action with sequence 2 and status
+so a pre-transition `If-Match` cannot authorize later state changes. In an
+explicitly action-enabled runtime, approval is the required human second
+confirmation of the supplied revision and batch hash. It rechecks account/login,
+candidate revision, evidence membership/hashes, DNC, and the actual selected
+policy limit before atomically recording the approver and exact content. It
+creates, but does not execute, one `comment` action with sequence 1 and status
+`queued`, followed by one `direct_message` action with sequence 2 and status
 `blocked_by_predecessor` per selected candidate. Memory uses the shared
 reentrant authority coordinator; MySQL locks the account and reuses one
 connection for candidate/evidence/DNC locks, approval, replay, daily-limit
-reservation, and both action inserts.
+reservation, and both action inserts. When the flag is missing or false,
+approval returns `503 outreach_actions_disabled` before approval, replay,
+allowance, or action persistence; this is not a dormant approved outbox.
 
-The action worker claims the earliest eligible action under a random lease and
-monotonic fence, with one in-flight action per account. Before the private
-sidecar call it rechecks the active account/login version, approval and action
+The application constructs and starts its action recovery sweeper and claim
+worker only when the private gateway is configured and the action flag is
+exactly enabled. The deployment sidecar likewise constructs no
+`ActionJobManager` while disabled and rejects the action route before manager or
+executor lookup; its crawler worker remains available. When enabled, the action
+worker claims the earliest eligible action under a random lease and monotonic
+fence, with one in-flight action per account. Before the private sidecar call it
+rechecks the active account/login version, approval and action
 hashes, candidate revision/evidence hashes, DNC, policy/job/budget bindings,
 predecessor receipt, daily allowance, and persisted delay. Server timestamps
 enforce at least 60 seconds between any account actions and 180 seconds from a
@@ -371,7 +384,12 @@ customer/comment text or credentials.
 For QR login, provision an encrypted-at-rest directory before starting the
 sidecar. `MEDIACRAWLER_ENCRYPTED_VOLUME` must name an existing, non-symlink
 directory with exact mode `0700`; `MEDIACRAWLER_PROFILE_ROOT` must be inside
-it. `MEDIACRAWLER_SERVICE_SECRET_FILE` must name a non-symlinked, owner-only,
+it. `MEDIACRAWLER_CRAWL_OUTPUT_ROOT` must be absolute, already exist, be a
+non-symlinked current-user-owned directory with exact mode `0700`, and resolve
+strictly inside but not equal to that encrypted volume. The runner resolves it
+once and uses the same root for attempt/job creation and acknowledgement
+cleanup; deployment never writes to the source-local compatibility directory.
+`MEDIACRAWLER_SERVICE_SECRET_FILE` must name a non-symlinked, owner-only,
 newline-free secret file of at least 32 bytes; a raw secret environment value
 is rejected. The sidecar corrects owned profile directories to `0700` and metadata to
 `0600`. Playwright and every browser context live in one owned child process
@@ -412,6 +430,17 @@ Failed/cancelled terminal metadata with no result pages may be removed 24 hours
 after completion. Backend cleanup
 removes unlinked crawler evidence 90 days after ingestion while preserving
 linked evidence, DNC identity hashes, and audit events.
+
+The authenticated `#acquisition` route is the real persisted collection
+surface. It shares the product shell with visible browser-local and pending
+integrations; those surfaces use `预览 · 待接入` and must not be interpreted as
+acquisition results. The authoritative live/preview matrix and isolated trial
+lifecycle are maintained in `docs/operations/real-customer-trial.md`.
+
+For the trial-disabled action check, leave
+`DOUYIN_OUTREACH_ACTIONS_ENABLED=false`, confirm crawler status still advances,
+confirm final batch approval returns the stable 503, and confirm no queued test
+fixture is claimed. Do not enable the flag merely to pass trial acceptance.
 
 For an incompatible backend/sidecar runtime, treat `crawler_worker_failed` as a
 closed boundary failure rather than evidence that no records were collected.
