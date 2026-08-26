@@ -6,7 +6,8 @@ import { outreachContentHash, type AcquisitionOutreachAction,
   type AcquisitionOutreachBatch } from "./acquisition-outreach-batch.js";
 import {
   AcquisitionOutreachActionWorker,
-  douyinActionDeadlineMs
+  douyinActionDeadlineMs,
+  type OutreachActionExecutionReceipt
 } from "./acquisition-outreach-action-worker.js";
 import { AcquisitionOutreachActionRecoverySweeper } from "./acquisition-outreach-action-recovery-sweeper.js";
 
@@ -84,6 +85,39 @@ function worker(repository: InMemoryAcquisitionOutreachBatchRepository,
     setNow(value: number) { nowMs = value; } };
 }
 
+function heldVerificationWorker(
+  repository: InMemoryAcquisitionOutreachBatchRepository,
+  leaseDurationMs?: number
+) {
+  let nowMs = BASE;
+  let startedResolve!: () => void;
+  let executionResolve!: (value: OutreachActionExecutionReceipt) => void;
+  const started = new Promise<void>((resolve) => { startedResolve = resolve; });
+  const execution = new Promise<OutreachActionExecutionReceipt>((resolve) => {
+    executionResolve = resolve;
+  });
+  const paused: string[] = [];
+  const instance = new AcquisitionOutreachActionWorker({
+    repository, workerId: "worker-held", now: () => new Date(nowMs).toISOString(),
+    accountAuthority: async () => ({ accountHandle: "private-account-handle" }),
+    execute: async () => { startedResolve(); return execution; },
+    pauseAccount: async (_workspaceId, accountId) => { paused.push(accountId); },
+    ...(leaseDurationMs === undefined ? {} : { leaseDurationMs })
+  });
+  return {
+    instance, paused, started,
+    setNow(value: number) { nowMs = value; },
+    settleVerificationFailure() {
+      executionResolve({
+        actionId: "comment-1", state: "failed",
+        platformReceiptReference: null,
+        occurredAt: new Date(nowMs).toISOString(),
+        failureCode: "douyin_verification_required"
+      });
+    }
+  };
+}
+
 test("manual verification timing validates 30..300 seconds and adds 30 seconds", () => {
   assert.equal(douyinActionDeadlineMs(30), 60_000);
   assert.equal(douyinActionDeadlineMs(120), 150_000);
@@ -91,6 +125,71 @@ test("manual verification timing validates 30..300 seconds and adds 30 seconds",
   for (const invalid of [29, 301, 30.5, " 120 ", "bad"]) {
     assert.throws(() => douyinActionDeadlineMs(invalid), /manual verification/u);
   }
+});
+
+test("manual action lease remains fenced through 179999 milliseconds", async () => {
+  const repository = await repositoryWith([
+    action("comment-1", "candidate-1", "comment"),
+    action("comment-2", "candidate-2", "comment")
+  ]);
+  const runtime = heldVerificationWorker(repository);
+  const pending = runtime.instance.runOnce();
+  await runtime.started;
+
+  runtime.setNow(BASE + 179_999);
+  const sweeper = new AcquisitionOutreachActionRecoverySweeper({
+    repository, now: () => new Date(BASE + 179_999).toISOString()
+  });
+  assert.equal(await sweeper.runOnce(), 0);
+  assert.equal(
+    (await repository.listActions("workspace-1", "batch-1"))![0]!.status,
+    "executing"
+  );
+  const rival = worker(repository);
+  rival.setNow(BASE + 179_999);
+  assert.equal(await rival.instance.runOnce(), false);
+
+  runtime.settleVerificationFailure();
+  assert.equal(await pending, true);
+  assert.deepEqual(runtime.paused, ["account-1"]);
+  assert.deepEqual(
+    (await repository.listActions("workspace-1", "batch-1"))!
+      .map((value) => value.status),
+    ["failed", "risk_paused"]
+  );
+});
+
+test("worker rejects an explicit action lease below the 180-second minimum", () => {
+  assert.throws(
+    () => heldVerificationWorker(
+      new InMemoryAcquisitionOutreachBatchRepository(),
+      179_999
+    ),
+    /action lease.*180000/u
+  );
+});
+
+test("worker rejects instead of reporting success after losing its failure fence", async () => {
+  const repository = await repositoryWith([
+    action("comment-1", "candidate-1", "comment")
+  ]);
+  const runtime = heldVerificationWorker(repository);
+  const pending = runtime.instance.runOnce();
+  await runtime.started;
+
+  runtime.setNow(BASE + 180_000);
+  const sweeper = new AcquisitionOutreachActionRecoverySweeper({
+    repository, now: () => new Date(BASE + 180_000).toISOString()
+  });
+  assert.equal(await sweeper.runOnce(), 1);
+  runtime.settleVerificationFailure();
+
+  await assert.rejects(pending, /outreach_action_fence_lost/u);
+  assert.deepEqual(runtime.paused, []);
+  assert.equal(
+    (await repository.listActions("workspace-1", "batch-1"))![0]!.status,
+    "queued"
+  );
 });
 
 test("claim fencing, account concurrency one, and restart recovery reject stale completion", async () => {

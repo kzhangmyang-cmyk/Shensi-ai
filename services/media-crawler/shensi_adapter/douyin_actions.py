@@ -61,6 +61,16 @@ class DouyinActionExecutor:
         if not isinstance(final_url, str) or final_url != target_url:
             raise DouyinActionFailure("action_rejected")
 
+    def _require_action_ready(
+        self, page: object, request: ActionRequest, target_url: str,
+    ) -> None:
+        self._require_exact_target(page, target_url)
+        failure = detect_page_failure(page)
+        if failure is not None:
+            raise DouyinActionFailure(failure)
+        if self._now() >= request.deadline_at:
+            raise DouyinActionFailure("deadline_exceeded")
+
     def _wait_for_manual_verification(
         self, page: object, request: ActionRequest, target_url: str,
     ) -> None:
@@ -125,6 +135,7 @@ class DouyinActionExecutor:
             controls = locate_action_controls(page, request.kind)
         except ActionControlsFailure as error:
             raise DouyinActionFailure(error.code) from None
+        self._require_action_ready(page, request, target_url)
         try:
             controls.composer.fill(request.content, timeout=5_000)  # type: ignore[attr-defined]
         except Exception:
@@ -135,6 +146,7 @@ class DouyinActionExecutor:
             baseline = capture_receipt_baseline(page, request)
         except ActionControlsFailure as error:
             raise DouyinActionFailure(error.code) from None
+        self._require_action_ready(page, request, target_url)
         try:
             controls.submit.click(timeout=5_000)  # type: ignore[attr-defined]
         except Exception:

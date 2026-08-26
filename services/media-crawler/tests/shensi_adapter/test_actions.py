@@ -28,6 +28,12 @@ class FakeLocator:
         return self.selector in self.page.visible
 
     def is_enabled(self, **_kwargs):
+        if (self.selector.endswith('-submit"]')
+                and self.page.after_control_lookup is not None):
+            callback, self.page.after_control_lookup = (
+                self.page.after_control_lookup, None
+            )
+            callback(self.page)
         return True
 
     def is_editable(self, **_kwargs):
@@ -38,6 +44,9 @@ class FakeLocator:
         self.page.values[self.selector] = value
 
     def input_value(self, **_kwargs):
+        if self.page.after_readback is not None:
+            callback, self.page.after_readback = self.page.after_readback, None
+            callback(self.page)
         return self.page.values.get(self.selector, "")
 
     def text_content(self, **_kwargs):
@@ -72,12 +81,16 @@ class FakeMouse:
 
 class FakePage:
     def __init__(self, *, visible=(), receipt=False, late_receipt=False,
-                 clock=None, after_wait=None):
+                 clock=None, after_wait=None, after_control_lookup=None,
+                 after_readback=None, after_baseline=None):
         self.visible = set(visible)
         self.receipt = receipt
         self.late_receipt = late_receipt
         self.clock = clock
         self.after_wait = after_wait
+        self.after_control_lookup = after_control_lookup
+        self.after_readback = after_readback
+        self.after_baseline = after_baseline
         self.after_submit = False
         self.url = "about:blank"
         self.urls: list[str] = []
@@ -100,6 +113,10 @@ class FakePage:
         self.url = url
 
     def locator(self, selector: str):
+        if (selector.startswith(".comment-item")
+                and self.after_baseline is not None and self.fills):
+            callback, self.after_baseline = self.after_baseline, None
+            callback(self)
         return FakeLocator(self, selector)
 
     def get_by_role(self, _role: str, *, name: str, exact: bool):
@@ -272,6 +289,97 @@ def test_headless_verification_fails_immediately_without_handoff_or_bypass():
     assert page.waits == 0
     assert page.verification_bypass_calls == []
     assert page.fills == []
+    assert page.clicks == []
+
+
+def test_control_lookup_reintroducing_verification_is_rechecked_before_fill():
+    page = FakePage(
+        visible={
+            '[data-e2e="comment-input"]',
+            '[data-e2e="comment-submit"]',
+            '[data-e2e-receipt-id]',
+        },
+        receipt=True,
+        after_control_lookup=lambda value: value.visible.add(
+            '[data-e2e="verification"]'
+        ),
+    )
+
+    with pytest.raises(DouyinActionFailure, match="douyin_verification_required"):
+        DouyinActionExecutor(now=lambda: NOW, headless=True).execute(
+            page, request()
+        )
+
+    assert page.fills == []
+    assert page.clicks == []
+    assert page.verification_bypass_calls == []
+
+
+def test_readback_redirect_is_rechecked_before_submit_without_retry():
+    page = FakePage(
+        visible={
+            '[data-e2e="comment-input"]',
+            '[data-e2e="comment-submit"]',
+            '[data-e2e-receipt-id]',
+        },
+        receipt=True,
+        after_readback=lambda value: setattr(
+            value, "url", "https://www.douyin.com/video/different"
+        ),
+    )
+
+    with pytest.raises(DouyinActionFailure, match="action_rejected"):
+        DouyinActionExecutor(now=lambda: NOW).execute(page, request())
+
+    assert page.fills == [
+        ('[data-e2e="comment-input"]', "冻结的批准文本")
+    ]
+    assert page.clicks == []
+
+
+def test_baseline_reintroducing_verification_is_rechecked_before_submit():
+    page = FakePage(
+        visible={
+            '[data-e2e="comment-input"]',
+            '[data-e2e="comment-submit"]',
+            '[data-e2e-receipt-id]',
+        },
+        receipt=True,
+        after_baseline=lambda value: value.visible.add(
+            '[data-e2e="verification"]'
+        ),
+    )
+
+    with pytest.raises(DouyinActionFailure, match="douyin_verification_required"):
+        DouyinActionExecutor(now=lambda: NOW, headless=True).execute(
+            page, request()
+        )
+
+    assert len(page.fills) == 1
+    assert page.clicks == []
+    assert page.verification_bypass_calls == []
+
+
+def test_baseline_crossing_deadline_is_rechecked_before_submit():
+    clock = FakeClock()
+    page = FakePage(
+        visible={
+            '[data-e2e="comment-input"]',
+            '[data-e2e="comment-submit"]',
+            '[data-e2e-receipt-id]',
+        },
+        receipt=True,
+        clock=clock,
+        after_baseline=lambda _value: clock.advance(5_000),
+    )
+
+    with pytest.raises(DouyinActionFailure, match="deadline_exceeded"):
+        DouyinActionExecutor(now=clock.now).execute(
+            page,
+            request(deadline_at=clock.now() + timedelta(seconds=5)),
+        )
+
+    assert len(page.fills) == 1
     assert page.clicks == []
 
 

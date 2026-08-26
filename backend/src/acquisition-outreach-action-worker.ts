@@ -14,6 +14,11 @@ const DEFAULT_MANUAL_VERIFICATION_SECONDS = 120;
 const MIN_MANUAL_VERIFICATION_SECONDS = 30;
 const MAX_MANUAL_VERIFICATION_SECONDS = 300;
 const ACTION_DEADLINE_OVERHEAD_MS = 30_000;
+const ACTION_LEASE_OVERHEAD_MS = 30_000;
+
+class OutreachActionFenceLost extends Error {
+  constructor() { super("outreach_action_fence_lost"); }
+}
 
 export function douyinActionDeadlineMs(
   value: unknown = process.env.DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS
@@ -68,6 +73,7 @@ export class AcquisitionOutreachActionWorker {
   private running: Promise<unknown> = Promise.resolve();
   private closed = false;
   private readonly actionDeadlineMs: number;
+  private readonly leaseDurationMs: number;
 
   constructor(private readonly options: {
     repository: AcquisitionOutreachBatchRepository;
@@ -86,6 +92,15 @@ export class AcquisitionOutreachActionWorker {
       || this.actionDeadlineMs <= 0) {
       throw new TypeError("action deadline must be a positive integer");
     }
+    const minimumLeaseDurationMs = this.actionDeadlineMs + ACTION_LEASE_OVERHEAD_MS;
+    this.leaseDurationMs = options.leaseDurationMs ?? minimumLeaseDurationMs;
+    if (!Number.isSafeInteger(minimumLeaseDurationMs)
+      || !Number.isSafeInteger(this.leaseDurationMs)
+      || this.leaseDurationMs < minimumLeaseDurationMs) {
+      throw new TypeError(
+        `action lease must be an integer of at least ${minimumLeaseDurationMs} milliseconds`
+      );
+    }
   }
 
   async runOnce(): Promise<boolean> {
@@ -93,7 +108,7 @@ export class AcquisitionOutreachActionWorker {
     const claimedAt = this.options.now();
     const claim = await this.options.repository.claimNextAction({
       workerId: this.options.workerId, now: claimedAt,
-      leaseDurationMs: this.options.leaseDurationMs ?? 30_000
+      leaseDurationMs: this.leaseDurationMs
     });
     if (!claim) return false;
     const action = claim.action;
@@ -111,6 +126,7 @@ export class AcquisitionOutreachActionWorker {
           Date.parse(claim.claimedAt))).toISOString();
         const result = await this.options.repository.completeActionFailure(
           claim.fence, failureCode, failureAt);
+        if (!result.completed) throw new OutreachActionFenceLost();
         if (result.accountPaused) await this.options.pauseAccount(action.workspaceId, action.accountId,
           action.accountLoginStateVersion, failureAt);
         return true;
@@ -141,13 +157,15 @@ export class AcquisitionOutreachActionWorker {
         failureCode = receipt.failureCode && CLOSED_FAILURES.has(receipt.failureCode)
           ? receipt.failureCode : "action_rejected";
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof OutreachActionFenceLost) throw error;
       failureCode = "action_unavailable";
     }
     const failureAt = new Date(Math.max(Date.parse(this.options.now()),
       Date.parse(claim.claimedAt))).toISOString();
     const result = await this.options.repository.completeActionFailure(
       claim.fence, failureCode ?? "action_rejected", failureAt);
+    if (!result.completed) throw new OutreachActionFenceLost();
     if (result.accountPaused) await this.options.pauseAccount(action.workspaceId, action.accountId,
       action.accountLoginStateVersion, failureAt);
     return true;
