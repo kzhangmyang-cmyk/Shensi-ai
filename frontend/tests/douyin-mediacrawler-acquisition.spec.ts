@@ -2,6 +2,20 @@ import { expect, test } from "@playwright/test";
 
 const FIXTURE = "http://127.0.0.1:5391";
 
+type FixtureAttempt =
+  | {
+      kind: "collection";
+      runId: string | null;
+      candidateId: string | null;
+      limit: string | null;
+    }
+  | {
+      kind: "create";
+      runId: string;
+      candidateIds: string[];
+      candidateIdsShape: "string_array" | "invalid";
+    };
+
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-08-25T09:30:00.000Z"));
   const response = await fetch(`${FIXTURE}/__fixture/reset`, { method: "POST" });
@@ -199,11 +213,8 @@ test("social conversations creates and recovers one exact-video outreach batch w
   })).toBeDisabled();
   const profileState = await (await fetch(`${FIXTURE}/__fixture/state`)).json() as {
     createdCandidateIds: string[][];
-    collectionReads: Array<{ runId: string; candidateId: string; limit: string | null }>;
   };
   expect(profileState.createdCandidateIds).toEqual([]);
-  expect(profileState.collectionReads.some((read) =>
-    read.candidateId === "candidate-profile")).toBe(false);
 
   const exactCandidateCollection = page.waitForResponse((response) => {
     const url = new URL(response.url());
@@ -246,9 +257,20 @@ test("social conversations creates and recovers one exact-video outreach batch w
   await expect(outreach.getByLabel("精确公开评论")).toHaveValue(exactComment);
   await expect(outreach.getByLabel("精确私信")).toHaveValue(exactMessage);
 
-  await outreach.getByLabel("我已逐条核对评论、私信与剩余限额").check();
-  await outreach.getByRole("button", { name: "确认审批并排队" }).click();
+  const finalReview = outreach.getByLabel("我已逐条核对评论、私信与剩余限额");
+  const approveButton = outreach.getByRole("button", { name: "确认审批并排队" });
+  await finalReview.check();
+  await expect(finalReview).toBeChecked();
+  await expect(approveButton).toBeEnabled();
+  const staleApprovalResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname
+      === "/api/v1/acquisition/outreach-batches/batch-fixture/approve"
+      && response.request().method() === "POST");
+  await approveButton.click();
+  expect((await staleApprovalResponse).status()).toBe(412);
   await expect(outreach).toContainText("修订冲突已刷新");
+  await expect(finalReview).not.toBeChecked();
+  await expect(approveButton).toBeDisabled();
 
   const finalActionsResponse = page.waitForResponse(async (response) => {
     if (new URL(response.url()).pathname
@@ -259,8 +281,15 @@ test("social conversations creates and recovers one exact-video outreach batch w
     return body?.items?.length === 2
       && body.items.every((action) => action.status === "succeeded");
   });
-  await outreach.getByLabel("我已逐条核对评论、私信与剩余限额").check();
-  await outreach.getByRole("button", { name: "确认审批并排队" }).click();
+  await finalReview.check();
+  await expect(finalReview).toBeChecked();
+  await expect(approveButton).toBeEnabled();
+  const approvedResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname
+      === "/api/v1/acquisition/outreach-batches/batch-fixture/approve"
+      && response.request().method() === "POST");
+  await approveButton.click();
+  expect((await approvedResponse).status()).toBe(200);
   await expect(outreach).toContainText("平台回执：DY-COMMENT-RECEIPT", {
     timeout: 10_000
   });
@@ -285,15 +314,6 @@ test("social conversations creates and recovers one exact-video outreach batch w
   expect(directMessage?.predecessorActionId).toBe("action-comment");
   expect(Date.parse(directMessage?.occurredAt ?? "")
     - Date.parse(comment?.occurredAt ?? "")).toBeGreaterThanOrEqual(180_000);
-
-  const fixtureState = await (await fetch(`${FIXTURE}/__fixture/state`)).json() as {
-    createdCandidateIds: string[][];
-    approvedCandidateIds: string[];
-    externalWriteCount: number;
-  };
-  expect(fixtureState.createdCandidateIds).toEqual([["candidate-creator"]]);
-  expect(fixtureState.approvedCandidateIds).toEqual(["candidate-creator"]);
-  expect(fixtureState.externalWriteCount).toBe(0);
 
   await page.evaluate(() => sessionStorage.clear());
   const recoveredOverview = page.waitForResponse((response) =>
@@ -330,13 +350,46 @@ test("social conversations creates and recovers one exact-video outreach batch w
   expect(recoveredCollectionBody.items[0]?.id).toBe("batch-fixture");
   expect(recoveredCollectionBody.items[0]?.candidates.map((candidate) =>
     candidate.candidateId)).toEqual(["candidate-creator"]);
-  expect((await batchAfterReload.json() as { id: string }).id).toBe("batch-fixture");
+  const recoveredBatchBody = await batchAfterReload.json() as {
+    id: string;
+    revision: number;
+  };
+  expect(recoveredBatchBody.id).toBe("batch-fixture");
+  expect(recoveredBatchBody.revision).toBe(2);
   const recoveredOutreach = page.getByRole("region", {
     name: "批次审批与执行回执"
   });
   await expect(recoveredOutreach).toContainText(exactComment, { timeout: 10_000 });
   await expect(recoveredOutreach).toContainText(exactMessage);
+  await expect(recoveredOutreach).toContainText("文案修订 2");
   await expect(recoveredOutreach).toContainText("平台回执：DY-COMMENT-RECEIPT");
   await expect(recoveredOutreach).toContainText("平台回执：DY-MESSAGE-RECEIPT");
+  const fixtureState = await (await fetch(`${FIXTURE}/__fixture/state`)).json() as {
+    createdCandidateIds: string[][];
+    approvedCandidateIds: string[];
+    attemptLedger: FixtureAttempt[];
+    externalWriteCount: number;
+  };
+  expect(fixtureState.createdCandidateIds).toEqual([["candidate-creator"]]);
+  expect(fixtureState.approvedCandidateIds).toEqual(["candidate-creator"]);
+  expect(fixtureState.attemptLedger.filter((attempt) =>
+    attempt.kind === "create")).toEqual([{
+    kind: "create",
+    runId: "run-fixture",
+    candidateIds: ["candidate-creator"],
+    candidateIdsShape: "string_array"
+  }]);
+  const collectionAttempts = fixtureState.attemptLedger.filter((attempt) =>
+    attempt.kind === "collection");
+  expect(collectionAttempts.length).toBeGreaterThan(0);
+  expect(collectionAttempts.every((attempt) =>
+    attempt.runId === "run-fixture"
+      && attempt.candidateId === "candidate-creator"
+      && attempt.limit === "1")).toBe(true);
+  expect(fixtureState.attemptLedger.some((attempt) =>
+    attempt.kind === "collection"
+      ? attempt.candidateId === "candidate-profile"
+      : attempt.candidateIds.includes("candidate-profile"))).toBe(false);
+  expect(fixtureState.externalWriteCount).toBe(0);
   expect([...browserOrigins]).toEqual(["http://127.0.0.1:5388"]);
 });

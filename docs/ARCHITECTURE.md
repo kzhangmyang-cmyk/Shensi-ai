@@ -209,18 +209,25 @@ authoritative run, policy, account/login, candidate/evidence, model, selected
 daily limit, exact message, and canonical hash identities into immutable batch
 revisions. Human edits reuse the draft validator and append a revision without
 changing source-model provenance. Approval is a human second confirmation,
-not execution: one transaction rechecks account/login, candidate/evidence,
-DNC, and the remaining account-local-date allowance; records the approval;
-and writes an exact comment action followed by a blocked direct-message
-action. Memory shares a reentrant coordinator with DNC writers. MySQL uses the
-batch transaction connection for account and Task 6 final-authority locks,
-replay, daily allowance, and action inserts, so a failed second insert rolls
-back the whole approval.
+not execution. Approval and action persistence are available only when the
+runtime has both a configured MediaCrawler gateway and
+`DOUYIN_OUTREACH_ACTIONS_ENABLED=true`; with the action gate disabled, approval
+returns `503 outreach_actions_disabled` before approval, allowance, replay, or
+action persistence. In an action-enabled runtime, one transaction rechecks
+account/login, candidate/evidence, DNC, and the remaining account-local-date
+allowance; records the approval; and writes an exact comment action followed by
+a blocked direct-message action. Memory shares a reentrant coordinator with DNC
+writers. MySQL uses the batch transaction connection for account and Task 6
+final-authority locks, replay, daily allowance, and action inserts, so a failed
+second insert rolls back the whole approval.
 
-The acquisition application owns a separate outreach-action worker and
-expired-claim sweeper whenever the private MediaCrawler gateway is configured.
-Claims are random-token leased and monotonically fenced, serialize each
-account, and reserve persisted server-time eligibility before the sidecar call.
+The acquisition application constructs and starts the separate outreach-action
+worker and expired-claim sweeper only under that same two-part condition: the
+private MediaCrawler gateway is configured and
+`DOUYIN_OUTREACH_ACTIONS_ENABLED=true`. A configured gateway with the flag false
+still supports collection but starts neither action process. Claims are random-
+token leased and monotonically fenced, serialize each account, and reserve
+persisted server-time eligibility before the sidecar call.
 The repository enforces at least 60 seconds between account actions and at
 least 180 seconds from a successful comment receipt to its direct-message
 claim. The worker then revalidates the active account/login version, approved

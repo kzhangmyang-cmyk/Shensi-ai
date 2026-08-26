@@ -15,6 +15,19 @@ const TEST_QR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height=
   <text x="120" y="126" fill="#d71935" font-family="Arial, sans-serif" font-size="17" font-weight="700" text-anchor="middle" shape-rendering="auto">TEST ONLY</text>
 </svg>`;
 const TEST_QR_IMAGE_DATA_URL = `data:image/svg+xml;base64,${Buffer.from(TEST_QR_SVG).toString("base64")}`;
+type FixtureAttempt =
+  | {
+      kind: "collection";
+      runId: string | null;
+      candidateId: string | null;
+      limit: string | null;
+    }
+  | {
+      kind: "create";
+      runId: string;
+      candidateIds: string[];
+      candidateIdsShape: "string_array" | "invalid";
+    };
 type FixtureState = {
   loginPolls: number;
   runPolls: number;
@@ -31,11 +44,7 @@ type FixtureState = {
   activeCandidateIds: string[];
   approvedCandidateIds: string[];
   createdCandidateIds: string[][];
-  collectionReads: Array<{
-    runId: string | null;
-    candidateId: string | null;
-    limit: string | null;
-  }>;
+  attemptLedger: FixtureAttempt[];
   drafts: Record<string, { comment: string; directMessage: string }>;
 };
 let state: FixtureState;
@@ -56,7 +65,7 @@ const reset = () => {
     activeCandidateIds: [],
     approvedCandidateIds: [],
     createdCandidateIds: [],
-    collectionReads: [],
+    attemptLedger: [],
     drafts: {}
   };
 };
@@ -122,7 +131,7 @@ const server = createServer(async (request, response) => {
     createdCandidateIds: state.createdCandidateIds,
     activeCandidateIds: state.activeCandidateIds,
     approvedCandidateIds: state.approvedCandidateIds,
-    collectionReads: state.collectionReads,
+    attemptLedger: state.attemptLedger,
     externalWriteCount: 0
   });
   if (url.pathname === "/api/auth/login" && request.method === "POST") return send(response, { id: "user-fixture", name: "默认管理员", email: "admin@example.com", role: "admin", teamId: "team-fixture", avatar: "AD" }, 200, { "set-cookie": ["gj_session=fixture-session; Path=/; HttpOnly; SameSite=Lax", "gj_csrf=fixture-csrf; Path=/; SameSite=Lax"] });
@@ -162,7 +171,7 @@ const server = createServer(async (request, response) => {
       candidateId: url.searchParams.get("candidateId"),
       limit: url.searchParams.get("limit")
     };
-    state.collectionReads.push(lookup);
+    state.attemptLedger.push({ kind: "collection", ...lookup });
     const matches = state.batchCreated
       && lookup.runId === "run-fixture"
       && lookup.limit === "1"
@@ -174,12 +183,24 @@ const server = createServer(async (request, response) => {
     });
   }
   if (url.pathname === "/api/v1/acquisition/runs/run-fixture/outreach-batches" && request.method === "POST") {
-    const body = await readBody(request);
-    const candidateIds = Array.isArray(body.candidateIds)
-      ? body.candidateIds.filter((candidateId): candidateId is string =>
+    const body = await readBody(request).catch(() => null);
+    const rawCandidateIds = body?.candidateIds;
+    const candidateIds = Array.isArray(rawCandidateIds)
+      ? rawCandidateIds.filter((candidateId): candidateId is string =>
           typeof candidateId === "string")
       : [];
-    const knownEligible = candidateIds.length > 0
+    const candidateIdsShape = Array.isArray(rawCandidateIds)
+      && rawCandidateIds.every((candidateId) => typeof candidateId === "string")
+      ? "string_array"
+      : "invalid";
+    state.attemptLedger.push({
+      kind: "create",
+      runId: "run-fixture",
+      candidateIds,
+      candidateIdsShape
+    });
+    const knownEligible = candidateIdsShape === "string_array"
+      && candidateIds.length > 0
       && candidateIds.length === new Set(candidateIds).size
       && candidateIds.every((candidateId) => candidateId !== "candidate-profile"
         && candidates.some((candidate) => candidate.id === candidateId));
