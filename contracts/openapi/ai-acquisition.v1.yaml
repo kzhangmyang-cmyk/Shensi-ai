@@ -431,6 +431,16 @@ components:
         createdAt: { type: string, format: date-time }
         updatedBy: { type: string, minLength: 1, maxLength: 255 }
         updatedAt: { type: string, format: date-time }
+    AcquisitionOutreachBatchList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items: { $ref: '#/components/schemas/AcquisitionOutreachBatch' }
+        nextCursor: { type: [string, 'null'], maxLength: 8192 }
     AcquisitionOutreachAction:
       type: object
       additionalProperties: false
@@ -1101,6 +1111,19 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '201': { description: Outreach batch created, headers: { ETag: { required: true, schema: { type: string } }, Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachBatch' } } } }
+  /api/v1/acquisition/outreach-batches:
+    get:
+      operationId: listAcquisitionOutreachBatches
+      summary: List outreach batches for one run candidate
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - { name: runId, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+        - { name: candidateId, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { name: cursor, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 8192 } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Candidate-scoped outreach batch page, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachBatchList' } } } }
   /api/v1/acquisition/outreach-batches/{batchId}:
     parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
     get:

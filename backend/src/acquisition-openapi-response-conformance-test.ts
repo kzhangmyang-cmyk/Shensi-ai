@@ -53,6 +53,9 @@ test("outreach batch and ordered action responses conform without private eviden
     rejectedBy: null, rejectedAt: null, rejectionReason: null, pauseReason: null,
     createdBy: OWNER, createdAt: NOW, updatedBy: OWNER, updatedAt: NOW };
   assertResponseConforms("/api/v1/acquisition/outreach-batches/{batchId}", "get", 200, batch);
+  assertResponseConforms("/api/v1/acquisition/outreach-batches", "get", 200, {
+    items: [batch], nextCursor: "signed-cursor"
+  });
   const actions = { items: [{ id: "action-1", workspaceId: TEAM, batchId: "batch-1",
     batchRevision: 1, candidateId: "candidate-1", accountId: "account-1",
     accountLoginStateVersion: 2, policyVersionId: "policy-1", localDate: "2026-08-05",

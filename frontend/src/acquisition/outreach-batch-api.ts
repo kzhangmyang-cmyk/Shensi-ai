@@ -3,10 +3,12 @@ import { csrfFromCookie } from "./csrf";
 import { AcquisitionHttpError } from "./douyin-automation-api";
 
 export type OutreachBatch = components["schemas"]["AcquisitionOutreachBatch"];
+export type OutreachBatchList = components["schemas"]["AcquisitionOutreachBatchList"];
 export type OutreachActionList = components["schemas"]["AcquisitionOutreachActionList"];
 export type OutreachAction = components["schemas"]["AcquisitionOutreachAction"];
 
 export interface OutreachBatchApi {
+  listBatches(runId: string, candidateId: string, limit?: number, cursor?: string | null, signal?: AbortSignal): Promise<OutreachBatchList>;
   createBatch(runId: string, candidateIds: string[], idempotencyKey: string, signal?: AbortSignal): Promise<OutreachBatch>;
   getBatch(batchId: string, signal?: AbortSignal): Promise<OutreachBatch>;
   updateBatch(batchId: string, candidates: Array<{ candidateId: string; selected: boolean; comment: string; directMessage: string }>, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<OutreachBatch>;
@@ -43,11 +45,25 @@ export function createOutreachBatchApi(fetchImpl: typeof fetch = fetch, options:
   });
   const batchShape = (body: Record<string, unknown>) => typeof body.id === "string"
     && typeof body.etag === "string" && typeof body.revision === "number" && Array.isArray(body.candidates);
+  const batchListShape = (body: Record<string, unknown>) => Array.isArray(body.items)
+    && body.items.length <= 50
+    && body.items.every((item) => record(item) && batchShape(item))
+    && (body.nextCursor === null
+      || (typeof body.nextCursor === "string" && body.nextCursor.length <= 8_192));
   const transition = (batchId: string, name: string, body: object, etag: string, key: string, signal?: AbortSignal) =>
     request<OutreachBatch>(`/api/v1/acquisition/outreach-batches/${segment(batchId)}/${name}`, {
       method: "POST", signal, headers: headers(key, etag), body: JSON.stringify(body)
     }, batchShape);
   return {
+    listBatches(runId, candidateId, limit = 20, cursor = null, signal) {
+      const query = new URLSearchParams({
+        runId, candidateId, limit: String(limit)
+      });
+      if (cursor) query.set("cursor", cursor);
+      return request(`/api/v1/acquisition/outreach-batches?${query}`, {
+        method: "GET", signal
+      }, batchListShape);
+    },
     createBatch(runId, candidateIds, key, signal) {
       return request(`/api/v1/acquisition/runs/${segment(runId)}/outreach-batches`, {
         method: "POST", signal, headers: headers(key), body: JSON.stringify({ candidateIds: [...candidateIds] })

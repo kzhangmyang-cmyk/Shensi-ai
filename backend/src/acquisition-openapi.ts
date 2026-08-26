@@ -1124,6 +1124,7 @@ const acquisitionOperationIds: Record<string, string> = {
   "get /api/v1/acquisition/runs/{runId}/crawler-status": "getAcquisitionCrawlerStatus",
   "get /api/v1/acquisition/runs/{runId}/candidates": "listAcquisitionRunCandidates",
   "post /api/v1/acquisition/runs/{runId}/outreach-batches": "createAcquisitionOutreachBatch",
+  "get /api/v1/acquisition/outreach-batches": "listAcquisitionOutreachBatches",
   "get /api/v1/acquisition/outreach-batches/{batchId}": "getAcquisitionOutreachBatch",
   "put /api/v1/acquisition/outreach-batches/{batchId}": "updateAcquisitionOutreachBatch",
   "post /api/v1/acquisition/outreach-batches/{batchId}/approve": "approveAcquisitionOutreachBatch",
@@ -1496,6 +1497,14 @@ const acquisitionOutreachBatchSchema = {
     updatedBy: { type: "string", minLength: 1, maxLength: 255 }, updatedAt: { type: "string", format: "date-time" }
   }
 };
+const acquisitionOutreachBatchListSchema = {
+  type: "object", additionalProperties: false,
+  required: ["items", "nextCursor"],
+  properties: {
+    items: { type: "array", maxItems: 50, items: acquisitionOutreachBatchSchema },
+    nextCursor: { type: "string", nullable: true, maxLength: 8_192 }
+  }
+};
 const acquisitionOutreachActionSchema = {
   type: "object", additionalProperties: false,
   required: ["id", "workspaceId", "batchId", "batchRevision", "candidateId", "accountId",
@@ -1606,6 +1615,19 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
       properties: { candidateIds: { type: "array", minItems: 1, maxItems: 200, uniqueItems: true,
         items: { type: "string", minLength: 1, maxLength: 255 } } } }),
     responses: { ...standardResponses(201, "已创建批次", acquisitionOutreachBatchSchema), "201": batchSuccess("已创建批次", true) }
+  }));
+  add(paths, "/api/v1/acquisition/outreach-batches", "get", operation("get", "按运行和候选人列出外联批次", {
+    parameters: [
+      { name: "runId", in: "query", required: true,
+        schema: { type: "string", minLength: 1, maxLength: 255 } },
+      { name: "candidateId", in: "query", required: true,
+        schema: { type: "string", minLength: 1, maxLength: 255 } },
+      { name: "limit", in: "query", required: false,
+        schema: { type: "integer", minimum: 1, maximum: 50, default: 20 } },
+      { name: "cursor", in: "query", required: false,
+        schema: { type: "string", minLength: 1, maxLength: 8_192 } }
+    ],
+    responses: standardResponses(200, "候选人外联批次页", acquisitionOutreachBatchListSchema)
   }));
   add(paths, "/api/v1/acquisition/outreach-batches/{batchId}", "get", operation("get", "读取外联批次", {
     parameters: [batchParameter], responses: { ...standardResponses(200, "外联批次", acquisitionOutreachBatchSchema), "200": batchSuccess("外联批次") }

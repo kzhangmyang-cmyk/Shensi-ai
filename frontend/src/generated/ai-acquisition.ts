@@ -746,6 +746,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/acquisition/outreach-batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List outreach batches for one run candidate */
+        get: operations["listAcquisitionOutreachBatches"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/acquisition/outreach-batches/{batchId}": {
         parameters: {
             query?: never;
@@ -2059,6 +2076,10 @@ export interface components {
             updatedBy: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        AcquisitionOutreachBatchList: {
+            items: components["schemas"]["AcquisitionOutreachBatch"][];
+            nextCursor: string | null;
         };
         AcquisitionOutreachAction: {
             id: string;
@@ -5695,6 +5716,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AcquisitionOutreachBatch"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionOutreachBatches: {
+        parameters: {
+            query: {
+                runId: string;
+                candidateId: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Candidate-scoped outreach batch page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachBatchList"];
                 };
             };
             /** @description Unified API error */

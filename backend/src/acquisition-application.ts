@@ -2439,6 +2439,7 @@ export async function createAcquisitionApplication(
       "/api/v1/acquisition",
       createAcquisitionOutreachBatchRouter({
         service: outreachBatches,
+        cursorSecret: derivedSecret(masterSecret, "outreach-batch-list-cursor"),
         requestIdFactory: () => idFactory("request")
       })
     );

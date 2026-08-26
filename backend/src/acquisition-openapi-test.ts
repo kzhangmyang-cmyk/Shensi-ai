@@ -231,7 +231,7 @@ test("every published acquisition operation has a unique stable camelCase id", (
     }
   }
 
-  assert.equal(ids.length, 76);
+  assert.equal(ids.length, 77);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(
     paths["/api/v1/acquisition/plans/{id}/approval"]?.post?.operationId,
@@ -239,7 +239,31 @@ test("every published acquisition operation has a unique stable camelCase id", (
   );
 });
 
-test("outreach batch OpenAPI publishes all eight secure revision and outbox operations", () => {
+test("outreach batch OpenAPI publishes candidate-scoped collection discovery", () => {
+  const paths = createAcquisitionOpenApiPaths();
+  const collection = paths["/api/v1/acquisition/outreach-batches"]!.get as Record<string, any>;
+  assert.equal(collection.operationId, "listAcquisitionOutreachBatches");
+  assert.deepEqual(collection.security, [
+    { bearerAuth: [] }, { cookieAuth: [] }
+  ]);
+  assert.deepEqual(collection.parameters.map((parameter: Record<string, any>) => parameter.name),
+    ["runId", "candidateId", "limit", "cursor"]);
+  assert.deepEqual(collection.parameters.map((parameter: Record<string, any>) => parameter.required),
+    [true, true, false, false]);
+  const limit = collection.parameters[2].schema;
+  assert.deepEqual({ minimum: limit.minimum, maximum: limit.maximum, default: limit.default },
+    { minimum: 1, maximum: 50, default: 20 });
+  const schema = collection.responses["200"].content["application/json"].schema;
+  assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(schema.required, ["items", "nextCursor"]);
+  assert.equal(schema.properties.items.maxItems, 50);
+  assert.equal(schema.properties.items.items.additionalProperties, false);
+  assert.deepEqual(schema.properties.nextCursor, {
+    type: "string", nullable: true, maxLength: 8_192
+  });
+});
+
+test("outreach batch OpenAPI publishes secure revision and outbox operations", () => {
   const paths = createAcquisitionOpenApiPaths();
   const approval = paths["/api/v1/acquisition/outreach-batches/{batchId}/approve"]!.post as Record<string, any>;
   assert.equal(approval.operationId, "approveAcquisitionOutreachBatch");

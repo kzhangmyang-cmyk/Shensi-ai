@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z, ZodError } from "zod";
 import { AcquisitionOutreachBatchError, type AcquisitionOutreachBatchService } from "./acquisition-outreach-batch-service.js";
@@ -12,6 +13,40 @@ const putSchema = z.object({ candidates: z.array(z.object({ candidateId: z.strin
 const approveSchema = z.object({ revision: z.number().int().min(1), batchHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u), confirm: z.literal(true) }).strict();
 const reasonSchema = z.object({ reason: z.string().trim().max(2_000).optional() }).strict();
 const emptySchema = z.object({}).strict();
+const listQuerySchema = z.object({
+  runId: id,
+  candidateId: id,
+  limit: z.string().regex(/^(?:[1-9]|[1-4]\d|50)$/u).default("20").transform(Number),
+  cursor: z.string().min(1).max(8_192).optional()
+}).strict();
+const cursorPayloadSchema = z.object({
+  v: z.literal(1),
+  workspaceId: id,
+  runId: id,
+  candidateId: id,
+  createdAt: z.string().datetime({ offset: true }),
+  batchId: id
+}).strict();
+type CursorPayload = z.infer<typeof cursorPayloadSchema>;
+
+function encodeCursor(payload: CursorPayload, secret: string) {
+  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const signature = createHmac("sha256", secret).update(body).digest("base64url");
+  return `${body}.${signature}`;
+}
+function decodeCursor(value: string, secret: string) {
+  const [body, signature, extra] = value.split(".");
+  if (!body || !signature || extra) return null;
+  const expected = createHmac("sha256", secret).update(body).digest();
+  const actual = Buffer.from(signature, "base64url");
+  if (actual.toString("base64url") !== signature
+    || actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+  try {
+    return cursorPayloadSchema.parse(JSON.parse(
+      Buffer.from(body, "base64url").toString("utf8")
+    ));
+  } catch { return null; }
+}
 
 function scope(req: Request) {
   if (!req.user?.id || !req.user.teamId) throw new HttpError(401, "unauthorized");
@@ -58,12 +93,38 @@ function headers(res: Response, result: { replayed: boolean; value: { etag: stri
 }
 
 export function createAcquisitionOutreachBatchRouter(options: {
-  service: AcquisitionOutreachBatchService; requestIdFactory?: () => string;
+  service: AcquisitionOutreachBatchService; cursorSecret: string;
+  requestIdFactory?: () => string;
 }) {
   const router = Router(); const requestId = options.requestIdFactory ?? (() => `request_${crypto.randomUUID()}`);
   router.post("/runs/:runId/outreach-batches", route(requestId, async (req, res) => {
     const result = await options.service.create(scope(req), id.parse(req.params.runId), key(req), createSchema.parse(req.body));
     headers(res, result); res.status(201).json(result.value);
+  }));
+  router.get("/outreach-batches", route(requestId, async (req, res) => {
+    const currentScope = scope(req);
+    const query = listQuerySchema.parse(req.query);
+    let after: { createdAt: string; batchId: string } | null = null;
+    if (query.cursor) {
+      const cursor = decodeCursor(query.cursor, options.cursorSecret);
+      if (!cursor || cursor.workspaceId !== currentScope.workspaceId
+        || cursor.runId !== query.runId || cursor.candidateId !== query.candidateId) {
+        throw new HttpError(400, "invalid_cursor");
+      }
+      after = { createdAt: cursor.createdAt, batchId: cursor.batchId };
+    }
+    const page = await options.service.listByRunCandidate(currentScope, {
+      runId: query.runId, candidateId: query.candidateId,
+      limit: query.limit, after
+    });
+    res.json({
+      items: page.items,
+      nextCursor: page.next ? encodeCursor({
+        v: 1, workspaceId: currentScope.workspaceId,
+        runId: query.runId, candidateId: query.candidateId,
+        createdAt: page.next.createdAt, batchId: page.next.batchId
+      }, options.cursorSecret) : null
+    });
   }));
   router.get("/outreach-batches/:batchId", route(requestId, async (req, res) => {
     const value = await options.service.get(scope(req), id.parse(req.params.batchId));

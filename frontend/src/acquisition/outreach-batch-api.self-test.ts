@@ -6,7 +6,11 @@ const batch = { id: "batch/1", etag: '"batch:2"', revision: 2, batchHash: `sha25
 const calls: Array<{ url: string; init?: RequestInit }> = [];
 const api = createOutreachBatchApi(async (input, init) => {
   calls.push({ url: String(input), init });
-  return new Response(JSON.stringify(String(input).endsWith("/actions") ? { items: [] } : batch), { status: 200, headers: { "content-type": "application/json" } });
+  const url = String(input);
+  const body = url.startsWith("/api/v1/acquisition/outreach-batches?")
+    ? { items: [batch], nextCursor: null }
+    : url.endsWith("/actions") ? { items: [] } : batch;
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }, { cookieSource: () => "gj_csrf=csrf-value" });
 const signal = new AbortController().signal;
 
@@ -18,6 +22,7 @@ await api.rejectBatch("batch/1", "人工拒绝", '"batch:3"', "reject-key", sign
 await api.pauseBatch("batch/1", "人工暂停", '"batch:4"', "pause-key", signal);
 await api.resumeBatch("batch/1", '"batch:5"', "resume-key", signal);
 await api.listActions("batch/1", signal);
+await api.listBatches("run/1", "candidate/1", 1, "cursor/value", signal);
 
 assert.deepEqual(calls.map((call) => call.url), [
   "/api/v1/acquisition/runs/run%2F1/outreach-batches",
@@ -27,7 +32,8 @@ assert.deepEqual(calls.map((call) => call.url), [
   "/api/v1/acquisition/outreach-batches/batch%2F1/reject",
   "/api/v1/acquisition/outreach-batches/batch%2F1/pause",
   "/api/v1/acquisition/outreach-batches/batch%2F1/resume",
-  "/api/v1/acquisition/outreach-batches/batch%2F1/actions"
+  "/api/v1/acquisition/outreach-batches/batch%2F1/actions",
+  "/api/v1/acquisition/outreach-batches?runId=run%2F1&candidateId=candidate%2F1&limit=1&cursor=cursor%2Fvalue"
 ]);
 assert.ok(calls.every((call) => call.init?.signal === signal));
 assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), { candidateIds: ["candidate-1"] });
@@ -41,6 +47,17 @@ assert.deepEqual(JSON.parse(String(calls[3]?.init?.body)), { revision: 2, batchH
 assert.deepEqual(JSON.parse(String(calls[4]?.init?.body)), { reason: "人工拒绝" });
 assert.deepEqual(JSON.parse(String(calls[5]?.init?.body)), { reason: "人工暂停" });
 assert.deepEqual(JSON.parse(String(calls[6]?.init?.body)), {});
+assert.equal(calls[8]?.init?.method, "GET");
+assert.equal(calls[8]?.init?.body, undefined);
+assert.equal(new Headers(calls[8]?.init?.headers).has("x-csrf-token"), false);
+
+const defaultCalls: Array<{ url: string; init?: RequestInit }> = [];
+await createOutreachBatchApi(async (input, init) => {
+  defaultCalls.push({ url: String(input), init });
+  return new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 });
+}).listBatches("run-1", "candidate-1");
+assert.equal(defaultCalls[0]?.url,
+  "/api/v1/acquisition/outreach-batches?runId=run-1&candidateId=candidate-1&limit=20");
 
 for (const status of [401, 403, 409, 412]) {
   await assert.rejects(
@@ -52,6 +69,18 @@ await assert.rejects(
   createOutreachBatchApi(async () => new Response(JSON.stringify({ items: "not-an-array" }), { status: 200 })).listActions("batch-1"),
   (error: unknown) => error instanceof AcquisitionHttpError && error.code === "malformed_response"
 );
+for (const malformed of [
+  { items: "not-an-array", nextCursor: null },
+  { items: [], nextCursor: 7 },
+  { items: [{ ...batch, id: 7 }], nextCursor: null }
+]) {
+  await assert.rejects(
+    createOutreachBatchApi(async () => new Response(JSON.stringify(malformed), { status: 200 }))
+      .listBatches("run-1", "candidate-1"),
+    (error: unknown) => error instanceof AcquisitionHttpError
+      && error.code === "malformed_response"
+  );
+}
 await assert.rejects(
   createOutreachBatchApi(async () => new Response(JSON.stringify({ ...batch, leaseToken: "private" }), { status: 200 })).getBatch("batch-1"),
   (error: unknown) => error instanceof AcquisitionHttpError && error.code === "malformed_response"

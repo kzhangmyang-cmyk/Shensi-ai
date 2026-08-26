@@ -82,6 +82,7 @@ const visualReaderOperations = {
 
 const outreachBatchOperations = {
   "/api/v1/acquisition/runs/{runId}/outreach-batches": ["post"],
+  "/api/v1/acquisition/outreach-batches": ["get"],
   "/api/v1/acquisition/outreach-batches/{batchId}": ["get", "put"],
   "/api/v1/acquisition/outreach-batches/{batchId}/approve": ["post"],
   "/api/v1/acquisition/outreach-batches/{batchId}/reject": ["post"],

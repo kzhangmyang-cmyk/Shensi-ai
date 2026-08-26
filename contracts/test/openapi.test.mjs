@@ -44,6 +44,7 @@ const section16 = {
   "/api/v1/acquisition/runs/{runId}/candidates": ["get"],
   "/api/v1/acquisition/runs/{runId}/crawler-status": ["get"],
   "/api/v1/acquisition/runs/{runId}/outreach-batches": ["post"],
+  "/api/v1/acquisition/outreach-batches": ["get"],
   "/api/v1/acquisition/outreach-batches/{batchId}": ["get", "put"],
   "/api/v1/acquisition/outreach-batches/{batchId}/approve": ["post"],
   "/api/v1/acquisition/outreach-batches/{batchId}/reject": ["post"],
@@ -80,6 +81,31 @@ const section16 = {
   "/api/v1/acquisition/copilot/tasks/{id}": ["get"],
   "/api/v1/acquisition/audit-events": ["get"]
 };
+
+test("candidate-scoped outreach batch discovery is bounded and bodyless", async () => {
+  const document = await loadOpenApiSource();
+  const operation = document.paths["/api/v1/acquisition/outreach-batches"].get;
+  assert.equal(operation.operationId, "listAcquisitionOutreachBatches");
+  assert.deepEqual(operation.security, [{ bearerAuth: [] }, { cookieAuth: [] }]);
+  assert.equal(operation.requestBody, undefined);
+  assert.deepEqual(operation.parameters.map((parameter) => parameter.name),
+    ["runId", "candidateId", "limit", "cursor"]);
+  assert.deepEqual(operation.parameters.map((parameter) => parameter.required),
+    [true, true, false, false]);
+  assert.deepEqual(operation.parameters[2].schema,
+    { type: "integer", minimum: 1, maximum: 50, default: 20 });
+  assert.equal(operation.responses["200"].content["application/json"].schema.$ref,
+    "#/components/schemas/AcquisitionOutreachBatchList");
+
+  const page = document.components.schemas.AcquisitionOutreachBatchList;
+  assert.equal(page.additionalProperties, false);
+  assert.deepEqual(page.required, ["items", "nextCursor"]);
+  assert.equal(page.properties.items.maxItems, 50);
+  assert.equal(page.properties.items.items.$ref,
+    "#/components/schemas/AcquisitionOutreachBatch");
+  assert.deepEqual(page.properties.nextCursor,
+    { type: ["string", "null"], maxLength: 8192 });
+});
 
 function publicPlanCreate(overrides = {}) {
   return {
