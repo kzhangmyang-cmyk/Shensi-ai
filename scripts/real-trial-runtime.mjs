@@ -12,6 +12,7 @@ const cloudflared = "/private/tmp/shensi-cloudflared-verified-20260826/cloudflar
 const cloudflaredSha256 = "b61054d3d6326ea558cb49826eebf5676e0d0a36d51b546975096ca3e0e3c89d";
 const node = "/Users/mac/.local/node-22/bin/node";
 const pnpm = "/Users/mac/bin/pnpm";
+const mysqlSocket = "/private/tmp/shensi-real-trial-3310.sock";
 const childScript = fileURLToPath(new URL("./real-trial-child.mjs", import.meta.url));
 
 function child(command, args, options, spawn) {
@@ -56,6 +57,7 @@ async function privateLogFile(path) {
     await writeFile(path, "", { mode: 0o600, flag: "wx" });
   }
   await chmod(path, 0o600);
+  await writeFile(path, "", { mode: 0o600, flag: "w" });
 }
 
 export async function writeRecord(runtime, record) {
@@ -111,7 +113,11 @@ export async function stopTrialRuntime(runtime, options = {}) {
       continue;
     }
     const stillMatches = await isRecordedProcess(record, { readProcessCommand: readCommand });
-    if (!stillMatches) { stale.push(record.name); continue; }
+    if (!stillMatches) {
+      stopped.push(record.name);
+      if (record.path) await unlink(record.path).catch(() => {});
+      continue;
+    }
     await signal(record.pid, "SIGKILL");
     const killed = options.waitForExit
       ? await options.waitForExit(record)
@@ -132,7 +138,17 @@ async function waitForRecordedExit(record, readCommand, sleep = (milliseconds) =
   return (await readCommand(record.pid)) === null;
 }
 async function waitForExit(value) { return new Promise((resolveExit, rejectExit) => { value.once?.("error", rejectExit); value.once?.("exit", (code, signal) => code === 0 ? resolveExit() : rejectExit(new Error(`TRIAL_CHILD_EXIT:${signal ?? code}`))); }); }
-async function defaultRunCommand(command, args, options) { const value = child(command, args, { ...options, stdio: "ignore" }, nodeSpawn); await waitForExit(value); }
+async function defaultRunCommand(command, args, options) { const value = child(command, args, { ...options, stdio: "inherit" }, nodeSpawn); await waitForExit(value); }
+function oneShotEnvironment(environment, overrides = {}) {
+  return {
+    PATH: process.env.PATH ?? "",
+    HOME: process.env.HOME ?? "",
+    TMPDIR: process.env.TMPDIR ?? "/tmp",
+    LANG: process.env.LANG ?? "C.UTF-8",
+    ...environment,
+    ...overrides
+  };
+}
 async function defaultWaitForMysql({ mysqladmin = resolve(mysqlBasedir, "bin/mysqladmin") } = {}) {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -200,20 +216,21 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
     const wrappedArgs = wrapCommands ? [childScript, "--runtime-nonce", nonce, "--log", logPath, "--", Buffer.from(JSON.stringify({ command, args })).toString("base64url")] : args;
     const value = child(wrappedCommand, wrappedArgs, { cwd: repositoryRoot, detached: wrapCommands, stdio: "ignore", env: { PATH: process.env.PATH ?? "", ...runtime.environment, ...environment, HOST: "127.0.0.1" } }, spawn);
     const record = { ...await writeRecord(runtime, { name, pid: value.pid, command: wrappedCommand, args: wrappedArgs, nonce }), child: value };
+    if (wrapCommands) value.unref?.();
     records.push(record); return record;
   };
   const killKnown = async (pid, signal) => records.find((record) => record.pid === pid)?.child?.kill?.(signal);
   try {
     for (const port of Object.values(TRIAL_PORTS)) if (!await available(port)) throw new Error(`TRIAL_PORT_OCCUPIED:${port}`);
-    await runCommand(pnpm, ["--filter", "./backend", "build"], { cwd: repositoryRoot, env: { ...runtime.environment, NODE_ENV: "production" } });
-    await runCommand(pnpm, ["--filter", "./frontend", "build"], { cwd: repositoryRoot, env: { ...runtime.environment, NODE_ENV: "production" } });
+    await runCommand(pnpm, ["--filter", "./backend", "build"], { cwd: repositoryRoot, env: oneShotEnvironment(runtime.environment, { NODE_ENV: "production" }) });
+    await runCommand(pnpm, ["--filter", "./frontend", "build"], { cwd: repositoryRoot, env: oneShotEnvironment(runtime.environment, { NODE_ENV: "production" }) });
     const mysqld = options.mysqlBinary ?? resolve(options.mysqlBasedir ?? process.env.SHENSI_TRIAL_MYSQL_BASEDIR ?? mysqlBasedir, "bin/mysqld"), basedir = options.mysqlBasedir ?? process.env.SHENSI_TRIAL_MYSQL_BASEDIR ?? mysqlBasedir;
     const mysqlContents = await readdir(runtime.mysqlDirectory).catch(() => []);
-    if (!mysqlContents.length) await runCommand(mysqld, ["--no-defaults", `--basedir=${basedir}`, `--datadir=${runtime.mysqlDirectory}`, "--initialize-insecure"], { cwd: repositoryRoot, env: runtime.environment });
+    if (!mysqlContents.length) await runCommand(mysqld, ["--no-defaults", `--basedir=${basedir}`, `--datadir=${runtime.mysqlDirectory}`, "--initialize-insecure"], { cwd: repositoryRoot, env: oneShotEnvironment(runtime.environment) });
     else if (!mysqlContents.includes("mysql")) throw new Error("TRIAL_MYSQL_DATADIR_INVALID");
-    await run("mysql", mysqld, ["--no-defaults", `--basedir=${basedir}`, `--datadir=${runtime.mysqlDirectory}`, "--bind-address=127.0.0.1", `--port=${TRIAL_PORTS.mysql}`, `--socket=${resolve(runtime.stateDirectory, "mysql.sock")}`, "--mysqlx=OFF", `--pid-file=${resolve(runtime.stateDirectory, "mysql.pid")}`, `--log-error=${resolve(runtime.logsDirectory, "mysql-error.log")}`]);
+    await run("mysql", mysqld, ["--no-defaults", `--basedir=${basedir}`, `--datadir=${runtime.mysqlDirectory}`, "--bind-address=127.0.0.1", `--port=${TRIAL_PORTS.mysql}`, `--socket=${mysqlSocket}`, "--mysqlx=OFF", `--pid-file=${resolve(runtime.stateDirectory, "mysql.pid")}`, `--log-error=${resolve(runtime.logsDirectory, "mysql-error.log")}`]);
     await waitForMysql({ mysqladmin: resolve(basedir, "bin/mysqladmin") });
-    await runCommand(pnpm, ["exec", "tsx", "backend/scripts/setup-trial-mysql.ts"], { cwd: repositoryRoot, env: { ...runtime.environment, SHENSI_TRIAL_MYSQL_ADMIN_URL: `mysql://root@127.0.0.1:${TRIAL_PORTS.mysql}/mysql` } });
+    await runCommand(pnpm, ["--filter", "./backend", "exec", "tsx", "scripts/setup-trial-mysql.ts"], { cwd: repositoryRoot, env: oneShotEnvironment(runtime.environment, { SHENSI_TRIAL_MYSQL_ADMIN_URL: `mysql://root@127.0.0.1:${TRIAL_PORTS.mysql}/mysql` }) });
     const tunnel = await run("tunnel", options.cloudflaredBinary ?? resolve(runtime.toolsDirectory, "cloudflared"), ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", `http://127.0.0.1:${TRIAL_PORTS.gateway}`, "--http-host-header", `127.0.0.1:${TRIAL_PORTS.gateway}`]);
     const origin = await (options.waitForTunnelOrigin ?? waitForTunnelOrigin)(resolve(runtime.logsDirectory, "tunnel.log"));
     const backendCommand = options.backendCommand ?? [pnpm, "--filter", "./backend", "start"], frontendCommand = options.frontendCommand ?? [pnpm, "--filter", "./frontend", "exec", "vite", "preview", "--host", "127.0.0.1", "--port", "5610", "--strictPort"], sidecarCommand = options.sidecarCommand ?? ["/Users/mac/.local/bin/uv", "run", "--frozen", "--project", "services/media-crawler", "uvicorn", "shensi_adapter.app:app", "--app-dir", "services/media-crawler", "--host", "127.0.0.1", "--port", "5612"], gatewayCommand = options.gatewayCommand ?? [node, "scripts/real-trial-gateway.mjs"];
@@ -222,6 +239,7 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
     await waitForHealth(`http://127.0.0.1:${TRIAL_PORTS.backend}/api/health`);
     await (options.provisionAdmin ?? defaultProvisionAdmin)({ backendOrigin: `http://127.0.0.1:${TRIAL_PORTS.backend}`, bootstrapPassword, runtime, email: "test@shensi.local", role: "admin", tenantId: "trial-pilot-001" });
     await stopTrialRuntime({ records: [temporaryBackend] }, { isRecordedProcess: async () => true, signalProcessGroup: killKnown });
+    if (!await isRecordedProcess(temporaryBackend)) await unlink(temporaryBackend.path).catch(() => {});
     records.splice(records.indexOf(temporaryBackend), 1);
     await (options.waitForPortRelease ?? waitForPortRelease)(TRIAL_PORTS.backend, available);
     await run("backend", backendCommand[0], backendCommand.slice(1), { PORT: String(TRIAL_PORTS.backend), CORS_ORIGINS: origin, NODE_ENV: "production", MEDIACRAWLER_BASE_URL: `http://127.0.0.1:${TRIAL_PORTS.mediaCrawler}` });
@@ -235,7 +253,11 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
     await waitForHealth(`http://127.0.0.1:${TRIAL_PORTS.gateway}/healthz`);
     await writeFile(resolve(runtime.root, "status.json"), JSON.stringify({ version: 1, running: true, origin, records: records.map(({ name, pid }) => ({ name, pid })) }), { mode: 0o600 });
     return { ...runtime, origin, records };
-  } catch (error) { await stopTrialRuntime({ records }, { isRecordedProcess: async () => true, signalProcessGroup: killKnown }); throw error; }
+  } catch (error) {
+    await stopTrialRuntime({ records }, { isRecordedProcess: async () => true, signalProcessGroup: killKnown });
+    for (const record of records) if (!await isRecordedProcess(record)) await unlink(record.path).catch(() => {});
+    throw error;
+  }
 }
 export async function trialStatus(root, options = {}) {
   try {

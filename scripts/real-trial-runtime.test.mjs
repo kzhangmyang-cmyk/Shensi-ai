@@ -24,7 +24,7 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
     prepare: async () => ({ root, environmentFile: join(root, "trial.env"), stateDirectory: join(root, "state"), logsDirectory: join(root, "logs"), pidsDirectory: join(root, "pids"), toolsDirectory: join(root, "tools"), mysqlDirectory: join(root, "mysql"), secretsDirectory: join(root, "secrets"), environment: { DATABASE_URL: "mysql://shensi_trial_app:fixture@127.0.0.1:3310/shensi_trial", SHENSI_TRIAL_APP_PASSWORD_FILE: join(root, "secrets/app-password"), MEDIACRAWLER_SERVICE_SECRET_FILE: join(root, "secrets/service-secret") } }),
     isPortAvailable: async () => true,
     wrapCommands: false,
-    runCommand: async (command, args) => calls.push({ oneShot: [command, ...args] }),
+    runCommand: async (command, args, options) => calls.push({ oneShot: [command, ...args], options }),
     waitForMysql: async () => calls.push({ mysqlReady: true }),
     waitForTunnelOrigin: async () => "https://trial-fixture.trycloudflare.com",
     readSidecarSecret: async () => "fixture-sidecar-secret",
@@ -39,6 +39,8 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
     gatewayCommand: ["node", "gateway.js"]
   });
   assert.equal(calls.find((call) => call.command === "/fixture/mysqld")?.command, "/fixture/mysqld");
+  const mysql = calls.find((call) => call.command === "/fixture/mysqld");
+  assert.ok(mysql.args.includes("--socket=/private/tmp/shensi-real-trial-3310.sock"));
   const tunnel = calls.findIndex((call) => call.command === "/fixture/cloudflared");
   const backend = calls.findIndex((call) => call.args?.includes("backend.js"));
   assert.ok(tunnel >= 0 && backend > tunnel);
@@ -48,6 +50,11 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
     { email: "test@shensi.local", role: "admin", tenantId: "trial-pilot-001" }
   );
   assert.ok(calls.filter((call) => call.options?.env?.HOST).every((call) => call.options.env.HOST === "127.0.0.1"));
+  const oneShotCalls = calls.filter((call) => call.oneShot);
+  assert.equal(oneShotCalls.length, 4);
+  assert.ok(oneShotCalls.some((call) => call.oneShot.join(" ").includes("--filter ./backend exec tsx scripts/setup-trial-mysql.ts")));
+  assert.ok(oneShotCalls.every((call) => typeof call.options.env.PATH === "string" && call.options.env.PATH.length > 0));
+  assert.ok(oneShotCalls.every((call) => typeof call.options.env.HOME === "string" && call.options.env.HOME.length > 0));
   await stopTrialRuntime(runtime, { isRecordedProcess: async (record) => children.has(record.pid), kill: async (record) => calls.push({ stopped: record.pid }) });
   const stopped = calls.filter((call) => call.stopped).map((call) => call.stopped).sort((a, b) => a - b);
   assert.equal(stopped.includes(902), false);
@@ -97,4 +104,24 @@ test("persisted lifecycle refuses symlinked PID records without signaling", asyn
   await writeFile(target, "{}", { mode: 0o600 });
   await symlink(target, join(pidsDirectory, "gateway.json"));
   await assert.rejects(readRuntimeRecords({ pidsDirectory }), /TRIAL_PID_RECORD_SYMLINK/u);
+});
+
+test("stop removes an owned record when the expected process exits after TERM", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-record-exit-"));
+  const pidsDirectory = join(root, "pids");
+  const stored = await writeRecord({ pidsDirectory }, {
+    name: "backend", pid: 9234, command: "/fixture/node",
+    args: ["/fixture/child.mjs", "--runtime-nonce", "c".repeat(32)],
+    nonce: "c".repeat(32)
+  });
+  const signals = [];
+  const result = await stopTrialRuntime({ records: [{ ...stored, path: join(pidsDirectory, "backend.json") }] }, {
+    isRecordedProcess: async () => true,
+    signalProcessGroup: async (...call) => signals.push(call),
+    waitForExit: async () => false,
+    readProcessCommand: async () => null
+  });
+  assert.deepEqual(signals, [[9234, "SIGTERM"]]);
+  assert.deepEqual(result, { stopped: ["backend"], stale: [] });
+  await assert.rejects(readFile(join(pidsDirectory, "backend.json"), "utf8"), /ENOENT/u);
 });
