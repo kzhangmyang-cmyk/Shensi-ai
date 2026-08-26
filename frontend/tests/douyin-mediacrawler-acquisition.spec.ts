@@ -22,6 +22,49 @@ test.beforeEach(async ({ page }) => {
   expect(response.ok).toBe(true);
 });
 
+test("desktop Chrome wheel input scrolls the real Douyin workspace to performance content", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 700 });
+  await page.goto("/#acquisition");
+  await page.locator("#loginEmail").fill("admin@example.com");
+  await page.locator("#loginPassword").fill("fixture-password");
+  await page.getByRole("button", { name: "登录工作台" }).click();
+
+  const workspace = page.getByRole("region", { name: "抖音自动获客工作台" });
+  const performance = page.locator("#replicaAcquisitionPerformance");
+  const shell = page.locator(".replica-shell");
+  await expect(workspace).toBeVisible();
+  await expect(performance).toBeVisible();
+  const shellOverflow = await shell.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight
+  }));
+  expect(shellOverflow.scrollHeight).toBeGreaterThan(shellOverflow.clientHeight);
+  expect(await performance.evaluate((element) => (
+    element.getBoundingClientRect().top > window.innerHeight
+  ))).toBe(true);
+
+  await page.mouse.move(900, 650);
+  for (let step = 0; step < 8; step += 1) {
+    await page.mouse.wheel(0, 600);
+  }
+  await expect.poll(() => shell.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  const reach = await shell.evaluate((element) => {
+    const target = document.querySelector<HTMLElement>("#replicaAcquisitionPerformance");
+    if (!target) throw new Error("acquisition performance target not found");
+    const shellRect = element.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    return {
+      scrollTop: element.scrollTop,
+      viewportBottom: element.scrollTop + element.clientHeight,
+      targetBottom: element.scrollTop + targetRect.bottom - shellRect.top
+    };
+  });
+
+  expect(reach.scrollTop).toBeGreaterThan(0);
+  expect(reach.viewportBottom).toBeGreaterThanOrEqual(reach.targetBottom - 2);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+});
+
 test("real session controls automatic Douyin acquisition, approval, receipts, and responsive access", async ({ page }) => {
   test.setTimeout(60_000);
   const consoleProblems: string[] = [];
@@ -129,11 +172,51 @@ test("real session controls automatic Douyin acquisition, approval, receipts, an
 
   for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
+    await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      const shell = document.querySelector<HTMLElement>(".replica-shell");
+      if (shell) shell.scrollTop = 0;
+    });
     await expect(workspace).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    expect(await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight)).toBe(true);
-    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-    expect(await page.evaluate(() => window.scrollY > 0)).toBe(true);
+    if (viewport.width > 900) {
+      const shell = page.locator(".replica-shell");
+      const metrics = await shell.evaluate((element) => ({
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight
+      }));
+      expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+      await shell.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+      await expect.poll(() => shell.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      const bottom = await shell.evaluate((element) => ({
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+        scrollTop: element.scrollTop
+      }));
+      expect(bottom.scrollTop + bottom.clientHeight).toBeGreaterThanOrEqual(bottom.scrollHeight - 2);
+      expect(await page.evaluate(() => ({
+        rootScrollTop: document.scrollingElement?.scrollTop ?? -1,
+        windowScrollY: window.scrollY
+      }))).toEqual({ rootScrollTop: 0, windowScrollY: 0 });
+    } else {
+      const rootOverflow = await page.evaluate(() => ({
+        innerHeight: window.innerHeight,
+        scrollHeight: document.scrollingElement?.scrollHeight ?? 0
+      }));
+      expect(rootOverflow.scrollHeight).toBeGreaterThan(rootOverflow.innerHeight);
+      await page.evaluate(() => window.scrollTo(0, document.scrollingElement?.scrollHeight ?? 0));
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+      const bottom = await page.evaluate(() => ({
+        clientHeight: document.scrollingElement?.clientHeight ?? 0,
+        rootScrollTop: document.scrollingElement?.scrollTop ?? 0,
+        scrollHeight: document.scrollingElement?.scrollHeight ?? 0,
+        shellScrollTop: document.querySelector<HTMLElement>(".replica-shell")?.scrollTop ?? -1,
+        windowScrollY: window.scrollY
+      }));
+      expect(bottom.rootScrollTop + bottom.clientHeight).toBeGreaterThanOrEqual(bottom.scrollHeight - 2);
+      expect(bottom.windowScrollY).toBeGreaterThan(0);
+      expect(bottom.shellScrollTop).toBe(0);
+    }
   }
 
   expect(expectedConflicts).toHaveLength(1);
