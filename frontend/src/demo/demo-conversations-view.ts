@@ -93,7 +93,7 @@ export function renderConversationsView(
   main.innerHTML = `
     <section class="demo-conversations" aria-label="社媒对话工作台">
       <aside class="demo-conversation-list demo-panel">
-        <div class="demo-conversation-list-heading"><div><span class="demo-status">演示模式</span><h2>会话收件箱</h2></div><small>${visible.length} 条会话</small></div>
+        <div class="demo-conversation-list-heading"><div><span class="demo-status">预览 · 待接入</span><h2>会话收件箱</h2></div><small>${visible.length} 条会话</small></div>
         <div class="demo-platform-filters" role="group" aria-label="平台筛选">
           ${platforms.map((platform) => `<button type="button" class="${activePlatform === platform ? "active" : ""}" data-demo-action="filter-conversations" data-conversation-filter="${activeFilter}" data-platform="${escapeHtml(platform)}"><span>${escapeHtml(platform)}</span><b>${platform === "全部" ? state.conversations.length : state.conversations.filter((item) => item.platform === platform).length}</b></button>`).join("")}
         </div>

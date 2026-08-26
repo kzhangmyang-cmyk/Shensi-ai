@@ -45,7 +45,7 @@ function renderScripts(state: DemoState): string {
   return `
     <section class="demo-capabilities" aria-label="自动工作流">
       <header class="demo-capabilities-header">
-        <div><span class="demo-status">演示模式</span><h2>自动工作流</h2><p>仅展示平台工作流的模拟计划；不会登录平台、发布内容或发送消息。</p></div>
+        <div><span class="demo-status">预览 · 待接入</span><h2>自动工作流</h2><p>仅展示平台工作流的模拟计划；不会登录平台、发布内容或发送消息。</p></div>
         <span class="demo-chip">${enabled} / ${scripts.length} 已启用</span>
       </header>
       <section class="demo-panel demo-script-list" aria-label="平台工作流列表">
@@ -66,16 +66,16 @@ function renderScripts(state: DemoState): string {
 function renderTradeMarketing(): string {
   return `
     <section class="demo-capabilities" aria-label="外贸营销">
-      <header class="demo-capabilities-header"><div><span class="demo-status">演示模式</span><h2>外贸营销</h2><p>面向海外市场的内容与线索流程示意；不会发送邮件或接入境外平台。</p></div><span class="demo-chip">外贸流程预览</span></header>
+      <header class="demo-capabilities-header"><div><span class="demo-status">预览 · 待接入</span><h2>外贸营销</h2><p>面向海外市场的内容与线索流程示意；不会发送邮件或接入境外平台。</p></div><span class="demo-chip">外贸流程预览</span></header>
       <div class="demo-trade-grid">
         <section class="demo-panel demo-trade-markets"><div class="demo-section-heading"><div><span class="demo-chip">目标市场</span><h3>市场定向</h3></div><small>演示策略卡</small></div><div>
           <article><b>北美</b><span>办公空间升级 · 英文内容</span></article>
           <article><b>中东</b><span>酒店与商业综合体 · 阿拉伯语摘要</span></article>
           <article><b>东南亚</b><span>新零售空间 · 英文/越南语提纲</span></article>
         </div></section>
-        <section class="demo-panel demo-trade-flow"><div class="demo-section-heading"><div><span class="demo-chip">内容本地化</span><h3>内容与邮件序列</h3></div><small>演示版暂未接入</small></div>
+        <section class="demo-panel demo-trade-flow"><div class="demo-section-heading"><div><span class="demo-chip">内容本地化</span><h3>内容与邮件序列</h3></div><small>预览 · 待接入</small></div>
           <ol><li><b>01</b><span>将案例重点调整为当地行业表达</span></li><li><b>02</b><span>生成首封介绍、案例补充与预约提醒邮件</span></li><li><b>03</b><span>按市场时区展示模拟触达节奏</span></li></ol></section>
-        <section class="demo-panel demo-trade-handoff"><span class="demo-status">演示版暂未接入</span><h3>外贸线索交接</h3><p>海外询盘、邮箱验证、CRM 建档与销售交接目前只作为流程说明展示。</p><button type="button" class="demo-capability-toggle" disabled>查看交接预览</button></section>
+        <section class="demo-panel demo-trade-handoff"><span class="demo-status">预览 · 待接入</span><h3>外贸线索交接</h3><p>海外询盘、邮箱验证、CRM 建档与销售交接目前只作为流程说明展示。</p><button type="button" class="demo-capability-toggle" disabled>查看交接预览</button></section>
       </div>
     </section>`;
 }
@@ -95,7 +95,7 @@ function renderSettings(state: DemoState): string {
         <article class="demo-settings-connection-card"><span class="demo-capability-icon">AI</span><div><b>官方 AI 模型</b><span>支持 OpenAI、Kimi、MiniMax、GLM、DeepSeek、通义等官方端点。</span></div><button type="button" class="demo-primary" data-demo-action="open-connection-center" data-connection-mode="model">配置 AI 模型</button></article>
       </div></section>
       <section class="demo-panel demo-settings-data"><div class="demo-section-heading"><div><span class="demo-chip">本地数据</span><h3>演示数据概览</h3></div><small>保存在当前浏览器</small></div><div class="demo-settings-counts">${localData.map(([label, value]) => `<div><small>${label}</small><b>${value}</b></div>`).join("")}</div><div class="demo-settings-reset"><div><b>重置演示数据</b><span>恢复初始客户、会话、商机和模拟开关；此操作不可撤销。</span></div><button type="button" class="demo-danger-button" data-demo-action="open-reset-dialog">重置演示数据</button></div></section>
-      <section class="demo-panel demo-settings-unavailable"><div><span class="demo-chip">演示版暂未接入</span><h3>外观、通知与权限</h3></div><div><article><b>外观偏好</b><span>主题和工作台布局</span></article><article><b>通知提醒</b><span>站内、邮件与平台通知</span></article><article><b>访问权限</b><span>成员角色与渠道授权</span></article></div></section>
+      <section class="demo-panel demo-settings-unavailable"><div><span class="demo-chip">预览 · 待接入</span><h3>外观、通知与权限</h3></div><div><article><b>外观偏好</b><span>主题和工作台布局</span></article><article><b>通知提醒</b><span>站内、邮件与平台通知</span></article><article><b>访问权限</b><span>成员角色与渠道授权</span></article></div></section>
       <dialog id="demoResetDialog" class="demo-reset-dialog" aria-labelledby="demoResetDialogTitle"><form method="dialog"><span class="demo-status">确认操作</span><h3 id="demoResetDialogTitle">重置本地演示数据？</h3><p>会恢复初始演示数据，并移除当前浏览器中所有本次操作。</p><div><button type="button" data-demo-action="cancel-reset">取消</button><button type="button" class="demo-danger-button" data-demo-action="confirm-reset">确认重置</button></div></form></dialog>
     </section>`;
 }

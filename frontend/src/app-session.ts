@@ -18,13 +18,16 @@ export interface AppSessionController {
 
 type SessionStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-interface AppSessionOptions {
+export interface AppSessionOptions {
   document?: Document;
   location?: Pick<Location, "hash">;
   storage?: SessionStorage;
   fetchImpl?: typeof fetch;
   cookieSource?: () => string;
   demoMode?: boolean;
+  realTrial?: boolean;
+  loginAlias?: string;
+  loginEmail?: string;
 }
 
 const STORAGE_KEY = "gj_user";
@@ -34,6 +37,21 @@ class AppSessionRequestError extends Error {
     super(message);
     this.name = "AppSessionRequestError";
   }
+}
+
+class TrialLoginConfigurationError extends Error {
+  constructor() {
+    super("trial_login_configuration_incomplete");
+    this.name = "TrialLoginConfigurationError";
+  }
+}
+
+export function resolveLoginIdentity(
+  value: string,
+  aliases: Readonly<Record<string, string>>
+): string {
+  const normalized = value.trim().toLowerCase();
+  return aliases[normalized] ?? normalized;
 }
 
 const roleLabels: Record<AppUser["role"], string> = {
@@ -79,6 +97,16 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
   const fetchImpl = options.fetchImpl ?? fetch;
   const cookieSource = options.cookieSource ?? (() => documentRef.cookie);
   const demoMode = options.demoMode ?? (import.meta.env.DEV && !import.meta.env.VITE_API_TARGET?.trim());
+  const realTrial = options.realTrial ?? import.meta.env?.VITE_REAL_TRIAL === "true";
+  const trialLoginAlias = options.loginAlias ?? import.meta.env?.VITE_TRIAL_LOGIN_ALIAS ?? "";
+  const trialLoginEmail = options.loginEmail ?? import.meta.env?.VITE_TRIAL_LOGIN_EMAIL ?? "";
+  const normalizedTrialAlias = trialLoginAlias.trim().toLowerCase();
+  const normalizedTrialEmail = trialLoginEmail.trim().toLowerCase();
+  const trialConfigurationIncomplete = realTrial
+    && (!normalizedTrialAlias || !normalizedTrialEmail);
+  const loginAliases = realTrial && !trialConfigurationIncomplete
+    ? { [normalizedTrialAlias]: normalizedTrialEmail }
+    : {};
   let started = false;
   let lifecycleGeneration = 0;
 
@@ -178,7 +206,7 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
 
   const onLoginSubmit = (event: Event) => {
     event.preventDefault();
-    const email = documentRef.querySelector<HTMLInputElement>("#loginEmail")?.value.trim() ?? "";
+    const email = documentRef.querySelector<HTMLInputElement>("#loginEmail")?.value ?? "";
     const password = documentRef.querySelector<HTMLInputElement>("#loginPassword")?.value ?? "";
     void controller.login(email, password).catch(() => undefined);
   };
@@ -208,22 +236,23 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
       }
     },
 
-    async login(_email: string, password: string) {
+    async login(email: string, password: string) {
       const generation = beginAuthenticationOperation();
       clearLoginError();
       setLoginPending(true);
       try {
         if (demoMode) {
-          if (_email.trim().toLowerCase() !== "admin@goodjob.com"
+          if (resolveLoginIdentity(email, {}) !== "admin@goodjob.com"
             || password !== "goodjob123") {
             throw new AppSessionRequestError(401, "invalid_demo_credentials");
           }
           if (isCurrentOperation(generation)) applyAuthenticatedUser(createDemoAdmin());
           return;
         }
+        if (trialConfigurationIncomplete) throw new TrialLoginConfigurationError();
         const result = await request<{ user: AppUser }>("/api/auth/login", {
           method: "POST",
-          body: JSON.stringify({ email: _email, password })
+          body: JSON.stringify({ email: resolveLoginIdentity(email, loginAliases), password })
         }, generation);
         if (isCurrentOperation(generation)) applyAuthenticatedUser(result.user);
       } catch (error) {

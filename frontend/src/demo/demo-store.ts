@@ -20,7 +20,7 @@ const OPPORTUNITY_STAGES = ["new", "qualified", "quoted", "negotiating", "won", 
 const ACTIVE_OPPORTUNITY_STAGES = ["new", "qualified", "quoted", "negotiating"] as const;
 const ACTIVITY_KINDS = ["message", "transfer", "follow-up", "opportunity", "quote", "stage"] as const;
 const TASK_PRIORITIES = ["高", "中", "低"] as const;
-const DEMO_MODULES = ["acquisition", "conversations", "private-domain", "conversion", "agents", "scripts", "trade-marketing", "settings"] as const;
+const DEMO_MODULES = ["dashboard", "acquisition", "conversations", "private-domain", "conversion", "agents", "scripts", "trade-marketing", "settings"] as const;
 
 export interface StorageLike {
   getItem(key: string): string | null;

@@ -107,7 +107,7 @@ export function renderConversionView(state: DemoState, main: HTMLElement, inspec
   const selected = state.opportunities.find((opportunity) => opportunity.id === state.selectedOpportunityId) ?? state.opportunities[0];
 
   main.innerHTML = `<section class="demo-conversion" aria-label="成交工作台">
-    <header class="demo-conversion-header"><div><span class="demo-status">成交工作台</span><h2>把每次推进，变成可追踪的成交</h2><p>普通阶段可按钮或拖动推进；拖入已成交会按 100% 概率关闭，流失须在右侧明确选择原因。所有内容仅更新本地演示数据。</p></div></header>
+    <header class="demo-conversion-header"><div><span class="demo-status">预览 · 待接入</span><h2>把每次推进，变成可追踪的成交</h2><p>普通阶段可按钮或拖动推进；拖入已成交会按 100% 概率关闭，流失须在右侧明确选择原因。所有内容仅更新本地演示数据。</p></div></header>
     <div class="demo-conversion-metrics">${metrics.map((metric) => `<article><span>${metric.label}</span><strong>${metric.value}</strong><small>${metric.hint}</small></article>`).join("")}</div>
     ${renderBoard(state)}
   </section>`;

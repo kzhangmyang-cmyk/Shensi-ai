@@ -89,7 +89,7 @@ body.is-authenticated .replica-shell {
 }
 
 .replica-brand {
-  height: 74px;
+  height: 62px;
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -113,11 +113,12 @@ body.is-authenticated .replica-shell {
 
 .replica-nav {
   display: grid;
-  gap: 18px;
-  padding-top: 33px;
+  gap: 9px;
+  padding-top: 18px;
 }
 
 .replica-nav button,
+.replica-growth-nav a,
 .replica-workspace-toggle,
 .replica-user,
 .replica-icon-button,
@@ -132,7 +133,7 @@ body.is-authenticated .replica-shell {
 
 .replica-nav button {
   width: 100%;
-  min-height: 52px;
+  min-height: 44px;
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) 18px;
   align-items: center;
@@ -144,6 +145,53 @@ body.is-authenticated .replica-shell {
   border-radius: 16px;
   text-align: left;
   transition: 160ms ease;
+}
+
+.replica-growth-nav {
+  display: grid;
+  gap: 5px;
+  margin-top: 2px;
+  padding: 12px 10px;
+  border-top: 1px solid var(--replica-line-soft);
+}
+
+.replica-growth-nav > span {
+  padding: 0 4px 4px;
+  color: var(--replica-muted);
+  font-size: 10px;
+  font-weight: 680;
+  letter-spacing: 0.06em;
+}
+
+.replica-growth-nav a {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #a7aba8;
+  font-size: 12px;
+  font-weight: 590;
+  text-decoration: none;
+}
+
+.replica-growth-nav a i {
+  color: #c7cbc8;
+  font-size: 15px;
+}
+
+.replica-growth-nav a:hover,
+.replica-growth-nav a.active {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(236, 244, 240, 0.16);
+}
+
+.replica-growth-nav a.active i {
+  color: var(--replica-accent);
 }
 
 .replica-nav button i {

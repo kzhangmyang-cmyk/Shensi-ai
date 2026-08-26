@@ -1,6 +1,7 @@
 import { parseGrowthHash } from "./growth/router";
 
 const standalone = new Set([
+  "dashboard",
   "agents",
   "acquisition",
   "conversations",

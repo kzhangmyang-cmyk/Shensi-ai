@@ -131,6 +131,51 @@
   min-width: 0;
 }
 
+.demo-dashboard {
+  display: grid;
+  gap: 14px;
+}
+
+.demo-dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.demo-dashboard-metrics .demo-metric {
+  display: grid;
+  gap: 6px;
+}
+
+.demo-dashboard-metrics small,
+.demo-dashboard-metrics span,
+.demo-dashboard-actions p {
+  color: var(--replica-muted);
+  font-size: 11px;
+}
+
+.demo-dashboard-metrics strong {
+  font-size: 24px;
+}
+
+.demo-dashboard-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.demo-dashboard-actions h3,
+.demo-dashboard-actions p {
+  margin: 0;
+}
+
+.demo-dashboard-actions > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .demo-capabilities-header,
 .demo-capabilities-header > div,
 .demo-capability-card,

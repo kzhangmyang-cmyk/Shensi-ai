@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { parseFollowUpAt } from "./demo-app";
+import { parseFollowUpAt, renderDashboardView } from "./demo-app";
 import { renderCapabilityDemoView } from "./demo-capabilities-view";
 import { renderConversationsView } from "./demo-conversations-view";
 import { getConversionMetrics, renderConversionView } from "./demo-conversion-view";
@@ -85,7 +85,7 @@ checkReviewFinding("legacy one-way links normalize without duplicating customers
   assert.equal(legacyStore.getState().customers.length, legacyState.customers.length);
 });
 
-checkReviewFinding("retired dashboard task modules are rejected from persisted state", () => {
+checkReviewFinding("dashboard task modules remain valid for the restored dashboard route", () => {
   const legacyDashboardState = JSON.parse(JSON.stringify(initial)) as DemoState;
   legacyDashboardState.tasks[0].module = "dashboard" as never;
   const legacyDashboardStore = createDemoStore({
@@ -95,7 +95,7 @@ checkReviewFinding("retired dashboard task modules are rejected from persisted s
       removeItem: () => undefined
     }
   });
-  assert.equal(legacyDashboardStore.getState().tasks[0].module, "conversations");
+  assert.equal(legacyDashboardStore.getState().tasks[0].module, "dashboard");
 });
 
 checkReviewFinding("generic stage movement cannot enter or reopen terminal stages", () => {
@@ -178,10 +178,22 @@ renderCapabilityDemoView("agents", unsafeCapabilityState, capabilityMain, capabi
 assert.equal(capabilityMain.innerHTML.includes("智能体"), true);
 renderCapabilityDemoView("scripts", unsafeCapabilityState, capabilityMain, capabilityInspector);
 assert.equal(capabilityMain.innerHTML.includes("抖音"), true);
+assert.equal(capabilityMain.innerHTML.includes("预览 · 待接入"), true);
 renderCapabilityDemoView("trade-marketing", unsafeCapabilityState, capabilityMain, capabilityInspector);
-assert.equal(capabilityMain.innerHTML.includes("演示版暂未接入"), true);
+assert.equal(capabilityMain.innerHTML.includes("预览 · 待接入"), true);
 renderCapabilityDemoView("settings", unsafeCapabilityState, capabilityMain, capabilityInspector);
 assert.equal(capabilityMain.innerHTML.includes("重置演示数据"), true);
+
+renderConversationsView(initial, capabilityMain, capabilityInspector);
+assert.equal(capabilityMain.innerHTML.includes("预览 · 待接入"), true);
+renderConversionView(initial, capabilityMain, capabilityInspector);
+assert.equal(capabilityMain.innerHTML.includes("预览 · 待接入"), true);
+
+const dashboardMain = { innerHTML: "" } as HTMLElement;
+const dashboardInspector = { innerHTML: "" } as HTMLElement;
+renderDashboardView(initial, dashboardMain, dashboardInspector);
+assert.equal(dashboardMain.innerHTML.includes("预览 · 待接入"), true);
+assert.equal(dashboardMain.innerHTML.includes("本地演示数据概览"), true);
 
 const unsafeState = JSON.parse(JSON.stringify(initial)) as DemoState;
 const unsafeCustomer = unsafeState.customers[0];

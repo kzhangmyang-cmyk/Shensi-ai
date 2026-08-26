@@ -67,6 +67,7 @@ import "./growth/council/controller.self-test";
 import "./growth/council/view.self-test";
 import "./growth/council/entry.self-test";
 import "./connections/connection-view.self-test";
+import "./growth/entry.self-test";
 
 const prototype = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const replicaStyles = readFileSync(new URL("./replica-dashboard.css", import.meta.url), "utf8");
@@ -152,6 +153,18 @@ assert.doesNotMatch(prototype, /id="dashboard"/u);
 assert.doesNotMatch(prototype, /prototype-api\.ts/u);
 assert.match(prototype, /data-replica-view="agents"/u);
 assert.match(prototype, /id="demoModuleMain"/u);
+assert.match(prototype, /type="text" autocomplete="username" required maxlength="320"/u);
+
+for (const growthLink of [
+  "#growth/advisor",
+  "#growth/catalog",
+  "#growth/quotes",
+  "#growth/finance",
+  "#growth/roi",
+  "#financial-council"
+]) {
+  assert.match(prototype, new RegExp(`href="${growthLink.replace("/", "\\/")}"`, "u"));
+}
 
 assert.equal(
   replicaBehavior.includes("startAcquisitionRuntime"),

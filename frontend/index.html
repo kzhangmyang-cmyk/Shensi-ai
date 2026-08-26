@@ -31,7 +31,7 @@
         <h2>登录 Shensi</h2>
         <p>使用管理员分配的企业账号进入工作区。</p>
         <label class="login-field" for="loginEmail"><span>账号</span>
-          <input id="loginEmail" name="email" type="email" autocomplete="username" required>
+          <input id="loginEmail" name="email" type="text" autocomplete="username" required maxlength="320">
         </label>
         <label class="login-field" for="loginPassword"><span>密码</span>
           <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
@@ -77,6 +77,15 @@
         <button type="button" data-replica-view="settings" title="设置中心">
           <i class="ph ph-gear-six" aria-hidden="true"></i><span>设置中心</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i>
         </button>
+        <div class="replica-growth-nav" aria-label="增长经营真实模块">
+          <span>增长经营 · 已接入</span>
+          <a href="#growth/advisor" data-growth-nav data-growth-route="advisor"><i class="ph ph-sparkle" aria-hidden="true"></i><span>增长顾问</span></a>
+          <a href="#growth/catalog" data-growth-nav data-growth-route="catalog"><i class="ph ph-books" aria-hidden="true"></i><span>客户目录</span></a>
+          <a href="#growth/quotes" data-growth-nav data-growth-route="quote"><i class="ph ph-file-text" aria-hidden="true"></i><span>报价工作台</span></a>
+          <a href="#growth/finance" data-growth-nav data-growth-route="finance"><i class="ph ph-chart-line-up" aria-hidden="true"></i><span>财务经营</span></a>
+          <a href="#growth/roi" data-growth-nav data-growth-route="roi"><i class="ph ph-target" aria-hidden="true"></i><span>ROI 经营分析</span></a>
+          <a href="#financial-council" data-growth-nav data-growth-route="financial-council"><i class="ph ph-scales" aria-hidden="true"></i><span>财务委员会</span></a>
+        </div>
       </nav>
 
       <div class="replica-sidebar-bottom">

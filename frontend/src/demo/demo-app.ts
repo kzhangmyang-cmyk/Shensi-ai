@@ -27,7 +27,39 @@ import { createRealAgentCenterController } from "../growth/agents/real-controlle
 let agentsDemoController: ReturnType<typeof createAgentsController> | null = null;
 let agentsAuthority: "demo" | "real" | null = null;
 
+export function renderDashboardView(
+  state: DemoState,
+  main: HTMLElement,
+  inspector: HTMLElement
+): void {
+  const activeConversations = state.conversations.filter((item) => item.mode !== "paused").length;
+  const activeOpportunities = state.opportunities.filter((item) => item.stage !== "won" && item.stage !== "lost");
+  const expectedAmount = activeOpportunities.reduce(
+    (total, item) => total + item.amount * item.probability / 100,
+    0
+  );
+  const openTasks = state.tasks.filter((item) => !item.done).length;
+  main.innerHTML = `
+    <section class="demo-dashboard" aria-label="自动营销总览">
+      <header class="demo-capabilities-header">
+        <div><span class="demo-status">预览 · 待接入</span><h2>自动营销总览</h2><p>以下为当前浏览器内的演示数据汇总，不代表真实经营结果。</p></div>
+      </header>
+      <section class="demo-dashboard-metrics" aria-label="本地演示数据概览">
+        <article class="demo-metric"><small>活跃会话</small><strong>${activeConversations}</strong><span>本地演示数据</span></article>
+        <article class="demo-metric"><small>进行中商机</small><strong>${activeOpportunities.length}</strong><span>本地演示数据</span></article>
+        <article class="demo-metric"><small>预计成交金额</small><strong>¥${Math.round(expectedAmount).toLocaleString("zh-CN")}</strong><span>按演示概率估算</span></article>
+        <article class="demo-metric"><small>待办事项</small><strong>${openTasks}</strong><span>本地演示数据</span></article>
+      </section>
+      <section class="demo-panel demo-dashboard-actions"><div><span class="demo-chip">今日工作台</span><h3>继续处理演示业务</h3><p>可进入已接入的获客、客户经营与成交模块查看详细演示流程。</p></div><div><button type="button" class="demo-primary" data-demo-action="open-module" data-demo-module="conversations">查看社媒对话</button><button type="button" class="demo-primary" data-demo-action="open-module" data-demo-module="conversion">查看成交工作台</button></div></section>
+    </section>`;
+  inspector.innerHTML = `<section class="demo-panel demo-capability-inspector"><span class="demo-chip">预览说明</span><h3>本地演示数据概览</h3><p>总览从当前 DemoState 的会话、商机和待办确定性汇总；真实经营数据接入后会替换此预览。</p></section>`;
+}
+
 function renderModule(module: DemoModule, state: DemoState, host: HTMLElement, inspector: HTMLElement): void {
+  if (module === "dashboard") {
+    renderDashboardView(state, host, inspector);
+    return;
+  }
   if (module === "agents") {
     const authority = document.body.dataset.sessionMode === "real" ? "real" : "demo";
     if (agentsDemoController && agentsAuthority !== authority) {

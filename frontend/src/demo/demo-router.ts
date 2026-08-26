@@ -16,6 +16,12 @@ interface ModuleMeta {
 }
 
 export const demoModuleMeta: Record<DemoModule, ModuleMeta> = {
+  dashboard: {
+    title: "自动营销总览",
+    subtitle: "本地演示数据概览与今日待办",
+    searchPlaceholder: "搜索演示数据、客户或工作台...",
+    primaryAction: "查看今日待办"
+  },
   acquisition: {
     title: "自动营销系统",
     subtitle: "演示模式 · 获客 · 沟通 · 私域沉淀 · 成交",
@@ -68,7 +74,7 @@ export const demoModuleMeta: Record<DemoModule, ModuleMeta> = {
 
 const modules = new Set<DemoModule>(Object.keys(demoModuleMeta) as DemoModule[]);
 
-function moduleFromHash(hash: string, fallback: DemoModule): DemoModule {
+export function demoModuleFromHash(hash: string, fallback: DemoModule): DemoModule {
   const module = hash.replace(/^#/, "");
   return modules.has(module as DemoModule) ? module as DemoModule : fallback;
 }
@@ -79,7 +85,7 @@ export function createDemoRouter(initial: DemoModule = "agents"): DemoRouter {
   const growthRequested = parseGrowthHash(initialHash) !== null;
   let active = growthRequested
     ? initial
-    : moduleFromHash(initialHash, initial);
+    : demoModuleFromHash(initialHash, initial);
   const listeners = new Set<(module: DemoModule) => void>();
 
   function renderShell(module: DemoModule): void {
@@ -113,7 +119,7 @@ export function createDemoRouter(initial: DemoModule = "agents"): DemoRouter {
 
   function navigate(module: DemoModule): void {
     const nextHash = normalizeAppHash(`#${module}`);
-    active = moduleFromHash(nextHash, "agents");
+    active = demoModuleFromHash(nextHash, "agents");
     renderShell(active);
     if (window.location.hash !== nextHash) window.location.hash = nextHash;
     listeners.forEach((listener) => listener(active));
@@ -123,7 +129,7 @@ export function createDemoRouter(initial: DemoModule = "agents"): DemoRouter {
     const normalizedHash = normalizeAppHash(window.location.hash);
     if (window.location.hash !== normalizedHash) window.history.replaceState(null, "", normalizedHash);
     if (parseGrowthHash(normalizedHash)) return;
-    const next = moduleFromHash(normalizedHash, initial);
+    const next = demoModuleFromHash(normalizedHash, initial);
     if (next === active) return;
     active = next;
     renderShell(active);

@@ -1,7 +1,11 @@
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
-import { createAppSessionController, type AppUser } from "./app-session";
+import {
+  createAppSessionController,
+  resolveLoginIdentity,
+  type AppUser
+} from "./app-session";
 
 type MemoryStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -35,6 +39,80 @@ function createDocument() {
     <strong data-session-user-name></strong>
     <small data-session-user-role></small>
   </body></html>`).document;
+}
+
+{
+  const document = createDocument();
+  const requests: Array<{ path: string; body: string }> = [];
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage: createStorage(),
+    demoMode: false,
+    realTrial: true,
+    loginAlias: "test",
+    loginEmail: "test@shensi.local",
+    fetchImpl: async (path, init = {}) => {
+      requests.push({ path: String(path), body: String(init.body) });
+      return new Response(JSON.stringify({ user: admin }), { status: 200 });
+    }
+  });
+
+  await controller.login("test", "trial-password");
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].path, "/api/auth/login");
+  assert.deepEqual(JSON.parse(requests[0].body), {
+    email: "test@shensi.local",
+    password: "trial-password"
+  });
+  assert.equal(resolveLoginIdentity(" TEST ", { test: "test@shensi.local" }), "test@shensi.local");
+  assert.equal(resolveLoginIdentity("owner@example.com", { test: "test@shensi.local" }), "owner@example.com");
+  assert.equal(resolveLoginIdentity("test1", { test: "test@shensi.local" }), "test1");
+  assert.equal(resolveLoginIdentity("tester", { test: "test@shensi.local" }), "tester");
+  controller.destroy();
+}
+
+{
+  const document = createDocument();
+  const requests: string[] = [];
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage: createStorage(),
+    demoMode: false,
+    realTrial: false,
+    loginAlias: "test",
+    loginEmail: "test@shensi.local",
+    fetchImpl: async (_path, init = {}) => {
+      requests.push(String(init.body));
+      return new Response(JSON.stringify({ user: admin }), { status: 200 });
+    }
+  });
+
+  await controller.login("test", "trial-password");
+  assert.equal(JSON.parse(requests[0]).email, "test");
+  controller.destroy();
+}
+
+{
+  const document = createDocument();
+  let requests = 0;
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage: createStorage(),
+    demoMode: false,
+    realTrial: true,
+    loginAlias: "test",
+    fetchImpl: async () => {
+      requests += 1;
+      return new Response(JSON.stringify({ user: admin }), { status: 200 });
+    }
+  });
+
+  await assert.rejects(controller.login("test", "trial-password"));
+  assert.equal(requests, 0);
+  controller.destroy();
 }
 
 {
@@ -183,7 +261,7 @@ function click(document: Document, selector: string) {
   assert.equal(document.body.classList.contains("is-authenticated"), false);
   await controller.login("admin@goodjob.com", "goodjob123");
   assert.equal(document.body.classList.contains("is-authenticated"), true);
-  assert.equal(location.hash, "#agents");
+  assert.equal(location.hash, "#dashboard");
   assert.equal(storage.getItem("gj_user")?.includes("admin@goodjob.com"), true);
   assert.equal(document.querySelector("[data-session-user-name]")?.textContent, "Admin");
   assert.equal(document.querySelector("[data-session-user-role]")?.textContent, "管理员");
