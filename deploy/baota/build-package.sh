@@ -126,7 +126,7 @@ if grep -ERqi \
 fi
 grep -Fq 'aria-label="Shensi 登录"' "$STAGING_DIR/frontend/index.html" \
   || { printf '登录界面缺少 Shensi 标识\n' >&2; exit 1; }
-grep -Fq '<input id="loginEmail" name="email" type="email" autocomplete="username" required>' "$STAGING_DIR/frontend/index.html" \
+grep -Fq '<input id="loginEmail" name="email" type="text" autocomplete="username" required maxlength="320">' "$STAGING_DIR/frontend/index.html" \
   || { printf '登录界面缺少空白账号输入\n' >&2; exit 1; }
 grep -Fq '<input id="loginPassword" name="password" type="password" autocomplete="current-password" required>' "$STAGING_DIR/frontend/index.html" \
   || { printf '登录界面缺少空白密码输入\n' >&2; exit 1; }

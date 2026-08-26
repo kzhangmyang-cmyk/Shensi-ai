@@ -149,7 +149,7 @@ test("Baota package can evaluate the acquisition OpenAPI module", () => {
     assert.match(loginHtml, /aria-label="Shensi 登录"/u);
     assert.match(
       loginHtml,
-      /<input id="loginEmail" name="email" type="email" autocomplete="username" required>/u
+      /<input id="loginEmail" name="email" type="text" autocomplete="username" required maxlength="320">/u
     );
     assert.match(
       loginHtml,
