@@ -323,7 +323,7 @@ export function renderRealAgentsOverview(
       }</div>` : ""}
     </section>
     <section aria-labelledby="real-agents-title"><h3 id="real-agents-title">六角色服务端状态</h3>
-      <div class="agents-grid">${REAL_ROLES.map((role) => realAgentCard(state, role)).join("")}</div>
+      <div class="agents-grid" aria-label="完整 6 位经营顾问">${REAL_ROLES.map((role) => realAgentCard(state, role)).join("")}</div>
     </section>
     ${realRoutingDialog(state)}
   </section>`;
@@ -414,7 +414,7 @@ export function renderAgentsOverview(
         当前数据源：${escapeHtml(options.sourceLabel ?? "示例数据")}
       </p>
     </section>` : ""}
-    <div class="agents-grid">${cards}</div>
+    <div class="agents-grid" aria-label="完整 6 位经营顾问">${cards}</div>
   </section>`;
 }
 

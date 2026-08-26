@@ -1085,7 +1085,7 @@ body.is-authenticated:has(.replica-shell[data-acquisition-mode="real"]) {
 
 @container (max-width: 75rem) {
   :is(.replica-shell, #growthWorkspace) .agents-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1198,7 +1198,7 @@ body.is-authenticated:has(.replica-shell[data-acquisition-mode="real"]) {
 
 @media (max-width: 1080px) {
   :is(.replica-shell, #growthWorkspace) .agents-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 }
 

@@ -37,6 +37,12 @@ assert.deepEqual(parseAgentsHash("#growth/agents/profit"), {
 assert.equal(parseAgentsHash("#growth/advisor"), null);
 
 const overview = renderAgentsOverview();
+const overviewDom = parseHTML(overview).document;
+assert.equal(overviewDom.querySelectorAll(".agent-card").length, 6);
+assert.equal(
+  overviewDom.querySelector(".agents-grid")?.getAttribute("aria-label"),
+  "完整 6 位经营顾问"
+);
 assert.equal(overview.includes("AI 经营顾问团队"), true);
 assert.equal(overview.includes("利润分析"), true);
 assert.equal(overview.includes("data-agent-id=\"cashflow\""), true);
@@ -110,6 +116,12 @@ const realOverview = renderRealAgentsOverview({
   statementPreview: null, statementPackage: null, latestRun: null, runAgents: null,
   consentAccepted: false, busy: null, error: null
 });
+const realOverviewDom = parseHTML(realOverview).document;
+assert.equal(realOverviewDom.querySelectorAll(".real-agent-card").length, 6);
+assert.equal(
+  realOverviewDom.querySelector(".agents-grid")?.getAttribute("aria-label"),
+  "完整 6 位经营顾问"
+);
 for (const kind of ["balance_sheet", "income_statement", "cash_flow_statement"]) {
   assert.match(realOverview, new RegExp(`data-statements-file="${kind}"`, "u"));
 }
