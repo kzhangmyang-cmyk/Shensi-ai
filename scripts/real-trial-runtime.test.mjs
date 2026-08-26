@@ -97,7 +97,7 @@ test("supervisor wraps direct long-lived service commands so recorded wrapper PI
   });
   const target = (suffix) => targets.find((item) => item.args[0]?.endsWith(suffix));
   const backend = target("backend/dist/server.js");
-  const frontend = target("node_modules/vite/bin/vite.js");
+  const frontend = target("frontend/node_modules/vite/bin/vite.js");
   const sidecar = targets.find((item) => item.command.endsWith(
     "services/media-crawler/.venv/bin/uvicorn"
   ));
@@ -105,7 +105,7 @@ test("supervisor wraps direct long-lived service commands so recorded wrapper PI
   assert.match(backend.command, /node$/u);
   assert.match(backend.args[0], /backend\/dist\/server\.js$/u);
   assert.match(frontend.command, /node$/u);
-  assert.match(frontend.args[0], /node_modules\/vite\/bin\/vite\.js$/u);
+  assert.match(frontend.args[0], /frontend\/node_modules\/vite\/bin\/vite\.js$/u);
   assert.match(sidecar.command, /services\/media-crawler\/\.venv\/bin\/uvicorn$/u);
   assert.deepEqual(sidecar.args.slice(0, 2), ["shensi_adapter.app:app", "--app-dir"]);
 });
