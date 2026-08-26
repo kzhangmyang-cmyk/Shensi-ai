@@ -308,6 +308,10 @@ Domain repositories also own idempotent `CREATE TABLE IF NOT EXISTS` statements
 for acquisition, Growth, quote, finance, and council tables. Consequently,
 database review must search both the central store and module repositories;
 the static SQL file alone is not the complete current schema authority.
+The MySQL Growth finance composition runs the financial-ledger, finance-import,
+and statement-package schema initializers before mounting their routes. Adding a
+repository-owned table without wiring its initializer into that composition is
+therefore a startup regression, even when the DDL itself is present and valid.
 
 Credentials are stored as encrypted versions or opaque references. Runtime
 keys such as `PROVIDER_CREDENTIAL_KEY`, `AGENT_JOB_ENCRYPTION_KEY`, and domain

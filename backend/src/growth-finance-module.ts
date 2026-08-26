@@ -30,6 +30,7 @@ import {
   type FinancialLedgerRepository
 } from "./financial-ledger-repository.js";
 import {
+  ensureFinancialLedgerMysqlSchema,
   MysqlFinancialLedgerRepository
 } from "./financial-ledger-mysql-repository.js";
 import {
@@ -138,6 +139,7 @@ export function createGrowthFinanceModule(
         let importRepository: InMemoryFinanceImportRepository
           | MysqlFinanceImportRepository;
         if (options.mode === "mysql") {
+          await ensureFinancialLedgerMysqlSchema(options.pool);
           await ensureFinanceImportMysqlSchema(options.pool);
           await ensureFinancialStatementPackageMysqlSchema(options.pool);
           const mysqlLedger = new MysqlFinancialLedgerRepository(options.pool);
