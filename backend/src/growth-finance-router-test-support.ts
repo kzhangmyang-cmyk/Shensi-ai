@@ -5,6 +5,9 @@ import { AcquisitionCostLedgerService } from "./acquisition-cost-ledger.js";
 import {
   createAcquisitionCostLedgerRouter
 } from "./acquisition-cost-ledger-router.js";
+import {
+  createAcquisitionCostEstimateRouter
+} from "./acquisition-cost-estimate-router.js";
 import { FinancialFactLedgerService } from "./financial-fact-ledger.js";
 import { createFinancialFactRouter } from "./financial-fact-router.js";
 import { FinanceImportService } from "./finance-import-service.js";
@@ -154,6 +157,10 @@ export async function mountGrowthFinanceRouters(options: {
     ledger: costLedger,
     workspaceContext,
     commandContextFactory: commandContextFromRequest
+  }));
+  app.use(createAcquisitionCostEstimateRouter({
+    repository: ledgerRepository,
+    workspaceContext
   }));
   app.use(createFinancialFactRouter({
     ledger: financialFacts,

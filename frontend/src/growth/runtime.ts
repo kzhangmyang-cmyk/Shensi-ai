@@ -174,13 +174,14 @@ export async function startGrowthRuntime(
   const registry = options.registry ?? new GrowthPageRegistry();
   const agentsSession: AgentsSessionState = {};
   let agentsController: ReturnType<typeof createAgentsController> | null = null;
+  let http = createGrowthHttpClient();
   registry.register("agents", {
     handlesOwnRouteChanges: true,
     async mount() {
       const host = growthWorkspaceHost();
       if (!host) return;
       agentsController ??= createAgentsController({
-        http: createGrowthHttpClient(),
+        http,
         host,
         session: agentsSession
       });
@@ -223,8 +224,12 @@ export async function startGrowthRuntime(
   if (startEpoch !== runtimeEpoch) {
     return { kind: "cancelled" };
   }
+  if (mode.kind === "real") {
+    http = createGrowthHttpClient({
+      workspaceId: () => mode.bootstrap.workspaceId
+    });
+  }
   if (registry.get("catalog") === null && mode.kind === "real") {
-    const http = createGrowthHttpClient();
     const catalogController = createCatalogController({
       api: createCatalogApi(http),
       hasFeature: (feature) =>
@@ -250,7 +255,6 @@ export async function startGrowthRuntime(
     });
   }
   if (registry.get("quote") === null && mode.kind === "real") {
-    const http = createGrowthHttpClient();
     const quoteController = createQuoteController({
       api: createQuoteApi(http),
       hasFeature: (feature) =>
@@ -267,10 +271,10 @@ export async function startGrowthRuntime(
         const caseId = context.route.name === "quote"
           ? context.route.quoteCaseId : undefined;
         if (!caseId) {
-          host.innerHTML = renderQuoteWorkbench({
-            kind: "error",
-            message: "quote_case_required"
-          });
+          host.innerHTML = renderQuoteWorkbench({ kind: "loading_case" });
+          const state = await quoteController.listCases(context.signal);
+          if (context.signal.aborted) return;
+          host.innerHTML = renderQuoteWorkbench(state);
           return;
         }
         host.innerHTML = renderQuoteWorkbench({ kind: "loading_case" });
@@ -285,7 +289,6 @@ export async function startGrowthRuntime(
     });
   }
   if (registry.get("finance") === null && mode.kind === "real") {
-    const http = createGrowthHttpClient();
     const financeController = createFinanceController({
       api: createFinanceApi(http),
       hasFeature: (feature) =>
@@ -311,7 +314,6 @@ export async function startGrowthRuntime(
     });
   }
   if (registry.get("roi") === null && mode.kind === "real") {
-    const http = createGrowthHttpClient();
     const roiController = createRoiController({
       api: createGrowthPerformanceApi(http),
       hasFeature: (feature) =>
@@ -337,7 +339,6 @@ export async function startGrowthRuntime(
     });
   }
   if (registry.get("advisor") === null && mode.kind === "real") {
-    const http = createGrowthHttpClient();
     const advisorController = createAdvisorController({
       api: createAdvisorApi(http),
       copilot: createAdvisorCopilotWorkflow({
@@ -377,7 +378,6 @@ export async function startGrowthRuntime(
     });
   }
   if (registry.get("financial-council") === null && mode.kind === "real") {
-    const http = createGrowthHttpClient();
     const api = createFinancialCouncilApi(http);
     let councilEntry: ReturnType<typeof createFinancialCouncilWorkbenchEntry> | null = null;
     registry.register("financial-council", {

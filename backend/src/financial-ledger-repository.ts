@@ -40,6 +40,7 @@ export interface FinancialLedgerRepository {
   getFinancialFactBySource(workspaceId: string, sourceIdentityRoot: string): Promise<FinancialFact | null>;
   listFinancialFacts(workspaceId: string): Promise<FinancialFact[]>;
   getCostEstimate(workspaceId: string, id: string): Promise<AcquisitionCostEstimate | null>;
+  listCostEstimates(workspaceId: string): Promise<AcquisitionCostEstimate[]>;
   listCostEstimateLifecycleEvents(workspaceId: string, currency: string, sourceStableKey: string, asOf: string): Promise<AcquisitionCostEstimateLifecycleEvent[]>;
 }
 
@@ -316,6 +317,12 @@ implements FinancialLedgerRepository, GrowthTemporalTransactionRunner {
 
   async getCostEstimate(workspaceId: string, id: string): Promise<AcquisitionCostEstimate | null> {
     return this.state.costEstimates.get(entryKey(workspaceId, id)) ?? null;
+  }
+
+  async listCostEstimates(workspaceId: string): Promise<AcquisitionCostEstimate[]> {
+    const concrete = assertConcreteGrowthWorkspaceId(workspaceId);
+    return [...this.state.costEstimates.values()]
+      .filter((estimate) => estimate.workspaceId === concrete);
   }
 
   async listCostEstimateLifecycleEvents(workspaceId: string, currency: string, sourceStableKey: string, asOf: string): Promise<AcquisitionCostEstimateLifecycleEvent[]> {

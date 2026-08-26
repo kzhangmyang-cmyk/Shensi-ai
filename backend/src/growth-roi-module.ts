@@ -16,6 +16,9 @@ import {
   DefaultAcquisitionCohortService
 } from "./acquisition-cohort.js";
 import {
+  createAcquisitionCohortRouter
+} from "./acquisition-cohort-router.js";
+import {
   InMemoryAcquisitionCohortRepository,
   type AcquisitionCohortRepository
 } from "./acquisition-cohort-repository.js";
@@ -202,6 +205,10 @@ export function createGrowthRoiModule(
           workspaceContext: foundation.workspaceContext,
           temporalBarrier: foundation.temporalBarrier,
           now: options.now
+        }));
+        input.router.use(createAcquisitionCohortRouter({
+          repository: cohortRepository,
+          workspaceContext: foundation.workspaceContext
         }));
         return Object.freeze({
           close: () => closePromise ??= Promise.resolve()

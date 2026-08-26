@@ -4,6 +4,9 @@ import { AcquisitionCostLedgerService } from "./acquisition-cost-ledger.js";
 import {
   createAcquisitionCostLedgerRouter
 } from "./acquisition-cost-ledger-router.js";
+import {
+  createAcquisitionCostEstimateRouter
+} from "./acquisition-cost-estimate-router.js";
 import { FinancialFactLedgerService } from "./financial-fact-ledger.js";
 import { createFinancialFactRouter } from "./financial-fact-router.js";
 import { FinanceImportService } from "./finance-import-service.js";
@@ -214,6 +217,10 @@ export function createGrowthFinanceModule(
           ledger: costLedger,
           workspaceContext: foundation.workspaceContext,
           commandContextFactory: foundation.commandContextFactory
+        }));
+        input.router.use(createAcquisitionCostEstimateRouter({
+          repository: ledgerRepository,
+          workspaceContext: foundation.workspaceContext
         }));
         input.router.use(createFinancialFactRouter({
           ledger: financialFacts,

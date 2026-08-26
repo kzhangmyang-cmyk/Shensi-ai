@@ -29,12 +29,14 @@ const fetchImpl = async (url: string, init?: RequestInit) => {
 
 const client = createGrowthHttpClient({
   fetchImpl,
-  csrf: () => "csrf-token"
+  csrf: () => "csrf-token",
+  workspaceId: () => "workspace-a"
 });
 
 await client.request("/api/v1/growth/bootstrap");
 assert.equal(requests[0]?.method, "GET");
 assert.equal(requests[0]?.headers["x-csrf-token"], undefined);
+assert.equal(requests[0]?.headers["X-Workspace-Id"], "workspace-a");
 
 await client.request("/api/v1/acquisition/advisor/recommendations/r/accept", {
   method: "POST",

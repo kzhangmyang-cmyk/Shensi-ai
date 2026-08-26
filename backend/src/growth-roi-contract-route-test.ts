@@ -10,6 +10,12 @@ import {
   createAcquisitionGrowthPerformanceRouter
 } from "./acquisition-growth-performance-router.js";
 import {
+  createAcquisitionCohortRouter
+} from "./acquisition-cohort-router.js";
+import {
+  InMemoryAcquisitionCohortRepository
+} from "./acquisition-cohort-repository.js";
+import {
   DefaultGrowthTemporalBarrier,
   InMemoryGrowthTemporalTransactionRunner
 } from "./growth-temporal-barrier.js";
@@ -125,6 +131,12 @@ async function mountGrowthRoiRouters() {
     temporalBarrier: barrier,
     now: () => "2026-08-09T00:00:00.000Z"
   }));
+  app.use(createAcquisitionCohortRouter({
+    repository: new InMemoryAcquisitionCohortRepository(
+      transactions, barrier
+    ),
+    workspaceContext: workspaceContextResolver
+  }));
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     const status = typeof (error as { status?: unknown }).status === "number"
       ? (error as { status: number }).status : 500;
@@ -172,6 +184,23 @@ test("growth performance publishes closure metadata with redaction-free projecti
       JSON.stringify(growth.body).includes("cutoffTemporalSequence"),
       false
     );
+  } finally {
+    await app.close();
+  }
+});
+
+test("acquisition cohort collection route is available to the ROI workbench", async () => {
+  const app = await mountGrowthRoiRouters();
+  try {
+    const listed = await app.request(
+      "/api/v1/acquisition/cohorts?limit=100"
+    );
+    assert.equal(listed.response.status, 200);
+    assert.deepEqual(listed.body, {
+      items: [],
+      nextAfter: null,
+      hasMore: false
+    });
   } finally {
     await app.close();
   }

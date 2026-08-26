@@ -34,6 +34,14 @@ the composition registry rather than exposed as frontend DTOs. The
 acquisition application follows the same domain/service/repository pattern and
 is mounted under `/api/v1/acquisition`.
 
+The ready Growth bootstrap selects one authorized concrete workspace. The
+browser carries that selection as `X-Workspace-Id` on every downstream Growth
+request. Finance exposes the contract-backed cost-estimate collection from the
+workspace ledger repository, and ROI exposes the contract-backed cohort
+collection from its workspace repository. Expected Growth HTTP and capability
+errors preserve their public status/code envelope; only unexpected failures
+become `GROWTH_INTERNAL_ERROR`.
+
 Douyin QR login crosses one private boundary: Express stores
 workspace-scoped account/session/replay records, while the pinned
 MediaCrawler sidecar owns raw browser profiles and Playwright in a killable

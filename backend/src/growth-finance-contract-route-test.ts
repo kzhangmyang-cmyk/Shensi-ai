@@ -4,6 +4,23 @@ import {
   mountGrowthFinanceRouters
 } from "./growth-finance-router-test-support.js";
 
+test("cost estimate collection route is available to the finance workbench", async () => {
+  const app = await mountGrowthFinanceRouters();
+  try {
+    const listed = await app.request(
+      "/api/v1/acquisition/cost-estimates?limit=100"
+    );
+    assert.equal(listed.response.status, 200);
+    assert.deepEqual(listed.body, {
+      items: [],
+      nextAfter: null,
+      hasMore: false
+    });
+  } finally {
+    await app.close();
+  }
+});
+
 test("cost create requires idempotency, verify requires If-Match, and old performance is unchanged", async () => {
   const app = await mountGrowthFinanceRouters();
   try {

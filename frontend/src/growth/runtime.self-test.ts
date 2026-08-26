@@ -5,6 +5,18 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const entries = readdirSync(root, { recursive: true }) as string[];
+const runtimeSource = readFileSync(join(root, "runtime.ts"), "utf8");
+
+assert.match(
+  runtimeSource,
+  /workspaceId:\s*\(\)\s*=>\s*mode\.bootstrap\.workspaceId/u,
+  "real growth requests must carry the workspace selected by bootstrap"
+);
+assert.match(
+  runtimeSource,
+  /quoteController\.listCases\(context\.signal\)/u,
+  "opening the quote workbench without a case must load selectable cases"
+);
 
 for (const entry of entries) {
   if (!entry.endsWith(".ts") || entry.includes(".self-test")) continue;

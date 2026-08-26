@@ -46,6 +46,7 @@ export function createGrowthHttpClient(
     fetchImpl?: (input: string, init?: RequestInit) => Promise<Response>;
     csrf?: () => string;
     baseUrl?: string;
+    workspaceId?: () => string | null;
   } = {}
 ): GrowthHttpClient {
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -58,6 +59,7 @@ export function createGrowthHttpClient(
       }
     });
   const baseUrl = options.baseUrl ?? "";
+  const workspaceId = options.workspaceId ?? (() => null);
   return Object.freeze({
     async request<T>(
       path: string,
@@ -67,6 +69,10 @@ export function createGrowthHttpClient(
       const headers: Record<string, string> = {
         Accept: "application/json"
       };
+      const activeWorkspaceId = workspaceId()?.trim();
+      if (activeWorkspaceId && activeWorkspaceId !== "all") {
+        headers["X-Workspace-Id"] = activeWorkspaceId;
+      }
       if (requestOptions.body !== undefined) {
         headers["Content-Type"] = "application/json";
       }

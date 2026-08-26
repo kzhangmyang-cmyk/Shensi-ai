@@ -11,6 +11,12 @@ ledger.
   and legacy repository are recorded in `docs/SOURCE_PROVENANCE.md`.
 - The root source boundaries remain `frontend/`, `backend/`, and `contracts/`.
 - The checked-in Growth contract release remains `1.0.12`.
+- Growth real mode propagates the bootstrap-selected concrete workspace to all
+  downstream requests. Product catalog, quote-case selection, finance cost
+  estimates, ROI cohorts, advisor, agent center, and financial council routes
+  therefore open inside the same authorized workspace; empty collections render
+  as empty states. Expected HTTP/capability failures keep their real status and
+  code instead of being collapsed into an internal error.
 - The current AI reading path, machine-checkable context contract, and five
   module guides are present; older root `docs/superpowers/{plans,specs}` files
   are archived outside the current reading path.

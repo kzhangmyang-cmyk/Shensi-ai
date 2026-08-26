@@ -12,6 +12,7 @@ import {
 } from "./growth-commercial-application.js";
 import { createGrowthPrivateServiceRegistry } from "./growth-commercial-private-services.js";
 import { nextGrowthRecordedAt } from "./growth-as-of.js";
+import { GrowthHttpError } from "./growth-command-context.js";
 
 const manifest = {
   name: "growth-advisor-quote-roi",
@@ -153,6 +154,32 @@ test("Growth routes enforce authentication before workspace resolution", async (
     assert.equal(result.response.status, 401);
     assert.deepEqual(result.body, { code: "unauthorized" });
     assert.equal(workspaceCalls, 0);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("expected growth HTTP errors keep their public status and code", async () => {
+  const expectedErrorModule: GrowthCommercialModule = {
+    name: "expected-error",
+    async install({ router }) {
+      router.get("/api/v1/acquisition/__test/expected-error", () => {
+        throw new GrowthHttpError(403, "workspace_required");
+      });
+      return { close: async () => undefined };
+    }
+  };
+  const runtime = await createGrowthCommercialApplication(options({
+    modules: [expectedErrorModule],
+    projectIntegrations: () => ({ ready: true })
+  }));
+  try {
+    const result = await get(
+      runtime.handler,
+      "/api/v1/acquisition/__test/expected-error"
+    );
+    assert.equal(result.response.status, 403);
+    assert.deepEqual(result.body, { code: "workspace_required" });
   } finally {
     await runtime.close();
   }

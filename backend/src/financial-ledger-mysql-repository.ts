@@ -786,6 +786,14 @@ export class MysqlFinancialLedgerRepository implements FinancialLedgerRepository
       [assertConcreteGrowthWorkspaceId(workspaceId), id]);
     return row ? costEstimate(row) : null;
   }
+  async listCostEstimates(workspaceId: string) {
+    const [rows] = await this.querySource().query(
+      `SELECT * FROM acquisition_cost_estimates
+       WHERE workspace_id = ?
+       ORDER BY created_at DESC, id DESC`,
+      [assertConcreteGrowthWorkspaceId(workspaceId)]);
+    return (rows as MysqlRow[]).map(costEstimate);
+  }
   async listCostEstimateLifecycleEvents(workspaceId: string, currency: string, sourceStableKey: string, asOf: string) {
     const [rows] = await this.querySource().query(
       `SELECT * FROM acquisition_cost_estimate_lifecycle_events

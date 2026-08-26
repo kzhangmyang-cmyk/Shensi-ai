@@ -215,6 +215,11 @@ pnpm --filter goodjob-crm-frontend run test:e2e -- acquisition-visual-reader.spe
 演示模式不会发起任何 Growth API 请求。
 
 Growth API 与主应用共用同源 Cookie 登录态和 `gj_csrf` CSRF Cookie。
+bootstrap 返回 `ready` 后，前端把该响应中的具体 `workspaceId` 固定到当前
+Growth 运行时，并在目录、报价、财务、ROI、顾问、智能体中心和财务委员会的
+后续请求中统一发送 `X-Workspace-Id`。侧栏直接进入报价工作台时先读取可选报价案例；
+没有案例、成本预估或 ROI cohort 时展示可操作的空状态，不把缺少业务数据显示成
+接口错误。
 未登录时可保留 `#growth/...` 或 `#financial-council/...` 目标路由；用户登录或恢复有效会话后，前端会
 自动重新执行 bootstrap，不会跳回 `#acquisition`。Growth 工作区显示时会
 继续使用唯一黑色壳；`#growthWorkspace` 永久隐藏且不承载可见产品页面。

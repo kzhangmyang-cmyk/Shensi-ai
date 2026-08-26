@@ -8,8 +8,14 @@ import {
   createGrowthBootstrapRouter,
   type GrowthFeature
 } from "./growth-bootstrap-router.js";
-import { GROWTH_CAPABILITY_REGISTRY_VERSION } from "./growth-capabilities.js";
-import type { CommandContext } from "./growth-command-context.js";
+import {
+  GROWTH_CAPABILITY_REGISTRY_VERSION,
+  GrowthAuthorizationError
+} from "./growth-capabilities.js";
+import {
+  GrowthHttpError,
+  type CommandContext
+} from "./growth-command-context.js";
 import type {
   GrowthCommercialComposition,
   GrowthCommercialModule
@@ -210,6 +216,14 @@ Promise<GrowthCommercialRuntime<TIntegrations>> {
       res: Response,
       _next: NextFunction
     ) => {
+      if (error instanceof GrowthHttpError) {
+        res.status(error.status).json({ code: error.code });
+        return;
+      }
+      if (error instanceof GrowthAuthorizationError) {
+        res.status(403).json({ code: error.code });
+        return;
+      }
       if (process.env.NODE_ENV !== "test") console.error(error);
       res.status(500).json({ code: "GROWTH_INTERNAL_ERROR" });
     });
