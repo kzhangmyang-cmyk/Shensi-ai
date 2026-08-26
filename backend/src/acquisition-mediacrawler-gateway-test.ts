@@ -305,6 +305,30 @@ test("gateway sends the exact frozen action and accepts only a bound sanitized r
   });
 });
 
+test("gateway accepts every closed Douyin control failure code", async () => {
+  for (const failureCode of [
+    "douyin_action_control_ambiguous",
+    "douyin_action_content_mismatch",
+    "douyin_action_receipt_ambiguous"
+  ]) {
+    await withServer((_request, response) => {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({
+        action_id: "action-1", state: "failed", platform_receipt_reference: null,
+        occurred_at: "2026-08-25T04:00:01.000Z", failure_code: failureCode
+      }));
+    }, async (baseUrl) => {
+      const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+      const receipt = await gateway.executeAction({ actionId: "action-1",
+        accountHandle: "private-handle", loginStateVersion: 3, kind: "comment",
+        targetPublicUrl: "https://www.douyin.com/video/video-1",
+        content: "exact approved content", approvedContentHash: `sha256:${"a".repeat(64)}`,
+        deadlineAt: "2026-08-25T04:01:00.000Z" });
+      assert.equal(receipt.failureCode, failureCode);
+    });
+  }
+});
+
 test("gateway accepts a real-shaped commenter identity and rejects a root actor", async () => {
   for (const [profile, accepted] of [
     ["https://www.douyin.com/user/MS4wLjABCommenter", true],

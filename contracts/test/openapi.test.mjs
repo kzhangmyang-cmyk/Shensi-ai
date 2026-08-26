@@ -572,6 +572,16 @@ test("outreach approval is a closed human confirmation that publishes exact orde
     ["queued", "blocked_by_predecessor", "executing", "succeeded", "failed", "risk_paused"]);
   assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.required.slice(-4),
     ["attemptCount", "platformReceiptReference", "occurredAt", "failureCode"]);
+  assert.deepEqual(
+    document.components.schemas.AcquisitionOutreachAction.properties.failureCode.enum,
+    [
+      "action_unavailable", "action_rejected", "deadline_exceeded",
+      "douyin_verification_required", "douyin_rate_limited", "douyin_account_warning",
+      "douyin_login_expired", "douyin_action_control_missing",
+      "douyin_action_control_ambiguous", "douyin_action_content_mismatch",
+      "douyin_action_receipt_ambiguous", "douyin_action_timeout", null
+    ]
+  );
 });
 
 test("authorized visual reader routes reuse the acquisition API style and binary artifact boundary", async () => {

@@ -1,39 +1,25 @@
 """Closed Douyin browser action adapter.
 
-The adapter deliberately knows only allowlisted public URLs, native controls,
-and closed page states.  It never reads or logs page text, cookies, storage, or
-the approved content after submission.
+The adapter knows only allowlisted public URLs, bounded native controls, and
+closed page states.  It compares only bounded comment-item text for a receipt
+and never logs page text, cookies, storage, or approved content.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from types import MappingProxyType
 from typing import Callable
 from urllib.parse import urlsplit
 import re
 
-from .schemas import ActionReceipt, ActionRequest
-
-
-DOUYIN_ACTION_SELECTORS = MappingProxyType({
-    "verification": '[data-e2e="verification"]',
-    "rate_limit": '[data-e2e="rate-limit"]',
-    "account_warning": '[data-e2e="account-warning"]',
-    "login_required": '[data-e2e="login-required"]',
-    "comment_composer": '[data-e2e="comment-input"]',
-    "comment_submit": '[data-e2e="comment-submit"]',
-    "message_composer": '[data-e2e="message-input"]',
-    "message_submit": '[data-e2e="message-submit"]',
-    "receipt": '[data-e2e-receipt-id]',
-})
-
-PAGE_FAILURES = (
-    ("verification", "douyin_verification_required"),
-    ("rate_limit", "douyin_rate_limited"),
-    ("account_warning", "douyin_account_warning"),
-    ("login_required", "douyin_login_expired"),
+from .douyin_action_controls import (
+    ActionControlsFailure,
+    detect_page_failure,
+    find_visible_receipt,
+    locate_action_controls,
+    read_composer_content,
 )
+from .schemas import ActionReceipt, ActionRequest
 
 
 class DouyinActionFailure(RuntimeError):
@@ -42,29 +28,6 @@ class DouyinActionFailure(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
-
-
-def _visible(page: object, selector: str) -> bool:
-    try:
-        locator = page.locator(selector)
-        return bool(locator.count()) and bool(locator.is_visible(timeout=250))
-    except Exception:
-        return False
-
-
-def _receipt(page: object) -> str | None:
-    selector = DOUYIN_ACTION_SELECTORS["receipt"]
-    if not _visible(page, selector):
-        return None
-    try:
-        value = page.locator(selector).get_attribute(
-            "data-e2e-receipt-id", timeout=250
-        )
-    except Exception:
-        return None
-    if not isinstance(value, str) or not value or len(value) > 255:
-        return None
-    return value
 
 
 class DouyinActionExecutor:
@@ -89,20 +52,28 @@ class DouyinActionExecutor:
         if self._now() >= request.deadline_at:
             raise DouyinActionFailure("deadline_exceeded")
         page.goto(str(request.target_public_url), wait_until="domcontentloaded")
-        for name, code in PAGE_FAILURES:
-            if _visible(page, DOUYIN_ACTION_SELECTORS[name]):
-                raise DouyinActionFailure(code)
-
-        prefix = "comment" if request.kind == "comment" else "message"
-        composer = DOUYIN_ACTION_SELECTORS[f"{prefix}_composer"]
-        submit = DOUYIN_ACTION_SELECTORS[f"{prefix}_submit"]
-        if not _visible(page, composer) or not _visible(page, submit):
-            raise DouyinActionFailure("douyin_action_control_missing")
-
-        page.locator(composer).fill(request.content, timeout=5_000)
-        page.locator(submit).click(timeout=5_000)
+        failure = detect_page_failure(page)
+        if failure is not None:
+            raise DouyinActionFailure(failure)
+        try:
+            controls = locate_action_controls(page, request.kind)
+        except ActionControlsFailure as error:
+            raise DouyinActionFailure(error.code) from None
+        try:
+            controls.composer.fill(request.content, timeout=5_000)  # type: ignore[attr-defined]
+        except Exception:
+            raise DouyinActionFailure("douyin_action_control_missing") from None
+        if read_composer_content(controls.composer) != request.content:
+            raise DouyinActionFailure("douyin_action_content_mismatch")
+        try:
+            controls.submit.click(timeout=5_000)  # type: ignore[attr-defined]
+        except Exception:
+            raise DouyinActionFailure("douyin_action_control_missing") from None
         for attempt in range(self._receipt_attempts):
-            reference = _receipt(page)
+            try:
+                reference = find_visible_receipt(page, request)
+            except ActionControlsFailure as error:
+                raise DouyinActionFailure(error.code) from None
             if reference is not None:
                 return ActionReceipt(
                     action_id=request.action_id,

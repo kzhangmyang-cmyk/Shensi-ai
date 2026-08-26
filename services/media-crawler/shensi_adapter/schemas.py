@@ -124,5 +124,7 @@ class ActionReceipt(BaseModel):
         "action_unavailable", "action_rejected", "deadline_exceeded",
         "douyin_verification_required", "douyin_rate_limited",
         "douyin_account_warning", "douyin_login_expired",
-        "douyin_action_control_missing", "douyin_action_timeout",
+        "douyin_action_control_missing", "douyin_action_control_ambiguous",
+        "douyin_action_content_mismatch", "douyin_action_receipt_ambiguous",
+        "douyin_action_timeout",
     ] | None

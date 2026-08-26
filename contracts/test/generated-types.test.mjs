@@ -66,6 +66,11 @@ test("generated frontend contract types detect absent and stale outputs without 
     assert.match(generated, /export interface components/);
     assert.match(generated, /export (?:interface|type) operations/);
     assert.match(generated, /approveAcquisitionPlan:/);
+    for (const failureCode of [
+      "douyin_action_control_ambiguous",
+      "douyin_action_content_mismatch",
+      "douyin_action_receipt_ambiguous"
+    ]) assert.match(generated, new RegExp(`\\b${failureCode}\\b`));
 
     const unchanged = runGenerator(output, "--check");
     assert.equal(unchanged.status, 0, unchanged.stderr);

@@ -283,6 +283,13 @@ test("outreach batch OpenAPI publishes secure revision and outbox operations", (
   assert.deepEqual(item.properties.status.enum, ["queued", "blocked_by_predecessor",
     "executing", "succeeded", "failed", "risk_paused"]);
   assert.equal(item.properties.platformReceiptReference.nullable, true);
+  assert.deepEqual(item.properties.failureCode.enum, [
+    "action_unavailable", "action_rejected", "deadline_exceeded",
+    "douyin_verification_required", "douyin_rate_limited", "douyin_account_warning",
+    "douyin_login_expired", "douyin_action_control_missing",
+    "douyin_action_control_ambiguous", "douyin_action_content_mismatch",
+    "douyin_action_receipt_ambiguous", "douyin_action_timeout", null
+  ]);
 });
 
 test("Douyin automation OpenAPI closes policy and run-now inputs and outputs", () => {

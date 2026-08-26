@@ -8,7 +8,7 @@ import pytest
 
 from shensi_adapter.douyin_actions import DouyinActionExecutor, DouyinActionFailure
 from shensi_adapter.action_jobs import ActionJobManager, ActionReplayConflict
-from shensi_adapter.schemas import ActionRequest
+from shensi_adapter.schemas import ActionReceipt, ActionRequest
 
 
 NOW = datetime(2026, 8, 25, tzinfo=UTC)
@@ -21,11 +21,27 @@ class FakeLocator:
     def count(self):
         return int(self.selector in self.page.visible)
 
+    def and_(self, other: "FakeLocator"):
+        return other
+
     def is_visible(self, **_kwargs):
         return self.selector in self.page.visible
 
+    def is_enabled(self, **_kwargs):
+        return True
+
+    def is_editable(self, **_kwargs):
+        return self.selector.endswith('-input"]')
+
     def fill(self, value: str, **_kwargs):
         self.page.fills.append((self.selector, value))
+        self.page.values[self.selector] = value
+
+    def input_value(self, **_kwargs):
+        return self.page.values.get(self.selector, "")
+
+    def text_content(self, **_kwargs):
+        return self.page.values.get(self.selector, "")
 
     def click(self, **_kwargs):
         self.page.clicks.append(self.selector)
@@ -45,6 +61,7 @@ class FakePage:
         self.after_submit = False
         self.urls: list[str] = []
         self.fills: list[tuple[str, str]] = []
+        self.values: dict[str, str] = {}
         self.clicks: list[str] = []
         self.waits = 0
 
@@ -59,6 +76,10 @@ class FakePage:
 
     def locator(self, selector: str):
         return FakeLocator(self, selector)
+
+    def get_by_role(self, _role: str, *, name: str, exact: bool):
+        assert name == "发送" and exact is True
+        return FakeLocator(self, "[fake-missing-exact-send-role]")
 
     def wait_for_timeout(self, _milliseconds: int):
         self.waits += 1
@@ -136,6 +157,23 @@ def test_timeout_checks_once_for_late_success_and_never_clicks_twice():
     with pytest.raises(DouyinActionFailure, match="douyin_action_timeout"):
         DouyinActionExecutor(now=lambda: NOW, receipt_attempts=1).execute(timed_out, request())
     assert timed_out.clicks == ['[data-e2e="comment-submit"]']
+
+
+@pytest.mark.parametrize("failure_code", [
+    "douyin_action_control_ambiguous",
+    "douyin_action_content_mismatch",
+    "douyin_action_receipt_ambiguous",
+])
+def test_action_receipt_accepts_each_closed_control_failure_code(failure_code):
+    receipt = ActionReceipt(
+        action_id="action-comment",
+        state="failed",
+        platform_receipt_reference=None,
+        occurred_at=NOW,
+        failure_code=failure_code,
+    )
+
+    assert receipt.failure_code == failure_code
 
 
 def test_action_job_exact_replay_is_durable_and_never_persists_raw_content(tmp_path):

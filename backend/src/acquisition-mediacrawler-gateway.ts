@@ -76,7 +76,9 @@ const actionReceiptResponseSchema = z.object({
   occurred_at: z.string().datetime(),
   failure_code: z.enum(["action_unavailable", "action_rejected", "deadline_exceeded",
     "douyin_verification_required", "douyin_rate_limited", "douyin_account_warning",
-    "douyin_login_expired", "douyin_action_control_missing", "douyin_action_timeout"]).nullable()
+    "douyin_login_expired", "douyin_action_control_missing", "douyin_action_control_ambiguous",
+    "douyin_action_content_mismatch", "douyin_action_receipt_ambiguous",
+    "douyin_action_timeout"]).nullable()
 }).strict().superRefine((value, context) => {
   const valid = value.state === "succeeded"
     ? value.platform_receipt_reference !== null && value.failure_code === null

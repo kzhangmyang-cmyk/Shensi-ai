@@ -167,6 +167,26 @@ test("verification and account-risk failures pause immediately without bypass", 
     .map((value) => value.status), ["failed", "risk_paused"]);
 });
 
+test("worker preserves every closed Douyin control failure code", async () => {
+  for (const failureCode of [
+    "douyin_action_control_ambiguous",
+    "douyin_action_content_mismatch",
+    "douyin_action_receipt_ambiguous"
+  ]) {
+    const repository = await repositoryWith([
+      action("comment-1", "candidate-1", "comment")
+    ]);
+    const runtime = worker(repository, [{ state: "failed", failureCode }]);
+
+    await runtime.instance.runOnce();
+
+    assert.equal(
+      (await repository.listActions("workspace-1", "batch-1"))![0]!.failureCode,
+      failureCode
+    );
+  }
+});
+
 test("worker and recovery sweeper start once and close with bounded owned work", async () => {
   const repository = await repositoryWith([]);
   const runtime = worker(repository);
