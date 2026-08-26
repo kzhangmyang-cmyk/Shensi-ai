@@ -98,6 +98,7 @@ export function createRealConversationsController(
   let recoveryAbort: AbortController | null = null;
   let idlePromise = Promise.resolve();
   let latestBatchState = batchController.getState();
+  let effectiveBatchId: string | null = null;
   let suppressSelectionBroadcast = false;
 
   function selectedInteraction(): RealPublicInteraction | undefined {
@@ -117,7 +118,9 @@ export function createRealConversationsController(
   }
 
   function projectBatchState(outreach: OutreachBatchState): OutreachBatchState {
-    if (!outreach.batch || batchBelongsTo(outreach, selectedInteraction())) {
+    if (effectiveBatchId !== null
+      && outreach.batch?.id === effectiveBatchId
+      && batchBelongsTo(outreach, selectedInteraction())) {
       return outreach;
     }
     return {
@@ -160,6 +163,8 @@ export function createRealConversationsController(
     recoveryAbort?.abort();
     recoveryAbort = new AbortController();
     batchController.abort();
+    effectiveBatchId = null;
+    clearRememberedBatch();
     const interaction = selectedInteraction();
     if (!interaction?.outreachEligible || !active || disposed) {
       state.outreach = emptyOutreachState();
@@ -186,9 +191,20 @@ export function createRealConversationsController(
       }
       await batchController.load(latest.id);
       if (disposed || !active || own !== recoverySerial) return;
-      state.outreach = projectBatchState(latestBatchState);
-      if (batchBelongsTo(latestBatchState, interaction) && latestBatchState.batch) {
-        rememberBatch(latestBatchState.batch.id);
+      const recovered = latestBatchState.batch;
+      if (latestBatchState.phase === "ready"
+        && recovered?.id === latest.id
+        && batchBelongsTo(latestBatchState, interaction)) {
+        effectiveBatchId = recovered.id;
+        state.outreach = latestBatchState;
+        rememberBatch(recovered.id);
+      } else {
+        const reason = latestBatchState.error
+          ?? "服务器返回的批次与最新候选批次不一致";
+        state.outreach = {
+          ...emptyOutreachState("error"),
+          error: reason
+        };
       }
       render();
     } catch (error) {
@@ -219,6 +235,10 @@ export function createRealConversationsController(
       const serial = ++requestSerial;
       state.status = "loading";
       state.error = null;
+      effectiveBatchId = null;
+      batchController.abort();
+      clearRememberedBatch();
+      state.outreach = emptyOutreachState("loading");
       render();
       const operation = (async () => {
         try {
@@ -260,7 +280,6 @@ export function createRealConversationsController(
         return;
       }
       state.selectedInteractionKey = normalized;
-      render();
       const operation = recoverSelectedBatch();
       idlePromise = operation.then(() => undefined, () => undefined);
     },
@@ -270,9 +289,14 @@ export function createRealConversationsController(
       if (!active || disposed || !interaction?.outreachEligible
         || batchBelongsTo(state.outreach, interaction)) return;
       await batchController.create(interaction.runId, [interaction.candidateId]);
-      state.outreach = projectBatchState(latestBatchState);
-      if (batchBelongsTo(latestBatchState, interaction) && latestBatchState.batch) {
+      if (latestBatchState.phase === "ready"
+        && latestBatchState.batch
+        && batchBelongsTo(latestBatchState, interaction)) {
+        effectiveBatchId = latestBatchState.batch.id;
+        state.outreach = latestBatchState;
         rememberBatch(latestBatchState.batch.id);
+      } else {
+        state.outreach = projectBatchState(latestBatchState);
       }
       render();
     },

@@ -233,6 +233,117 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
 
 {
   const { main, inspector } = domFixture();
+  const reopened = deferred<RealConversationsSnapshot>();
+  let loadCount = 0;
+  const controller = createRealConversationsController({
+    api: {
+      load() {
+        loadCount += 1;
+        return loadCount === 1 ? Promise.resolve(snapshot) : reopened.promise;
+      }
+    },
+    outreachApi: outreachApi({
+      async listBatches() { return { items: [batch()], nextCursor: null }; }
+    }),
+    batchSelection: selectionFixture(),
+    main,
+    inspector
+  });
+  await controller.open();
+  assert.equal(controller.getState().outreach.batch?.id, "batch-1");
+  const pendingOpen = controller.open();
+  const outreachDuringReopen = controller.getState().outreach;
+  const htmlDuringReopen = main.innerHTML;
+  reopened.resolve(snapshot);
+  await pendingOpen;
+  controller.destroy();
+  assert.equal(outreachDuringReopen.phase, "loading");
+  assert.equal(outreachDuringReopen.batch, null,
+    "reopen must hide the previously loaded batch before snapshot recovery finishes");
+  assert.doesNotMatch(htmlDuringReopen, /data-outreach-confirm|精确公开评论/u);
+}
+
+{
+  const { main, inspector } = domFixture();
+  const selection = selectionFixture();
+  let listCount = 0;
+  let getCount = 0;
+  const controller = createRealConversationsController({
+    api: { async load() { return snapshot; } },
+    outreachApi: outreachApi({
+      async listBatches() {
+        listCount += 1;
+        return {
+          items: [listCount === 1
+            ? batch("candidate-1", "awaiting_approval", "batch-old")
+            : batch("candidate-1", "awaiting_approval", "batch-latest")],
+          nextCursor: null
+        };
+      },
+      async getBatch() {
+        getCount += 1;
+        if (getCount === 1) {
+          return batch("candidate-1", "awaiting_approval", "batch-old");
+        }
+        throw new Error("latest batch unavailable");
+      }
+    }),
+    batchSelection: selection,
+    main,
+    inspector
+  });
+  await controller.open();
+  assert.equal(selection.read(), "batch-old");
+  await controller.open();
+  assert.equal(controller.getState().outreach.phase, "error");
+  assert.equal(controller.getState().outreach.batch, null,
+    "getBatch failure must not retain the previously approvable batch");
+  assert.deepEqual(controller.getState().outreach.drafts, {});
+  assert.deepEqual(controller.getState().outreach.actions, []);
+  assert.equal(selection.read(), null);
+  assert.doesNotMatch(main.innerHTML, /data-outreach-confirm|精确公开评论/u);
+  controller.destroy();
+}
+
+{
+  const { main, inspector } = domFixture();
+  const selection = selectionFixture();
+  let wrongIdActionReads = 0;
+  const controller = createRealConversationsController({
+    api: { async load() { return snapshot; } },
+    outreachApi: outreachApi({
+      async listBatches() {
+        return {
+          items: [batch("candidate-1", "awaiting_approval", "batch-latest")],
+          nextCursor: null
+        };
+      },
+      async getBatch() {
+        return batch("candidate-1", "awaiting_approval", "batch-wrong");
+      },
+      async listActions() {
+        wrongIdActionReads += 1;
+        return { items: [] };
+      }
+    }),
+    batchSelection: selection,
+    main,
+    inspector
+  });
+  await controller.open();
+  assert.equal(controller.getState().outreach.batch, null,
+    "same run/candidate must not permit a batch id different from the listed latest id");
+  assert.deepEqual(controller.getState().outreach.drafts, {});
+  assert.deepEqual(controller.getState().outreach.actions, []);
+  assert.equal(selection.read(), null);
+  assert.equal(wrongIdActionReads, 0,
+    "a mismatched getBatch response must not start receipt polling");
+  assert.doesNotMatch(main.innerHTML, /data-outreach-confirm|精确公开评论/u);
+  controller.destroy();
+}
+
+{
+  const { main, inspector } = domFixture();
   const selection = selectionFixture();
   selection.remember("batch-stale");
   const controller = createRealConversationsController({

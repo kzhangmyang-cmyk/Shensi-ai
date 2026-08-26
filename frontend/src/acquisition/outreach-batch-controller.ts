@@ -76,8 +76,8 @@ export function createOutreachBatchController(options: { api: OutreachBatchApi; 
       catch (error) { if (current(own)) emit({ phase: "error", error: errorText(error) }); }
     },
     async load(batchId) {
-      const own = reset(); emit({ phase: "loading", error: null, conflict: false });
-      try { const batch = await options.api.getBatch(batchId, aborter.signal); if (current(own)) { adopt(batch); void poll(batch.id, own); } }
+      const own = reset(); emit({ phase: "loading", batch: null, drafts: {}, actions: [], error: null, conflict: false });
+      try { const batch = await options.api.getBatch(batchId, aborter.signal); if (current(own)) { if (batch.id !== batchId) throw new Error("服务器返回的批次 ID 与请求不一致"); adopt(batch); void poll(batch.id, own); } }
       catch (error) { if (current(own)) emit({ phase: "error", error: errorText(error) }); }
     },
     editMessage(candidateId, field, value) { emit({ drafts: { ...state.drafts, [candidateId]: { ...(state.drafts[candidateId] ?? { comment: "", directMessage: "" }), [field]: value } } }); },

@@ -85,11 +85,14 @@ function renderOutreachWorkspace(
   outreach: OutreachBatchState
 ): string {
   if (!item) return "";
-  if (outreach.batch) {
-    return `<section class="real-conversations-outreach" aria-label="公开证据外联审批工作台"><div data-real-conversations-outreach-host></div></section>`;
-  }
   if (outreach.phase === "loading") {
     return `<section class="demo-panel real-conversations-outreach-cta is-loading" aria-live="polite"><div><span class="demo-status">正在恢复审批状态</span><h3>正在查询该候选人的最新审批批次</h3><p>以服务器返回的 runId 与 candidateId 归属为准，不使用本地记录推断。</p></div><button type="button" disabled>查询中…</button></section>`;
+  }
+  if (outreach.phase === "error") {
+    return `<section class="demo-panel real-conversations-outreach-cta is-disabled" role="alert"><div><span class="demo-status">审批批次恢复失败</span><h3>无法确认当前候选人的最新审批状态</h3><p>${escapeHtml(outreach.error ?? "请刷新公开证据后重试")}</p></div><button type="button" disabled>暂不可创建或审批</button></section>`;
+  }
+  if (outreach.batch) {
+    return `<section class="real-conversations-outreach" aria-label="公开证据外联审批工作台"><div data-real-conversations-outreach-host></div></section>`;
   }
   if (!item.outreachEligible) {
     return `<section class="demo-panel real-conversations-outreach-cta is-disabled"><div><span class="demo-status">仅查看公开证据</span><h3>公开来源不符合精确评论条件</h3><p>只有精确的 https://www.douyin.com/video/{id} 公开证据可进入人工审批。</p></div><button type="button" disabled>无法创建待审批批次</button></section>`;

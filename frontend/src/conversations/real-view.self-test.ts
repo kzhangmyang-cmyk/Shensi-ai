@@ -173,10 +173,44 @@ const baseState: RealConversationsViewState = {
   const { main, inspector } = hosts();
   renderRealConversationsView({
     ...baseState,
-    outreach: { ...idleOutreach(), phase: "loading" }
+    outreach: {
+      ...idleOutreach(),
+      phase: "loading",
+      batch: batch(),
+      drafts: {
+        "candidate-1": {
+          comment: "等待恢复时不可见的旧评论",
+          directMessage: "等待恢复时不可见的旧私信"
+        }
+      }
+    }
   }, main, inspector);
   assert.match(main.innerHTML, /正在查询该候选人的最新审批批次/u);
   assert.match(main.innerHTML, /button[^>]*disabled/u);
+  assert.doesNotMatch(main.innerHTML,
+    /data-real-conversations-outreach-host|等待恢复时不可见的旧评论/u);
+}
+
+{
+  const { main, inspector } = hosts();
+  renderRealConversationsView({
+    ...baseState,
+    outreach: {
+      ...idleOutreach(),
+      phase: "error",
+      batch: batch(),
+      drafts: {
+        "candidate-1": {
+          comment: "恢复失败时不可见的旧评论",
+          directMessage: "恢复失败时不可见的旧私信"
+        }
+      },
+      error: "最新批次读取失败"
+    }
+  }, main, inspector);
+  assert.match(main.innerHTML, /最新批次读取失败/u);
+  assert.doesNotMatch(main.innerHTML,
+    /data-real-conversations-outreach-host|恢复失败时不可见的旧评论/u);
 }
 
 {
