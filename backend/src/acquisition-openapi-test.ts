@@ -246,6 +246,10 @@ test("outreach batch OpenAPI publishes candidate-scoped collection discovery", (
   assert.deepEqual(collection.security, [
     { bearerAuth: [] }, { cookieAuth: [] }
   ]);
+  assert.equal(collection.description,
+    "Requires the acquisition.outreach.approve capability.");
+  assert.equal(collection.responses["403"].description,
+    "Missing the acquisition.outreach.approve capability or a valid workspace context.");
   assert.deepEqual(collection.parameters.map((parameter: Record<string, any>) => parameter.name),
     ["runId", "candidateId", "limit", "cursor"]);
   assert.deepEqual(collection.parameters.map((parameter: Record<string, any>) => parameter.required),

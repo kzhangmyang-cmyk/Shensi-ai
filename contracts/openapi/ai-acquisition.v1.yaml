@@ -1115,6 +1115,7 @@ paths:
     get:
       operationId: listAcquisitionOutreachBatches
       summary: List outreach batches for one run candidate
+      description: Requires the acquisition.outreach.approve capability.
       security: [{ bearerAuth: [] }, { cookieAuth: [] }]
       parameters:
         - { name: runId, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
@@ -1124,6 +1125,7 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '200': { description: Candidate-scoped outreach batch page, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachBatchList' } } } }
+        '403': { description: Missing the acquisition.outreach.approve capability or a valid workspace context., content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
   /api/v1/acquisition/outreach-batches/{batchId}:
     parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
     get:

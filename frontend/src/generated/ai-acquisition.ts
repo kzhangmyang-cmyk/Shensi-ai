@@ -753,7 +753,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List outreach batches for one run candidate */
+        /**
+         * List outreach batches for one run candidate
+         * @description Requires the acquisition.outreach.approve capability.
+         */
         get: operations["listAcquisitionOutreachBatches"];
         put?: never;
         post?: never;
@@ -5799,6 +5802,15 @@ export interface operations {
             };
             /** @description Unified API error */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Missing the acquisition.outreach.approve capability or a valid workspace context. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -335,6 +335,13 @@ test("published visual reader operations exactly match production", async () => 
 test("published outreach batch operations exactly match production", async () => {
   const published = await loadPublishedAcquisitionPaths();
   const production = await loadValidatedProductionAcquisitionPaths();
+  const collectionPath = "/api/v1/acquisition/outreach-batches";
+  for (const operation of [published[collectionPath]!.get!, production[collectionPath]!.get!]) {
+    assert.equal(operation.description,
+      "Requires the acquisition.outreach.approve capability.");
+    assert.equal(operation.responses["403"].description,
+      "Missing the acquisition.outreach.approve capability or a valid workspace context.");
+  }
 
   for (const [path, methods] of Object.entries(outreachBatchOperations)) {
     const publishedPath = published[path];

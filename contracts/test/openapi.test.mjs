@@ -87,6 +87,10 @@ test("candidate-scoped outreach batch discovery is bounded and bodyless", async 
   const operation = document.paths["/api/v1/acquisition/outreach-batches"].get;
   assert.equal(operation.operationId, "listAcquisitionOutreachBatches");
   assert.deepEqual(operation.security, [{ bearerAuth: [] }, { cookieAuth: [] }]);
+  assert.equal(operation.description,
+    "Requires the acquisition.outreach.approve capability.");
+  assert.equal(operation.responses["403"].description,
+    "Missing the acquisition.outreach.approve capability or a valid workspace context.");
   assert.equal(operation.requestBody, undefined);
   assert.deepEqual(operation.parameters.map((parameter) => parameter.name),
     ["runId", "candidateId", "limit", "cursor"]);

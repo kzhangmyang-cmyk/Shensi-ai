@@ -1,8 +1,54 @@
 import { strict as assert } from "node:assert";
 import { AcquisitionHttpError } from "./douyin-automation-api";
-import { createOutreachBatchApi } from "./outreach-batch-api";
+import { createOutreachBatchApi, type OutreachBatch } from "./outreach-batch-api";
 
-const batch = { id: "batch/1", etag: '"batch:2"', revision: 2, batchHash: `sha256:${"1".repeat(64)}`, candidates: [] };
+const batch = {
+  id: "batch/1",
+  workspaceId: "workspace-1",
+  runId: "run-1",
+  planId: "plan-1",
+  planVersionId: "plan-version-1",
+  planVersion: 1,
+  planSnapshotHash: `sha256:${"0".repeat(64)}`,
+  policyVersionId: "policy-version-1",
+  policyHash: `sha256:${"1".repeat(64)}`,
+  accountId: "account-1",
+  accountLoginStateVersion: 1,
+  dailyBudgetId: `sha256:${"2".repeat(64)}`,
+  localDate: "2026-08-27",
+  dailyCandidateLimit: 20,
+  dailyRemainingLimit: 19,
+  revision: 2,
+  etag: '"batch:2"',
+  state: "awaiting_approval",
+  candidates: [{
+    candidateId: "candidate-1",
+    selected: true,
+    candidateRevision: 1,
+    evidenceHashes: [`sha256:${"3".repeat(64)}`],
+    draftRevision: 1,
+    comment: "精确评论",
+    commentHash: `sha256:${"4".repeat(64)}`,
+    directMessage: "精确私信",
+    directMessageHash: `sha256:${"5".repeat(64)}`,
+    rationaleCodes: ["evidence_grounded"],
+    modelSnapshotId: "model-snapshot-1",
+    sourceModelSnapshotId: "source-model-snapshot-1",
+    contentHash: `sha256:${"6".repeat(64)}`
+  }],
+  batchHash: `sha256:${"7".repeat(64)}`,
+  approvedBy: null,
+  approvedAt: null,
+  approvalHash: null,
+  rejectedBy: null,
+  rejectedAt: null,
+  rejectionReason: null,
+  pauseReason: null,
+  createdBy: "operator-1",
+  createdAt: "2026-08-27T00:00:00.000Z",
+  updatedBy: "operator-1",
+  updatedAt: "2026-08-27T00:00:00.000Z"
+} satisfies OutreachBatch;
 const calls: Array<{ url: string; init?: RequestInit }> = [];
 const api = createOutreachBatchApi(async (input, init) => {
   calls.push({ url: String(input), init });
@@ -79,6 +125,42 @@ for (const malformed of [
       .listBatches("run-1", "candidate-1"),
     (error: unknown) => error instanceof AcquisitionHttpError
       && error.code === "malformed_response"
+  );
+}
+const { planId: _missingPlanId, ...missingPlanId } = batch;
+const { contentHash: _missingContentHash, ...missingContentHash } = batch.candidates[0];
+for (const malformed of [
+  { items: [missingPlanId], nextCursor: null },
+  { items: [{ ...batch, candidates: [missingContentHash] }], nextCursor: null },
+  { items: [{ ...batch, unexpectedAuthority: "private" }], nextCursor: null },
+  { items: [{ ...batch, candidates: [{ ...batch.candidates[0], unexpectedAuthority: "private" }] }], nextCursor: null }
+]) {
+  await assert.rejects(
+    createOutreachBatchApi(async () => new Response(JSON.stringify(malformed), { status: 200 }))
+      .listBatches("run-1", "candidate-1"),
+    (error: unknown) => error instanceof AcquisitionHttpError
+      && error.code === "malformed_response"
+  );
+}
+for (const [privateField, privateValue] of [
+  ["evidenceText", ["private evidence"]],
+  ["publicActorKey", "private-actor"],
+  ["publicProfileUrl", "https://www.douyin.com/user/private"],
+  ["commentTargetPublicUrl", "https://www.douyin.com/video/private"]
+] as const) {
+  const malformed = {
+    items: [{
+      ...batch,
+      candidates: [{ ...batch.candidates[0], [privateField]: privateValue }]
+    }],
+    nextCursor: null
+  };
+  await assert.rejects(
+    createOutreachBatchApi(async () => new Response(JSON.stringify(malformed), { status: 200 }))
+      .listBatches("run-1", "candidate-1"),
+    (error: unknown) => error instanceof AcquisitionHttpError
+      && error.code === "malformed_response",
+    privateField
   );
 }
 await assert.rejects(

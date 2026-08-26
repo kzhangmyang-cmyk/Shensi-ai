@@ -1617,6 +1617,7 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
     responses: { ...standardResponses(201, "已创建批次", acquisitionOutreachBatchSchema), "201": batchSuccess("已创建批次", true) }
   }));
   add(paths, "/api/v1/acquisition/outreach-batches", "get", operation("get", "按运行和候选人列出外联批次", {
+    description: "Requires the acquisition.outreach.approve capability.",
     parameters: [
       { name: "runId", in: "query", required: true,
         schema: { type: "string", minLength: 1, maxLength: 255 } },
@@ -1627,7 +1628,10 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
       { name: "cursor", in: "query", required: false,
         schema: { type: "string", minLength: 1, maxLength: 8_192 } }
     ],
-    responses: standardResponses(200, "候选人外联批次页", acquisitionOutreachBatchListSchema)
+    responses: {
+      ...standardResponses(200, "候选人外联批次页", acquisitionOutreachBatchListSchema),
+      "403": response("Missing the acquisition.outreach.approve capability or a valid workspace context.", errorSchema)
+    }
   }));
   add(paths, "/api/v1/acquisition/outreach-batches/{batchId}", "get", operation("get", "读取外联批次", {
     parameters: [batchParameter], responses: { ...standardResponses(200, "外联批次", acquisitionOutreachBatchSchema), "200": batchSuccess("外联批次") }
