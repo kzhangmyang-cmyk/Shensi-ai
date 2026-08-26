@@ -219,6 +219,13 @@ aborts on an unhealthy dependency or an occupied port.
 
 `trial:status` validates recorded PID/command/nonce authority before reporting a
 component as running and is the authority for the current temporary origin.
+The supervisor starts the backend, frontend preview, and MediaCrawler uvicorn
+directly from their built/runtime executables, not through a package-manager or
+environment-runner launcher that could exit after spawning the service. Each
+recorded nonce-bearing wrapper therefore remains the direct parent of its
+long-running service. Start removes only records whose PID no longer exists;
+any live PID with a different command or nonce remains recorded and blocks the
+start rather than being replaced or signalled.
 `trial:verify` reads that owner-only runtime status by default; an explicit
 operator-supplied origin is only an override, and neither value belongs in a
 tracked document.

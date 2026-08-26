@@ -61,6 +61,55 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
   assert.deepEqual(stopped, [900, 901, 903, 904, 905, 906]);
 });
 
+test("supervisor wraps direct long-lived service commands so recorded wrapper PIDs remain authoritative", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-direct-commands-"));
+  const calls = [];
+  let nextPid = 1_100;
+  await startTrialRuntime(root, {
+    prepare: async () => ({
+      root, environmentFile: join(root, "trial.env"), stateDirectory: join(root, "state"),
+      logsDirectory: join(root, "logs"), pidsDirectory: join(root, "pids"),
+      toolsDirectory: join(root, "tools"), mysqlDirectory: join(root, "mysql"),
+      secretsDirectory: join(root, "secrets"),
+      environment: {
+        DATABASE_URL: "mysql://fixture", SHENSI_TRIAL_APP_PASSWORD_FILE: join(root, "password"),
+        MEDIACRAWLER_SERVICE_SECRET_FILE: join(root, "sidecar-secret")
+      }
+    }),
+    isPortAvailable: async () => true,
+    runCommand: async () => undefined,
+    waitForMysql: async () => undefined,
+    waitForTunnelOrigin: async () => "https://trial-fixture.trycloudflare.com",
+    readSidecarSecret: async () => "fixture-sidecar-secret",
+    spawn: (command, args, options) => {
+      const value = child(nextPid++);
+      calls.push({ command, args, options, value });
+      return value;
+    },
+    waitForHealth: async () => undefined,
+    provisionAdmin: async () => undefined,
+    mysqlBinary: "/fixture/mysqld",
+    cloudflaredBinary: "/fixture/cloudflared"
+  });
+  const targets = calls.map((wrapper) => {
+    const marker = wrapper.args.indexOf("--");
+    return JSON.parse(Buffer.from(wrapper.args[marker + 1], "base64url").toString("utf8"));
+  });
+  const target = (suffix) => targets.find((item) => item.args[0]?.endsWith(suffix));
+  const backend = target("backend/dist/server.js");
+  const frontend = target("node_modules/vite/bin/vite.js");
+  const sidecar = targets.find((item) => item.command.endsWith(
+    "services/media-crawler/.venv/bin/uvicorn"
+  ));
+  assert.ok(backend && frontend && sidecar);
+  assert.match(backend.command, /node$/u);
+  assert.match(backend.args[0], /backend\/dist\/server\.js$/u);
+  assert.match(frontend.command, /node$/u);
+  assert.match(frontend.args[0], /node_modules\/vite\/bin\/vite\.js$/u);
+  assert.match(sidecar.command, /services\/media-crawler\/\.venv\/bin\/uvicorn$/u);
+  assert.deepEqual(sidecar.args.slice(0, 2), ["shensi_adapter.app:app", "--app-dir"]);
+});
+
 test("verification checks local health, protected authentication, and public isolation", async () => {
   const calls = [];
   await verifyTrialRuntime({ origin: "http://127.0.0.1:5608", fetchImpl: async (url) => {
