@@ -106,6 +106,8 @@ test("supervisor wraps direct long-lived service commands so recorded wrapper PI
   assert.match(backend.args[0], /backend\/dist\/server\.js$/u);
   assert.match(frontend.command, /node$/u);
   assert.match(frontend.args[0], /frontend\/node_modules\/vite\/bin\/vite\.js$/u);
+  assert.equal(frontend.args[1], "preview");
+  assert.match(frontend.args[2], /frontend$/u);
   assert.match(sidecar.command, /services\/media-crawler\/\.venv\/bin\/uvicorn$/u);
   assert.deepEqual(sidecar.args.slice(0, 2), ["shensi_adapter.app:app", "--app-dir"]);
 });
