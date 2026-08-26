@@ -220,6 +220,18 @@ async function main() {
       },
       updatedAt: "2026-08-05T01:00:00.000Z"
     });
+    transaction.appendRunEvent({
+      id: "candidate-visible-older",
+      runId: olderRun.id,
+      shardId: null,
+      ownerId: ownerA.ownerId,
+      teamId: ownerA.teamId,
+      type: "candidate.discovered",
+      actorId: ownerA.actorId,
+      revision: 2,
+      at: "2026-08-05T00:00:30.000Z",
+      data: { candidateId: "candidate-visible" }
+    });
   });
   const webPlan = await createApprovedPlan(service, ownerA, "网页获客", "web");
   await createApprovedPlan(service, ownerB, "其他租户的抖音获客");
@@ -254,6 +266,7 @@ async function main() {
   ]);
   assert.equal(visibleTask?.latestRun?.id, latestRun.id);
   assert.equal(visibleTask?.latestRun?.evidenceCount, 3);
+  assert.equal(visibleTask?.latestResultRunId, olderRun.id);
   assert.equal(
     Object.hasOwn(visibleTask?.latestRun?.consumedBudget ?? {}, "amountMinor"),
     false

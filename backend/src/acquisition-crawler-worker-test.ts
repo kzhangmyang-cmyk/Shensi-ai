@@ -153,6 +153,42 @@ test("worker persists validated sidecar activity before a zero-page poll", async
   await worker.close();
 });
 
+test("worker projects a cancelled crawler job to its authoritative run", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(job);
+  await repository.enqueue("workspace-1", "run-1", now);
+  const projected: string[] = [];
+  const worker = new AcquisitionCrawlerWorker({
+    repository,
+    gateway: {
+      async startCrawlJob() { return {
+        jobId: "crawler-1", state: "running" as const,
+        recordCount: 0, pageCount: 0, failureCode: null, activity: queuedActivity
+      }; },
+      async getCrawlJob() { return {
+        jobId: "crawler-1", state: "cancelled" as const,
+        recordCount: 0, pageCount: 0, failureCode: null, activity: queuedActivity
+      }; },
+      async getCrawlResults() { throw new Error("not expected"); },
+      async cancelCrawlJob() {}
+    },
+    accounts: { async findById() { return {
+      id: "account-1", workspaceId: "workspace-1", platform: "douyin" as const,
+      accountHandle: "private-handle", state: "active" as const,
+      loginStateVersion: 2
+    }; } },
+    workerId: "worker-cancelled-projection",
+    now: () => now,
+    async projectTerminalJob(terminalJob) {
+      projected.push(`${terminalJob.runIds.join(",")}:${terminalJob.state}`);
+    }
+  });
+
+  assert.equal(await worker.runOnce(), true);
+  assert.deepEqual(projected, ["run-1:cancelled"]);
+  await worker.close();
+});
+
 test("worker requeues a paused sidecar job after preserving activity and restarts it on the next claim", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   await repository.createOrGet(job);
@@ -211,6 +247,44 @@ test("worker requeues a paused sidecar job after preserving activity and restart
   assert.equal(requeued?.activity.phase, "searching");
   assert.equal(await worker.runOnce(), true);
   assert.equal(starts, 2);
+  await worker.close();
+});
+
+test("worker projects a failed sidecar job after its retry budget is exhausted", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet({ ...job, maxAttempts: 1 });
+  await repository.enqueue("workspace-1", "run-1", now);
+  const projected: string[] = [];
+  const worker = new AcquisitionCrawlerWorker({
+    repository,
+    gateway: {
+      async startCrawlJob() { return {
+        jobId: "crawler-1", state: "running" as const,
+        recordCount: 0, pageCount: 0, failureCode: null, activity: queuedActivity
+      }; },
+      async getCrawlJob() { return {
+        jobId: "crawler-1", state: "failed" as const,
+        recordCount: 0, pageCount: 0,
+        failureCode: "mediacrawler_job_failed", activity: queuedActivity
+      }; },
+      async getCrawlResults() { throw new Error("not expected"); },
+      async cancelCrawlJob() {}
+    },
+    accounts: { async findById() { return {
+      id: "account-1", workspaceId: "workspace-1", platform: "douyin" as const,
+      accountHandle: "private-handle", state: "active" as const,
+      loginStateVersion: 2
+    }; } },
+    workerId: "worker-failed-projection",
+    now: () => now,
+    async projectTerminalJob(terminalJob) {
+      projected.push(`${terminalJob.runIds.join(",")}:${terminalJob.state}`);
+    }
+  });
+
+  assert.equal(await worker.runOnce(), true);
+  assert.equal((await repository.findByRun("workspace-1", "run-1"))?.state, "paused");
+  assert.deepEqual(projected, ["run-1:paused"]);
   await worker.close();
 });
 
@@ -414,15 +488,20 @@ test("worker rejects a changed private account binding before sidecar start", as
   await repository.createOrGet(job);
   await repository.enqueue("workspace-1", "run-1", now);
   let starts = 0;
+  const projected: string[] = [];
   const worker = new AcquisitionCrawlerWorker({
     repository,
     gateway: { async startCrawlJob() { starts++; throw new Error("not expected"); }, async getCrawlJob() { throw new Error("not expected"); }, async getCrawlResults() { throw new Error("not expected"); }, async cancelCrawlJob() {} },
     accounts: { async findById() { return { id: "account-1", workspaceId: "workspace-1", platform: "douyin" as const, accountHandle: null, state: "disconnected" as const, loginStateVersion: null }; } },
-    workerId: "worker-A", now: () => now
+    workerId: "worker-A", now: () => now,
+    async projectTerminalJob(terminalJob) {
+      projected.push(`${terminalJob.runIds.join(",")}:${terminalJob.state}`);
+    }
   });
   assert.equal(await worker.runOnce(), true);
   assert.equal(starts, 0);
   assert.equal((await repository.findByRun("workspace-1", "run-1"))?.state, "paused");
+  assert.deepEqual(projected, ["run-1:paused"]);
   await worker.close();
 });
 

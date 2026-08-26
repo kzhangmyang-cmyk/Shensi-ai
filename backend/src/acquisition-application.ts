@@ -340,6 +340,9 @@ import {
   MysqlAcquisitionDouyinCrawlerIngestionRepository
 } from "./acquisition-douyin-crawler-ingestion-repository.js";
 import {
+  projectDouyinCrawlerTerminalRuns
+} from "./acquisition-douyin-run-lifecycle.js";
+import {
   AcquisitionDouyinEvidenceRetentionSweeper
 } from "./acquisition-douyin-evidence-retention-sweeper.js";
 import { AcquisitionCrawlerRecoverySweeper } from "./acquisition-crawler-recovery-sweeper.js";
@@ -2605,6 +2608,30 @@ export async function createAcquisitionApplication(
           throw error;
         }
       };
+      const projectTerminalCrawlerJob = async (
+        job: import("./acquisition-crawler-job.js").AcquisitionCrawlerJob
+      ) => {
+        const run = await repositories.planRun.getRun(job.runIds[0]!);
+        if (!run) throw new Error("crawler_terminal_projection_run_missing");
+        const resolved = await acquisitionWorkspace.resolve({
+          ownerId: run.ownerId,
+          teamId: run.teamId
+        });
+        if (!resolved || resolved.workspaceId !== job.workspaceId) {
+          throw new Error("crawler_terminal_projection_workspace_mismatch");
+        }
+        await projectDouyinCrawlerTerminalRuns({
+          repository: repositories.planRun,
+          scope: {
+            workspaceId: job.workspaceId,
+            ownerId: run.ownerId,
+            teamId: run.teamId,
+            actorId: crawlerWorkerId
+          },
+          job,
+          at: job.updatedAt
+        });
+      };
       crawlerWorker = new AcquisitionCrawlerWorker({
         repository: crawlerJobs,
         gateway: options.douyinMediaCrawlerGateway,
@@ -2612,7 +2639,8 @@ export async function createAcquisitionApplication(
         workerId: crawlerWorkerId,
         now,
         ingestAvailableJob: ingestCrawlerJob,
-        ingestTerminalJob: ingestCrawlerJob
+        ingestTerminalJob: ingestCrawlerJob,
+        projectTerminalJob: projectTerminalCrawlerJob
       });
       crawlerWorker.start(options.crawlerWorkerIntervalMs);
       if (options.douyinOutreachActionsEnabled === true) {

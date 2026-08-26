@@ -246,9 +246,13 @@ ledger.
   cookies, headers, selectors, CDP/WebSocket endpoints, browser identifiers, and
   raw logs. Every dashboard refresh validates status before reading candidates,
   so live candidates may appear before readiness; `ready` is the ordering
-  boundary for the final candidate read, and polling stops at `ready` or
-  `failed`. Zero candidates with terminal `ready` is valid, and a candidate-read
-  failure does not discard a validated terminal status. The frontend rejects
+  boundary for the final candidate read. Zero candidates with terminal `ready`
+  is valid, and a candidate-read failure does not discard a validated terminal
+  status; it receives at most three exponentially backed-off retries before the
+  poller stops. Paused, failed, and cancelled crawler jobs now project the same
+  recognizable state into active authoritative run aliases. Overview keeps the
+  newest run status while also publishing the latest run with persisted candidate
+  links, so a newer stopped zero-result run cannot hide prior candidates. The frontend rejects
   non-primitive enum values and recursively accepts candidate pages only when
   the page is exactly `{items,nextCursor}`, each candidate is exactly
   `{id,status,displayName,evidence}`, and evidence is exactly

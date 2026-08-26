@@ -65,6 +65,7 @@ export function createDouyinAutomationController(options: {
   api: DouyinAutomationApi;
   onPlanCreated?: (planId: string) => void;
   pollDelayMs?: number;
+  terminalCandidateRetryLimit?: number;
   setTimer?: typeof setTimeout;
   clearTimer?: typeof clearTimeout;
 }): DouyinAutomationController {
@@ -72,12 +73,18 @@ export function createDouyinAutomationController(options: {
   const setTimer = options.setTimer ?? setTimeout;
   const clearTimer = options.clearTimer ?? clearTimeout;
   const pollDelayMs = options.pollDelayMs ?? 2_000;
+  const terminalCandidateRetryLimit = options.terminalCandidateRetryLimit ?? 3;
   let generation = 0;
   let aborter = new AbortController();
   let loginTimer: ReturnType<typeof setTimeout> | null = null;
   let runTimer: { handle: ReturnType<typeof setTimeout>; runId: string; generation: number } | null = null;
   let runFlight: Promise<void> | null = null;
   let runRefreshFlight: { runId: string; generation: number; promise: Promise<void> } | null = null;
+  let terminalCandidateRetry: {
+    runId: string;
+    generation: number;
+    failures: number;
+  } | null = null;
   let saveFlight: Promise<void> | null = null;
   let state: DouyinAutomationState = { phase: "idle", planId: null, planName: "", planStatus: null, account: null, loginSession: null, policy: null, draftPolicy: emptyPolicy(), runIntent: null, activeRunId: null, crawlerStatus: null, candidates: [], selectedCandidateIds: [], error: null, suggestionError: null, closed: false };
   const emit = (patch: Partial<DouyinAutomationState>) => {
@@ -93,6 +100,7 @@ export function createDouyinAutomationController(options: {
     if (runTimer) clearTimer(runTimer.handle);
     loginTimer = null; runTimer = null;
     runRefreshFlight = null;
+    terminalCandidateRetry = null;
     return generation;
   };
   const pollLogin = async (sessionId: string, ownGeneration: number): Promise<void> => {
@@ -113,14 +121,18 @@ export function createDouyinAutomationController(options: {
     clearTimer(runTimer.handle);
     runTimer = null;
   };
-  const scheduleRunRefresh = (runId: string, ownGeneration: number) => {
+  const scheduleRunRefresh = (
+    runId: string,
+    ownGeneration: number,
+    delayMs = pollDelayMs
+  ) => {
     if (!current(ownGeneration)) return;
     clearRunTimer();
     const timer = { handle: null as unknown as ReturnType<typeof setTimeout>, runId, generation: ownGeneration };
     timer.handle = setTimer(() => {
       if (runTimer === timer) runTimer = null;
       void refreshRunFor(runId, ownGeneration);
-    }, pollDelayMs);
+    }, delayMs);
     runTimer = timer;
   };
   const refreshRunFor = (runId: string, ownGeneration: number): Promise<void> => {
@@ -137,12 +149,30 @@ export function createDouyinAutomationController(options: {
         validatedStatus = crawlerStatus;
         const page = await options.api.listRunCandidates(runId, aborter.signal);
         if (!current(ownGeneration)) return;
+        terminalCandidateRetry = null;
         emit({ crawlerStatus, candidates: page.items, phase: "ready", error: null });
         if (requiresRunPolling(crawlerStatus)) scheduleRunRefresh(runId, ownGeneration);
       } catch (error) {
         if (current(ownGeneration) && !(error instanceof DOMException && error.name === "AbortError")) {
           emit({ ...(validatedStatus ? { crawlerStatus: validatedStatus } : {}), phase: "error", error: message(error) });
-          if (!validatedStatus || requiresRunPolling(validatedStatus)) scheduleRunRefresh(runId, ownGeneration);
+          if (!validatedStatus || requiresRunPolling(validatedStatus)) {
+            scheduleRunRefresh(runId, ownGeneration);
+          } else {
+            if (!terminalCandidateRetry
+              || terminalCandidateRetry.runId !== runId
+              || terminalCandidateRetry.generation !== ownGeneration) {
+              terminalCandidateRetry = {
+                runId,
+                generation: ownGeneration,
+                failures: 0
+              };
+            }
+            if (terminalCandidateRetry.failures < terminalCandidateRetryLimit) {
+              const delayMs = pollDelayMs * (2 ** terminalCandidateRetry.failures);
+              terminalCandidateRetry.failures += 1;
+              scheduleRunRefresh(runId, ownGeneration, delayMs);
+            }
+          }
         }
       }
     })();
@@ -273,6 +303,7 @@ export function createDouyinAutomationController(options: {
         try {
           const runIntent = await options.api.runNow(state.planId!, key("douyin-run"), aborter.signal);
           if (!current(own)) return;
+          terminalCandidateRetry = null;
           emit({ runIntent, activeRunId: runIntent.acquisitionRunId, crawlerStatus: null, candidates: [], selectedCandidateIds: [], phase: "ready", error: null });
           await refreshRunFor(runIntent.acquisitionRunId, own);
         } catch (error) { if (current(own)) emit({ phase: "error", error: message(error) }); }

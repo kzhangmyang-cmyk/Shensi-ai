@@ -242,9 +242,12 @@ evidence, DNC/exclusion state, exact comment/direct-message drafts and
 sanitized receipts. Approval always requires an explicit second confirmation.
 An ETag conflict reloads the latest revision before another approval attempt,
 and logout, close or mode change aborts active requests and the single poller.
-The task overview retains the latest authoritative run ID. On controller load,
-including a browser refresh or verified-session restoration, that
-`latestRunId` becomes the independent `activeRunId` used to reload crawler
+The task overview retains the latest authoritative run and separately publishes
+`latestResultRunId`, the newest run with persisted candidate links. The newest
+run continues to own the displayed task status. On controller load, including a
+browser refresh or verified-session restoration, a stopped zero-result latest
+run falls back only for candidate review to `latestResultRunId`; otherwise the
+latest run ID becomes the independent `activeRunId` used to reload crawler
 status and the run's candidate page. `activeRunId` is not a reconstructed
 run-now intent; it is also the run authority used when the operator creates an
 editable, pending-approval outreach batch from recovered candidates. It blocks
@@ -254,9 +257,12 @@ state is nonterminal, or while candidate projection is `pending`. Every refresh
 validates crawler status before reading the candidate page. Live-projected
 candidates may appear while the crawl is nonterminal or projection remains
 `pending`; a validated `ready` status is the ordering boundary for the final
-candidate read. Polling stops after the read paired with `ready` or `failed`, a
-terminal `ready` response with zero candidates is valid, and a candidate-read
-failure retains the validated terminal status. Recovery is read-only: it does
+candidate read. A terminal `ready` response with zero candidates is valid, and
+a candidate-read failure retains the validated terminal status while receiving
+at most three exponentially backed-off retries. Success, run change, closure,
+or exhaustion stops that retry loop. Paused, failed, and cancelled crawler jobs
+project the matching recognizable state into every still-active authoritative
+run alias. Recovery is read-only: it does
 not create or approve a batch and never submits a comment or direct message;
 those external actions remain behind explicit second confirmation, the exact
 backend/sidecar action flag, and the separate fenced executor. The real-customer

@@ -607,10 +607,18 @@ function initialiseRuntime(): void {
     }
     const firstTask = model.tasks[0];
     const firstPlanId = firstTask?.planId;
+    const firstCandidateRunId = firstTask?.candidateRunId
+      ?? firstTask?.latestRunId
+      ?? null;
     const automationState = automationController.getState();
     if (firstPlanId && (automationState.planId !== firstPlanId
-      || (firstTask.latestRunId !== null && automationState.activeRunId !== firstTask.latestRunId))) {
-      void automationController.load(firstPlanId, firstTask.name, firstTask.latestRunId);
+      || (firstCandidateRunId !== null
+        && automationState.activeRunId !== firstCandidateRunId))) {
+      void automationController.load(
+        firstPlanId,
+        firstTask.name,
+        firstCandidateRunId
+      );
     } else if (!firstPlanId && automationController.getState().phase === "idle") {
       void automationController.load(null);
     }

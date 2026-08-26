@@ -260,13 +260,17 @@ endpoint, raw log, ingestion state, or lease data.
 Every dashboard refresh validates crawler status before requesting the candidate
 page. Live-projected candidates may therefore appear while the crawl is
 nonterminal or candidate projection is still `pending`; a validated `ready`
-status is the ordering boundary for the final candidate-page read. Polling stops
-after the candidate read paired with `ready` or `failed`, and zero candidates
-with `ready` is a valid completed result. A validated terminal status remains
-visible if that candidate read fails. Task overview hydration carries the latest
-authoritative run ID across refresh and verified-session restoration; the
-frontend uses it as an independent active run to reload status and candidates
-and to scope an operator-created pending-approval outreach batch. It does not
+status is the ordering boundary for the final candidate-page read. Zero
+candidates with `ready` is a valid completed result. A validated terminal status
+remains visible if that candidate read fails; the candidate read then retries at
+most three times with exponential backoff and stops immediately after success or
+after the bound is exhausted. Paused, failed, and cancelled crawler jobs project
+the same recognizable stop state into every still-active authoritative run
+alias. Task overview hydration carries both the latest authoritative run and the
+latest run with persisted candidate links across refresh and verified-session
+restoration. The latest status remains visible; when a newer stopped run has no
+candidates, the frontend reloads the latest result run for candidate review and
+batch scoping. It does not
 reconstruct a run-now intent, and another run stays blocked until restored
 status has been confirmed. Restoration creates or approves no batch and sends
 no comment or direct message. The frontend accepts a candidate page only

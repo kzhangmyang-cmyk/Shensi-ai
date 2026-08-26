@@ -41,6 +41,7 @@ export interface AcquisitionTaskSummary {
   discoveryMethods: AcquisitionDiscoveryMethod[];
   planStatus: "draft" | "approved" | "archived";
   latestRun: AcquisitionTaskLatestRun | null;
+  latestResultRunId?: string | null;
   updatedAt: string;
 }
 
@@ -64,6 +65,7 @@ export interface AcquisitionTaskRowModel {
   id: string;
   planId: string;
   latestRunId: string | null;
+  candidateRunId?: string | null;
   name: string;
   objective: string;
   platformLabel: string;
@@ -170,10 +172,14 @@ export function buildAcquisitionOverviewModel(
     ],
     tasks: overview.tasks.map((task) => {
       const latestRun = task.latestRun;
+      const candidateRunId = latestRun && ATTENTION_STATUSES.has(latestRun.status)
+        ? task.latestResultRunId ?? latestRun.id
+        : latestRun?.id ?? null;
       return {
         id: task.id,
         planId: task.planId,
         latestRunId: latestRun?.id ?? null,
+        candidateRunId,
         name: task.name,
         objective: task.objective,
         platformLabel: task.platform === "douyin" ? "抖音" : "全网公开网页",

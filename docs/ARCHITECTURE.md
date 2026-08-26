@@ -251,10 +251,13 @@ projection and localizes phase while showing browser mode, keyword, attempt and
 update time, and candidate allowance. Each refresh validates crawler status
 before its candidate-page request. Live-projected candidates can appear while
 the crawler is nonterminal or projection is `pending`; a validated `ready`
-snapshot is the ordering boundary for the final candidate-page read. Polling
-stops after the read paired with `ready` or `failed`, terminal `ready` with zero
-candidates is valid, and a validated terminal status survives a failed candidate
-read. The decoder requires primitive strings before accepting crawler state,
+snapshot is the ordering boundary for the final candidate-page read. Terminal
+`ready` with zero candidates is valid, and a validated terminal status survives
+a failed candidate read. That read receives at most three run- and generation-
+fenced exponential-backoff retries, then stops. The task read model keeps the
+newest authoritative run for truthful status and separately identifies the
+newest run with persisted candidate links; stopped zero-result runs therefore do
+not erase the last reviewable candidate set. The decoder requires primitive strings before accepting crawler state,
 activity phase, browser mode, or projection-state enums. It accepts candidate
 pages only with exact page, candidate, and evidence keys; at most 100 items; a
 null or nonempty cursor of at most 8,192 Unicode code points; nonempty candidate

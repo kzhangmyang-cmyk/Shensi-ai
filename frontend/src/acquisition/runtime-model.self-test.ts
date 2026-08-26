@@ -48,15 +48,16 @@ const overview = buildAcquisitionOverviewModel({
       platform: "douyin",
       discoveryMethods: ["public_search", "user_import"],
       planStatus: "approved",
+      latestResultRunId: "run-previous-result",
       latestRun: {
         id: "run-failed",
         status: "failed",
         updatedAt: "2026-08-07T04:30:00.000Z",
         completedAt: "2026-08-07T04:31:00.000Z",
-        evidenceCount: 3,
+        evidenceCount: 0,
         consumedBudget: {
           requests: 2,
-          results: 3,
+          results: 0,
           durationSeconds: 22
         }
       },
@@ -92,6 +93,12 @@ assert.equal(overview.tasks[0]?.statusLabel, "正在运行");
 assert.equal(overview.tasks[0]?.evidenceCount, 12);
 assert.equal(overview.tasks[0]?.tags.join(" / "), "公开搜索");
 assert.equal(overview.tasks[1]?.statusTone, "danger");
+assert.equal(overview.tasks[1]?.latestRunId, "run-failed");
+assert.equal(
+  overview.tasks[1]?.candidateRunId,
+  "run-previous-result",
+  "a failed empty latest run must retain honest status while candidates restore from the latest result run"
+);
 assert.equal(overview.tasks[2]?.statusLabel, "尚未开始");
 assert.equal(runStatusLabel("budget_exhausted"), "预算已用完");
 assert.equal(runStatusLabel(null), "尚未开始");

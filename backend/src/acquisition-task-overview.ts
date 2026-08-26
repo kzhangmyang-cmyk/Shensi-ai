@@ -36,6 +36,7 @@ export interface AcquisitionTaskSummary {
   discoveryMethods: AcquisitionDiscoveryMethod[];
   planStatus: AcquisitionPlanStatus;
   latestRun: AcquisitionTaskLatestRun | null;
+  latestResultRunId: string | null;
   updatedAt: string;
 }
 
@@ -87,8 +88,16 @@ function latestRunFor(plan: AcquisitionPlan, runs: AcquisitionRun[]) {
       || right.id.localeCompare(left.id))[0] ?? null;
 }
 
-function summaryFor(plan: AcquisitionPlan, runs: AcquisitionRun[]) {
+function summaryFor(
+  plan: AcquisitionPlan,
+  runs: AcquisitionRun[],
+  resultRunIds: ReadonlySet<string>
+) {
   const latestRun = latestRunFor(plan, runs);
+  const latestResultRun = latestRunFor(
+    plan,
+    runs.filter((run) => resultRunIds.has(run.id))
+  );
   const consumedBudget = latestRun
     ? (() => {
         const { amountMinor, ...usage } = structuredClone(latestRun.consumedBudget);
@@ -113,6 +122,7 @@ function summaryFor(plan: AcquisitionPlan, runs: AcquisitionRun[]) {
           consumedBudget: consumedBudget!
         }
       : null,
+    latestResultRunId: latestResultRun?.id ?? null,
     updatedAt: latestRun && latestRun.updatedAt > plan.updatedAt
       ? latestRun.updatedAt
       : plan.updatedAt
@@ -165,8 +175,12 @@ export class AcquisitionTaskOverviewService {
       this.repository.listPlans(scope),
       this.repository.listRuns(scope)
     ]);
+    const resultRunIds = new Set((await Promise.all(runs.map(async (run) =>
+      (await this.repository.listRunCandidateLinks(run.id)).length > 0
+        ? run.id : null
+    ))).filter((runId): runId is string => runId !== null));
     return structuredClone(plans.map((plan) =>
-      summaryFor(structuredClone(plan), structuredClone(runs))
+      summaryFor(structuredClone(plan), structuredClone(runs), resultRunIds)
     ).filter((task) =>
       (!query.platform || task.platform === query.platform)
       && (!query.planStatus || task.planStatus === query.planStatus)

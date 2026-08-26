@@ -15,6 +15,7 @@ export interface AcquisitionCrawlerWorkerOptions {
   maxPageCount?: number;
   ingestAvailableJob?: (job: AcquisitionCrawlerJob) => Promise<void>;
   ingestTerminalJob?: (job: AcquisitionCrawlerJob) => Promise<void>;
+  projectTerminalJob?: (job: AcquisitionCrawlerJob) => Promise<void>;
 }
 
 function delay(durationMs: number, signal: AbortSignal) {
@@ -36,6 +37,7 @@ export class AcquisitionCrawlerWorker {
   private readonly maxPageCount: number;
   private readonly ingestAvailableJob: AcquisitionCrawlerWorkerOptions["ingestAvailableJob"];
   private readonly ingestTerminalJob: AcquisitionCrawlerWorkerOptions["ingestTerminalJob"];
+  private readonly projectTerminalJob: AcquisitionCrawlerWorkerOptions["projectTerminalJob"];
   private readonly controller = new AbortController();
   private active: Promise<boolean> | null = null;
   private timer: NodeJS.Timeout | null = null;
@@ -51,6 +53,7 @@ export class AcquisitionCrawlerWorker {
     this.maxPageCount = options.maxPageCount ?? 1_000;
     this.ingestAvailableJob = options.ingestAvailableJob;
     this.ingestTerminalJob = options.ingestTerminalJob;
+    this.projectTerminalJob = options.projectTerminalJob;
     if (this.ingestTerminalJob && !this.gateway.acknowledgeCrawlJob) {
       throw new TypeError("crawler_acknowledgement_gateway_required");
     }
@@ -92,7 +95,10 @@ export class AcquisitionCrawlerWorker {
       if (!account || account.workspaceId !== job.workspaceId || account.id !== job.accountId
         || account.platform !== "douyin" || account.state !== "active" || !account.accountHandle
         || account.loginStateVersion !== job.accountLoginStateVersion) {
-        await this.repository.pause(fence, "crawler_account_binding_changed", this.now());
+        const paused = await this.repository.pause(
+          fence, "crawler_account_binding_changed", this.now()
+        );
+        await this.projectTerminalJob?.(paused);
         return true;
       }
       const deadlineAt = new Date(Date.parse(this.now()) + job.limits.maxDurationSeconds * 1_000).toISOString();
@@ -121,7 +127,8 @@ export class AcquisitionCrawlerWorker {
         const persisted = await this.repository.findByRun(job.workspaceId, job.runId);
         if (persisted?.cancelRequestedAt) {
           await this.gateway.cancelCrawlJob(job.id, this.controller.signal);
-          await this.repository.completeCancelled(fence, this.now());
+          const cancelled = await this.repository.completeCancelled(fence, this.now());
+          await this.projectTerminalJob?.(cancelled);
           return true;
         }
         const status = await this.gateway.getCrawlJob(job.id, this.controller.signal);
@@ -133,24 +140,34 @@ export class AcquisitionCrawlerWorker {
           });
         }
         if (status.state === "paused") {
-          await this.repository.fail(
+          const paused = await this.repository.fail(
             fence, "mediacrawler_job_paused", this.now(), true
           );
+          if (["paused", "failed", "cancelled"].includes(paused.state)) {
+            await this.projectTerminalJob?.(paused);
+          }
           return true;
         }
         if (["failed", "cancelled"].includes(status.state)) {
           if (status.state === "cancelled") {
             await this.repository.requestCancel(job.workspaceId, job.runId, this.now());
-            await this.repository.completeCancelled(fence, this.now());
+            const cancelled = await this.repository.completeCancelled(fence, this.now());
+            await this.projectTerminalJob?.(cancelled);
           } else {
-            await this.repository.fail(fence, "mediacrawler_job_failed", this.now(), true);
+            const failed = await this.repository.fail(
+              fence, "mediacrawler_job_failed", this.now(), true
+            );
+            if (["paused", "failed", "cancelled"].includes(failed.state)) {
+              await this.projectTerminalJob?.(failed);
+            }
           }
           return true;
         }
         if (status.pageCount > this.maxPageCount) {
-          await this.repository.pause(
+          const paused = await this.repository.pause(
             fence, "crawler_page_limit_exceeded", this.now()
           );
+          await this.projectTerminalJob?.(paused);
           return true;
         }
         const current = await this.repository.findByRun(job.workspaceId, job.runId);
@@ -208,8 +225,12 @@ export class AcquisitionCrawlerWorker {
       }
     } catch (error) {
       if (this.controller.signal.aborted) return true;
-      await this.repository.fail(fence, "crawler_worker_failed", this.now(), true)
-        .catch(() => undefined);
+      const failed = await this.repository.fail(
+        fence, "crawler_worker_failed", this.now(), true
+      ).catch(() => undefined);
+      if (failed && ["paused", "failed", "cancelled"].includes(failed.state)) {
+        await this.projectTerminalJob?.(failed).catch(() => undefined);
+      }
       return true;
     }
   }

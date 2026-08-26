@@ -36,6 +36,7 @@ import {
   type AcquisitionPlanPayload,
   type AcquisitionPlanVersion
 } from "./acquisition-plan-run-repository.js";
+import { projectDouyinCrawlerTerminalRuns } from "./acquisition-douyin-run-lifecycle.js";
 
 const NOW = "2026-08-25T01:00:00.000Z";
 const SCOPE = Object.freeze({
@@ -167,6 +168,39 @@ async function fixture(runIds = ["run-1", "run-2"]) {
     )
   };
 }
+
+test("terminal crawler projection cancels every nonterminal authoritative run alias", async () => {
+  const { planRuns, repository } = await fixture();
+  const cancelledAt = "2026-08-25T01:05:00.000Z";
+  const terminalJob = {
+    ...crawlerJob("job-cancelled", ["run-1", "run-2"]),
+    state: "cancelled" as const,
+    ingestionState: null,
+    lastErrorCode: null,
+    completedAt: cancelledAt,
+    updatedAt: cancelledAt
+  };
+
+  await projectDouyinCrawlerTerminalRuns({
+    repository: planRuns,
+    scope: SCOPE,
+    job: terminalJob,
+    at: cancelledAt
+  });
+
+  for (const runId of terminalJob.runIds) {
+    const run = await planRuns.getRun(runId);
+    assert.equal(run?.status, "cancelled");
+    assert.equal(run?.terminationIntent, "cancelled");
+    assert.equal(run?.completedAt, cancelledAt);
+    assert.equal(
+      (await planRuns.listRunEvents(runId)).filter(
+        (event) => event.type === "run.cancelled"
+      ).length,
+      1
+    );
+  }
+});
 
 test("authoritative ingestion links every real run alias and keeps cross-job DNC permanent", async () => {
   const { planRuns, domain, repository } = await fixture();

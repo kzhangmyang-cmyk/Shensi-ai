@@ -311,7 +311,8 @@ assert.equal(readyCandidateReads, 1);
 assert.deepEqual(orderedReadyController.getState().candidates, [liveCandidate], "a ready status must load the candidates read after it");
 orderedReadyController.close();
 
-const terminalCandidateFailureTimers: Array<() => void> = [];
+const terminalCandidateFailureTimers: Array<{ callback: () => void; delay: number }> = [];
+let terminalCandidateReads = 0;
 const terminalCandidateFailureController = createDouyinAutomationController({
   api: {
     createPlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "draft", version: 1, etag: '"plan:1"' }),
@@ -326,18 +327,77 @@ const terminalCandidateFailureController = createDouyinAutomationController({
       candidateProjectionState: "ready" as const, completedAt: now,
       activity: { phase: "completed" as const, currentKeyword: null, browserMode: "headless" as const, sequence: 5 }
     }),
-    listRunCandidates: async () => { throw new Error("candidate read failed"); }
+    listRunCandidates: async () => {
+      terminalCandidateReads += 1;
+      if (terminalCandidateReads === 1) throw new Error("candidate read failed");
+      return { items: [liveCandidate], nextCursor: null };
+    }
   },
   pollDelayMs: 250,
-  setTimer: ((callback: unknown) => { terminalCandidateFailureTimers.push(callback as () => void); return terminalCandidateFailureTimers.length; }) as unknown as typeof setTimeout,
+  setTimer: ((callback: unknown, delay?: number) => {
+    terminalCandidateFailureTimers.push({
+      callback: callback as () => void,
+      delay: delay ?? 0
+    });
+    return terminalCandidateFailureTimers.length;
+  }) as unknown as typeof setTimeout,
   clearTimer: (() => undefined) as typeof clearTimeout
 });
 await terminalCandidateFailureController.load("plan-1", "袜子获客计划");
 await terminalCandidateFailureController.runNow();
 assert.equal(terminalCandidateFailureController.getState().crawlerStatus?.state, "succeeded", "a validated terminal status must survive a candidate-read failure");
 assert.match(terminalCandidateFailureController.getState().error ?? "", /candidate read failed/u);
-assert.equal(terminalCandidateFailureTimers.length, 0, "a ready terminal projection must not schedule an automatic retry after candidate failure");
+assert.equal(terminalCandidateFailureTimers.length, 1, "a transient terminal candidate failure must schedule a bounded retry");
+assert.equal(terminalCandidateFailureTimers[0]?.delay, 250);
+terminalCandidateFailureTimers.shift()?.callback();
+await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+assert.deepEqual(terminalCandidateFailureController.getState().candidates, [liveCandidate]);
+assert.equal(terminalCandidateFailureController.getState().error, null);
+assert.equal(terminalCandidateFailureTimers.length, 0, "a successful retry must stop terminal candidate polling");
 terminalCandidateFailureController.close();
+
+const exhaustedCandidateTimers: Array<{ callback: () => void; delay: number }> = [];
+let exhaustedCandidateReads = 0;
+const exhaustedCandidateController = createDouyinAutomationController({
+  api: {
+    createPlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "draft", version: 1, etag: '"plan:1"' }),
+    approvePlan: async () => ({ id: "plan-1", name: "袜子获客计划", status: "approved", version: 1, etag: '"plan:2"' }),
+    listAccounts: async () => ({ items: [activeAccount] }),
+    createLoginSession: async () => { throw new Error("not used"); }, getLoginSession: async () => { throw new Error("not used"); }, disconnectAccount: async () => undefined,
+    getAutomation: async () => ({ ...defaultPolicy, keywords: ["袜子"] }), suggestKeywords: async () => ({ keywords: ["袜子"], modelSnapshotId: "model-1" }),
+    putAutomation: async (_planId, input) => ({ ...defaultPolicy, ...input, id: "policy-1", source: "version", accountId: "account-1", accountLoginStateVersion: 1, version: 1, revision: 1, etag: '"policy:1"', createdBy: "user-1", createdAt: now }),
+    runNow: async () => queuedIntent("intent-exhausted-candidates", "run-exhausted-candidates"),
+    getCrawlerStatus: async () => ({
+      ...runningStatus("run-exhausted-candidates"), state: "failed" as const,
+      candidateProjectionState: "ready" as const, completedAt: now
+    }),
+    listRunCandidates: async () => {
+      exhaustedCandidateReads += 1;
+      throw new Error("candidate read remains unavailable");
+    }
+  },
+  pollDelayMs: 250,
+  terminalCandidateRetryLimit: 2,
+  setTimer: ((callback: unknown, delay?: number) => {
+    exhaustedCandidateTimers.push({ callback: callback as () => void, delay: delay ?? 0 });
+    return exhaustedCandidateTimers.length;
+  }) as unknown as typeof setTimeout,
+  clearTimer: (() => undefined) as typeof clearTimeout
+});
+await exhaustedCandidateController.load("plan-1", "袜子获客计划");
+await exhaustedCandidateController.runNow();
+const firstExhaustedRetry = exhaustedCandidateTimers.shift();
+assert.equal(firstExhaustedRetry?.delay, 250);
+firstExhaustedRetry?.callback();
+await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+const secondExhaustedRetry = exhaustedCandidateTimers.shift();
+assert.equal(secondExhaustedRetry?.delay, 500);
+secondExhaustedRetry?.callback();
+await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+assert.equal(exhaustedCandidateReads, 3);
+assert.equal(exhaustedCandidateTimers.length, 0, "terminal candidate retries must stop at the configured bound");
+assert.equal(exhaustedCandidateController.getState().crawlerStatus?.state, "failed");
+exhaustedCandidateController.close();
 
 const recoveredRunStatusReads: string[] = [];
 const recoveredRunCandidateReads: string[] = [];

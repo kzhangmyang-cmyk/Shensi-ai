@@ -24,6 +24,8 @@ Do not add parallel handwritten DTOs.
   observation (phase, keyword, browser mode, sequence) and closed candidate
   projection readiness (`pending`, `ready`, or `failed`), a null or stable
   runtime-normalized crawler failure code, run-scoped candidate feeds, immutable
+  task overviews that retain the newest run status and separately identify the
+  newest run with persisted candidate links,
   outreach batch revisions, human approval, and ordered comment-then-message
   action outbox reads with sanitized execution status, attempt count, receipt
   reference, occurrence time, and closed failure code;
