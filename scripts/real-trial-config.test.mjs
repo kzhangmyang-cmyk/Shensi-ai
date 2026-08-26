@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -26,6 +26,7 @@ test("prepareTrialRuntime creates private deterministic runtime state without ex
   assert.match(environment, /@127\.0\.0\.1:3310\/shensi_trial$/m);
   assert.match(environment, /^VITE_REAL_TRIAL=true$/m);
   assert.match(environment, /^DOUYIN_OUTREACH_ACTIONS_ENABLED=false$/m);
+  assert.match(environment, /^MEDIACRAWLER_BASE_URL=http:\/\/127\.0\.0\.1:5612$/m);
   for (const name of ["SHENSI_MYSQL_APP_PASSWORD", "TRADE_OBSERVATION_CURSOR_SECRET", "MARKET_OPPORTUNITY_CURSOR_SECRET", "PROSPECT_RUN_IDEMPOTENCY_SECRET", "PROSPECT_RUN_CURSOR_SECRET", "PROSPECT_EXECUTION_CLAIM_SECRET", "ORGANIZATION_IDENTITY_MASTER_SECRET", "PROSPECT_SOURCE_RAW_ENVELOPE_SECRET", "PROSPECT_COVERAGE_MASTER_SECRET"]) {
     assert.match(environment, new RegExp(`^${name}=.{32,}$`, "m"));
   }
@@ -41,8 +42,9 @@ test("prepareTrialRuntime creates private deterministic runtime state without ex
   assert.notEqual(await readFile(join(runtime.secretsDirectory, "mysql_app_password"), "utf8"), fixturePassword);
   assert.equal(await readFile(join(runtime.secretsDirectory, "trial_app_password"), "utf8"), fixturePassword);
   assert.equal(runtime.environment.SHENSI_TRIAL_APP_PASSWORD_FILE, join(runtime.secretsDirectory, "trial_app_password"));
-  const repeated = await prepareTrialRuntime(root, { appPassword: fixturePassword, isPortAvailable: async () => true });
+  const repeated = await prepareTrialRuntime(root, { isPortAvailable: async () => true });
   assert.equal(await readFile(join(repeated.secretsDirectory, "jwt_secret"), "utf8"), secrets[0]);
+  assert.equal(await readFile(join(repeated.secretsDirectory, "bootstrap_admin_password"), "utf8"), runtime.bootstrapPassword);
   await assert.rejects(prepareTrialRuntime(root, { appPassword: "different-fixture-password-123456", isPortAvailable: async () => true }), /TRIAL_APP_PASSWORD_MISMATCH/);
 });
 
@@ -51,5 +53,23 @@ test("prepareTrialRuntime refuses every occupied fixed port", async () => {
   await assert.rejects(
     prepareTrialRuntime(root, { appPassword: fixturePassword, isPortAvailable: async (port) => port !== 3310 }),
     /TRIAL_PORT_OCCUPIED:3310/
+  );
+});
+
+test("prepareTrialRuntime rejects an explicitly relative root and a symlinked private directory", async () => {
+  await assert.rejects(
+    prepareTrialRuntime(process.cwd(), {
+      runtimeRoot: "relative-trial-runtime",
+      appPassword: fixturePassword,
+      isPortAvailable: async () => true
+    }),
+    /TRIAL_RUNTIME_ROOT_MUST_BE_ABSOLUTE/u
+  );
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-config-symlink-"));
+  const target = await mkdtemp(join(tmpdir(), "shensi-trial-config-target-"));
+  await symlink(target, join(root, "secrets"));
+  await assert.rejects(
+    prepareTrialRuntime(root, { runtimeRoot: root, appPassword: fixturePassword, isPortAvailable: async () => true }),
+    /TRIAL_PRIVATE_DIRECTORY_SYMLINK/u
   );
 });

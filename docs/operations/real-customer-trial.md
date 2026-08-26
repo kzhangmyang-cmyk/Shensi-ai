@@ -206,8 +206,9 @@ aborts on an unhealthy dependency or an occupied port.
 
 `trial:status` validates recorded PID/command/nonce authority before reporting a
 component as running and is the authority for the current temporary origin.
-Pass that origin to `trial:verify` only through the process environment expected
-by the verifier; do not copy it into this document or another tracked file.
+`trial:verify` reads that owner-only runtime status by default; an explicit
+operator-supplied origin is only an override, and neither value belongs in a
+tracked document.
 `trial:verify` is a bounded runtime check, not a substitute for the complete
 Task 5 acceptance checklist.
 

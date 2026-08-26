@@ -271,9 +271,12 @@ ledger.
   ignored `.runtime/real-trial/` root and fixed loopback ports `3310`, `5608`,
   `5610`, `5611`, and `5612`; only gateway `5608` is eligible for the temporary
   Quick Tunnel. Runtime, secret/state, log, PID, MySQL, profile, and crawl-output
-  paths are owner-only. Stop validates recorded PID/command/nonce authority
-  before terminating trial process groups and does not repurpose the protected
-  older local services.
+  paths are owner-only. Each long-running service is launched under a detached
+  nonce-bearing wrapper; status and stop compare its exact macOS `ps` command
+  line before signalling the process group. Stop waits after TERM, revalidates
+  before any bounded KILL escalation, and does not repurpose the protected older
+  local services. `trial:verify` reads the owner-only runtime status origin by
+  default rather than requiring an additional environment value.
 - The 2026-08-25 visible-Chrome QR login and later 305-record/13-candidate
   ingestion recovery remain useful **pre-trial historical local evidence**.
   They used an earlier local runtime, made no comment or direct-message action,
