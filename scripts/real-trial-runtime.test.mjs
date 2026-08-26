@@ -79,7 +79,8 @@ test("persisted lifecycle only signals a PID whose command and nonce still match
     args: ["/fixture/child.mjs", "--runtime-nonce", "a".repeat(32)],
     nonce: "a".repeat(32)
   };
-  await writeRecord({ pidsDirectory }, record);
+  const written = await writeRecord({ pidsDirectory }, record);
+  assert.equal(written.path, join(pidsDirectory, "gateway.json"));
   const [stored] = await readRuntimeRecords({ pidsDirectory });
   assert.equal(await isRecordedProcess(stored, {
     readProcessCommand: async () => "/fixture/node /fixture/child.mjs --runtime-nonce " + "a".repeat(32)

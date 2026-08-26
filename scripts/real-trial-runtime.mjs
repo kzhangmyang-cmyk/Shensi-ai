@@ -68,7 +68,7 @@ export async function writeRecord(runtime, record) {
   const persisted = { version: 1, ...record, expectedPsCommand: expectedPsCommand(record) };
   await writeFile(temporary, JSON.stringify(persisted), { mode: 0o600, flag: "wx" });
   await rename(temporary, destination);
-  return persisted;
+  return { ...persisted, path: destination };
 }
 export async function readRuntimeRecords(runtime) {
   await privateDirectory(runtime.pidsDirectory);
@@ -238,8 +238,8 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
     const temporaryBackend = await run("backend-bootstrap", backendCommand[0], backendCommand.slice(1), { PORT: String(TRIAL_PORTS.backend), CORS_ORIGINS: origin, NODE_ENV: "production", INITIAL_ADMIN_EMAIL: "internal-trial-bootstrap@shensi.local", INITIAL_ADMIN_PASSWORD: bootstrapPassword });
     await waitForHealth(`http://127.0.0.1:${TRIAL_PORTS.backend}/api/health`);
     await (options.provisionAdmin ?? defaultProvisionAdmin)({ backendOrigin: `http://127.0.0.1:${TRIAL_PORTS.backend}`, bootstrapPassword, runtime, email: "test@shensi.local", role: "admin", tenantId: "trial-pilot-001" });
-    await stopTrialRuntime({ records: [temporaryBackend] }, { isRecordedProcess: async () => true, signalProcessGroup: killKnown });
-    if (!await isRecordedProcess(temporaryBackend)) await unlink(temporaryBackend.path).catch(() => {});
+    const bootstrapStop = await stopTrialRuntime({ records: [temporaryBackend] }, { isRecordedProcess: async () => true, signalProcessGroup: killKnown });
+    if (bootstrapStop.stale.length) throw new Error("TRIAL_BOOTSTRAP_STOP_FAILED");
     records.splice(records.indexOf(temporaryBackend), 1);
     await (options.waitForPortRelease ?? waitForPortRelease)(TRIAL_PORTS.backend, available);
     await run("backend", backendCommand[0], backendCommand.slice(1), { PORT: String(TRIAL_PORTS.backend), CORS_ORIGINS: origin, NODE_ENV: "production", MEDIACRAWLER_BASE_URL: `http://127.0.0.1:${TRIAL_PORTS.mediaCrawler}` });
