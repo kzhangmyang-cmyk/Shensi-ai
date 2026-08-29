@@ -157,19 +157,21 @@ expose environment values or secrets.
 
 ## Identities and login alias
 
-- The customer receives tenant `admin` in `trial-pilot-001`, never
-  `super_admin`.
-- The visible login alias is `test`; the canonical backend email is
-  `test@shensi.local`.
-- Alias mapping exists only when `VITE_REAL_TRIAL` is exactly `true` and both
-  `VITE_TRIAL_LOGIN_ALIAS` and `VITE_TRIAL_LOGIN_EMAIL` are non-empty.
+- `test` and `test2` are tenant `admin` accounts in `trial-pilot-001` and
+  `trial-pilot-002` respectively; neither is `super_admin`, and their business
+  data is isolated by workspace.
+- The visible aliases are `test` and `test2`; their canonical backend emails
+  are `test@shensi.local` and `test2@shensi.local`.
+- Alias mapping exists only when `VITE_REAL_TRIAL` is exactly `true` and the
+  comma-separated `VITE_TRIAL_LOGIN_ALIAS` and `VITE_TRIAL_LOGIN_EMAIL` lists
+  are both non-empty and contain the same number of position-matched values.
 - Matching trims and lowercases only the lookup key and requires an exact own
   alias property. A match submits the canonical email. Every unmatched identity
   is submitted byte-for-byte unchanged, and the password is never normalized or
   rewritten.
-- Enabled but incomplete alias configuration fails before a login request. The
-  backend `/api/auth/login` remains email-only; it does not natively accept a
-  username.
+- Enabled but empty or unequal-length alias configuration fails before a login
+  request. The backend `/api/auth/login` remains email-only; it does not
+  natively accept a username.
 
 On a new empty database, the supervisor starts the backend once with an internal
 random bootstrap super-admin, uses the real login/accounts APIs to create or

@@ -499,13 +499,14 @@ or delete trial data.
 
 ### Login, action gate, and retention
 
-The frontend alias is enabled only when `VITE_REAL_TRIAL=true`,
-`VITE_TRIAL_LOGIN_ALIAS=test`, and
-`VITE_TRIAL_LOGIN_EMAIL=test@shensi.local` are all complete. Only the exact
-trim/lowercase alias match is mapped; unmatched identities and passwords remain
-unchanged, and incomplete enabled configuration fails before login traffic. The
-backend remains email-only and the customer receives tenant `admin`, never
-`super_admin`.
+The frontend aliases are enabled only when `VITE_REAL_TRIAL=true` and the
+comma-separated `VITE_TRIAL_LOGIN_ALIAS` and `VITE_TRIAL_LOGIN_EMAIL` lists are
+both non-empty with equal lengths. The current values map `test,test2` to
+`test@shensi.local,test2@shensi.local` positionally. Only exact trim/lowercase
+alias matches are mapped; unmatched identities and passwords remain unchanged,
+and incomplete enabled configuration fails before login traffic. The backend
+remains email-only. `test` and `test2` are tenant `admin` accounts in separate
+`trial-pilot-001` and `trial-pilot-002` workspaces; neither is `super_admin`.
 
 The generated runtime uses visible Chrome mode and defaults
 `DOUYIN_OUTREACH_ACTIONS_ENABLED=false` and

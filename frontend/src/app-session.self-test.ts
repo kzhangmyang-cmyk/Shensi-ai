@@ -50,8 +50,8 @@ function createDocument() {
     storage: createStorage(),
     demoMode: false,
     realTrial: true,
-    loginAlias: "test",
-    loginEmail: "test@shensi.local",
+    loginAlias: "test,test2",
+    loginEmail: "test@shensi.local,test2@shensi.local",
     fetchImpl: async (path, init = {}) => {
       requests.push({ path: String(path), body: String(init.body) });
       return new Response(JSON.stringify({ user: admin }), { status: 200 });
@@ -65,9 +65,15 @@ function createDocument() {
     email: "test@shensi.local",
     password: "trial-password"
   });
-  await controller.login(" Other.Account@Example.com ", "unmatched-password");
+  await controller.login(" TEST2 ", "second-password");
   assert.equal(requests.length, 2);
   assert.deepEqual(JSON.parse(requests[1].body), {
+    email: "test2@shensi.local",
+    password: "second-password"
+  });
+  await controller.login(" Other.Account@Example.com ", "unmatched-password");
+  assert.equal(requests.length, 3);
+  assert.deepEqual(JSON.parse(requests[2].body), {
     email: " Other.Account@Example.com ",
     password: "unmatched-password"
   });

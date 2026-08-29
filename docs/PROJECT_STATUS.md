@@ -430,9 +430,12 @@ ledger.
   `#growth/roi`, and `#financial-council`. Real API/MySQL pages retain their
   authority; local-only and pending integrations remain visible with the exact
   `预览 · 待接入` label and never present local fixture values as live results.
-  A trial-only exact alias maps `test` to `test@shensi.local` only when all three
-  Vite trial values are complete; unmatched identities and passwords remain
+  Trial-only exact aliases map the position-matched `test,test2` values to
+  `test@shensi.local,test2@shensi.local` only when both comma-separated lists
+  are complete and equal-length; unmatched identities and passwords remain
   unchanged, and incomplete enabled configuration fails before login traffic.
+  Both are tenant admins in separate `trial-pilot-001` and `trial-pilot-002`
+  workspaces, so their business data remains isolated.
 - Deployment MediaCrawler now requires an absolute, existing, non-symlinked,
   current-user-owned `0700` `MEDIACRAWLER_CRAWL_OUTPUT_ROOT` strictly inside,
   and not equal to, `MEDIACRAWLER_ENCRYPTED_VOLUME`. Runner creation and cleanup

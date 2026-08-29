@@ -87,12 +87,14 @@ Real API/MySQL surfaces remain real. Browser-local or pending integrations are
 visible and carry the exact label `预览 · 待接入`; their values are not live
 customer results.
 
-With `VITE_REAL_TRIAL=true`, a non-empty `VITE_TRIAL_LOGIN_ALIAS=test`, and a
-non-empty `VITE_TRIAL_LOGIN_EMAIL=test@shensi.local`, the frontend maps only an
-exact trim/lowercase alias match to the canonical tenant-admin email before
-calling the email-only backend login API. Unmatched identities and every
-password remain unchanged. An enabled but incomplete mapping fails before a
-network request. The customer is a tenant `admin`, never `super_admin`.
+With `VITE_REAL_TRIAL=true`, `VITE_TRIAL_LOGIN_ALIAS` and
+`VITE_TRIAL_LOGIN_EMAIL` contain position-matched comma-separated values. The
+current trial maps `test` and `test2` to their `@shensi.local` emails before
+calling the email-only backend login API. Matching trims and lowercases the
+alias only; unmatched identities and every password remain unchanged. Empty or
+unequal-length lists fail before a network request. `test` and `test2` are
+tenant `admin` accounts in separate `trial-pilot-001` and `trial-pilot-002`
+workspaces; neither is `super_admin`, and their business data is isolated.
 
 ## Start here
 

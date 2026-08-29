@@ -101,14 +101,24 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
   const cookieSource = options.cookieSource ?? (() => documentRef.cookie);
   const demoMode = options.demoMode ?? (import.meta.env.DEV && !import.meta.env.VITE_API_TARGET?.trim());
   const realTrial = options.realTrial ?? import.meta.env?.VITE_REAL_TRIAL === "true";
-  const trialLoginAlias = options.loginAlias ?? import.meta.env?.VITE_TRIAL_LOGIN_ALIAS ?? "";
-  const trialLoginEmail = options.loginEmail ?? import.meta.env?.VITE_TRIAL_LOGIN_EMAIL ?? "";
-  const normalizedTrialAlias = trialLoginAlias.trim().toLowerCase();
-  const normalizedTrialEmail = trialLoginEmail.trim().toLowerCase();
+  const trialLoginAlias: string = options.loginAlias ?? import.meta.env?.VITE_TRIAL_LOGIN_ALIAS ?? "";
+  const trialLoginEmail: string = options.loginEmail ?? import.meta.env?.VITE_TRIAL_LOGIN_EMAIL ?? "";
+  const normalizedTrialAliases = trialLoginAlias
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const normalizedTrialEmails = trialLoginEmail
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
   const trialConfigurationIncomplete = realTrial
-    && (!normalizedTrialAlias || !normalizedTrialEmail);
+    && (!normalizedTrialAliases.length
+      || normalizedTrialAliases.length !== normalizedTrialEmails.length);
   const loginAliases = realTrial && !trialConfigurationIncomplete
-    ? { [normalizedTrialAlias]: normalizedTrialEmail }
+    ? Object.fromEntries(normalizedTrialAliases.map((alias, index) => [
+        alias,
+        normalizedTrialEmails[index]
+      ]))
     : {};
   let started = false;
   let lifecycleGeneration = 0;
