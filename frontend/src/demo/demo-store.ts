@@ -28,14 +28,21 @@ export interface StorageLike {
   removeItem(key: string): void;
 }
 
+export interface DemoStorageScope {
+  workspaceId: string;
+  userId: string;
+}
+
 export interface DemoStoreOptions {
   storage?: StorageLike | null;
   now?: () => string;
+  scope?: DemoStorageScope | null;
 }
 
 export interface DemoStore {
   getState(): DemoState;
   subscribe(listener: (state: DemoState) => void): () => void;
+  switchScope(scope: DemoStorageScope | null): void;
   selectConversation(id: string): void;
   selectCustomer(id: string): void;
   selectOpportunity(id: string): void;
@@ -65,6 +72,13 @@ function browserStorage(): StorageLike | null {
   } catch {
     return null;
   }
+}
+
+function storageKeyForScope(scope: DemoStorageScope | null | undefined): string {
+  const workspaceId = scope?.workspaceId.trim();
+  const userId = scope?.userId.trim();
+  if (!workspaceId || !userId) return STORAGE_KEY;
+  return `${STORAGE_KEY}:workspace:${encodeURIComponent(workspaceId)}:user:${encodeURIComponent(userId)}`;
 }
 
 function isValidStateShape(value: unknown): value is DemoState {
@@ -292,17 +306,18 @@ export function createDemoStore(options: DemoStoreOptions = {}): DemoStore {
   const storage = options.storage === undefined ? browserStorage() : options.storage;
   const now = options.now ?? (() => new Date().toISOString());
   const listeners = new Set<(state: DemoState) => void>();
-  let state = loadInitialState(storage);
+  let storageKey = storageKeyForScope(options.scope);
+  let state = loadInitialState(storage, storageKey);
 
-  function loadInitialState(candidateStorage: StorageLike | null): DemoState {
+  function loadInitialState(candidateStorage: StorageLike | null, key: string): DemoState {
     if (!candidateStorage) return createSeedDemoState();
     try {
-      const raw = candidateStorage.getItem(STORAGE_KEY);
+      const raw = candidateStorage.getItem(key);
       if (raw) {
         const parsed: unknown = JSON.parse(raw);
         const normalized = parseValidState(parsed);
         if (normalized) {
-          candidateStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+          candidateStorage.setItem(key, JSON.stringify(normalized));
           return normalized;
         }
       }
@@ -311,7 +326,7 @@ export function createDemoStore(options: DemoStoreOptions = {}): DemoStore {
     }
     const seed = createSeedDemoState();
     try {
-      candidateStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
+      candidateStorage.setItem(key, JSON.stringify(seed));
     } catch {
       // Keep the in-memory demo state when storage cannot be written.
     }
@@ -321,7 +336,7 @@ export function createDemoStore(options: DemoStoreOptions = {}): DemoStore {
   function save(nextState: DemoState): void {
     if (!storage) return;
     try {
-      storage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+      storage.setItem(storageKey, JSON.stringify(nextState));
     } catch {
       // A full or unavailable localStorage must not break the demo interaction.
     }
@@ -353,6 +368,13 @@ export function createDemoStore(options: DemoStoreOptions = {}): DemoStore {
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    switchScope(scope) {
+      const nextStorageKey = storageKeyForScope(scope);
+      if (nextStorageKey === storageKey) return;
+      storageKey = nextStorageKey;
+      state = loadInitialState(storage, storageKey);
+      listeners.forEach((listener) => listener(state));
     },
     selectConversation(id) {
       commit((current) => {

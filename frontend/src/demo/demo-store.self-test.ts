@@ -20,6 +20,81 @@ assert.equal(initial.conversations.length >= 5, true);
 assert.equal(initial.customers.length >= 4, true);
 assert.equal(initial.opportunities.length >= 3, true);
 
+const scopedMemory = new Map<string, string>();
+const scopedStorage = {
+  getItem: (key: string) => scopedMemory.get(key) ?? null,
+  setItem: (key: string, value: string) => void scopedMemory.set(key, value),
+  removeItem: (key: string) => void scopedMemory.delete(key)
+};
+const testStore = createDemoStore({
+  storage: scopedStorage,
+  scope: { workspaceId: "trial-pilot-001", userId: "user-test" },
+  now: () => "2026-08-30T08:00:00.000Z"
+});
+testStore.sendMessage("conversation-douyin-lin", "test 账号的独立演示消息");
+const test2Store = createDemoStore({
+  storage: scopedStorage,
+  scope: { workspaceId: "trial-pilot-002", userId: "user-test2" },
+  now: () => "2026-08-30T08:01:00.000Z"
+});
+assert.equal(
+  test2Store.getState().conversations
+    .flatMap((conversation) => conversation.messages)
+    .some((message) => message.body === "test 账号的独立演示消息"),
+  false,
+  "a second user/workspace must not load the first account's local demo state"
+);
+const sameWorkspaceOtherUserStore = createDemoStore({
+  storage: scopedStorage,
+  scope: { workspaceId: "trial-pilot-001", userId: "user-test2" }
+});
+assert.equal(
+  sameWorkspaceOtherUserStore.getState().conversations
+    .flatMap((conversation) => conversation.messages)
+    .some((message) => message.body === "test 账号的独立演示消息"),
+  false,
+  "users in the same workspace must still have isolated local demo state"
+);
+const sameUserOtherWorkspaceStore = createDemoStore({
+  storage: scopedStorage,
+  scope: { workspaceId: "trial-pilot-002", userId: "user-test" }
+});
+assert.equal(
+  sameUserOtherWorkspaceStore.getState().conversations
+    .flatMap((conversation) => conversation.messages)
+    .some((message) => message.body === "test 账号的独立演示消息"),
+  false,
+  "the same user id in another workspace must have isolated local demo state"
+);
+test2Store.sendMessage("conversation-douyin-lin", "test2 账号的独立演示消息");
+testStore.switchScope({ workspaceId: "trial-pilot-002", userId: "user-test2" });
+assert.equal(
+  testStore.getState().conversations
+    .flatMap((conversation) => conversation.messages)
+    .some((message) => message.body === "test2 账号的独立演示消息"),
+  true,
+  "switching account scope must immediately load that account's local demo state"
+);
+testStore.switchScope({ workspaceId: "trial-pilot-001", userId: "user-test" });
+const reloadedTestStore = createDemoStore({
+  storage: scopedStorage,
+  scope: { workspaceId: "trial-pilot-001", userId: "user-test" }
+});
+assert.equal(
+  reloadedTestStore.getState().conversations
+    .flatMap((conversation) => conversation.messages)
+    .some((message) => message.body === "test 账号的独立演示消息"),
+  true,
+  "the original account must reload its own local demo state"
+);
+assert.equal(
+  reloadedTestStore.getState().conversations
+    .flatMap((conversation) => conversation.messages)
+    .some((message) => message.body === "test2 账号的独立演示消息"),
+  false,
+  "the original account must not load the second account's local demo state"
+);
+
 const reviewFailures: string[] = [];
 function checkReviewFinding(name: string, check: () => void): void {
   try {

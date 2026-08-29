@@ -173,6 +173,32 @@ expose environment values or secrets.
   request. The backend `/api/auth/login` remains email-only; it does not
   natively accept a username.
 
+## Independent showcase data
+
+`test2` uses an independent persisted acquisition showcase snapshot. It gives
+the second workspace the same public task/candidate/evidence coverage as the
+first trial account while keeping every operational identity and credential
+separate. The snapshot is deliberately read-only: its plan is archived and it
+contains only one completed historical run, run events, candidates, identity
+aliases, and public discovery evidence.
+
+Preview the exact bounded row counts without writing, then apply the snapshot:
+
+```bash
+pnpm trial:showcase -- --dry-run
+pnpm trial:showcase
+```
+
+The command is transactional and deterministic. It accepts an empty target,
+recognizes an exact prior replay, and refuses a non-empty partial or unrelated
+target instead of merging or overwriting data. Its fixed allowlist excludes
+users, provider/model credentials, Douyin accounts and login state, crawler
+jobs and commands, automation policy, approval batches, comments, private
+messages, outreach actions, DNC state, CRM, deals, finance, audit records, and
+idempotency records. A real Douyin operation under `test2` therefore still
+requires that account to scan its own login and pass the normal human approval
+gates.
+
 On a new empty database, the supervisor starts the backend once with an internal
 random bootstrap super-admin, uses the real login/accounts APIs to create or
 verify the tenant admin, stops the backend, removes every `INITIAL_ADMIN_*`

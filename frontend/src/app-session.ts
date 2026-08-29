@@ -172,10 +172,14 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
   const clearLocalSession = () => {
     const hadSession = storage.getItem(STORAGE_KEY) !== null
       || documentRef.body.classList.contains("is-authenticated")
-      || documentRef.body.dataset.sessionMode !== undefined;
+      || documentRef.body.dataset.sessionMode !== undefined
+      || documentRef.body.dataset.sessionUserId !== undefined
+      || documentRef.body.dataset.sessionWorkspaceId !== undefined;
     storage.removeItem(STORAGE_KEY);
     documentRef.body.classList.remove("is-authenticated");
     delete documentRef.body.dataset.sessionMode;
+    delete documentRef.body.dataset.sessionUserId;
+    delete documentRef.body.dataset.sessionWorkspaceId;
     updateSidebarUser(null);
     if (hadSession) publishAuthenticationState(false);
   };
@@ -186,6 +190,8 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
     updateSidebarUser(user);
     documentRef.body.classList.add("is-authenticated");
     documentRef.body.dataset.sessionMode = demoMode ? "demo" : "real";
+    documentRef.body.dataset.sessionUserId = user.id;
+    documentRef.body.dataset.sessionWorkspaceId = user.teamId;
     locationRef.hash = normalizeAppHash(locationRef.hash);
     publishAuthenticationState(true);
   };

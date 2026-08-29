@@ -435,7 +435,16 @@ ledger.
   are complete and equal-length; unmatched identities and passwords remain
   unchanged, and incomplete enabled configuration fails before login traffic.
   Both are tenant admins in separate `trial-pilot-001` and `trial-pilot-002`
-  workspaces, so their business data remains isolated.
+  workspaces, so their business data remains isolated. `trial:showcase` gives
+  `test2` a deterministic independent read-only acquisition snapshot: one
+  archived task, one completed run, 40 candidates, 40 scoped identity aliases,
+  and 136 public evidence rows. The transaction regenerates IDs and ownership,
+  is replay-safe, refuses partial/non-empty targets, and excludes every API or
+  model credential, social account/login, crawler command, automation policy,
+  approval batch, comment/private-message action, CRM, deal, and finance row.
+  Frontend preview persistence is namespaced by authenticated workspace and
+  user rather than the former shared browser key, so account switching cannot
+  leak local demo edits across the two trial identities.
 - Deployment MediaCrawler now requires an absolute, existing, non-symlinked,
   current-user-owned `0700` `MEDIACRAWLER_CRAWL_OUTPUT_ROOT` strictly inside,
   and not equal to, `MEDIACRAWLER_ENCRYPTED_VOLUME`. Runner creation and cleanup

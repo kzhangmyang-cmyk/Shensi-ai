@@ -507,6 +507,16 @@ alias matches are mapped; unmatched identities and passwords remain unchanged,
 and incomplete enabled configuration fails before login traffic. The backend
 remains email-only. `test` and `test2` are tenant `admin` accounts in separate
 `trial-pilot-001` and `trial-pilot-002` workspaces; neither is `super_admin`.
+The second workspace's acquisition showcase is populated with
+`pnpm trial:showcase`. This deterministic transaction copies only an archived
+plan, one completed run, candidates, identity aliases, and public discovery
+evidence with newly generated IDs and rebound ownership. It refuses a partial
+or unrelated non-empty target and never copies credentials, social login
+state, crawler commands, approval/outreach queues, CRM, deals, or finance data.
+Use `pnpm trial:showcase -- --dry-run` before a first write. Both the loopback
+and temporary HTTPS origins read the same MySQL workspace, so this persisted
+snapshot is visible through both without maintaining a second public data
+copy.
 
 The generated runtime uses visible Chrome mode and defaults
 `DOUYIN_OUTREACH_ACTIONS_ENABLED=false` and

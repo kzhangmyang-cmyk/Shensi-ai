@@ -12,7 +12,7 @@ import {
   setPrivateDomainFilter,
   toggleCustomerBatchSelection
 } from "./demo-private-domain-view";
-import { createDemoStore } from "./demo-store";
+import { createDemoStore, type DemoStorageScope } from "./demo-store";
 import type { DemoModule, DemoState } from "./demo-types";
 import { showDemoToast } from "./demo-ui";
 import { createPrivateDomainController } from "../private-domain/controller";
@@ -30,6 +30,12 @@ import {
 
 let agentsDemoController: ReturnType<typeof createAgentsController> | null = null;
 let agentsAuthority: "demo" | "real" | null = null;
+
+function currentDemoStorageScope(): DemoStorageScope | null {
+  const workspaceId = document.body.dataset.sessionWorkspaceId?.trim();
+  const userId = document.body.dataset.sessionUserId?.trim();
+  return workspaceId && userId ? { workspaceId, userId } : null;
+}
 
 export function renderDashboardView(
   state: DemoState,
@@ -114,7 +120,7 @@ export function startDemoApp(): void {
   if (!shell || !host || !inspector || shell.dataset.demoAppStarted === "true") return;
   shell.dataset.demoAppStarted = "true";
 
-  const store = createDemoStore();
+  const store = createDemoStore({ scope: currentDemoStorageScope() });
   const router = createDemoRouter();
   startGrowthWhenRequested();
   const privateDomainController = createPrivateDomainController({
@@ -591,7 +597,10 @@ export function startDemoApp(): void {
     inspector.replaceChildren();
     const authenticated = (event as CustomEvent<{ authenticated?: boolean }>).detail
       ?.authenticated === true;
-    if (authenticated) render();
+    if (authenticated) {
+      store.switchScope(currentDemoStorageScope());
+      render();
+    }
   });
   render();
 }

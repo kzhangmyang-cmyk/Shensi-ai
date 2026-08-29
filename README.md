@@ -95,6 +95,15 @@ alias only; unmatched identities and every password remain unchanged. Empty or
 unequal-length lists fail before a network request. `test` and `test2` are
 tenant `admin` accounts in separate `trial-pilot-001` and `trial-pilot-002`
 workspaces; neither is `super_admin`, and their business data is isolated.
+`test2` has its own persisted, read-only acquisition showcase snapshot so the
+public trial exposes the same task, candidate, and evidence surfaces as `test`
+without sharing operational state. The snapshot contains no provider or model
+credentials, Douyin login/session, social account, crawler command, approval
+batch, comment, or private-message action. `test2` must configure its own model
+connection and scan its own Douyin login before any real operation.
+Browser-only preview state is also keyed by the authenticated workspace and
+user, so switching between the two trial accounts cannot reuse another
+account's local demo edits.
 
 ## Start here
 

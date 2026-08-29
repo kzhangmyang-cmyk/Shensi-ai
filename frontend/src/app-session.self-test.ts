@@ -283,10 +283,14 @@ function click(document: Document, selector: string) {
   assert.equal(document.querySelector("[data-session-user-name]")?.textContent, "Admin");
   assert.equal(document.querySelector("[data-session-user-role]")?.textContent, "管理员");
   assert.equal(document.body.dataset.sessionMode, "demo");
+  assert.equal(document.body.dataset.sessionUserId, "demo-admin");
+  assert.equal(document.body.dataset.sessionWorkspaceId, "demo-team");
   assert.deepEqual(events, [true]);
   await controller.logout();
   assert.equal(storage.getItem("gj_user"), null);
   assert.equal(document.body.dataset.sessionMode, undefined);
+  assert.equal(document.body.dataset.sessionUserId, undefined);
+  assert.equal(document.body.dataset.sessionWorkspaceId, undefined);
   assert.deepEqual(events, [true, false]);
   controller.destroy();
 }
@@ -313,9 +317,13 @@ function click(document: Document, selector: string) {
   assert.equal(requests[0].init.credentials, "same-origin");
   assert.equal(new Headers(requests[0].init.headers).get("x-csrf-token"), "csrf-token");
   assert.equal(document.body.dataset.sessionMode, "real");
+  assert.equal(document.body.dataset.sessionUserId, "admin-1");
+  assert.equal(document.body.dataset.sessionWorkspaceId, "team-1");
   assert.equal(storage.getItem("gj_user")?.includes("demo-admin"), false);
   await controller.logout();
   assert.equal(document.body.dataset.sessionMode, undefined);
+  assert.equal(document.body.dataset.sessionUserId, undefined);
+  assert.equal(document.body.dataset.sessionWorkspaceId, undefined);
   controller.destroy();
 }
 
