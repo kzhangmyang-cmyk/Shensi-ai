@@ -58,6 +58,9 @@ browser evidence require `MYSQL_TEST_ADMIN_URL`; live-provider smoke additionall
 requires valid model connection IDs and decryption keys. Verify restart
 recovery, approval authority, revision identity, dispatch idempotency, and that
 no provider payload or business data leaks through agent-center projections.
+When the agent-center projection reports no routing-policy version, the browser
+renders that empty state without issuing policy or preview requests that are
+guaranteed to return `404`.
 
 ## Known Limitations
 

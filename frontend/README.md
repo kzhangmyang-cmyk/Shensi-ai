@@ -11,14 +11,19 @@
 - 真实模式从 Shensi 企业登录开始，页面不内置账号或密码，且只恢复经服务端 `/api/auth/me` 验证的会话
 - 本次壳迁移未删除或改动后端、数据库、合同、权限边界或既有业务数据
 
-## 本地运行
+## 独立前端开发
 
 ```bash
 pnpm install --frozen-lockfile
 pnpm --filter goodjob-crm-frontend dev
 ```
 
-从 Monorepo 根目录运行上述命令后，访问 `http://127.0.0.1:5188/#agents`。页面首先显示 Shensi 登录；真实部署使用管理员分配的企业账号。访问 `#dashboard` 可查看本地演示数据的自动营销总览。
+上述命令只启动 `http://127.0.0.1:5188` 的独立 Vite 开发服务器；该端口仅用于前端调试，不是完整客户体验、公网发布或验收入口。
+
+查看与公网版共用同一前端构建、API 和 MySQL 数据的完整本地站点时，访问
+`http://127.0.0.1:5608` 并以仓库根目录的 `pnpm trial:status` 为运行权威。
+公网地址只使用该命令当次报告的 origin，不使用聊天历史中的临时地址。
+代码修改后必须成功运行 `pnpm trial:publish` 才会进入这两个客户可见表面。
 
 ## 验证
 
@@ -27,6 +32,15 @@ pnpm --filter goodjob-crm-frontend run test:types
 pnpm --filter goodjob-crm-frontend test
 pnpm --filter goodjob-crm-frontend run test:e2e
 pnpm --filter goodjob-crm-frontend build
+```
+
+本地或公网发布切换完成后，用显式目标和临时环境变量运行独立验收；该测试不会启动或回退到任何旧端口：
+
+```bash
+SHENSI_TEST_ORIGIN="<pnpm trial:status 返回的 origin 或 http://127.0.0.1:5608>" \
+SHENSI_TEST_EMAIL="<测试账号>" \
+SHENSI_TEST_PASSWORD="<测试密码>" \
+pnpm --filter goodjob-crm-frontend run test:e2e:shensi-cutover
 ```
 
 演示模块不会直接连接抖音、小红书、快手、微信或微博，也不会代表用户执行营销动作。
@@ -295,7 +309,8 @@ git diff --check
 
 财务委员会的真实纵向验收使用独立 Playwright 配置，会启动 `127.0.0.1:4288`
 的 test-only 后端和 `127.0.0.1:5388` 的 Vite 前端。浏览器只访问 Vite 同源 API
-代理，测试不拦截或伪造网络响应。运行前需要提供可用的 MySQL 测试管理连接：
+代理，测试不拦截或伪造网络响应。`5388` 只在该自动化测试的短生命周期内使用，
+不得作为人工体验入口、客户链接或发布证据。运行前需要提供可用的 MySQL 测试管理连接：
 
 ```bash
 MYSQL_TEST_ADMIN_URL="$MYSQL_TEST_ADMIN_URL" \

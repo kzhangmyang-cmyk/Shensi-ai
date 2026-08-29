@@ -165,7 +165,7 @@ const required = [
   "data-replica-scope=\"agent\"",
   "data-replica-tool=\"filter\"",
   "replicaCompleteTask",
-  "GoodJob 自动营销系统",
+  "Shensi · 多智能体增长与经营系统",
   "data-replica-view=\"trade-marketing\"",
   "ACQ-DOUYIN-01",
   "ACQ-XHS-01",

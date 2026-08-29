@@ -131,6 +131,43 @@ async function selectAll(controller: ReturnType<typeof createRealAgentCenterCont
   await controller.selectStatement("cash_flow_statement", file("cashflow.xlsx", "cashflow"));
 }
 
+// An empty restored workspace advertises the missing routing policy through the
+// agent-center projection; loading that state must not manufacture failing
+// policy/preview requests.
+{
+  let routingPolicyReads = 0;
+  let routingPreviews = 0;
+  const noRoutingCenter = Object.freeze({
+    ...center,
+    models: Object.freeze({
+      ...center.models,
+      status: "not_connected" as const,
+      routingPolicyVersionId: null
+    })
+  });
+  const { api } = apiFixture({
+    async getAgentCenter() {
+      return { status: 200, etag: null, body: noRoutingCenter } as never;
+    },
+    async getRoutingPolicy() {
+      routingPolicyReads += 1;
+      return { status: 200, etag: '"unexpected"', body: policy } as never;
+    },
+    async previewRouting() {
+      routingPreviews += 1;
+      return { status: 200, etag: null, body: previews } as never;
+    }
+  });
+  const controller = createRealAgentCenterController({ api });
+  await settleLoad();
+  assert.equal(controller.getState().readiness, noRoutingCenter);
+  assert.equal(controller.getState().routingPolicy, null);
+  assert.deepEqual(controller.getState().routingPreview, []);
+  assert.equal(routingPolicyReads, 0);
+  assert.equal(routingPreviews, 0);
+  controller.destroy();
+}
+
 function completePrivateForecast(
   controller: ReturnType<typeof createRealAgentCenterController>,
   customer = "客户 A"

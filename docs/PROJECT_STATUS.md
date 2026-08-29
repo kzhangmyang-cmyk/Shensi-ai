@@ -5,6 +5,18 @@ repository. Test results are evidence only for the commit and environment in
 which they were run; historical checkboxes and reports do not update this
 ledger.
 
+## Customer-visible runtime authority
+
+- The complete customer-visible local trial is
+  `http://127.0.0.1:5608`. The only current public origin is the value returned
+  by `pnpm trial:status` while it reports `running: true`.
+- The running local and public trial use one release snapshot, API, and MySQL
+  database. Editing source does not modify that snapshot; synchronization is
+  true only after `pnpm trial:publish` completes and its verification passes.
+- Ports `5188`, `5388`, and `5588`, and every Quick Tunnel URL copied from a
+  prior chat, screenshot, bookmark, log, or archived document, are not current
+  customer entry points or progress evidence.
+
 ## Completed
 
 - The standalone repository was created on `main`; its imported source commit

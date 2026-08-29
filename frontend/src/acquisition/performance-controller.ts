@@ -120,6 +120,7 @@ export function startAcquisitionPerformance(
   fromInput.value ||= defaults.from;
   toInput.value ||= defaults.to;
   let realMode = document.querySelector("[data-acquisition-mode=\"real\"].active") !== null;
+  let authenticated = document.body.classList.contains("is-authenticated");
   let requestVersion = 0;
   const aiGeneration = createPerformanceGenerationGuard();
   let state: AcquisitionPerformanceViewState = {
@@ -157,7 +158,7 @@ export function startAcquisitionPerformance(
   );
 
   const load = async () => {
-    if (!realMode) return;
+    if (!realMode || !authenticated) return;
     aiGeneration.invalidate();
     const version = ++requestVersion;
     state = { status: "loading", data: null, aiInterpretation: null, aiStatus: "idle" };
@@ -166,7 +167,7 @@ export function startAcquisitionPerformance(
     refreshButton.disabled = true;
     try {
       const data = await api.getPerformance(currentFilters());
-      if (version !== requestVersion || !realMode) return;
+      if (version !== requestVersion || !realMode || !authenticated) return;
       state = {
         status: performanceStatusFor(data.counts),
         data,
@@ -175,7 +176,7 @@ export function startAcquisitionPerformance(
       };
       setSummaryCards(data);
     } catch (error) {
-      if (version !== requestVersion || !realMode) return;
+      if (version !== requestVersion || !realMode || !authenticated) return;
       state = {
         status: isUnauthorizedPerformanceError(error) ? "unauthorized" : "error",
         data: null,

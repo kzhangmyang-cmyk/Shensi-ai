@@ -342,18 +342,32 @@ export function createRealAgentCenterController(
   async function load(): Promise<void> {
     const semantic = { kind: "initial-projections" };
     await runOperation("load", semantic, async (expected, token, signal) => {
-      const [routingKey, clearRoutingKey] = keyFor("routing-preview", {});
       publish({ busy: "loading", error: null });
       try {
-        const [readiness, councilPolicy, policy, preview] = await Promise.all([
+        const [readiness, councilPolicy] = await Promise.all([
           options.api.getAgentCenter(signal),
-          options.api.getCouncilPolicy(signal),
+          options.api.getCouncilPolicy(signal)
+        ]);
+        if (!stillCurrent(expected, "load", token)) return;
+        councilPolicyVersionId = councilPolicy.body.policyVersionId;
+        if (readiness.body.models.routingPolicyVersionId === null) {
+          routingEtag = null;
+          publish({
+            readiness: readiness.body,
+            routingPolicy: null,
+            routingPreview: Object.freeze([]),
+            busy: null,
+            error: null
+          });
+          return;
+        }
+        const [routingKey, clearRoutingKey] = keyFor("routing-preview", {});
+        const [policy, preview] = await Promise.all([
           options.api.getRoutingPolicy(signal),
           options.api.previewRouting(routingKey, signal)
         ]);
         if (!stillCurrent(expected, "load", token)) return;
         clearRoutingKey();
-        councilPolicyVersionId = councilPolicy.body.policyVersionId;
         routingEtag = policy.etag;
         publish({
           readiness: readiness.body,

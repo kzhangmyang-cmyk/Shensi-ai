@@ -605,7 +605,9 @@ browser flow. Use MySQL tests for transaction, restart, lease, and recovery clai
 smokes require explicit local credentials; the Douyin live smoke is
 `pnpm --filter ./backend smoke:douyin-public-comments`. Run the contract gate
 after any route or DTO change and inspect logs for identifiers only, never raw
-customer/comment text or credentials.
+customer/comment text or credentials. Real overview and performance reads begin
+only after the server-authoritative session publishes an authenticated state;
+the unauthenticated Shensi login must not generate protected-route 401 traffic.
 
 For QR login, provision an encrypted-at-rest directory before starting the
 sidecar. `MEDIACRAWLER_ENCRYPTED_VOLUME` must name an existing, non-symlink

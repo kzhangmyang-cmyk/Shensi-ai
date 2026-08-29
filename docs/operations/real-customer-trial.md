@@ -7,6 +7,12 @@ authority for the current temporary origin. Never write a temporary tunnel URL,
 password, token, cookie, provider key, browser profile, or crawl output into
 tracked files.
 
+Chat history, screenshots, bookmarks, logs, and archived documents may contain
+expired Quick Tunnel origins. Never reopen or share one of those values: obtain
+the current public origin from `pnpm trial:status` for every handoff. The
+customer-visible local entry is `http://127.0.0.1:5608`; development and test
+ports such as `5188`, `5388`, and `5588` are not substitutes.
+
 ## Goal and truthful product scope
 
 The trial publishes the latest frontend and backend behind one temporary HTTPS

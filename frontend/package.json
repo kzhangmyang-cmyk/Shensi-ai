@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "test": "tsx src/self-test.ts",
     "test:e2e": "playwright test",
+    "test:e2e:shensi-cutover": "playwright test --config=playwright.shensi-cutover.config.ts --project=chromium",
     "test:e2e:douyin-mediacrawler:real": "playwright test --config=playwright.douyin-mediacrawler-real.config.ts --project=chromium",
     "test:e2e:financial-council:real": "playwright test --config=playwright.financial-council-real.config.ts --project=chromium",
     "test:e2e:financial-council:real-runtime": "playwright test --config=playwright.financial-council-real-runtime.config.ts --project=chromium",

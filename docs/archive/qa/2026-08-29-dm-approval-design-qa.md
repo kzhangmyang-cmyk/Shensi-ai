@@ -1,5 +1,10 @@
 # Product Design QA
 
+> Archived, non-authoritative QA evidence. The `5388` address and temporary
+> screenshot paths below describe one test run; they are not current product
+> entry points or release evidence. Use `http://127.0.0.1:5608` for the complete
+> local trial and obtain the current public origin from `pnpm trial:status`.
+
 ## Target flow
 
 The flow under test is: `#acquisition` → generate an outreach batch → approve comments → receive one durable comment receipt → edit and independently confirm the unlocked direct message → observe the queued server action.
