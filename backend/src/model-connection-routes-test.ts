@@ -367,6 +367,20 @@ test("v1 exposes official endpoint choices without credentials", async () => {
     && item.endpointProfileId === "moonshot-cn"
     && item.baseUrl === "https://api.moonshot.cn/v1"
   ));
+  const deepseek = result.json.items.find((item: {
+    endpointProfileId: string;
+    models?: Array<{ id: string; displayName: string }>;
+  }) => item.endpointProfileId === "deepseek-global");
+  assert.deepEqual(deepseek?.models, [
+    {
+      id: "deepseek-v4-pro",
+      displayName: "deepseek-v4-pro"
+    },
+    {
+      id: "deepseek-v4-flash",
+      displayName: "deepseek-v4-flash"
+    }
+  ]);
   assert.equal(JSON.stringify(result.json).includes("apiKey"), false);
 });
 
@@ -391,9 +405,9 @@ test("v1 connection derives immutable official capability evidence", async () =>
   assert.equal(result.json.adapterVersion, "official-openai-compatible.v1");
   assert.equal("isDefault" in result.json, false);
   assert.deepEqual(result.json.capabilitySnapshot, {
-    structuredOutput: false,
+    structuredOutput: true,
     toolCalling: true,
-    parallelToolCalling: false,
+    parallelToolCalling: true,
     streaming: true,
     modelListing: true
   });

@@ -60,6 +60,21 @@ function sleep(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
+export function isBoundDouyinAccountHandle(value: unknown): value is string {
+  return typeof value === "string"
+    && /^dyacct_[0-9a-f]{64}$/u.test(value);
+}
+
+function boundActiveLogin(upstream: DouyinLoginSession) {
+  return upstream.state === "active"
+    && isBoundDouyinAccountHandle(upstream.accountHandle)
+    && typeof upstream.accountDisplayName === "string"
+    && upstream.accountDisplayName.trim().length > 0
+    && upstream.accountDisplayName.trim().length <= 100
+    && Number.isSafeInteger(upstream.loginStateVersion)
+    && (upstream.loginStateVersion ?? 0) > 0;
+}
+
 export class AcquisitionSocialAccountService {
   private readonly repository: AcquisitionSocialAccountRepository;
   private readonly gateway: AcquisitionSocialAccountServiceOptions["gateway"];
@@ -175,37 +190,69 @@ export class AcquisitionSocialAccountService {
   async getLoginSession(scope: AcquisitionSocialAccountScope, id: string): Promise<AcquisitionSocialAccountLoginSession> {
     const session = await this.session(scope, id);
     const upstream = await this.gateway.getLoginSession(session.upstreamId);
-    if (upstream.state === "active") return { id, platform: "douyin", state: "active", qrImageDataUrl: null, expiresAt: upstream.expiresAt, account: await this.bindUpstreamActive(scope, upstream) };
+    if (upstream.state === "active" && boundActiveLogin(upstream)) return { id, platform: "douyin", state: "active", qrImageDataUrl: null, expiresAt: upstream.expiresAt, account: await this.bindUpstreamActive(scope, upstream) };
+    if (upstream.state === "active" || upstream.state === "failed") return {
+      id, platform: "douyin", state: "login_expired", qrImageDataUrl: null,
+      expiresAt: upstream.expiresAt, account: null
+    };
     return { id, platform: "douyin", state: upstream.state === "expired" ? "login_expired" : "awaiting_scan", qrImageDataUrl: upstream.qrImageDataUrl, expiresAt: upstream.expiresAt, account: null };
   }
 
   async bindActiveSession(scope: AcquisitionSocialAccountScope, id: string): Promise<AcquisitionSocialAccount> {
     const session = await this.session(scope, id);
     const upstream = await this.gateway.getLoginSession(session.upstreamId);
-    if (upstream.state !== "active" || !upstream.accountHandle) throw new SocialAccountError("douyin_login_session_not_active");
+    if (!boundActiveLogin(upstream)) throw new SocialAccountError("douyin_login_session_not_active");
     return this.bindUpstreamActive(scope, upstream);
   }
 
   private async bindUpstreamActive(scope: AcquisitionSocialAccountScope, upstream: DouyinLoginSession) {
-    if (!upstream.accountHandle) throw new SocialAccountError("douyin_login_session_not_active");
+    if (!boundActiveLogin(upstream) || !upstream.accountHandle
+      || !upstream.accountDisplayName || !upstream.loginStateVersion) {
+      throw new SocialAccountError("douyin_login_session_not_active");
+    }
     const current = await this.repository.findByWorkspaceAndPlatform(scope.workspaceId, "douyin");
-    if (current?.accountHandle === upstream.accountHandle && current.state === "active") return publicSocialAccount(current);
+    if (current?.accountHandle === upstream.accountHandle && current.state === "active") {
+      if (current.loginStateVersion === upstream.loginStateVersion
+        && current.upstreamSessionId === upstream.sessionId
+        && current.displayName === upstream.accountDisplayName.trim()) {
+        return publicSocialAccount(current);
+      }
+      if ((current.loginStateVersion ?? 0) >= upstream.loginStateVersion) {
+        throw new SocialAccountError("douyin_login_session_not_active");
+      }
+    }
     const now = this.now();
     const revision = (current?.revision ?? 0) + 1;
     const account: AcquisitionSocialAccountPrivateRecord = {
       id: current?.id ?? this.idFactory(), workspaceId: scope.workspaceId, platform: "douyin",
-      displayName: upstream.accountDisplayName, state: "active", loginStateVersion: upstream.loginStateVersion,
+      displayName: upstream.accountDisplayName.trim(), state: "active", loginStateVersion: upstream.loginStateVersion,
+      loginStateVersionHighWater: Math.max(current?.loginStateVersionHighWater ?? 0,
+        upstream.loginStateVersion),
       accountHandle: upstream.accountHandle, upstreamSessionId: upstream.sessionId, revision,
       etag: `\"account-v${revision}\"`, lastValidatedAt: now, createdAt: current?.createdAt ?? now, updatedAt: now
     };
     const bound = await this.repository.bindActive(account);
     if (bound === "active_handle_conflict") throw new SocialAccountError("douyin_active_account_conflict");
+    if (bound.state !== "active"
+      || bound.accountHandle !== upstream.accountHandle
+      || bound.upstreamSessionId !== upstream.sessionId
+      || bound.loginStateVersion !== upstream.loginStateVersion) {
+      throw new SocialAccountError("douyin_login_session_not_active");
+    }
     return publicSocialAccount(bound);
   }
 
   async list(scope: AcquisitionSocialAccountScope): Promise<{ items: AcquisitionSocialAccount[] }> {
     const account = await this.repository.findByWorkspaceAndPlatform(scope.workspaceId, "douyin");
-    return { items: account ? [publicSocialAccount(account)] : [] };
+    if (!account) return { items: [] };
+    const safe = account.state === "active"
+      && (!isBoundDouyinAccountHandle(account.accountHandle)
+        || !account.displayName?.trim()
+        || !Number.isSafeInteger(account.loginStateVersion)
+        || (account.loginStateVersion ?? 0) < 1)
+      ? { ...account, state: "login_expired" as const }
+      : account;
+    return { items: [publicSocialAccount(safe)] };
   }
 
   private disconnected(current: AcquisitionSocialAccountPrivateRecord, updatedAt: string) {

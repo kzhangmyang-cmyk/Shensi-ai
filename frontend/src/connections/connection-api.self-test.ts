@@ -44,7 +44,8 @@ const api = createConnectionSettingsApi(async (input, init) => {
         baseUrl: "https://api.moonshot.cn/v1",
         requiresWorkspaceId: false,
         modelListPolicy: "same_key",
-        officialReference: "https://platform.moonshot.cn/docs"
+        officialReference: "https://platform.moonshot.cn/docs",
+        models: [{ id: "kimi-k3", displayName: "Kimi K3" }]
       }],
       nextCursor: null
     });

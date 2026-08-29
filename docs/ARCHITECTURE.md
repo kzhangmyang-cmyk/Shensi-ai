@@ -52,10 +52,26 @@ metadata and profiles survive independently until explicit disconnect or
 replacement. During reload, invalid durable account metadata is quarantined;
 missing or malformed ephemeral QR metadata does not invalidate a connected
 account.
+After an authenticated state is observed, the sidecar derives the account
+handle as `dyacct_<sha256>` from the exact own-profile `sec_uid` and returns a
+bounded public nickname; the raw platform identifier never crosses the private
+browser boundary. Login-state versions come from one process-safe global
+monotonic ledger, not a per-account counter. The backend preserves a private
+version high-water across active, risk-paused, and disconnected states, derives
+same-account revisions and ETags under the repository lock, and risk-pauses by
+an exact account-handle/login-version/revision/ETag compare-and-swap. An older
+browser session therefore cannot resurrect a disconnected account, clear a
+risk pause, or overwrite a newer reconnect.
+The sidecar commits that global ledger, connected-account binding metadata, and
+ephemeral login metadata with file and parent-directory `fsync` after an atomic
+replace. Persistence failure prevents activation instead of exposing a version
+that could disappear after a crash.
 With `MEDIACRAWLER_BROWSER_HEADLESS=false`, the sidecar opens a dedicated
 standard-Playwright Douyin window for the local operator. Shensi explicitly
-disables CDP. Production may set `MEDIACRAWLER_BROWSER_HEADLESS=true`; neither
-mode changes the private browser-state boundary.
+disables CDP. A collection-only production runtime may set
+`MEDIACRAWLER_BROWSER_HEADLESS=true` while outreach is disabled. A real-action
+runtime requires visible mode: deployment preflight and both sides of the
+browser IPC reject headless action or reconciliation before page creation.
 The automation service consumes that same workspace account repository without
 exposing its private handle. It publishes immutable policy versions behind a
 compare-and-swap head and creates idempotent automation intents that freeze the
@@ -215,11 +231,31 @@ runtime has both a configured MediaCrawler gateway and
 returns `503 outreach_actions_disabled` before approval, allowance, replay, or
 action persistence. In an action-enabled runtime, one transaction rechecks
 account/login, candidate/evidence, DNC, and the remaining account-local-date
-allowance; records the approval; and writes an exact comment action followed by
-a blocked direct-message action. Memory shares a reentrant coordinator with DNC
-writers. MySQL uses the batch transaction connection for account and Task 6
-final-authority locks, replay, daily allowance, and action inserts, so a failed
-second insert rolls back the whole approval.
+allowance; records the comment-specific approval; and writes exactly one comment
+action. Once that candidate's comment has a durable successful receipt, the
+separate direct-message approval command rechecks the current batch/account/
+candidate/DNC authority and atomically writes one version-2 direct-message
+action. Its stage hash binds the exact predecessor receipt, target, content,
+approver, private-message daily limit/ordinal, and account/login version.
+The batch hash also freezes the policy time zone. Approval ordinals derive from
+the approval instant in that zone; claim authority separately counts real
+attempts made on the claim instant's local day. Retries consume that day's
+allowance, the next local day resets it, and a batch-revision/candidate may have
+only one private-message action for its lifetime, regardless of date. Within one
+account-local day, the same candidate is also unique across batches; a new batch
+may be approved on a later local day without reopening the old revision.
+Memory shares a reentrant coordinator with DNC writers. MySQL uses the batch
+transaction connection for account and Task 6 final-authority locks, replay,
+the action-specific daily allowance, and inserts.
+
+For a legacy queued comment whose batch payload predates the frozen `timeZone`,
+MySQL claim first resolves the exact immutable policy version and hash plus the
+plan, account, and login binding in the same transaction, then persists the
+recovered zone before consuming an attempt. If that authority cannot be proven,
+the comment and blocked successor become terminal without consuming another
+attempt. Version-2
+private messages are never upgraded this way and remain strictly dependent on
+an explicit frozen batch time zone.
 
 The acquisition application constructs and starts the separate outreach-action
 worker and expired-claim sweeper only under that same two-part condition: the
@@ -231,38 +267,80 @@ persisted server-time eligibility before the sidecar call. The MySQL worker
 pages through the stable ascending `(created_at,id)` claim order, rather than
 re-reading one fixed window, so any full window of currently ineligible rows
 cannot starve a later eligible action.
-The repository enforces at least 60 seconds between account actions and at
-least 180 seconds from a successful comment receipt to its direct-message
-claim. The worker then revalidates the active account/login version, approved
-batch and action hashes, candidate/evidence authority, predecessor receipt,
-policy binding, and daily allowance. Only the frozen public video/profile URL
-and exact approved text cross the private action port. Receipts commit under
+The repository enforces at least 60 seconds between account comment actions and
+a ten-minute next-eligible reservation for each private-message claim. Memory
+and MySQL claim comments plus only direct messages whose authorization version
+is 2, daily ordinal is within its frozen 1–100 limit, and predecessor remains
+succeeded with the same receipt. Historical direct-message rows remain
+readable but are not backfilled and are never claimable. The worker then
+revalidates the active account/login version, approved
+batch and action hashes, candidate/evidence authority, policy binding, and
+daily allowance. Only the frozen public target and exact approved action text
+cross the private action port. Receipts commit under
 the fence; an expired external-write lease moves the action and related account
 work to `risk_paused`, while stale completions are rejected. There is no
 distributed exactly-once claim. A durable pre-click journal prevents automatic
-replay after a possible click, and an operator-confirmed read-only
+replay after a possible click. Its temp file is flushed and `fsync`ed, atomically
+replaced, and followed by a parent-directory `fsync` before the executor is
+called; any barrier failure aborts before the platform write. An
+operator-confirmed read-only
 reconciliation may mark only the same frozen action succeeded when the platform
 exposes a unique post-start receipt. It never re-executes or automatically
 resumes the account or successor. Three consecutive failures, or a
 verification/rate-limit/account-
 warning/login risk response, atomically pauses the account and all queued work.
 The sidecar reuses only that account's authenticated profile, centralizes UI
-selectors and closed page-state errors, clicks once, and never implements a
-bypass path. MediaCrawler upstream remains the collection/browser foundation;
-comment and private-message execution is a Shensi extension, not an upstream-
-native or official Douyin inbox/API capability. Visible verification permits a
-bounded, manual-only wait and full recheck of the same action. Current defaults
+selectors and closed page-state errors, and clicks once. Comment-editor
+activation is a separate reversible DOM stage: only one visible
+`.comment-input-inner-container` containing one exact
+`留下你的精彩评论吧` entry may receive one activation click after authority
+revalidation. It neither types nor publishes, and missing or ambiguous binding
+fails closed without visual or fuzzy fallback. AccountManager holds
+one authority lease across the complete execute/reconcile browser command; its
+login-state ledger uses an interprocess lock and a single global monotonic
+version. Editors and submit controls are pinned to concrete ElementHandles and
+receive independent random one-use markers. A synchronous capture-phase guard
+requires the same tagged editor and exact approved content while rechecking the
+target URL, sender, and DM recipient on dispatch. For a DM, editor and submit
+must remain in the same exact-recipient panel, so text/editor/account/
+conversation replacement cannot redirect the click. Comments require a
+unique first-party publish receipt; private messages require one new unique
+outgoing stable platform message ID. Capture rejection keeps the precise
+content/control/sender/DM-recipient closed code; receipt ambiguity is reserved
+for a browser click failure that may already have dispatched. DM receipt
+revalidation is one atomic DOM
+snapshot of the same pinned visible message node, exact outgoing direction and
+text, stable ID/time, sender, and recipient; it never assembles proof from
+different DOM states. The browser reads the current sender from
+constrained account chrome without navigating away and repeats that comparison
+after target load/manual verification and before input, submit, and receipt
+proof. Private-message editors, submit controls, and message receipts are valid
+only inside one conversation panel with one exact public recipient marker equal
+to the frozen profile target; missing, ambiguous, switched, or noncanonical
+bindings fail closed. DOM/ARIA controls are primary. Optional
+local RapidOCR is constructed only for `DOUYIN_ACTION_VISUAL_LOCATOR=rapidocr`
+and may suggest only missing exact entry/send controls before a verified DOM
+rebind; screenshots and recognized text are not persisted or logged. It never
+selects identity, target, editor, content, or receipt. MediaCrawler upstream
+remains the collection/browser foundation; action execution is a Shensi
+extension, not an upstream-native or official Douyin API capability. Visible
+verification detected immediately after initial target navigation permits a
+bounded, manual-only wait and full recheck of the same action; a challenge that
+appears later fails closed immediately. Current defaults
 are 120 seconds for manual verification, 150 seconds for the Node action
-deadline, 160 seconds for gateway HTTP, 170 seconds for browser-action IPC, and
+deadline, 175 seconds for gateway HTTP, 170 seconds for browser-action IPC, and
 a 180-second minimum claim lease. No solver, verification-token injection,
 third-party bypass, alternate action ID, or automatic retry after an uncertain
-receipt is allowed.
-For direct messages the canonical profile page must expose one visible entry
-into a same-page panel, one editable Draft editor, and one send button. Native
-Playwright key presses must round-trip the exact text. Success requires one new
-self/outgoing message with a stable platform ID and an allowlisted timestamp no
-earlier than the journal start; a `/messages` route transition without a stable
-recipient binding or any ambiguous DOM remains a closed failure.
+receipt is allowed. Read-only reconciliation can inspect an existing receipt,
+but it cannot send, requeue, or create new authority. Visual MCP stays outside
+the encrypted action profile as a development diagnostic; runtime execution is
+model-provider neutral.
+
+For comments, a verified success receipt or an ambiguous post-submit receipt
+also opens a ten-second, best-effort operator review window before the visible
+action context closes. The same profile lease remains held, and this window
+only brings the page forward and waits: it does not inspect, edit, click,
+reconcile, or establish success.
 
 Long-running acquisition, finance-import, recommendation, and council work is
 represented by persisted operations and recovery sweepers. Memory mode is a
@@ -334,9 +412,12 @@ batch list/create command. Reload repeats overview → candidate → collection 
 Run-level failures stay visible as partial-read warnings, a non-null candidate
 cursor is disclosed as an incomplete page, and no local seed is used as
 fallback. Route deactivation, logout, or another load aborts/stales the prior
-generation. The browser contains no direct-send path: final approval only
-queues actions when both server/sidecar gates are enabled, and the separate
-fenced worker performs any platform click.
+generation. The browser contains no direct-send path: the first confirmation
+queues comments only, and a candidate's successful comment receipt unlocks a
+distinct private-message confirmation with a default daily limit of 20 (range
+1–100), independent of the acquisition candidate default 50 (range 1–200).
+Only the separate fenced worker performs a platform click when both
+server/sidecar gates are enabled.
 
 ## Persistence
 

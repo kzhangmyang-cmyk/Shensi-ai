@@ -1,6 +1,12 @@
 # Douyin MediaCrawler Acquisition Design
 
-Status: approved in conversation; awaiting final written-spec review
+> **Archived / superseded:** This historical design is not a current execution
+> source. Use
+> [`2026-08-28-douyin-private-message-agent-design.md`](2026-08-28-douyin-private-message-agent-design.md).
+> The direct-message and timing rules below are retained only as historical
+> context and must not be used as current runtime authority.
+
+Status: archived and superseded by the 2026-08-28 private-message-agent design
 
 Date: 2026-08-24
 

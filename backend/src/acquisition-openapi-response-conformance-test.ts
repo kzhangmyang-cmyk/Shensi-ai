@@ -39,6 +39,8 @@ test("outreach batch and ordered action responses conform without private eviden
   const hash = `sha256:${"a".repeat(64)}`;
   const candidate = { candidateId: "candidate-1", selected: true,
     candidateRevision: 1, evidenceHashes: [hash], draftRevision: 1,
+    publicProfileUrl: "https://www.douyin.com/user/candidate-1",
+    commentTargetPublicUrl: "https://www.douyin.com/video/7350000000000000001",
     comment: "需要获客方案", commentHash: hash,
     directMessage: "看到你公开提到需要获客方案", directMessageHash: hash,
     rationaleCodes: ["evidence_grounded"], modelSnapshotId: "snapshot-1",
@@ -62,6 +64,23 @@ test("outreach batch and ordered action responses conform without private eviden
     kind: "comment", sequence: 1, status: "queued", predecessorActionId: null,
     targetPublicUrl: "https://www.douyin.com/video/7350000000000000001",
     content: candidate.comment, contentHash: hash, approvalHash: hash, attemptCount: 0,
+    platformReceiptReference: null, occurredAt: null, failureCode: null, createdAt: NOW }, {
+    id: "action-2", workspaceId: TEAM, batchId: "batch-1",
+    batchRevision: 1, candidateId: "candidate-1", accountId: "account-1",
+    accountLoginStateVersion: 2, policyVersionId: "policy-1", localDate: "2026-08-05",
+    kind: "comment", sequence: 1, status: "risk_paused", predecessorActionId: null,
+    targetPublicUrl: "https://www.douyin.com/video/7350000000000000001",
+    content: candidate.comment, contentHash: hash, approvalHash: hash, attemptCount: 0,
+    platformReceiptReference: null, occurredAt: NOW,
+    failureCode: "account_risk_paused", createdAt: NOW }, {
+    id: "action-3", workspaceId: TEAM, batchId: "batch-1",
+    batchRevision: 1, candidateId: "candidate-1", accountId: "account-1",
+    accountLoginStateVersion: 2, policyVersionId: "policy-1", localDate: "2026-08-05",
+    kind: "direct_message", sequence: 2, status: "queued", predecessorActionId: "action-1",
+    targetPublicUrl: candidate.publicProfileUrl, content: candidate.directMessage,
+    contentHash: hash, approvalHash: hash, authorizationVersion: 2,
+    approvedBy: OWNER, approvedAt: NOW, directMessageDailyLimit: 20,
+    directMessageDailyOrdinal: 1, attemptCount: 0,
     platformReceiptReference: null, occurredAt: null, failureCode: null, createdAt: NOW }] };
   assertResponseConforms("/api/v1/acquisition/outreach-batches/{batchId}/actions", "get", 200, actions);
   assert.equal(JSON.stringify(batch).includes("evidenceText"), false);
@@ -92,7 +111,7 @@ test("actual social-account HTTP replays and 404/412 errors conform without priv
     repository: new InMemoryAcquisitionSocialAccountRepository(),
     gateway: {
       async createLoginSession() { return { sessionId: "upstream-session", state: "awaiting_scan", qrImageDataUrl: "data:image/png;base64,cXI=", expiresAt: NOW, accountHandle: null, accountDisplayName: null, loginStateVersion: null }; },
-      async getLoginSession() { return { sessionId: "upstream-session", state: "active", qrImageDataUrl: null, expiresAt: NOW, accountHandle: "private", accountDisplayName: null, loginStateVersion: 1 }; },
+      async getLoginSession() { return { sessionId: "upstream-session", state: "active", qrImageDataUrl: null, expiresAt: NOW, accountHandle: `dyacct_${"a".repeat(64)}`, accountDisplayName: "真实抖音账号", loginStateVersion: 1 }; },
       async disconnectLoginSession() {}
     }, idFactory: () => "social-account-response", now: () => NOW
   });

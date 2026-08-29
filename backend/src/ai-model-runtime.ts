@@ -69,30 +69,12 @@ export async function callAiModelWithRuntime(
     fetch: request as typeof fetch,
     requestTimeoutMs: AI_MODEL_TIMEOUT_MS
   });
-  let providerError: unknown;
-  try {
-    const result = await gateway.generateStructured({
-      prompt: boundedPrompt,
-      schemaHash: LEGACY_JSON_OBJECT_SCHEMA_HASH,
-      schema: z.record(z.unknown())
-    });
-    return JSON.stringify(result.value);
-  } catch (error) {
-    providerError = error;
-    throw error;
-  } finally {
-    try {
-      await store.persist?.();
-    } catch (persistenceError) {
-      if (providerError !== undefined) {
-        throw new AggregateError(
-          [providerError, persistenceError],
-          "模型调用失败且审计记录持久化失败"
-        );
-      }
-      throw persistenceError;
-    }
-  }
+  const result = await gateway.generateStructured({
+    prompt: boundedPrompt,
+    schemaHash: LEGACY_JSON_OBJECT_SCHEMA_HASH,
+    schema: z.record(z.unknown())
+  });
+  return JSON.stringify(result.value);
 }
 
 export async function callAiModel(

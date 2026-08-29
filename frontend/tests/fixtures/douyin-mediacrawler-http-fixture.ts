@@ -27,6 +27,11 @@ type FixtureAttempt =
       runId: string;
       candidateIds: string[];
       candidateIdsShape: "string_array" | "invalid";
+    }
+  | {
+      kind: "direct_message_approve";
+      candidateIds: string[];
+      dailyLimit: number | null;
     };
 type FixtureState = {
   loginPolls: number;
@@ -43,6 +48,9 @@ type FixtureState = {
   batchCreated: boolean;
   activeCandidateIds: string[];
   approvedCandidateIds: string[];
+  directMessageApprovedCandidateIds: string[];
+  directMessageDailyLimit: number | null;
+  directMessageApprovedDrafts: Record<string, string>;
   createdCandidateIds: string[][];
   attemptLedger: FixtureAttempt[];
   drafts: Record<string, { comment: string; directMessage: string }>;
@@ -64,6 +72,9 @@ const reset = () => {
     batchCreated: false,
     activeCandidateIds: [],
     approvedCandidateIds: [],
+    directMessageApprovedCandidateIds: [],
+    directMessageDailyLimit: null,
+    directMessageApprovedDrafts: {},
     createdCandidateIds: [],
     attemptLedger: [],
     drafts: {}
@@ -109,6 +120,9 @@ const batchCandidates = () => state.activeCandidateIds.map((candidateId) => {
     selected: true,
     candidateRevision: 1,
     evidenceHashes: [hash(candidateId === "candidate-creator" ? "3" : "4")],
+    publicProfileUrl: `https://www.douyin.com/user/${candidateId}`,
+    commentTargetPublicUrl: candidates.find((candidate) =>
+      candidate.id === candidateId)?.evidence.sourceUrl,
     draftRevision: state.batchRevision,
     comment: draft.comment,
     commentHash: hash("5"),
@@ -131,6 +145,8 @@ const server = createServer(async (request, response) => {
     createdCandidateIds: state.createdCandidateIds,
     activeCandidateIds: state.activeCandidateIds,
     approvedCandidateIds: state.approvedCandidateIds,
+    directMessageApprovedCandidateIds: state.directMessageApprovedCandidateIds,
+    directMessageDailyLimit: state.directMessageDailyLimit,
     attemptLedger: state.attemptLedger,
     externalWriteCount: 0
   });
@@ -209,6 +225,9 @@ const server = createServer(async (request, response) => {
     state.activeCandidateIds = [...candidateIds];
     state.createdCandidateIds.push([...candidateIds]);
     state.approvedCandidateIds = [];
+    state.directMessageApprovedCandidateIds = [];
+    state.directMessageDailyLimit = null;
+    state.directMessageApprovedDrafts = {};
     state.batchRevision = 1;
     state.batchState = "awaiting_approval";
     state.approvalConflicted = false;
@@ -243,16 +262,72 @@ const server = createServer(async (request, response) => {
     return send(response, batch(), 200, { ETag: batch().etag });
   }
   if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture/approve" && request.method === "POST" && state.batchCreated) { if (!state.approvalConflicted) { state.approvalConflicted = true; return error(response, 412, "outreach_batch_stale", "批次修订已变更"); } state.batchState = "approved"; state.approvedCandidateIds = [...state.activeCandidateIds]; return send(response, batch(), 200, { ETag: batch().etag }); }
+  if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture/direct-messages/approve" && request.method === "POST" && state.batchCreated) {
+    const body = await readBody(request);
+    const requested = Array.isArray(body.candidates)
+      ? body.candidates.filter((candidate): candidate is Record<string, unknown> =>
+          typeof candidate === "object" && candidate !== null
+          && !Array.isArray(candidate))
+      : [];
+    const candidateIds = requested.flatMap((candidate) =>
+      typeof candidate.candidateId === "string" ? [candidate.candidateId] : []);
+    const dailyLimit = typeof body.dailyLimit === "number" ? body.dailyLimit : null;
+    state.attemptLedger.push({
+      kind: "direct_message_approve",
+      candidateIds,
+      dailyLimit
+    });
+    const valid = state.batchState === "approved"
+      && body.batchRevision === state.batchRevision
+      && body.batchHash === batch().batchHash
+      && body.commentApprovalHash === batch().approvalHash
+      && body.confirm === true
+      && Number.isInteger(dailyLimit)
+      && (dailyLimit ?? 0) >= 1
+      && (dailyLimit ?? 0) <= 100
+      && requested.length > 0
+      && requested.length <= (dailyLimit ?? 0)
+      && candidateIds.length === requested.length
+      && candidateIds.length === new Set(candidateIds).size
+      && state.actionPolls >= 2
+      && candidateIds.every((candidateId) =>
+        candidateId === state.activeCandidateIds[0])
+      && candidateIds.every((candidateId) =>
+        state.approvedCandidateIds.includes(candidateId))
+      && requested.every((candidate) => typeof candidate.directMessage === "string"
+        && candidate.directMessage.length > 0
+        && candidate.directMessage.length <= 800);
+    if (!valid) {
+      return error(response, 400, "invalid_request", "私信审批命令无效");
+    }
+    state.directMessageApprovedCandidateIds = [...candidateIds];
+    state.directMessageDailyLimit = dailyLimit;
+    state.directMessageApprovedDrafts = Object.fromEntries(requested.map(
+      (candidate) => [
+        candidate.candidateId as string,
+        candidate.directMessage as string
+      ]
+    ));
+    return send(response, batch(), 200, { ETag: batch().etag });
+  }
   if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture/pause" && request.method === "POST") { state.batchState = "paused"; return send(response, batch(), 200, { ETag: batch().etag }); }
   if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture/resume" && request.method === "POST") { state.batchState = "approved"; return send(response, batch(), 200, { ETag: batch().etag }); }
   if (url.pathname === "/api/v1/acquisition/outreach-batches/batch-fixture/actions" && state.batchCreated) {
     if (state.batchState !== "approved") return send(response, { items: [] });
     state.actionPolls += 1;
     const commentSucceeded = state.actionPolls >= 2;
-    const messageSucceeded = state.actionPolls >= 3;
     const candidateId = state.activeCandidateIds[0] ?? "candidate-creator";
     const draft = state.drafts[candidateId] ?? defaultDraft(candidateId);
-    return send(response, { items: [{ id: "action-comment", workspaceId: "workspace-fixture", batchId: "batch-fixture", batchRevision: state.batchRevision, candidateId, accountId: "account-fixture", accountLoginStateVersion: 3, policyVersionId: "policy-fixture", localDate: "2026-08-25", kind: "comment", sequence: 1, status: commentSucceeded ? "succeeded" : "queued", predecessorActionId: null, targetPublicUrl: "https://www.douyin.com/video/741234567890", content: draft.comment, contentHash: hash("5"), approvalHash: hash("8"), createdAt: NOW, attemptCount: commentSucceeded ? 1 : 0, platformReceiptReference: commentSucceeded ? "DY-COMMENT-RECEIPT" : null, occurredAt: commentSucceeded ? NOW : null, failureCode: null }, { id: "action-message", workspaceId: "workspace-fixture", batchId: "batch-fixture", batchRevision: state.batchRevision, candidateId, accountId: "account-fixture", accountLoginStateVersion: 3, policyVersionId: "policy-fixture", localDate: "2026-08-25", kind: "direct_message", sequence: 2, status: messageSucceeded ? "succeeded" : commentSucceeded ? "queued" : "blocked_by_predecessor", predecessorActionId: "action-comment", targetPublicUrl: "https://www.douyin.com/user/public-profile", content: draft.directMessage, contentHash: hash("6"), approvalHash: hash("8"), createdAt: NOW, attemptCount: messageSucceeded ? 1 : 0, platformReceiptReference: messageSucceeded ? "DY-MESSAGE-RECEIPT" : null, occurredAt: messageSucceeded ? "2026-08-25T09:33:00.000Z" : null, failureCode: null }] });
+    const comment = { id: "action-comment", workspaceId: "workspace-fixture", batchId: "batch-fixture", batchRevision: state.batchRevision, candidateId, accountId: "account-fixture", accountLoginStateVersion: 3, policyVersionId: "policy-fixture", localDate: "2026-08-25", kind: "comment", sequence: 1, status: commentSucceeded ? "succeeded" : "queued", predecessorActionId: null, targetPublicUrl: "https://www.douyin.com/video/741234567890", content: draft.comment, contentHash: hash("5"), approvalHash: hash("8"), createdAt: NOW, attemptCount: commentSucceeded ? 1 : 0, platformReceiptReference: commentSucceeded ? "DY-COMMENT-RECEIPT" : null, occurredAt: commentSucceeded ? NOW : null, failureCode: null };
+    const directMessages = state.directMessageApprovedCandidateIds.map(
+      (approvedCandidateId, index) => {
+        const approvedDraft = state.directMessageApprovedDrafts[
+          approvedCandidateId
+        ] ?? defaultDraft(approvedCandidateId).directMessage;
+        return { id: `action-message-${approvedCandidateId}`, workspaceId: "workspace-fixture", batchId: "batch-fixture", batchRevision: state.batchRevision, candidateId: approvedCandidateId, accountId: "account-fixture", accountLoginStateVersion: 3, policyVersionId: "policy-fixture", localDate: "2026-08-25", kind: "direct_message", sequence: 2, status: "queued", predecessorActionId: "action-comment", targetPublicUrl: `https://www.douyin.com/user/${approvedCandidateId}`, content: approvedDraft, contentHash: hash("6"), approvalHash: hash("a"), authorizationVersion: 2, approvedBy: "reviewer-fixture", approvedAt: NOW, directMessageDailyLimit: state.directMessageDailyLimit, directMessageDailyOrdinal: index + 1, createdAt: NOW, attemptCount: 0, platformReceiptReference: null, occurredAt: null, failureCode: null };
+      }
+    );
+    return send(response, { items: [comment, ...directMessages] });
   }
   return error(response, 404, "fixture_route_missing", `${request.method} ${url.pathname}`);
 });

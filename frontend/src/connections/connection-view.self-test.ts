@@ -1,5 +1,31 @@
 import { strict as assert } from "node:assert";
+import { parseHTML } from "linkedom";
 import { renderConnectionCenter } from "./connection-view";
+import type { ModelEndpointProfile } from "./connection-api";
+
+interface ModelOptionFixture {
+  id: string;
+  displayName: string;
+}
+
+type ModelEndpointProfileFixture = Omit<ModelEndpointProfile, "models"> & {
+  models: ModelOptionFixture[];
+};
+
+function endpointProfile(
+  profile: Omit<ModelEndpointProfile, "models">,
+  models: ModelOptionFixture[] = []
+): ModelEndpointProfileFixture {
+  return { ...profile, models };
+}
+
+const deepseekModels = [{
+  id: "deepseek-v4-pro",
+  displayName: "DeepSeek V4 Pro"
+}, {
+  id: "deepseek-v4-flash",
+  displayName: "DeepSeek V4 Flash"
+}];
 
 const searchHtml = renderConnectionCenter({
   mode: "search",
@@ -29,6 +55,151 @@ assert.match(searchHtml, /百度 AI 搜索/);
 assert.match(searchHtml, /type="password"/);
 assert.match(searchHtml, /保存搜索连接/);
 
+const createModelHtml = renderConnectionCenter({
+  mode: "model",
+  status: "ready",
+  mutation: "idle",
+  providers: [],
+  searchConnections: [],
+  modelProfiles: [endpointProfile({
+    provider: "deepseek",
+    endpointProfileId: "deepseek-global",
+    region: "global",
+    baseUrl: "https://api.deepseek.com",
+    requiresWorkspaceId: false,
+    modelListPolicy: "same_key",
+    officialReference: "https://api-docs.deepseek.com/"
+  }, deepseekModels)],
+  modelConnections: [],
+  selectedProviderId: null,
+  selectedModelProfileId: "deepseek-global",
+  selectedModelConnectionId: null,
+  message: "",
+  error: "",
+  modelHealth: {}
+});
+const createModelDocument = parseHTML(createModelHtml).document;
+const createModelSelect = createModelDocument.querySelector(
+  'form[data-connection-form="create-model"] select[name="model"]'
+);
+assert.ok(createModelSelect, "创建 AI 连接必须用服务端模型列表渲染下拉框");
+assert.equal(createModelSelect.hasAttribute("required"), true);
+assert.deepEqual(
+  [...createModelSelect.querySelectorAll("option")].map((option) => ({
+    value: option.getAttribute("value"),
+    label: option.textContent?.trim()
+  })),
+  deepseekModels.map((model) => ({ value: model.id, label: model.displayName }))
+);
+assert.equal(
+  createModelDocument.querySelector(
+    'form[data-connection-form="create-model"] input[name="model"]'
+  ),
+  null
+);
+
+const emptyModelListHtml = renderConnectionCenter({
+  mode: "model",
+  status: "ready",
+  mutation: "idle",
+  providers: [],
+  searchConnections: [],
+  modelProfiles: [endpointProfile({
+    provider: "deepseek",
+    endpointProfileId: "deepseek-global",
+    region: "global",
+    baseUrl: "https://api.deepseek.com",
+    requiresWorkspaceId: false,
+    modelListPolicy: "same_key",
+    officialReference: "https://api-docs.deepseek.com/"
+  })],
+  modelConnections: [],
+  selectedProviderId: null,
+  selectedModelProfileId: "deepseek-global",
+  selectedModelConnectionId: null,
+  message: "",
+  error: "",
+  modelHealth: {}
+});
+const emptyModelListDocument = parseHTML(emptyModelListHtml).document;
+const emptyModelListForm = emptyModelListDocument.querySelector(
+  'form[data-connection-form="create-model"]'
+);
+assert.ok(emptyModelListForm);
+assert.equal(
+  emptyModelListForm.querySelector('select[name="model"]')?.hasAttribute(
+    "disabled"
+  ),
+  true
+);
+assert.equal(
+  emptyModelListForm.querySelector('button[type="submit"]')?.hasAttribute(
+    "disabled"
+  ),
+  true
+);
+assert.match(emptyModelListForm.textContent ?? "", /暂无可选的已认证模型/);
+
+const rotateLegacyModelHtml = renderConnectionCenter({
+  mode: "model",
+  status: "ready",
+  mutation: "idle",
+  providers: [],
+  searchConnections: [],
+  modelProfiles: [endpointProfile({
+    provider: "deepseek",
+    endpointProfileId: "deepseek-global",
+    region: "global",
+    baseUrl: "https://api.deepseek.com",
+    requiresWorkspaceId: false,
+    modelListPolicy: "same_key",
+    officialReference: "https://api-docs.deepseek.com/"
+  }, deepseekModels)],
+  modelConnections: [{
+    id: "legacy-deepseek",
+    provider: "deepseek",
+    model: "deepseekv4",
+    endpointProfileId: "deepseek-global",
+    status: "inactive",
+    credentialVersion: 1,
+    capabilitySnapshot: { toolCalling: false }
+  }],
+  selectedProviderId: null,
+  selectedModelProfileId: null,
+  selectedModelConnectionId: "legacy-deepseek",
+  message: "",
+  error: "",
+  modelHealth: {}
+});
+const rotateLegacyModelDocument = parseHTML(rotateLegacyModelHtml).document;
+const rotateLegacyModelSelect = rotateLegacyModelDocument.querySelector(
+  'form[data-connection-form="rotate-model"] select[name="model"]'
+);
+assert.ok(rotateLegacyModelSelect, "更新 AI 连接必须用服务端模型列表渲染下拉框");
+assert.equal(rotateLegacyModelSelect.hasAttribute("required"), true);
+const legacyPlaceholder = rotateLegacyModelSelect.querySelector(
+  'option[value=""][selected]'
+);
+assert.ok(legacyPlaceholder, "旧的未认证模型必须先显示为空值占位项并要求重新选择");
+assert.equal(legacyPlaceholder.hasAttribute("disabled"), true);
+assert.match(legacyPlaceholder.textContent ?? "", /deepseekv4/);
+assert.equal(
+  rotateLegacyModelSelect.querySelector('option[value="deepseekv4"]'),
+  null
+);
+assert.deepEqual(
+  [...rotateLegacyModelSelect.querySelectorAll("option")]
+    .map((option) => option.getAttribute("value"))
+    .filter(Boolean),
+  deepseekModels.map((model) => model.id)
+);
+assert.equal(
+  rotateLegacyModelDocument.querySelector(
+    'form[data-connection-form="rotate-model"] input[name="model"]'
+  ),
+  null
+);
+
 const modelHtml = renderConnectionCenter({
   mode: "model",
   status: "ready",
@@ -42,7 +213,8 @@ const modelHtml = renderConnectionCenter({
     baseUrl: "https://api.moonshot.cn/v1",
     requiresWorkspaceId: false,
     modelListPolicy: "same_key",
-    officialReference: "https://platform.moonshot.cn/docs"
+    officialReference: "https://platform.moonshot.cn/docs",
+    models: [{ id: "kimi-k3", displayName: "Kimi K3" }]
   }],
   modelConnections: [{
     id: "model-1",
@@ -79,7 +251,8 @@ const unsupportedProfileHtml = renderConnectionCenter({
     baseUrl: null,
     requiresWorkspaceId: true,
     modelListPolicy: "separate_control_plane",
-    officialReference: "https://help.aliyun.com/"
+    officialReference: "https://help.aliyun.com/",
+    models: []
   }],
   modelConnections: [],
   selectedProviderId: null,

@@ -12,6 +12,9 @@ import shensi_adapter.app as deployment_app
 from shensi_adapter.app import create_app
 from shensi_adapter.action_jobs import ActionJobManager
 from shensi_adapter.browser_state import MediaCrawlerDouyinBrowserState
+from shensi_adapter.douyin_account_identity import (
+    account_handle_for_raw_sec_uid,
+)
 from shensi_adapter.schemas import (
     ActionReceipt,
     ActionRequest,
@@ -68,6 +71,9 @@ class _IpcActionLocator:
     def fill(self, value, **_kwargs):
         self.page.value = value
 
+    def press_sequentially(self, value, **_kwargs):
+        self.page.value += value
+
     def input_value(self, **_kwargs):
         if self._one().kind != "composer":
             raise RuntimeError("fixture_input_value_unsupported")
@@ -83,13 +89,29 @@ class _IpcActionLocator:
             return self.page.approved_content
         return self.page.value
 
+    def inner_text(self, **_kwargs):
+        if self._one().kind == "identity":
+            return "IPC 真实账号"
+        return self.text_content(**_kwargs)
+
     def click(self, **_kwargs):
-        self.page.after_submit = True
+        if self._one().kind == "composer":
+            self.page.focused = self._one()
+        else:
+            self.page.after_submit = True
 
     def get_attribute(self, name, **_kwargs):
+        if self._one().kind == "identity" and name == "href":
+            return f"/user/{self.page.raw_sec_uid}"
+        if self._one().kind == "identity" and name in {"title", "aria-label"}:
+            return "IPC 真实账号"
         if (self._one().kind == "receipt" and name == "data-comment-id"
                 and self.page.failure_code == "douyin_action_receipt_ambiguous"):
             raise RuntimeError("fixture_attribute_failure_must_not_cross_ipc")
+        if self._one().kind == "receipt" and name == "data-comment-id":
+            return "ipc-comment-1"
+        if self._one().kind == "receipt" and name == "data-owner":
+            return "self"
         return None
 
     def get_by_text(self, text, *, exact):
@@ -103,30 +125,58 @@ class _IpcActionLocator:
     def locator(self, _selector):
         return _IpcActionLocator(self.page)
 
-    def evaluate(self, _expression, **_kwargs):
+    def evaluate(self, expression, arg=None, **_kwargs):
+        if "__shensiTagBoundActionComposer" in expression:
+            element = self._one()
+            if (element.kind != "composer" or not isinstance(arg, dict)
+                    or arg.get("content") != self.page.value):
+                return False
+            self.page.bound_composer_nonce = arg.get("nonce")
+            return isinstance(self.page.bound_composer_nonce, str)
+        if "__shensiTagBoundActionControl" in expression:
+            element = self._one()
+            if element.kind != "submit" or not isinstance(arg, dict):
+                return False
+            self.page.bound_action_nonce = arg.get("nonce")
+            return isinstance(self.page.bound_action_nonce, str)
         return "div"
 
 
 class _IpcActionPage:
+    raw_sec_uid = "MS4wLjABIpcBoundAccount"
+
     def __init__(self, failure_code):
         self.failure_code = failure_code
         self.url = "about:blank"
         self.after_submit = False
+        self.bound_action_nonce = None
+        self.bound_composer_nonce = None
         self.value = ""
+        self.focused = None
+        self.keyboard = _IpcActionKeyboard(self)
         self.approved_content = "ipc frozen approved content"
         self.composers = [_IpcActionElement(self, "composer")]
         if failure_code == "douyin_action_control_ambiguous":
             self.composers.append(_IpcActionElement(self, "composer"))
         self.submit = _IpcActionElement(self, "submit")
         self.receipt = _IpcActionElement(self, "receipt")
+        self.identity = _IpcActionElement(self, "identity")
 
     def goto(self, url, **_kwargs):
         self.url = url
 
     def locator(self, selector):
+        if selector == (
+            'header a[href], nav a[href], [role="navigation"] a[href], '
+            '[data-e2e="douyin-header"] a[href], #douyin-header a[href]'
+        ):
+            return _IpcActionLocator(self, [self.identity])
         if '[contenteditable="true"][aria-label*="评论"]' in selector:
             return _IpcActionLocator(self, self.composers)
         if 'button:has-text("发送")' in selector:
+            return _IpcActionLocator(self, [self.submit])
+        if ('data-shensi-bound-action=' in selector
+                and self.bound_action_nonce in selector):
             return _IpcActionLocator(self, [self.submit])
         if "comment-item" in selector:
             return _IpcActionLocator(self, [self.receipt])
@@ -138,6 +188,15 @@ class _IpcActionPage:
 
     def wait_for_timeout(self, _milliseconds):
         return None
+
+
+class _IpcActionKeyboard:
+    def __init__(self, page):
+        self.page = page
+
+    def press(self, key, *, delay=None):
+        if key == "Backspace" and self.page.focused is not None:
+            self.page.value = ""
 
 
 class _IpcActionContext:
@@ -257,6 +316,7 @@ def test_closed_action_failure_survives_browser_ipc_to_fastapi(
     profile.mkdir()
     browser = MediaCrawlerDouyinBrowserState(
         playwright_factory=_ipc_action_playwright_factory,
+        headless=False,
         startup_timeout=2,
         command_timeout=2,
     )
@@ -268,11 +328,19 @@ def test_closed_action_failure_survives_browser_ipc_to_fastapi(
     manager = ActionJobManager(
         tmp_path / "jobs",
         account_resolver=lambda _handle, _version: profile,
-        executor=browser.execute_douyin_action,
+        executor=lambda resolved_profile, request: (
+            browser.execute_douyin_action(
+                resolved_profile,
+                request,
+                authority_validator=lambda: None,
+            )
+        ),
     )
     body = {
         "action_id": f"ipc-{failure_code}",
-        "account_handle": "private-handle",
+        "account_handle": account_handle_for_raw_sec_uid(
+            _IpcActionPage.raw_sec_uid
+        ),
         "login_state_version": 1,
         "kind": "comment",
         "target_public_url": "https://www.douyin.com/video/7350000000000000001",

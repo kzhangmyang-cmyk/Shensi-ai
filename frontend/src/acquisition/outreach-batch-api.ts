@@ -1,4 +1,4 @@
-import type { components } from "../generated/ai-acquisition";
+import type { components, operations } from "../generated/ai-acquisition";
 import { csrfFromCookie } from "./csrf";
 import { AcquisitionHttpError } from "./douyin-automation-api";
 
@@ -6,6 +6,7 @@ export type OutreachBatch = components["schemas"]["AcquisitionOutreachBatch"];
 export type OutreachBatchList = components["schemas"]["AcquisitionOutreachBatchList"];
 export type OutreachActionList = components["schemas"]["AcquisitionOutreachActionList"];
 export type OutreachAction = components["schemas"]["AcquisitionOutreachAction"];
+export type DirectMessageApprovalCommand = operations["approveAcquisitionOutreachBatchDirectMessages"]["requestBody"]["content"]["application/json"];
 
 export interface OutreachBatchApi {
   listBatches(runId: string, candidateId: string, limit?: number, cursor?: string | null, signal?: AbortSignal): Promise<OutreachBatchList>;
@@ -13,6 +14,7 @@ export interface OutreachBatchApi {
   getBatch(batchId: string, signal?: AbortSignal): Promise<OutreachBatch>;
   updateBatch(batchId: string, candidates: Array<{ candidateId: string; selected: boolean; comment: string; directMessage: string }>, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<OutreachBatch>;
   approveBatch(batchId: string, revision: number, batchHash: string, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<OutreachBatch>;
+  approveDirectMessages?(batchId: string, command: DirectMessageApprovalCommand, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<OutreachBatch>;
   rejectBatch(batchId: string, reason: string, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<OutreachBatch>;
   pauseBatch(batchId: string, reason: string, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<OutreachBatch>;
   resumeBatch(batchId: string, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<OutreachBatch>;
@@ -40,18 +42,33 @@ const boundedInteger = (minimum: number, maximum = Number.MAX_SAFE_INTEGER): Val
   (value) => Number.isInteger(value) && (value as number) >= minimum && (value as number) <= maximum;
 const nullable = (validate: Validator): Validator => (value) => value === null || validate(value);
 const sha256: Validator = (value) => typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value);
-const dateTime: Validator = (value) => typeof value === "string"
-  && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(value)
-  && Number.isFinite(Date.parse(value));
+const dateTime: Validator = (value) => {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.exec(value);
+  if (!match || !Number.isFinite(Date.parse(value))) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30,
+    31, 31, 30, 31, 30, 31][month - 1] ?? 0;
+  return day >= 1 && day <= daysInMonth;
+};
 const uniqueArray = (minimum: number, maximum: number, validate: Validator): Validator =>
   (value) => Array.isArray(value) && value.length >= minimum && value.length <= maximum
     && value.every(validate) && new Set(value).size === value.length;
+const douyinProfileUrl: Validator = (value) => typeof value === "string"
+  && /^https:\/\/www\.douyin\.com\/user\/[A-Za-z0-9_-]{1,300}$/u.test(value);
+const douyinVideoUrl: Validator = (value) => typeof value === "string"
+  && /^https:\/\/www\.douyin\.com\/video\/[A-Za-z0-9_-]{1,300}$/u.test(value);
 
 const candidateValidators = {
   candidateId: boundedString(1, 255),
   selected: (value) => typeof value === "boolean",
   candidateRevision: boundedInteger(1),
   evidenceHashes: uniqueArray(1, 20, sha256),
+  publicProfileUrl: douyinProfileUrl,
+  commentTargetPublicUrl: douyinVideoUrl,
   draftRevision: boundedInteger(1),
   comment: boundedString(1, 300),
   commentHash: sha256,
@@ -108,9 +125,10 @@ const batchListValidators = {
 } satisfies Record<keyof OutreachBatchList, Validator>;
 
 const actionFailureCodes = new Set([
-  "action_unavailable", "action_rejected", "deadline_exceeded",
+  "action_unavailable", "action_rejected", "approval_authority_changed", "predecessor_failed", "account_risk_paused", "deadline_exceeded",
   "douyin_verification_required", "douyin_rate_limited",
-  "douyin_account_warning", "douyin_login_expired",
+  "douyin_account_warning", "douyin_account_identity_changed",
+  "douyin_login_expired",
   "douyin_direct_message_unavailable", "douyin_action_control_missing",
   "douyin_action_control_ambiguous", "douyin_action_content_mismatch",
   "douyin_action_receipt_ambiguous", "douyin_action_timeout"
@@ -143,9 +161,34 @@ const actionValidators = {
   occurredAt: nullable(dateTime),
   failureCode: nullable((value) => typeof value === "string"
     && actionFailureCodes.has(value))
-} satisfies Record<keyof OutreachActionItem, Validator>;
+} satisfies Record<Exclude<keyof OutreachActionItem,
+  "authorizationVersion" | "approvedBy" | "approvedAt"
+  | "directMessageDailyLimit" | "directMessageDailyOrdinal">, Validator>;
+const directMessageAuthorizationValidators = {
+  authorizationVersion: (value) => value === 2,
+  approvedBy: boundedString(1, 255),
+  approvedAt: dateTime,
+  directMessageDailyLimit: boundedInteger(1, 100),
+  directMessageDailyOrdinal: boundedInteger(1, 100)
+} satisfies Record<
+  "authorizationVersion" | "approvedBy" | "approvedAt"
+  | "directMessageDailyLimit" | "directMessageDailyOrdinal",
+  Validator
+>;
+const actionValidatorMap: Record<string, Validator> = actionValidators;
+const directMessageAuthorizationValidatorMap: Record<string, Validator> =
+  directMessageAuthorizationValidators;
 const actionShape = (value: unknown): boolean => {
-  if (!closedShape(value, actionValidators)) return false;
+  if (!record(value)) return false;
+  const baseKeys = Object.keys(actionValidators);
+  const authorizationKeys = Object.keys(directMessageAuthorizationValidators);
+  const hasAuthorizationMetadata = authorizationKeys.some((key) => key in value);
+  const expectedKeys = hasAuthorizationMetadata
+    ? [...baseKeys, ...authorizationKeys]
+    : baseKeys;
+  if (Object.keys(value).length !== expectedKeys.length
+    || !expectedKeys.every((key) => key in value)
+    || !baseKeys.every((key) => actionValidatorMap[key]!(value[key]))) return false;
   const action = value as Record<string, unknown>;
   const target = action.targetPublicUrl;
   const kind = action.kind;
@@ -164,7 +207,13 @@ const actionShape = (value: unknown): boolean => {
         && typeof action.failureCode === "string"
       : action.platformReceiptReference === null
         && action.occurredAt === null && action.failureCode === null;
-  return targetValid && receiptValid && (kind === "comment"
+  const authorizationValid = !hasAuthorizationMetadata
+    || kind === "direct_message"
+      && authorizationKeys.every((key) =>
+        directMessageAuthorizationValidatorMap[key]!(action[key]))
+      && (action.directMessageDailyOrdinal as number)
+        <= (action.directMessageDailyLimit as number);
+  return targetValid && receiptValid && authorizationValid && (kind === "comment"
     ? action.sequence === 1 && action.predecessorActionId === null
     : action.sequence === 2 && typeof action.predecessorActionId === "string");
 };
@@ -227,6 +276,25 @@ export function createOutreachBatchApi(fetchImpl: typeof fetch = fetch, options:
       }, batchShape);
     },
     approveBatch(batchId, revision, batchHash, etag, key, signal) { return transition(batchId, "approve", { revision, batchHash, confirm: true }, etag, key, signal); },
+    approveDirectMessages(batchId, command, etag, key, signal) {
+      const closed: DirectMessageApprovalCommand = {
+        batchRevision: command.batchRevision,
+        batchHash: command.batchHash,
+        commentApprovalHash: command.commentApprovalHash,
+        dailyLimit: command.dailyLimit,
+        candidates: command.candidates.map(({ candidateId, directMessage }) => ({
+          candidateId,
+          directMessage
+        })),
+        confirm: true
+      };
+      return request(`/api/v1/acquisition/outreach-batches/${segment(batchId)}/direct-messages/approve`, {
+        method: "POST",
+        signal,
+        headers: headers(key, etag),
+        body: JSON.stringify(closed)
+      }, batchShape);
+    },
     rejectBatch(batchId, reason, etag, key, signal) { return transition(batchId, "reject", reason ? { reason } : {}, etag, key, signal); },
     pauseBatch(batchId, reason, etag, key, signal) { return transition(batchId, "pause", reason ? { reason } : {}, etag, key, signal); },
     resumeBatch(batchId, etag, key, signal) { return transition(batchId, "resume", {}, etag, key, signal); },

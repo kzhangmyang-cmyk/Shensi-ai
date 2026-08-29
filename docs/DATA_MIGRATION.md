@@ -222,6 +222,14 @@ Backend startup also creates the versioned outreach authority tables:
 traffic after the normal encrypted backup. The action table's account/local
 date/candidate uniqueness and batch-revision foreign key are approval and
 daily-limit authority; do not remove or backfill them from mutable UI state.
+Historical approved comment batches without `payload_json.timeZone` are
+upgraded inside the MySQL claim transaction before any attempt is reserved.
+The only permitted source is the exact immutable automation-policy version
+bound by the batch; its stored column hash, payload hash, plan, account, login
+version, and policy ID must all match. An unprovable legacy comment is closed
+with `approval_authority_changed` without consuming an attempt, and a blocked
+successor is closed as `predecessor_failed`. Missing-time-zone version-2 direct
+messages remain fail-closed and are not upgraded or claimed.
 
 Before enabling the MediaCrawler worker against an existing target, take the
 normal encrypted backup and let backend schema setup finish with no worker

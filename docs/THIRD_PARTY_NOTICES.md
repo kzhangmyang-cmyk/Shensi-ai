@@ -11,6 +11,20 @@ built or deployed. This repository contains no authorization evidence,
 credentials, cookies, browser state, or service secrets. The Shensi adapter
 does not widen the upstream authorization boundary.
 
+## Optional Douyin action visual locator
+
+The MediaCrawler sidecar pins these optional local runtime packages in the
+`visual-locator` dependency group:
+
+- [`rapidocr`](https://github.com/RapidAI/RapidOCR) `3.9.2` — Apache-2.0.
+- [`onnxruntime`](https://github.com/microsoft/onnxruntime) `1.29.0` — MIT.
+
+They are installed/loaded only when the deployment explicitly chooses
+`DOUYIN_ACTION_VISUAL_LOCATOR=rapidocr`; omission defaults to `disabled`. OCR
+may suggest only a missing allowlisted entry/send control before exact DOM
+rebind. It does not choose account, target, recipient, text, or receipt, and
+action screenshots/recognized text are not persisted or logged.
+
 ## tldts
 
 The backend uses [`tldts`](https://github.com/remusao/tldts) `7.4.10` and its

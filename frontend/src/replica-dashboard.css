@@ -3202,7 +3202,7 @@ body.is-authenticated .replica-shell {
 }
 
 .replica-connection-editor :where(input, select, textarea),
-.replica-connection-rotation input {
+.replica-connection-rotation :where(input, select) {
   width: 100%;
   min-height: 40px;
   padding: 9px 11px;
@@ -3214,7 +3214,7 @@ body.is-authenticated .replica-shell {
 }
 
 .replica-connection-editor :where(input, select, textarea):focus,
-.replica-connection-rotation input:focus {
+.replica-connection-rotation :where(input, select):focus {
   border-color: rgba(24, 237, 120, .38);
   box-shadow: 0 0 0 3px rgba(24, 237, 120, .055);
 }
@@ -5324,6 +5324,7 @@ body.is-authenticated .replica-shell {
   outline-offset: 2px;
 }
 .outreach-editor-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.outreach-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .outreach-editor { min-width: 0; padding: 15px; background: #080a0a; border: 1px solid var(--replica-line-soft); border-radius: 13px; }
 .outreach-editor header { justify-content: flex-start; margin-bottom: 13px; }
 .outreach-editor header > span { color: var(--replica-accent); font-size: 12px; }
@@ -5331,7 +5332,230 @@ body.is-authenticated .replica-shell {
 .outreach-editor label + label { margin-top: 11px; }
 .outreach-editor textarea { resize: vertical; padding: 10px; line-height: 1.6; }
 .outreach-editor small { display: block; margin-top: 9px; color: var(--replica-muted); }
-.outreach-confirm { color: #dce1de; font-size: 11px; }
+.outreach-direct-message-review,
+.outreach-direct-message-approval {
+  min-width: 0;
+  margin: 13px 0 0;
+  padding: 14px;
+  background: rgba(255, 255, 255, .012);
+  border: 1px solid var(--replica-line-soft);
+  border-radius: 12px;
+}
+.outreach-direct-message-review legend,
+.outreach-direct-message-approval legend {
+  padding: 0 7px;
+  color: var(--replica-text);
+  font-size: 12px;
+  font-weight: 760;
+}
+.outreach-direct-message-review[disabled] {
+  opacity: 1;
+}
+.outreach-direct-message-review.is-editable,
+.outreach-direct-message-review.is-succeeded {
+  border-color: rgba(31, 235, 125, .28);
+  background: rgba(31, 235, 125, .035);
+}
+.outreach-direct-message-review:is(.is-dirty, .is-approving, .is-pending, .is-queued, .is-executing) {
+  border-color: rgba(240, 164, 79, .3);
+  background: rgba(240, 164, 79, .045);
+}
+.outreach-direct-message-review:is(.is-failed, .is-risk_paused) {
+  border-color: rgba(255, 91, 91, .32);
+  background: rgba(255, 91, 91, .045);
+}
+.outreach-direct-message-target {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 11px;
+  background: #080a0a;
+  border: 1px solid rgba(31, 235, 125, .14);
+  border-radius: 9px;
+}
+.outreach-direct-message-target span {
+  color: var(--replica-muted);
+  font-size: 10px;
+  font-weight: 680;
+}
+.outreach-direct-message-target a {
+  width: fit-content;
+  color: var(--replica-accent);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.outreach-direct-message-target code,
+.outreach-direct-message-status,
+.outreach-direct-message-approval p,
+.outreach-direct-message-approval label {
+  overflow-wrap: anywhere;
+}
+.outreach-direct-message-target code {
+  color: #aeb5b1;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.outreach-direct-message-status {
+  line-height: 1.55;
+}
+.outreach-direct-message-review:is(.is-dirty, .is-approving, .is-pending, .is-queued, .is-executing) .outreach-direct-message-status {
+  color: #f2c47b;
+}
+.outreach-direct-message-review:is(.is-failed, .is-risk_paused) .outreach-direct-message-status {
+  color: #ff9f9f;
+}
+.outreach-direct-message-approval {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 220px);
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-color: rgba(31, 235, 125, .24);
+  background: linear-gradient(100deg, rgba(31, 235, 125, .05), rgba(8, 10, 10, .72));
+}
+.outreach-direct-message-approval-copy strong {
+  color: var(--replica-text);
+}
+.outreach-direct-message-approval-copy p {
+  margin: 4px 0 0;
+  font-size: 11px;
+}
+.outreach-direct-message-limit {
+  display: grid;
+  gap: 7px;
+  color: #cbd0cd;
+  font-size: 11px;
+  font-weight: 680;
+}
+.outreach-direct-message-limit input {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 11px;
+  color: var(--replica-text);
+  background: #080a0a;
+  border: 1px solid var(--replica-line);
+  border-radius: 10px;
+  outline: 0;
+}
+.outreach-direct-message-limit-error {
+  color: #f2c47b !important;
+}
+.outreach-direct-message-approval > .outreach-confirm {
+  min-width: 0;
+}
+.outreach-direct-message-approval .douyin-actions {
+  grid-column: 2;
+  justify-content: flex-end;
+  margin-top: 0;
+}
+.outreach-account-review {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(110px, .6fr);
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--replica-line-soft);
+  border-radius: 13px;
+  background: var(--replica-line-soft);
+}
+.outreach-account-review > div {
+  min-width: 0;
+  padding: 13px 15px;
+  background: #080a0a;
+}
+.outreach-account-review span,
+.outreach-target > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--replica-muted);
+  font-size: 10px;
+  font-weight: 680;
+  letter-spacing: .03em;
+}
+.outreach-account-review strong,
+.outreach-account-review code {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--replica-text);
+}
+.outreach-review-blocker {
+  margin: 13px 0 0;
+  padding: 11px 13px;
+  color: #f5c98f;
+  background: rgba(240, 164, 79, .08);
+  border: 1px solid rgba(240, 164, 79, .28);
+  border-radius: 10px;
+}
+.outreach-review-blocker p { margin: 4px 0 0; font-size: 12px; }
+.outreach-target {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 13px;
+  padding: 12px;
+  border: 1px solid rgba(31, 235, 125, .17);
+  border-radius: 10px;
+  background: rgba(31, 235, 125, .035);
+}
+.outreach-target a,
+.outreach-action-target {
+  width: fit-content;
+  color: var(--replica-accent);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.outreach-target a:hover,
+.outreach-action-target:hover { text-decoration: underline; }
+.outreach-target code {
+  overflow-wrap: anywhere;
+  color: #aeb5b1;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.outreach-editor label > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.outreach-editor label > span em {
+  color: var(--replica-muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 550;
+}
+.outreach-dirty {
+  padding: 8px 10px;
+  border-left: 2px solid #f0a44f;
+  background: rgba(240, 164, 79, .08);
+  color: #f5c98f !important;
+  font-size: 10px;
+}
+.outreach-approval-bar {
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid rgba(31, 235, 125, .2);
+  border-radius: 13px;
+  background: linear-gradient(100deg, rgba(31, 235, 125, .055), rgba(8, 10, 10, .7));
+}
+.outreach-approval-copy { max-width: 760px; }
+.outreach-approval-copy > strong { color: var(--replica-text); }
+.outreach-approval-copy > p { margin: 4px 0 10px; font-size: 12px; }
+.outreach-approval-bar .douyin-actions button { min-height: 44px; }
+.outreach-confirm {
+  display: flex;
+  min-height: 44px;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 0;
+  color: #dce1de;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.outreach-confirm input { flex: none; margin-top: 2px; }
+.outreach-confirm:has(input:disabled) { color: var(--replica-muted); cursor: not-allowed; }
 .outreach-timeline { margin-top: 16px; }
 .outreach-action { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 11px; padding: 12px; background: #080a0a; border-left: 2px solid var(--replica-line); border-radius: 9px; }
 .outreach-action > span { display: grid; width: 26px; height: 26px; place-items: center; background: rgba(255,255,255,.05); border-radius: 50%; }
@@ -5340,6 +5564,15 @@ body.is-authenticated .replica-shell {
 .outreach-action.is-risk_paused { border-left-color: var(--replica-danger); }
 .outreach-action p { margin: 3px 0; overflow-wrap: anywhere; }
 .outreach-action small { color: var(--replica-muted); }
+.outreach-action-target { display: block; margin: 5px 0; }
+.outreach-target a:focus-visible,
+.outreach-action-target:focus-visible {
+  outline: 2px solid var(--replica-accent);
+  outline-offset: 3px;
+}
+.outreach-technical { margin-top: 6px; color: var(--replica-muted); font-size: 10px; }
+.outreach-technical summary { width: fit-content; cursor: pointer; }
+.outreach-technical code { display: block; margin-top: 5px; overflow-wrap: anywhere; }
 
 .douyin-link-fallback {
   margin-top: 16px;
@@ -5377,6 +5610,15 @@ body.is-authenticated .replica-shell {
   .douyin-automation-workspace { padding: 14px; border-radius: 18px; }
   .douyin-control-hero,
   .outreach-approval-bar { align-items: flex-start; flex-direction: column; }
+  .outreach-direct-message-approval {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .outreach-direct-message-approval .douyin-actions {
+    grid-column: 1;
+    justify-content: flex-start;
+  }
+  .outreach-account-review { grid-template-columns: 1fr; }
   .douyin-form-grid,
   .douyin-run-metrics,
   .outreach-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -5392,6 +5634,11 @@ body.is-authenticated .replica-shell {
   .douyin-panel-title { align-items: flex-start; }
   .douyin-actions { align-items: stretch; flex-direction: column; }
   .douyin-actions button { width: 100%; }
+  .outreach-approval-bar .douyin-actions { width: 100%; }
+  .outreach-direct-message-approval .douyin-actions,
+  .outreach-direct-message-approval .douyin-actions button {
+    width: 100%;
+  }
   .real-conversations-outreach-cta { align-items: stretch; flex-direction: column; }
   .real-conversations-outreach-cta button { width: 100%; }
   .douyin-qr-dialog > div { padding: 18px; }

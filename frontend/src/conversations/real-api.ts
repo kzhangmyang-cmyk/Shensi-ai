@@ -27,9 +27,17 @@ export interface RealConversationRunFailure {
   reason: string;
 }
 
+export interface RealConversationAccount {
+  id: string;
+  displayName: string | null;
+  state: string;
+  loginStateVersion: number | null;
+}
+
 export interface RealConversationsSnapshot {
   generatedAt: string;
   runsRead: number;
+  accounts: RealConversationAccount[];
   interactions: RealPublicInteraction[];
   failedRuns: RealConversationRunFailure[];
   truncatedRunIds: string[];
@@ -77,7 +85,10 @@ export function createRealConversationsApi(
 
   return {
     async load(signal) {
-      const overview = await acquisitionApi.getOverview(signal);
+      const [overview, accountPage] = await Promise.all([
+        acquisitionApi.getOverview(signal),
+        douyinApi.listAccounts(signal)
+      ]);
       const tasks = overview.tasks.filter((task) =>
         task.platform === "douyin" && task.latestRun !== null
       ) as Array<typeof overview.tasks[number] & {
@@ -120,6 +131,12 @@ export function createRealConversationsApi(
       return {
         generatedAt: overview.generatedAt,
         runsRead,
+        accounts: accountPage.items.map((account) => ({
+          id: account.id,
+          displayName: account.displayName,
+          state: account.state,
+          loginStateVersion: account.loginStateVersion
+        })),
         interactions,
         failedRuns,
         truncatedRunIds,

@@ -299,6 +299,10 @@ export class OpenAiCompatibleAdapter {
       }));
       body.tool_choice = request.toolChoice ?? "required";
       body.parallel_tool_calls = request.parallelToolCalls ?? false;
+      if (request.snapshot.provider === "deepseek"
+        && body.tool_choice === "required") {
+        body.thinking = { type: "disabled" };
+      }
     }
     const { response, value } = await this.#requestJson("/chat/completions", {
       method: "POST",

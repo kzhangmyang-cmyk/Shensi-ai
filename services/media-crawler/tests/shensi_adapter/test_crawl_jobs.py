@@ -1396,7 +1396,8 @@ def test_manager_close_uses_one_global_deadline_for_all_workers(tmp_path):
         return []
 
     manager = CrawlJobManager(
-        tmp_path, account_resolver=lambda *_: tmp_path / "profile",
+        tmp_path,
+        account_resolver=lambda handle, _version: tmp_path / f"{handle}-profile",
         runner=blocking_runner, now=lambda: NOW,
         shutdown_timeout=0.05,
     )

@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z, ZodError } from "zod";
 import { AcquisitionOutreachBatchError, type AcquisitionOutreachBatchService } from "./acquisition-outreach-batch-service.js";
@@ -13,6 +13,15 @@ const createSchema = z.object({ candidateIds: z.array(z.string().trim().min(1).m
 const putSchema = z.object({ candidates: z.array(z.object({ candidateId: z.string().trim().min(1).max(255),
   selected: z.boolean(), comment: z.string(), directMessage: z.string() }).strict()).min(1).max(200) }).strict();
 const approveSchema = z.object({ revision: z.number().int().min(1), batchHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u), confirm: z.literal(true) }).strict();
+const directMessageApproveSchema = z.object({
+  batchRevision: z.number().int().min(1),
+  batchHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+  commentApprovalHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+  dailyLimit: z.number().int().min(1).max(100),
+  candidates: z.array(z.object({ candidateId: z.string().trim().min(1).max(255),
+    directMessage: z.string().min(1).max(800) }).strict()).min(1).max(100),
+  confirm: z.literal(true)
+}).strict();
 const reasonSchema = z.object({ reason: z.string().trim().max(2_000).optional() }).strict();
 const emptySchema = z.object({}).strict();
 const reconcileSchema = z.object({
@@ -36,6 +45,52 @@ const cursorPayloadSchema = z.object({
   batchId: id
 }).strict();
 type CursorPayload = z.infer<typeof cursorPayloadSchema>;
+
+export interface AcquisitionOutreachInternalErrorEvent {
+  requestId: string;
+  method: string;
+  path: string;
+  code: string;
+  errorName: string;
+  driverCode?: string;
+  sqlState?: string;
+  stackFingerprint?: string;
+}
+
+const defaultInternalError = (event: AcquisitionOutreachInternalErrorEvent) => {
+  console.error(JSON.stringify({
+    event: "acquisition_outreach_internal_error",
+    ...event
+  }));
+};
+
+function diagnosticFields(error: unknown): Pick<
+  AcquisitionOutreachInternalErrorEvent,
+  "driverCode" | "sqlState" | "stackFingerprint"
+> {
+  if (!(error instanceof Error)) return {};
+  const record = error as Error & { code?: unknown; sqlState?: unknown };
+  const driverCode = typeof record.code === "string"
+    && /^[A-Z0-9_]{2,64}$/u.test(record.code)
+    ? record.code : undefined;
+  const sqlState = typeof record.sqlState === "string"
+    && /^[A-Z0-9]{5}$/u.test(record.sqlState)
+    ? record.sqlState : undefined;
+  const stackFrames = (error.stack ?? "")
+    .split("\n")
+    .slice(1)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n");
+  const stackFingerprint = stackFrames
+    ? `sha256:${createHash("sha256").update(`${error.name}\n${stackFrames}`).digest("hex")}`
+    : undefined;
+  return {
+    ...(driverCode ? { driverCode } : {}),
+    ...(sqlState ? { sqlState } : {}),
+    ...(stackFingerprint ? { stackFingerprint } : {})
+  };
+}
 
 function encodeCursor(payload: CursorPayload, secret: string) {
   const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
@@ -123,6 +178,12 @@ function knownDraftFailure(error: unknown) {
   return null;
 }
 function batchPublicMessage(code: string) {
+  if (code === "outreach_candidate_projection_pending") {
+    return "候选数据仍在采集中或等待最终入库；完成后才能生成或确认真实评论批次，当前不会排队任何动作";
+  }
+  if (code === "outreach_candidate_projection_unavailable") {
+    return "本次采集未形成可审批的最终候选数据，请重新运行采集后再生成评论批次";
+  }
   if (code === "outreach_comment_target_invalid") {
     return "所选候选人缺少可评论的视频证据，请返回候选人列表重新选择";
   }
@@ -132,6 +193,7 @@ function batchPublicMessage(code: string) {
   return code;
 }
 function route(requestIdFactory: () => string,
+  onInternalError: (event: AcquisitionOutreachInternalErrorEvent) => void,
   handler: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response, _next: NextFunction) => {
     const requestId = requestIdFactory(); res.setHeader("X-Request-Id", requestId);
@@ -142,6 +204,20 @@ function route(requestIdFactory: () => string,
           : error instanceof ZodError ? new HttpError(400, "invalid_request")
             : knownDraftFailure(error)
               ?? new HttpError(500, "outreach_internal_error");
+      if (failure.code === "outreach_internal_error") {
+        try {
+          onInternalError({
+            requestId,
+            method: req.method,
+            path: req.path,
+            code: failure.code,
+            errorName: error instanceof Error ? error.name : typeof error,
+            ...diagnosticFields(error)
+          });
+        } catch {
+          // Diagnostics must never replace the safe public error response.
+        }
+      }
       res.status(failure.status).json({ code: failure.code,
         message: failure instanceof HttpError ? failure.publicMessage
           : batchPublicMessage(failure.code),
@@ -159,13 +235,15 @@ function headers(res: Response, result: { replayed: boolean; value: { etag: stri
 export function createAcquisitionOutreachBatchRouter(options: {
   service: AcquisitionOutreachBatchService; cursorSecret: string;
   requestIdFactory?: () => string;
+  onInternalError?: (event: AcquisitionOutreachInternalErrorEvent) => void;
 }) {
   const router = Router(); const requestId = options.requestIdFactory ?? (() => `request_${crypto.randomUUID()}`);
-  router.post("/runs/:runId/outreach-batches", route(requestId, async (req, res) => {
+  const internalError = options.onInternalError ?? defaultInternalError;
+  router.post("/runs/:runId/outreach-batches", route(requestId, internalError, async (req, res) => {
     const result = await options.service.create(scope(req), id.parse(req.params.runId), key(req), createSchema.parse(req.body));
     headers(res, result); res.status(201).json(result.value);
   }));
-  router.get("/outreach-batches", route(requestId, async (req, res) => {
+  router.get("/outreach-batches", route(requestId, internalError, async (req, res) => {
     const currentScope = scope(req);
     const query = listQuerySchema.parse(req.query);
     let after: { createdAt: string; batchId: string } | null = null;
@@ -190,33 +268,41 @@ export function createAcquisitionOutreachBatchRouter(options: {
       }, options.cursorSecret) : null
     });
   }));
-  router.get("/outreach-batches/:batchId", route(requestId, async (req, res) => {
+  router.get("/outreach-batches/:batchId", route(requestId, internalError, async (req, res) => {
     const value = await options.service.get(scope(req), id.parse(req.params.batchId));
     res.setHeader("ETag", value.etag); res.json(value);
   }));
-  router.put("/outreach-batches/:batchId", route(requestId, async (req, res) => {
+  router.put("/outreach-batches/:batchId", route(requestId, internalError, async (req, res) => {
     const result = await options.service.put(scope(req), id.parse(req.params.batchId), match(req), key(req), putSchema.parse(req.body));
     headers(res, result); res.json(result.value);
   }));
-  router.post("/outreach-batches/:batchId/approve", route(requestId, async (req, res) => {
+  router.post("/outreach-batches/:batchId/approve", route(requestId, internalError, async (req, res) => {
     const result = await options.service.approve(scope(req), id.parse(req.params.batchId), match(req), key(req), approveSchema.parse(req.body));
     headers(res, result); res.json(result.value);
   }));
+  router.post("/outreach-batches/:batchId/direct-messages/approve",
+    route(requestId, internalError, async (req, res) => {
+      const result = await options.service.approveDirectMessages(
+        scope(req), id.parse(req.params.batchId), match(req), key(req),
+        directMessageApproveSchema.parse(req.body)
+      );
+      headers(res, result); res.json(result.value);
+    }));
   for (const operation of ["reject", "pause"] as const) {
-    router.post(`/outreach-batches/:batchId/${operation}`, route(requestId, async (req, res) => {
+    router.post(`/outreach-batches/:batchId/${operation}`, route(requestId, internalError, async (req, res) => {
       const result = await options.service[operation](scope(req), id.parse(req.params.batchId), match(req), key(req), reasonSchema.parse(req.body));
       headers(res, result); res.json(result.value);
     }));
   }
-  router.post("/outreach-batches/:batchId/resume", route(requestId, async (req, res) => {
+  router.post("/outreach-batches/:batchId/resume", route(requestId, internalError, async (req, res) => {
     const result = await options.service.resume(scope(req), id.parse(req.params.batchId), match(req), key(req), emptySchema.parse(req.body));
     headers(res, result); res.json(result.value);
   }));
-  router.get("/outreach-batches/:batchId/actions", route(requestId, async (req, res) => {
+  router.get("/outreach-batches/:batchId/actions", route(requestId, internalError, async (req, res) => {
     res.json({ items: await options.service.actions(scope(req), id.parse(req.params.batchId)) });
   }));
   router.post("/outreach-batches/:batchId/actions/:actionId/reconcile",
-    route(requestId, async (req, res) => {
+    route(requestId, internalError, async (req, res) => {
       key(req);
       const value = await options.service.reconcileAction(
         scope(req),

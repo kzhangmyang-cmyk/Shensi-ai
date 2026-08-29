@@ -79,6 +79,21 @@ test("official endpoint options expose canonical public choices without mutable 
     item.provider === "qwen"
     && item.requiresWorkspaceId
   ));
+  const deepseek = options.find((item) =>
+    item.endpointProfileId === "deepseek-global"
+  );
+  assert.deepEqual(deepseek?.models, [
+    {
+      id: "deepseek-v4-pro",
+      displayName: "deepseek-v4-pro"
+    },
+    {
+      id: "deepseek-v4-flash",
+      displayName: "deepseek-v4-flash"
+    }
+  ]);
   assert.equal(Object.isFrozen(options), true);
   assert.equal(Object.isFrozen(options[0]), true);
+  assert.equal(Object.isFrozen(deepseek?.models), true);
+  assert.equal(Object.isFrozen(deepseek?.models[0]), true);
 });

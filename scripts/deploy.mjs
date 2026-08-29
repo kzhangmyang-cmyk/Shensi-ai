@@ -2,7 +2,12 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { assertPortAvailable, readEnvironmentFile, requiredLocalVariables } from "./dev.mjs";
+import {
+  assertPortAvailable,
+  readEnvironmentFile,
+  requiredLocalVariables,
+  validateActionVisualLocator
+} from "./dev.mjs";
 import { assertMediaCrawlerHostPrerequisites, validateMediaCrawlerComposeConfig } from "./mediacrawler-runtime.mjs";
 
 const productionSecurityVariables = ["TRADE_OBSERVATION_CURSOR_SECRET", "MARKET_OPPORTUNITY_CURSOR_SECRET", "PROSPECT_RUN_IDEMPOTENCY_SECRET", "PROSPECT_RUN_CURSOR_SECRET", "PROSPECT_EXECUTION_CLAIM_SECRET", "ORGANIZATION_IDENTITY_MASTER_SECRET", "PROSPECT_SOURCE_RAW_ENVELOPE_SECRET", "PROSPECT_COVERAGE_MASTER_SECRET"];
@@ -25,6 +30,7 @@ export function validateProductionVariables(environment) {
   if (environment.CRM_STORE !== "mysql") throw new Error("PRODUCTION_CRM_STORE_MUST_BE_MYSQL");
   if (environment.CRM_SEED_DEVELOPMENT_DATA !== "false") throw new Error("PRODUCTION_DEVELOPMENT_SEEDING_FORBIDDEN");
   if (environment.SESSION_COOKIE_SECURE !== "true") throw new Error("PRODUCTION_SESSION_COOKIE_SECURE_REQUIRED");
+  validateActionVisualLocator(environment.DOUYIN_ACTION_VISUAL_LOCATOR);
   for (const name of [...requiredLocalVariables.slice(1), ...productionSecurityVariables]) {
     const value = environment[name].trim();
     if (value.length < 32 || value.startsWith("replace_")) throw new Error(`PRODUCTION_SECURITY_VALUE_INVALID:${name}`);

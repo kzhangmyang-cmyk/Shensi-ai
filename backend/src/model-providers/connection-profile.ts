@@ -7,7 +7,8 @@ import type {
   ModelEndpointProfileId
 } from "./endpoint-profiles.js";
 import {
-  getOfficialModelAdapterRegistration
+  getOfficialModelAdapterRegistration,
+  listCertifiedToolCallingModelOptions
 } from "./adapter-registry.js";
 import type {
   ExactModelCapabilityCertification
@@ -37,6 +38,7 @@ export interface OfficialModelEndpointOption {
   baseUrl: string | null;
   requiresWorkspaceId: boolean;
   modelListPolicy: "same_key" | "not_exposed" | "separate_control_plane";
+  models: readonly Readonly<{ id: string; displayName: string }>[];
   officialReference: string;
 }
 
@@ -110,6 +112,10 @@ export function listOfficialModelEndpointOptions(): readonly Readonly<
       baseUrl: profile.baseUrl,
       requiresWorkspaceId: profile.hostPolicy.kind === "qwen_workspace",
       modelListPolicy: profile.modelList.policy,
+      models: listCertifiedToolCallingModelOptions(
+        profile.provider,
+        profile.id
+      ),
       officialReference: profile.officialReference
     })
   ));

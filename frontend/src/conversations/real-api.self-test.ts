@@ -49,6 +49,21 @@ const api = createRealConversationsApi(async (input, init) => {
       }]
     }), { status: 200, headers: { "content-type": "application/json" } });
   }
+  if (path === "/api/v1/acquisition/social-accounts/douyin") {
+    return new Response(JSON.stringify({ items: [{
+      id: "account-1",
+      workspaceId: "workspace-1",
+      platform: "douyin",
+      displayName: "抖音测试账号",
+      state: "active",
+      loginStateVersion: 3,
+      revision: 1,
+      etag: '"account:1"',
+      lastValidatedAt: "2026-08-26T07:55:00.000Z",
+      createdAt: "2026-08-26T07:00:00.000Z",
+      updatedAt: "2026-08-26T07:55:00.000Z"
+    }] }), { status: 200, headers: { "content-type": "application/json" } });
+  }
   if (path === "/api/v1/acquisition/runs/run%2Fpublic%201/candidates") {
     return new Response(JSON.stringify({
       items: [{
@@ -82,6 +97,7 @@ const api = createRealConversationsApi(async (input, init) => {
 const snapshot = await api.load();
 assert.deepEqual(requests.map((request) => String(request.input)), [
   "/api/v1/acquisition/overview?platform=douyin",
+  "/api/v1/acquisition/social-accounts/douyin",
   "/api/v1/acquisition/runs/run%2Fpublic%201/candidates",
   "/api/v1/acquisition/runs/run-failed/candidates"
 ]);
@@ -89,6 +105,12 @@ assert.ok(requests.every((request) => request.init?.method === "GET"));
 assert.ok(requests.every((request) => request.init?.body === undefined));
 assert.ok(requests.every((request) => !String(request.input).includes("outreach-batches")));
 assert.equal(snapshot.interactions.length, 2);
+assert.deepEqual(snapshot.accounts, [{
+  id: "account-1",
+  displayName: "抖音测试账号",
+  state: "active",
+  loginStateVersion: 3
+}]);
 assert.deepEqual(snapshot.interactions[0], {
   key: "run/public 1:candidate-public-1",
   candidateId: "candidate-public-1",
@@ -129,6 +151,12 @@ const emptyRequests: string[] = [];
 const emptyApi = createRealConversationsApi(async (input, init) => {
   emptyRequests.push(String(input));
   assert.equal(init?.method, "GET");
+  if (String(input) === "/api/v1/acquisition/social-accounts/douyin") {
+    return new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  }
   return new Response(JSON.stringify({
     generatedAt: "2026-08-26T08:00:00.000Z",
     platform: "douyin",
@@ -139,4 +167,7 @@ const emptyApi = createRealConversationsApi(async (input, init) => {
   }), { status: 200, headers: { "content-type": "application/json" } });
 });
 assert.equal((await emptyApi.load()).interactions.length, 0);
-assert.deepEqual(emptyRequests, ["/api/v1/acquisition/overview?platform=douyin"]);
+assert.deepEqual(emptyRequests, [
+  "/api/v1/acquisition/overview?platform=douyin",
+  "/api/v1/acquisition/social-accounts/douyin"
+]);

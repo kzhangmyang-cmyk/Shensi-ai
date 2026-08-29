@@ -3,6 +3,8 @@ import type { RowDataPacket } from "mysql2";
 import { createHash } from "node:crypto";
 import {
   assertValidAcquisitionSocialAccountPrivateRecord,
+  hasValidBoundActiveIdentity,
+  type AcquisitionSocialAccountIdentityFence,
   type AcquisitionSocialAccountPrivateRecord,
   type AcquisitionSocialAccountReplay,
   type AcquisitionSocialAccountReplayClaim,
@@ -22,6 +24,7 @@ export const acquisitionSocialAccountsDdl = `CREATE TABLE IF NOT EXISTS acquisit
   display_name VARCHAR(512) NULL,
   state VARCHAR(32) NOT NULL,
   login_state_version BIGINT NULL,
+  login_state_version_high_water BIGINT UNSIGNED NOT NULL DEFAULT 0,
   revision BIGINT NOT NULL,
   etag VARCHAR(64) NOT NULL,
   last_validated_at VARCHAR(40) NULL,
@@ -63,7 +66,8 @@ export const acquisitionSocialAccountReplaysDdl = `CREATE TABLE IF NOT EXISTS ac
 
 const schemaStatements = [acquisitionSocialAccountsDdl, acquisitionSocialAccountSessionsDdl, acquisitionSocialAccountReplaysDdl] as const;
 const accountUpgradeColumns = new Map<string, string>([
-  ["upstream_session_id", "ALTER TABLE acquisition_social_accounts ADD COLUMN upstream_session_id VARCHAR(512) NULL AFTER account_handle"]
+  ["upstream_session_id", "ALTER TABLE acquisition_social_accounts ADD COLUMN upstream_session_id VARCHAR(512) NULL AFTER account_handle"],
+  ["login_state_version_high_water", "ALTER TABLE acquisition_social_accounts ADD COLUMN login_state_version_high_water BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER login_state_version"]
 ]);
 const replayUpgradeColumns = new Map<string, string>([
   ["state", "ALTER TABLE acquisition_social_account_replays ADD COLUMN state VARCHAR(16) NOT NULL DEFAULT 'pending' AFTER request_hash"],
@@ -111,13 +115,20 @@ function json(value: unknown): unknown {
   return typeof value === "string" ? JSON.parse(value) : value;
 }
 function record(row: Row): AcquisitionSocialAccountPrivateRecord {
+  const loginStateVersion = row.login_state_version == null
+    ? null : Number(row.login_state_version);
   return {
     id: String(row.id), workspaceId: String(row.workspace_id), platform: "douyin",
     accountHandle: row.account_handle == null ? null : String(row.account_handle),
     upstreamSessionId: row.upstream_session_id == null ? null : String(row.upstream_session_id),
     displayName: row.display_name == null ? null : String(row.display_name),
     state: row.state as AcquisitionSocialAccountPrivateRecord["state"],
-    loginStateVersion: row.login_state_version == null ? null : Number(row.login_state_version),
+    loginStateVersion,
+    loginStateVersionHighWater: Math.max(
+      row.login_state_version_high_water == null
+        ? 0 : Number(row.login_state_version_high_water),
+      loginStateVersion ?? 0
+    ),
     revision: Number(row.revision), etag: String(row.etag),
     lastValidatedAt: row.last_validated_at == null ? null : String(row.last_validated_at),
     createdAt: String(row.created_at), updatedAt: String(row.updated_at)
@@ -209,6 +220,9 @@ export async function ensureAcquisitionSocialAccountsMysqlSchema(pool: mysql.Poo
   for (const statement of schemaStatements) await pool.query(statement);
   const accountColumns = await columns(pool, "acquisition_social_accounts");
   for (const [name, statement] of accountUpgradeColumns) if (!accountColumns.has(name)) await pool.query(statement);
+  await pool.query(`UPDATE acquisition_social_accounts
+    SET login_state_version_high_water=GREATEST(login_state_version_high_water,
+      COALESCE(login_state_version,0))`);
   const replayColumns = await columns(pool, "acquisition_social_account_replays");
   if (!replayColumns.has("idempotency_key_hash")) {
     if (!replayColumns.has("idempotency_key")) throw new Error("acquisition_social_account_replay_key_column_missing");
@@ -248,14 +262,15 @@ export async function ensureAcquisitionSocialAccountsMysqlSchema(pool: mysql.Poo
 }
 
 const accountUpsertSql = `INSERT INTO acquisition_social_accounts
-  (id,workspace_id,platform,account_handle,upstream_session_id,display_name,state,login_state_version,revision,etag,last_validated_at,created_at,updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=VALUES(id),account_handle=VALUES(account_handle),
+  (id,workspace_id,platform,account_handle,upstream_session_id,display_name,state,login_state_version,login_state_version_high_water,revision,etag,last_validated_at,created_at,updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=VALUES(id),account_handle=VALUES(account_handle),
   upstream_session_id=VALUES(upstream_session_id),display_name=VALUES(display_name),state=VALUES(state),
-  login_state_version=VALUES(login_state_version),revision=VALUES(revision),etag=VALUES(etag),
+  login_state_version=VALUES(login_state_version),login_state_version_high_water=GREATEST(login_state_version_high_water,VALUES(login_state_version_high_water)),revision=VALUES(revision),etag=VALUES(etag),
   last_validated_at=VALUES(last_validated_at),updated_at=VALUES(updated_at)`;
 function accountValues(value: AcquisitionSocialAccountPrivateRecord) {
   return [value.id, value.workspaceId, value.platform, value.accountHandle, value.upstreamSessionId ?? null,
-    value.displayName, value.state, value.loginStateVersion, value.revision, value.etag,
+    value.displayName, value.state, value.loginStateVersion, value.loginStateVersionHighWater,
+    value.revision, value.etag,
     value.lastValidatedAt, value.createdAt, value.updatedAt];
 }
 function fenceValues(fence: AcquisitionSocialAccountReplayFence) {
@@ -284,8 +299,25 @@ export class MysqlAcquisitionSocialAccountRepository implements AcquisitionSocia
   }
   async upsert(value: AcquisitionSocialAccountPrivateRecord) {
     assertValidAcquisitionSocialAccountPrivateRecord(value);
-    await this.pool.execute(accountUpsertSql, accountValues(value));
-    return value;
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [rows] = await connection.execute<Row[]>(
+        "SELECT * FROM acquisition_social_accounts WHERE workspace_id=? AND platform=? FOR UPDATE",
+        [value.workspaceId, value.platform]
+      );
+      const current = rows[0] ? record(rows[0]) : null;
+      if (current) {
+        await connection.commit();
+        return current;
+      }
+      await connection.execute(accountUpsertSql, accountValues(value));
+      await connection.commit();
+      return value;
+    } catch (error) {
+      await connection.rollback().catch(() => undefined);
+      throw error;
+    } finally { connection.release(); }
   }
   async bindActive(value: AcquisitionSocialAccountPrivateRecord) {
     assertValidAcquisitionSocialAccountPrivateRecord(value);
@@ -294,17 +326,63 @@ export class MysqlAcquisitionSocialAccountRepository implements AcquisitionSocia
       await connection.beginTransaction();
       const [rows] = await connection.execute<Row[]>("SELECT * FROM acquisition_social_accounts WHERE workspace_id=? AND platform=? FOR UPDATE", [value.workspaceId, value.platform]);
       const current = rows[0] ? record(rows[0]) : null;
-      if (current?.state === "active" && current.accountHandle !== value.accountHandle) {
+      if (current && hasValidBoundActiveIdentity(current)
+        && current.accountHandle !== value.accountHandle) {
         await connection.rollback();
         return "active_handle_conflict" as const;
       }
-      if (current?.state === "active" && current.accountHandle === value.accountHandle) {
+      if (current && (value.loginStateVersion ?? 0)
+        <= current.loginStateVersionHighWater) {
         await connection.commit();
         return current;
       }
-      await connection.execute(accountUpsertSql, accountValues(value));
+      const revision = current ? current.revision + 1 : 1;
+      const saved = { ...value,
+        id: current?.id ?? value.id,
+        createdAt: current?.createdAt ?? value.createdAt,
+        loginStateVersionHighWater: Math.max(current?.loginStateVersionHighWater ?? 0,
+          value.loginStateVersionHighWater, value.loginStateVersion ?? 0),
+        revision, etag: `\"account-v${revision}\"`
+      };
+      await connection.execute(accountUpsertSql, accountValues(saved));
       await connection.commit();
-      return value;
+      return saved;
+    } catch (error) {
+      await connection.rollback().catch(() => undefined);
+      throw error;
+    } finally { connection.release(); }
+  }
+  async pauseActiveAccount(workspaceId: string, id: string,
+    identity: AcquisitionSocialAccountIdentityFence,
+    updatedAt: string) {
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [rows] = await connection.execute<Row[]>(
+        "SELECT * FROM acquisition_social_accounts WHERE workspace_id=? AND id=? FOR UPDATE",
+        [workspaceId, id]
+      );
+      const current = rows[0] ? record(rows[0]) : null;
+      if (!current || current.state !== "active"
+        || current.accountHandle !== identity.accountHandle
+        || current.loginStateVersion !== identity.loginStateVersion
+        || current.revision !== identity.revision
+        || current.etag !== identity.etag) {
+        await connection.rollback();
+        return null;
+      }
+      const revision = current.revision + 1;
+      const etag = `\"account-v${revision}\"`;
+      const [updated] = await connection.execute<mysql.ResultSetHeader>(
+        `UPDATE acquisition_social_accounts SET state='risk_paused',revision=?,etag=?,updated_at=?
+          WHERE workspace_id=? AND id=? AND state='active' AND account_handle=?
+            AND login_state_version=? AND revision=? AND etag=?`,
+        [revision, etag, updatedAt, workspaceId, id, identity.accountHandle,
+          identity.loginStateVersion, identity.revision, identity.etag]
+      );
+      if (affectedRows(updated) !== 1) throw new Error("stale_social_account_identity_fence");
+      await connection.commit();
+      return { ...current, state: "risk_paused" as const, revision, etag, updatedAt };
     } catch (error) {
       await connection.rollback().catch(() => undefined);
       throw error;

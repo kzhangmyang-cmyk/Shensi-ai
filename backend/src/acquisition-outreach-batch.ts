@@ -38,6 +38,7 @@ export interface AcquisitionOutreachBatch {
   accountLoginStateVersion: number;
   dailyBudgetId: string;
   localDate: string;
+  timeZone: string;
   dailyCandidateLimit: number;
   dailyRemainingLimit: number;
   revision: number;
@@ -80,6 +81,12 @@ export interface AcquisitionOutreachAction {
   content: string;
   contentHash: string;
   approvalHash: string;
+  /** Versioned second-stage authorization; absent on historical actions. */
+  authorizationVersion?: 2;
+  approvedBy?: string;
+  approvedAt?: string;
+  directMessageDailyLimit?: number;
+  directMessageDailyOrdinal?: number;
   createdAt: string;
   attemptCount?: number;
   platformReceiptReference?: string | null;
@@ -127,11 +134,11 @@ export function outreachBatchHash(value: Omit<AcquisitionOutreachBatch,
     accountId: value.accountId,
     accountLoginStateVersion: value.accountLoginStateVersion,
     dailyBudgetId: value.dailyBudgetId, localDate: value.localDate,
+    timeZone: value.timeZone,
     dailyCandidateLimit: value.dailyCandidateLimit, revision: value.revision,
     candidates: [...value.candidates].sort((a, b) => a.candidateId.localeCompare(b.candidateId))
       .map(({ evidenceText: _privateEvidenceText, publicActorKey: _privateActorKey,
-        publicProfileUrl: _privateProfileUrl,
-        commentTargetPublicUrl: _privateCommentTarget, ...candidate }) => candidate)
+        ...candidate }) => candidate)
   });
 }
 
@@ -142,15 +149,26 @@ export function outreachApprovalHash(input: {
   return hash({ ...input, candidates: input.candidates.filter((candidate) => candidate.selected)
     .map((candidate) => ({ candidateId: candidate.candidateId,
       comment: candidate.comment, commentHash: candidate.commentHash,
-      directMessage: candidate.directMessage,
-      directMessageHash: candidate.directMessageHash })) });
+    })) });
+}
+
+export function outreachDirectMessageApprovalHash(input: {
+  authorizationVersion: 2;
+  batchId: string; batchRevision: number; batchHash: string;
+  commentApprovalHash: string;
+  candidateId: string; accountId: string; accountLoginStateVersion: number;
+  targetPublicUrl: string; directMessage: string; directMessageHash: string;
+  predecessorActionId: string; predecessorReceiptReference: string;
+  dailyLimit: number; dailyOrdinal: number; approvedBy: string; approvedAt: string;
+}) {
+  return hash(input);
 }
 
 export function publicOutreachBatch(batch: AcquisitionOutreachBatch) {
-  return Object.freeze({ ...structuredClone(batch), candidates: Object.freeze(batch.candidates.map((candidate) => {
+  const { timeZone: _privateTimeZone, ...safeBatch } = structuredClone(batch);
+  return Object.freeze({ ...safeBatch, candidates: Object.freeze(batch.candidates.map((candidate) => {
     const { evidenceText: _evidenceText, publicActorKey: _publicActorKey,
-      publicProfileUrl: _publicProfileUrl,
-      commentTargetPublicUrl: _commentTargetPublicUrl, ...safe } = structuredClone(candidate);
+      ...safe } = structuredClone(candidate);
     return Object.freeze(safe);
   })) });
 }

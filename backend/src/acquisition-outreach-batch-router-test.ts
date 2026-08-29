@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import express from "express";
-import { createAcquisitionOutreachBatchRouter } from "./acquisition-outreach-batch-router.js";
+import {
+  createAcquisitionOutreachBatchRouter,
+  type AcquisitionOutreachInternalErrorEvent
+} from "./acquisition-outreach-batch-router.js";
 import { AcquisitionOutreachBatchError } from "./acquisition-outreach-batch-service.js";
 import { ModelGatewayError } from "./model-providers/gateway.js";
 
-async function appRequest(input: { capabilities?: string[]; workspaceId?: string; headers?: Record<string, string>; body?: unknown; path?: string; method?: string; createError?: Error; approveError?: Error; onReconcile?: () => void }) {
+async function appRequest(input: { capabilities?: string[]; workspaceId?: string; headers?: Record<string, string>; body?: unknown; path?: string; method?: string; createError?: Error; approveError?: Error; directMessageApproveError?: Error; directMessageReplay?: boolean; onDirectMessageApprove?: () => void; onReconcile?: () => void; onInternalError?: (event: AcquisitionOutreachInternalErrorEvent) => void }) {
   const app = express(); app.use(express.json());
   app.use((req, _res, next) => {
     req.user = { id: "owner-1", teamId: "team-1" } as never;
@@ -25,6 +28,12 @@ async function appRequest(input: { capabilities?: string[]; workspaceId?: string
         if (input.approveError) throw input.approveError;
         return { replayed: false, value: { id: "batch-1", etag: '"outreach-batch:batch-1:2"' } };
       },
+      async approveDirectMessages() {
+        input.onDirectMessageApprove?.();
+        if (input.directMessageApproveError) throw input.directMessageApproveError;
+        return { replayed: input.directMessageReplay ?? false,
+          value: { id: "batch-1", etag: '"outreach-batch:batch-1:2"' } };
+      },
       async reject() { return { replayed: false, value: { id: "batch-1", etag: '"outreach-batch:batch-1:2"' } }; },
       async pause() { return { replayed: false, value: { id: "batch-1", etag: '"outreach-batch:batch-1:2"' } }; },
       async resume() { return { replayed: false, value: { id: "batch-1", etag: '"outreach-batch:batch-1:3"' } }; },
@@ -41,14 +50,19 @@ async function appRequest(input: { capabilities?: string[]; workspaceId?: string
         return {
           items: [{
             id: query.after ? `after-${query.after.batchId}` : `limit-${query.limit}`,
-            candidates: [{ candidateId: query.candidateId }]
+            candidates: [{
+              candidateId: query.candidateId,
+              publicProfileUrl: "https://www.douyin.com/user/discovery",
+              commentTargetPublicUrl: "https://www.douyin.com/video/discovery"
+            }]
           }],
           next: query.after ? null : anchor
         };
       }
     } as never,
     cursorSecret: "outreach-batch-router-test-secret-at-least-32-bytes",
-    requestIdFactory: () => "request-batch-test"
+    requestIdFactory: () => "request-batch-test",
+    onInternalError: input.onInternalError
   }));
   const server = app.listen(0); await new Promise<void>((resolve) => server.once("listening", resolve));
   try {
@@ -90,9 +104,16 @@ test("candidate-scoped batch discovery requires filters, capability, and a limit
   assert.equal(page.response.status, 200);
   assert.equal((page.json.items as Array<{ id: string }>)[0]?.id, "limit-20");
   assert.equal(typeof page.json.nextCursor, "string");
-  for (const privateField of ["evidenceText", "publicActorKey", "publicProfileUrl", "commentTargetPublicUrl"]) {
+  for (const privateField of ["evidenceText", "publicActorKey"]) {
     assert.equal(JSON.stringify(page.json).includes(privateField), false);
   }
+  const publicCandidate = (page.json.items as Array<{
+    candidates: Array<{ publicProfileUrl: string; commentTargetPublicUrl: string }>;
+  }>)[0]?.candidates[0];
+  assert.equal(publicCandidate?.publicProfileUrl,
+    "https://www.douyin.com/user/discovery");
+  assert.equal(publicCandidate?.commentTargetPublicUrl,
+    "https://www.douyin.com/video/discovery");
 
   const maximum = await appRequest({
     method: "GET",
@@ -223,6 +244,51 @@ test("batch creation publishes safe actionable draft and model failures", async 
   assert.equal(model.json.retryable, true);
 });
 
+test("unexpected batch errors emit a redacted request-scoped diagnostic", async () => {
+  const diagnostics: AcquisitionOutreachInternalErrorEvent[] = [];
+  const result = await appRequest({
+    headers: { "Idempotency-Key": "create-unknown-error" },
+    createError: new Error("database password must never reach the diagnostic"),
+    onInternalError: (event) => diagnostics.push(event)
+  });
+  assert.equal(result.response.status, 500);
+  assert.equal(result.json.code, "outreach_internal_error");
+  assert.doesNotMatch(JSON.stringify(result.json), /database password/u);
+  assert.equal(diagnostics.length, 1);
+  assert.deepEqual({
+    ...diagnostics[0],
+    stackFingerprint: undefined
+  }, {
+    requestId: "request-batch-test",
+    method: "POST",
+    path: "/runs/run-1/outreach-batches",
+    code: "outreach_internal_error",
+    errorName: "Error",
+    stackFingerprint: undefined
+  });
+  assert.match(diagnostics[0]?.stackFingerprint ?? "", /^sha256:[a-f0-9]{64}$/u);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /database password/u);
+});
+
+test("unexpected database errors retain only allowlisted root-cause identifiers", async () => {
+  const diagnostics: AcquisitionOutreachInternalErrorEvent[] = [];
+  const databaseError = Object.assign(
+    new Error("mysql://root:secret@example.invalid must never be logged"),
+    { code: "ER_LOCK_DEADLOCK", sqlState: "40001", sql: "SELECT secret" }
+  );
+  const result = await appRequest({
+    headers: { "Idempotency-Key": "create-driver-error" },
+    createError: databaseError,
+    onInternalError: (event) => diagnostics.push(event)
+  });
+  assert.equal(result.response.status, 500);
+  assert.equal(diagnostics[0]?.driverCode, "ER_LOCK_DEADLOCK");
+  assert.equal(diagnostics[0]?.sqlState, "40001");
+  assert.match(diagnostics[0]?.stackFingerprint ?? "", /^sha256:[a-f0-9]{64}$/u);
+  const serialized = JSON.stringify(diagnostics);
+  assert.doesNotMatch(serialized, /root:secret|SELECT secret|example\.invalid/u);
+});
+
 test("approval explains that a profile-only candidate needs a new video-backed batch", async () => {
   const result = await appRequest({
     path: "/api/v1/acquisition/outreach-batches/batch-1/approve",
@@ -254,4 +320,82 @@ test("approval explains that a profile-only candidate needs a new video-backed b
   });
   assert.equal(invalidProfile.json.message,
     "所选候选人缺少可私信的抖音主页，请返回候选人列表重新选择");
+});
+
+test("projection gates publish safe Chinese waiting and restart guidance", async () => {
+  const pending = await appRequest({
+    path: "/api/v1/acquisition/outreach-batches/batch-1/approve",
+    headers: {
+      "Idempotency-Key": "approve-projection-pending",
+      "If-Match": '"outreach-batch:batch-1:1"'
+    },
+    body: {
+      revision: 1,
+      batchHash: `sha256:${"a".repeat(64)}`,
+      confirm: true
+    },
+    approveError: new AcquisitionOutreachBatchError(
+      "outreach_candidate_projection_pending"
+    )
+  });
+  assert.equal(pending.response.status, 409);
+  assert.equal(pending.json.code, "outreach_candidate_projection_pending");
+  assert.equal(
+    pending.json.message,
+    "候选数据仍在采集中或等待最终入库；完成后才能生成或确认真实评论批次，当前不会排队任何动作"
+  );
+
+  const unavailable = await appRequest({
+    headers: { "Idempotency-Key": "create-projection-unavailable" },
+    createError: new AcquisitionOutreachBatchError(
+      "outreach_candidate_projection_unavailable"
+    )
+  });
+  assert.equal(unavailable.response.status, 409);
+  assert.equal(
+    unavailable.json.message,
+    "本次采集未形成可审批的最终候选数据，请重新运行采集后再生成评论批次"
+  );
+});
+
+test("direct-message approval is a strict, ETag-bound, replayable command", async () => {
+  const path = "/api/v1/acquisition/outreach-batches/batch-1/direct-messages/approve";
+  const body = { batchRevision: 1, batchHash: `sha256:${"a".repeat(64)}`,
+    commentApprovalHash: `sha256:${"b".repeat(64)}`, dailyLimit: 20,
+    candidates: [{ candidateId: "candidate-1", directMessage: "请交流公开场景里的思路" }],
+    confirm: true };
+  let calls = 0;
+  const accepted = await appRequest({ path, headers: {
+    "Idempotency-Key": "approve-dm-router-001",
+    "If-Match": '"outreach-batch:batch-1:1"'
+  }, body, onDirectMessageApprove: () => { calls += 1; } });
+  assert.equal(accepted.response.status, 200);
+  assert.equal(accepted.response.headers.get("etag"), '"outreach-batch:batch-1:2"');
+  assert.equal(calls, 1);
+
+  const replay = await appRequest({ path, headers: {
+    "Idempotency-Key": "approve-dm-router-001",
+    "If-Match": '"outreach-batch:batch-1:1"'
+  }, body, directMessageReplay: true });
+  assert.equal(replay.response.status, 200);
+  assert.equal(replay.response.headers.get("idempotency-replayed"), "true");
+
+  for (const invalid of [
+    { expected: 428, headers: { "Idempotency-Key": "approve-dm-router-001" }, body },
+    { expected: 400, headers: { "If-Match": '"outreach-batch:batch-1:1"' }, body },
+    { expected: 400, headers: { "Idempotency-Key": "approve-dm-router-001", "If-Match": '"outreach-batch:batch-1:1"' }, body: { ...body, confirm: false } },
+    { expected: 400, headers: { "Idempotency-Key": "approve-dm-router-001", "If-Match": '"outreach-batch:batch-1:1"' }, body: { ...body, dailyLimit: 100,
+      candidates: Array.from({ length: 101 }, (_, index) => ({
+        candidateId: `candidate-${index + 1}`, directMessage: "请交流公开场景里的思路"
+      })) } },
+    { expected: 400, headers: { "Idempotency-Key": "approve-dm-router-001", "If-Match": '"outreach-batch:batch-1:1"' }, body: { ...body, unexpected: true } }
+  ]) {
+    const result = await appRequest({ path, ...invalid });
+    assert.equal(result.response.status, invalid.expected);
+  }
+  const forbidden = await appRequest({ path, capabilities: [], headers: {
+    "Idempotency-Key": "approve-dm-router-001",
+    "If-Match": '"outreach-batch:batch-1:1"'
+  }, body });
+  assert.equal(forbidden.response.status, 403);
 });

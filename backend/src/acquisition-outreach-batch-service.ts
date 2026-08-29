@@ -6,6 +6,7 @@ import {
   outreachBatchHash,
   outreachBatchLifecycleEtag,
   outreachContentHash,
+  outreachDirectMessageApprovalHash,
   publicOutreachBatch,
   validOutreachTarget,
   type AcquisitionOutreachAction,
@@ -20,12 +21,36 @@ export interface OutreachRunAuthority {
   workspaceId: string; runId: string; planId: string; planVersionId: string;
   planVersion: number; planSnapshotHash: string; policyVersionId: string;
   policyHash: string; accountId: string; accountLoginStateVersion: number;
-  dailyBudgetId: string; localDate: string; dailyCandidateLimit: number;
+  dailyBudgetId: string; localDate: string; timeZone: string;
+  dailyCandidateLimit: number;
+  finalizationState: "pending" | "ready" | "unavailable";
 }
 export interface OutreachCandidateAuthority {
   candidateId: string; candidateRevision: number; evidenceHashes: string[];
   evidenceText: string[]; publicActorKey: string; publicProfileUrl: string;
   commentTargetPublicUrl: string; doNotContact: boolean;
+}
+export interface DirectMessageApprovalCommand {
+  batchRevision: number;
+  batchHash: string;
+  commentApprovalHash: string;
+  dailyLimit: number;
+  candidates: Array<{ candidateId: string; directMessage: string }>;
+  confirm: true;
+}
+export interface DirectMessageApprovalPersistence {
+  approveDirectMessages(input: {
+    workspaceId: string; batchId: string; ifMatch: string; idempotencyKey: string;
+    requestHash: string;
+    candidates: readonly { candidateId: string; directMessage: string }[];
+    dailyLimit: number; approvedBy: string; approvedAt: string;
+    build(current: AcquisitionOutreachBatch,
+      predecessors: readonly AcquisitionOutreachAction[],
+      dailyOrdinals: readonly number[], dailyLocalDate: string): Promise<{
+        batch: AcquisitionOutreachBatch;
+        actions: AcquisitionOutreachAction[];
+      }>;
+  }): Promise<OutreachRepositoryResult<AcquisitionOutreachBatch>>;
 }
 
 export class AcquisitionOutreachBatchError extends Error {
@@ -35,6 +60,10 @@ export class AcquisitionOutreachBatchError extends Error {
 }
 function digest(value: unknown) {
   return `sha256:${createHash("sha256").update(canonicalJsonStringify(value), "utf8").digest("hex")}`;
+}
+export function outreachDirectMessageApprovalRequestHash(batchId: string,
+  input: DirectMessageApprovalCommand) {
+  return digest({ operation: "approve_direct_messages", batchId, input });
 }
 function selectedIds(value: string[]) {
   if (!Array.isArray(value) || value.length < 1 || value.length > 200
@@ -72,10 +101,51 @@ function assertOutreachTargets(authority: OutreachCandidateAuthority) {
     throw new AcquisitionOutreachBatchError("outreach_direct_message_target_invalid");
   }
 }
+function validBoundDouyinAccount(authority: {
+  state: string; loginStateVersion: number | null;
+  accountHandle?: string | null; displayName?: string | null;
+}) {
+  return authority.state === "active"
+    && typeof authority.accountHandle === "string"
+    && /^dyacct_[0-9a-f]{64}$/u.test(authority.accountHandle)
+    && typeof authority.displayName === "string"
+    && authority.displayName.trim().length > 0
+    && Number.isSafeInteger(authority.loginStateVersion)
+    && (authority.loginStateVersion ?? 0) > 0;
+}
+function assertRunFinalized(authority: OutreachRunAuthority) {
+  if (authority.finalizationState === "ready") return;
+  throw new AcquisitionOutreachBatchError(
+    authority.finalizationState === "pending"
+      ? "outreach_candidate_projection_pending"
+      : "outreach_candidate_projection_unavailable"
+  );
+}
+function sameRunAuthority(
+  batch: AcquisitionOutreachBatch,
+  authority: OutreachRunAuthority
+) {
+  return authority.workspaceId === batch.workspaceId
+    && authority.runId === batch.runId
+    && authority.planId === batch.planId
+    && authority.planVersionId === batch.planVersionId
+    && authority.planVersion === batch.planVersion
+    && authority.planSnapshotHash === batch.planSnapshotHash
+    && authority.policyVersionId === batch.policyVersionId
+    && authority.policyHash === batch.policyHash
+    && authority.accountId === batch.accountId
+    && authority.accountLoginStateVersion === batch.accountLoginStateVersion
+    && authority.dailyBudgetId === batch.dailyBudgetId
+    && authority.localDate === batch.localDate
+    && authority.timeZone === batch.timeZone
+    && authority.dailyCandidateLimit === batch.dailyCandidateLimit;
+}
 
 export class AcquisitionOutreachBatchService {
   constructor(private readonly options: {
     repository: AcquisitionOutreachBatchRepository;
+    /** Task 2 supplies the atomic persistence implementation. */
+    approveDirectMessages?: DirectMessageApprovalPersistence["approveDirectMessages"];
     douyinOutreachActionsEnabled: boolean;
     idFactory(kind: string): string;
     now(): string;
@@ -84,7 +154,8 @@ export class AcquisitionOutreachBatchService {
     generateDraft(scope: OutreachScope, candidateId: string): Promise<Readonly<AcquisitionOutreachDraft>>;
     loadCandidateAuthority(scope: OutreachScope, candidateId: string): Promise<OutreachCandidateAuthority | null>;
     loadAccountAuthority(scope: OutreachScope, accountId: string): Promise<{ accountId: string;
-      state: string; loginStateVersion: number | null; accountHandle?: string | null } | null>;
+      state: string; loginStateVersion: number | null; accountHandle?: string | null;
+      displayName?: string | null } | null>;
     reconcileAction?(input: { actionId: string; accountHandle: string;
       loginStateVersion: number; kind: "comment" | "direct_message";
       targetPublicUrl: string; content: string; approvedContentHash: string;
@@ -99,6 +170,7 @@ export class AcquisitionOutreachBatchService {
     const candidateIds = selectedIds(input.candidateIds);
     const authority = await this.options.loadRunAuthority(scope, runId);
     if (!authority || authority.workspaceId !== scope.workspaceId) throw new AcquisitionOutreachBatchError("acquisition_run_not_found", 404);
+    assertRunFinalized(authority);
     const allowed = new Set(await this.options.listRunCandidateIds(scope, runId));
     if (candidateIds.some((id) => !allowed.has(id))) throw new AcquisitionOutreachBatchError("candidate_evidence_invalid");
     const candidates: AcquisitionOutreachBatchCandidate[] = [];
@@ -124,7 +196,8 @@ export class AcquisitionOutreachBatchService {
     }
     const createdAt = this.options.now(); const id = this.options.idFactory("outreach-batch");
     const remaining = await this.options.repository.remaining(scope.workspaceId, authority.accountId, authority.localDate, authority.dailyCandidateLimit);
-    const base = { id, ...authority, revision: 1, state: "awaiting_approval" as const,
+    const { finalizationState: _finalizationState, ...frozenAuthority } = authority;
+    const base = { id, ...frozenAuthority, revision: 1, state: "awaiting_approval" as const,
       candidates: Object.freeze(candidates), createdBy: scope.actorId, createdAt };
     const batch: AcquisitionOutreachBatch = Object.freeze({ ...base,
       dailyRemainingLimit: remaining, etag: outreachBatchEtag(id, 1),
@@ -239,8 +312,22 @@ export class AcquisitionOutreachBatchService {
         if (current.revision !== input.revision || current.batchHash !== input.batchHash) {
           throw new AcquisitionOutreachBatchError("outreach_batch_stale");
         }
+        const runAuthority = await this.options.loadRunAuthority(
+          scope,
+          current.runId
+        );
+        if (!runAuthority || runAuthority.workspaceId !== scope.workspaceId) {
+          throw new AcquisitionOutreachBatchError(
+            "outreach_candidate_projection_unavailable"
+          );
+        }
+        assertRunFinalized(runAuthority);
+        if (!sameRunAuthority(current, runAuthority)) {
+          throw new AcquisitionOutreachBatchError("outreach_batch_stale");
+        }
         const account = await this.options.loadAccountAuthority(scope, current.accountId);
-        if (!account || account.state !== "active" || account.loginStateVersion !== current.accountLoginStateVersion) {
+        if (!account || !validBoundDouyinAccount(account)
+          || account.loginStateVersion !== current.accountLoginStateVersion) {
           throw new AcquisitionOutreachBatchError("douyin_login_expired");
         }
         const selected = current.candidates.filter((candidate) => candidate.selected);
@@ -270,30 +357,162 @@ export class AcquisitionOutreachBatchService {
           dailyRemainingLimit: remaining - selected.length, updatedBy: scope.actorId, updatedAt: approvedAt });
         const actions: AcquisitionOutreachAction[] = [];
         for (const candidate of selected) {
-          const commentId = this.options.idFactory("outreach-action");
-          actions.push({ id: commentId, workspaceId: current.workspaceId, batchId,
+          actions.push({ id: this.options.idFactory("outreach-action"),
+            workspaceId: current.workspaceId, batchId,
             batchRevision: current.revision, candidateId: candidate.candidateId,
             accountId: current.accountId, accountLoginStateVersion: current.accountLoginStateVersion,
             policyVersionId: current.policyVersionId, localDate: current.localDate,
             kind: "comment", sequence: 1, status: "queued", predecessorActionId: null,
             targetPublicUrl: candidate.commentTargetPublicUrl,
             content: candidate.comment, contentHash: candidate.commentHash, approvalHash, createdAt: approvedAt });
-          actions.push({ id: this.options.idFactory("outreach-action"), workspaceId: current.workspaceId,
-            batchId, batchRevision: current.revision, candidateId: candidate.candidateId,
-            accountId: current.accountId, accountLoginStateVersion: current.accountLoginStateVersion,
-            policyVersionId: current.policyVersionId, localDate: current.localDate,
-            kind: "direct_message", sequence: 2, status: "blocked_by_predecessor",
-            predecessorActionId: commentId, targetPublicUrl: candidate.publicProfileUrl,
-            content: candidate.directMessage,
-            contentHash: candidate.directMessageHash, approvalHash, createdAt: approvedAt });
         }
         return { batch, actions };
       } }); } catch (error) {
       if (error instanceof AcquisitionOutreachBatchError) throw error;
       const code = error instanceof Error ? error.message : "";
       if (code === "douyin_login_expired") throw new AcquisitionOutreachBatchError("douyin_login_expired");
+      if (code === "outreach_candidate_projection_pending"
+        || code === "outreach_candidate_projection_unavailable") {
+        throw new AcquisitionOutreachBatchError(code);
+      }
       if (code === "outreach_candidate_already_approved_today"
         || /uk_acquisition_outreach_daily_candidate/u.test(code)) {
+        throw new AcquisitionOutreachBatchError("outreach_daily_limit_exhausted");
+      }
+      throw error;
+    }
+    return requestResult(result);
+  }
+
+  async approveDirectMessages(scope: OutreachScope, batchId: string, ifMatch: string,
+    idempotencyKey: string, input: DirectMessageApprovalCommand) {
+    if (!this.options.douyinOutreachActionsEnabled) {
+      throw new AcquisitionOutreachBatchError("outreach_actions_disabled", 503);
+    }
+    if (!input.confirm || !Number.isSafeInteger(input.batchRevision)
+      || input.batchRevision < 1 || !/^sha256:[a-f0-9]{64}$/u.test(input.batchHash)
+      || !/^sha256:[a-f0-9]{64}$/u.test(input.commentApprovalHash)
+      || !Number.isSafeInteger(input.dailyLimit) || input.dailyLimit < 1
+      || input.dailyLimit > 100 || !Array.isArray(input.candidates)
+      || input.candidates.length < 1 || input.candidates.length > input.dailyLimit
+      || input.candidates.some((candidate) => !validListId(candidate.candidateId)
+        || typeof candidate.directMessage !== "string"
+        || !candidate.directMessage.trim() || candidate.directMessage.length > 800)
+      || new Set(input.candidates.map((candidate) => candidate.candidateId)).size
+        !== input.candidates.length) {
+      throw new AcquisitionOutreachBatchError("invalid_request", 400);
+    }
+    const persist = this.options.approveDirectMessages;
+    if (!persist) {
+      throw new AcquisitionOutreachBatchError(
+        "outreach_direct_message_approval_unavailable",
+        503
+      );
+    }
+    let result: OutreachRepositoryResult<AcquisitionOutreachBatch>;
+    const approvedAt = this.options.now();
+    try { result = await persist({ workspaceId: scope.workspaceId, batchId, ifMatch,
+      idempotencyKey, requestHash: outreachDirectMessageApprovalRequestHash(batchId, input),
+      dailyLimit: input.dailyLimit,
+      candidates: input.candidates, approvedBy: scope.actorId, approvedAt,
+      build: async (current, predecessors, dailyOrdinals, dailyLocalDate) => {
+        const orderedOrdinals = [...dailyOrdinals].sort((left, right) => left - right);
+        if (current.state !== "approved" || current.revision !== input.batchRevision
+          || current.batchHash !== input.batchHash
+          || current.approvalHash !== input.commentApprovalHash
+          || dailyOrdinals.length !== input.candidates.length
+          || dailyOrdinals.some((ordinal) => !Number.isSafeInteger(ordinal)
+            || ordinal < 1 || ordinal > input.dailyLimit)) {
+          throw new AcquisitionOutreachBatchError("outreach_batch_stale");
+        }
+        if (new Set(dailyOrdinals).size !== dailyOrdinals.length
+          || orderedOrdinals.some((ordinal, index) => index > 0
+            && ordinal !== orderedOrdinals[index - 1]! + 1)) {
+          throw new AcquisitionOutreachBatchError("outreach_batch_stale");
+        }
+        const runAuthority = await this.options.loadRunAuthority(scope, current.runId);
+        if (!runAuthority || runAuthority.workspaceId !== scope.workspaceId) {
+          throw new AcquisitionOutreachBatchError(
+            "outreach_candidate_projection_unavailable"
+          );
+        }
+        assertRunFinalized(runAuthority);
+        if (!sameRunAuthority(current, runAuthority)) {
+          throw new AcquisitionOutreachBatchError("outreach_batch_stale");
+        }
+        const account = await this.options.loadAccountAuthority(scope, current.accountId);
+        if (!account || !validBoundDouyinAccount(account)
+          || account.loginStateVersion !== current.accountLoginStateVersion) {
+          throw new AcquisitionOutreachBatchError("douyin_login_expired");
+        }
+        const actions: AcquisitionOutreachAction[] = [];
+        for (const [index, requested] of input.candidates.entries()) {
+          const candidate = current.candidates.find((item) => item.candidateId === requested.candidateId
+            && item.selected);
+          const predecessor = predecessors.find((action) => action.candidateId === requested.candidateId
+            && action.kind === "comment" && action.status === "succeeded"
+            && action.approvalHash === input.commentApprovalHash
+            && action.platformReceiptReference);
+          if (!candidate || !predecessor || !predecessor.platformReceiptReference) {
+            throw new AcquisitionOutreachBatchError("outreach_comment_receipt_required");
+          }
+          const authority = await this.options.loadCandidateAuthority(scope, candidate.candidateId);
+          if (!authority || authority.doNotContact
+            || authority.candidateRevision !== candidate.candidateRevision
+            || authority.publicActorKey !== candidate.publicActorKey
+            || authority.publicProfileUrl !== candidate.publicProfileUrl
+            || authority.commentTargetPublicUrl !== candidate.commentTargetPublicUrl
+            || canonicalJsonStringify([...authority.evidenceHashes].sort())
+              !== canonicalJsonStringify([...candidate.evidenceHashes].sort())) {
+            throw new AcquisitionOutreachBatchError("candidate_evidence_invalid");
+          }
+          assertOutreachTargets(authority);
+          const contentHash = outreachContentHash(requested.directMessage);
+          const dailyOrdinal = dailyOrdinals[index]!;
+          actions.push({ id: this.options.idFactory("outreach-action"),
+            workspaceId: current.workspaceId, batchId: current.id,
+            batchRevision: current.revision, candidateId: candidate.candidateId,
+            accountId: current.accountId,
+            accountLoginStateVersion: current.accountLoginStateVersion,
+            policyVersionId: current.policyVersionId, localDate: dailyLocalDate,
+            kind: "direct_message", sequence: 2, status: "queued",
+            predecessorActionId: predecessor.id,
+            targetPublicUrl: candidate.publicProfileUrl, content: requested.directMessage,
+            contentHash,
+            approvalHash: outreachDirectMessageApprovalHash({ authorizationVersion: 2,
+              batchId: current.id, batchRevision: current.revision,
+              batchHash: current.batchHash, commentApprovalHash: input.commentApprovalHash,
+              candidateId: candidate.candidateId, accountId: current.accountId,
+              accountLoginStateVersion: current.accountLoginStateVersion,
+              targetPublicUrl: candidate.publicProfileUrl,
+              directMessage: requested.directMessage, directMessageHash: contentHash,
+              predecessorActionId: predecessor.id,
+              predecessorReceiptReference: predecessor.platformReceiptReference,
+              dailyLimit: input.dailyLimit, dailyOrdinal, approvedBy: scope.actorId,
+              approvedAt }), authorizationVersion: 2, approvedBy: scope.actorId,
+            approvedAt, directMessageDailyLimit: input.dailyLimit,
+            directMessageDailyOrdinal: dailyOrdinal, createdAt: approvedAt });
+        }
+        return { batch: current, actions };
+      } }); } catch (error) {
+      if (error instanceof AcquisitionOutreachBatchError) throw error;
+      const code = error instanceof Error ? error.message : "";
+      if (code === "douyin_login_expired") {
+        throw new AcquisitionOutreachBatchError(code);
+      }
+      if (code === "outreach_candidate_projection_pending"
+        || code === "outreach_candidate_projection_unavailable"
+        || code === "outreach_comment_receipt_required") {
+        throw new AcquisitionOutreachBatchError(code);
+      }
+      if (code === "outreach_candidate_already_has_direct_message"
+        || /uk_acquisition_outreach_daily_candidate/u.test(code)) {
+        throw new AcquisitionOutreachBatchError(
+          "outreach_direct_message_already_approved"
+        );
+      }
+      if (code === "outreach_direct_message_daily_limit_exhausted"
+        || /uk_acquisition_outreach_direct_message_ordinal/u.test(code)) {
         throw new AcquisitionOutreachBatchError("outreach_daily_limit_exhausted");
       }
       throw error;
@@ -383,8 +602,12 @@ export class AcquisitionOutreachBatchService {
       action.accountId,
     );
     if (!account || !["active", "risk_paused"].includes(account.state)
+      || typeof account.accountHandle !== "string"
+      || !/^dyacct_[0-9a-f]{64}$/u.test(account.accountHandle)
+      || typeof account.displayName !== "string"
+      || !account.displayName.trim()
       || account.loginStateVersion !== action.accountLoginStateVersion
-      || !account.accountHandle) {
+    ) {
       throw new AcquisitionOutreachBatchError("douyin_login_expired");
     }
     const deadlineMs = this.options.reconciliationDeadlineMs ?? 150_000;

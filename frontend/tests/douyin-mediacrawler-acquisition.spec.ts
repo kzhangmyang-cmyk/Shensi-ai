@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const FIXTURE = "http://127.0.0.1:5391";
+const hashForFixture = (char: string) => `sha256:${char.repeat(64)}`;
 
 type FixtureAttempt =
   | {
@@ -14,6 +15,11 @@ type FixtureAttempt =
       runId: string;
       candidateIds: string[];
       candidateIdsShape: "string_array" | "invalid";
+    }
+  | {
+      kind: "direct_message_approve";
+      candidateIds: string[];
+      dailyLimit: number | null;
     };
 
 test.beforeEach(async ({ page }) => {
@@ -146,19 +152,49 @@ test("real session controls automatic Douyin acquisition, approval, receipts, an
 
   const outreach = page.getByRole("region", { name: "批次审批与执行回执" });
   await expect(outreach).toContainText("今日剩余限额");
-  const exactMessage = "您好，这是人工修订后的精确私信，可以为您整理能耗与交付对比。";
-  await outreach.getByLabel("精确私信").first().fill(exactMessage);
+  const exactComment = "您好，看到您公开分享了工厂除尘需求，想与您核对能耗与交付。";
+  await outreach.getByLabel("精确公开评论").first().fill(exactComment);
   await outreach.getByRole("button", { name: "保存为新修订" }).click();
   await expect(outreach).toContainText("文案修订 2");
-  await expect(outreach.getByLabel("精确私信").first()).toHaveValue(exactMessage);
+  await expect(outreach.getByLabel("精确公开评论").first()).toHaveValue(exactComment);
+  await expect(outreach.getByLabel("精确私信").first()).toBeDisabled();
 
-  await outreach.getByLabel("我已逐条核对评论、私信与剩余限额").check();
-  await outreach.getByRole("button", { name: "确认审批并排队" }).click();
+  await outreach.getByLabel(/我已核对发送账号、目标视频与精确评论/u).check();
+  await outreach.getByRole("button", { name: "确认并排队真实评论" }).click();
   await expect(outreach).toContainText("修订冲突已刷新");
-  await outreach.getByLabel("我已逐条核对评论、私信与剩余限额").check();
-  await outreach.getByRole("button", { name: "确认审批并排队" }).click();
+  await outreach.getByLabel(/我已核对发送账号、目标视频与精确评论/u).check();
+  await outreach.getByRole("button", { name: "确认并排队真实评论" }).click();
   await expect(outreach).toContainText("平台回执：DY-COMMENT-RECEIPT", { timeout: 10_000 });
-  await expect(outreach).toContainText("平台回执：DY-MESSAGE-RECEIPT", { timeout: 10_000 });
+  await expect(outreach).not.toContainText("DY-MESSAGE-RECEIPT");
+
+  const exactMessage = "您好，这是人工修订后的精确私信，可以为您整理能耗与交付对比。";
+  const unlockedMessage = outreach.getByLabel("精确私信").first();
+  await expect(unlockedMessage).toBeEnabled();
+  await unlockedMessage.fill(exactMessage);
+  await outreach.getByLabel("每日真实私信上限").fill("20");
+  const directMessageConfirmation = outreach.getByLabel(
+    /我已核对候选人公开主页与精确私信/u
+  );
+  await directMessageConfirmation.check();
+  const directMessageApprovalResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname
+      === "/api/v1/acquisition/outreach-batches/batch-fixture/direct-messages/approve"
+      && response.request().method() === "POST");
+  await outreach.getByRole("button", {
+    name: "确认并排队真实私信"
+  }).click();
+  const directMessageApproved = await directMessageApprovalResponse;
+  expect(directMessageApproved.status()).toBe(200);
+  expect(directMessageApproved.request().postDataJSON()).toMatchObject({
+    batchRevision: 2,
+    batchHash: hashForFixture("2"),
+    commentApprovalHash: hashForFixture("8"),
+    dailyLimit: 20,
+    candidates: [{ candidateId: "candidate-creator", directMessage: exactMessage }],
+    confirm: true
+  });
+  await expect(outreach).toContainText("真实私信 · 已排队", { timeout: 10_000 });
+  await expect(outreach).not.toContainText("DY-MESSAGE-RECEIPT");
 
   await outreach.getByRole("button", { name: "暂停批次" }).click();
   await expect(outreach.getByRole("button", { name: "恢复批次" })).toBeVisible();
@@ -167,8 +203,10 @@ test("real session controls automatic Douyin acquisition, approval, receipts, an
 
   await page.reload();
   await expect(page.getByRole("region", { name: "投放批次审批与执行回执" })).toHaveCount(0);
-  await expect(page.getByRole("region", { name: "批次审批与执行回执" })).toContainText("DY-MESSAGE-RECEIPT", { timeout: 10_000 });
-  await expect(page.locator("body")).not.toContainText(/cookie|accountHandle|browserProfile|leaseToken|account-fixture|candidate-creator/iu);
+  await expect(page.getByRole("region", { name: "批次审批与执行回执" })).toContainText("真实私信 · 已排队", { timeout: 10_000 });
+  await expect(page.locator("body")).not.toContainText(
+    /cookie|accountHandle|browserProfile|leaseToken/iu
+  );
 
   for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
@@ -334,14 +372,17 @@ test("social conversations creates and recovers one exact-video outreach batch w
   const exactComment = "您好，看到您公开分享了工厂除尘改造，想与您核对能耗与交付需求。";
   const exactMessage = "您好，这是仅针对本次公开证据的人工修订私信。";
   await outreach.getByLabel("精确公开评论").fill(exactComment);
-  await outreach.getByLabel("精确私信").fill(exactMessage);
   await outreach.getByRole("button", { name: "保存为新修订" }).click();
   await expect(outreach).toContainText("文案修订 2");
   await expect(outreach.getByLabel("精确公开评论")).toHaveValue(exactComment);
-  await expect(outreach.getByLabel("精确私信")).toHaveValue(exactMessage);
+  await expect(outreach.getByLabel("精确私信")).toBeDisabled();
 
-  const finalReview = outreach.getByLabel("我已逐条核对评论、私信与剩余限额");
-  const approveButton = outreach.getByRole("button", { name: "确认审批并排队" });
+  const finalReview = outreach.getByLabel(
+    /我已核对发送账号、目标视频与精确评论/u
+  );
+  const approveButton = outreach.getByRole("button", {
+    name: "确认并排队真实评论"
+  });
   await finalReview.check();
   await expect(finalReview).toBeChecked();
   await expect(approveButton).toBeEnabled();
@@ -355,15 +396,6 @@ test("social conversations creates and recovers one exact-video outreach batch w
   await expect(finalReview).not.toBeChecked();
   await expect(approveButton).toBeDisabled();
 
-  const finalActionsResponse = page.waitForResponse(async (response) => {
-    if (new URL(response.url()).pathname
-      !== "/api/v1/acquisition/outreach-batches/batch-fixture/actions") return false;
-    const body = await response.json().catch(() => null) as {
-      items?: Array<{ status?: string }>;
-    } | null;
-    return body?.items?.length === 2
-      && body.items.every((action) => action.status === "succeeded");
-  });
   await finalReview.check();
   await expect(finalReview).toBeChecked();
   await expect(approveButton).toBeEnabled();
@@ -377,16 +409,59 @@ test("social conversations creates and recovers one exact-video outreach batch w
     timeout: 10_000
   });
   await expect(outreach).not.toContainText("平台回执：DY-MESSAGE-RECEIPT");
-  const finalActions = await (await finalActionsResponse).json() as {
+
+  const unlockedDirectMessage = outreach.getByRole("textbox", {
+    name: /^精确私信 /u
+  });
+  await expect(unlockedDirectMessage).toBeEnabled();
+  await unlockedDirectMessage.fill(exactMessage);
+  const directMessageReview = outreach.getByLabel(
+    /我已核对候选人公开主页与精确私信/u
+  );
+  const directMessageApproveButton = outreach.getByRole("button", {
+    name: "确认并排队真实私信"
+  });
+  await directMessageReview.check();
+  const directMessageApproval = page.waitForResponse((response) =>
+    new URL(response.url()).pathname
+      === "/api/v1/acquisition/outreach-batches/batch-fixture/direct-messages/approve"
+      && response.request().method() === "POST");
+  const queuedActionsResponse = page.waitForResponse(async (response) => {
+    if (new URL(response.url()).pathname
+      !== "/api/v1/acquisition/outreach-batches/batch-fixture/actions") return false;
+    const body = await response.json().catch(() => null) as {
+      items?: Array<{ kind?: string; status?: string; authorizationVersion?: number }>;
+    } | null;
+    return body?.items?.some((action) => action.kind === "direct_message"
+      && action.status === "queued"
+      && action.authorizationVersion === 2) === true;
+  });
+  await directMessageApproveButton.click();
+  const directMessageApprovalResponse = await directMessageApproval;
+  expect(directMessageApprovalResponse.status()).toBe(200);
+  expect(directMessageApprovalResponse.request().postDataJSON()).toEqual({
+    batchRevision: 2,
+    batchHash: hashForFixture("2"),
+    commentApprovalHash: hashForFixture("8"),
+    dailyLimit: 20,
+    candidates: [{
+      candidateId: "candidate-creator",
+      directMessage: exactMessage
+    }],
+    confirm: true
+  });
+  const finalActions = await (await queuedActionsResponse).json() as {
     items: Array<{
       kind: "comment" | "direct_message";
       sequence: number;
       predecessorActionId: string | null;
-      occurredAt: string;
-      platformReceiptReference: string;
+      status: string;
+      authorizationVersion?: number;
+      directMessageDailyLimit?: number;
+      directMessageDailyOrdinal?: number;
     }>;
   };
-  await expect(outreach).toContainText("平台回执：DY-MESSAGE-RECEIPT", {
+  await expect(outreach).toContainText("真实私信 · 已排队", {
     timeout: 10_000
   });
   const comment = finalActions.items.find((action) => action.kind === "comment");
@@ -395,8 +470,10 @@ test("social conversations creates and recovers one exact-video outreach batch w
   expect(comment?.sequence).toBe(1);
   expect(directMessage?.sequence).toBe(2);
   expect(directMessage?.predecessorActionId).toBe("action-comment");
-  expect(Date.parse(directMessage?.occurredAt ?? "")
-    - Date.parse(comment?.occurredAt ?? "")).toBeGreaterThanOrEqual(180_000);
+  expect(directMessage?.status).toBe("queued");
+  expect(directMessage?.authorizationVersion).toBe(2);
+  expect(directMessage?.directMessageDailyLimit).toBe(20);
+  expect(directMessage?.directMessageDailyOrdinal).toBe(1);
 
   await page.evaluate(() => sessionStorage.clear());
   const recoveredOverview = page.waitForResponse((response) =>
@@ -446,21 +523,34 @@ test("social conversations creates and recovers one exact-video outreach batch w
   await expect(recoveredOutreach).toContainText(exactMessage);
   await expect(recoveredOutreach).toContainText("文案修订 2");
   await expect(recoveredOutreach).toContainText("平台回执：DY-COMMENT-RECEIPT");
-  await expect(recoveredOutreach).toContainText("平台回执：DY-MESSAGE-RECEIPT");
+  await expect(recoveredOutreach).toContainText("真实私信 · 已排队");
+  await expect(recoveredOutreach).not.toContainText("DY-MESSAGE-RECEIPT");
   const fixtureState = await (await fetch(`${FIXTURE}/__fixture/state`)).json() as {
     createdCandidateIds: string[][];
     approvedCandidateIds: string[];
+    directMessageApprovedCandidateIds: string[];
+    directMessageDailyLimit: number;
     attemptLedger: FixtureAttempt[];
     externalWriteCount: number;
   };
   expect(fixtureState.createdCandidateIds).toEqual([["candidate-creator"]]);
   expect(fixtureState.approvedCandidateIds).toEqual(["candidate-creator"]);
+  expect(fixtureState.directMessageApprovedCandidateIds).toEqual([
+    "candidate-creator"
+  ]);
+  expect(fixtureState.directMessageDailyLimit).toBe(20);
   expect(fixtureState.attemptLedger.filter((attempt) =>
     attempt.kind === "create")).toEqual([{
     kind: "create",
     runId: "run-fixture",
     candidateIds: ["candidate-creator"],
     candidateIdsShape: "string_array"
+  }]);
+  expect(fixtureState.attemptLedger.filter((attempt) =>
+    attempt.kind === "direct_message_approve")).toEqual([{
+    kind: "direct_message_approve",
+    candidateIds: ["candidate-creator"],
+    dailyLimit: 20
   }]);
   const collectionAttempts = fixtureState.attemptLedger.filter((attempt) =>
     attempt.kind === "collection");

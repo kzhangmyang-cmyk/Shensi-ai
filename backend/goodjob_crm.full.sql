@@ -37,6 +37,7 @@ CREATE TABLE acquisition_social_accounts (
   display_name VARCHAR(512) NULL,
   state VARCHAR(32) NOT NULL,
   login_state_version BIGINT NULL,
+  login_state_version_high_water BIGINT UNSIGNED NOT NULL DEFAULT 0,
   revision BIGINT NOT NULL,
   etag VARCHAR(64) NOT NULL,
   last_validated_at VARCHAR(40) NULL,
@@ -927,6 +928,9 @@ CREATE TABLE acquisition_outreach_actions (
   sequence INT NOT NULL, status VARCHAR(40) NOT NULL, predecessor_action_id VARCHAR(255) NULL,
   target_public_url VARCHAR(2000) NOT NULL,
   content_text TEXT NOT NULL, content_hash CHAR(71) NOT NULL, approval_hash CHAR(71) NOT NULL,
+  authorization_version TINYINT NULL, approved_by VARCHAR(255) NULL,
+  approved_at DATETIME(3) NULL, direct_message_daily_limit INT NULL,
+  direct_message_daily_ordinal INT NULL,
   payload_json JSON NOT NULL, created_at DATETIME(3) NOT NULL, attempt_count INT NOT NULL DEFAULT 0,
   lease_owner VARCHAR(255) NULL, lease_token CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
   fencing_token BIGINT NOT NULL DEFAULT 0, lease_expires_at DATETIME(3) NULL, claimed_at DATETIME(3) NULL,
@@ -934,6 +938,8 @@ CREATE TABLE acquisition_outreach_actions (
   failure_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NULL,
   UNIQUE KEY uk_acquisition_outreach_action_sequence (batch_id, batch_revision, candidate_id, sequence),
   UNIQUE KEY uk_acquisition_outreach_daily_candidate (workspace_id, account_id, local_date, candidate_id, kind),
+  UNIQUE KEY uk_acquisition_outreach_direct_message_ordinal
+    (workspace_id, account_id, local_date, kind, direct_message_daily_ordinal),
   KEY ix_acquisition_outreach_action_claim (status,created_at,id),
   CONSTRAINT fk_acquisition_outreach_action_batch FOREIGN KEY (batch_id, batch_revision)
     REFERENCES acquisition_outreach_batches (id, revision)

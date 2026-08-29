@@ -26,6 +26,8 @@ const batch = {
     selected: true,
     candidateRevision: 1,
     evidenceHashes: [`sha256:${"3".repeat(64)}`],
+    publicProfileUrl: "https://www.douyin.com/user/actor-1",
+    commentTargetPublicUrl: "https://www.douyin.com/video/video-1",
     draftRevision: 1,
     comment: "精确评论",
     commentHash: `sha256:${"4".repeat(64)}`,
@@ -171,6 +173,14 @@ const validAction = {
 await createOutreachBatchApi(async () => new Response(JSON.stringify({
   items: [validAction]
 }), { status: 200 })).listActions("batch-1");
+await createOutreachBatchApi(async () => new Response(JSON.stringify({
+  items: [{
+    ...validAction,
+    status: "risk_paused",
+    failureCode: "account_risk_paused",
+    occurredAt: "2026-08-27T00:01:00.000Z"
+  }]
+}), { status: 200 })).listActions("batch-1");
 const reconciliationCalls: Array<{ url: string; init?: RequestInit }> = [];
 const reconciledAction = {
   ...validAction,
@@ -241,9 +251,15 @@ for (const malformed of [
 }
 const { planId: _missingPlanId, ...missingPlanId } = batch;
 const { contentHash: _missingContentHash, ...missingContentHash } = batch.candidates[0];
+const { publicProfileUrl: _missingProfileUrl, ...missingProfileUrl } = batch.candidates[0];
+const { commentTargetPublicUrl: _missingCommentTarget, ...missingCommentTarget } = batch.candidates[0];
 for (const malformed of [
   { items: [missingPlanId], nextCursor: null },
   { items: [{ ...batch, candidates: [missingContentHash] }], nextCursor: null },
+  { items: [{ ...batch, candidates: [missingProfileUrl] }], nextCursor: null },
+  { items: [{ ...batch, candidates: [missingCommentTarget] }], nextCursor: null },
+  { items: [{ ...batch, candidates: [{ ...batch.candidates[0], publicProfileUrl: "https://example.com/user/private" }] }], nextCursor: null },
+  { items: [{ ...batch, candidates: [{ ...batch.candidates[0], commentTargetPublicUrl: "https://www.douyin.com/user/not-a-video" }] }], nextCursor: null },
   { items: [{ ...batch, unexpectedAuthority: "private" }], nextCursor: null },
   { items: [{ ...batch, candidates: [{ ...batch.candidates[0], unexpectedAuthority: "private" }] }], nextCursor: null }
 ]) {
@@ -256,9 +272,7 @@ for (const malformed of [
 }
 for (const [privateField, privateValue] of [
   ["evidenceText", ["private evidence"]],
-  ["publicActorKey", "private-actor"],
-  ["publicProfileUrl", "https://www.douyin.com/user/private"],
-  ["commentTargetPublicUrl", "https://www.douyin.com/video/private"]
+  ["publicActorKey", "private-actor"]
 ] as const) {
   const malformed = {
     items: [{
@@ -279,5 +293,122 @@ await assert.rejects(
   createOutreachBatchApi(async () => new Response(JSON.stringify({ ...batch, leaseToken: "private" }), { status: 200 })).getBatch("batch-1"),
   (error: unknown) => error instanceof AcquisitionHttpError && error.code === "malformed_response"
 );
+
+const directMessageApprovalCalls: Array<{ url: string; init?: RequestInit }> = [];
+const directMessageApprovalApi = createOutreachBatchApi(async (input, init) => {
+  directMessageApprovalCalls.push({ url: String(input), init });
+  return new Response(JSON.stringify({
+    ...batch,
+    state: "approved",
+    approvedBy: "operator-1",
+    approvedAt: "2026-08-27T00:02:00.000Z",
+    approvalHash: `sha256:${"a".repeat(64)}`
+  }), { status: 200 });
+}, { cookieSource: () => "gj_csrf=csrf-value" });
+await directMessageApprovalApi.approveDirectMessages!(
+  "batch/1",
+  {
+    batchRevision: 2,
+    batchHash: batch.batchHash,
+    commentApprovalHash: `sha256:${"a".repeat(64)}`,
+    dailyLimit: 20,
+    candidates: [{
+      candidateId: "candidate-1",
+      directMessage: "人工复核后的精确私信"
+    }],
+    confirm: true
+  },
+  batch.etag,
+  "direct-message-approval-key",
+  signal
+);
+assert.equal(
+  directMessageApprovalCalls[0]?.url,
+  "/api/v1/acquisition/outreach-batches/batch%2F1/direct-messages/approve"
+);
+assert.equal(directMessageApprovalCalls[0]?.init?.method, "POST");
+const directMessageHeaders = new Headers(
+  directMessageApprovalCalls[0]?.init?.headers
+);
+assert.equal(directMessageHeaders.get("x-csrf-token"), "csrf-value");
+assert.equal(
+  directMessageHeaders.get("idempotency-key"),
+  "direct-message-approval-key"
+);
+assert.equal(directMessageHeaders.get("if-match"), batch.etag);
+assert.deepEqual(
+  JSON.parse(String(directMessageApprovalCalls[0]?.init?.body)),
+  {
+    batchRevision: 2,
+    batchHash: batch.batchHash,
+    commentApprovalHash: `sha256:${"a".repeat(64)}`,
+    dailyLimit: 20,
+    candidates: [{
+      candidateId: "candidate-1",
+      directMessage: "人工复核后的精确私信"
+    }],
+    confirm: true
+  }
+);
+
+const versionTwoDirectMessage = {
+  ...validAction,
+  id: "action-dm-v2",
+  kind: "direct_message" as const,
+  sequence: 2 as const,
+  status: "queued" as const,
+  predecessorActionId: "action-comment",
+  targetPublicUrl: "https://www.douyin.com/user/actor-1",
+  content: "人工复核后的精确私信",
+  contentHash: `sha256:${"b".repeat(64)}`,
+  approvalHash: `sha256:${"c".repeat(64)}`,
+  authorizationVersion: 2 as const,
+  approvedBy: "operator-1",
+  approvedAt: "2026-08-27T00:02:00.000Z",
+  directMessageDailyLimit: 20,
+  directMessageDailyOrdinal: 1
+};
+await createOutreachBatchApi(async () => new Response(JSON.stringify({
+  items: [versionTwoDirectMessage]
+}), { status: 200 })).listActions("batch-1");
+
+const historicalDirectMessage = {
+  ...versionTwoDirectMessage
+} as Record<string, unknown>;
+delete historicalDirectMessage.authorizationVersion;
+delete historicalDirectMessage.approvedBy;
+delete historicalDirectMessage.approvedAt;
+delete historicalDirectMessage.directMessageDailyLimit;
+delete historicalDirectMessage.directMessageDailyOrdinal;
+await createOutreachBatchApi(async () => new Response(JSON.stringify({
+  items: [historicalDirectMessage]
+}), { status: 200 })).listActions("batch-1");
+
+for (const malformed of [
+  { ...historicalDirectMessage, authorizationVersion: 2 },
+  { ...versionTwoDirectMessage, approvedBy: undefined },
+  {
+    ...versionTwoDirectMessage,
+    approvedAt: "2026-02-30T00:02:00.000Z"
+  },
+  { ...versionTwoDirectMessage, directMessageDailyLimit: 0 },
+  { ...versionTwoDirectMessage, directMessageDailyOrdinal: 21 },
+  {
+    ...validAction,
+    authorizationVersion: 2,
+    approvedBy: "operator-1",
+    approvedAt: "2026-08-27T00:02:00.000Z",
+    directMessageDailyLimit: 20,
+    directMessageDailyOrdinal: 1
+  }
+]) {
+  await assert.rejects(
+    createOutreachBatchApi(async () => new Response(JSON.stringify({
+      items: [malformed]
+    }), { status: 200 })).listActions("batch-1"),
+    (error: unknown) => error instanceof AcquisitionHttpError
+      && error.code === "malformed_response"
+  );
+}
 
 console.log(JSON.stringify({ ok: true, suite: "outreach-batch-api" }));

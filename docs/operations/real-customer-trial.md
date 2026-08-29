@@ -61,7 +61,7 @@ conversations page reads overview/latest-run candidates, discovers the latest
 batch by `runId + candidateId`, then loads that batch and its action receipts;
 reload repeats those reads instead of relying on browser selection order. An
 exact `https://www.douyin.com/video/{id}` candidate can create one single-
-candidate pending batch, edit exact comment/private-message text, save a new
+candidate pending batch, edit the exact comment and private-message draft, save a new
 revision, and enter the shared review/final-approval flow. Profile-only public
 evidence stays visible but its create CTA is disabled and it cannot create a
 comment batch. The browser has no direct-send control and does not claim an
@@ -73,12 +73,22 @@ creates neither approval nor actions, and sends no comment or direct message.
 A specific live trial may enable final outreach only after explicit user
 authorization and a read-only audit proving that no historical action is queued
 or reclaimable. Both backend and sidecar must then start with the flag enabled.
-The page's second approval confirmation becomes the send authorization; it is
-not followed by another send button. Plan approval for collection is a separate
-real authority and remains available. Only a candidate backed by an exact
-Douyin video URL is selectable for this comment-then-message flow. Profile-only
+The first action confirmation queues comments only; it is not followed by a
+browser-side send button. After the same candidate has a durable successful
+comment receipt, the page unlocks a separate private-message review and second
+confirmation. The private-message daily limit defaults to 20 and accepts
+1–100, independently of the acquisition candidate limit (default 50, range
+1–200). Plan approval for collection is a separate real authority and remains
+available. Only a candidate backed by an exact Douyin video URL is selectable
+for the initial comment flow. Profile-only
 creator candidates stay visible but cannot be queued; final approval rechecks
 the video target and Douyin profile target before writing any action.
+Batch creation and final approval also require a succeeded/partial crawler job
+whose terminal ingestion and current alias-generation projection are complete.
+`outreach_candidate_projection_pending` is a safe wait state and creates no
+actions; `outreach_candidate_projection_unavailable` requires a new successful
+collection. Never work around either gate by approving a batch captured from a
+live intermediate page.
 
 ## Isolated topology
 
@@ -115,6 +125,8 @@ The ignored default runtime root is `.runtime/real-trial/`:
   logs/
   pids/
   tools/
+  release/
+    frontend/
   state/
     mysql/
     mediacrawler-profile/
@@ -125,7 +137,10 @@ Runtime, state, secret, log, PID, and tool directories are `0700`; generated
 credential and environment files are `0600`. `trial.env` is the current
 generated runtime environment. Do not create or document a parallel
 `.env.real-trial.local`; `.env.real.local` belongs to the older non-trial
-wrapper.
+wrapper. `release/frontend/` is a runtime-owned immutable snapshot for the
+current process set. The preview never serves `frontend/dist`, so an ordinary
+development or root build cannot silently change a running customer's login or
+other frontend behavior.
 
 Preparation generates independent JWT, encryption, cursor, claim, database,
 gateway, and sidecar values. It preserves existing generated secrets on an
@@ -172,6 +187,7 @@ The generated runtime uses visible standard Playwright Chrome:
 MEDIACRAWLER_BROWSER_HEADLESS=false
 MEDIACRAWLER_BROWSER_CHANNEL=chrome
 DOUYIN_OUTREACH_ACTIONS_ENABLED=false
+DOUYIN_ACTION_VISUAL_LOCATOR=disabled
 ```
 
 The sidecar consumes `MEDIACRAWLER_SERVICE_SECRET_FILE`; raw secret environment
@@ -198,28 +214,90 @@ While false:
 
 The generated trial defaults the value to false. An explicitly authorized
 action trial uses
-`pnpm trial:publish -- --enable-outreach-after-empty-audit` for that one
+`pnpm trial:publish --enable-outreach-after-empty-audit` for that one
 publish. It performs a read-only global aggregate over `queued`,
 `blocked_by_predecessor`, and `executing` before starting an action-enabled
 backend; any nonzero or unknown result aborts and cleans up new processes. The
-action worker starts immediately after the gate, so an
-approved queued comment may be claimed as soon as approval commits; its direct
-message remains predecessor-blocked until the comment succeeds and the minimum
-delay of 180 seconds from the successful comment receipt elapses. MediaCrawler
-upstream is the collection/browser foundation; comment/private-message
-execution is a Shensi extension, not an official Douyin inbox/API or an
-upstream-native feature. Visible verification is manual-only: Shensi waits up
-to 120 seconds and revalidates the same action after the user completes a
-slider, CAPTCHA, login check, or platform prompt. The enclosing defaults are a
-150-second Node action deadline, 160-second gateway HTTP timeout, 170-second
+action worker starts immediately after the gate, so an approved queued comment
+may be claimed as soon as approval commits. A separate confirmation may create
+a version-2 direct-message action only after the same candidate's exact comment
+has a durable successful receipt. Memory and MySQL claim only those v2 rows;
+historical non-v2 rows stay readable, are not backfilled, and never reach the
+browser. Account work is serialized, with at least 60 seconds reserved between
+comments and ten minutes between private messages. MediaCrawler upstream is the
+collection/browser foundation; comment and private-message execution are
+Shensi extensions, not official Douyin APIs or upstream-native features.
+For a comment, the visible action browser first looks for one unique editor. If
+the editor is not mounted yet, it waits for one unique visible comment-input
+container and one exact `留下你的精彩评论吧` entry, rechecks page risk, frozen URL,
+sender, and deadline, and clicks that pinned entry once. This reversible
+activation neither enters text nor publishes; a missing, unusable, or ambiguous
+entry fails closed. The browser then waits for and pins the mounted editor,
+enters the exact approved text, and verifies the readback. Only then does it
+wait for and pin one unique usable send control before the synchronous URL,
+sender, content, and control guard and the single click. The send control may
+legitimately be disabled or not yet mounted before editor input; that state
+alone is not a missing-control failure.
+The batch freezes the policy time zone. DM approval uses the approval local day;
+claim-time quota counts actual attempts on the claim local day, retries consume
+that day, and reset occurs only on the next day. A second DM for the same batch
+revision/candidate is permanently rejected even across dates.
+Visible verification is manual-only: when a verification page is detected
+immediately after initial target navigation, Shensi waits up to 120 seconds and
+revalidates the same action after the user completes it. A challenge that
+appears later fails closed immediately. The enclosing defaults are a
+150-second Node action deadline, 175-second gateway HTTP timeout, 170-second
 browser-action IPC timeout, and 180-second minimum claim lease. Timeout pauses
 risk; no solver, token injection, third-party bypass, or alternate write route
-is allowed. An expired or uncertain external write is never automatically
-retried. The operator may use the page checkbox to request a strictly read-only
-check for a unique self/outgoing post-start receipt of that same frozen action;
+is allowed. A deterministic comment failure may still close a predecessor-linked
+historical direct-message row as `predecessor_failed`. An expired claim, malformed success receipt,
+post-submit exception, or other uncertain external write is treated as
+ambiguous, risk-pauses related account work, and is never automatically
+retried. No deterministic or ambiguous failed action is automatically
+resubmitted. The operator may use the page checkbox to request a strictly read-only
+check for a unique post-start platform receipt of that same frozen comment or
+version-2 private message;
 failure keeps it and related work paused, and success does not resume the
-account or successor. QR display is not account authority; account connection does not
+account or successor. DOM/ARIA controls are primary. The generated trial keeps
+`DOUYIN_ACTION_VISUAL_LOCATOR=disabled`; an explicit `rapidocr` runtime may use
+the pinned local OCR dependencies only to suggest a missing entry/send control
+before exact DOM rebind. It cannot choose identity, recipient, editor, content,
+or receipt, and screenshots/recognized text are never persisted or logged.
+The action-enabled trial must use a visible browser. Submit controls are pinned
+and guarded synchronously at click time against the exact URL, sender, and DM
+recipient; DM receipt proof is one atomic snapshot of the same outgoing node.
+Visual MCP remains development-only diagnostics and the action path is model-
+provider neutral. QR display is not account authority; account connection does not
 authorize collection; collection does not authorize external sending.
+After the single comment submit, a verified success receipt or an ambiguous
+post-submit receipt keeps the Douyin target page in front for ten seconds. Use
+that interval only to inspect the platform page: no second click is made, the
+profile lease remains held, and the Shensi durable receipt remains the success
+authority. An ambiguous action appears as `结果待确认` and is never resent
+automatically.
+During an enabled action, the sidecar repeatedly revalidates the frozen sender
+from the current page without navigating away. Private-message input, submit,
+and receipt controls must also remain bound to one exact visible recipient panel
+matching the frozen profile URL. An account switch, recipient switch, missing
+marker, or ambiguous panel is a closed failure and is not an instruction to
+retry or choose another conversation.
+
+The only trial CLI entry points for this optional runtime are
+`pnpm trial:start --action-visual-locator=rapidocr` and
+`pnpm trial:publish --action-visual-locator=rapidocr`. They select the pinned
+`uv run --frozen --extra visual-locator` sidecar command and do not enable
+external actions. `prepare`, `status`, and `stop` reject the option. When real
+outreach is separately authorized, the operator may combine the locator option
+with `--enable-outreach-after-empty-audit`; neither option implies the other.
+
+The connected account shown at final review must have a nonempty nickname and
+the same account ID and login-state version frozen in the batch. QR binding
+derives a one-way `dyacct_<sha256>` handle from the authenticated own-profile
+identity and never returns raw `sec_uid`. Login versions are globally monotonic,
+and the backend retains their private high-water after disconnect or risk
+pause, so polling an older QR session cannot restore authority. If any identity
+check changes before execution or the official publish receipt names a
+different author, the comment fails closed and related work is risk-paused.
 
 ## Lifecycle commands
 
@@ -245,18 +323,25 @@ without printing a credential.
 
 `trial:start` starts a newly initialized MySQL data directory first, provisions
 the least-privilege database/user, obtains the Quick Tunnel HTTPS origin before
-backend startup, injects that exact origin into `CORS_ORIGINS`, provisions the
-tenant admin through the real API, and starts only loopback listeners. Startup
-aborts on an unhealthy dependency or an occupied port.
+backend startup, injects that origin and `http://127.0.0.1:5608` into
+`CORS_ORIGINS`, provisions the tenant admin through the real API, and starts
+only loopback listeners. Startup aborts on an unhealthy dependency or an
+occupied port.
 
 ### Publish verified changes
 
 After the acceptance gates pass, `trial:publish` is the single refresh path for
 an already prepared trial. It validates and stops only the recorded process
 groups, keeps `.runtime/real-trial/state/` intact, rebuilds frontend and backend
-from the current worktree, restarts the complete loopback stack, and runs the
-bounded gateway verification. A new Quick Tunnel origin may be issued and must
-be read from `trial:status`.
+from the current worktree, writes the frontend into the isolated
+`.runtime/real-trial/release/frontend/` snapshot, restarts the complete loopback
+stack, and runs the bounded gateway verification. A new Quick Tunnel origin may
+be issued and must be read from `trial:status`.
+
+Local development and the trial use the same repository source. They are not a
+live two-way synchronization channel: editing source changes neither a running
+trial nor its tunnel until the operator explicitly runs and verifies
+`trial:publish`.
 
 Use `http://127.0.0.1:5608` for the customer-facing local view. That local URL
 and the reported HTTPS origin both traverse the same gateway to frontend `5610`
@@ -267,11 +352,12 @@ hot-reload surface and is never evidence that the published trial was updated.
 
 `trial:status` validates recorded PID/command/nonce authority before reporting a
 component as running and is the authority for the current temporary origin.
-The supervisor starts the backend, frontend preview, and MediaCrawler uvicorn
-directly from their built/runtime executables, not through a package-manager or
-environment-runner launcher that could exit after spawning the service. Each
-recorded nonce-bearing wrapper therefore remains the direct parent of its
-long-running service. The wrapper is also the owned process-group leader:
+The supervisor starts the backend and frontend preview from their built/runtime
+executables. With visual locating disabled, MediaCrawler also starts from the
+absolute `.venv/bin/uvicorn`; the explicit RapidOCR mode instead starts one
+owned `uv run --frozen --extra visual-locator` child. In both modes the recorded
+nonce-bearing wrapper owns the complete descendant process group. The wrapper
+is the process-group leader:
 normal stop, bootstrap replacement, verification failure, and partial-start
 cleanup signal the complete group with `SIGTERM`, then use `SIGKILL` after the
 bounded wait if needed, so killing a wrapper cannot leave its service behind.
@@ -346,6 +432,28 @@ tree proves all of the following:
    candidates marked as backed by a commentable video; profile-only rows must
    remain clickable for evidence inspection while their outreach controls stay
    disabled and no candidate-scoped batch is created for them.
+   Before the user crosses comment approval, the page must visibly show the
+   connected account, account ID, login-state version, exact public target
+   video, the candidate's read-only public profile, exact comment text, current
+   comment character count, remaining comment allowance, and the explicit
+   notice that private-message approval stays locked until a durable successful
+   comment receipt. The account must be active,
+   and its ID and login-state version must match the frozen batch authority.
+   Either public target being missing or malformed, any account mismatch, or
+   any unsaved edit must disable the confirmation checkbox and final button.
+   The crawler status must be terminal with candidate projection `ready` before
+   creating the reviewed batch. A projection-pending approval must keep the
+   batch awaiting approval, show the Chinese waiting state, and leave the
+   action queue empty.
+   The first button must say it queues a real comment. After the receipt is
+   durable, the private-message panel must show the same account/profile,
+   predecessor receipt binding, editable text up to 800 characters, remaining
+   independent daily allowance, and a distinct confirmation that queues a real
+   version-2 private message. Automated verification crosses neither
+   confirmation. Machine status/error codes may appear only inside collapsed
+   technical details. The public batch
+   candidate exposes the frozen public video/profile targets needed for this
+   review, but never `evidenceText` or `publicActorKey`.
 
 The 2026-08-26 launch passed the fresh source gates, isolated startup/status,
 local and public boundary verification, tenant-admin login, MySQL-backed CRM
@@ -356,10 +464,13 @@ still be read from `trial:status`.
 
 Customer-interactive acceptance requires the authenticated full-page
 walk-through and an authorized Douyin QR scan followed by one manual-keyword
-collection. External comments and direct messages require a separately recorded
-user authorization plus the page's second approval confirmation. Publish and
-automated verification stop at that confirmation boundary; only the user may
-cross it in the separate action-time acceptance. Do not retire the older
+collection. External comments require a separately recorded user authorization
+plus the page's comment-specific confirmation. A private message additionally
+requires that comment's durable success receipt and its own separately recorded
+action-time confirmation. Historical non-v2 rows are read-only and cannot be
+claimed or executed. Publish and automated verification stop before both
+confirmation controls; only the user may cross either in the corresponding
+action-time acceptance. Do not retire the older
 protected link until those customer-interactive checks are complete.
 
 ## Retirement checklist
@@ -373,6 +484,8 @@ protected link until those customer-interactive checks are complete.
 5. Delete the ignored runtime root only after data and profile disposition is
    complete.
 
-A future one-comment/one-message acceptance is a separate, action-time operator
-authorization against a dedicated account and test-owned targets. It is not part
-of this launch and never permits CAPTCHA or warning bypass.
+Automated launch verification does not send private messages. A separately
+authorized version-2 private-message acceptance may run in this trial only as
+an action-time operator step against a dedicated account and test-owned targets,
+after the same candidate's durable successful comment receipt and the second
+confirmation. It never permits CAPTCHA, slider, verification, or warning bypass.

@@ -385,6 +385,23 @@ const exactModelCertifications: Readonly<
   ])
 });
 
+export function listCertifiedToolCallingModelOptions(
+  provider: ModelProviderId,
+  profileId: ModelEndpointProfileId
+): readonly Readonly<{ id: string; displayName: string }>[] {
+  return Object.freeze(
+    (exactModelCertifications[provider] ?? [])
+      .filter((definition) =>
+        definition.profileIds.includes(profileId)
+        && definition.capabilities.toolCalling === supported
+      )
+      .map((definition) => Object.freeze({
+        id: definition.model,
+        displayName: definition.model
+      }))
+  );
+}
+
 export class ModelCapabilityCertificationError extends Error {
   constructor(
     public readonly code: "PROFILE_PROVIDER_MISMATCH",

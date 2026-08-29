@@ -19,7 +19,19 @@ from .douyin_actions import (
     DouyinActionFailure,
     DouyinActionReconciler,
 )
+from .douyin_account_identity import (
+    DouyinAccountIdentityFailure,
+    account_handle_for_fingerprint,
+    extract_douyin_account_reference_in_place,
+    extract_douyin_account_identity,
+    identity_fingerprint_for_raw_sec_uid,
+)
 from .schemas import ActionReconciliationRequest, ActionRequest
+from .visual_locator import (
+    VisualLocator,
+    configured_visual_locator,
+    create_visual_locator,
+)
 
 
 DEFAULT_ACTION_MANUAL_VERIFICATION_SECONDS = 120
@@ -27,6 +39,10 @@ MIN_ACTION_MANUAL_VERIFICATION_SECONDS = 30
 MAX_ACTION_MANUAL_VERIFICATION_SECONDS = 300
 ACTION_DEADLINE_OVERHEAD_SECONDS = 30
 ACTION_IPC_OVERHEAD_SECONDS = 20
+ACTION_AUTHORITY_CHECK_TIMEOUT_SECONDS = 5
+ACTION_RESULT_REVIEW_MS = 10_000
+IDENTITY_DOM_ATTEMPTS = 9
+IDENTITY_DOM_POLL_MS = 250
 
 
 def configured_action_manual_verification_seconds(value: object) -> int:
@@ -50,6 +66,7 @@ _CLOSED_ACTION_FAILURE_CODES = frozenset({
     "douyin_verification_required",
     "douyin_rate_limited",
     "douyin_account_warning",
+    "douyin_account_identity_changed",
     "douyin_login_expired",
     "douyin_direct_message_unavailable",
     "douyin_action_control_missing",
@@ -60,14 +77,35 @@ _CLOSED_ACTION_FAILURE_CODES = frozenset({
 })
 
 
+def _require_visible_action_browser(headless: bool) -> None:
+    if headless:
+        raise DouyinActionFailure("action_unavailable")
+
+
+def _keep_action_result_visible(page: object) -> None:
+    """Best-effort operator review window; never changes action truth."""
+    try:
+        page.bring_to_front()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    try:
+        page.wait_for_timeout(ACTION_RESULT_REVIEW_MS)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+
 class BrowserState(Protocol):
     def open_douyin_login(self, profile_path: Path) -> dict[str, str]: ...
     def close(self, context: object) -> None: ...
     def poll_douyin_login(self, context: object) -> dict[str, object]: ...
     def execute_douyin_action(self, profile_path: Path,
-                              request: ActionRequest) -> dict[str, object]: ...
+                              request: ActionRequest, *,
+                              authority_validator: Callable[[], None]
+                              ) -> dict[str, object]: ...
     def reconcile_douyin_action(self, profile_path: Path,
-                                request: ActionRequest) -> dict[str, object]: ...
+                                request: ActionRequest, *,
+                                authority_validator: Callable[[], None]
+                                ) -> dict[str, object]: ...
 
 
 def _start_playwright(factory: Callable[[], object] | None) -> object:
@@ -117,44 +155,240 @@ def _open_context(playwright: object, profile_path: str, *, headless: bool,
         raise
 
 
+def _extract_bound_identity_with_retry(page: object):
+    retryable = {
+        "douyin_account_identity_missing",
+        "douyin_account_display_name_missing",
+    }
+    try:
+        page.goto(  # type: ignore[attr-defined]
+            "https://www.douyin.com/",
+            wait_until="domcontentloaded",
+            timeout=15_000,
+        )
+    except Exception:
+        raise DouyinAccountIdentityFailure(
+            "douyin_account_identity_missing"
+        ) from None
+    for attempt in range(IDENTITY_DOM_ATTEMPTS):
+        try:
+            return extract_douyin_account_identity(page)
+        except DouyinAccountIdentityFailure as error:
+            if (str(error) not in retryable
+                    or attempt + 1 >= IDENTITY_DOM_ATTEMPTS):
+                raise
+        except Exception:
+            if attempt + 1 >= IDENTITY_DOM_ATTEMPTS:
+                raise DouyinAccountIdentityFailure(
+                    "douyin_account_identity_missing"
+                ) from None
+        try:
+            page.wait_for_timeout(  # type: ignore[attr-defined]
+                IDENTITY_DOM_POLL_MS
+            )
+        except Exception:
+            raise DouyinAccountIdentityFailure(
+                "douyin_account_identity_missing"
+            ) from None
+    raise DouyinAccountIdentityFailure(
+        "douyin_account_identity_missing"
+    )
+
+
+def _require_bound_action_identity(
+    page: object, request: ActionRequest | ActionReconciliationRequest,
+) -> None:
+    """Verify the current authenticated profile before any target read/write."""
+    try:
+        identity = _extract_bound_identity_with_retry(page)
+        current_handle = account_handle_for_fingerprint(
+            identity.fingerprint
+        )
+    except Exception:
+        raise DouyinActionFailure(
+            "douyin_account_identity_changed"
+        ) from None
+    if current_handle != request.account_handle:
+        raise DouyinActionFailure("douyin_account_identity_changed")
+
+
+def _require_bound_action_identity_in_place(
+    page: object, request: ActionRequest | ActionReconciliationRequest,
+) -> str:
+    """Revalidate the sender on the current target without navigation."""
+    retryable = {"douyin_account_identity_missing"}
+    for attempt in range(IDENTITY_DOM_ATTEMPTS):
+        try:
+            raw_reference = extract_douyin_account_reference_in_place(page)
+            current_handle = account_handle_for_fingerprint(
+                identity_fingerprint_for_raw_sec_uid(raw_reference)
+            )
+            if current_handle != request.account_handle:
+                raise DouyinActionFailure(
+                    "douyin_account_identity_changed"
+                )
+            return raw_reference
+        except DouyinActionFailure:
+            raise
+        except DouyinAccountIdentityFailure as error:
+            if (str(error) not in retryable
+                    or attempt + 1 >= IDENTITY_DOM_ATTEMPTS):
+                break
+        except Exception:
+            if attempt + 1 >= IDENTITY_DOM_ATTEMPTS:
+                break
+        try:
+            page.wait_for_timeout(  # type: ignore[attr-defined]
+                IDENTITY_DOM_POLL_MS
+            )
+        except Exception:
+            break
+    raise DouyinActionFailure("douyin_account_identity_changed")
+
+
 def _execute_action(playwright: object, profile_path: str,
                     raw_request: object, *, headless: bool,
                     browser_channel: str | None,
-                    manual_verification_seconds: int) -> dict[str, object]:
+                    manual_verification_seconds: int,
+                    visual_locator: VisualLocator | None = None,
+                    account_authority_revalidator: Callable[[], None] | None = None,
+                    ) -> dict[str, object]:
+    _require_visible_action_browser(headless)
     request = ActionRequest.model_validate(raw_request)
     context = playwright.chromium.launch_persistent_context(
         profile_path, **_launch_options(headless, browser_channel)
     )
+    keep_result_visible = False
     try:
         page = context.pages[0] if context.pages else context.new_page()
-        return DouyinActionExecutor(
-            headless=headless,
-            manual_verification_seconds=manual_verification_seconds,
-        ).execute(page, request).model_dump(mode="json")
+        _require_bound_action_identity(page, request)
+
+        def revalidate_account_authority() -> str:
+            raw_reference = _require_bound_action_identity_in_place(
+                page, request,
+            )
+            if account_authority_revalidator is None:
+                return raw_reference
+            try:
+                account_authority_revalidator()
+            except DouyinActionFailure:
+                raise
+            except Exception:
+                raise DouyinActionFailure(
+                    "douyin_account_identity_changed"
+                ) from None
+            return raw_reference
+
+        try:
+            receipt = DouyinActionExecutor(
+                headless=headless,
+                manual_verification_seconds=manual_verification_seconds,
+                visual_locator=visual_locator,
+                account_identity_revalidator=revalidate_account_authority,
+                require_account_identity_binding=True,
+            ).execute(page, request)
+        except DouyinActionFailure as error:
+            keep_result_visible = (
+                request.kind == "comment"
+                and error.code == "douyin_action_receipt_ambiguous"
+            )
+            raise
+        keep_result_visible = (
+            request.kind == "comment"
+            and (
+                receipt.state == "succeeded"
+                or receipt.failure_code == "douyin_action_receipt_ambiguous"
+            )
+        )
+        return receipt.model_dump(mode="json")
     finally:
+        if keep_result_visible:
+            _keep_action_result_visible(page)
         context.close()
 
 
 def _reconcile_action(playwright: object, profile_path: str,
                       raw_request: object, *, headless: bool,
-                      browser_channel: str | None) -> dict[str, object]:
+                      browser_channel: str | None,
+                      visual_locator: VisualLocator | None = None,
+                      account_authority_revalidator: Callable[[], None] | None = None,
+                      ) -> dict[str, object]:
+    _require_visible_action_browser(headless)
     request = ActionReconciliationRequest.model_validate(raw_request)
     context = playwright.chromium.launch_persistent_context(
         profile_path, **_launch_options(headless, browser_channel)
     )
     try:
         page = context.pages[0] if context.pages else context.new_page()
-        return DouyinActionReconciler().reconcile(
-            page, request
-        ).model_dump(mode="json")
+        _require_bound_action_identity(page, request)
+
+        def revalidate_account_authority() -> str:
+            raw_reference = _require_bound_action_identity_in_place(
+                page, request,
+            )
+            if account_authority_revalidator is None:
+                return raw_reference
+            try:
+                account_authority_revalidator()
+            except DouyinActionFailure:
+                raise
+            except Exception:
+                raise DouyinActionFailure(
+                    "douyin_account_identity_changed"
+                ) from None
+            return raw_reference
+
+        return DouyinActionReconciler(
+            visual_locator=visual_locator,
+            account_identity_revalidator=revalidate_account_authority,
+            require_account_identity_binding=True,
+        ).reconcile(page, request).model_dump(mode="json")
     finally:
         context.close()
 
 
+def _worker_account_authority_revalidator(
+    connection: Connection,
+    command_id: object,
+) -> Callable[[], None]:
+    """Ask the owning process to re-read account/login-version authority."""
+    next_check_id = 0
+
+    def revalidate() -> None:
+        nonlocal next_check_id
+        next_check_id += 1
+        try:
+            connection.send({
+                "id": command_id,
+                "kind": "authority_check",
+                "check_id": next_check_id,
+            })
+            if not connection.poll(ACTION_AUTHORITY_CHECK_TIMEOUT_SECONDS):
+                raise RuntimeError("authority_check_timeout")
+            response = connection.recv()
+        except Exception:
+            raise DouyinActionFailure(
+                "douyin_account_identity_changed"
+            ) from None
+        expected = {
+            "id": command_id,
+            "kind": "authority_ok",
+            "check_id": next_check_id,
+        }
+        if response != expected:
+            raise DouyinActionFailure(
+                "douyin_account_identity_changed"
+            )
+
+    return revalidate
+
+
 def _browser_worker(connection: Connection, factory: Callable[[], object] | None,
                     headless: bool, browser_channel: str | None,
-                    manual_verification_seconds: int) -> None:
+                    manual_verification_seconds: int,
+                    visual_locator_mode: str = "disabled") -> None:
     playwright = None
+    visual_locator = None
     contexts: dict[str, object] = {}
     shutdown_requested = False
     shutdown_failure: BaseException | None = None
@@ -176,6 +410,14 @@ def _browser_worker(connection: Connection, factory: Callable[[], object] | None
                     }
                 )
                 return
+        try:
+            visual_locator = create_visual_locator(visual_locator_mode)
+        except BaseException:
+            connection.send({
+                "kind": "startup_error",
+                "message": "douyin_visual_locator_unavailable",
+            })
+            return
         try:
             playwright = _start_playwright(factory)
         except BaseException as error:
@@ -209,16 +451,33 @@ def _browser_worker(connection: Connection, factory: Callable[[], object] | None
                     if context is None:
                         raise RuntimeError("douyin_browser_context_closed")
                     active = False
+                    poll_value: dict[str, object] = {"active": False}
                     for page in context.pages:
                         try:
                             if page.evaluate(
                                 "() => window.localStorage.getItem('HasUserLogin')"
                             ) == "1":
+                                identity = _extract_bound_identity_with_retry(
+                                    page
+                                )
+                                poll_value = {
+                                    "active": True,
+                                    "identity_fingerprint": (
+                                        identity.fingerprint
+                                    ),
+                                    "display_name": identity.display_name,
+                                }
                                 active = True
                                 break
+                        except DouyinAccountIdentityFailure as error:
+                            poll_value = {
+                                "active": False,
+                                "identity_error": str(error),
+                            }
+                            break
                         except Exception:
                             continue
-                    value = {"active": active}
+                    value = poll_value
                 elif operation == "close":
                     handle = str(command["handle"])
                     context = contexts.get(handle)
@@ -229,24 +488,43 @@ def _browser_worker(connection: Connection, factory: Callable[[], object] | None
                     value = None
                 elif operation == "action":
                     try:
+                        authority_revalidator = (
+                            _worker_account_authority_revalidator(
+                                connection, command_id,
+                            )
+                        )
                         value = _execute_action(playwright,
                             str(command["profile_path"]), command["request"],
                             headless=headless, browser_channel=browser_channel,
                             manual_verification_seconds=(
                                 manual_verification_seconds
-                            ))
+                            ),
+                            visual_locator=visual_locator,
+                            account_authority_revalidator=(
+                                authority_revalidator
+                            ),
+                        )
                     except DouyinActionFailure:
                         raise
                     except BaseException as error:
                         raise DouyinActionFailure("action_unavailable") from error
                 elif operation == "reconcile":
                     try:
+                        authority_revalidator = (
+                            _worker_account_authority_revalidator(
+                                connection, command_id,
+                            )
+                        )
                         value = _reconcile_action(
                             playwright,
                             str(command["profile_path"]),
                             command["request"],
                             headless=headless,
                             browser_channel=browser_channel,
+                            visual_locator=visual_locator,
+                            account_authority_revalidator=(
+                                authority_revalidator
+                            ),
                         )
                     except DouyinActionFailure:
                         raise
@@ -301,6 +579,7 @@ class MediaCrawlerDouyinBrowserState:
         headless: bool = True,
         browser_channel: str | None = None,
         manual_verification_seconds: int | None = None,
+        visual_locator: str | None = None,
     ) -> None:
         if startup_timeout <= 0 or command_timeout <= 0:
             raise ValueError("browser timeouts must be positive")
@@ -308,13 +587,17 @@ class MediaCrawlerDouyinBrowserState:
             os.environ.get("DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS")
             if manual_verification_seconds is None else manual_verification_seconds
         )
+        visual_locator_mode = configured_visual_locator(
+            os.environ.get("DOUYIN_ACTION_VISUAL_LOCATOR")
+            if visual_locator is None else visual_locator
+        )
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe()
         self._connection = parent
         self._process = context.Process(
             target=_browser_worker,
             args=(child, playwright_factory, headless, browser_channel,
-                  manual_seconds),
+                  manual_seconds, visual_locator_mode),
             name="douyin-browser",
         )
         self._timeout = command_timeout
@@ -322,6 +605,7 @@ class MediaCrawlerDouyinBrowserState:
             manual_seconds + ACTION_DEADLINE_OVERHEAD_SECONDS
             + ACTION_IPC_OVERHEAD_SECONDS
         )
+        self._headless = bool(headless)
         self._lock = threading.Lock()
         self._closed = False
         self._shutdown_failed = False
@@ -416,7 +700,13 @@ class MediaCrawlerDouyinBrowserState:
             except (OSError, ValueError):
                 pass
 
-    def _call(self, operation: str, **payload: object) -> object:
+    def _call(
+        self,
+        operation: str,
+        *,
+        authority_validator: Callable[[], None] | None = None,
+        **payload: object,
+    ) -> object:
         with self._lock:
             if self._closed:
                 raise RuntimeError("douyin_browser_closed")
@@ -434,14 +724,50 @@ class MediaCrawlerDouyinBrowserState:
                 if operation in {"action", "reconcile"}
                 else self._timeout
             )
-            if not self._connection.poll(command_timeout):
-                self._hard_stop()
-                raise RuntimeError("douyin_browser_command_timeout")
-            try:
-                response = self._connection.recv()
-            except (EOFError, OSError) as error:
-                self._hard_stop()
-                raise RuntimeError("douyin_browser_unavailable") from error
+            command_deadline = time.monotonic() + command_timeout
+            while True:
+                remaining = max(0.0, command_deadline - time.monotonic())
+                if not self._connection.poll(remaining):
+                    self._hard_stop()
+                    raise RuntimeError("douyin_browser_command_timeout")
+                try:
+                    response = self._connection.recv()
+                except (EOFError, OSError) as error:
+                    self._hard_stop()
+                    raise RuntimeError("douyin_browser_unavailable") from error
+                if response.get("kind") != "authority_check":
+                    break
+                check_id = response.get("check_id")
+                if (operation not in {"action", "reconcile"}
+                        or set(response) != {
+                            "id", "kind", "check_id",
+                        }
+                        or response.get("id") != command_id
+                        or type(check_id) is not int
+                        or check_id < 1):
+                    self._hard_stop()
+                    raise RuntimeError("douyin_browser_protocol_error")
+                authority_ok = False
+                if authority_validator is not None:
+                    try:
+                        authority_validator()
+                        authority_ok = True
+                    except Exception:
+                        authority_ok = False
+                try:
+                    self._connection.send({
+                        "id": command_id,
+                        "kind": (
+                            "authority_ok" if authority_ok
+                            else "authority_failed"
+                        ),
+                        "check_id": check_id,
+                    })
+                except (BrokenPipeError, EOFError, OSError) as error:
+                    self._hard_stop()
+                    raise RuntimeError(
+                        "douyin_browser_unavailable"
+                    ) from error
             if response.get("id") != command_id:
                 self._hard_stop()
                 raise RuntimeError("douyin_browser_protocol_error")
@@ -473,14 +799,22 @@ class MediaCrawlerDouyinBrowserState:
         self._call("close", handle=self._handle(context))
 
     def execute_douyin_action(self, profile_path: Path,
-                              request: ActionRequest) -> dict[str, object]:
-        return self._call("action", profile_path=str(profile_path),
+                              request: ActionRequest, *,
+                              authority_validator: Callable[[], None] | None = None,
+                              ) -> dict[str, object]:
+        _require_visible_action_browser(self._headless)
+        return self._call("action", authority_validator=authority_validator,
+                          profile_path=str(profile_path),
                           request=request.model_dump(mode="json"))  # type: ignore[return-value]
 
     def reconcile_douyin_action(self, profile_path: Path,
-                                request: ActionRequest) -> dict[str, object]:
+                                request: ActionRequest, *,
+                                authority_validator: Callable[[], None] | None = None,
+                                ) -> dict[str, object]:
+        _require_visible_action_browser(self._headless)
         return self._call(
             "reconcile",
+            authority_validator=authority_validator,
             profile_path=str(profile_path),
             request=request.model_dump(mode="json"),
         )  # type: ignore[return-value]
@@ -508,12 +842,16 @@ class MediaCrawlerDouyinBrowserState:
                 self._hard_stop()
                 raise RuntimeError("douyin_browser_shutdown_failed")
             failed = response.get("kind") != "shutdown_ok"
+            self._shutdown_failed = failed
             self._process.join(timeout=self._timeout)
             if self._process.is_alive():
                 self._hard_stop()
-                raise RuntimeError("douyin_browser_shutdown_timeout")
+                code = (
+                    "douyin_browser_shutdown_failed"
+                    if failed else "douyin_browser_shutdown_timeout"
+                )
+                raise RuntimeError(code)
             self._connection.close()
             self._process.close()
-            self._shutdown_failed = failed
             if failed:
                 raise RuntimeError("douyin_browser_shutdown_failed")

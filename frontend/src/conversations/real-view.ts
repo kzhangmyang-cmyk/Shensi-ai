@@ -161,6 +161,21 @@ export function renderRealConversationsView(
   const host = main.querySelector<HTMLElement>(
     "[data-real-conversations-outreach-host]"
   );
-  if (host) renderOutreachBatchView(host, state.outreach);
+  const batch = state.outreach.batch;
+  const account = batch ? state.snapshot?.accounts.find((item) =>
+    item.id === batch.accountId
+    && item.loginStateVersion === batch.accountLoginStateVersion) : undefined;
+  const candidates = batch?.candidates.flatMap((candidate) => {
+    const interaction = state.snapshot?.interactions.find((item) =>
+      item.runId === batch.runId && item.candidateId === candidate.candidateId);
+    return interaction ? [{
+      candidateId: candidate.candidateId,
+      displayName: interaction.displayName
+    }] : [];
+  }) ?? [];
+  if (host) renderOutreachBatchView(host, state.outreach, {
+    account: account ?? null,
+    candidates
+  });
   inspector.innerHTML = renderInspector(state);
 }

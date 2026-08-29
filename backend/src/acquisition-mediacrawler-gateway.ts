@@ -4,6 +4,7 @@ import { douyinActionDeadlineMs } from "./acquisition-outreach-action-worker.js"
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_LOGIN_CREATION_TIMEOUT_MS = 35_000;
+const ACTION_RESULT_REVIEW_TRANSPORT_OVERHEAD_MS = 25_000;
 export const MEDIACRAWLER_PINNED_UPSTREAM_COMMIT = "d6f7c5bb906b6dac40ddf343ef9e26438a3de092" as const;
 
 const healthResponseSchema = z.object({
@@ -77,10 +78,11 @@ const actionReceiptResponseSchema = z.object({
   occurred_at: z.string().datetime(),
   failure_code: z.enum(["action_unavailable", "action_rejected", "deadline_exceeded",
     "douyin_verification_required", "douyin_rate_limited", "douyin_account_warning",
-    "douyin_login_expired", "douyin_direct_message_unavailable",
+    "douyin_account_identity_changed", "douyin_login_expired",
+    "douyin_direct_message_unavailable",
     "douyin_action_control_missing", "douyin_action_control_ambiguous",
     "douyin_action_content_mismatch", "douyin_action_receipt_ambiguous",
-    "douyin_action_timeout"]).nullable()
+    "douyin_action_timeout", "douyin_profile_busy"]).nullable()
 }).strict().superRefine((value, context) => {
   const valid = value.state === "succeeded"
     ? value.platform_receipt_reference !== null && value.failure_code === null
@@ -234,7 +236,7 @@ export function createDouyinMediaCrawlerGateway(
   const loginCreationTimeoutMs = options.loginCreationTimeoutMs
     ?? DEFAULT_LOGIN_CREATION_TIMEOUT_MS;
   const actionTimeoutMs = options.actionTimeoutMs
-    ?? douyinActionDeadlineMs() + 10_000;
+    ?? douyinActionDeadlineMs() + ACTION_RESULT_REVIEW_TRANSPORT_OVERHEAD_MS;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0
     || !Number.isFinite(loginCreationTimeoutMs)
     || loginCreationTimeoutMs <= 0

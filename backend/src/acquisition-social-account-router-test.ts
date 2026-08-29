@@ -29,7 +29,7 @@ test("production HTTP composition requires login and CSRF and resolves the authe
   const repository = new InMemoryAcquisitionSocialAccountRepository();
   const service = new AcquisitionSocialAccountService({ repository, gateway: {
     async createLoginSession() { return { sessionId: "upstream", state: "awaiting_scan" as const, qrImageDataUrl: "data:image/png;base64,cXI=", expiresAt: "2026-08-24T00:01:00.000Z", accountHandle: null, accountDisplayName: null, loginStateVersion: null }; },
-    async getLoginSession() { return { sessionId: "upstream", state: "active" as const, qrImageDataUrl: null, expiresAt: "2026-08-24T00:01:00.000Z", accountHandle: "private", accountDisplayName: null, loginStateVersion: 1 }; },
+    async getLoginSession() { return { sessionId: "upstream", state: "active" as const, qrImageDataUrl: null, expiresAt: "2026-08-24T00:01:00.000Z", accountHandle: `dyacct_${"a".repeat(64)}`, accountDisplayName: "Douyin", loginStateVersion: 1 }; },
     async disconnectLoginSession() {}
   }, idFactory: (() => { let n = 0; return () => `id-${++n}`; })(), now: () => "2026-08-24T00:00:00.000Z", pendingPollMs: 1 });
   const acquisition = express.Router();

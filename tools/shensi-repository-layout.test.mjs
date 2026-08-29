@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 
 test("shensi is the canonical standalone repository", () => {
-  assert.equal(basename(root), "shensi");
+  const commonGitDirectory = execFileSync(
+    "git",
+    ["-C", root, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+    { encoding: "utf8" }
+  ).trim();
+  assert.equal(basename(dirname(commonGitDirectory)), "shensi");
   for (const path of [
     "frontend/package.json",
     "backend/package.json",

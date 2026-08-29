@@ -28,6 +28,14 @@ export function validateRequiredVariables(environment) {
   if (missing.length) throw new Error(`LOCAL_ENVIRONMENT_MISSING:${missing.join(",")}`);
 }
 
+export function validateActionVisualLocator(value) {
+  const selected = value === undefined ? "disabled" : value;
+  if (selected !== "disabled" && selected !== "rapidocr") {
+    throw new Error("DOUYIN_ACTION_VISUAL_LOCATOR_INVALID");
+  }
+  return selected;
+}
+
 function parsePort(value, name) {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`PORT_INVALID:${name}`);
@@ -76,6 +84,9 @@ export async function runDevelopment(root, environment, options = {}) {
     assertMediaCrawler = assertMediaCrawlerHostPrerequisites,
     terminateTree = terminateProcessTree, setTimer = setTimeout, clearTimer = clearTimeout } = options;
   validateRequiredVariables(environment);
+  const actionVisualLocator = validateActionVisualLocator(
+    environment.DOUYIN_ACTION_VISUAL_LOCATOR
+  );
   assertMediaCrawler({ secretFile: resolve(root, environment.MEDIACRAWLER_SERVICE_SECRET_FILE), stateDirectory: resolve(root, environment.MEDIACRAWLER_ENCRYPTED_VOLUME) });
   const ports = validatePorts({ backend: environment.SHENSI_BACKEND_PORT ?? 4191, frontend: environment.SHENSI_FRONTEND_PORT ?? 5191, mediaCrawler: environment.MEDIACRAWLER_PORT ?? 4491 });
   const hosts = { backend: environment.BACKEND_HOST ?? "127.0.0.1", frontend: "127.0.0.1", mediaCrawler: "127.0.0.1" };
@@ -118,9 +129,12 @@ export async function runDevelopment(root, environment, options = {}) {
       MEDIACRAWLER_ENCRYPTED_VOLUME: resolve(root, environment.MEDIACRAWLER_ENCRYPTED_VOLUME),
       MEDIACRAWLER_PROFILE_ROOT: resolve(root, environment.MEDIACRAWLER_ENCRYPTED_VOLUME, "profiles"),
       MEDIACRAWLER_CRAWL_OUTPUT_ROOT: resolve(root, crawlOutputRoot),
-      DOUYIN_OUTREACH_ACTIONS_ENABLED: outreachActionsEnabled
+      DOUYIN_OUTREACH_ACTIONS_ENABLED: outreachActionsEnabled,
+      DOUYIN_ACTION_VISUAL_LOCATOR: actionVisualLocator
     };
-    if (!launch("uv", ["run", "--frozen", "--project", "services/media-crawler", "uvicorn", "shensi_adapter.app:app", "--app-dir", "services/media-crawler", "--host", "127.0.0.1", "--port", String(ports.mediaCrawler), "--workers", "1", "--timeout-graceful-shutdown", "20"], mediaEnvironment)) {
+    const visualLocatorArguments = actionVisualLocator === "rapidocr"
+      ? ["--extra", "visual-locator"] : [];
+    if (!launch("uv", ["run", "--frozen", "--project", "services/media-crawler", ...visualLocatorArguments, "uvicorn", "shensi_adapter.app:app", "--app-dir", "services/media-crawler", "--host", "127.0.0.1", "--port", String(ports.mediaCrawler), "--workers", "1", "--timeout-graceful-shutdown", "20"], mediaEnvironment)) {
       await waitForStoppedChildren();
       return;
     }

@@ -1,3 +1,5 @@
+import type { components } from "../generated/ai-acquisition";
+
 export interface SearchProvider {
   id: string;
   kind: "search" | "content_fetch" | "import";
@@ -48,15 +50,8 @@ export interface ConnectionHealth {
   usage?: string;
 }
 
-export interface ModelEndpointProfile {
-  provider: string;
-  endpointProfileId: string;
-  region: string;
-  baseUrl: string | null;
-  requiresWorkspaceId: boolean;
-  modelListPolicy: "same_key" | "not_exposed" | "separate_control_plane";
-  officialReference: string;
-}
+export type ModelEndpointProfile =
+  components["schemas"]["ModelEndpointProfile"];
 
 export interface ModelConnection {
   id: string;

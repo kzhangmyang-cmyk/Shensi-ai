@@ -77,6 +77,32 @@ test("production rejects memory persistence and development seed data", () => {
   );
 });
 
+test("production accepts only the exact disabled or rapidocr visual locator", () => {
+  const environment = Object.fromEntries(requiredProductionVariables.map((name) => [
+    name,
+    name === "DATABASE_URL" ? "mysql://shensi_app:fixture@mysql:3306/shensi"
+      : name === "SESSION_COOKIE_SECURE" ? "true"
+        : name === "CORS_ORIGINS" ? "https://shensi.example"
+          : "fixture-security-value-that-is-longer-than-32-characters"
+  ]));
+  const base = {
+    ...environment,
+    CRM_STORE: "mysql",
+    CRM_SEED_DEVELOPMENT_DATA: "false"
+  };
+  assert.doesNotThrow(() => validateProductionVariables(base));
+  assert.doesNotThrow(() => validateProductionVariables({
+    ...base,
+    DOUYIN_ACTION_VISUAL_LOCATOR: "rapidocr"
+  }));
+  for (const invalid of ["", "RAPIDOCR", " rapidocr ", "ocr"]) {
+    assert.throws(() => validateProductionVariables({
+      ...base,
+      DOUYIN_ACTION_VISUAL_LOCATOR: invalid
+    }), /DOUYIN_ACTION_VISUAL_LOCATOR_INVALID/u);
+  }
+});
+
 test("production configuration rejects a database URL that is not canonical for its secret file", () => {
   const directory = mkdtempSync(join(tmpdir(), "shensi-runtime-"));
   try {

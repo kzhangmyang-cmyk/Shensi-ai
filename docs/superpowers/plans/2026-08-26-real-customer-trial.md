@@ -1,5 +1,11 @@
 # Real Customer Trial Implementation Plan
 
+> **Archived / superseded:** This plan preserves the historical launch record.
+> Current product/action behavior is defined by
+> [`2026-08-28-douyin-private-message-agent.md`](2026-08-28-douyin-private-message-agent.md),
+> and current trial operation is defined by
+> [`../../operations/real-customer-trial.md`](../../operations/real-customer-trial.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Publish the latest Shensi frontend, backend and Douyin MediaCrawler integration as one isolated, real customer trial while showing every developed module truthfully.

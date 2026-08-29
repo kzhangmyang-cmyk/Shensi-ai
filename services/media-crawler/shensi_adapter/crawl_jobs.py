@@ -20,6 +20,7 @@ from typing import Callable, Iterable, Mapping
 from urllib.parse import quote, unquote
 
 from .douyin_normalizer import normalize_douyin_records
+from .profile_lease import ProfileLease, ProfileLeaseBusy, acquire_profile_lease
 from .schemas import (
     CrawlActivity, CrawlJobPage, CrawlJobRequest, CrawlJobView,
     NormalizedDouyinRecord,
@@ -427,6 +428,7 @@ class CrawlJobManager:
         self._root = root.resolve() / "crawl-jobs"
         self._root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self._root, 0o700)
+        self._lease_root = root.resolve()
         self._resolve = account_resolver
         self._runner = runner or MediaCrawlerRunner()
         self._now = now or (lambda: datetime.now(UTC))
@@ -534,25 +536,53 @@ class CrawlJobManager:
                 if job["request"]["account_handle"] == request.account_handle and job["state"] in {"queued", "running"}:
                     raise ValueError("account_crawl_active")
             profile = self._resolve(request.account_handle, request.login_state_version).resolve()
-            directory = self._directory(request.job_id)
-            directory.mkdir(mode=0o700, exist_ok=True)
-            os.chmod(directory, 0o700)
-            instant = self._now().isoformat()
-            job = existing or {"request": request.model_dump(mode="json"), "created_at": instant,
-                               "record_count": 0, "pages": [],
-                               "activity": self._initial_activity()}
-            job.setdefault("activity", self._initial_activity())
-            job.update({"state": "queued", "updated_at": instant, "completed_at": None,
-                        "acknowledged_at": None,
-                        "failure_code": None})
-            self._jobs[request.job_id] = job
-            self._persist(job)
-            cancelled = threading.Event()
-            self._cancel[request.job_id] = cancelled
-            thread = threading.Thread(target=self._execute, args=(request, profile, cancelled),
-                                      name=f"douyin-crawl-{request.job_id}", daemon=True)
-            self._threads[request.job_id] = thread
-            thread.start()
+            try:
+                profile_lease = acquire_profile_lease(
+                    profile, self._lease_root,
+                )
+            except ProfileLeaseBusy as error:
+                raise ValueError("douyin_profile_busy") from error
+            try:
+                directory = self._directory(request.job_id)
+                directory.mkdir(mode=0o700, exist_ok=True)
+                os.chmod(directory, 0o700)
+                instant = self._now().isoformat()
+                job = existing or {"request": request.model_dump(mode="json"), "created_at": instant,
+                                   "record_count": 0, "pages": [],
+                                   "activity": self._initial_activity()}
+                job.setdefault("activity", self._initial_activity())
+                job.update({"state": "queued", "updated_at": instant, "completed_at": None,
+                            "acknowledged_at": None,
+                            "failure_code": None})
+                self._jobs[request.job_id] = job
+                self._persist(job)
+                cancelled = threading.Event()
+                self._cancel[request.job_id] = cancelled
+                thread = threading.Thread(
+                    target=self._execute,
+                    args=(request, profile, cancelled, profile_lease),
+                    name=f"douyin-crawl-{request.job_id}", daemon=True,
+                )
+                self._threads[request.job_id] = thread
+                thread.start()
+            except BaseException:
+                self._threads.pop(request.job_id, None)
+                self._cancel.pop(request.job_id, None)
+                profile_lease.release()
+                failed_job = self._jobs.get(request.job_id)
+                if failed_job is not None:
+                    failed_at = self._now().isoformat()
+                    failed_job.update({
+                        "state": "failed",
+                        "updated_at": failed_at,
+                        "completed_at": failed_at,
+                        "failure_code": "crawl_failed",
+                    })
+                    try:
+                        self._persist(failed_job)
+                    except Exception:
+                        pass
+                raise
             return self._view(job)
 
     @staticmethod
@@ -598,7 +628,9 @@ class CrawlJobManager:
             record_ids.update(record.record_id for record in page.records)
         return record_ids
 
-    def _execute(self, request: CrawlJobRequest, profile: Path, cancelled: threading.Event) -> None:
+    def _execute(self, request: CrawlJobRequest, profile: Path,
+                 cancelled: threading.Event,
+                 profile_lease: ProfileLease) -> None:
         pending: list[NormalizedDouyinRecord] = []
         seen: set[str] = set()
         try:
@@ -661,6 +693,7 @@ class CrawlJobManager:
                         job["failure_code"] = "crawl_failed"
                         self._finish(job, "failed")
         finally:
+            profile_lease.release()
             with self._lock:
                 if self._threads.get(request.job_id) is threading.current_thread():
                     self._threads.pop(request.job_id, None)

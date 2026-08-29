@@ -5,6 +5,8 @@ import { AcquisitionSocialAccountService } from "./acquisition-social-account-se
 
 const context = { workspaceId: "workspace-a" };
 const otherWorkspace = { workspaceId: "workspace-b" };
+const boundHandleA = `dyacct_${"a".repeat(64)}`;
+const boundHandleB = `dyacct_${"b".repeat(64)}`;
 
 class Gateway {
   createLoginSessionCalls = 0;
@@ -16,7 +18,7 @@ class Gateway {
       accountHandle: null, accountDisplayName: null, loginStateVersion: null };
   }
   async getLoginSession() { return { sessionId: "session-a", state: "active" as const,
-    qrImageDataUrl: null, expiresAt: "2026-08-24T00:01:00.000Z", accountHandle: "private-handle",
+    qrImageDataUrl: null, expiresAt: "2026-08-24T00:01:00.000Z", accountHandle: boundHandleA,
     accountDisplayName: "Douyin", loginStateVersion: 1 }; }
   async disconnectLoginSession() { this.disconnectLoginSessionCalls += 1; }
 }
@@ -39,6 +41,7 @@ test("binds exactly once, replaces the active account, and disconnects safely", 
   const active = await service.bindActiveSession(context, session.id);
   assert.equal(active.state, "active");
   assert.equal("accountHandle" in active, false);
+  assert.equal("loginStateVersionHighWater" in active, false);
   const replay = await service.bindActiveSession(context, session.id);
   assert.deepEqual(replay, active);
   const disconnected = await service.disconnect(context, active.id, active.etag);
@@ -53,9 +56,214 @@ test("rejects a different active handle instead of silently replacing it", async
   const first = await service.createLoginSession(context, { platform: "douyin" });
   await service.bindActiveSession(context, first.id);
   gateway.getLoginSession = async () => ({ sessionId: "session-b", state: "active" as const, qrImageDataUrl: null,
-    expiresAt: "2026-08-24T00:01:00.000Z", accountHandle: "another-private-handle", accountDisplayName: null, loginStateVersion: 1 });
+    expiresAt: "2026-08-24T00:01:00.000Z", accountHandle: boundHandleB, accountDisplayName: "另一账号", loginStateVersion: 2 });
   const second = await service.createLoginSession(context, { platform: "douyin" });
   await assert.rejects(service.bindActiveSession(context, second.id), { code: "douyin_active_account_conflict" });
+});
+
+test("a newer valid login replaces an invalid legacy active identity", async () => {
+  const gateway = new Gateway();
+  gateway.getLoginSession = async () => ({ sessionId: "session-v2", state: "active" as const,
+    qrImageDataUrl: null, expiresAt: "2026-08-24T00:02:00.000Z", accountHandle: boundHandleA,
+    accountDisplayName: "已验证账号", loginStateVersion: 2 });
+  const repository = new InMemoryAcquisitionSocialAccountRepository();
+  await repository.upsert({
+    id: "legacy-account", workspaceId: context.workspaceId, platform: "douyin",
+    accountHandle: "legacy-random-handle", upstreamSessionId: "legacy-session",
+    displayName: null, state: "active", loginStateVersion: 1,
+    loginStateVersionHighWater: 1, revision: 3, etag: '"account-v3"',
+    lastValidatedAt: "2026-08-23T00:00:00.000Z",
+    createdAt: "2026-08-23T00:00:00.000Z", updatedAt: "2026-08-23T00:00:00.000Z"
+  });
+  const service = new AcquisitionSocialAccountService({ repository, gateway,
+    idFactory: () => "new-login", now: () => "2026-08-24T00:00:00.000Z" });
+  const login = await service.createLoginSession(context, { platform: "douyin" });
+
+  const active = await service.bindActiveSession(context, login.id);
+
+  assert.equal(active.id, "legacy-account");
+  assert.equal(active.state, "active");
+  assert.equal(active.displayName, "已验证账号");
+  assert.equal(active.loginStateVersion, 2);
+  assert.equal(active.revision, 4);
+});
+
+test("an equal-version valid login cannot replace an invalid legacy active identity", async () => {
+  const gateway = new Gateway();
+  const repository = new InMemoryAcquisitionSocialAccountRepository();
+  await repository.upsert({
+    id: "legacy-account", workspaceId: context.workspaceId, platform: "douyin",
+    accountHandle: "legacy-random-handle", upstreamSessionId: "legacy-session",
+    displayName: null, state: "active", loginStateVersion: 1,
+    loginStateVersionHighWater: 1, revision: 3, etag: '"account-v3"',
+    lastValidatedAt: "2026-08-23T00:00:00.000Z",
+    createdAt: "2026-08-23T00:00:00.000Z", updatedAt: "2026-08-23T00:00:00.000Z"
+  });
+  const service = new AcquisitionSocialAccountService({ repository, gateway,
+    idFactory: () => "equal-version-login", now: () => "2026-08-24T00:00:00.000Z" });
+  const login = await service.createLoginSession(context, { platform: "douyin" });
+
+  await assert.rejects(service.bindActiveSession(context, login.id), {
+    code: "douyin_login_session_not_active"
+  });
+
+  const stored = await repository.findByWorkspaceAndPlatform(context.workspaceId, "douyin");
+  assert.equal(stored?.id, "legacy-account");
+  assert.equal(stored?.accountHandle, "legacy-random-handle");
+  assert.equal(stored?.loginStateVersionHighWater, 1);
+  assert.equal(stored?.revision, 3);
+});
+
+test("same bound account reconnect advances login authority and upstream session", async () => {
+  const gateway = new Gateway();
+  const repository = new InMemoryAcquisitionSocialAccountRepository();
+  const service = new AcquisitionSocialAccountService({ repository, gateway,
+    idFactory: (() => { let n = 0; return () => `account-${++n}`; })(),
+    now: (() => { let n = 0; return () => `2026-08-24T00:00:0${n++}.000Z`; })() });
+  const firstLogin = await service.createLoginSession(context, { platform: "douyin" });
+  const first = await service.bindActiveSession(context, firstLogin.id);
+  gateway.getLoginSession = async () => ({ sessionId: "session-reconnect", state: "active" as const,
+    qrImageDataUrl: null, expiresAt: "2026-08-24T00:02:00.000Z", accountHandle: boundHandleA,
+    accountDisplayName: "Douyin 新昵称", loginStateVersion: 2 });
+  const secondLogin = await service.createLoginSession(context, { platform: "douyin" });
+
+  const reconnected = await service.bindActiveSession(context, secondLogin.id);
+  const stored = await repository.findById(context.workspaceId, first.id);
+
+  assert.equal(reconnected.id, first.id);
+  assert.equal(reconnected.loginStateVersion, 2);
+  assert.equal(reconnected.displayName, "Douyin 新昵称");
+  assert.equal(reconnected.revision, first.revision + 1);
+  assert.equal(stored?.upstreamSessionId, "session-reconnect");
+  assert.equal(stored?.accountHandle, boundHandleA);
+});
+
+test("repository derives every newer same-account revision inside its transaction", async () => {
+  const repository = new InMemoryAcquisitionSocialAccountRepository();
+  const base = {
+    id: "account-stable", workspaceId: context.workspaceId, platform: "douyin" as const,
+    accountHandle: boundHandleA, upstreamSessionId: "session-v1", displayName: "Douyin",
+    state: "active" as const, loginStateVersion: 1, loginStateVersionHighWater: 1, revision: 1,
+    etag: '"account-v1"', lastValidatedAt: "2026-08-24T00:00:01.000Z",
+    createdAt: "2026-08-24T00:00:00.000Z", updatedAt: "2026-08-24T00:00:01.000Z"
+  };
+  await repository.upsert(base);
+  const staleRevision = (version: number) => ({ ...base,
+    id: `stale-candidate-${version}`, upstreamSessionId: `session-v${version}`,
+    loginStateVersion: version, loginStateVersionHighWater: version,
+    revision: 2, etag: '"account-v2"',
+    updatedAt: `2026-08-24T00:00:0${version}.000Z`
+  });
+
+  const [second, third] = await Promise.all([
+    repository.bindActive(staleRevision(2)),
+    repository.bindActive(staleRevision(3))
+  ]);
+  const stored = await repository.findByWorkspaceAndPlatform(context.workspaceId, "douyin");
+
+  assert.notEqual(second, "active_handle_conflict");
+  assert.notEqual(third, "active_handle_conflict");
+  assert.equal(second !== "active_handle_conflict" ? second.revision : null, 2);
+  assert.equal(third !== "active_handle_conflict" ? third.revision : null, 3);
+  assert.equal(stored?.id, "account-stable");
+  assert.equal(stored?.loginStateVersion, 3);
+  assert.equal(stored?.revision, 3);
+  assert.equal(stored?.etag, '"account-v3"');
+  const staleUpsert = await repository.upsert({ ...base,
+    upstreamSessionId: "session-stale", revision: 1, etag: '"account-v1"' });
+  assert.equal(staleUpsert.loginStateVersion, 3);
+  assert.equal(staleUpsert.loginStateVersionHighWater, 3);
+  assert.equal((await repository.findById(context.workspaceId, "account-stable"))?.revision, 3);
+  assert.equal(await repository.disconnect(context.workspaceId, "account-stable", '"account-v2"',
+    "2026-08-24T00:00:04.000Z"), null);
+  assert.equal((await repository.findById(context.workspaceId, "account-stable"))?.state, "active");
+});
+
+test("an old login session cannot resurrect a disconnected or risk-paused account", async () => {
+  for (const terminalState of ["disconnected", "risk_paused"] as const) {
+    const gateway = new Gateway();
+    const repository = new InMemoryAcquisitionSocialAccountRepository();
+    const service = new AcquisitionSocialAccountService({ repository, gateway,
+      idFactory: (() => { let n = 0; return () => `account-${terminalState}-${++n}`; })(),
+      now: () => "2026-08-24T00:00:00.000Z" });
+    const login = await service.createLoginSession(context, { platform: "douyin" });
+    const active = await service.bindActiveSession(context, login.id);
+    if (terminalState === "disconnected") {
+      await service.disconnect(context, active.id, active.etag);
+    } else {
+      const current = await repository.findById(context.workspaceId, active.id);
+      if (!current) throw new Error("active account missing");
+      if (!current.accountHandle || !current.loginStateVersion) {
+        throw new Error("active account identity missing");
+      }
+      await repository.pauseActiveAccount(context.workspaceId, current.id, {
+        accountHandle: current.accountHandle,
+        loginStateVersion: current.loginStateVersion,
+        revision: current.revision,
+        etag: current.etag
+      }, "2026-08-24T00:00:01.000Z");
+    }
+    const oldSession = await service.createLoginSession(context, { platform: "douyin" });
+
+    await assert.rejects(service.bindActiveSession(context, oldSession.id), {
+      code: "douyin_login_session_not_active"
+    });
+    assert.equal((await repository.findById(context.workspaceId, active.id))?.state, terminalState);
+    assert.equal((await repository.findById(context.workspaceId, active.id))
+      ?.loginStateVersionHighWater, 1);
+  }
+});
+
+test("risk pause is an exact identity CAS and cannot roll back a concurrent reconnect", async () => {
+  const repository = new InMemoryAcquisitionSocialAccountRepository();
+  const base = {
+    id: "account-cas", workspaceId: context.workspaceId, platform: "douyin" as const,
+    accountHandle: boundHandleA, upstreamSessionId: "session-v1", displayName: "Douyin",
+    state: "active" as const, loginStateVersion: 1, loginStateVersionHighWater: 1, revision: 1,
+    etag: '"account-v1"', lastValidatedAt: "2026-08-24T00:00:01.000Z",
+    createdAt: "2026-08-24T00:00:00.000Z", updatedAt: "2026-08-24T00:00:01.000Z"
+  };
+  await repository.upsert(base);
+  const oldIdentity = { accountHandle: boundHandleA, loginStateVersion: 1,
+    revision: 1, etag: '"account-v1"' };
+  await repository.bindActive({ ...base, upstreamSessionId: "session-v2",
+    loginStateVersion: 2, loginStateVersionHighWater: 2,
+    revision: 2, etag: '"account-v2"' });
+
+  const paused = await (repository as unknown as {
+    pauseActiveAccount(workspaceId: string, id: string, identity: typeof oldIdentity,
+      updatedAt: string): Promise<unknown>;
+  }).pauseActiveAccount(context.workspaceId, base.id, oldIdentity,
+    "2026-08-24T00:00:03.000Z");
+
+  assert.equal(paused, null);
+  const stored = await repository.findById(context.workspaceId, base.id);
+  assert.equal(stored?.state, "active");
+  assert.equal(stored?.loginStateVersion, 2);
+  assert.equal(stored?.revision, 2);
+});
+
+test("active upstream identity must be hashed-bound and have a real nickname", async () => {
+  const gateway = new Gateway();
+  const service = new AcquisitionSocialAccountService({
+    repository: new InMemoryAcquisitionSocialAccountRepository(), gateway,
+    idFactory: () => "account-invalid", now: () => "2026-08-24T00:00:00.000Z"
+  });
+  const login = await service.createLoginSession(context, { platform: "douyin" });
+
+  for (const invalid of [
+    { accountHandle: "legacy-random-handle", accountDisplayName: "旧账号" },
+    { accountHandle: boundHandleA, accountDisplayName: null },
+    { accountHandle: boundHandleA, accountDisplayName: "   " }
+  ]) {
+    gateway.getLoginSession = async () => ({ sessionId: "session-invalid", state: "active" as const,
+      qrImageDataUrl: null, expiresAt: "2026-08-24T00:01:00.000Z",
+      loginStateVersion: 1, ...invalid });
+    await assert.rejects(service.bindActiveSession(context, login.id), {
+      code: "douyin_login_session_not_active"
+    });
+    assert.equal((await service.getLoginSession(context, login.id)).state, "login_expired");
+  }
 });
 
 test("persists an exact create-session replay by workspace and semantic hash", async () => {

@@ -47,17 +47,40 @@ test("outreach runtime authorization requires request and a usable configured si
 
 test("CLI outreach authorization is an explicit one-shot publish or start flag", () => {
   assert.deepEqual(parseTrialCli(["publish"]), {
-    command: "publish", outreachActionsEnabled: false
+    command: "publish", outreachActionsEnabled: false,
+    actionVisualLocator: "disabled"
   });
   assert.deepEqual(parseTrialCli([
-    "publish", "--enable-outreach-after-empty-audit"
-  ]), { command: "publish", outreachActionsEnabled: true });
+    "publish", "--enable-outreach-after-empty-audit",
+    "--action-visual-locator=rapidocr"
+  ]), {
+    command: "publish", outreachActionsEnabled: true,
+    actionVisualLocator: "rapidocr"
+  });
   assert.deepEqual(parseTrialCli([
-    "start", "--enable-outreach-after-empty-audit"
-  ]), { command: "start", outreachActionsEnabled: true });
+    "start", "--action-visual-locator=rapidocr",
+    "--enable-outreach-after-empty-audit"
+  ]), {
+    command: "start", outreachActionsEnabled: true,
+    actionVisualLocator: "rapidocr"
+  });
   assert.throws(() => parseTrialCli([
     "status", "--enable-outreach-after-empty-audit"
   ]), /TRIAL_CLI_FLAG_NOT_ALLOWED/u);
+  for (const command of ["prepare", "status", "stop"]) {
+    assert.throws(() => parseTrialCli([
+      command, "--action-visual-locator=rapidocr"
+    ]), /TRIAL_CLI_FLAG_NOT_ALLOWED/u);
+  }
+  for (const flag of [
+    "--action-visual-locator=",
+    "--action-visual-locator=RAPIDOCR",
+    "--action-visual-locator= rapidocr ",
+    "--action-visual-locator=ocr"
+  ]) {
+    assert.throws(() => parseTrialCli(["start", flag]),
+      /DOUYIN_ACTION_VISUAL_LOCATOR_INVALID/u);
+  }
   assert.throws(() => parseTrialCli(["publish", "--unknown"]),
     /TRIAL_CLI_ARGUMENT_INVALID/u);
 });
@@ -115,8 +138,9 @@ test("publish stops the current trial before rebuilding the same retained runtim
       return { stopped: ["frontend", "backend"], stale: [] };
     },
     removeStatus: async (path) => calls.push(["remove-status", path]),
-    start: async (repositoryRoot) => {
-      calls.push(["start", repositoryRoot]);
+    startOptions: { outreachActionsEnabled: true, actionVisualLocator: "rapidocr" },
+    start: async (repositoryRoot, options) => {
+      calls.push(["start", repositoryRoot, options]);
       return { origin: "https://published.trycloudflare.com" };
     },
     verify: async (runtime) => calls.push(["verify", runtime.origin])
@@ -124,7 +148,11 @@ test("publish stops the current trial before rebuilding the same retained runtim
   assert.deepEqual(calls, [
     ["stop", join(runtimeRoot, "pids")],
     ["remove-status", join(runtimeRoot, "status.json")],
-    ["start", root],
+    ["start", root, {
+      outreachActionsEnabled: true,
+      actionVisualLocator: "rapidocr",
+      runtimeRoot
+    }],
     ["verify", "https://published.trycloudflare.com"]
   ]);
   assert.equal(published.origin, "https://published.trycloudflare.com");
@@ -262,7 +290,7 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
   const children = new Map();
   let nextPid = 900;
   const runtime = await startTrialRuntime(root, {
-    prepare: async () => ({ root, environmentFile: join(root, "trial.env"), stateDirectory: join(root, "state"), logsDirectory: join(root, "logs"), pidsDirectory: join(root, "pids"), toolsDirectory: join(root, "tools"), mysqlDirectory: join(root, "mysql"), secretsDirectory: join(root, "secrets"), environment: { DATABASE_URL: "mysql://shensi_trial_app:fixture@127.0.0.1:3310/shensi_trial", SHENSI_TRIAL_APP_PASSWORD_FILE: join(root, "secrets/app-password"), MEDIACRAWLER_BASE_URL: "http://127.0.0.1:5612", MEDIACRAWLER_SERVICE_SECRET_FILE: join(root, "secrets/service-secret"), DOUYIN_OUTREACH_ACTIONS_ENABLED: "true" } }),
+    prepare: async () => ({ root, environmentFile: join(root, "trial.env"), stateDirectory: join(root, "state"), logsDirectory: join(root, "logs"), pidsDirectory: join(root, "pids"), toolsDirectory: join(root, "tools"), mysqlDirectory: join(root, "mysql"), secretsDirectory: join(root, "secrets"), environment: { DATABASE_URL: "mysql://shensi_trial_app:fixture@127.0.0.1:3310/shensi_trial", SHENSI_TRIAL_APP_PASSWORD_FILE: join(root, "secrets/app-password"), MEDIACRAWLER_BASE_URL: "http://127.0.0.1:5612", MEDIACRAWLER_SERVICE_SECRET_FILE: join(root, "secrets/service-secret"), DOUYIN_OUTREACH_ACTIONS_ENABLED: "true", DOUYIN_ACTION_VISUAL_LOCATOR: "rapidocr" } }),
     isPortAvailable: async () => true,
     wrapCommands: false,
     runCommand: async (command, args, options) => calls.push({ oneShot: [command, ...args], options }),
@@ -282,7 +310,6 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
     cloudflaredBinary: "/fixture/cloudflared",
     backendCommand: ["node", "backend.js"],
     frontendCommand: ["node", "frontend.js"],
-    sidecarCommand: ["node", "sidecar.js"],
     gatewayCommand: ["node", "gateway.js"]
   });
   assert.equal(calls.find((call) => call.command === "/fixture/mysqld")?.command, "/fixture/mysqld");
@@ -292,11 +319,21 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
   const backendCalls = calls.filter((call) => call.args?.includes("backend.js"));
   const backend = calls.findIndex((call) => call === backendCalls.at(-1));
   assert.ok(tunnel >= 0 && backend > tunnel);
-  assert.equal(calls[backend].options.env.CORS_ORIGINS, "https://trial-fixture.trycloudflare.com");
+  assert.equal(
+    calls[backend].options.env.CORS_ORIGINS,
+    "https://trial-fixture.trycloudflare.com,http://127.0.0.1:5608"
+  );
   assert.equal(backendCalls[0].options.env.DOUYIN_OUTREACH_ACTIONS_ENABLED, "false");
   assert.equal(backendCalls[1].options.env.DOUYIN_OUTREACH_ACTIONS_ENABLED, "true");
+  const sidecarCall = calls.find((call) => call.command === "uv");
+  assert.ok(sidecarCall, "rapidocr trial must launch the pinned uv extra command");
+  assert.deepEqual(sidecarCall.args.slice(0, 8), [
+    "run", "--frozen", "--project", join(root, "services/media-crawler"),
+    "--extra", "visual-locator", "uvicorn", "shensi_adapter.app:app"
+  ]);
+  assert.equal(sidecarCall.options.env.DOUYIN_ACTION_VISUAL_LOCATOR, "rapidocr");
   const audit = calls.findIndex((call) => call.outreachQueueAudit);
-  const sidecar = calls.findIndex((call) => call.args?.includes("sidecar.js"));
+  const sidecar = calls.findIndex((call) => call.command === "uv");
   assert.ok(audit > calls.findIndex((call) => call.provision));
   assert.ok(sidecar >= 0 && sidecar < audit);
   assert.ok(audit < backend);
@@ -306,7 +343,9 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
   );
   assert.ok(calls.filter((call) => call.options?.env?.HOST).every((call) => call.options.env.HOST === "127.0.0.1"));
   const oneShotCalls = calls.filter((call) => call.oneShot);
-  assert.equal(oneShotCalls.length, 4);
+  assert.equal(oneShotCalls.length, 5);
+  assert.ok(oneShotCalls.some((call) => call.oneShot.join(" ").includes("--filter ./frontend exec tsc -b")));
+  assert.ok(oneShotCalls.some((call) => call.oneShot.join(" ").includes("--filter ./frontend exec vite build --outDir")));
   assert.ok(oneShotCalls.some((call) => call.oneShot.join(" ").includes("--filter ./backend exec tsx scripts/setup-trial-mysql.ts")));
   assert.ok(oneShotCalls.every((call) => typeof call.options.env.PATH === "string" && call.options.env.PATH.length > 0));
   assert.ok(oneShotCalls.every((call) => typeof call.options.env.HOME === "string" && call.options.env.HOME.length > 0));
@@ -319,6 +358,7 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
 test("supervisor wraps direct long-lived service commands so recorded wrapper PIDs remain authoritative", async () => {
   const root = await mkdtemp(join(tmpdir(), "shensi-trial-direct-commands-"));
   const calls = [];
+  const oneShotCalls = [];
   let nextPid = 1_100;
   await startTrialRuntime(root, {
     prepare: async () => ({
@@ -332,7 +372,7 @@ test("supervisor wraps direct long-lived service commands so recorded wrapper PI
       }
     }),
     isPortAvailable: async () => true,
-    runCommand: async () => undefined,
+    runCommand: async (command, args) => oneShotCalls.push([command, ...args]),
     waitForMysql: async () => undefined,
     waitForTunnelOrigin: async () => "https://trial-fixture.trycloudflare.com",
     readSidecarSecret: async () => "s".repeat(40),
@@ -362,7 +402,13 @@ test("supervisor wraps direct long-lived service commands so recorded wrapper PI
   assert.match(frontend.command, /node$/u);
   assert.match(frontend.args[0], /frontend\/node_modules\/vite\/bin\/vite\.js$/u);
   assert.equal(frontend.args[1], "preview");
-  assert.match(frontend.args[2], /frontend$/u);
+  const isolatedFrontend = join(root, "release", "frontend");
+  assert.equal(frontend.args[2], join(root, "frontend"));
+  assert.deepEqual(frontend.args.slice(3, 5), ["--outDir", isolatedFrontend]);
+  assert.ok(oneShotCalls.some((call) => call.includes("vite")
+    && call.includes("build")
+    && call.includes("--outDir")
+    && call.includes(isolatedFrontend)));
   assert.match(sidecar.command, /services\/media-crawler\/\.venv\/bin\/uvicorn$/u);
   assert.deepEqual(sidecar.args.slice(0, 2), ["shensi_adapter.app:app", "--app-dir"]);
 });
@@ -482,4 +528,22 @@ test("stop removes an owned record when the expected process exits after TERM", 
   assert.deepEqual(signals, [[9234, "SIGTERM"]]);
   assert.deepEqual(result, { stopped: ["backend"], stale: [] });
   await assert.rejects(readFile(join(pidsDirectory, "backend.json"), "utf8"), /ENOENT/u);
+});
+
+test("stop tolerates a process exiting between the ownership check and TERM", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-record-race-"));
+  const pidsDirectory = join(root, "pids");
+  const stored = await writeRecord({ pidsDirectory }, {
+    name: "frontend", pid: 9235, command: "/fixture/node",
+    args: ["/fixture/child.mjs", "--runtime-nonce", "b".repeat(32)],
+    nonce: "b".repeat(32)
+  });
+  const missing = Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+  const result = await stopTrialRuntime({ records: [stored] }, {
+    isRecordedProcess: async () => true,
+    signalProcessGroup: async () => { throw missing; },
+    readProcessCommand: async () => null
+  });
+  assert.deepEqual(result, { stopped: ["frontend"], stale: [] });
+  await assert.rejects(readFile(stored.path, "utf8"), /ENOENT/u);
 });

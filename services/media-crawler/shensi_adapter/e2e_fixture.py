@@ -16,6 +16,7 @@ from .accounts import AccountManager
 from .action_jobs import ActionJobManager
 from .app import create_app, deployment_service_secret
 from .crawl_jobs import CrawlJobManager
+from .douyin_account_identity import identity_fingerprint_for_raw_sec_uid
 
 
 class DeterministicBrowser:
@@ -29,7 +30,13 @@ class DeterministicBrowser:
         }
 
     def poll_douyin_login(self, _context):
-        return {"active": True, "display_name": "Task 10 Deterministic Account"}
+        return {
+            "active": True,
+            "identity_fingerprint": identity_fingerprint_for_raw_sec_uid(
+                "MS4wLjABDeterministicFixtureAccount"
+            ),
+            "display_name": "Task 10 Deterministic Account",
+        }
 
     def close(self, _context):
         return None
@@ -37,7 +44,10 @@ class DeterministicBrowser:
     def close_browser(self):
         return None
 
-    def execute_douyin_action(self, _profile: Path, request):
+    def execute_douyin_action(
+        self, _profile: Path, request, *, authority_validator,
+    ):
+        authority_validator()
         digest = hashlib.sha256(request.action_id.encode("utf-8")).hexdigest()[:24]
         return {
             "action_id": request.action_id,

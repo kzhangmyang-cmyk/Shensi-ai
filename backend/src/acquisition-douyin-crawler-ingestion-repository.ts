@@ -721,6 +721,45 @@ extends AuthoritativeDouyinCrawlerIngestionRepository {
         .withTransactionConnection(connection, () =>
           this.planRuns.withTransactionConnection(connection, work)));
   }
+  async loadOutreachRunFinalizationState(workspaceId: string, runId: string) {
+    const [rows] = await this.source().query(
+      `SELECT j.payload_json FROM acquisition_crawler_job_runs r
+       INNER JOIN acquisition_crawler_jobs j ON j.id=r.job_id
+       WHERE r.workspace_id=? AND r.run_id=? FOR UPDATE`,
+      [workspaceId, runId]
+    );
+    const row = (rows as Array<Record<string, unknown>>)[0];
+    if (!row) return null;
+    const raw = typeof row.payload_json === "string"
+      ? JSON.parse(row.payload_json) as Record<string, unknown>
+      : row.payload_json as Record<string, unknown>;
+    const runIds = Array.isArray(raw.runIds) ? raw.runIds : [];
+    const ingestionState = typeof raw.ingestionState === "string"
+      ? raw.ingestionState
+      : ["succeeded", "partial"].includes(String(raw.state))
+        ? "pending" : null;
+    const aliasGeneration = Object.prototype.hasOwnProperty.call(
+      raw,
+      "aliasGeneration"
+    ) ? Number(raw.aliasGeneration) : runIds.length;
+    const projectedAliasGeneration = Object.prototype.hasOwnProperty.call(
+      raw,
+      "projectedAliasGeneration"
+    ) ? Number(raw.projectedAliasGeneration)
+      : ingestionState === "succeeded" && runIds.length === 1 ? 1 : 0;
+    if (["succeeded", "partial"].includes(String(raw.state))
+      && ingestionState === "succeeded"
+      && Number.isSafeInteger(aliasGeneration)
+      && aliasGeneration > 0
+      && projectedAliasGeneration === aliasGeneration) {
+      return "ready" as const;
+    }
+    if (["paused", "cancelled", "failed"].includes(String(raw.state))
+      || ingestionState === "failed") {
+      return "unavailable" as const;
+    }
+    return "pending" as const;
+  }
   async transaction<T>(scope: IngestionScope, work: () => Promise<T>) {
     const active = this.mysqlContext.getStore();
     if (active) {

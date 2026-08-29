@@ -40,6 +40,9 @@ test("production compose keeps MediaCrawler private, read-only, bounded, and sec
   assert.match(media, /MEDIACRAWLER_SERVICE_SECRET_FILE: \/run\/secrets\/mediacrawler_service_secret/u);
   assert.match(media, /MEDIACRAWLER_CRAWL_OUTPUT_ROOT: \/var\/lib\/shensi-mediacrawler\/crawl-output/u);
   assert.match(media, /DOUYIN_OUTREACH_ACTIONS_ENABLED: \$\{DOUYIN_OUTREACH_ACTIONS_ENABLED:-false\}/u);
+  assert.match(media, /DOUYIN_ACTION_VISUAL_LOCATOR: \$\{DOUYIN_ACTION_VISUAL_LOCATOR-disabled\}/u);
+  assert.match(media, /args:\s*\n\s+DOUYIN_ACTION_VISUAL_LOCATOR: \$\{DOUYIN_ACTION_VISUAL_LOCATOR-disabled\}/u);
+  assert.doesNotMatch(media, /DOUYIN_ACTION_VISUAL_LOCATOR:-disabled/u);
   assert.match(media, /target: \/var\/lib\/shensi-mediacrawler/u);
   assert.match(media, /bind:\s*\n\s+create_host_path: false/u);
   assert.match(media, /healthcheck:/u);
@@ -63,7 +66,30 @@ test("production compose keeps MediaCrawler private, read-only, bounded, and sec
   assert.doesNotMatch(gateway, /shensi_mediacrawler|media-crawler/u);
 });
 
-test("development passes one resolved crawl root and one action gate to both processes", async () => {
+test("checked-in runtime examples keep external writes and optional OCR disabled", () => {
+  for (const path of [".env.example", ".env.production.example"]) {
+    const environment = read(path);
+    assert.match(environment, /^DOUYIN_OUTREACH_ACTIONS_ENABLED=false$/mu);
+    assert.match(environment, /^DOUYIN_ACTION_VISUAL_LOCATOR=disabled$/mu);
+  }
+});
+
+test("deployable schemas keep legacy outreach rows nullable while version 2 is explicit", () => {
+  for (const path of ["backend/schema.mysql.sql", "backend/goodjob_crm.full.sql"]) {
+    const schema = read(path);
+    assert.match(schema, /authorization_version TINYINT NULL/u);
+    assert.match(schema, /approved_by VARCHAR\(255\) NULL/u);
+    assert.match(schema, /approved_at DATETIME\(3\) NULL/u);
+    assert.match(schema, /direct_message_daily_limit INT NULL/u);
+    assert.match(schema, /direct_message_daily_ordinal INT NULL/u);
+    assert.doesNotMatch(
+      schema,
+      /UPDATE acquisition_outreach_actions[\s\S]{0,300}authorization_version\s*=\s*2/u
+    );
+  }
+});
+
+test("development passes one resolved crawl root, one action gate, and the exact OCR mode", async () => {
   const processRef = new EventEmitter();
   const children = [101, 102, 103].map((pid) => {
     const child = new EventEmitter();
@@ -80,7 +106,8 @@ test("development passes one resolved crawl root and one action gate to both pro
     MEDIACRAWLER_SERVICE_SECRET_FILE: "secrets/mediacrawler",
     MEDIACRAWLER_ENCRYPTED_VOLUME: "encrypted",
     MEDIACRAWLER_CRAWL_OUTPUT_ROOT: "encrypted/crawl-output",
-    DOUYIN_OUTREACH_ACTIONS_ENABLED: "true"
+    DOUYIN_OUTREACH_ACTIONS_ENABLED: "true",
+    DOUYIN_ACTION_VISUAL_LOCATOR: "rapidocr"
   }, {
     processRef,
     assertMediaCrawler: () => {},
@@ -103,6 +130,40 @@ test("development passes one resolved crawl root and one action gate to both pro
   );
   assert.equal(launches[0].options.env.DOUYIN_OUTREACH_ACTIONS_ENABLED, "true");
   assert.equal(launches[1].options.env.DOUYIN_OUTREACH_ACTIONS_ENABLED, "true");
+  assert.equal(launches[0].options.env.DOUYIN_ACTION_VISUAL_LOCATOR, "rapidocr");
+  assert.deepEqual(
+    launches[0].argumentsList.slice(0, 7),
+    ["run", "--frozen", "--project", "services/media-crawler", "--extra", "visual-locator", "uvicorn"]
+  );
+});
+
+test("development rejects an unknown visual locator before starting a process", async () => {
+  let spawnCount = 0;
+  await assert.rejects(runDevelopment("/workspace", {
+    DATABASE_URL: "mysql://fixture.invalid/shensi",
+    JWT_SECRET: "fixture-security-value-that-is-longer-than-32-characters",
+    PROVIDER_CREDENTIAL_KEY: "fixture-security-value-that-is-longer-than-32-characters",
+    AGENT_JOB_ENCRYPTION_KEY: "fixture-security-value-that-is-longer-than-32-characters",
+    ACQUISITION_MASTER_SECRET: "fixture-security-value-that-is-longer-than-32-characters",
+    MEDIACRAWLER_SERVICE_SECRET_FILE: "secrets/mediacrawler",
+    MEDIACRAWLER_ENCRYPTED_VOLUME: "encrypted",
+    DOUYIN_ACTION_VISUAL_LOCATOR: "RAPIDOCR"
+  }, {
+    processRef: new EventEmitter(),
+    assertMediaCrawler: () => {},
+    assertPorts: async () => {},
+    spawnProcess() {
+      spawnCount += 1;
+      const spawned = new EventEmitter();
+      spawned.pid = 200 + spawnCount;
+      queueMicrotask(() => spawned.emit("exit", 0, null));
+      return spawned;
+    },
+    terminateTree(spawned, signal) {
+      queueMicrotask(() => spawned.emit("exit", 0, signal));
+    }
+  }), /DOUYIN_ACTION_VISUAL_LOCATOR_INVALID/u);
+  assert.equal(spawnCount, 0);
 });
 
 test("host prerequisite validation fails closed on missing, weak, linked, or exposed state", () => {

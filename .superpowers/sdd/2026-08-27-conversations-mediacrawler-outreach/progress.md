@@ -60,3 +60,88 @@
 - Final re-review follow-up: two publish blockers were reproduced RED and fixed. MySQL claim scanning now advances through the complete ordered keyset instead of only repeating the first 100 rows when non-stale ineligible work fills the window; partial-start and bootstrap cleanup now use the owned process-group signaler in production so bounded `SIGKILL` cannot orphan the wrapped service. Focused repository tests passed 10 with 3 explicit live-MySQL skips, runtime passed 23, the complete acquisition suite passed 1,263 with 11 explicit skips, backend build/context/diff checks passed, and an exact staged snapshot independently passed the focused repository/runtime/build checks. No external action or action-enabled runtime was executed.
 - Final fix residual ruling: live Douyin DOM and live MySQL were not available in this repair pass. Unbound `/messages` DM routing, unprovable outgoing receipts, malformed/missing journals, and every uncertain external write remain closed/risk-paused; no distributed exactly-once claim is made. Task 7 still requires the user's visible checkbox-and-click approval, and Codex must not perform it.
 - Task 7: pending
+- Task 7 preparation: MySQL 8.4 candidate-scoped reads now use a repository-
+  validated bounded literal `LIMIT`; initially empty action pages continue a
+  bounded receipt poll; the approval workspace displays account, public target,
+  exact text, limits, dirty state, localized status/failure, and an explicit
+  real-comment confirmation. Unknown router failures emit redacted request-
+  scoped diagnostics. Focused backend, frontend, sidecar, contract, type, and
+  build gates pass without any external Douyin write.
+- Task 7 preparation Ruling: expose the frozen `publicProfileUrl` and
+  `commentTargetPublicUrl` in the public batch DTO and bind both into the batch
+  hash, while continuing to remove private `publicActorKey` and `evidenceText`.
+  The page reviews the same public targets that approval authorizes instead of
+  reconstructing them from a potentially newer candidate feed. If wrong, this
+  widens the public batch contract by two already-public URLs and requires
+  contract consumers to update, but avoids authorizing a stale or hidden target.
+- Task 7 preparation Ruling: final confirmation requires exact frozen video and
+  profile targets plus a currently active account whose ID and
+  `loginStateVersion` match the batch; missing context or any mismatch disables
+  confirmation. If wrong, a delayed account-context refresh can temporarily
+  block a valid approval and the operator must refresh, rather than risk using a
+  different login session.
+- Task 7 preparation Ruling: a deterministic comment failure closes only its
+  direct-message successor as `predecessor_failed`. If wrong, a platform result
+  later proved successful would require a separate audited operator recovery,
+  but no failed comment can strand or release a private message silently.
+- Task 7 preparation Ruling: malformed claimed-success receipts, post-submit
+  exceptions, and all other uncertain write outcomes are ambiguous and
+  `risk_paused`, never converted into a deterministic rejection or automatic
+  retry. If wrong, operators must perform read-only reconciliation for more
+  cases, but the system never converts unknown delivery into duplicate writes.
+- Task 7 preparation Ruling: read-only reconciliation may prove only the frozen
+  action and does not automatically resume the account or its successor; an
+  explicit audited recovery entry remains a follow-up gap. If wrong, a proven
+  comment can remain operationally paused until that entry exists, but
+  reconciliation cannot silently authorize the next external write.
+- Task 7 preparation Ruling: action polling may wait through at most 20 empty
+  pages (about 60 seconds at the production interval) after approval. If wrong,
+  exceptionally delayed outbox visibility requires a manual refresh, while an
+  unbounded browser poll is still avoided.
+- Task 7 preparation Ruling: every load or manual refresh advances a polling
+  epoch; responses and timers from an older epoch are ignored. If wrong, a slow
+  stale request may require another refresh to observe its result, while it
+  cannot overwrite newer authority or create a competing poll chain.
+- Task 7 preparation Ruling: live-page candidates are review-only until the
+  crawler is `succeeded` or `partial`, terminal ingestion is `succeeded`, and
+  the projected alias generation equals the current generation. Creation and
+  final approval both recheck this boundary; MySQL approval locks it inside the
+  action-insert transaction. If wrong, an operator must wait for final
+  projection and regenerate a batch whose same-actor evidence changed, rather
+  than risk approving a draft against evidence that a later page can mutate.
+- Task 7 preparation: `outreach_candidate_projection_pending` keeps a reviewed
+  batch unchanged and queues no action; the frontend presents it as a Chinese
+  waiting state rather than an ETag conflict. Paused, cancelled, failed, or
+  ingestion-failed crawls return
+  `outreach_candidate_projection_unavailable` and require a new run.
+- Task 7 preparation Ruling: current final approval creates exactly one queued
+  `comment` action per selected candidate and never creates the formerly
+  predecessor-blocked `direct_message` successor. The batch and action schemas
+  continue to read historical direct-message data, while the frontend keeps the
+  retained draft read-only and explicitly states that private messaging is
+  unavailable for this batch. If wrong, private messaging requires a later
+  explicitly authorized interface revision and live DOM/receipt evidence rather
+  than silently inheriting the comment approval.
+- Task 7 preparation Ruling: historical nonterminal `direct_message` rows are
+  readable audit data only. Memory and MySQL claims accept `comment` rows only;
+  the worker rejects a hostile claimed direct message before authority lookup,
+  and the sidecar persists `douyin_direct_message_unavailable` before profile
+  resolution or browser execution. The frontend labels these rows as historical,
+  read-only, and disabled. If wrong, a future private-message release must remove
+  all three independent gates under a new authorization and receipt contract;
+  no existing historical row can become executable by changing one flag.
+- Task 7 preparation Ruling: a QR scan becomes account authority only after the
+  browser proves one exact own-profile identity and a real nickname. The
+  sidecar exports `dyacct_<sha256>` instead of raw `sec_uid` and assigns every
+  successful connection a globally monotonic login-state version. The backend
+  retains a private durable version high-water across active, risk-paused, and
+  disconnected states; same-account revision/ETag changes are derived under the
+  repository lock, and risk pause is an exact identity CAS. If wrong, an
+  operator may need a fresh QR session, while an old session can never revive
+  or overwrite newer authority.
+- Task 7 preparation Ruling: comment execution and read-only reconciliation
+  re-prove the current authenticated account before target navigation. A
+  successful official comment-publish response must bind the exact frozen
+  aweme, exact text, stable comment ID, and the same account author; any mismatch
+  becomes `douyin_account_identity_changed` and pauses related work without a
+  second click.

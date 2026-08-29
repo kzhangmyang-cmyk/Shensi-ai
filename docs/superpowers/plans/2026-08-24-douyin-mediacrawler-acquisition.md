@@ -1,5 +1,11 @@
 # Douyin MediaCrawler Acquisition Implementation Plan
 
+> **Archived / superseded:** This historical plan is not a current execution
+> source. Use
+> [`2026-08-28-douyin-private-message-agent.md`](2026-08-28-douyin-private-message-agent.md)
+> and its linked current design. Do not execute the direct-message tasks or the
+> 180-second comment-to-message rule below as current instructions.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a real, recoverable Douyin acquisition flow that connects an account by QR, performs scheduled MediaCrawler collection, produces evidence-bound candidates, requires batch approval, and executes exact approved comments followed by direct messages.

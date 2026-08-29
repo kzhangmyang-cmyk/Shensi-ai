@@ -231,7 +231,7 @@ test("every published acquisition operation has a unique stable camelCase id", (
     }
   }
 
-  assert.equal(ids.length, 78);
+  assert.equal(ids.length, 79);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(
     paths["/api/v1/acquisition/plans/{id}/approval"]?.post?.operationId,
@@ -277,16 +277,47 @@ test("outreach batch OpenAPI publishes secure revision and outbox operations", (
   assert.deepEqual(approval.requestBody.content["application/json"].schema.required,
     ["revision", "batchHash", "confirm"]);
   assert.deepEqual(approval.requestBody.content["application/json"].schema.properties.confirm.enum, [true]);
+  const directMessageApproval = paths[
+    "/api/v1/acquisition/outreach-batches/{batchId}/direct-messages/approve"
+  ]!.post as Record<string, any>;
+  assert.equal(directMessageApproval.operationId,
+    "approveAcquisitionOutreachBatchDirectMessages");
+  assert.deepEqual(directMessageApproval.security, [
+    { bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }
+  ]);
+  assert.deepEqual(directMessageApproval.requestBody.content["application/json"]
+    .schema.required, ["batchRevision", "batchHash", "commentApprovalHash",
+      "dailyLimit", "candidates", "confirm"]);
+  assert.deepEqual(directMessageApproval.requestBody.content["application/json"]
+    .schema.properties.dailyLimit, { type: "integer", minimum: 1, maximum: 100,
+      default: 20 });
+  assert.equal(directMessageApproval.requestBody.content["application/json"].schema
+    .properties.candidates.maxItems, 100);
+  assert.equal(directMessageApproval.requestBody.content["application/json"].schema
+    .properties.candidates.items.additionalProperties, false);
+  assert.deepEqual(directMessageApproval.responses["200"].headers
+    ["Idempotency-Replayed"].schema.enum, ["true"]);
   const actions = paths["/api/v1/acquisition/outreach-batches/{batchId}/actions"]!.get as Record<string, any>;
   const item = actions.responses["200"].content["application/json"].schema.properties.items.items;
   assert.deepEqual(item.properties.kind.enum, ["comment", "direct_message"]);
   assert.deepEqual(item.properties.status.enum, ["queued", "blocked_by_predecessor",
     "executing", "succeeded", "failed", "risk_paused"]);
   assert.equal(item.properties.platformReceiptReference.nullable, true);
+  for (const property of ["authorizationVersion", "approvedBy", "approvedAt",
+    "directMessageDailyLimit", "directMessageDailyOrdinal"]) {
+    assert.equal(item.required.includes(property), false);
+  }
+  assert.deepEqual(item.properties.authorizationVersion.enum, [2]);
+  const batchCandidate = paths["/api/v1/acquisition/outreach-batches/{batchId}"]!
+    .get.responses["200"].content["application/json"].schema.properties
+    .candidates.items;
+  assert.deepEqual(batchCandidate.required.slice(4, 6),
+    ["publicProfileUrl", "commentTargetPublicUrl"]);
   assert.deepEqual(item.properties.failureCode.enum, [
-    "action_unavailable", "action_rejected", "deadline_exceeded",
+    "action_unavailable", "action_rejected", "approval_authority_changed", "predecessor_failed", "account_risk_paused", "deadline_exceeded",
     "douyin_verification_required", "douyin_rate_limited", "douyin_account_warning",
-    "douyin_login_expired", "douyin_direct_message_unavailable",
+    "douyin_account_identity_changed", "douyin_login_expired",
+    "douyin_direct_message_unavailable",
     "douyin_action_control_missing",
     "douyin_action_control_ambiguous", "douyin_action_content_mismatch",
     "douyin_action_receipt_ambiguous", "douyin_action_timeout", null

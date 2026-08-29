@@ -122,6 +122,7 @@ async function createHttp() {
     displayName: "企业抖音号",
     state: "active",
     loginStateVersion: 7,
+    loginStateVersionHighWater: 7,
     revision: 1,
     etag: '"account-v1"',
     lastValidatedAt: NOW,

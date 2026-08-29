@@ -7,6 +7,7 @@ import type { AcquisitionCrawlerJobInput } from "./acquisition-crawler-job.js";
 import {
   assertAcquisitionCrawlerActivity,
   assertNormalizedDouyinRecord,
+  crawlerOutreachFinalizationState,
   crawlerStatus,
   normalizedDouyinContentHash
 } from "./acquisition-crawler-job.js";
@@ -694,4 +695,28 @@ test("crawler status keeps a stale alias generation projection pending", async (
     projectedAliasGeneration: 1
   }, "run-1");
   assert.equal(status.candidateProjectionState, "pending");
+});
+
+test("outreach finalization stays closed until the current alias generation is terminally projected", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input());
+  const job = (await repository.findByRun("workspace-1", "run-1"))!;
+
+  assert.equal(crawlerOutreachFinalizationState(job), "pending");
+  assert.equal(crawlerOutreachFinalizationState({
+    ...job, state: "succeeded", ingestionState: "succeeded",
+    aliasGeneration: 2, projectedAliasGeneration: 1
+  }), "pending");
+  assert.equal(crawlerOutreachFinalizationState({
+    ...job, state: "partial", ingestionState: "succeeded",
+    aliasGeneration: 2, projectedAliasGeneration: 2
+  }), "ready");
+  assert.equal(crawlerOutreachFinalizationState({
+    ...job, state: "failed", ingestionState: "succeeded",
+    aliasGeneration: 2, projectedAliasGeneration: 2
+  }), "unavailable");
+  assert.equal(crawlerOutreachFinalizationState({
+    ...job, state: "succeeded", ingestionState: "failed",
+    aliasGeneration: 2, projectedAliasGeneration: 2
+  }), "unavailable");
 });

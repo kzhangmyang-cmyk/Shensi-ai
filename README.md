@@ -48,7 +48,10 @@ The fixed loopback ports are MySQL `3310`, gateway `5608`, frontend `5610`,
 backend `5611`, and MediaCrawler `5612`. A Cloudflare Quick Tunnel publishes
 only the gateway. The ignored default root is `.runtime/real-trial/`, including
 the owner-only `trial.env`, secrets, logs, PID records, MySQL data, browser
-profile, and crawl-output directories. `trial:status` reports the current
+profile, crawl-output, and isolated frontend release directories. The trial
+preview serves only `.runtime/real-trial/release/frontend/`; an ordinary
+development or repository-wide build therefore cannot replace the frontend of
+an already running trial. `trial:status` reports the current
 temporary origin; it may change after a tunnel restart and must not be copied
 into tracked documentation. `trial:stop` validates the recorded command, PID,
 and runtime nonce before terminating trial process groups and retains the
@@ -59,15 +62,22 @@ recorded trial processes, rebuilds the frontend and backend from this worktree,
 restarts the same retained MySQL/profile runtime, and verifies the new gateway.
 The customer-facing local URL is `http://127.0.0.1:5608`; it and the temporary
 HTTPS origin use the same frontend build, API, and database. Port `5588` is a
-developer hot-reload server and is not the local customer-trial URL.
+developer hot-reload server and is not the local customer-trial URL. Local and
+public trial surfaces come from this same repository source, but editing the
+worktree does not update the running trial until the separate explicit
+`trial:publish` operation completes successfully.
 The normal command always regenerates an action-disabled runtime, even if the
 parent shell or retained `trial.env` contains an older true value. A separately
 authorized one-shot action launch uses
-`pnpm trial:publish -- --enable-outreach-after-empty-audit`; before any
+`pnpm trial:publish --enable-outreach-after-empty-audit`; before any
 action-enabled backend starts, the supervisor performs a read-only global
 aggregate over `queued`, `blocked_by_predecessor`, and `executing` outreach
 actions. A nonzero or unreadable result aborts startup and cleans up the newly
-started processes.
+started processes. Trial `start` and `publish` alone also accept the exact
+`--action-visual-locator=rapidocr` option. It selects the pinned
+`uv run --frozen --extra visual-locator` sidecar command without authorizing
+external writes; combine it with the one-shot action flag only when both
+choices have been separately approved.
 
 The trial build shows all nine primary modules—自动营销总览、获客中心、社媒对话、
 私域客户池、成交工作台、智能体中心、自动工作流、外贸营销、设置中心—and the six
@@ -164,14 +174,23 @@ wrapper, let every child exit, and restart `./scripts/dev`. A liveness health
 response does not prove that the two processes implement the same protocol.
 
 Douyin currently serves a verification interstitial to the bundled headless
-browser during QR-login startup. For local operator login, keep
+browser during QR-login startup. For operator login and every real outreach
+action, keep
 `MEDIACRAWLER_BROWSER_HEADLESS=false` and
 `MEDIACRAWLER_BROWSER_CHANNEL=chrome` in `.env.local`. This opens a dedicated
 standard-Playwright Douyin window for the private account session; Shensi
-explicitly disables CDP. Production may set
-`MEDIACRAWLER_BROWSER_HEADLESS=true`. The first QR can take up to 35 seconds on
+explicitly disables CDP. A collection-only production runtime may set
+`MEDIACRAWLER_BROWSER_HEADLESS=true` only while external outreach remains
+disabled. Enabling outreach with headless mode fails deployment preflight, and
+the parent and browser child reject any bypassed action/reconciliation command
+before opening a page. The first QR can take up to 35 seconds on
 a cold browser profile. The operator must scan it manually; the application
 never treats a test fixture or a poll count as proof of login.
+After a successful scan, the backend accepts only a canonical one-way account
+handle, a non-empty nickname, and a positive login-state version. If stored
+active metadata is non-authoritative, only a strictly newer valid scan can
+repair it; an equal or older scan and a valid different-account binding still
+fail closed.
 
 The following direct commands are retained for focused development work; they
 are not the canonical runtime path:
@@ -186,12 +205,16 @@ private sidecar and must not be attached to an older independently running
 sidecar as evidence for the controlled Douyin collection workflow.
 
 The authenticated acquisition API includes immutable Douyin outreach-batch
-review and approval. When external actions are explicitly enabled, approval
-only persists the exact ordered comment-then-direct-message outbox; the
-separately leased executor owns external actions and is never invoked by the
-approval route. A configured
-private MediaCrawler gateway starts collection, but it does not enable external
-actions. Both backend and sidecar enable outreach only when
+review and two separate approval commands. When external actions are explicitly
+enabled, the first confirmation records the exact approved batch and persists
+exactly one queued comment per selected candidate. Only after that same
+candidate's comment has a durable successful receipt can a second human
+confirmation queue one version-2 private-message action. Neither HTTP approval
+route performs the browser action; the separately leased executor owns both
+action types. The private-message daily default is 20 with range 1–100; it is
+separate from acquisition's daily candidate default 50 and range 1–200. A
+configured private MediaCrawler gateway starts collection, but it does not
+enable external actions. Both backend and sidecar enable outreach only when
 `DOUYIN_OUTREACH_ACTIONS_ENABLED` is case-insensitively exactly `true`; spaces,
 `1`, `yes`, an empty value, and omission remain disabled. While disabled, final
 approval returns `503 outreach_actions_disabled` before approval or action
@@ -201,28 +224,76 @@ crawler worker continues normally. When explicitly enabled after separate live
 acceptance, the worker rechecks the frozen approval/account/candidate/content/
 budget authority immediately before asking the sidecar to submit exact approved
 text.
-The direct-message adapter starts from the frozen canonical `/user/{id}` page
-and supports only a uniquely bound same-page message panel. A route transition
-without a stable recipient binding fails closed. Native Playwright keyboard
-input must round-trip the exact text; a receipt requires one new self/outgoing,
-stable-ID message with an allowlisted platform timestamp after the durable
-action start. An expired claim, timeout, unavailable result, or ambiguous
-post-click receipt is never requeued: the exact action and related account work
-remain `risk_paused`. After separately checking the platform, the operator may
-explicitly confirm a strictly read-only reconciliation of that same frozen
-action. Unique proof marks only that action succeeded; no proof keeps it frozen,
-and neither path automatically resumes the account or successor.
+The action adapter starts from the frozen canonical `/video/{id}` or `/user/{id}`
+page and submits only the exact approved text. The browser revalidates the
+frozen sender from the current page header without navigation after target load,
+after an initial-navigation manual verification handoff, before input, before
+the single submit click, and while proving the receipt. For a comment, it first
+locates one unique visible editor. If Douyin has lazy-mounted the editor, the
+adapter first revalidates risk, URL, sender, and deadline, then clicks exactly
+once on the unique exact `留下你的精彩评论吧` entry inside the unique comment-input
+container. That activation neither types nor publishes; a missing or ambiguous
+entry fails closed. It then pins the editor, enters the exact approved text, and
+reads that text back before waiting for and pinning one unique usable submit
+control. The submit control may legitimately be disabled or not yet mounted
+before editor input and is not an input-stage prerequisite. A private-message
+editor, submit control, and receipt
+must each belong to one visible conversation panel whose exact public recipient
+marker matches the frozen `/user/{id}` target; missing, ambiguous, changed, or
+noncanonical recipient markers fail closed. The concrete editor and submit nodes
+are independently pinned and tagged. A synchronous capture-phase click guard
+rechecks the exact approved editor text, URL, sender, and (for a DM) recipient;
+the DM editor must remain in the submit's exact-recipient panel, so text/editor
+replacement or an account/conversation switch is blocked before dispatch.
+Capture-guard rejection preserves the precise closed code: content drift is
+`douyin_action_content_mismatch`, URL/control drift is
+`douyin_action_control_missing`, sender drift is
+`douyin_account_identity_changed`, and DM recipient/panel drift is
+`douyin_direct_message_unavailable`. `douyin_action_receipt_ambiguous` is
+reserved for click failures that may already have reached the platform.
+After a comment has either a verified success receipt or an ambiguous
+post-submit receipt, the visible target page is brought to the front and kept
+open for ten seconds before the action context closes. This is an operator-only
+review window: it performs no additional click or write, and only the durable
+platform receipt can mark the action successful.
+DM receipt proof is one atomic snapshot of the same pinned visible outgoing
+message node, exact text, stable message ID, sender, and recipient. The account
+authority lease spans the complete browser command, while login versions are
+allocated from one process-locked global monotonic ledger. The ledger, account
+binding metadata, and login-session metadata are each committed with file and
+parent-directory `fsync`; a sync failure cannot activate an account. Before the
+external executor is called, the action manager durably commits its `started`
+journal with the same file-plus-directory barrier. A journal sync failure aborts
+before any platform click. An expired claim, timeout,
+unavailable result, or ambiguous post-click receipt is never requeued: the exact
+action and related account work remain `risk_paused`. After separately checking
+the platform, the operator may explicitly confirm a strictly read-only
+reconciliation of that same frozen action. Unique proof marks only that action
+succeeded; no proof keeps it frozen, and neither path automatically resumes the
+account. No failed action is automatically resubmitted. The worker serializes
+all actions for one account, keeps at least 60
+seconds between comment claims, and reserves ten minutes after a private-message
+claim. The batch freezes the policy time zone; approval ordinals use the
+approval local day, while claims count actual attempts on the real claim local
+day. Retries consume that day's 1–100 allowance, the allowance resets only on the
+next local day, and the same batch revision/candidate can never receive a second
+DM approval even across days. On the same account-local day, the same candidate
+also cannot receive another DM from a different batch; a later local day permits
+a new batch while the original batch/revision remains permanently closed to a
+second DM. Historical direct-message rows without version-2 authorization remain
+readable for audit compatibility but are never claimable or executable.
 
 The authenticated `#acquisition` dashboard uses that authority for the primary
 controlled Douyin collection workflow: QR account connection, editable local
 automation, run progress, creator/commenter evidence review, and revisioned
 exact-message drafting. Public-link import remains an authorized secondary
-fallback. Trial generation defaults final outreach approval, comments, and
-direct messages to disabled. A specifically authorized trial may enable both
-processes only through the one-shot CLI flag after a global empty audit of
+fallback. Trial generation defaults all external outreach execution to
+disabled. A specifically authorized trial may enable it only through the
+one-shot CLI flag after a global empty audit of
 `queued`, `blocked_by_predecessor`, and `executing`; ambient or retained
 environment values are not authorization. Collection alone never authorizes
-external sending.
+external sending, and comment approval and private-message approval remain
+distinct human decisions in an enabled runtime.
 The browser never
 receives MediaCrawler cookies, account handles, browser profiles or leases.
 Completed MediaCrawler JSONL records are published as immutable pages while a
@@ -310,8 +381,19 @@ public fields and stay within the endpoint's item and text bounds. Evidence URLs
 must contain an unmodified HTTP(S) authority and hostname with no credentials,
 backslashes, whitespace/control/format characters, or malformed percent escape.
 The frontend also rejects non-primitive enums and announces the pre-status
-queued placeholder only once per outstanding run. Comment and direct-message
-approval rules remain unchanged.
+queued placeholder only once per outstanding run. That observation cannot
+approve or execute an action: comment approval still requires current batch
+authority and human confirmation, and a private message additionally requires
+that candidate's successful comment receipt plus its own confirmation.
+
+DOM/ARIA lookup is the production browser default. The optional pinned local
+RapidOCR fallback is selected only with
+`DOUYIN_ACTION_VISUAL_LOCATOR=rapidocr`, runs after a missing entry/send
+control, and must rebind one exact OCR suggestion to a visible enabled DOM
+control. It never chooses the target or editor, verifies content or receipts,
+or logs/persists screenshots or recognized text. Visual MCP tooling is limited
+to development diagnostics, and action execution does not depend on an AI
+model provider.
 
 The real-mode header action `新建抖音采集计划` scrolls to and focuses the
 MediaCrawler plan form; it does not open the provider-connection wizard or

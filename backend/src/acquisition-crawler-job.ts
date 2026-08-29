@@ -197,6 +197,26 @@ export interface AcquisitionCrawlerStatus {
   activity: AcquisitionCrawlerActivity;
 }
 
+export type AcquisitionCrawlerOutreachFinalizationState =
+  | "pending" | "ready" | "unavailable";
+
+export function crawlerOutreachFinalizationState(
+  job: Pick<AcquisitionCrawlerJob,
+    "state" | "ingestionState" | "aliasGeneration"
+    | "projectedAliasGeneration">
+): AcquisitionCrawlerOutreachFinalizationState {
+  if (["succeeded", "partial"].includes(job.state)
+    && job.ingestionState === "succeeded"
+    && job.projectedAliasGeneration === job.aliasGeneration) {
+    return "ready";
+  }
+  if (["paused", "cancelled", "failed"].includes(job.state)
+    || job.ingestionState === "failed") {
+    return "unavailable";
+  }
+  return "pending";
+}
+
 function validInstant(value: string) {
   return Number.isFinite(Date.parse(value));
 }

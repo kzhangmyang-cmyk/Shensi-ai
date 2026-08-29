@@ -181,11 +181,30 @@ function initialiseRuntime(): void {
     api: createOutreachBatchApi()
   });
   const unmountOutreach = outreachHost
-    ? mountOutreachBatchView(outreachHost, outreachController)
+    ? mountOutreachBatchView(outreachHost, outreachController, {
+      context() {
+        const automation = automationController.getState();
+        return {
+          account: automation.account ? {
+            id: automation.account.id,
+            displayName: automation.account.displayName,
+            state: automation.account.state,
+            loginStateVersion: automation.account.loginStateVersion
+          } : null,
+          candidates: automation.candidates.map((candidate) => ({
+            candidateId: candidate.id,
+            displayName: candidate.displayName
+          }))
+        };
+      },
+      subscribeContext(listener) {
+        return automationController.subscribe(() => listener());
+      }
+    })
     : () => undefined;
   const unmountAutomation = automationHost
     ? mountDouyinAutomationView(automationHost, automationController, (runId, candidateIds) => {
-      void outreachController.create(runId, candidateIds).then(() => {
+      return outreachController.create(runId, candidateIds).then(() => {
         const batchId = outreachController.getState().batch?.id;
         if (batchId) outreachBatchSelection.remember(batchId);
         outreachHost?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -940,6 +959,8 @@ function initialiseRuntime(): void {
     enforceRealVisibility();
     if (document.body.classList.contains("is-authenticated")) {
       void refreshOverview();
+      const batchId = outreachBatchSelection.read();
+      if (batchId) void outreachController.load(batchId);
     } else {
       showErrorState(new Error("未登录"));
     }
@@ -1101,11 +1122,6 @@ function initialiseRuntime(): void {
     attributes: true,
     attributeFilter: ["class"]
   });
-  if (wasAuthenticated) {
-    const batchId = outreachBatchSelection.read();
-    if (batchId) void outreachController.load(batchId);
-  }
-
   window.addEventListener("pagehide", () => {
     stopOverviewPolling();
     automationController.close();

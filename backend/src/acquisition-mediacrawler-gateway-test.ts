@@ -151,7 +151,7 @@ test("action reconciliation calls only the read-only sidecar route", async () =>
   });
 });
 
-test("default action HTTP timeout is the 150-second deadline plus ten seconds", async () => {
+test("default action HTTP timeout preserves the ten-second result review window", async () => {
   const originalSetTimeout = globalThis.setTimeout;
   const previousManualWindow = process.env.DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS;
   const observedTimeouts: number[] = [];
@@ -181,7 +181,7 @@ test("default action HTTP timeout is the 150-second deadline plus ten seconds", 
       approvedContentHash: `sha256:${"a".repeat(64)}`,
       deadlineAt: "2026-08-25T04:02:30.000Z"
     }), { code: "mediacrawler_unavailable" });
-    assert.deepEqual(observedTimeouts, [160_000]);
+    assert.deepEqual(observedTimeouts, [175_000]);
   } finally {
     globalThis.setTimeout = originalSetTimeout;
     if (previousManualWindow === undefined) {
@@ -431,7 +431,9 @@ test("gateway accepts every closed Douyin control failure code", async () => {
     "douyin_direct_message_unavailable",
     "douyin_action_control_ambiguous",
     "douyin_action_content_mismatch",
-    "douyin_action_receipt_ambiguous"
+    "douyin_action_receipt_ambiguous",
+    "douyin_account_identity_changed",
+    "douyin_profile_busy"
   ]) {
     await withServer((_request, response) => {
       response.setHeader("content-type", "application/json");

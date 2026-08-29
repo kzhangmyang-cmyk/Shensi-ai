@@ -26,6 +26,7 @@ test("prepareTrialRuntime creates private deterministic runtime state without ex
   assert.match(environment, /@127\.0\.0\.1:3310\/shensi_trial$/m);
   assert.match(environment, /^VITE_REAL_TRIAL=true$/m);
   assert.match(environment, /^DOUYIN_OUTREACH_ACTIONS_ENABLED=false$/m);
+  assert.match(environment, /^DOUYIN_ACTION_VISUAL_LOCATOR=disabled$/m);
   assert.match(environment, /^DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS=120$/m);
   assert.match(environment, /^MEDIACRAWLER_BASE_URL=http:\/\/127\.0\.0\.1:5612$/m);
   for (const name of ["SHENSI_MYSQL_APP_PASSWORD", "TRADE_OBSERVATION_CURSOR_SECRET", "MARKET_OPPORTUNITY_CURSOR_SECRET", "PROSPECT_RUN_IDEMPOTENCY_SECRET", "PROSPECT_RUN_CURSOR_SECRET", "PROSPECT_EXECUTION_CLAIM_SECRET", "ORGANIZATION_IDENTITY_MASTER_SECRET", "PROSPECT_SOURCE_RAW_ENVELOPE_SECRET", "PROSPECT_COVERAGE_MASTER_SECRET"]) {
@@ -73,19 +74,39 @@ test("prepareTrialRuntime enables outreach only for exact explicit authorization
   assert.equal(disabled.environment.DOUYIN_OUTREACH_ACTIONS_ENABLED, "false");
 });
 
+test("prepareTrialRuntime defaults OCR off and accepts only an exact explicit locator", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-config-locator-"));
+  const enabled = await prepareTrialRuntime(root, {
+    appPassword: fixturePassword,
+    isPortAvailable: async () => true,
+    actionVisualLocator: "rapidocr"
+  });
+  assert.equal(enabled.environment.DOUYIN_ACTION_VISUAL_LOCATOR, "rapidocr");
+
+  await assert.rejects(prepareTrialRuntime(root, {
+    isPortAvailable: async () => true,
+    actionVisualLocator: " rapidocr "
+  }), /DOUYIN_ACTION_VISUAL_LOCATOR_INVALID/u);
+});
+
 test("prepareTrialRuntime never treats a retained process environment flag as fresh authorization", async () => {
   const root = await mkdtemp(join(tmpdir(), "shensi-trial-config-no-inherit-"));
   const previous = process.env.DOUYIN_OUTREACH_ACTIONS_ENABLED;
+  const previousLocator = process.env.DOUYIN_ACTION_VISUAL_LOCATOR;
   process.env.DOUYIN_OUTREACH_ACTIONS_ENABLED = "true";
+  process.env.DOUYIN_ACTION_VISUAL_LOCATOR = "rapidocr";
   try {
     const runtime = await prepareTrialRuntime(root, {
       appPassword: fixturePassword,
       isPortAvailable: async () => true
     });
     assert.equal(runtime.environment.DOUYIN_OUTREACH_ACTIONS_ENABLED, "false");
+    assert.equal(runtime.environment.DOUYIN_ACTION_VISUAL_LOCATOR, "disabled");
   } finally {
     if (previous === undefined) delete process.env.DOUYIN_OUTREACH_ACTIONS_ENABLED;
     else process.env.DOUYIN_OUTREACH_ACTIONS_ENABLED = previous;
+    if (previousLocator === undefined) delete process.env.DOUYIN_ACTION_VISUAL_LOCATOR;
+    else process.env.DOUYIN_ACTION_VISUAL_LOCATOR = previousLocator;
   }
 });
 

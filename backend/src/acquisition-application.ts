@@ -304,7 +304,10 @@ import {
 import type { DouyinMediaCrawlerGateway } from "./acquisition-mediacrawler-gateway.js";
 import { InMemoryAcquisitionSocialAccountRepository, type AcquisitionSocialAccountRepository } from "./acquisition-social-account-repository.js";
 import { MysqlAcquisitionSocialAccountRepository, ensureAcquisitionSocialAccountsMysqlSchema } from "./acquisition-social-account-mysql-repository.js";
-import { AcquisitionSocialAccountService } from "./acquisition-social-account-service.js";
+import {
+  AcquisitionSocialAccountService,
+  isBoundDouyinAccountHandle
+} from "./acquisition-social-account-service.js";
 import { createAcquisitionSocialAccountRouter } from "./acquisition-social-account-router.js";
 import {
   createAcquisitionDouyinAutomationAuthorityValidator,
@@ -322,6 +325,9 @@ import {
   InMemoryAcquisitionCrawlerJobRepository,
   type AcquisitionCrawlerJobRepository
 } from "./acquisition-crawler-job-repository.js";
+import {
+  crawlerOutreachFinalizationState
+} from "./acquisition-crawler-job.js";
 import {
   ensureAcquisitionCrawlerJobMysqlSchema,
   MysqlAcquisitionCrawlerJobRepository
@@ -353,6 +359,7 @@ import { AcquisitionCrawlerRecoverySweeper } from "./acquisition-crawler-recover
 import { AcquisitionDouyinScheduler } from "./acquisition-douyin-scheduler.js";
 import {
   InMemoryAcquisitionOutreachBatchRepository,
+  validDirectMessageClaimAuthority,
   type AcquisitionOutreachBatchRepository
 } from "./acquisition-outreach-batch-repository.js";
 import {
@@ -2301,7 +2308,10 @@ export async function createAcquisitionApplication(
               crawlerIngestion instanceof MysqlAcquisitionDouyinCrawlerIngestionRepository
                 ? crawlerIngestion : undefined)
           : new InMemoryAcquisitionOutreachBatchRepository({
-              memoryTransactions: planMemoryTransactions ?? undefined
+              memoryTransactions: planMemoryTransactions ?? undefined,
+              memoryDomainTransactions: repositories.domain
+                instanceof InMemoryAcquisitionDomainRepository
+                ? repositories.domain : undefined
             }));
     const outreachActionsEnabled = effectiveDouyinOutreachActionsEnabled({
       enabled: options.douyinOutreachActionsEnabled === true,
@@ -2309,6 +2319,8 @@ export async function createAcquisitionApplication(
     });
     const outreachBatches = new AcquisitionOutreachBatchService({
       repository: outreachBatchRepository,
+      approveDirectMessages: (input) =>
+        outreachBatchRepository.approveDirectMessages(input),
       douyinOutreachActionsEnabled: outreachActionsEnabled,
       idFactory,
       now,
@@ -2321,13 +2333,21 @@ export async function createAcquisitionApplication(
           || job.workspaceId !== scope.workspaceId || job.runId !== run.id
           || job.planId !== run.planId || job.planVersionId !== run.planVersionId
           || job.planSnapshotHash !== run.planSnapshotHash) return null;
+        const policyVersions = await douyinAutomationRepository.listVersions(
+          scope.workspaceId,
+          job.planId
+        );
+        const policy = policyVersions.find((value) => value.id === job.policyVersionId);
+        if (!policy || policy.policyHash !== job.policyHash) return null;
         return { workspaceId: job.workspaceId, runId: run.id, planId: run.planId,
           planVersionId: run.planVersionId, planVersion: run.planVersion,
           planSnapshotHash: run.planSnapshotHash, policyVersionId: job.policyVersionId,
           policyHash: job.policyHash, accountId: job.accountId,
           accountLoginStateVersion: job.accountLoginStateVersion,
           dailyBudgetId: job.dailyBudgetId, localDate: job.localDate,
-          dailyCandidateLimit: job.dailyCandidateLimit };
+          timeZone: policy.schedule.timeZone,
+          dailyCandidateLimit: job.dailyCandidateLimit,
+          finalizationState: crawlerOutreachFinalizationState(job) };
       },
       async listRunCandidateIds(scope, runId) {
         const run = await repositories.planRun.getRun(runId);
@@ -2369,7 +2389,8 @@ export async function createAcquisitionApplication(
         const account = await socialAccountRepository.findById(scope.workspaceId, accountId);
         return account ? { accountId: account.id, state: account.state,
           loginStateVersion: account.loginStateVersion,
-          accountHandle: account.accountHandle } : null;
+          accountHandle: account.accountHandle,
+          displayName: account.displayName } : null;
       },
       reconciliationDeadlineMs: douyinActionDeadlineMs(),
       reconcileAction: options.douyinMediaCrawlerGateway
@@ -2693,20 +2714,30 @@ export async function createAcquisitionApplication(
           actionDeadlineMs: douyinActionDeadlineMs(),
           execute: (input) => options.douyinMediaCrawlerGateway!.executeAction(input),
           async accountAuthority(action) {
-            const [batch, account] = await Promise.all([
+            const [batch, account, actions] = await Promise.all([
               outreachBatchRepository.find(action.workspaceId, action.batchId),
-              socialAccountRepository.findById(action.workspaceId, action.accountId)
+              socialAccountRepository.findById(action.workspaceId, action.accountId),
+              outreachBatchRepository.listActions(action.workspaceId, action.batchId)
             ]);
-            if (!batch || batch.state !== "approved" || batch.revision !== action.batchRevision
-              || batch.approvalHash !== action.approvalHash || !account
-              || account.state !== "active" || !account.accountHandle
+            const predecessor = actions?.find((value) =>
+              value.id === action.predecessorActionId);
+            if (!batch || (action.kind === "comment"
+              ? batch.state !== "approved" || batch.revision !== action.batchRevision
+                || batch.approvalHash !== action.approvalHash
+              : !validDirectMessageClaimAuthority(action, batch, predecessor))) {
+              return { failureCode: "approval_authority_changed" };
+            }
+            if (!account || account.state !== "active"
+              || !isBoundDouyinAccountHandle(account.accountHandle)
+              || !account.displayName?.trim()
               || account.loginStateVersion !== action.accountLoginStateVersion) return null;
             const frozen = batch.candidates.find((value) => value.candidateId === action.candidateId);
             if (!frozen || (action.kind === "comment"
               ? frozen.commentHash !== action.contentHash
                 || frozen.commentTargetPublicUrl !== action.targetPublicUrl
-              : frozen.directMessageHash !== action.contentHash
-                || frozen.publicProfileUrl !== action.targetPublicUrl)) return null;
+              : frozen.publicProfileUrl !== action.targetPublicUrl)) {
+              return { failureCode: "approval_authority_changed" };
+            }
             const [authoritativeRun, crawlerJob, policyVersions] = await Promise.all([
               repositories.planRun.getRun(batch.runId),
               crawlerJobs.findByRun(action.workspaceId, batch.runId),
@@ -2714,24 +2745,32 @@ export async function createAcquisitionApplication(
             ]);
             const policy = policyVersions.find((value) => value.id === batch.policyVersionId);
             if (!authoritativeRun || !crawlerJob || !policy
+              || crawlerOutreachFinalizationState(crawlerJob) !== "ready"
               || policy.policyHash !== batch.policyHash
+              || policy.schedule.timeZone !== batch.timeZone
               || crawlerJob.policyVersionId !== batch.policyVersionId
               || crawlerJob.policyHash !== batch.policyHash
               || crawlerJob.accountId !== batch.accountId
               || crawlerJob.accountLoginStateVersion !== batch.accountLoginStateVersion
               || crawlerJob.dailyBudgetId !== batch.dailyBudgetId
               || crawlerJob.localDate !== batch.localDate
-              || crawlerJob.dailyCandidateLimit !== batch.dailyCandidateLimit) return null;
+              || crawlerJob.dailyCandidateLimit !== batch.dailyCandidateLimit) {
+              return { failureCode: "approval_authority_changed" };
+            }
             const scope = { workspaceId: action.workspaceId, ownerId: authoritativeRun.ownerId,
               teamId: authoritativeRun.teamId, actorId: actionWorkerId };
             const candidate = await repositories.domain.findCandidate(scope, action.candidateId);
             if (!candidate || candidate.version !== frozen.candidateRevision
               || candidate.profile.kind !== "individual"
               || candidate.profile.publicActorKey !== frozen.publicActorKey
-              || candidate.profile.publicProfileUrl !== frozen.publicProfileUrl) return null;
+              || candidate.profile.publicProfileUrl !== frozen.publicProfileUrl) {
+              return { failureCode: "approval_authority_changed" };
+            }
             const evidence = await Promise.all(orderedCandidateEvidenceIds(candidate).map((id) =>
               repositories.domain.findEvidence(scope, id)));
-            if (evidence.some((value) => !value)) return null;
+            if (evidence.some((value) => !value)) {
+              return { failureCode: "approval_authority_changed" };
+            }
             const trustedEvidence = evidence.filter(
               (value): value is NonNullable<typeof value> => Boolean(value)
             );
@@ -2745,16 +2784,22 @@ export async function createAcquisitionApplication(
             if (canonicalJsonStringify(hashes) !== canonicalJsonStringify([...frozen.evidenceHashes].sort())
               || exactVideoUrl !== frozen.commentTargetPublicUrl
               || candidate.status === "do_not_contact"
-              || await finalAuthority.hasDoNotContact(scope, frozen.publicActorKey)) return null;
+              || await finalAuthority.hasDoNotContact(scope, frozen.publicActorKey)) {
+              return { failureCode: "approval_authority_changed" };
+            }
             return { accountHandle: account.accountHandle };
           },
           async pauseAccount(workspaceId, accountId, loginStateVersion, occurredAt) {
             const account = await socialAccountRepository.findById(workspaceId, accountId);
             if (!account || account.state !== "active"
+              || !account.accountHandle
               || account.loginStateVersion !== loginStateVersion) return;
-            const revision = account.revision + 1;
-            await socialAccountRepository.upsert({ ...account, state: "risk_paused",
-              revision, etag: `"account-v${revision}"`, updatedAt: occurredAt });
+            await socialAccountRepository.pauseActiveAccount(workspaceId, accountId, {
+              accountHandle: account.accountHandle,
+              loginStateVersion,
+              revision: account.revision,
+              etag: account.etag
+            }, occurredAt);
           }
         });
         outreachActionWorker.start();

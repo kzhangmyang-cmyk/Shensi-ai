@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import mysql from "mysql2/promise";
 import { ensureAcquisitionSocialAccountsMysqlSchema } from "./acquisition-social-account-mysql-repository.js";
-import { outreachContentHash, type AcquisitionOutreachAction,
+import { outreachContentHash, outreachDirectMessageApprovalHash,
+  type AcquisitionOutreachAction,
   type AcquisitionOutreachBatch } from "./acquisition-outreach-batch.js";
 import {
   acquisitionOutreachActionAccountsDdl,
@@ -54,7 +55,8 @@ test("live action MySQL integration remains explicitly environment gated", {
     runId: "run-live", planId: "plan-live", planVersionId: "plan-version-live",
     planVersion: 1, planSnapshotHash: digest("a"), policyVersionId: "policy-live",
     policyHash: digest("b"), accountId: "account-live", accountLoginStateVersion: 3,
-    dailyBudgetId: "budget-live", localDate: "2026-08-25", dailyCandidateLimit: 50,
+    dailyBudgetId: "budget-live", localDate: "2026-08-25", timeZone: "UTC",
+    dailyCandidateLimit: 50,
     dailyRemainingLimit: 50, revision: 1, etag: '"batch-live:1"',
     state: "awaiting_approval", candidates: [candidate], batchHash: digest("d"),
     approvedBy: null, approvedAt: null, approvalHash: null, rejectedBy: null,
@@ -66,13 +68,7 @@ test("live action MySQL integration remains explicitly environment gated", {
     accountId: batch.accountId, accountLoginStateVersion: 3, policyVersionId: batch.policyVersionId,
     localDate: batch.localDate, kind: "comment", sequence: 1, status: "queued",
     predecessorActionId: null, targetPublicUrl: candidate.commentTargetPublicUrl,
-    content: candidate.comment, contentHash: candidate.commentHash, approvalHash, createdAt },
-  { id: "message-live", workspaceId: batch.workspaceId, batchId: batch.id, batchRevision: 1,
-    candidateId: candidate.candidateId, accountId: batch.accountId, accountLoginStateVersion: 3,
-    policyVersionId: batch.policyVersionId, localDate: batch.localDate, kind: "direct_message",
-    sequence: 2, status: "blocked_by_predecessor", predecessorActionId: "comment-live",
-    targetPublicUrl: candidate.publicProfileUrl, content: candidate.directMessage,
-    contentHash: candidate.directMessageHash, approvalHash, createdAt }];
+    content: candidate.comment, contentHash: candidate.commentHash, approvalHash, createdAt }];
   try {
     await ensureAcquisitionSocialAccountsMysqlSchema(pool);
     await ensureAcquisitionOutreachBatchMysqlSchema(pool);
@@ -94,22 +90,62 @@ test("live action MySQL integration remains explicitly environment gated", {
     assert.equal(claim?.action.id, "comment-live");
     assert.equal(await repository.completeActionSuccess(claim!.fence, {
       platformReceiptReference: "receipt-live", occurredAt: createdAt }), true);
+    const messageContent = "exact approved live message";
+    const messageContentHash = outreachContentHash(messageContent);
+    const messageApprovalHash = outreachDirectMessageApprovalHash({
+      authorizationVersion: 2, batchId: batch.id, batchRevision: 1,
+      batchHash: batch.batchHash, commentApprovalHash: approvalHash,
+      candidateId: candidate.candidateId, accountId: batch.accountId,
+      accountLoginStateVersion: 3, targetPublicUrl: candidate.publicProfileUrl,
+      directMessage: messageContent, directMessageHash: messageContentHash,
+      predecessorActionId: "comment-live",
+      predecessorReceiptReference: "receipt-live", dailyLimit: 20,
+      dailyOrdinal: 1, approvedBy: "operator", approvedAt: createdAt
+    });
+    await repository.approveDirectMessages({ workspaceId: batch.workspaceId,
+      batchId: batch.id, ifMatch: batch.etag, idempotencyKey: "approve-message-live",
+      requestHash: digest("3"), candidates: [{ candidateId: candidate.candidateId,
+        directMessage: messageContent }], dailyLimit: 20,
+      approvedBy: "operator", approvedAt: createdAt,
+      async build(current, predecessors, ordinals) {
+        assert.equal(predecessors[0]?.platformReceiptReference, "receipt-live");
+        assert.deepEqual(ordinals, [1]);
+        return { batch: current, actions: [{
+          id: "message-live", workspaceId: batch.workspaceId, batchId: batch.id,
+          batchRevision: 1, candidateId: candidate.candidateId,
+          accountId: batch.accountId, accountLoginStateVersion: 3,
+          policyVersionId: batch.policyVersionId, localDate: batch.localDate,
+          kind: "direct_message", sequence: 2, status: "queued",
+          predecessorActionId: "comment-live", targetPublicUrl: candidate.publicProfileUrl,
+          content: messageContent, contentHash: messageContentHash,
+          approvalHash: messageApprovalHash, authorizationVersion: 2,
+          approvedBy: "operator", approvedAt: createdAt,
+          directMessageDailyLimit: 20, directMessageDailyOrdinal: 1, createdAt
+        }] };
+      } });
     const restarted = new MysqlAcquisitionOutreachBatchRepository(pool);
     assert.equal(await restarted.claimNextAction({ workerId: "worker-b",
-      now: "2026-08-25T00:02:59.999Z", leaseDurationMs: 1_000 }), null);
-    const message = await restarted.claimNextAction({ workerId: "worker-b",
-      now: "2026-08-25T00:03:00.000Z", leaseDurationMs: 1_000 });
-    assert.equal(message?.action.id, "message-live");
+      now: "2026-08-25T00:00:59.999Z", leaseDurationMs: 1_000 }), null);
+    const messageClaim = await restarted.claimNextAction({ workerId: "worker-b",
+      now: "2026-08-25T00:01:00.000Z", leaseDurationMs: 1_000 });
+    assert.equal(messageClaim?.action.id, "message-live");
     assert.equal((await restarted.listActions(batch.workspaceId, batch.id))![0]!
       .platformReceiptReference, "receipt-live");
-    assert.deepEqual(await restarted.completeActionFailure(message!.fence,
-      "douyin_verification_required", "2026-08-25T00:03:01.000Z"),
-    { completed: true, accountPaused: true });
+    assert.equal((await restarted.listActions(batch.workspaceId, batch.id))![1]!.status,
+      "executing");
     const [accountRows] = await pool.query<mysql.RowDataPacket[]>(
       `SELECT state FROM acquisition_social_accounts WHERE id = ?`, [batch.accountId]);
-    assert.equal(accountRows[0]?.state, "risk_paused");
+    assert.equal(accountRows[0]?.state, "active");
+    const [scheduleRows] = await pool.query<mysql.RowDataPacket[]>(
+      `SELECT next_eligible_at FROM acquisition_outreach_action_accounts
+       WHERE workspace_id=? AND account_id=?`, [batch.workspaceId, batch.accountId]);
+    assert.equal(new Date(scheduleRows[0]?.next_eligible_at).toISOString(),
+      "2026-08-25T00:11:00.000Z");
+    assert.equal(await restarted.completeActionSuccess(messageClaim!.fence, {
+      platformReceiptReference: "receipt-message-live",
+      occurredAt: "2026-08-25T00:02:00.000Z" }), true);
     assert.equal(await restarted.claimNextAction({ workerId: "worker-c",
-      now: "2026-08-25T00:10:00.000Z", leaseDurationMs: 1_000 }), null);
+      now: "2026-08-25T00:11:00.000Z", leaseDurationMs: 1_000 }), null);
   } finally {
     await pool.end(); await admin.query(`DROP DATABASE \`${database}\``); await admin.end();
   }

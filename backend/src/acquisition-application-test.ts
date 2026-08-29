@@ -4037,6 +4037,7 @@ test("disabled Douyin outreach leaves approved actions unclaimed while crawler g
     policyVersionId: "disabled-policy-version", policyHash: digest("policy"),
     accountId: "disabled-account", accountLoginStateVersion: 1,
     dailyBudgetId: "disabled-budget", localDate: "2026-08-26",
+    timeZone: "UTC",
     dailyCandidateLimit: 1, dailyRemainingLimit: 1, revision: 1,
     etag: '"disabled-batch:1"', state: "awaiting_approval", candidates: [],
     batchHash: digest("batch"), approvedBy: null, approvedAt: null,

@@ -1,8 +1,11 @@
 # 社媒对话 MediaCrawler 受控外联实施计划
 
+> **已归档 / 已被取代：** 本计划仅保留历史任务记录。当前执行计划是
+> [`2026-08-28-douyin-private-message-agent.md`](2026-08-28-douyin-private-message-agent.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让真实社媒对话页面能够从公开候选证据创建、恢复和审批单候选外联批次，并由 MediaCrawler 在用户二次确认后真实执行一次可验证的抖音评论，再按既有顺序执行私信。
+**Goal:** 让真实社媒对话页面能够从公开候选证据创建、恢复和审批单候选外联批次，并由 MediaCrawler 在用户二次确认后只执行一次可验证的抖音公开评论。私信只保留历史合同可读性，当前不领取、不排队、不执行。
 
 **Architecture:** Node 后端继续作为批次、审批、额度、幂等和动作 outbox 的唯一权威；新增候选范围的批次发现 GET，使页面刷新后能恢复当前批次和回执。前端组合现有 `OutreachBatchController` 和审批视图，不提供绕过审批的直接发送。MediaCrawler 扩展把测试专用选择器替换为有序、唯一、可见的真实页面控件定位，并在可见浏览器中等待用户手动完成平台验证，绝不自动破解滑块或 CAPTCHA。
 
@@ -13,9 +16,11 @@
 ## Global Constraints
 
 - 只支持抖音；其他平台不在本计划范围内。
-- 真实评论和私信只能由当前批次的精确冻结文案产生，最终审批必须携带当前 revision、batchHash、ETag、CSRF 和 `confirm: true`。
-- 评论目标必须是无 query/hash 的 `https://www.douyin.com/video/{id}`；私信目标必须是无 query/hash 的 `https://www.douyin.com/user/{id}`。
-- 评论先执行；只有评论成功且最短 180 秒间隔满足后，私信才可领取。
+- 真实评论只能由当前批次的精确冻结文案产生，最终审批必须携带当前 revision、batchHash、ETag、CSRF 和 `confirm: true`。
+- 评论目标必须是无 query/hash 的 `https://www.douyin.com/video/{id}`；候选人公开主页必须是无 query/hash 的 `https://www.douyin.com/user/{id}`，仅用于复核与证据绑定。
+- 新审批每位候选人只创建一个 `comment`动作。历史 `direct_message` 行只读且在仓储、worker 和 sidecar 三层禁止执行。
+- 批次必须来自终态采集、成功入库和当前 alias generation 投影；最终审批与执行前都重新核对。
+- 发送账号必须是当前真实绑定账号，页面显示账号名称；账号 ID、登录版本、冻结目标或平台回执作者任一不一致都失败封闭。
 - 自动测试和发布验收不得向真实抖音账号提交评论或私信。
 - 滑块、CAPTCHA、登录验证和风控只能由用户在可见浏览器中手动完成；代码不得自动识别、破解、注入令牌或调用打码服务。
 - 页面保持现有黑色、灰色和绿色设计变量，不新增另一套主题。
@@ -61,7 +66,7 @@ listByRunCandidate(input: {
 
 - [ ] **Step 1: 写内存仓储和服务 RED 测试**
 
-在 `acquisition-outreach-batch-test.ts` 新增两个 `node:test` 用例。第一个在两个 workspace、两个 run、两个 candidate 中创建多批次及一个新修订，然后断言只返回当前 workspace/run/candidate 的 head，按 `createdAt DESC, id DESC` 排列且 keyset 第二页无重复。第二个断言服务重新计算 `dailyRemainingLimit`，并通过 `publicOutreachBatch` 删除 `evidenceText`、`publicActorKey`、`publicProfileUrl`、`commentTargetPublicUrl`。
+在 `acquisition-outreach-batch-test.ts` 新增两个 `node:test` 用例。第一个在两个 workspace、两个 run、两个 candidate 中创建多批次及一个新修订，然后断言只返回当前 workspace/run/candidate 的 head，按 `createdAt DESC, id DESC` 排列且 keyset 第二页无重复。第二个断言服务重新计算 `dailyRemainingLimit`，并通过 `publicOutreachBatch` 保留参与批次哈希的 `publicProfileUrl` 和 `commentTargetPublicUrl`，同时删除 `evidenceText` 和 `publicActorKey`。
 
 ```ts
 const firstPage = await repository.listByRunCandidate({
@@ -617,7 +622,7 @@ git commit -m "feat(mediacrawler): allow manual verification handoff"
 
 - [ ] **Step 1: 写 E2E RED**
 
-fixture overview 在 run 启动后返回真实 `latestRun`；batch create 记录精确单候选 IDs；GET collection 返回最近 batch；approve fixture 产生 comment→DM receipts。Playwright 用例执行：登录→采集→导航社媒对话→选择 exact video→创建→编辑→保存→勾选→审批 fixture→看到评论/私信回执→reload→恢复同一批次。另测 profile-only CTA disabled。
+fixture overview 在 run 启动后返回真实 `latestRun`；batch create 记录精确单候选 IDs；GET collection 返回最近 batch；approve fixture 只产生 comment receipt。Playwright 用例执行：登录→采集→终态投影完成→导航社媒对话→选择 exact video→创建→编辑→保存→勾选→审批 fixture→看到评论回执→reload→恢复同一批次。另测 profile-only CTA disabled、无名或版本不匹配账号无法最终确认，以及历史私信只读已停用。
 
 该 fixture 的 approve 只操作内存 HTTP fixture，不调用 sidecar 或抖音。
 
@@ -686,7 +691,7 @@ pnpm trial:verify
 
 - [ ] **Step 3: 向用户展示真实验收内容**
 
-页面明确展示：目标视频 URL、候选公开证据、精确评论文案、精确私信文案、当日剩余额度和动作顺序。用户可修改并保存新修订。
+页面明确展示：真实发送账号名称、账号 ID 与登录版本、目标视频 URL、候选公开证据、精确评论文案、只读私信兼容草稿、当日剩余额度和只评论动作。用户可修改并保存新评论修订。
 
 - [ ] **Step 4: 用户亲自完成最终二次确认**
 
@@ -694,7 +699,7 @@ pnpm trial:verify
 
 - [ ] **Step 5: 验证真实评论且阻止重复提交**
 
-同时核对：抖音视频页出现精确评论；Shensi action 状态为 `succeeded`；`platformReceiptReference` 非空；attemptCount 符合一次受控执行；同 action ID 重放只读取已保存回执，不再次点击。私信仍遵守评论成功后至少 180 秒的前置条件。
+同时核对：抖音视频页出现精确评论；Shensi action 状态为 `succeeded`；`platformReceiptReference` 是可验证的 `douyin-comment:<cid>`；attemptCount 符合一次受控执行；官方发布响应的 aweme、精确文本和作者必须与冻结授权一致；同 action ID 重放只读取已保存回执，不再次点击。历史私信行仍只读已停用。
 
 - [ ] **Step 6: 最终状态与文档核对**
 
@@ -705,4 +710,4 @@ git diff --check
 pnpm trial:status
 ```
 
-报告真实评论的安全回执引用和时间，不回显完整 Cookie、账号句柄、私信正文或内部 service secret。
+报告真实评论的安全回执引用和时间，不回显完整 Cookie、原始 sec_uid、账号句柄、私信正文或内部 service secret。

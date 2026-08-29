@@ -7,6 +7,7 @@ import { loadContractHarness } from "./helpers.mjs";
 
 const section16 = {
   "/api/v1/ai/providers": ["get"],
+  "/api/v1/ai/endpoint-profiles": ["get"],
   "/api/v1/ai/connections": ["get", "post"],
   "/api/v1/ai/connections/{id}": ["get", "patch", "delete"],
   "/api/v1/ai/connections/{id}/models": ["get"],
@@ -47,6 +48,7 @@ const section16 = {
   "/api/v1/acquisition/outreach-batches": ["get"],
   "/api/v1/acquisition/outreach-batches/{batchId}": ["get", "put"],
   "/api/v1/acquisition/outreach-batches/{batchId}/approve": ["post"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/direct-messages/approve": ["post"],
   "/api/v1/acquisition/outreach-batches/{batchId}/reject": ["post"],
   "/api/v1/acquisition/outreach-batches/{batchId}/pause": ["post"],
   "/api/v1/acquisition/outreach-batches/{batchId}/resume": ["post"],
@@ -110,6 +112,50 @@ test("candidate-scoped outreach batch discovery is bounded and bodyless", async 
     "#/components/schemas/AcquisitionOutreachBatch");
   assert.deepEqual(page.properties.nextCursor,
     { type: ["string", "null"], maxLength: 8192 });
+});
+
+test("model endpoint profiles publish typed selectable models", async () => {
+  const document = await loadOpenApiSource();
+  const path = document.paths["/api/v1/ai/endpoint-profiles"];
+
+  assert.ok(path, "missing model endpoint profile path");
+  assert.equal(
+    path.get.responses["200"].content["application/json"].schema.$ref,
+    "#/components/schemas/ModelEndpointProfilePagedResult"
+  );
+
+  const option = document.components.schemas.ModelOption;
+  assert.equal(option.additionalProperties, false);
+  assert.deepEqual(option.required, ["id", "displayName"]);
+  assert.deepEqual(Object.keys(option.properties).sort(), [
+    "displayName",
+    "id"
+  ]);
+
+  const profile = document.components.schemas.ModelEndpointProfile;
+  assert.equal(profile.additionalProperties, false);
+  assert.deepEqual(profile.required, [
+    "provider",
+    "endpointProfileId",
+    "region",
+    "baseUrl",
+    "requiresWorkspaceId",
+    "modelListPolicy",
+    "officialReference",
+    "models"
+  ]);
+  assert.equal(
+    profile.properties.models.items.$ref,
+    "#/components/schemas/ModelOption"
+  );
+
+  const page = document.components.schemas.ModelEndpointProfilePagedResult;
+  assert.equal(page.additionalProperties, false);
+  assert.deepEqual(page.required, ["items", "nextCursor"]);
+  assert.equal(
+    page.properties.items.items.$ref,
+    "#/components/schemas/ModelEndpointProfile"
+  );
 });
 
 function publicPlanCreate(overrides = {}) {
@@ -562,6 +608,26 @@ test("outreach approval is a closed human confirmation that publishes exact orde
   assert.equal(schema.additionalProperties, false);
   assert.deepEqual(schema.required, ["revision", "batchHash", "confirm"]);
   assert.equal(schema.properties.confirm.const, true);
+  const directMessageApproval = document.paths[
+    "/api/v1/acquisition/outreach-batches/{batchId}/direct-messages/approve"
+  ].post;
+  const directMessageSchema = directMessageApproval.requestBody.content[
+    "application/json"
+  ].schema;
+  assert.equal(directMessageSchema.additionalProperties, false);
+  assert.deepEqual(directMessageSchema.required, [
+    "batchRevision", "batchHash", "commentApprovalHash", "dailyLimit",
+    "candidates", "confirm"
+  ]);
+  assert.deepEqual(directMessageSchema.properties.dailyLimit, {
+    type: "integer", minimum: 1, maximum: 100, default: 20
+  });
+  assert.equal(directMessageSchema.properties.candidates.maxItems, 100);
+  assert.equal(directMessageSchema.properties.candidates.items.additionalProperties,
+    false);
+  assert.deepEqual(directMessageApproval.security, [
+    { bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }
+  ]);
   assert.equal(approval.responses["200"].content["application/json"].schema.$ref,
     "#/components/schemas/AcquisitionOutreachBatch");
   assert.equal(document.paths["/api/v1/acquisition/outreach-batches/{batchId}/actions"]
@@ -571,19 +637,31 @@ test("outreach approval is a closed human confirmation that publishes exact orde
     ["comment", "direct_message"]);
   assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.properties.status.enum,
     ["queued", "blocked_by_predecessor", "executing", "succeeded", "failed", "risk_paused"]);
+  assert.deepEqual(
+    document.components.schemas.AcquisitionOutreachBatchCandidate.required.slice(4, 6),
+    ["publicProfileUrl", "commentTargetPublicUrl"]
+  );
   assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.required.slice(-4),
     ["attemptCount", "platformReceiptReference", "occurredAt", "failureCode"]);
   assert.deepEqual(
     document.components.schemas.AcquisitionOutreachAction.properties.failureCode.enum,
     [
-      "action_unavailable", "action_rejected", "deadline_exceeded",
+      "action_unavailable", "action_rejected", "approval_authority_changed", "predecessor_failed", "account_risk_paused", "deadline_exceeded",
       "douyin_verification_required", "douyin_rate_limited", "douyin_account_warning",
-      "douyin_login_expired", "douyin_direct_message_unavailable",
+      "douyin_account_identity_changed", "douyin_login_expired",
+      "douyin_direct_message_unavailable",
       "douyin_action_control_missing",
       "douyin_action_control_ambiguous", "douyin_action_content_mismatch",
       "douyin_action_receipt_ambiguous", "douyin_action_timeout", null
     ]
   );
+  for (const property of ["authorizationVersion", "approvedBy", "approvedAt",
+    "directMessageDailyLimit", "directMessageDailyOrdinal"]) {
+    assert.equal(document.components.schemas.AcquisitionOutreachAction.required
+      .includes(property), false);
+  }
+  assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.properties
+    .authorizationVersion.enum, [2]);
   const reconciliation = document.paths[
     "/api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile"
   ].post;

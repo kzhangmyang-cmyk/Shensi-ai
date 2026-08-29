@@ -1128,6 +1128,7 @@ const acquisitionOperationIds: Record<string, string> = {
   "get /api/v1/acquisition/outreach-batches/{batchId}": "getAcquisitionOutreachBatch",
   "put /api/v1/acquisition/outreach-batches/{batchId}": "updateAcquisitionOutreachBatch",
   "post /api/v1/acquisition/outreach-batches/{batchId}/approve": "approveAcquisitionOutreachBatch",
+  "post /api/v1/acquisition/outreach-batches/{batchId}/direct-messages/approve": "approveAcquisitionOutreachBatchDirectMessages",
   "post /api/v1/acquisition/outreach-batches/{batchId}/reject": "rejectAcquisitionOutreachBatch",
   "post /api/v1/acquisition/outreach-batches/{batchId}/pause": "pauseAcquisitionOutreachBatch",
   "post /api/v1/acquisition/outreach-batches/{batchId}/resume": "resumeAcquisitionOutreachBatch",
@@ -1444,13 +1445,19 @@ const acquisitionRunCandidatesSchema = {
 const acquisitionOutreachBatchCandidateSchema = {
   type: "object", additionalProperties: false,
   required: ["candidateId", "selected", "candidateRevision", "evidenceHashes",
-    "draftRevision", "comment", "commentHash", "directMessage", "directMessageHash",
+    "publicProfileUrl", "commentTargetPublicUrl", "draftRevision", "comment", "commentHash", "directMessage", "directMessageHash",
     "rationaleCodes", "modelSnapshotId", "sourceModelSnapshotId", "contentHash"],
   properties: {
     candidateId: { type: "string", minLength: 1, maxLength: 255 }, selected: { type: "boolean" },
     candidateRevision: { type: "integer", minimum: 1 },
     evidenceHashes: { type: "array", minItems: 1, maxItems: 20, uniqueItems: true,
       items: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" } },
+    publicProfileUrl: { type: "string", format: "uri", maxLength: 2_000,
+      pattern: "^https://www\\.douyin\\.com/user/[A-Za-z0-9_-]{1,300}$",
+      description: "Frozen public candidate profile shown read-only during comment approval; only the separate version-2 direct-message approval may later create one direct-message action after a successful comment receipt." },
+    commentTargetPublicUrl: { type: "string", format: "uri", maxLength: 2_000,
+      pattern: "^https://www\\.douyin\\.com/video/[A-Za-z0-9_-]{1,300}$",
+      description: "Frozen public video that will receive the approved comment." },
     draftRevision: { type: "integer", minimum: 1 }, comment: { type: "string", minLength: 1, maxLength: 300 },
     commentHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
     directMessage: { type: "string", minLength: 1, maxLength: 800 },
@@ -1530,13 +1537,20 @@ const acquisitionOutreachActionSchema = {
     content: { type: "string", minLength: 1, maxLength: 800 },
     contentHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
     approvalHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+    authorizationVersion: { type: "integer", enum: [2],
+      description: "Version-2 direct-message authorization marker; omitted on historical actions." },
+    approvedBy: { type: "string", minLength: 1, maxLength: 255 },
+    approvedAt: { type: "string", format: "date-time" },
+    directMessageDailyLimit: { type: "integer", minimum: 1, maximum: 100 },
+    directMessageDailyOrdinal: { type: "integer", minimum: 1, maximum: 100 },
     createdAt: { type: "string", format: "date-time" },
     attemptCount: { type: "integer", minimum: 0 },
     platformReceiptReference: { type: "string", nullable: true, minLength: 1, maxLength: 255 },
     occurredAt: { type: "string", format: "date-time", nullable: true },
-    failureCode: { type: "string", nullable: true, enum: ["action_unavailable", "action_rejected",
+    failureCode: { type: "string", nullable: true, enum: ["action_unavailable", "action_rejected", "approval_authority_changed", "predecessor_failed", "account_risk_paused",
       "deadline_exceeded", "douyin_verification_required", "douyin_rate_limited",
-      "douyin_account_warning", "douyin_login_expired",
+      "douyin_account_warning", "douyin_account_identity_changed",
+      "douyin_login_expired",
       "douyin_direct_message_unavailable", "douyin_action_control_missing",
       "douyin_action_control_ambiguous", "douyin_action_content_mismatch",
       "douyin_action_receipt_ambiguous", "douyin_action_timeout", null] }
@@ -1615,6 +1629,7 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
       ...(replay ? { "Idempotency-Replayed": { required: false,
         schema: { type: "string", enum: ["true"] } } } : {}) } });
   add(paths, "/api/v1/acquisition/runs/{runId}/outreach-batches", "post", operation("post", "创建不可变外联批次", {
+    description: "仅允许从已完成终态入库且当前别名代际投影完成的 succeeded/partial 采集生成批次；live/pending 权威或不可用权威均不持久化批次或动作。",
     parameters: [idParameter(160, "runId"), idempotencyParameter(8)],
     requestBody: jsonBody({ type: "object", additionalProperties: false, required: ["candidateIds"],
       properties: { candidateIds: { type: "array", minItems: 1, maxItems: 200, uniqueItems: true,
@@ -1652,12 +1667,35 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
     } }), responses: { ...standardResponses(200, "已修订批次", acquisitionOutreachBatchSchema), "200": batchSuccess("已修订批次", true),
       "428": response("缺少 If-Match", errorSchema) }
   }));
-  add(paths, "/api/v1/acquisition/outreach-batches/{batchId}/approve", "post", operation("post", "人工二次确认并写入有序 outbox", {
+  add(paths, "/api/v1/acquisition/outreach-batches/{batchId}/approve", "post", operation("post", "人工二次确认并写入评论 outbox", {
+    description: "写入动作前重新验证采集终态权威；MySQL 在同一事务内锁定终态入库与别名投影边界，pending 时保留待审批批次且不创建动作。每个选中候选人只创建一个排队评论动作，不创建私信后继；历史私信动作仅可读取，非终态历史私信不会被领取或执行。",
     parameters: [batchParameter, idempotencyParameter(8), ifMatchParameter()],
     requestBody: jsonBody({ type: "object", additionalProperties: false, required: ["revision", "batchHash", "confirm"], properties: {
       revision: { type: "integer", minimum: 1 }, batchHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
       confirm: { type: "boolean", enum: [true] }
     } }), responses: { ...standardResponses(200, "已审批批次", acquisitionOutreachBatchSchema), "200": batchSuccess("已审批批次", true),
+      "428": response("缺少 If-Match", errorSchema) }
+  }));
+  add(paths, "/api/v1/acquisition/outreach-batches/{batchId}/direct-messages/approve", "post", operation("post", "确认并排队已成功评论后的真实私信", {
+    description: "Requires an exact succeeded comment receipt for every requested candidate. The command only authorizes durable direct-message actions; it never executes the browser action in this HTTP request.",
+    parameters: [batchParameter, idempotencyParameter(8), ifMatchParameter()],
+    requestBody: jsonBody({ type: "object", additionalProperties: false,
+      required: ["batchRevision", "batchHash", "commentApprovalHash", "dailyLimit",
+        "candidates", "confirm"], properties: {
+        batchRevision: { type: "integer", minimum: 1 },
+        batchHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+        commentApprovalHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+        dailyLimit: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+        candidates: { type: "array", minItems: 1, maxItems: 100, items: {
+          type: "object", additionalProperties: false,
+          required: ["candidateId", "directMessage"], properties: {
+            candidateId: { type: "string", minLength: 1, maxLength: 255 },
+            directMessage: { type: "string", minLength: 1, maxLength: 800 }
+          }
+        } },
+        confirm: { type: "boolean", enum: [true] }
+      } }), responses: { ...standardResponses(200, "已授权私信", acquisitionOutreachBatchSchema),
+      "200": batchSuccess("已授权私信", true),
       "428": response("缺少 If-Match", errorSchema) }
   }));
   for (const control of ["reject", "pause"] as const) add(paths,

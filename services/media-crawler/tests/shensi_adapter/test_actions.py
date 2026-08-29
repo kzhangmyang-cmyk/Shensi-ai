@@ -3,9 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+import os
+import stat
 
 import pytest
 
+import shensi_adapter.action_jobs as action_jobs_module
 from shensi_adapter.douyin_actions import DouyinActionExecutor, DouyinActionFailure
 from shensi_adapter.action_jobs import ActionJobManager, ActionReplayConflict
 from shensi_adapter.schemas import ActionReceipt, ActionRequest
@@ -34,6 +37,9 @@ class FakeLocator:
                 self.page.after_control_lookup, None
             )
             callback(self.page)
+        if (self.selector == '[data-e2e="comment-submit"]'
+                and self.page.comment_submit_requires_content):
+            return bool(self.page.values.get('[data-e2e="comment-input"]'))
         return True
 
     def is_editable(self, **_kwargs):
@@ -65,6 +71,8 @@ class FakeLocator:
 
     def click(self, **_kwargs):
         self.page.clicks.append(self.selector)
+        if self.selector.endswith('-input"]'):
+            self.page.focused_selector = self.selector
         if self.selector.endswith('-submit"]'):
             self.page.after_submit = True
 
@@ -91,10 +99,21 @@ class FakeMouse:
         self.calls.append("mouse.click")
 
 
+class FakeKeyboard:
+    def __init__(self, page: "FakePage"):
+        self.page = page
+
+    def press(self, key: str, *, delay: int | None = None):
+        self.page.browser_keys.append(key)
+        if key == "Backspace" and self.page.focused_selector is not None:
+            self.page.values[self.page.focused_selector] = ""
+
+
 class FakePage:
     def __init__(self, *, visible=(), receipt=False, late_receipt=False,
                  clock=None, after_wait=None, after_control_lookup=None,
-                 after_readback=None, after_baseline=None):
+                 after_readback=None, after_baseline=None,
+                 comment_submit_requires_content=False):
         self.visible = set(visible)
         self.receipt = receipt
         self.late_receipt = late_receipt
@@ -103,6 +122,7 @@ class FakePage:
         self.after_control_lookup = after_control_lookup
         self.after_readback = after_readback
         self.after_baseline = after_baseline
+        self.comment_submit_requires_content = comment_submit_requires_content
         self.after_submit = False
         self.url = "about:blank"
         self.urls: list[str] = []
@@ -111,10 +131,13 @@ class FakePage:
         self.clicks: list[str] = []
         self.native_keys: list[tuple[str, str]] = []
         self.native_types: list[tuple[str, str]] = []
+        self.browser_keys: list[str] = []
+        self.focused_selector: str | None = None
         self.waits = 0
         self.brought_to_front = 0
         self.verification_bypass_calls: list[str] = []
         self.mouse = FakeMouse(self.verification_bypass_calls)
+        self.keyboard = FakeKeyboard(self)
 
     @property
     def receipt_visible(self):
@@ -127,8 +150,8 @@ class FakePage:
         self.url = url
 
     def locator(self, selector: str):
-        if (selector.startswith(".comment-item")
-                and self.after_baseline is not None and self.fills):
+        if ("comment-item" in selector
+                and self.after_baseline is not None and self.native_types):
             callback, self.after_baseline = self.after_baseline, None
             callback(self)
         return FakeLocator(self, selector)
@@ -181,39 +204,43 @@ def request(kind="comment", *, content="冻结的批准文本", deadline_at=None
                          ).hexdigest())
 
 
-@pytest.mark.parametrize(("kind", "composer", "submit", "entry"), [
-    ("comment", '[data-e2e="comment-input"]', '[data-e2e="comment-submit"]', None),
-    ("direct_message", '[data-e2e="message-input"]',
-     '[data-e2e="message-submit"]', '[data-e2e="message-entry"]'),
-])
-def test_executes_exact_frozen_text_once_and_returns_sanitized_receipt(
-    kind, composer, submit, entry,
-):
+def test_comment_fixture_executes_exact_text_once_and_returns_sanitized_receipt():
+    kind = "comment"
+    composer = '[data-e2e="comment-input"]'
+    submit = '[data-e2e="comment-submit"]'
     visible = {composer, submit, '[data-e2e-receipt-id]'}
-    if entry is not None:
-        visible.add(entry)
     page = FakePage(visible=visible, receipt=True)
 
     receipt = DouyinActionExecutor(now=lambda: NOW).execute(page, request(kind))
 
     assert page.urls == [str(request(kind).target_public_url)]
-    if kind == "direct_message":
-        assert page.fills == []
-        assert page.native_keys == [
-            (composer, "ControlOrMeta+A"),
-            (composer, "Backspace"),
-        ]
-        assert page.native_types == [(composer, "冻结的批准文本")]
-        assert page.clicks == [entry, composer, submit]
-    else:
-        assert page.fills == [(composer, "冻结的批准文本")]
-        assert page.native_keys == []
-        assert page.native_types == []
-        assert page.clicks == [submit]
+    assert page.fills == []
+    assert page.browser_keys == ["ControlOrMeta+A", "Backspace"]
+    assert page.native_types == [(composer, "冻结的批准文本")]
+    assert page.clicks == [composer, submit]
     assert receipt.platform_receipt_reference == "safe-receipt-123"
     assert receipt.failure_code is None
     assert "冻结的批准文本" not in receipt.model_dump_json()
     assert "private-handle" not in receipt.model_dump_json()
+
+
+def test_comment_types_before_requiring_a_submit_that_starts_disabled():
+    composer = '[data-e2e="comment-input"]'
+    submit = '[data-e2e="comment-submit"]'
+    page = FakePage(
+        visible={composer, submit, '[data-e2e-receipt-id]'},
+        receipt=True,
+        comment_submit_requires_content=True,
+    )
+
+    receipt = DouyinActionExecutor(
+        now=lambda: NOW,
+        control_wait_ms=0,
+    ).execute(page, request())
+
+    assert page.native_types == [(composer, "冻结的批准文本")]
+    assert page.clicks == [composer, submit]
+    assert receipt.state == "succeeded"
 
 
 @pytest.mark.parametrize(("visible", "code"), [
@@ -249,10 +276,92 @@ def test_visible_verification_handoff_rechecks_and_completes_the_same_action_onc
 
     assert page.brought_to_front == 1
     assert page.verification_bypass_calls == []
-    assert page.fills == [('[data-e2e="comment-input"]', "冻结的批准文本")]
-    assert page.clicks == ['[data-e2e="comment-submit"]']
+    assert page.fills == []
+    assert page.native_types == [
+        ('[data-e2e="comment-input"]', "冻结的批准文本"),
+    ]
+    assert page.clicks == [
+        '[data-e2e="comment-input"]',
+        '[data-e2e="comment-submit"]',
+    ]
     assert receipt.action_id == "action-comment"
     assert receipt.state == "succeeded"
+
+
+def test_manual_verification_revalidates_sender_before_any_input():
+    clock = FakeClock()
+    sender_is_bound = True
+
+    def clear_verification_and_switch_sender(value):
+        nonlocal sender_is_bound
+        value.visible.discard('[data-e2e="verification"]')
+        value.visible.update({
+            '[data-e2e="comment-input"]',
+            '[data-e2e="comment-submit"]',
+        })
+        sender_is_bound = False
+
+    def require_bound_sender():
+        if not sender_is_bound:
+            raise DouyinActionFailure("douyin_account_identity_changed")
+
+    page = FakePage(
+        visible={'[data-e2e="verification"]'},
+        clock=clock,
+        after_wait=clear_verification_and_switch_sender,
+    )
+
+    with pytest.raises(
+        DouyinActionFailure,
+        match="douyin_account_identity_changed",
+    ):
+        DouyinActionExecutor(
+            now=clock.now,
+            verification_poll_ms=1,
+            account_identity_revalidator=require_bound_sender,
+        ).execute(
+            page,
+            request(deadline_at=clock.now() + timedelta(seconds=5)),
+        )
+
+    assert page.native_types == []
+    assert page.clicks == []
+
+
+def test_sender_switch_after_readback_is_rejected_before_submit():
+    sender_is_bound = True
+
+    def switch_sender(_page):
+        nonlocal sender_is_bound
+        sender_is_bound = False
+
+    def require_bound_sender():
+        if not sender_is_bound:
+            raise DouyinActionFailure("douyin_account_identity_changed")
+
+    page = FakePage(
+        visible={
+            '[data-e2e="comment-input"]',
+            '[data-e2e="comment-submit"]',
+            '[data-e2e-receipt-id]',
+        },
+        receipt=True,
+        after_readback=switch_sender,
+    )
+
+    with pytest.raises(
+        DouyinActionFailure,
+        match="douyin_account_identity_changed",
+    ):
+        DouyinActionExecutor(
+            now=lambda: NOW,
+            account_identity_revalidator=require_bound_sender,
+        ).execute(page, request())
+
+    assert page.native_types == [
+        ('[data-e2e="comment-input"]', "冻结的批准文本")
+    ]
+    assert page.clicks == ['[data-e2e="comment-input"]']
 
 
 def test_visible_verification_at_deadline_fails_without_fill_click_or_bypass():
@@ -323,7 +432,7 @@ def test_headless_verification_fails_immediately_without_handoff_or_bypass():
     assert page.clicks == []
 
 
-def test_control_lookup_reintroducing_verification_is_rechecked_before_fill():
+def test_submit_lookup_reintroducing_verification_is_rechecked_before_submit():
     page = FakePage(
         visible={
             '[data-e2e="comment-input"]',
@@ -342,7 +451,10 @@ def test_control_lookup_reintroducing_verification_is_rechecked_before_fill():
         )
 
     assert page.fills == []
-    assert page.clicks == []
+    assert page.native_types == [
+        ('[data-e2e="comment-input"]', "冻结的批准文本"),
+    ]
+    assert page.clicks == ['[data-e2e="comment-input"]']
     assert page.verification_bypass_calls == []
 
 
@@ -362,10 +474,10 @@ def test_readback_redirect_is_rechecked_before_submit_without_retry():
     with pytest.raises(DouyinActionFailure, match="action_rejected"):
         DouyinActionExecutor(now=lambda: NOW).execute(page, request())
 
-    assert page.fills == [
+    assert page.native_types == [
         ('[data-e2e="comment-input"]', "冻结的批准文本")
     ]
-    assert page.clicks == []
+    assert page.clicks == ['[data-e2e="comment-input"]']
 
 
 def test_baseline_reintroducing_verification_is_rechecked_before_submit():
@@ -386,8 +498,8 @@ def test_baseline_reintroducing_verification_is_rechecked_before_submit():
             page, request()
         )
 
-    assert len(page.fills) == 1
-    assert page.clicks == []
+    assert len(page.native_types) == 1
+    assert page.clicks == ['[data-e2e="comment-input"]']
     assert page.verification_bypass_calls == []
 
 
@@ -410,8 +522,8 @@ def test_baseline_crossing_deadline_is_rechecked_before_submit():
             request(deadline_at=clock.now() + timedelta(seconds=5)),
         )
 
-    assert len(page.fills) == 1
-    assert page.clicks == []
+    assert len(page.native_types) == 1
+    assert page.clicks == ['[data-e2e="comment-input"]']
 
 
 def test_missing_native_control_fails_closed_without_submit():
@@ -435,12 +547,18 @@ def test_timeout_checks_once_for_late_success_and_never_clicks_twice():
     receipt = DouyinActionExecutor(now=lambda: NOW, receipt_attempts=2,
                                    receipt_poll_ms=1).execute(page, request())
     assert receipt.state == "succeeded"
-    assert page.clicks == ['[data-e2e="comment-submit"]']
+    assert page.clicks == [
+        '[data-e2e="comment-input"]',
+        '[data-e2e="comment-submit"]',
+    ]
 
     timed_out = FakePage(visible={'[data-e2e="comment-input"]', '[data-e2e="comment-submit"]'})
     with pytest.raises(DouyinActionFailure, match="douyin_action_timeout"):
         DouyinActionExecutor(now=lambda: NOW, receipt_attempts=1).execute(timed_out, request())
-    assert timed_out.clicks == ['[data-e2e="comment-submit"]']
+    assert timed_out.clicks == [
+        '[data-e2e="comment-input"]',
+        '[data-e2e="comment-submit"]',
+    ]
 
 
 @pytest.mark.parametrize("failure_code", [
@@ -448,6 +566,7 @@ def test_timeout_checks_once_for_late_success_and_never_clicks_twice():
     "douyin_action_control_ambiguous",
     "douyin_action_content_mismatch",
     "douyin_action_receipt_ambiguous",
+    "douyin_account_identity_changed",
 ])
 def test_action_receipt_accepts_each_closed_control_failure_code(failure_code):
     receipt = ActionReceipt(
@@ -486,6 +605,50 @@ def test_action_job_exact_replay_is_durable_and_never_persists_raw_content(tmp_p
     changed = value.model_copy(update={"content": "changed"})
     with pytest.raises(ActionReplayConflict):
         manager.execute(changed)
+
+
+def test_action_job_executes_direct_message_under_profile_lease_and_started_journal(
+    tmp_path,
+):
+    profile_calls = []
+    executor_calls = []
+    value = request(kind="direct_message")
+
+    def execute(profile, action):
+        executor_calls.append((profile, action.action_id))
+        journal = next((tmp_path / "action-receipts").glob("*.json"))
+        persisted = json.loads(journal.read_text(encoding="utf-8"))
+        assert persisted["state"] == "started"
+        return {
+            "action_id": action.action_id,
+            "state": "succeeded",
+            "platform_receipt_reference": "douyin-message:message-123",
+            "occurred_at": NOW.isoformat(),
+            "failure_code": None,
+        }
+
+    manager = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda handle, version: profile_calls.append(
+            (handle, version)
+        ) or tmp_path,
+        executor=execute,
+        now=lambda: NOW,
+    )
+
+    first = manager.execute(value)
+    second = manager.execute(value)
+
+    assert first == second
+    assert first.state == "succeeded"
+    assert first.platform_receipt_reference == "douyin-message:message-123"
+    assert profile_calls == [(value.account_handle, value.login_state_version)]
+    assert executor_calls == [(tmp_path, value.action_id)]
+    lease_files = list((tmp_path / "profile-leases").glob("*.lock"))
+    assert len(lease_files) == 1
+    persisted = journal = next((tmp_path / "action-receipts").glob("*.json"))
+    assert value.content not in persisted.read_text(encoding="utf-8")
+    assert value.account_handle not in persisted.read_text(encoding="utf-8")
 
 
 def test_action_job_replays_a_completed_receipt_when_only_deadline_changes(tmp_path):
@@ -554,6 +717,102 @@ def test_action_job_persists_started_before_external_work_and_never_reexecutes_u
     assert calls == [value.action_id]
     assert recovered.state == "failed"
     assert recovered.failure_code == "douyin_action_receipt_ambiguous"
+
+
+def test_action_job_fsyncs_started_file_and_parent_before_external_work(
+    tmp_path,
+    monkeypatch,
+):
+    events = []
+    real_fsync = os.fsync
+    real_replace = os.replace
+
+    def recording_fsync(descriptor):
+        kind = (
+            "directory_fsync"
+            if stat.S_ISDIR(os.fstat(descriptor).st_mode)
+            else "file_fsync"
+        )
+        events.append(kind)
+        real_fsync(descriptor)
+
+    def recording_replace(source, destination):
+        events.append("replace")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(action_jobs_module.os, "fsync", recording_fsync)
+    monkeypatch.setattr(action_jobs_module.os, "replace", recording_replace)
+    value = request()
+    manager = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda _handle, _version: tmp_path,
+        executor=lambda _profile, action: events.append("executor") or {
+            "action_id": action.action_id,
+            "state": "succeeded",
+            "platform_receipt_reference": "douyin-comment:durable-order",
+            "occurred_at": NOW.isoformat(),
+            "failure_code": None,
+        },
+        now=lambda: NOW,
+    )
+
+    manager.execute(value)
+
+    assert events[:4] == [
+        "file_fsync",
+        "replace",
+        "directory_fsync",
+        "executor",
+    ]
+
+
+@pytest.mark.parametrize("failure_kind", ["file", "directory"])
+def test_action_job_does_not_execute_when_started_journal_sync_fails(
+    tmp_path,
+    monkeypatch,
+    failure_kind,
+):
+    events = []
+    executions = []
+    real_fsync = os.fsync
+    real_replace = os.replace
+
+    def failing_fsync(descriptor):
+        kind = (
+            "directory"
+            if stat.S_ISDIR(os.fstat(descriptor).st_mode)
+            else "file"
+        )
+        events.append(f"{kind}_fsync")
+        if kind == failure_kind:
+            raise OSError(f"simulated_{kind}_fsync_failure")
+        real_fsync(descriptor)
+
+    def recording_replace(source, destination):
+        events.append("replace")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(action_jobs_module.os, "fsync", failing_fsync)
+    monkeypatch.setattr(action_jobs_module.os, "replace", recording_replace)
+    value = request()
+    manager = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda _handle, _version: tmp_path,
+        executor=lambda _profile, action: executions.append(action.action_id),
+        now=lambda: NOW,
+    )
+
+    with pytest.raises(OSError, match=f"simulated_{failure_kind}_fsync_failure"):
+        manager.execute(value)
+
+    assert executions == []
+    if failure_kind == "file":
+        assert events == ["file_fsync"]
+        assert not list((tmp_path / "action-receipts").glob("*.json"))
+    else:
+        assert events == ["file_fsync", "replace", "directory_fsync"]
+        journal = next((tmp_path / "action-receipts").glob("*.json"))
+        assert json.loads(journal.read_text(encoding="utf-8"))["state"] == "started"
 
 
 def test_uncertain_action_can_only_recover_through_read_only_reconciliation(

@@ -119,6 +119,52 @@ components:
       properties:
         items: { type: array, items: { type: object } }
         nextCursor: { type: [string, 'null'] }
+    ModelOption:
+      type: object
+      additionalProperties: false
+      required: [id, displayName]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 120 }
+        displayName: { type: string, minLength: 1, maxLength: 200 }
+    ModelEndpointProfile:
+      type: object
+      additionalProperties: false
+      required:
+        - provider
+        - endpointProfileId
+        - region
+        - baseUrl
+        - requiresWorkspaceId
+        - modelListPolicy
+        - officialReference
+        - models
+      properties:
+        provider:
+          type: string
+          enum: [openai, moonshot, minimax, zhipu, deepseek, qwen, doubao, hunyuan, qianfan]
+        endpointProfileId: { type: string, minLength: 1, maxLength: 120 }
+        region: { type: string, minLength: 1, maxLength: 120 }
+        baseUrl: { type: [string, 'null'], format: uri, maxLength: 2000 }
+        requiresWorkspaceId: { type: boolean }
+        modelListPolicy:
+          type: string
+          enum: [same_key, not_exposed, separate_control_plane]
+        officialReference: { type: string, format: uri, maxLength: 2000 }
+        models:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/ModelOption' }
+    ModelEndpointProfilePagedResult:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/ModelEndpointProfile' }
+        nextCursor: { type: [string, 'null'] }
     ModelProvider: { $ref: ../json-schema/model-provider.v1.schema.json }
     ModelConnection: { $ref: ../json-schema/model-connection.v1.schema.json }
     ModelCallRecord: { $ref: ../json-schema/model-call-record.v1.schema.json }
@@ -380,12 +426,14 @@ components:
     AcquisitionOutreachBatchCandidate:
       type: object
       additionalProperties: false
-      required: [candidateId, selected, candidateRevision, evidenceHashes, draftRevision, comment, commentHash, directMessage, directMessageHash, rationaleCodes, modelSnapshotId, sourceModelSnapshotId, contentHash]
+      required: [candidateId, selected, candidateRevision, evidenceHashes, publicProfileUrl, commentTargetPublicUrl, draftRevision, comment, commentHash, directMessage, directMessageHash, rationaleCodes, modelSnapshotId, sourceModelSnapshotId, contentHash]
       properties:
         candidateId: { type: string, minLength: 1, maxLength: 255 }
         selected: { type: boolean }
         candidateRevision: { type: integer, minimum: 1 }
         evidenceHashes: { type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: { type: string, pattern: '^sha256:[a-f0-9]{64}$' } }
+        publicProfileUrl: { type: string, format: uri, maxLength: 2000, pattern: '^https://www\.douyin\.com/user/[A-Za-z0-9_-]{1,300}$', description: Frozen public candidate profile shown read-only during comment approval; only the separate version-2 direct-message approval may later create one direct-message action after a successful comment receipt. }
+        commentTargetPublicUrl: { type: string, format: uri, maxLength: 2000, pattern: '^https://www\.douyin\.com/video/[A-Za-z0-9_-]{1,300}$', description: Frozen public video that will receive the approved comment. }
         draftRevision: { type: integer, minimum: 1 }
         comment: { type: string, minLength: 1, maxLength: 300 }
         commentHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
@@ -463,13 +511,18 @@ components:
         content: { type: string, minLength: 1, maxLength: 800 }
         contentHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
         approvalHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+        authorizationVersion: { type: integer, enum: [2], description: Version-2 direct-message authorization marker; omitted on historical actions. }
+        approvedBy: { type: string, minLength: 1, maxLength: 255 }
+        approvedAt: { type: string, format: date-time }
+        directMessageDailyLimit: { type: integer, minimum: 1, maximum: 100 }
+        directMessageDailyOrdinal: { type: integer, minimum: 1, maximum: 100 }
         createdAt: { type: string, format: date-time }
         attemptCount: { type: integer, minimum: 0 }
         platformReceiptReference: { type: [string, 'null'], minLength: 1, maxLength: 255 }
         occurredAt: { type: [string, 'null'], format: date-time }
         failureCode:
           type: [string, 'null']
-          enum: [action_unavailable, action_rejected, deadline_exceeded, douyin_verification_required, douyin_rate_limited, douyin_account_warning, douyin_login_expired, douyin_direct_message_unavailable, douyin_action_control_missing, douyin_action_control_ambiguous, douyin_action_content_mismatch, douyin_action_receipt_ambiguous, douyin_action_timeout, null]
+          enum: [action_unavailable, action_rejected, approval_authority_changed, predecessor_failed, account_risk_paused, deadline_exceeded, douyin_verification_required, douyin_rate_limited, douyin_account_warning, douyin_account_identity_changed, douyin_login_expired, douyin_direct_message_unavailable, douyin_action_control_missing, douyin_action_control_ambiguous, douyin_action_content_mismatch, douyin_action_receipt_ambiguous, douyin_action_timeout, null]
     AcquisitionOutreachActionList:
       type: object
       additionalProperties: false
@@ -960,6 +1013,17 @@ x-social-login-session-schema: &socialLoginSessionSchema
 paths:
   /api/v1/ai/providers:
     get: { <<: *list, summary: List model providers }
+  /api/v1/ai/endpoint-profiles:
+    get:
+      security: [{ bearerAuth: [] }]
+      summary: List official model endpoint profiles and selectable models
+      responses:
+        '200':
+          description: Official model endpoint profiles
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelEndpointProfilePagedResult' }
+        '401': *apiError
   /api/v1/ai/connections:
     get: { <<: *list, summary: List model connections }
     post: { <<: *write, summary: Create model connection, responses: { '200': { description: Model connection, content: { application/json: { schema: { $ref: '#/components/schemas/ModelConnection' } } } }, '400': *apiError, '401': *apiError } }
@@ -1105,6 +1169,7 @@ paths:
     post:
       operationId: createAcquisitionOutreachBatch
       summary: Persist Task 6 drafts as immutable revision one
+      description: Requires a succeeded or partial crawler job whose terminal ingestion has succeeded for the current alias generation. A live or reopened projection returns outreach_candidate_projection_pending and persists no batch or actions; a failed, paused, or cancelled authority returns outreach_candidate_projection_unavailable.
       security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [candidateIds], properties: { candidateIds: { type: array, minItems: 1, maxItems: 200, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 255 } } } } } } }
@@ -1149,13 +1214,27 @@ paths:
     parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
     post:
       operationId: approveAcquisitionOutreachBatch
-      summary: Human second confirmation; persist ordered actions without executing them
+      summary: Human second confirmation; persist comment actions without executing them
+      description: Revalidates and transactionally locks the crawler finalization authority before creating one queued comment action per selected candidate. This first-stage approval creates comments only; after a durable successful comment receipt, the separate version-2 direct-message approval may create one DM for that candidate. Historical non-v2 direct-message rows remain readable but are never claimed or executed. Approval is rejected without actions while terminal ingestion or alias projection is pending, and stale candidate evidence requires a newly generated final batch.
       security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }, { $ref: '#/components/parameters/ifMatch' }]
       requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [revision, batchHash, confirm], properties: { revision: { type: integer, minimum: 1 }, batchHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }, confirm: { type: boolean, const: true } } } } } }
       responses:
         <<: *acquisitionStandardResponses
         '200': { description: Outreach batch approved, headers: { ETag: { required: true, schema: { type: string } }, Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachBatch' } } } }
+        '428': *apiError
+  /api/v1/acquisition/outreach-batches/{batchId}/direct-messages/approve:
+    parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post:
+      operationId: approveAcquisitionOutreachBatchDirectMessages
+      summary: Confirm and queue direct messages after exact successful comment receipts
+      description: Requires an exact succeeded comment receipt for every requested candidate. The command only authorizes durable direct-message actions; it never executes the browser action in this HTTP request.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }, { $ref: '#/components/parameters/ifMatch' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [batchRevision, batchHash, commentApprovalHash, dailyLimit, candidates, confirm], properties: { batchRevision: { type: integer, minimum: 1 }, batchHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }, commentApprovalHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }, dailyLimit: { type: integer, minimum: 1, maximum: 100, default: 20 }, candidates: { type: array, minItems: 1, maxItems: 100, items: { type: object, additionalProperties: false, required: [candidateId, directMessage], properties: { candidateId: { type: string, minLength: 1, maxLength: 255 }, directMessage: { type: string, minLength: 1, maxLength: 800 } } } }, confirm: { type: boolean, const: true } } } } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Direct messages authorized, headers: { ETag: { required: true, schema: { type: string } }, Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachBatch' } } } }
         '428': *apiError
   /api/v1/acquisition/outreach-batches/{batchId}/reject:
     parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]

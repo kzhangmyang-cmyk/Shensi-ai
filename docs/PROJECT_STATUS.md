@@ -66,6 +66,14 @@ ledger.
   and is transactionally bound to a distinct authoritative `AcquisitionRun`.
   The public result exposes both identities and never exposes the private
   MediaCrawler account handle.
+- Douyin QR account binding validates active identity shape inside the
+  repository lock or transaction: canonical one-way account handle, non-empty
+  public nickname, and positive safe-integer login-state version. A
+  non-authoritative persisted active row can be replaced only by a structurally
+  valid QR result strictly newer than the durable high-water, preserving the
+  account ID and creation time while advancing revision/ETag. A valid active
+  identity with a different handle still conflicts, and equal or older sessions
+  remain fail-closed.
 - Acquisition plans now distinguish the compatible generic provider-operation
   mode from `douyin_mediacrawler`. A MediaCrawler plan is Douyin-only, carries
   no public-search provider, generic operation, model connection, or model
@@ -161,56 +169,115 @@ ledger.
   revision 1 and append validated human edits as revision 2 without changing
   source-model provenance. Public create/read/revise/approve/reject/pause/
   resume/action routes enforce workspace, capability, CSRF, idempotency, and
-  ETag authority. When external actions are explicitly enabled, approval is the
-  required human send confirmation. After account/login, DNC,
-  candidate/evidence, and selected policy-limit rechecks, it atomically stores
-  the approval plus an exact queued comment and predecessor-blocked direct
-  message per candidate; the worker may claim the comment immediately after
-  commit. Candidates without an exact Douyin video comment target or exact
-  Douyin profile message target are rejected before approval/action persistence;
-  profile-only creator rows remain clickable for evidence inspection while only
-  their outreach checkboxes are disabled.
-  Memory and MySQL roll back approval if either
-  action insert fails; MySQL reuses one locked authority transaction connection.
+  ETag authority. The first human confirmation authorizes comments only and,
+  after account/login, DNC, candidate/evidence, and selected policy-limit
+  rechecks, atomically stores exactly one queued comment per candidate. A
+  separate `POST .../direct-messages/approve` command becomes available only
+  for a candidate whose same-batch comment is `succeeded` with a durable
+  receipt. Its second human confirmation freezes the exact profile target,
+  message, predecessor receipt, private-message daily limit/ordinal, approver,
+  account/login version, and stage-specific hash into one version-2 action.
+  The private-message default is 20 per day with a server range of 1–100,
+  separate from acquisition's default 50 and range 1–200. The batch freezes the
+  policy time zone; approval ordinals derive from `approvedAt` in that zone,
+  while claim quota counts actual attempts on the claim local day. Retries use
+  that day, reset occurs only on the next local day, and Memory/MySQL permanently
+  reject a second DM for the same batch revision/candidate across dates. They
+  also reject the same candidate from another batch on the same account-local
+  day; a later local day may use a new batch without reopening the old revision.
+  Candidates without
+  an exact Douyin video comment target or exact Douyin profile message target
+  are rejected before approval/action persistence; profile-only creator rows
+  remain clickable for evidence inspection while their outreach checkboxes are
+  disabled. Memory and MySQL roll back either approval transaction if any
+  action insert fails; MySQL reuses one locked authority connection. Existing
+  direct-message rows are not backfilled, and rows without version-2 authority
+  remain readable but unclaimable.
+  A legacy queued comment whose batch payload lacks `timeZone` is upgraded at
+  claim time only when the exact immutable policy version/hash, plan, account,
+  and login binding prove the frozen zone; the zone is persisted before attempt
+  consumption. Unprovable comments and their blocked successors are terminalized
+  without consuming another attempt. Version-2 private messages are never upgraded and require an
+  explicit frozen zone.
   Pre-bound MySQL approval transactions restore the ingestion scope before
   nested final-authority locks, preventing `douyin_ingestion_transaction_required`
   from being hidden as `outreach_internal_error`.
   When the action gate is disabled, final approval returns
   `503 outreach_actions_disabled` before approval or action persistence.
-- Approved outreach actions now execute through an application-owned fenced
+- Approved outreach actions execute through an application-owned fenced
   worker and recovery sweeper only when the private MediaCrawler gateway is
   configured and `DOUYIN_OUTREACH_ACTIONS_ENABLED` is case-insensitively
   exactly `true` at both backend and sidecar. Every other value is disabled:
   the backend starts neither action claimant nor recovery sweeper, the sidecar
   returns a stable 503 before manager/executor lookup, and the crawler worker
-  continues normally. Enabled claims serialize each account and persist
-  server-time delays of at least 60 seconds between actions and 180 seconds
-  from comment receipt to direct message. The worker revalidates active
-  account/login, approval,
+  continues normally. Real actions and reconciliation also require visible
+  browser mode; deployment preflight plus parent/child IPC reject headless
+  action commands before opening a page. Enabled claims serialize each account. Comment claims
+  retain at least 60 seconds of spacing; a private-message claim reserves the
+  account's next eligible time for ten minutes before its external call. The
+  worker revalidates active account/login, approval,
   candidate/evidence, DNC, content, predecessor, policy/job/budget, and daily
   allowance authority before each call. The sidecar reuses the encrypted
   authenticated profile, submits the exact approved text once to the frozen
-  public target, and returns a sanitized receipt. Fenced recovery prevents
-  stale writes. Expired claims and uncertain post-click outcomes move the exact
-  action plus related account work to `risk_paused` and are never automatically
+  public target, and returns a sanitized receipt. Account execution holds one
+  authority lease across the complete browser command; login versions and
+  identity/session metadata use a process-locked, crash-durable global ledger.
+  The action `started` journal is file- and directory-`fsync`ed before the
+  executor is called. For a lazy-mounted comment editor, the adapter permits
+  exactly one reversible activation click only after uniquely matching the
+  visible comment-input container and exact `留下你的精彩评论吧` entry, with
+  risk/URL/sender/deadline revalidation. It performs no input or publish during
+  activation, and missing or ambiguous bindings fail closed. Editors/submits
+  are independently pinned and tagged; a
+  capture-phase guard synchronously rechecks exact approved editor content,
+  URL, sender, and recipient on dispatch and keeps the DM editor and submit in
+  the same exact-recipient panel. A guard rejection preserves the precise
+  content/control/sender/DM-recipient failure code; receipt ambiguity is used
+  only when a browser click failure may already have dispatched. DM
+  success is proven by one atomic snapshot of the same outgoing node, exact text,
+  stable ID, sender, and recipient. Fenced recovery prevents
+  stale writes. A deterministic comment failure may still close a linked
+  direct-message successor as `predecessor_failed`. Expired claims, malformed success receipts,
+  post-submit exceptions, and other uncertain outcomes move the exact action
+  plus related account work to `risk_paused` and are never automatically
   retried. The operator may explicitly request a read-only reconciliation from
   the page; it accepts only a unique post-start self/outgoing receipt for the
-  same hashes and leaves the account and successor paused. Three consecutive
+  same hashes and leaves the account and successor paused. There is no explicit
+  account/successor recovery entry yet. Three consecutive
   failures or an immediate platform-risk state pause the account and all queued
-  work. Focused fake-page, Memory, and live
+  work. A real-Playwright regression covers the inactive placeholder, mounted
+  editor, post-input submit, and bound first-party receipt sequence; it also
+  verifies single activation, scoped matching, and ambiguous-entry rejection.
+  Focused fake-page, Memory, and live
   MySQL 8.4 gates exercise this behavior without making a real Douyin action.
   MediaCrawler upstream remains the collection/browser foundation; comment and
-  private-message execution is a Shensi extension, not an upstream-native or
-  official Douyin inbox/API capability. In a visible browser, platform
-  verification is manual-only: the adapter waits and rechecks the same action
-  for a bounded 120-second window and never solves a slider/CAPTCHA, injects a
-  token, or calls a bypass service. The enclosing defaults are a 150-second
-  Node action deadline, 160-second gateway HTTP timeout, 170-second browser IPC
+  version-2 private-message execution are Shensi extensions, not upstream-
+  native or official Douyin API capabilities. In a visible browser, platform
+  verification detected immediately after initial target navigation is manual-
+  only: the adapter waits and rechecks the same action, current sender, target,
+  and deadline for a bounded 120-second window. A later challenge fails closed
+  immediately. The adapter never
+  solves a slider/CAPTCHA, injects a token, or calls a bypass service. Sender
+  identity is checked in place again before input, submit, and receipt proof.
+  Private-message editor/submit/receipt controls must remain inside one panel
+  with one exact canonical recipient marker matching the frozen profile; any
+  missing, ambiguous, or switched binding fails closed. The enclosing defaults
+  are a 150-second
+  Node action deadline, 175-second gateway HTTP timeout, 170-second browser IPC
   timeout, and 180-second minimum claim lease.
-  Direct messages are supported only through a unique same-page panel opened
-  from the frozen `/user/{id}` profile. An unbound `/messages` transition,
-  ambiguous editor/send control, inbound message, old same-text message, or
-  missing stable ID/timestamp fails closed.
+  A verified comment receipt or an ambiguous post-submit comment keeps the
+  visible target page in front for ten seconds before context close while the
+  same profile lease remains held. The review window performs no additional
+  read/write/click and is never treated as receipt proof. The action timeline
+  labels an ambiguous receipt as `结果待确认`, explains that it will not be
+  automatically resent, and retains the explicit read-only reconciliation
+  control.
+  DOM/ARIA is the primary locator. Optional local RapidOCR 3.9.2 with ONNX
+  Runtime 1.29.0 is disabled by default and may suggest only a missing exact
+  entry/send control before a verified DOM rebind. It never
+  chooses target/editor/content/receipt and never persists screenshots or OCR
+  text. Visual MCP is development diagnostics only; execution is independent
+  of OpenAI, DeepSeek, or any other model provider.
 - The authenticated `#acquisition` dashboard now makes controlled Douyin
   collection the primary workflow. With no existing task it still loads the
   workspace account and can create, approve, configure, and optionally run a
@@ -224,11 +291,14 @@ ledger.
   ID also scopes creation of an editable pending-approval batch without
   fabricating a new run-now intent. A duplicate run remains blocked until the
   recovered persisted state is confirmed. Recovery itself creates or approves
-  no batch and sends no comment or direct message; those actions still require
-  explicit second confirmation, the explicit backend/sidecar action gate, and
-  the fenced executor. Generated real-customer trials default that gate to
-  false; an enabled trial requires a separate recorded authorization, the
-  one-shot CLI flag, and a global all-zero `queued`/
+  no batch and sends no comment or private message. Comment execution still
+  requires its explicit confirmation, the backend/sidecar action gate, and the
+  fenced executor. A private message additionally requires the same candidate's
+  successful comment receipt and a distinct confirmation. Generated
+  real-customer trials default the shared action gate to false; an enabled
+  trial requires a
+  separate recorded authorization, the one-shot CLI flag, and a global all-zero
+  `queued`/
   `blocked_by_predecessor`/`executing` audit. The
   separate generic
   public-search entry is labelled as an optional enhancement with its
@@ -240,11 +310,33 @@ ledger.
   guidance instead of exposing its internal error code. Rejected plan payloads
   preserve bounded backend validation details and show the first field path
   and reason instead of only the generic contract-error message.
-  Candidate selection creates an editable outreach batch; revision conflicts
-  reload current authority before another review. In an action-enabled runtime,
-  explicit approval, pause/resume, and sanitized comment/direct-message receipts
-  survive page reload. Publishing or automated trial verification does not
-  approve a batch: it stops before the user's final confirmation. Authorized
+  Candidate selection creates an editable outreach batch through one in-flight
+  browser command; the pending trigger is disabled and rapid repeated clicks
+  cannot create a second batch. Only declared stale-batch and ETag-precondition
+  failures reload current authority and show one conflict notice before another
+  review. Other 409 business outcomes preserve the current batch/revision and
+  show their localized operator action. The review workspace displays
+  the connected account, account ID/login version, candidate, exact frozen
+  public video target, exact frozen read-only public candidate profile,
+  300-character comment counter, unsaved-draft gate, remaining allowance, and
+  explicit comment-specific authorization. After a successful comment receipt, the
+  same candidate card unlocks an editable 800-character private-message draft,
+  a separate daily-limit control, confirmation, and queue command. The two
+  public targets are exposed by the batch DTO and participate in its hash;
+  crawler-private `evidenceText` and `publicActorKey` remain excluded. Final
+  confirmation stays disabled unless both targets are exact and the current
+  active account ID/login version matches the batch. Statuses and closed
+  platform failures are operator-readable Chinese; stable codes remain in
+  collapsed technical details. Approval action polling survives an initially
+  empty action page for a bounded window, and poll epochs prevent older loads
+  from overwriting a newer refresh or starting a competing polling chain.
+  Candidate-scoped MySQL reads validate and
+  embed only a bounded integer `LIMIT`, which is compatible with MySQL 8.4;
+  unknown batch-router exceptions also emit redacted request diagnostics while
+  the browser receives only the stable public error. In an action-enabled runtime,
+  explicit approvals, pause/resume, and sanitized comment/private-message
+  receipts survive page reload. Publishing or automated trial verification
+  crosses neither human confirmation. Authorized
   public-link import remains a collapsed secondary fallback. The existing
   Shensi shell, session/CSRF behavior and accessible navigation are preserved;
   desktop uses a table with evidence inspector, while narrow viewports use
@@ -259,14 +351,18 @@ ledger.
   after reload. An exact `https://www.douyin.com/video/{id}` candidate can
   create one single-candidate pending batch, edit and save a new revision, and
   enter the same review/final-approval flow used by `#acquisition`. Profile-only
-  evidence remains readable but its create CTA is disabled. Final approval is
-  the only send authorization and, when both action gates are enabled, queues
-  the exact comment followed by the predecessor-blocked private message; the
-  browser never sends directly. Demo sessions retain the deterministic local
+  evidence remains readable but its create CTA is disabled. Comment approval
+  queues exactly one comment per selected candidate when the shared action gate
+  is enabled. A successful comment then unlocks the same separate
+  private-message confirmation used by `#acquisition`; the browser never sends
+  directly. Demo sessions retain the deterministic local
   conversation preview.
 - Visible local MediaCrawler observation is a dedicated standard-Playwright
   Douyin window when `MEDIACRAWLER_BROWSER_HEADLESS=false`; Shensi disables CDP,
-  while production may set headless mode to `true`. Its visible tab is a
+  while collection-only production may set headless mode to `true` only with
+  external outreach disabled. Real comment/DM execution and reconciliation
+  require visible mode and fail closed at deployment plus both browser IPC
+  boundaries otherwise. Its visible tab is a
   separate best-effort mirror of the approved keyword and public video, not the
   collector page. It uses at most one unfinished observation task outside the
   collector's critical path, so a hung mirror cannot block collection or create
@@ -308,7 +404,10 @@ ledger.
   The pre-status queued placeholder announces once per outstanding run. The UI
   prevents duplicate submission until the current intent is observed and no
   longer pending. Manual automation keywords still require neither a public-
-  search API nor AI. Comment and direct-message approval remains human approved.
+  search API nor AI. Comment approval remains human confirmed; a private
+  message requires the same-candidate durable comment receipt and its separate
+  human confirmation. Historical non-v2 private-message actions remain read-
+  only and unclaimable.
   Automated and fixture verification never clicks final approval against a
   real batch, calls the sidecar action endpoint, or writes to Douyin.
 
@@ -325,13 +424,17 @@ ledger.
 - Deployment MediaCrawler now requires an absolute, existing, non-symlinked,
   current-user-owned `0700` `MEDIACRAWLER_CRAWL_OUTPUT_ROOT` strictly inside,
   and not equal to, `MEDIACRAWLER_ENCRYPTED_VOLUME`. Runner creation and cleanup
-  use that one resolved root. The Compose and development boundaries pass the
-  same root and default the two-layer action gate to false.
+  use that one resolved root. Compose, development, and trial boundaries pass
+  the same root, default the shared action gate to false, and default
+  `DOUYIN_ACTION_VISUAL_LOCATOR` to `disabled`; only exact `disabled` or
+  `rapidocr` configuration is accepted.
 - The isolated trial tooling is available through `trial:prepare`,
   `trial:start`, `trial:publish`, `trial:status`, `trial:verify`, and
   `trial:stop`. `trial:publish` preserves trial state, rebuilds the current
   worktree, restarts only recorded trial processes, and verifies the new
-  gateway. It uses the
+  gateway. Local and public trial views therefore come from the same repository
+  source, but a worktree edit does not update the running trial until this
+  separate explicit publish operation succeeds. It uses the
   ignored `.runtime/real-trial/` root and fixed loopback ports `3310`, `5608`,
   `5610`, `5611`, and `5612`; only gateway `5608` is eligible for the temporary
   Quick Tunnel. Runtime, secret/state, log, PID, MySQL, profile, and crawl-output
@@ -364,11 +467,14 @@ ledger.
 - Authenticated full-page visual inspection and an authorized Douyin QR
   scan/manual-keyword collection remain customer-interactive acceptance work;
   they do not authorize an external comment or direct message.
-- A dedicated-account comment/private-message acceptance remains a separate
-  Task 7 action-time step. Before enabling both gates, the operator must record
-  user authorization and use the one-shot flag after a global all-zero audit of
+- Dedicated-account comment and private-message acceptance remain separate
+  action-time steps. Before enabling the shared action gate, the operator must
+  record user authorization and use the one-shot flag after a global all-zero audit of
   `queued`, `blocked_by_predecessor`, and `executing`. Publishing and automated trial
-  verification stop before final user approval. If the later visible browser
+  verification stop before either user approval. A private-message acceptance
+  can begin only after the same candidate's accepted comment has a durable
+  receipt and the user gives the second confirmation. Historical rows without
+  version-2 authority remain read-only. If the later visible browser
   presents CAPTCHA, slider, login verification, limits, or platform warnings,
   only the user may complete verification; no bypass is permitted.
 
@@ -388,10 +494,13 @@ ledger.
    verify one manual-keyword collection and persisted candidates. Keep external
    actions disabled unless the separate explicit authorization and empty-queue
    activation checks are both recorded.
-3. Only after those checks pass may the operator retire the old static link;
+3. Publish verified source only through the explicit trial refresh command;
+   local and public builds use this repository, but a source edit alone does
+   not update the currently running temporary origin.
+4. Only after those checks pass may the operator retire the old static link;
    `trial:stop` must stop only validated trial process groups and retain data
    until the documented export/profile retention decision is complete.
-4. Separately, in a Docker-equipped environment, render and build production
+5. Separately, in a Docker-equipped environment, render and build production
    Compose and inspect its private networks and health/shutdown behavior.
 
 The two executing design/plan documents are retained under

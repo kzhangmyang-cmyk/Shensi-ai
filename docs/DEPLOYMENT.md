@@ -109,6 +109,7 @@ MEDIACRAWLER_BASE_URL=http://media-crawler:8899
 MEDIACRAWLER_SERVICE_SECRET_FILE=/run/secrets/mediacrawler_service_secret
 MEDIACRAWLER_CRAWL_OUTPUT_ROOT=/var/lib/shensi-mediacrawler/crawl-output
 DOUYIN_OUTREACH_ACTIONS_ENABLED=false
+DOUYIN_ACTION_VISUAL_LOCATOR=disabled
 ```
 
 The URL validator accepts only private/loopback plain HTTP targets. The secret
@@ -188,7 +189,22 @@ sidecar action endpoint and existing encrypted authenticated profile; never
 expose it through the public gateway. Node then owns account serialization,
 fenced claims, persisted server-time delays, final authority revalidation,
 daily limits, and receipts. The sidecar owns only the single exact browser
-submission and closed platform-state detection. Platform verification, rate
+submission and closed platform-state detection. Before calling the executor it
+must commit the `started` journal with file and parent-directory `fsync`; either
+barrier failing aborts before the platform write. Login-version and account-
+binding metadata use the same crash-durable replace pattern. Comment approval and private-
+message approval are separate commands. A version-2 private message is
+claimable only after the same candidate's exact comment has a durable successful
+receipt and the user provides the second confirmation. The account reserve is
+at least 60 seconds for comments and ten minutes for private messages; the
+private-message daily default is 20 with range 1–100, independently of the
+acquisition default 50 with range 1–200. The frozen policy time zone derives the
+approval local date; claim-time quota counts real attempts on the actual claim
+local day, including retries, and resets only the next local day. The same batch
+revision/candidate can never receive a second DM approval across dates. On one
+account-local day, the same candidate also cannot receive another DM from a
+different batch; a later local day may use a new batch without reopening the old
+revision. Platform verification, rate
 limiting, account warnings, login expiry, expired external-write leases, and
 uncertain receipts pause the persisted social account and related work;
 operators must never bypass the platform control. For an uncertain exact
@@ -196,6 +212,15 @@ action, the authenticated page exposes a separate operator-confirmed read-only
 reconciliation. It may store a unique existing post-start receipt, but it never
 clicks a send control, requeues the action, or automatically resumes the
 account/successor.
+
+`DOUYIN_ACTION_VISUAL_LOCATOR` accepts only exact `disabled` or `rapidocr`.
+Omission defaults to `disabled`; empty, padded, case-changed, or unknown values
+fail startup/deployment validation. DOM/ARIA remains primary. In `rapidocr`
+mode the pinned local OCR runtime may suggest only a missing entry/send control
+before an exact allowlisted DOM rebind. It never chooses account, target,
+editor, content, or receipt; screenshots and recognized text are not persisted
+or logged. Visual MCP is development-only diagnostics, not a production
+dependency. The browser action path remains model-provider neutral.
 
 On an existing MySQL installation, backend schema setup must complete before
 workers start. It widens Douyin authoritative-run alias columns to 160
@@ -222,11 +247,23 @@ before an alias is accepted.
 
 Existing installations also add outreach action target, lease, fence,
 attempt, receipt, and failure columns plus the account-serialization and
-attempt tables. An installation with legacy action rows but no frozen public
+attempt tables. Version-2 private-message authorization fields, including the
+authorization version, approver/timestamp, frozen daily limit/ordinal, stage
+hash, and predecessor receipt binding, are nullable so old rows stay readable.
+Schema setup does not backfill legacy direct-message rows; non-v2 rows remain
+unclaimable. An installation with legacy action rows but no frozen public
 target stops schema setup with
 `outreach_action_target_migration_required`; reconstruct or retire those rows
 under an operator-reviewed migration before restart. Never infer a public
 target from a private handle.
+
+Legacy queued comments whose batch JSON predates `timeZone` are handled at claim
+time before any attempt is consumed. MySQL recovers and persists the zone only
+when the exact immutable policy version/hash and its plan, account, and login
+binding all match. If that proof is unavailable, the comment and its blocked
+successor are terminalized without consuming another attempt. Version-2 private messages are not
+eligible for this compatibility path and still require an explicit frozen
+batch time zone.
 
 Before starting the sidecar, create and mount an encrypted-at-rest host
 directory. It must already exist, must not be a symlink, and must have exact
@@ -258,13 +295,17 @@ MEDIACRAWLER_BROWSER_CHANNEL=chrome
 ```
 
 Douyin may return a verification interstitial instead of a QR to a headless
-browser. With `MEDIACRAWLER_BROWSER_HEADLESS=false`, local operator login opens
+browser. With `MEDIACRAWLER_BROWSER_HEADLESS=false`, operator login and real
+outreach open
 a dedicated standard-Playwright Douyin window; Shensi explicitly disables CDP.
-Production may set `MEDIACRAWLER_BROWSER_HEADLESS=true`. A server/container
+Only a collection-only runtime with outreach disabled may set
+`MEDIACRAWLER_BROWSER_HEADLESS=true`. An action-enabled deployment fails
+preflight in headless mode, and parent/child IPC independently rejects a bypassed
+action or reconciliation before page creation. A server/container
 deployment using visible login must provide and acceptance-test its chosen
 standard-Playwright browser/display before claiming QR login support. The
-Compose defaults remain headless and channel-neutral so an image never silently
-assumes a host Chrome installation. Login-session creation allows 35 seconds
+Compose defaults remain headless, channel-neutral, and action-disabled so an
+image never silently assumes a host Chrome installation. Login-session creation allows 35 seconds
 for cold browser startup; ordinary health and poll requests retain the shorter
 gateway timeout.
 
@@ -398,13 +439,14 @@ All five services bind loopback:
 | MediaCrawler | `127.0.0.1:5612` | backend/private only |
 
 The ignored default root is `.runtime/real-trial/`. Preparation makes its
-runtime, `secrets/`, `state/`, `logs/`, `pids/`, and `tools/` directories
-owner-only (`0700`) and writes credential/environment files as `0600`. Current
-state paths are `state/mysql/`, `state/mediacrawler-profile/`, and
-`state/mediacrawler-output/`; the generated environment is
+runtime, `secrets/`, `state/`, `release/`, `logs/`, `pids/`, and `tools/`
+directories owner-only (`0700`) and writes credential/environment files as
+`0600`. Current state paths are `state/mysql/`,
+`state/mediacrawler-profile/`, and `state/mediacrawler-output/`; the published
+frontend snapshot is `release/frontend/`; the generated environment is
 `.runtime/real-trial/trial.env`. The profile and output paths are distinct
 children of the encrypted state root. No `.env.real.local`, ordinary development
-state, or source-local crawl output is reused.
+state, source-local crawl output, or mutable `frontend/dist` release is reused.
 
 ### Lifecycle commands
 
@@ -428,7 +470,8 @@ generates independent production secrets, writes the canonical encoded MySQL
 URL, and copies the configured fixed cloudflared binary only after its SHA-256
 matches. `trial:start` initializes a new dedicated MySQL data directory,
 provisions the least-privilege `shensi_trial_app@127.0.0.1`, obtains the Quick
-Tunnel HTTPS origin, injects that exact origin into backend CORS, and then
+Tunnel HTTPS origin, injects that origin plus the customer-facing local gateway
+`http://127.0.0.1:5608` into backend CORS, and then
 starts the loopback application stack. It bootstraps an internal random
 super-admin only long enough to create or verify
 `test@shensi.local` as tenant `admin` in `trial-pilot-001`; the backend is
@@ -436,10 +479,14 @@ restarted without `INITIAL_ADMIN_*`.
 
 After tests and build gates pass, `trial:publish` stops only the owned trial
 process groups, preserves the dedicated MySQL and MediaCrawler state, rebuilds
-from the current worktree, restarts the stack, and verifies the gateway. The
+from the current worktree, writes the frontend to the runtime-owned
+`release/frontend/` snapshot, restarts the stack, and verifies the gateway. The
 customer-facing local origin is `http://127.0.0.1:5608`; it is the same runtime
 as the temporary HTTPS origin. Development port `5588` is intentionally not a
-published-trial endpoint.
+published-trial endpoint. Local development and the published trial are built
+from the same repository source, but source edits and ordinary builds do not
+update a running trial: publishing is a separate explicit operation and may
+issue a new tunnel origin.
 
 `trial:status` is the current authority for process state and the temporary
 origin. Supply that origin to `trial:verify` through its requested process
@@ -461,16 +508,29 @@ backend remains email-only and the customer receives tenant `admin`, never
 `super_admin`.
 
 The generated runtime uses visible Chrome mode and defaults
-`DOUYIN_OUTREACH_ACTIONS_ENABLED=false`. QR readiness or account connection
+`DOUYIN_OUTREACH_ACTIONS_ENABLED=false` and
+`DOUYIN_ACTION_VISUAL_LOCATOR=disabled`. QR readiness or account connection
 does not authorize collection; collection does not authorize external sending.
 The public trial launch verifies that final outreach approval and the sidecar
 action route remain fail-closed by default. Ambient and retained
 `DOUYIN_OUTREACH_ACTIONS_ENABLED=true` values do not grant trial authorization.
 After explicit authorization, publish that specific trial with
-`pnpm trial:publish -- --enable-outreach-after-empty-audit`. Before any
+`pnpm trial:publish --enable-outreach-after-empty-audit`. Before any
 action-enabled backend starts, the supervisor runs a read-only global aggregate
 over all `queued`, `blocked_by_predecessor`, and `executing` rows. Any nonzero,
 malformed, or unavailable result aborts and cleans up the new processes.
+The action transport allows 175 seconds around the 150-second action deadline.
+For a comment with verified success or an ambiguous post-submit receipt, the
+sidecar uses ten seconds of that budget to keep the visible target page in
+front for operator review while retaining the profile lease; the review window
+does not perform another platform action or establish success.
+
+Only `trial:start` and `trial:publish` accept the trusted exact option
+`--action-visual-locator=rapidocr`. It runs the sidecar through the pinned
+`uv run --frozen --extra visual-locator` dependency selection; the ordinary
+path keeps the existing `.venv/bin/uvicorn` command. The locator option neither
+enables outreach nor replaces the separate empty-audit flag. `prepare`,
+`status`, and `stop` reject it.
 
 Stopping preserves the dedicated MySQL data, encrypted profile, crawl state,
 logs, and secrets. Before deleting the runtime root, export the trial database
@@ -551,14 +611,21 @@ Deterministic verification does not authorize a real Douyin action. External
 acceptance starts only after an operator supplies a dedicated test account and
 displays the exact test-owned video/profile URLs. The operator must verify the
 account has no unrelated audience or target, manually scan the QR, and stop on
-CAPTCHA, verification, rate-limit, or account-warning state. Immediately before
-approval, the user must see the selected account, target URL, exact test comment
-and exact test direct message and give action-time confirmation. Without that
-confirmation, do not approve the batch and do not send either action. The owned
+CAPTCHA, verification, rate-limit, or account-warning state. The executor's
+bounded manual handoff applies only when verification is detected immediately
+after initial target navigation; a later challenge stops immediately. Immediately before
+approval, the user must see the selected account, target URL and exact test
+comment and give action-time confirmation. Without that confirmation, do not
+approve the batch and do not send the comment. If that comment receives a
+durable unique success receipt, private-message acceptance is a second,
+independent checkpoint: show the same account/profile, exact text, predecessor
+receipt, and 1–100 daily limit, then require a new confirmation before queuing
+the version-2 message. Historical non-v2 direct-message rows remain read-only,
+are not backfilled, and are never claimed. The owned
 ordinary-development UI is `http://127.0.0.1:5191/#acquisition`. The isolated
 trial local UI goes through `http://127.0.0.1:5608/#acquisition`, and its
 customer-facing entry is the current temporary HTTPS origin reported by
-`trial:status`. This launch accepts only the disabled-action boundary; the
-one-comment/one-message procedure remains a later, separately authorized gate.
+`trial:status`. Automated verification stops before both confirmation controls;
+each real action is a later, separately authorized manual acceptance step.
 Production acceptance uses the configured HTTPS `CORS_ORIGINS` origin with
 `#acquisition` appended.

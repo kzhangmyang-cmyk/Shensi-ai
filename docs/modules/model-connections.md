@@ -11,6 +11,8 @@ council.
 
 - HTTP lifecycle: `/api/v1/ai/connections` handlers in
   `backend/src/server.ts`.
+- HTTP endpoint catalog: `GET /api/v1/ai/endpoint-profiles` returns the
+  official endpoint profiles and their server-certified selectable models.
 - Domain service: `backend/src/model-providers/connection-service.ts`.
 - Endpoint registry/adapters: `backend/src/model-providers/endpoint-profiles.ts`
   and `backend/src/model-providers/adapters/`.
@@ -34,17 +36,24 @@ in `backend/src/mysql-store.ts` and represented in `backend/schema.mysql.sql`.
 
 ## Public Interfaces
 
-`GET/POST /api/v1/ai/connections`, `GET/PATCH/DELETE
-/api/v1/ai/connections/:id`, and `POST
-/api/v1/ai/connections/:id/activate` are authenticated runtime routes. Public
-projections omit API keys and expose fingerprints/capabilities rather than raw
-credentials. Financial-council routing policy references connection IDs and
-snapshots through the Growth contract.
+`GET /api/v1/ai/endpoint-profiles`, `GET/POST /api/v1/ai/connections`,
+`GET/PATCH/DELETE /api/v1/ai/connections/:id`, and `POST
+/api/v1/ai/connections/:id/activate` are authenticated runtime routes. Each
+endpoint-profile item contains the provider, endpoint identity, region,
+official base URL or a null workspace URL, model-list policy, official
+reference, and a closed `models` array of `{ id, displayName }` choices. The
+list is server-certified configuration for selecting an exact model ID; it is
+not a live provider model-list response. Public projections omit API keys and
+expose fingerprints/capabilities rather than raw credentials. Financial-council
+routing policy references connection IDs and snapshots through the Growth
+contract.
 
 ## Tests
 
 - Connection, endpoint, gateway, and acquisition integration:
   `pnpm --filter ./backend test:acquisition`
+- Published endpoint-profile contract and generated transport types:
+  `pnpm check:acquisition-contracts`
 - Focused gateway: `pnpm --filter ./backend test:model-gateway`
 - Backend security aggregate: `pnpm --filter ./backend test:security`
 - Frontend connection UI: `pnpm --filter ./frontend test`
@@ -59,8 +68,25 @@ preserved key; byte copying alone is insufficient.
 
 ## Known Limitations
 
-Provider availability, model listing, tool calling, and structured output vary
-by endpoint profile and cannot be inferred from a saved connection. Live
-provider tests require billable external credentials. Losing or changing the
-external encryption key makes stored credential versions unusable; the key is
-intentionally not recoverable from Git.
+The selectable model catalog is a versioned certification list and can lag a
+provider's current inventory. Choosing an entry prevents an arbitrary or
+misspelled model ID, but does not prove that an API key is valid, that the
+tenant is entitled to the model, that quota remains, or that the provider is
+currently available. Live provider tests remain required for those facts and
+may be billable. Provider model listing, tool calling, and structured output
+vary by endpoint profile. Losing or changing the external encryption key makes
+stored credential versions unusable; the key is intentionally not recoverable
+from Git.
+
+DeepSeek V4 enables thinking mode by default, but its Chat Completions endpoint
+rejects `tool_choice: required` while that mode is active. The official
+OpenAI-compatible adapter therefore sends `thinking.type: disabled` only for
+required DeepSeek tool calls. Text generation and other providers keep their
+normal mode, and the server still validates the returned tool name and JSON
+arguments before any acquisition action can be created.
+
+Non-streaming model calls persist their success or failure ledger entry before
+the gateway returns to business code. A later outreach-draft validation failure
+therefore does not erase the provider attempt from the audit trail. If both the
+provider call and audit persistence fail, both causes are retained rather than
+replacing the provider error with a generic persistence error.

@@ -560,12 +560,12 @@ export class ActiveModelGateway {
           systemPrompt: request.systemPrompt,
           userPrompt: request.prompt
         };
-    this.#requireBoundContent(
+    await this.#requireBoundContent(
       promptBinding,
       request.schemaHash,
       { operation: "generate_structured" }
     );
-    this.#requireCapability(
+    await this.#requireCapability(
       "structuredOutput",
       { operation: "generate_structured" }
     );
@@ -619,9 +619,26 @@ export class ActiveModelGateway {
   }
 
   async callTools(request: ToolCallingRequest): Promise<ToolCallingResult> {
-    const resolved = this.#resolveToolCallingRequest(request);
+    let resolved: ResolvedToolCallingRequest;
+    try {
+      resolved = this.#resolveToolCallingRequest(request);
+    } catch (error) {
+      if (error instanceof ModelGatewayError
+        && error.code === "MODEL_CONTENT_HASH_MISMATCH") {
+        await this.#recordPreflightFailure(error, {
+          operation: "call_tools",
+          contentBinding: request.contentBinding
+            ? {
+                promptId: request.contentBinding.promptId,
+                toolSchemaId: request.contentBinding.toolSchemaId
+              }
+            : null
+        });
+      }
+      throw error;
+    }
     if (!resolved.bound) {
-      this.#requireBoundContent(
+      await this.#requireBoundContent(
         resolved.prompt,
         "schemaHash" in request ? request.schemaHash : undefined,
         {
@@ -630,7 +647,7 @@ export class ActiveModelGateway {
         }
       );
     }
-    this.#requireCapability(
+    await this.#requireCapability(
       "toolCalling",
       {
         operation: "call_tools",
@@ -641,7 +658,7 @@ export class ActiveModelGateway {
       }
     );
     if (resolved.parallelToolCalls) {
-      this.#requireCapability(
+      await this.#requireCapability(
         "parallelToolCalling",
         {
           operation: "call_tools",
@@ -753,7 +770,7 @@ export class ActiveModelGateway {
   async *streamText(
     request: TextGenerationRequest
   ): AsyncIterable<ModelStreamEvent> {
-    this.#requireCapability(
+    await this.#requireCapability(
       "streaming",
       { operation: "stream_text" }
     );
@@ -901,18 +918,16 @@ export class ActiveModelGateway {
     );
   }
 
-  #requireCapability(
+  async #requireCapability(
     capability: keyof ModelCapabilitySnapshot,
     parameters: Record<string, unknown>
   ) {
     if (this.#snapshot.capabilitySnapshot[capability]) return;
-    const context = this.#newAttempt(parameters);
     const error = new ModelGatewayError(
       "MODEL_CAPABILITY_UNSUPPORTED",
       false
     );
-    this.#recordFailure(context, error, null);
-    throw error;
+    await this.#recordPreflightFailure(error, parameters);
   }
 
   #boundContentError(prompt: unknown, schemaHash?: string) {
@@ -937,15 +952,32 @@ export class ActiveModelGateway {
     return null;
   }
 
-  #requireBoundContent(
+  async #requireBoundContent(
     prompt: unknown,
     schemaHash: string | undefined,
     parameters: Record<string, unknown>
   ) {
     const error = this.#boundContentError(prompt, schemaHash);
     if (!error) return;
+    await this.#recordPreflightFailure(error, parameters);
+  }
+
+  async #recordPreflightFailure(
+    error: ModelGatewayError,
+    parameters: Record<string, unknown>
+  ): Promise<never> {
     const context = this.#newAttempt(parameters);
     this.#recordFailure(context, error, null);
+    if (this.#persistAttempt) {
+      try {
+        await this.#persistAttempt();
+      } catch (persistenceError) {
+        throw new AggregateError(
+          [error, persistenceError],
+          "Model preflight failed and its audit record could not be persisted"
+        );
+      }
+    }
     throw error;
   }
 
@@ -972,6 +1004,7 @@ export class ActiveModelGateway {
     ) => Promise<AttemptValue<T>>
   ) {
     const context = this.#newAttempt(parameters);
+    let primaryError: unknown;
     try {
       const credential = await this.#resolveCredential();
       const result = await operation(credential, context.requestId);
@@ -997,7 +1030,24 @@ export class ActiveModelGateway {
         attemptFailure?.usage ?? ZERO_USAGE,
         attemptFailure?.resultForHash()
       );
-      throw error instanceof SchemaValidationFailure ? error : normalized;
+      primaryError = error instanceof SchemaValidationFailure
+        ? error
+        : normalized;
+      throw primaryError;
+    } finally {
+      if (this.#persistAttempt) {
+        try {
+          await this.#persistAttempt();
+        } catch (persistenceError) {
+          if (primaryError !== undefined) {
+            throw new AggregateError(
+              [primaryError, persistenceError],
+              "Model call failed and its audit record could not be persisted"
+            );
+          }
+          throw persistenceError;
+        }
+      }
     }
   }
 

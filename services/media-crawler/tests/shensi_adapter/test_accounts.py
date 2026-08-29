@@ -2,16 +2,19 @@ import multiprocessing
 import json
 import os
 import signal
+import stat
 import subprocess
 import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
+import shensi_adapter.accounts as accounts_module
 from shensi_adapter.accounts import AccountManager
 from shensi_adapter.browser_state import MediaCrawlerDouyinBrowserState, _open_context
 from shensi_adapter.app import (
@@ -21,7 +24,16 @@ from shensi_adapter.app import (
     validate_encrypted_profile_root,
 )
 from shensi_adapter.crawl_jobs import CrawlJobManager
+from shensi_adapter.douyin_account_identity import (
+    account_handle_for_fingerprint,
+    identity_fingerprint_for_raw_sec_uid,
+)
 from shensi_adapter.schemas import CrawlJobRequest
+
+
+ACCOUNT_FINGERPRINT = identity_fingerprint_for_raw_sec_uid(
+    "MS4wLjABFixtureAccount"
+)
 
 
 class FakeBrowser:
@@ -36,10 +48,27 @@ class FakeBrowser:
         self.closed += 1
 
     def poll_douyin_login(self, _context):
-        return {"active": True, "display_name": "Douyin"}
+        return {
+            "active": True,
+            "display_name": "Douyin",
+            "identity_fingerprint": ACCOUNT_FINGERPRINT,
+        }
 
     def close_browser(self):
         return None
+
+
+def _allocate_login_version_in_process(root, start, result_queue):
+    manager = AccountManager(Path(root), FakeBrowser())
+    try:
+        if not start.wait(timeout=5):
+            raise RuntimeError("allocation_start_timeout")
+        result_queue.put(("ok", manager._next_login_state_version()))
+    except BaseException as error:
+        result_queue.put(("error", type(error).__name__))
+        raise
+    finally:
+        manager.close()
 
 
 class FailingCloseBrowser(FakeBrowser):
@@ -70,6 +99,21 @@ class _TimeoutConnection:
 
     def close(self):
         self.closed = True
+
+
+class _ShutdownErrorConnection(_TimeoutConnection):
+    def __init__(self):
+        super().__init__()
+        self.sent = []
+
+    def send(self, command):
+        self.sent.append(command)
+
+    def poll(self, _timeout):
+        return True
+
+    def recv(self):
+        return {"kind": "shutdown_error"}
 
 
 class _SlowExitProcess:
@@ -154,12 +198,50 @@ class _FakeImage:
         return "data:image/png;base64,cXI="
 
 
+class _FakeIdentityAnchor:
+    def count(self):
+        return 1
+
+    def nth(self, _index):
+        return self
+
+    def is_visible(self, **_kwargs):
+        return True
+
+    def get_attribute(self, name):
+        return {
+            "href": "/user/MS4wLjABFixtureAccount",
+            "title": "Douyin",
+        }.get(name)
+
+    def inner_text(self, **_kwargs):
+        return "Douyin"
+
+    def locator(self, _selector):
+        return _FakeEmptyLocator()
+
+
+class _FakeEmptyLocator:
+    def count(self):
+        return 0
+
+
 class _FakePage:
+    url = "https://www.douyin.com/"
+
     def goto(self, *_args, **_kwargs):
         return None
 
-    def locator(self, _selector):
+    def locator(self, selector):
+        if selector == (
+            'header a[href], nav a[href], [role="navigation"] a[href], '
+            '[data-e2e="douyin-header"] a[href], #douyin-header a[href]'
+        ):
+            return _FakeIdentityAnchor()
         return _FakeImage()
+
+    def wait_for_timeout(self, _milliseconds):
+        return None
 
     def evaluate(self, expression, *_args):
         if "HasUserLogin" in expression:
@@ -344,6 +426,403 @@ def test_account_manager_reloads_durable_active_metadata_and_retains_it_after_qr
     restarted.close()
 
 
+def test_account_manager_uses_stable_hashed_handle_and_monotonic_login_version(
+    tmp_path,
+):
+    now = datetime(2026, 8, 24, tzinfo=UTC)
+    first_manager = AccountManager(
+        tmp_path,
+        FakeBrowser(),
+        now=lambda: now,
+        session_ttl=timedelta(minutes=1),
+    )
+    first_session = first_manager.create_login_session()
+    first = first_manager.get_login_session(first_session.session_id)
+    repeated = first_manager.get_login_session(first_session.session_id)
+
+    expected_handle = account_handle_for_fingerprint(ACCOUNT_FINGERPRINT)
+    assert first.account_handle == expected_handle
+    assert repeated.account_handle == expected_handle
+    assert first.login_state_version == 1
+    assert repeated.login_state_version == 1
+    first_manager.disconnect(first_session.session_id)
+    first_manager.close()
+
+    restarted = AccountManager(
+        tmp_path,
+        FakeBrowser(),
+        now=lambda: now,
+        session_ttl=timedelta(minutes=1),
+    )
+    second_session = restarted.create_login_session()
+    second = restarted.get_login_session(second_session.session_id)
+
+    assert second.account_handle == expected_handle
+    assert second.login_state_version == 2
+    ledger = tmp_path / ".shensi-account-identity-ledger.json"
+    persisted = json.loads(ledger.read_text(encoding="utf-8"))
+    assert persisted == {
+        "version": 1,
+        "last_login_state_version": 2,
+    }
+    assert "MS4wLjABFixtureAccount" not in ledger.read_text(encoding="utf-8")
+    assert oct(ledger.stat().st_mode & 0o777) == "0o600"
+    restarted.close()
+
+
+def test_login_state_version_ledger_is_atomic_across_processes(tmp_path):
+    context = multiprocessing.get_context("spawn")
+    start = context.Event()
+    results = context.Queue()
+    processes = [
+        context.Process(
+            target=_allocate_login_version_in_process,
+            args=(str(tmp_path), start, results),
+        )
+        for _index in range(2)
+    ]
+    for process in processes:
+        process.start()
+    start.set()
+    observed = [results.get(timeout=10) for _index in processes]
+    for process in processes:
+        process.join(timeout=10)
+        assert process.exitcode == 0
+
+    assert sorted(observed) == [("ok", 1), ("ok", 2)]
+    ledger = json.loads((
+        tmp_path / ".shensi-account-identity-ledger.json"
+    ).read_text(encoding="utf-8"))
+    assert ledger["last_login_state_version"] == 2
+    assert oct((
+        tmp_path / ".shensi-account-identity-ledger.lock"
+    ).stat().st_mode & 0o777) == "0o600"
+    results.close()
+    results.join_thread()
+
+
+def test_account_activation_syncs_identity_files_before_returning_active(
+    tmp_path,
+    monkeypatch,
+):
+    manager = AccountManager(tmp_path, FakeBrowser())
+    created = manager.create_login_session()
+    events = []
+    real_fsync = os.fsync
+    real_replace = os.replace
+
+    def recording_fsync(descriptor):
+        kind = (
+            "directory_fsync"
+            if stat.S_ISDIR(os.fstat(descriptor).st_mode)
+            else "file_fsync"
+        )
+        events.append(kind)
+        real_fsync(descriptor)
+
+    def recording_replace(source, destination):
+        events.append(f"replace:{Path(destination).name}")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(accounts_module.os, "fsync", recording_fsync)
+    monkeypatch.setattr(accounts_module.os, "replace", recording_replace)
+    try:
+        active = manager.get_login_session(created.session_id)
+        observed = list(events)
+    finally:
+        manager.close()
+
+    assert active.state == "active"
+    assert observed == [
+        "file_fsync",
+        "replace:.shensi-account-identity-ledger.json",
+        "directory_fsync",
+        "file_fsync",
+        "replace:.shensi-connected-account.json",
+        "directory_fsync",
+        "file_fsync",
+        "replace:.shensi-login-session.json",
+        "directory_fsync",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("failure_stage", "failure_kind", "failure_occurrence"),
+    [
+        ("ledger", "file", 1),
+        ("ledger", "directory", 1),
+        ("binding", "file", 2),
+        ("binding", "directory", 2),
+    ],
+)
+def test_account_activation_fails_closed_when_identity_sync_fails(
+    tmp_path,
+    monkeypatch,
+    failure_stage,
+    failure_kind,
+    failure_occurrence,
+):
+    manager = AccountManager(tmp_path, FakeBrowser())
+    created = manager.create_login_session()
+    profile = manager._sessions[created.session_id]["profile"]
+    sync_counts = {"file": 0, "directory": 0}
+    real_fsync = os.fsync
+
+    def failing_fsync(descriptor):
+        kind = (
+            "directory"
+            if stat.S_ISDIR(os.fstat(descriptor).st_mode)
+            else "file"
+        )
+        sync_counts[kind] += 1
+        if kind == failure_kind and sync_counts[kind] == failure_occurrence:
+            raise OSError(f"simulated_{failure_stage}_{kind}_fsync_failure")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(accounts_module.os, "fsync", failing_fsync)
+    try:
+        with pytest.raises(
+            OSError,
+            match=f"simulated_{failure_stage}_{failure_kind}_fsync_failure",
+        ):
+            manager.get_login_session(created.session_id)
+
+        assert manager._accounts == {}
+        if failure_stage == "ledger":
+            assert created.session_id in manager._sessions
+            assert manager._sessions[created.session_id]["account_handle"] is None
+            assert not (
+                profile / ".shensi-connected-account.json"
+            ).exists()
+        else:
+            assert created.session_id not in manager._sessions
+            assert not profile.exists()
+    finally:
+        manager.close()
+
+
+def test_account_metadata_writer_refuses_a_symlink_temporary_file(tmp_path):
+    target = tmp_path / ".shensi-connected-account.json"
+    temporary = target.with_suffix(".tmp")
+    victim = tmp_path / "victim.json"
+    victim.write_text("do-not-overwrite", encoding="utf-8")
+    temporary.symlink_to(victim)
+
+    with pytest.raises((OSError, ValueError)):
+        AccountManager._write_metadata(target, {"version": 1})
+
+    assert victim.read_text(encoding="utf-8") == "do-not-overwrite"
+    assert not target.exists()
+
+
+def test_account_manager_fails_closed_when_login_identity_or_name_is_missing(
+    tmp_path,
+):
+    class UnboundBrowser(FakeBrowser):
+        def poll_douyin_login(self, _context):
+            return {
+                "active": False,
+                "identity_error": "douyin_account_identity_missing",
+            }
+
+    manager = AccountManager(tmp_path, UnboundBrowser())
+    created = manager.create_login_session()
+
+    failed = manager.get_login_session(created.session_id)
+
+    assert failed.state == "failed"
+    assert failed.account_handle is None
+    assert failed.account_display_name is None
+    assert failed.login_state_version is None
+    assert manager._accounts == {}
+    manager.close()
+
+
+def test_account_manager_refuses_corrupt_monotonic_identity_ledger(tmp_path):
+    ledger = tmp_path / ".shensi-account-identity-ledger.json"
+    ledger.write_text('{"version":1,"last_login_state_version":-1}',
+                      encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid identity ledger"):
+        AccountManager(tmp_path, FakeBrowser())
+
+
+def test_old_same_identity_session_cannot_remove_newer_account_authority(
+    tmp_path,
+):
+    clock = [datetime(2026, 8, 24, tzinfo=UTC)]
+    manager = AccountManager(
+        tmp_path,
+        FakeBrowser(),
+        now=lambda: clock[0],
+        session_ttl=timedelta(minutes=1),
+    )
+    old_session = manager.create_login_session()
+    old_account = manager.get_login_session(old_session.session_id)
+    new_session = manager.create_login_session()
+    new_account = manager.get_login_session(new_session.session_id)
+
+    assert old_account.account_handle == new_account.account_handle
+    assert old_account.login_state_version == 1
+    assert new_account.login_state_version == 2
+    new_profile = manager._sessions[new_session.session_id]["profile"]
+
+    clock[0] += timedelta(minutes=2)
+    manager.get_login_session(old_session.session_id, clock[0])
+    assert manager.resolve_action_profile(
+        new_account.account_handle,
+        new_account.login_state_version,
+    ) == new_profile
+
+    manager.disconnect(old_session.session_id)
+    assert manager.resolve_action_profile(
+        new_account.account_handle,
+        new_account.login_state_version,
+    ) == new_profile
+    manager.close()
+
+
+def test_action_checkpoint_rejects_same_account_login_version_supersession(
+    tmp_path,
+):
+    class VersionSwitchingActionBrowser(FakeBrowser):
+        manager = None
+
+        def execute_douyin_action(
+            self, _profile, _request, *, authority_validator,
+        ):
+            authority_validator()
+            newer_session = self.manager.create_login_session()
+            newer = self.manager.get_login_session(
+                newer_session.session_id
+            )
+            assert newer.login_state_version == 2
+            authority_validator()
+            raise AssertionError("superseded action must stop")
+
+    browser = VersionSwitchingActionBrowser()
+    manager = AccountManager(tmp_path, browser)
+    browser.manager = manager
+    first_session = manager.create_login_session()
+    first = manager.get_login_session(first_session.session_id)
+    profile = manager.resolve_action_profile(
+        first.account_handle,
+        first.login_state_version,
+    )
+
+    with pytest.raises(
+        Exception,
+        match="douyin_account_identity_changed",
+    ):
+        manager.execute_action(profile, SimpleNamespace(
+            account_handle=first.account_handle,
+            login_state_version=first.login_state_version,
+        ))
+
+    manager.close()
+
+
+def test_action_authority_lease_blocks_reconnect_without_lock_inversion(
+    tmp_path,
+):
+    class BlockingActionBrowser(FakeBrowser):
+        def __init__(self):
+            super().__init__()
+            self.action_started = threading.Event()
+            self.release_action = threading.Event()
+
+        def execute_douyin_action(
+            self, _profile, _request, *, authority_validator,
+        ):
+            authority_validator()
+            self.action_started.set()
+            assert self.release_action.wait(timeout=2)
+            authority_validator()
+            return {"state": "succeeded"}
+
+    browser = BlockingActionBrowser()
+    manager = AccountManager(tmp_path, browser)
+    first_session = manager.create_login_session()
+    first = manager.get_login_session(first_session.session_id)
+    profile = manager.resolve_action_profile(
+        first.account_handle,
+        first.login_state_version,
+    )
+    action_errors = []
+    reconnect_results = []
+
+    def run_action():
+        try:
+            manager.execute_action(profile, SimpleNamespace(
+                account_handle=first.account_handle,
+                login_state_version=first.login_state_version,
+            ))
+        except BaseException as error:
+            action_errors.append(error)
+
+    def reconnect():
+        created = manager.create_login_session()
+        reconnect_results.append(
+            manager.get_login_session(created.session_id)
+        )
+
+    action_thread = threading.Thread(target=run_action)
+    action_thread.start()
+    assert browser.action_started.wait(timeout=1)
+    reconnect_thread = threading.Thread(target=reconnect)
+    reconnect_thread.start()
+    time.sleep(0.05)
+    assert reconnect_thread.is_alive()
+    assert reconnect_results == []
+
+    browser.release_action.set()
+    action_thread.join(timeout=2)
+    reconnect_thread.join(timeout=2)
+
+    assert not action_thread.is_alive()
+    assert not reconnect_thread.is_alive()
+    assert action_errors == []
+    assert reconnect_results[0].login_state_version == 2
+    manager.close()
+
+
+def test_login_state_version_is_global_across_different_real_accounts(
+    tmp_path,
+):
+    fingerprints = iter([
+        identity_fingerprint_for_raw_sec_uid("MS4wLjABAccountA"),
+        identity_fingerprint_for_raw_sec_uid("MS4wLjABAccountB"),
+    ])
+
+    class SwitchingBrowser(FakeBrowser):
+        def poll_douyin_login(self, _context):
+            return {
+                "active": True,
+                "display_name": "账号 A" if not hasattr(
+                    self, "_returned_once"
+                ) else "账号 B",
+                "identity_fingerprint": next(fingerprints),
+            }
+
+    browser = SwitchingBrowser()
+    manager = AccountManager(tmp_path, browser)
+    first_session = manager.create_login_session()
+    first = manager.get_login_session(first_session.session_id)
+    browser._returned_once = True
+    second_session = manager.create_login_session()
+    second = manager.get_login_session(second_session.session_id)
+
+    assert first.account_handle != second.account_handle
+    assert first.login_state_version == 1
+    assert second.login_state_version == 2
+    with pytest.raises(KeyError, match="active_account_not_found"):
+        manager.resolve_action_profile(
+            second.account_handle,
+            first.login_state_version,
+        )
+    manager.close()
+
+
 @pytest.mark.parametrize("ephemeral", ["missing", "malformed"])
 def test_durable_active_account_can_crawl_after_qr_ttl_and_fresh_manager_restart(
     tmp_path, ephemeral
@@ -499,7 +978,13 @@ def test_browser_process_routes_create_poll_disconnect_without_exposing_context(
         opened = browser.open_douyin_login(tmp_path)
         assert opened["qr_image_data_url"] == "data:image/png;base64,cXI="
         assert set(opened) == {"handle", "qr_image_data_url"}
-        assert browser.poll_douyin_login(opened) == {"active": True}
+        polled = browser.poll_douyin_login(opened)
+        assert polled == {
+            "active": True,
+            "identity_fingerprint": ACCOUNT_FINGERPRINT,
+            "display_name": "Douyin",
+        }
+        assert "MS4wLjABFixtureAccount" not in json.dumps(polled)
         browser.close(opened)
     finally:
         browser.close_browser()
@@ -563,6 +1048,41 @@ def test_deployment_account_manager_uses_explicit_interactive_browser_settings(
         manager.close()
 
 
+def test_deployment_rejects_headless_browser_when_real_outreach_is_enabled(
+    tmp_path, monkeypatch,
+):
+    volume = tmp_path / "volume"
+    profiles = volume / "profiles"
+    profiles.mkdir(parents=True, mode=0o700)
+    os.chmod(volume, 0o700)
+    os.chmod(profiles, 0o700)
+    monkeypatch.setenv("MEDIACRAWLER_ENCRYPTED_VOLUME", str(volume))
+    monkeypatch.setenv("MEDIACRAWLER_PROFILE_ROOT", str(profiles))
+    monkeypatch.setenv("DOUYIN_OUTREACH_ACTIONS_ENABLED", "true")
+    monkeypatch.setenv("MEDIACRAWLER_BROWSER_HEADLESS", "true")
+    browser_starts = 0
+
+    def browser_factory(**_kwargs):
+        nonlocal browser_starts
+        browser_starts += 1
+        return FakeBrowser()
+
+    monkeypatch.setattr(
+        "shensi_adapter.app.MediaCrawlerDouyinBrowserState", browser_factory
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "DOUYIN_OUTREACH_ACTIONS_ENABLED=true requires "
+            "MEDIACRAWLER_BROWSER_HEADLESS=false"
+        ),
+    ):
+        create_deployment_account_manager()
+
+    assert browser_starts == 0
+
+
 def test_unknown_poll_and_close_handles_return_stable_closed_errors(tmp_path):
     browser = MediaCrawlerDouyinBrowserState(
         playwright_factory=_working_playwright_factory,
@@ -597,6 +1117,32 @@ def test_hard_stop_retries_exit_before_closing_process_and_preserves_timeout_err
     assert str(failure.value) == "douyin_browser_command_timeout"
     assert browser._process.alive is False
     assert browser._process.close_calls == 1
+
+
+def test_shutdown_error_wins_when_worker_exit_is_delayed_after_response():
+    browser = object.__new__(MediaCrawlerDouyinBrowserState)
+    browser._connection = _ShutdownErrorConnection()
+    browser._process = _SlowExitProcess()
+    browser._owned_pgid = None
+    browser._timeout = 0.01
+    browser._lock = threading.Lock()
+    browser._closed = False
+    browser._shutdown_failed = False
+    browser._next_command_id = 1
+
+    with pytest.raises(
+        RuntimeError,
+        match="^douyin_browser_shutdown_failed$",
+    ):
+        browser.close_browser()
+
+    assert browser._connection.sent == [{
+        "id": 1,
+        "operation": "shutdown",
+    }]
+    assert browser._process.alive is False
+    assert browser._process.close_calls == 1
+    assert browser._shutdown_failed is True
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group boundary")

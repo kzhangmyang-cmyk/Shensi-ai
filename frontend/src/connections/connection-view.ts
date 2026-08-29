@@ -43,12 +43,6 @@ const MODEL_LABELS: Record<string, string> = {
   qianfan: "百度千帆"
 };
 
-const MODEL_DEFAULTS: Record<string, string> = {
-  moonshot: "kimi-k3",
-  minimax: "MiniMax-M3",
-  zhipu: "glm-5.2"
-};
-
 function escapeHtml(value: unknown): string {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -73,8 +67,17 @@ export function modelProviderLabel(provider: string): string {
   return MODEL_LABELS[provider] ?? provider;
 }
 
-export function defaultModelForProvider(provider: string): string {
-  return MODEL_DEFAULTS[provider] ?? "";
+function profileModels(profile: ModelEndpointProfile | undefined) {
+  return Array.isArray(profile?.models) ? profile.models : [];
+}
+
+function modelOptions(
+  models: ModelEndpointProfile["models"],
+  selectedModel?: string
+): string {
+  return models.map((model) =>
+    `<option value="${escapeHtml(model.id)}"${model.id === selectedModel ? " selected" : ""}>${escapeHtml(model.displayName)}</option>`
+  ).join("");
 }
 
 function searchStatus(connection: SearchConnection | undefined): string {
@@ -197,6 +200,13 @@ function modelEditor(state: ConnectionCenterState): string {
     item.id === state.selectedModelConnectionId);
   if (connection) {
     const health = state.modelHealth[connection.id];
+    const profile = state.modelProfiles.find((item) =>
+      item.endpointProfileId === connection.endpointProfileId);
+    const models = profileModels(profile);
+    const currentModelIsCertified = models.some((model) =>
+      model.id === connection.model);
+    const modelSelectionDisabled = models.length === 0;
+    const rotationDisabled = modelSelectionDisabled ? " disabled" : disabled(state);
     return `
       <section class="replica-connection-editor">
         <div class="replica-connection-editor-head">
@@ -222,9 +232,15 @@ function modelEditor(state: ConnectionCenterState): string {
         ${connection.status === "active" ? "" : `
           <form class="replica-connection-rotation" data-connection-form="rotate-model" data-connection-id="${escapeHtml(connection.id)}">
             <div><strong>更新模型凭证</strong><span>可同时更新模型名或 API Key。</span></div>
-            <label><span>模型名</span><input name="model" maxlength="120" value="${escapeHtml(connection.model)}"></label>
+            <label><span>模型名</span><select name="model" required${modelSelectionDisabled ? " disabled" : ""}>${currentModelIsCertified
+              ? ""
+              : `<option value="" disabled selected>当前模型 ${escapeHtml(connection.model)} 未认证，请重新选择</option>`}${modelOptions(models, currentModelIsCertified ? connection.model : undefined)}</select><small>${modelSelectionDisabled
+                ? "该端点暂无可选的已认证模型，暂时无法更新连接。"
+                : currentModelIsCertified
+                  ? "请选择服务端已认证的模型。"
+                  : "当前模型不在认证列表中，请重新选择。"}</small></label>
             <label><span>新 API Key（可选）</span><input name="apiKey" type="password" maxlength="400" autocomplete="new-password" spellcheck="false"></label>
-            <button type="submit"${disabled(state)}>${state.mutation === "updating" ? "正在更新" : "更新连接"}</button>
+            <button type="submit"${rotationDisabled}>${state.mutation === "updating" ? "正在更新" : "更新连接"}</button>
           </form>`}
       </section>`;
   }
@@ -239,6 +255,9 @@ function modelEditor(state: ConnectionCenterState): string {
     return `<div class="replica-connection-empty"><strong>暂不支持工作空间端点</strong><span>该官方端点需要工作空间级地址，当前后端连接合同尚未提供 Workspace ID。请先选择其他官方端点。</span></div>`;
   }
   const reference = safeHttpsUrl(profile.officialReference);
+  const models = profileModels(profile);
+  const modelSelectionDisabled = models.length === 0;
+  const createDisabled = modelSelectionDisabled ? " disabled" : disabled(state);
   return `
     <form class="replica-connection-editor" data-connection-form="create-model">
       <div class="replica-connection-editor-head">
@@ -249,9 +268,13 @@ function modelEditor(state: ConnectionCenterState): string {
       <input type="hidden" name="provider" value="${escapeHtml(profile.provider)}">
       <input type="hidden" name="baseUrl" value="${escapeHtml(profile.baseUrl)}">
       <label><span>连接名称</span><input name="name" maxlength="120" value="${escapeHtml(modelProviderLabel(profile.provider))} 获客模型"></label>
-      <label><span>模型名</span><input name="model" required maxlength="120" value="${escapeHtml(defaultModelForProvider(profile.provider))}" placeholder="填写服务端已认证的模型名"></label>
+      <label><span>模型名</span><select name="model" required${modelSelectionDisabled ? " disabled" : ""}>${modelSelectionDisabled
+        ? `<option value="" selected>暂无已认证模型</option>`
+        : modelOptions(models)}</select><small>${modelSelectionDisabled
+          ? "该端点暂无可选的已认证模型，暂时无法保存连接。"
+          : "请选择服务端已认证的模型。"}</small></label>
       <label><span>官方 API Key</span><input name="apiKey" type="password" required maxlength="400" autocomplete="new-password" spellcheck="false"><small>密钥保存后不会再次显示。</small></label>
-      <button type="submit" class="replica-connection-primary"${disabled(state)}>${state.mutation === "saving" ? "正在保存" : "保存 AI 模型"}</button>
+      <button type="submit" class="replica-connection-primary"${createDisabled}>${state.mutation === "saving" ? "正在保存" : "保存 AI 模型"}</button>
     </form>`;
 }
 

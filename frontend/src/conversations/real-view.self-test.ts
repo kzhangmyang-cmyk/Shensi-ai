@@ -35,6 +35,8 @@ function batch(state: OutreachBatch["state"] = "awaiting_approval"): OutreachBat
       selected: true,
       candidateRevision: 1,
       evidenceHashes: [`sha256:${"3".repeat(64)}`],
+      publicProfileUrl: "https://www.douyin.com/user/actor-1",
+      commentTargetPublicUrl: "https://www.douyin.com/video/video-1",
       draftRevision: 2,
       comment: "精确公开评论",
       commentHash: `sha256:${"4".repeat(64)}`,
@@ -65,6 +67,10 @@ const idleOutreach = (): OutreachBatchState => ({
   batch: null,
   drafts: {},
   actions: [],
+  directMessageDailyLimit: 20,
+  directMessageConfirmed: false,
+  directMessageApprovalPhase: "idle",
+  directMessagePendingCandidateIds: [],
   error: null,
   conflict: false,
   closed: false
@@ -86,7 +92,7 @@ const deliveredAction: OutreachAction = {
   predecessorActionId: null,
   targetPublicUrl: "https://www.douyin.com/video/123",
   content: "精确公开评论",
-  contentHash: `sha256:${"9".repeat(64)}`,
+  contentHash: `sha256:${"4".repeat(64)}`,
   approvalHash: `sha256:${"8".repeat(64)}`,
   createdAt: "2026-08-27T08:01:00.000Z",
   attemptCount: 1,
@@ -111,6 +117,12 @@ const baseState: RealConversationsViewState = {
   snapshot: {
     generatedAt: "2026-08-26T08:00:00.000Z",
     runsRead: 1,
+    accounts: [{
+      id: "account-1",
+      displayName: "抖音测试账号",
+      state: "active",
+      loginStateVersion: 1
+    }],
     receiptAccess: "known_batch_id_only",
     truncatedRunIds: [],
     failedRuns: [],
@@ -233,7 +245,14 @@ const baseState: RealConversationsViewState = {
   assert.match(html, /data-real-conversations-outreach-host/u);
   assert.match(html, /精确公开评论/u);
   assert.match(html, /审批后的精确私信/u);
+  assert.match(html, /抖音测试账号/u);
+  assert.match(html, /https:\/\/www\.douyin\.com\/user\/actor-1/u);
   assert.match(html, /data-outreach-confirm/u);
+  assert.doesNotMatch(html, /暂不能最终确认/u);
+  assert.equal(
+    main.querySelector<HTMLInputElement>("[data-outreach-confirm]")?.disabled,
+    false
+  );
   assert.match(html, /data-outreach-action="approve" disabled/u);
 }
 
@@ -252,6 +271,15 @@ const baseState: RealConversationsViewState = {
   assert.match(main.innerHTML, /公开评论 · 已送达/u);
   assert.match(main.innerHTML, /receipt-&lt;script&gt;/u);
   assert.doesNotMatch(main.innerHTML, /<script>alert\('receipt'\)<\/script>/u);
+  assert.match(main.innerHTML, /真实私信复核/u);
+  assert.equal(
+    main.querySelector<HTMLTextAreaElement>(
+      "[data-outreach-field=directMessage]"
+    )?.disabled,
+    false,
+    "social conversations must share the same successful-comment unlock"
+  );
+  assert.match(main.innerHTML, /确认并排队真实私信/u);
 }
 
 {

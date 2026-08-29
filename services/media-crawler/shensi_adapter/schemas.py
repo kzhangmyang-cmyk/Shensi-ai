@@ -129,9 +129,10 @@ class ActionReceipt(BaseModel):
     failure_code: Literal[
         "action_unavailable", "action_rejected", "deadline_exceeded",
         "douyin_verification_required", "douyin_rate_limited",
-        "douyin_account_warning", "douyin_login_expired",
+        "douyin_account_warning", "douyin_account_identity_changed",
+        "douyin_login_expired",
         "douyin_direct_message_unavailable",
         "douyin_action_control_missing", "douyin_action_control_ambiguous",
         "douyin_action_content_mismatch", "douyin_action_receipt_ambiguous",
-        "douyin_action_timeout",
+        "douyin_action_timeout", "douyin_profile_busy",
     ] | None

@@ -139,6 +139,12 @@ assert.equal(candidateInputs[0]?.disabled, true);
 assert.equal(candidateInputs[1]?.disabled, false);
 assert.match(host.querySelectorAll<HTMLElement>(".douyin-candidate-row")[0]?.textContent ?? "",
   /缺少可评论视频/u);
+assert.match(host.querySelectorAll<HTMLElement>(".douyin-candidate-row")[0]?.textContent ?? "",
+  /仅查看/u);
+assert.match(host.querySelectorAll<HTMLElement>(".douyin-candidate-row")[1]?.textContent ?? "",
+  /可评论/u);
+assert.match(host.querySelectorAll<HTMLElement>(".douyin-candidate-row")[1]?.textContent ?? "",
+  /未加入本批次/u);
 
 const inspectableEvidenceState: DouyinAutomationState = {
   ...candidateEvidenceState,
@@ -299,6 +305,39 @@ assert.deepEqual(
   "a restored run must create an approval batch without requiring a transient run intent"
 );
 unmountRecoveredView();
+
+let batchCreationCalls = 0;
+let finishBatchCreation!: () => void;
+const pendingBatchCreation = new Promise<void>((resolve) => {
+  finishBatchCreation = resolve;
+});
+const unmountSerializedBatchCreation = mountDouyinAutomationView(
+  host,
+  recoveredViewController,
+  async () => {
+    batchCreationCalls += 1;
+    await pendingBatchCreation;
+  }
+);
+const serializedBatchButton = host.querySelector<HTMLButtonElement>(
+  "[data-douyin-action=create-batch]"
+)!;
+serializedBatchButton.click();
+serializedBatchButton.click();
+assert.equal(batchCreationCalls, 1,
+  "rapid repeated clicks must create only one approval batch");
+assert.equal(serializedBatchButton.disabled, true,
+  "batch creation must disable its trigger while the request is pending");
+assert.match(serializedBatchButton.textContent ?? "", /正在生成/u);
+finishBatchCreation();
+await pendingBatchCreation;
+await Promise.resolve();
+assert.equal(
+  host.querySelector<HTMLButtonElement>("[data-douyin-action=create-batch]")?.disabled,
+  false,
+  "the batch action must recover after creation settles"
+);
+unmountSerializedBatchCreation();
 
 const recoveredStatusErrorState: DouyinAutomationState = {
   ...recoveredViewState,

@@ -63,6 +63,8 @@ function batch(
       selected: true,
       candidateRevision: 1,
       evidenceHashes: [`sha256:${"3".repeat(64)}`],
+      publicProfileUrl: "https://www.douyin.com/user/actor-1",
+      commentTargetPublicUrl: "https://www.douyin.com/video/video-1",
       draftRevision: 1,
       comment: "您好，看到您的公开评论。",
       commentHash: `sha256:${"4".repeat(64)}`,
@@ -106,6 +108,12 @@ function outreachApi(overrides: Partial<OutreachBatchApi> = {}): OutreachBatchAp
 const snapshot: RealConversationsSnapshot = {
   generatedAt: "2026-08-26T08:00:00.000Z",
   runsRead: 1,
+  accounts: [{
+    id: "account-1",
+    displayName: "抖音测试账号",
+    state: "active",
+    loginStateVersion: 1
+  }],
   receiptAccess: "known_batch_id_only",
   truncatedRunIds: [],
   failedRuns: [],
@@ -482,6 +490,88 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
   await assert.rejects(() => controller.open(), /真实公开互动读取失败/u);
   assert.equal(controller.getState().status, "error");
   assert.equal(controller.getState().error, "真实公开互动读取失败");
+  controller.destroy();
+}
+
+{
+  const { main, inspector, window } = domFixture();
+  const approvedBatch = batch("candidate-1", "approved");
+  const successfulComment = {
+    id: "action-comment-success",
+    workspaceId: "workspace-1",
+    batchId: approvedBatch.id,
+    batchRevision: approvedBatch.revision,
+    candidateId: "candidate-1",
+    accountId: approvedBatch.accountId,
+    accountLoginStateVersion: approvedBatch.accountLoginStateVersion,
+    policyVersionId: approvedBatch.policyVersionId,
+    localDate: approvedBatch.localDate,
+    kind: "comment" as const,
+    sequence: 1 as const,
+    status: "succeeded" as const,
+    predecessorActionId: null,
+    targetPublicUrl: approvedBatch.candidates[0]!.commentTargetPublicUrl,
+    content: approvedBatch.candidates[0]!.comment,
+    contentHash: approvedBatch.candidates[0]!.commentHash,
+    approvalHash: approvedBatch.approvalHash!,
+    createdAt: "2026-08-27T00:01:00.000Z",
+    attemptCount: 1,
+    platformReceiptReference: "douyin-comment:receipt-conversations",
+    occurredAt: "2026-08-27T00:02:00.000Z",
+    failureCode: null
+  };
+  const approvals: Array<{
+    dailyLimit: number;
+    candidates: Array<{ candidateId: string; directMessage: string }>;
+  }> = [];
+  const controller = createRealConversationsController({
+    api: { async load() { return snapshot; } },
+    outreachApi: outreachApi({
+      async listBatches() {
+        return { items: [approvedBatch], nextCursor: null };
+      },
+      async getBatch() { return approvedBatch; },
+      async listActions() { return { items: [successfulComment] }; },
+      async approveDirectMessages(_batchId, body) {
+        approvals.push({
+          dailyLimit: body.dailyLimit,
+          candidates: body.candidates
+        });
+        return approvedBatch;
+      }
+    }),
+    batchSelection: selectionFixture(),
+    outreachPollDelayMs: 60_000,
+    main,
+    inspector
+  });
+  await controller.open();
+  await new Promise((resolve) => setImmediate(resolve));
+  const editor = main.querySelector<HTMLTextAreaElement>(
+    "[data-outreach-field=directMessage]"
+  )!;
+  assert.equal(editor.disabled, false,
+    "the social-conversations controller must share the DM editor unlock");
+  editor.value = "社媒对话中人工修订的精确私信";
+  editor.dispatchEvent(new window.Event("input", { bubbles: true }));
+  const confirmation = main.querySelector<HTMLInputElement>(
+    "[data-outreach-direct-message-confirm]"
+  )!;
+  const approvalButton = main.querySelector<HTMLButtonElement>(
+    "[data-outreach-action=approve-direct-messages]"
+  )!;
+  confirmation.checked = true;
+  confirmation.dispatchEvent(new window.Event("change", { bubbles: true }));
+  assert.equal(approvalButton.disabled, false);
+  approvalButton.dispatchEvent(new window.Event("click", { bubbles: true }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(approvals, [{
+    dailyLimit: 20,
+    candidates: [{
+      candidateId: "candidate-1",
+      directMessage: "社媒对话中人工修订的精确私信"
+    }]
+  }]);
   controller.destroy();
 }
 

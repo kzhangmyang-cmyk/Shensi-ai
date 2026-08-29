@@ -19,12 +19,15 @@ services:
     build:
       context: ..
       dockerfile: services/media-crawler/Dockerfile.shensi
+      args:
+        DOUYIN_ACTION_VISUAL_LOCATOR: ${DOUYIN_ACTION_VISUAL_LOCATOR-disabled}
     environment:
       MEDIACRAWLER_SERVICE_SECRET_FILE: /run/secrets/mediacrawler_service_secret
       MEDIACRAWLER_ENCRYPTED_VOLUME: /var/lib/shensi-mediacrawler
       MEDIACRAWLER_PROFILE_ROOT: /var/lib/shensi-mediacrawler/profiles
       MEDIACRAWLER_CRAWL_OUTPUT_ROOT: /var/lib/shensi-mediacrawler/crawl-output
       DOUYIN_OUTREACH_ACTIONS_ENABLED: ${DOUYIN_OUTREACH_ACTIONS_ENABLED:-false}
+      DOUYIN_ACTION_VISUAL_LOCATOR: ${DOUYIN_ACTION_VISUAL_LOCATOR-disabled}
       MEDIACRAWLER_BROWSER_HEADLESS: ${MEDIACRAWLER_BROWSER_HEADLESS:-true}
       MEDIACRAWLER_BROWSER_CHANNEL: ${MEDIACRAWLER_BROWSER_CHANNEL:-}
     secrets:

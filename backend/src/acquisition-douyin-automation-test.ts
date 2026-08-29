@@ -142,6 +142,7 @@ async function seedAccount(repository: InMemoryAcquisitionSocialAccountRepositor
     displayName: "企业抖音号",
     state: "active",
     loginStateVersion: 7,
+    loginStateVersionHighWater: 7,
     revision: 1,
     etag: '"account-v1"',
     lastValidatedAt: NOW,
@@ -255,9 +256,21 @@ async function mutateAuthority(
   const account = await fixtureValue.accountRepository
     .findByWorkspaceAndPlatform(SCOPE.workspaceId, "douyin");
   assert.ok(account);
-  await fixtureValue.accountRepository.upsert(drift === "account"
-    ? { ...account, state: "login_expired" }
-    : { ...account, loginStateVersion: account.loginStateVersion! + 1 });
+  assert.ok(account.accountHandle);
+  assert.ok(account.loginStateVersion);
+  if (drift === "account") {
+    await fixtureValue.accountRepository.pauseActiveAccount(SCOPE.workspaceId, account.id, {
+      accountHandle: account.accountHandle,
+      loginStateVersion: account.loginStateVersion,
+      revision: account.revision,
+      etag: account.etag
+    }, "2026-08-25T01:01:00.000Z");
+  } else {
+    await fixtureValue.accountRepository.bindActive({ ...account,
+      upstreamSessionId: "upstream-session-2",
+      loginStateVersion: account.loginStateVersion + 1,
+      loginStateVersionHighWater: account.loginStateVersion + 1 });
+  }
 }
 
 function rejectsCode(code: string) {

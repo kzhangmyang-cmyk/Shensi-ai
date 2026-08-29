@@ -47,6 +47,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/endpoint-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List official model endpoint profiles and selectable models */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Official model endpoint profiles */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ModelEndpointProfilePagedResult"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/connections": {
         parameters: {
             query?: never;
@@ -738,7 +783,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Persist Task 6 drafts as immutable revision one */
+        /**
+         * Persist Task 6 drafts as immutable revision one
+         * @description Requires a succeeded or partial crawler job whose terminal ingestion has succeeded for the current alias generation. A live or reopened projection returns outreach_candidate_projection_pending and persists no batch or actions; a failed, paused, or cancelled authority returns outreach_candidate_projection_unavailable.
+         */
         post: operations["createAcquisitionOutreachBatch"];
         delete?: never;
         options?: never;
@@ -797,8 +845,33 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Human second confirmation; persist ordered actions without executing them */
+        /**
+         * Human second confirmation; persist comment actions without executing them
+         * @description Revalidates and transactionally locks the crawler finalization authority before creating one queued comment action per selected candidate. This first-stage approval creates comments only; after a durable successful comment receipt, the separate version-2 direct-message approval may create one DM for that candidate. Historical non-v2 direct-message rows remain readable but are never claimed or executed. Approval is rejected without actions while terminal ingestion or alias projection is pending, and stale candidate evidence requires a newly generated final batch.
+         */
         post: operations["approveAcquisitionOutreachBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outreach-batches/{batchId}/direct-messages/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm and queue direct messages after exact successful comment receipts
+         * @description Requires an exact succeeded comment receipt for every requested candidate. The command only authorizes durable direct-message actions; it never executes the browser action in this HTTP request.
+         */
+        post: operations["approveAcquisitionOutreachBatchDirectMessages"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1852,6 +1925,28 @@ export interface components {
             items: Record<string, never>[];
             nextCursor: string | null;
         };
+        ModelOption: {
+            id: string;
+            displayName: string;
+        };
+        ModelEndpointProfile: {
+            /** @enum {string} */
+            provider: "openai" | "moonshot" | "minimax" | "zhipu" | "deepseek" | "qwen" | "doubao" | "hunyuan" | "qianfan";
+            endpointProfileId: string;
+            region: string;
+            /** Format: uri */
+            baseUrl: string | null;
+            requiresWorkspaceId: boolean;
+            /** @enum {string} */
+            modelListPolicy: "same_key" | "not_exposed" | "separate_control_plane";
+            /** Format: uri */
+            officialReference: string;
+            models: components["schemas"]["ModelOption"][];
+        };
+        ModelEndpointProfilePagedResult: {
+            items: components["schemas"]["ModelEndpointProfile"][];
+            nextCursor: string | null;
+        };
         ModelProvider: components["schemas"]["model-provider.v1.schema"];
         ModelConnection: components["schemas"]["model-connection.v1.schema"];
         ModelCallRecord: components["schemas"]["model-call-record.v1.schema"];
@@ -2055,6 +2150,16 @@ export interface components {
             selected: boolean;
             candidateRevision: number;
             evidenceHashes: string[];
+            /**
+             * Format: uri
+             * @description Frozen public candidate profile shown read-only during comment approval; only the separate version-2 direct-message approval may later create one direct-message action after a successful comment receipt.
+             */
+            publicProfileUrl: string;
+            /**
+             * Format: uri
+             * @description Frozen public video that will receive the approved comment.
+             */
+            commentTargetPublicUrl: string;
             draftRevision: number;
             comment: string;
             commentHash: string;
@@ -2129,6 +2234,16 @@ export interface components {
             content: string;
             contentHash: string;
             approvalHash: string;
+            /**
+             * @description Version-2 direct-message authorization marker; omitted on historical actions.
+             * @enum {integer}
+             */
+            authorizationVersion?: 2;
+            approvedBy?: string;
+            /** Format: date-time */
+            approvedAt?: string;
+            directMessageDailyLimit?: number;
+            directMessageDailyOrdinal?: number;
             /** Format: date-time */
             createdAt: string;
             attemptCount: number;
@@ -2136,7 +2251,7 @@ export interface components {
             /** Format: date-time */
             occurredAt: string | null;
             /** @enum {string|null} */
-            failureCode: "action_unavailable" | "action_rejected" | "deadline_exceeded" | "douyin_verification_required" | "douyin_rate_limited" | "douyin_account_warning" | "douyin_login_expired" | "douyin_direct_message_unavailable" | "douyin_action_control_missing" | "douyin_action_control_ambiguous" | "douyin_action_content_mismatch" | "douyin_action_receipt_ambiguous" | "douyin_action_timeout" | null;
+            failureCode: "action_unavailable" | "action_rejected" | "approval_authority_changed" | "predecessor_failed" | "account_risk_paused" | "deadline_exceeded" | "douyin_verification_required" | "douyin_rate_limited" | "douyin_account_warning" | "douyin_account_identity_changed" | "douyin_login_expired" | "douyin_direct_message_unavailable" | "douyin_action_control_missing" | "douyin_action_control_ambiguous" | "douyin_action_content_mismatch" | "douyin_action_receipt_ambiguous" | "douyin_action_timeout" | null;
         };
         AcquisitionOutreachActionList: {
             items: components["schemas"]["AcquisitionOutreachAction"][];
@@ -6056,6 +6171,104 @@ export interface operations {
         };
         responses: {
             /** @description Outreach batch approved */
+            200: {
+                headers: {
+                    ETag: string;
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachBatch"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    approveAcquisitionOutreachBatchDirectMessages: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    batchRevision: number;
+                    batchHash: string;
+                    commentApprovalHash: string;
+                    /** @default 20 */
+                    dailyLimit: number;
+                    candidates: {
+                        candidateId: string;
+                        directMessage: string;
+                    }[];
+                    /** @constant */
+                    confirm: true;
+                };
+            };
+        };
+        responses: {
+            /** @description Direct messages authorized */
             200: {
                 headers: {
                     ETag: string;

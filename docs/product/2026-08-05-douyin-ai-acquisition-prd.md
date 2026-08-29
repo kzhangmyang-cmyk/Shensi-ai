@@ -2,8 +2,9 @@
 
 日期：2026-08-05
 
-状态：阶段 A 公开搜索、用户公开链接与一级评论样本 Beta 已实现；授权连接器与
-自动动作仍在后续阶段
+状态：历史产品基线，仅保留背景，不是当前开发或运维执行依据。当前真实规则以
+[`ai-acquisition-agent.md`](./ai-acquisition-agent.md)、[`../PROJECT_STATUS.md`](../PROJECT_STATUS.md)
+和版本化 OpenAPI 合同为准。
 
 适用基线：GoodJob 1.09 + GoodJob Marketing System Frontend
 

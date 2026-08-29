@@ -38,6 +38,61 @@ import {
 } from "./acquisition-plan-run-repository.js";
 import { projectDouyinCrawlerTerminalRuns } from "./acquisition-douyin-run-lifecycle.js";
 
+test("MySQL outreach finalization reader fails closed and locks the crawler authority", async () => {
+  const calls: string[] = [];
+  let payload: Record<string, unknown> | null = null;
+  const pool = {
+    async query(sql: string) {
+      calls.push(sql.replace(/\s+/gu, " ").trim());
+      return [payload ? [{ payload_json: JSON.stringify(payload) }] : [], undefined];
+    }
+  };
+  const repository = new MysqlAcquisitionDouyinCrawlerIngestionRepository(
+    pool as never,
+    {} as never,
+    {} as never
+  );
+
+  assert.equal(await repository.loadOutreachRunFinalizationState(
+    "workspace-1",
+    "run-1"
+  ), null);
+  payload = {
+    state: "running",
+    ingestionState: null,
+    runIds: ["run-1"],
+    aliasGeneration: 1,
+    projectedAliasGeneration: 0
+  };
+  assert.equal(await repository.loadOutreachRunFinalizationState(
+    "workspace-1",
+    "run-1"
+  ), "pending");
+  payload = {
+    ...payload,
+    state: "succeeded",
+    ingestionState: "succeeded",
+    aliasGeneration: 2,
+    projectedAliasGeneration: 1,
+    runIds: ["run-1", "run-2"]
+  };
+  assert.equal(await repository.loadOutreachRunFinalizationState(
+    "workspace-1",
+    "run-1"
+  ), "pending");
+  payload = { ...payload, projectedAliasGeneration: 2 };
+  assert.equal(await repository.loadOutreachRunFinalizationState(
+    "workspace-1",
+    "run-1"
+  ), "ready");
+  payload = { ...payload, ingestionState: "failed" };
+  assert.equal(await repository.loadOutreachRunFinalizationState(
+    "workspace-1",
+    "run-1"
+  ), "unavailable");
+  assert.equal(calls.every((sql) => /FOR UPDATE$/u.test(sql)), true);
+});
+
 const NOW = "2026-08-25T01:00:00.000Z";
 const SCOPE = Object.freeze({
   workspaceId: "workspace-1",

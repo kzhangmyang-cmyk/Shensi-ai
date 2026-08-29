@@ -98,7 +98,12 @@ function createFixture(
   timeoutOptions: {
     requestTimeoutMs?: number;
     streamIdleTimeoutMs?: number;
-  } = {}
+    persistAttempt?: () => Promise<void>;
+  } = {},
+  modelOverrides: Partial<Pick<
+    AiJobModelSnapshot,
+    "connectionId" | "provider" | "model"
+  >> = {}
 ) {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const credentialResolutions: Array<{
@@ -120,7 +125,10 @@ function createFixture(
     return response;
   };
   const gateway = new ActiveModelGateway({
-    snapshot: snapshot(capabilityOverrides),
+    snapshot: Object.freeze({
+      ...snapshot(capabilityOverrides),
+      ...modelOverrides
+    }),
     identity: {
       ownerId: "u1",
       teamId: "t1",
@@ -411,6 +419,7 @@ test("tool calls normalize arguments and unsupported tools fail before network",
   };
   assert.equal(toolRequest.tool_choice, "required");
   assert.equal(toolRequest.parallel_tool_calls, false);
+  assert.equal("thinking" in toolRequest, false);
 
   const unsupported = createFixture([], { toolCalling: false });
   await assert.rejects(
@@ -432,6 +441,273 @@ test("tool calls normalize arguments and unsupported tools fail before network",
     unsupported.ledger.records[0].error?.code,
     "MODEL_CAPABILITY_UNSUPPORTED"
   );
+});
+
+test("DeepSeek required tool calls disable its default thinking mode", async () => {
+  const fixture = createFixture([
+    completionResponse(null, {
+      choices: [{
+        index: 0,
+        message: {
+          role: "assistant",
+          content: null,
+          tool_calls: [{
+            id: "tool_deepseek_1",
+            type: "function",
+            function: {
+              name: "submit_draft",
+              arguments: "{\"result\":\"ok\"}"
+            }
+          }]
+        },
+        finish_reason: "tool_calls"
+      }]
+    })
+  ], {}, {}, {
+    connectionId: "conn_deepseek",
+    provider: "deepseek",
+    model: "deepseek-v4-flash"
+  });
+
+  await fixture.gateway.callTools({
+    prompt: "Submit one draft",
+    tools: [{
+      name: "submit_draft",
+      description: "Submit the generated draft",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["result"],
+        properties: {
+          result: { type: "string" }
+        }
+      }
+    }]
+  });
+
+  const body = JSON.parse(
+    String(fixture.requests[0].init?.body)
+  ) as {
+    thinking?: { type?: string };
+    tool_choice?: string;
+  };
+  assert.equal(body.tool_choice, "required");
+  assert.deepEqual(body.thinking, { type: "disabled" });
+});
+
+test("non-stream tool calls persist a successful attempt before returning", async () => {
+  let fixture!: ReturnType<typeof createFixture>;
+  const persistedStatuses: string[] = [];
+  let persistCount = 0;
+  fixture = createFixture([
+    completionResponse(null, {
+      choices: [{
+        index: 0,
+        message: {
+          role: "assistant",
+          content: null,
+          tool_calls: [{
+            id: "tool_persist_success",
+            type: "function",
+            function: {
+              name: "submit_draft",
+              arguments: "{\"result\":\"ok\"}"
+            }
+          }]
+        },
+        finish_reason: "tool_calls"
+      }]
+    })
+  ], {}, {
+    async persistAttempt() {
+      persistCount += 1;
+      persistedStatuses.push(
+        fixture.ledger.records.at(-1)?.status ?? "missing"
+      );
+    }
+  });
+
+  const result = await fixture.gateway.callTools({
+    prompt: "Submit one draft",
+    tools: [{
+      name: "submit_draft",
+      description: "Submit the generated draft",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["result"],
+        properties: { result: { type: "string" } }
+      }
+    }]
+  });
+
+  assert.equal(result.toolCalls[0]?.name, "submit_draft");
+  assert.equal(persistCount, 1);
+  assert.deepEqual(persistedStatuses, ["succeeded"]);
+});
+
+test("non-stream tool calls persist a failed attempt before rejecting", async () => {
+  let fixture!: ReturnType<typeof createFixture>;
+  const persistedStatuses: string[] = [];
+  let persistCount = 0;
+  fixture = createFixture([
+    jsonResponse({ error: { message: "provider unavailable" } }, 503)
+  ], {}, {
+    async persistAttempt() {
+      persistCount += 1;
+      persistedStatuses.push(
+        fixture.ledger.records.at(-1)?.status ?? "missing"
+      );
+    }
+  });
+
+  await assert.rejects(
+    fixture.gateway.callTools({
+      prompt: "Submit one draft",
+      tools: [{
+        name: "submit_draft",
+        description: "Submit the generated draft",
+        parameters: { type: "object" }
+      }]
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ModelGatewayError);
+      assert.equal(error.code, "MODEL_PROVIDER_UNAVAILABLE");
+      return true;
+    }
+  );
+  assert.equal(persistCount, 1);
+  assert.deepEqual(persistedStatuses, ["failed"]);
+});
+
+test("non-stream tool calls preserve provider and audit persistence failures", async () => {
+  let persistCount = 0;
+  const fixture = createFixture([
+    jsonResponse({ error: { message: "provider unavailable" } }, 503)
+  ], {}, {
+    async persistAttempt() {
+      persistCount += 1;
+      throw new Error("audit database unavailable");
+    }
+  });
+
+  await assert.rejects(
+    fixture.gateway.callTools({
+      prompt: "Submit one draft",
+      tools: [{
+        name: "submit_draft",
+        description: "Submit the generated draft",
+        parameters: { type: "object" }
+      }]
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AggregateError);
+      assert.equal(error.errors.length, 2);
+      assert.ok(error.errors[0] instanceof ModelGatewayError);
+      assert.equal(error.errors[0].code, "MODEL_PROVIDER_UNAVAILABLE");
+      assert.match(String(error.errors[1]), /audit database unavailable/u);
+      return true;
+    }
+  );
+  assert.equal(persistCount, 1);
+});
+
+test("capability preflight persists its failed audit before rejecting", async () => {
+  let fixture!: ReturnType<typeof createFixture>;
+  const persistedStatuses: string[] = [];
+  let persistCount = 0;
+  fixture = createFixture([], { toolCalling: false }, {
+    async persistAttempt() {
+      persistCount += 1;
+      persistedStatuses.push(
+        fixture.ledger.records.at(-1)?.status ?? "missing"
+      );
+    }
+  });
+
+  await assert.rejects(
+    fixture.gateway.callTools({
+      prompt: "Must not leave the process",
+      tools: []
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ModelGatewayError);
+      assert.equal(error.code, "MODEL_CAPABILITY_UNSUPPORTED");
+      return true;
+    }
+  );
+
+  assert.equal(persistCount, 1);
+  assert.deepEqual(persistedStatuses, ["failed"]);
+  assert.equal(fixture.requests.length, 0);
+  assert.equal(fixture.credentialResolutions.length, 0);
+});
+
+test("bound-content preflight preserves audit persistence failure", async () => {
+  const ledger = new AppendOnlyModelCallLedger();
+  const contentBundle = {
+    promptTemplates: { "known.prompt.v1": "KNOWN_SERVER_POLICY" },
+    toolSchemas: {
+      "known.tools.v1": [{
+        name: "known_tool",
+        description: "Known test tool",
+        parameters: { type: "object" }
+      }]
+    }
+  };
+  const gateway = new ActiveModelGateway({
+    snapshot: {
+      ...snapshot(),
+      promptHash: sha256(canonicalJsonStringify(
+        contentBundle.promptTemplates
+      ) ?? ""),
+      schemaHash: sha256(canonicalJsonStringify(
+        contentBundle.toolSchemas
+      ) ?? "")
+    },
+    identity: {
+      ownerId: "u1",
+      teamId: "t1",
+      jobId: "job_missing_bound_content"
+    },
+    capabilitySnapshotHash: "cap_hash",
+    baseUrl: "https://api.moonshot.cn/v1",
+    baseUrlFingerprint: "sha256:moonshot-base",
+    credentialResolver: async () => {
+      throw new Error("credential resolution must not run");
+    },
+    fetch: (async () => {
+      throw new Error("provider request must not run");
+    }) as typeof fetch,
+    ledger,
+    contentBundle,
+    async persistAttempt() {
+      throw new Error("audit database unavailable");
+    }
+  } as ConstructorParameters<typeof ActiveModelGateway>[0]);
+
+  await assert.rejects(
+    gateway.callTools({
+      contentBinding: {
+        promptId: "missing.prompt.v1",
+        toolSchemaId: "missing.tools.v1",
+        dynamicData: { leadId: "lead_1" }
+      }
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AggregateError);
+      assert.equal(error.errors.length, 2);
+      assert.ok(error.errors[0] instanceof ModelGatewayError);
+      assert.equal(
+        error.errors[0].code,
+        "MODEL_CONTENT_HASH_MISMATCH"
+      );
+      assert.match(String(error.errors[1]), /audit database unavailable/u);
+      return true;
+    }
+  );
+  assert.equal(ledger.records.length, 1);
+  assert.equal(ledger.records[0]?.status, "failed");
 });
 
 test("bound tool calls use only server-registered prompt and schema content", async () => {

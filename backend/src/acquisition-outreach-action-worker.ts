@@ -5,7 +5,8 @@ import type { AcquisitionOutreachBatchRepository } from "./acquisition-outreach-
 const CLOSED_FAILURES = new Set([
   "action_unavailable", "action_rejected", "deadline_exceeded",
   "douyin_verification_required", "douyin_rate_limited",
-  "douyin_account_warning", "douyin_login_expired",
+  "douyin_account_warning", "douyin_account_identity_changed",
+  "douyin_login_expired",
   "douyin_direct_message_unavailable",
   "douyin_action_control_missing", "douyin_action_control_ambiguous",
   "douyin_action_content_mismatch", "douyin_action_receipt_ambiguous",
@@ -59,6 +60,10 @@ export interface OutreachActionExecutionReceipt {
   failureCode: string | null;
 }
 
+export type OutreachActionAuthority =
+  | { accountHandle: string }
+  | { failureCode: "approval_authority_changed" };
+
 export class AcquisitionOutreachActionWorker {
   private timer: NodeJS.Timeout | null = null;
   private running: Promise<unknown> = Promise.resolve();
@@ -70,7 +75,7 @@ export class AcquisitionOutreachActionWorker {
     repository: AcquisitionOutreachBatchRepository;
     workerId: string;
     now(): string;
-    accountAuthority(action: AcquisitionOutreachAction): Promise<{ accountHandle: string } | null>;
+    accountAuthority(action: AcquisitionOutreachAction): Promise<OutreachActionAuthority | null>;
     execute(input: OutreachActionExecutionRequest): Promise<OutreachActionExecutionReceipt>;
     pauseAccount(workspaceId: string, accountId: string,
       loginStateVersion: number, occurredAt: string): Promise<void>;
@@ -105,13 +110,25 @@ export class AcquisitionOutreachActionWorker {
     const action = claim.action;
     let failureCode: string | null = null;
     try {
-      if (outreachContentHash(action.content) !== action.contentHash
+      if (action.kind === "direct_message" && (action.authorizationVersion !== 2
+        || typeof action.approvedBy !== "string" || !action.approvedBy
+        || typeof action.approvedAt !== "string"
+        || !Number.isFinite(Date.parse(action.approvedAt))
+        || !Number.isSafeInteger(action.directMessageDailyLimit)
+        || action.directMessageDailyLimit! < 1 || action.directMessageDailyLimit! > 100
+        || !Number.isSafeInteger(action.directMessageDailyOrdinal)
+        || action.directMessageDailyOrdinal! < 1
+        || action.directMessageDailyOrdinal! > action.directMessageDailyLimit!)) {
+        failureCode = "douyin_direct_message_unavailable";
+      } else if (outreachContentHash(action.content) !== action.contentHash
         || !validOutreachTarget(action.kind, action.targetPublicUrl)) {
         failureCode = "action_rejected";
       }
       const authority = failureCode ? null : await this.options.accountAuthority(action);
-      if (!failureCode && (!authority || !authority.accountHandle)) {
-        failureCode = "douyin_login_expired";
+      if (!failureCode) {
+        if (!authority) failureCode = "douyin_login_expired";
+        else if ("failureCode" in authority) failureCode = authority.failureCode;
+        else if (!authority.accountHandle) failureCode = "douyin_login_expired";
       }
       if (failureCode) {
         const failureAt = new Date(Math.max(Date.parse(this.options.now()),
@@ -126,17 +143,19 @@ export class AcquisitionOutreachActionWorker {
       const started = Date.parse(claimedAt);
       const deadlineAt = new Date(started + this.actionDeadlineMs).toISOString();
       const receipt = await this.options.execute({
-        actionId: action.id, accountHandle: authority!.accountHandle,
+        actionId: action.id,
+        accountHandle: authority && "accountHandle" in authority
+          ? authority.accountHandle : "",
         loginStateVersion: action.accountLoginStateVersion, kind: action.kind,
         targetPublicUrl: action.targetPublicUrl, content: action.content,
         approvedContentHash: action.contentHash, deadlineAt
       });
       if (receipt.actionId !== action.id || !Number.isFinite(Date.parse(receipt.occurredAt))) {
-        failureCode = "action_rejected";
+        failureCode = "douyin_action_receipt_ambiguous";
       } else if (receipt.state === "succeeded") {
         if (!receipt.platformReceiptReference
           || receipt.platformReceiptReference.length > 255 || receipt.failureCode !== null) {
-          failureCode = "action_rejected";
+          failureCode = "douyin_action_receipt_ambiguous";
         } else {
           const completed = await this.options.repository.completeActionSuccess(claim.fence, {
             platformReceiptReference: receipt.platformReceiptReference,
@@ -147,6 +166,14 @@ export class AcquisitionOutreachActionWorker {
           return true;
         }
       } else {
+        if (receipt.failureCode === "douyin_profile_busy") {
+          const retryAt = new Date(Math.max(Date.parse(this.options.now()),
+            Date.parse(claim.claimedAt))).toISOString();
+          const released = await this.options.repository.completeActionRetry(
+            claim.fence, "douyin_profile_busy", retryAt);
+          if (!released) throw new OutreachActionFenceLost();
+          return true;
+        }
         failureCode = receipt.failureCode && CLOSED_FAILURES.has(receipt.failureCode)
           ? receipt.failureCode : "action_rejected";
       }

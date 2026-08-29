@@ -42,6 +42,12 @@ dependencies = [
     "xhshow>=0.2.0",
 ]
 
+[project.optional-dependencies]
+visual-locator = [
+    "onnxruntime==1.29.0",
+    "rapidocr==3.9.2",
+]
+
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true

@@ -310,6 +310,11 @@ def create_deployment_account_manager() -> AccountManager:
     # Validate containment before the Playwright owner thread is even created.
     deployment_action_manual_verification_seconds()
     headless = deployment_browser_headless()
+    if deployment_outreach_actions_enabled() and headless:
+        raise RuntimeError(
+            "DOUYIN_OUTREACH_ACTIONS_ENABLED=true requires "
+            "MEDIACRAWLER_BROWSER_HEADLESS=false"
+        )
     browser_channel = (
         os.environ.get("MEDIACRAWLER_BROWSER_CHANNEL", "").strip() or None
     )

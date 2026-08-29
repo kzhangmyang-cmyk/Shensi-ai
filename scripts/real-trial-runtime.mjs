@@ -4,6 +4,7 @@ import { chmod, lstat, mkdir, readFile, readdir, rename, rm, unlink, writeFile }
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { validateActionVisualLocator } from "./dev.mjs";
 import { isTrialPortAvailable, prepareTrialRuntime, TRIAL_PORTS } from "./real-trial-config.mjs";
 
 const execFile = promisify(nodeExecFile);
@@ -17,6 +18,22 @@ const childScript = fileURLToPath(new URL("./real-trial-child.mjs", import.meta.
 const requiredRuntimeRecords = Object.freeze([
   "mysql", "tunnel", "backend", "sidecar", "frontend", "gateway"
 ]);
+
+function trialSidecarCommand(repositoryRoot, actionVisualLocator) {
+  const locator = validateActionVisualLocator(actionVisualLocator);
+  const uvicorn = [
+    "shensi_adapter.app:app", "--app-dir", "services/media-crawler",
+    "--host", "127.0.0.1", "--port", "5612"
+  ];
+  if (locator === "rapidocr") {
+    return [
+      "uv", "run", "--frozen", "--project",
+      resolve(repositoryRoot, "services/media-crawler"),
+      "--extra", "visual-locator", "uvicorn", ...uvicorn
+    ];
+  }
+  return [resolve(repositoryRoot, "services/media-crawler/.venv/bin/uvicorn"), ...uvicorn];
+}
 
 export function effectiveTrialOutreachActionsEnabled(input) {
   return input?.requested === true
@@ -176,6 +193,17 @@ export async function stopTrialRuntime(runtime, options = {}) {
   const readCommand = options.readProcessCommand ?? readProcessCommand;
   const signal = options.signalProcessGroup
     ?? (options.kill ? async (pid, signalName) => options.kill(records.find((record) => record.pid === pid), signalName) : defaultSignalProcessGroup);
+  const signalIfPresent = async (record, signalName) => {
+    try {
+      await signal(record.pid, signalName);
+      return true;
+    } catch (error) {
+      if (error?.code !== "ESRCH" || await readCommand(record.pid) !== null) {
+        throw error;
+      }
+      return false;
+    }
+  };
   const stopped = [], stale = [];
   for (const record of [...records].reverse()) {
     const matches = options.isRecordedProcess ? await options.isRecordedProcess(record) : await isRecordedProcess(record, { readProcessCommand: readCommand });
@@ -185,7 +213,11 @@ export async function stopTrialRuntime(runtime, options = {}) {
       } else stale.push(record.name);
       continue;
     }
-    await signal(record.pid, "SIGTERM");
+    if (!await signalIfPresent(record, "SIGTERM")) {
+      stopped.push(record.name);
+      if (record.path) await unlink(record.path).catch(() => {});
+      continue;
+    }
     const exited = options.waitForExit
       ? await options.waitForExit(record)
       : await waitForRecordedExit(record, readCommand, options.sleep);
@@ -200,7 +232,11 @@ export async function stopTrialRuntime(runtime, options = {}) {
       if (record.path) await unlink(record.path).catch(() => {});
       continue;
     }
-    await signal(record.pid, "SIGKILL");
+    if (!await signalIfPresent(record, "SIGKILL")) {
+      stopped.push(record.name);
+      if (record.path) await unlink(record.path).catch(() => {});
+      continue;
+    }
     const killed = options.waitForExit
       ? await options.waitForExit(record)
       : await waitForRecordedExit(record, readCommand, options.sleep);
@@ -289,6 +325,7 @@ async function defaultProvisionAdmin({ backendOrigin, bootstrapPassword, runtime
 
 export async function startTrialRuntime(repositoryRoot, options = {}) {
   const runtime = await (options.prepare ?? prepareTrialRuntime)(repositoryRoot, { cloudflared: options.cloudflared ?? { path: options.cloudflaredBinary ?? cloudflared, sha256: cloudflaredSha256 }, ...options });
+  const frontendReleaseDirectory = resolve(runtime.root, "release/frontend");
   const spawn = options.spawn ?? nodeSpawn, available = options.isPortAvailable ?? isTrialPortAvailable, readCommand = options.readProcessCommand ?? readProcessCommand, waitForHealth = options.waitForHealth ?? defaultWaitForHealth, waitForMysql = options.waitForMysql ?? defaultWaitForMysql, runCommand = options.runCommand ?? defaultRunCommand, readSidecarSecret = options.readSidecarSecret ?? ((path) => readFile(path, "utf8")), wrapCommands = options.wrapCommands !== false;
   const records = [];
   const run = async (name, command, args, environment = {}) => {
@@ -308,7 +345,11 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
     await clearMissingRecordsBeforeStart(runtime, readCommand);
     for (const port of Object.values(TRIAL_PORTS)) if (!await available(port)) throw new Error(`TRIAL_PORT_OCCUPIED:${port}`);
     await runCommand(pnpm, ["--filter", "./backend", "build"], { cwd: repositoryRoot, env: oneShotEnvironment(runtime.environment, { NODE_ENV: "production" }) });
-    await runCommand(pnpm, ["--filter", "./frontend", "build"], { cwd: repositoryRoot, env: oneShotEnvironment(runtime.environment, { NODE_ENV: "production" }) });
+    await rm(frontendReleaseDirectory, { recursive: true, force: true });
+    await mkdir(frontendReleaseDirectory, { recursive: true, mode: 0o700 });
+    await chmod(frontendReleaseDirectory, 0o700);
+    await runCommand(pnpm, ["--filter", "./frontend", "exec", "tsc", "-b"], { cwd: repositoryRoot, env: oneShotEnvironment(runtime.environment, { NODE_ENV: "production" }) });
+    await runCommand(pnpm, ["--filter", "./frontend", "exec", "vite", "build", "--outDir", frontendReleaseDirectory, "--emptyOutDir"], { cwd: repositoryRoot, env: oneShotEnvironment(runtime.environment, { NODE_ENV: "production" }) });
     const mysqld = options.mysqlBinary ?? resolve(options.mysqlBasedir ?? process.env.SHENSI_TRIAL_MYSQL_BASEDIR ?? mysqlBasedir, "bin/mysqld"), basedir = options.mysqlBasedir ?? process.env.SHENSI_TRIAL_MYSQL_BASEDIR ?? mysqlBasedir;
     const mysqlContents = await readdir(runtime.mysqlDirectory).catch(() => []);
     if (!mysqlContents.length) await runCommand(mysqld, ["--no-defaults", `--basedir=${basedir}`, `--datadir=${runtime.mysqlDirectory}`, "--initialize-insecure"], { cwd: repositoryRoot, env: oneShotEnvironment(runtime.environment) });
@@ -318,7 +359,7 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
     await runCommand(pnpm, ["--filter", "./backend", "exec", "tsx", "scripts/setup-trial-mysql.ts"], { cwd: repositoryRoot, env: oneShotEnvironment(runtime.environment, { SHENSI_TRIAL_MYSQL_ADMIN_URL: `mysql://root@127.0.0.1:${TRIAL_PORTS.mysql}/mysql` }) });
     const tunnel = await run("tunnel", options.cloudflaredBinary ?? resolve(runtime.toolsDirectory, "cloudflared"), ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", `http://127.0.0.1:${TRIAL_PORTS.gateway}`, "--http-host-header", `127.0.0.1:${TRIAL_PORTS.gateway}`]);
     const origin = await (options.waitForTunnelOrigin ?? waitForTunnelOrigin)(resolve(runtime.logsDirectory, "tunnel.log"));
-    const backendCommand = options.backendCommand ?? [node, resolve(repositoryRoot, "backend/dist/server.js")], frontendCommand = options.frontendCommand ?? [node, resolve(repositoryRoot, "frontend/node_modules/vite/bin/vite.js"), "preview", resolve(repositoryRoot, "frontend"), "--host", "127.0.0.1", "--port", "5610", "--strictPort"], sidecarCommand = options.sidecarCommand ?? [resolve(repositoryRoot, "services/media-crawler/.venv/bin/uvicorn"), "shensi_adapter.app:app", "--app-dir", "services/media-crawler", "--host", "127.0.0.1", "--port", "5612"], gatewayCommand = options.gatewayCommand ?? [node, "scripts/real-trial-gateway.mjs"];
+    const backendCommand = options.backendCommand ?? [node, resolve(repositoryRoot, "backend/dist/server.js")], frontendCommand = options.frontendCommand ?? [node, resolve(repositoryRoot, "frontend/node_modules/vite/bin/vite.js"), "preview", resolve(repositoryRoot, "frontend"), "--outDir", frontendReleaseDirectory, "--host", "127.0.0.1", "--port", "5610", "--strictPort"], sidecarCommand = options.sidecarCommand ?? trialSidecarCommand(repositoryRoot, runtime.environment.DOUYIN_ACTION_VISUAL_LOCATOR), gatewayCommand = options.gatewayCommand ?? [node, "scripts/real-trial-gateway.mjs"];
     const bootstrapPassword = runtime.bootstrapPassword ?? randomBytes(32).toString("base64url");
     const temporaryBackend = await run("backend-bootstrap", backendCommand[0], backendCommand.slice(1), { PORT: String(TRIAL_PORTS.backend), CORS_ORIGINS: origin, NODE_ENV: "production", DOUYIN_OUTREACH_ACTIONS_ENABLED: "false", INITIAL_ADMIN_EMAIL: "internal-trial-bootstrap@shensi.local", INITIAL_ADMIN_PASSWORD: bootstrapPassword });
     await waitForHealth(`http://127.0.0.1:${TRIAL_PORTS.backend}/api/health`);
@@ -352,7 +393,7 @@ export async function startTrialRuntime(repositoryRoot, options = {}) {
       });
       assertOutreachQueueAuditEmpty(audit);
     }
-    await run("backend", backendCommand[0], backendCommand.slice(1), { PORT: String(TRIAL_PORTS.backend), CORS_ORIGINS: origin, NODE_ENV: "production", DOUYIN_OUTREACH_ACTIONS_ENABLED: outreachEnabled ? "true" : "false", MEDIACRAWLER_BASE_URL: `http://127.0.0.1:${TRIAL_PORTS.mediaCrawler}` });
+    await run("backend", backendCommand[0], backendCommand.slice(1), { PORT: String(TRIAL_PORTS.backend), CORS_ORIGINS: `${origin},http://127.0.0.1:${TRIAL_PORTS.gateway}`, NODE_ENV: "production", DOUYIN_OUTREACH_ACTIONS_ENABLED: outreachEnabled ? "true" : "false", MEDIACRAWLER_BASE_URL: `http://127.0.0.1:${TRIAL_PORTS.mediaCrawler}` });
     await waitForHealth(`http://127.0.0.1:${TRIAL_PORTS.backend}/api/health`);
     await run("frontend", frontendCommand[0], frontendCommand.slice(1), { PORT: String(TRIAL_PORTS.frontend), NODE_ENV: "production" });
     await waitForHealth(`http://127.0.0.1:${TRIAL_PORTS.frontend}/`);
@@ -435,29 +476,48 @@ export function parseTrialCli(argv) {
     throw new Error("TRIAL_CLI_ARGUMENT_INVALID");
   }
   const enableFlag = "--enable-outreach-after-empty-audit";
-  if (flags.some((flag) => flag !== enableFlag) || flags.length > 1) {
+  const locatorPrefix = "--action-visual-locator=";
+  let outreachActionsEnabled = false;
+  let actionVisualLocator = "disabled";
+  let locatorProvided = false;
+  for (const flag of flags) {
+    if (flag === enableFlag) {
+      if (outreachActionsEnabled) throw new Error("TRIAL_CLI_ARGUMENT_INVALID");
+      outreachActionsEnabled = true;
+      continue;
+    }
+    if (flag.startsWith(locatorPrefix)) {
+      if (locatorProvided) throw new Error("TRIAL_CLI_ARGUMENT_INVALID");
+      locatorProvided = true;
+      actionVisualLocator = validateActionVisualLocator(
+        flag.slice(locatorPrefix.length)
+      );
+      continue;
+    }
     throw new Error("TRIAL_CLI_ARGUMENT_INVALID");
   }
-  const outreachActionsEnabled = flags[0] === enableFlag;
-  if (outreachActionsEnabled && !["start", "publish"].includes(command)) {
+  if ((outreachActionsEnabled || locatorProvided)
+    && !["start", "publish"].includes(command)) {
     throw new Error("TRIAL_CLI_FLAG_NOT_ALLOWED");
   }
-  return { command, outreachActionsEnabled };
+  return { command, outreachActionsEnabled, actionVisualLocator };
 }
 async function main() {
   const root = resolve(import.meta.dirname, "..");
-  const { command, outreachActionsEnabled } = parseTrialCli(process.argv.slice(2));
+  const { command, outreachActionsEnabled, actionVisualLocator } = parseTrialCli(process.argv.slice(2));
   const runtimeRoot = resolve(process.env.SHENSI_TRIAL_RUNTIME_ROOT
     ?? resolve(root, ".runtime/real-trial"));
   if (command === "start") {
-    const runtime = await startTrialRuntime(root, { outreachActionsEnabled });
+    const runtime = await startTrialRuntime(root, {
+      outreachActionsEnabled, actionVisualLocator
+    });
     console.log(`TRIAL_STARTED:${runtime.origin}`);
     return;
   }
   if (command === "publish") {
     const runtime = await publishTrialRuntime(root, {
       runtimeRoot,
-      startOptions: { outreachActionsEnabled }
+      startOptions: { outreachActionsEnabled, actionVisualLocator }
     });
     console.log(`TRIAL_PUBLISHED:${runtime.origin}`);
     return;

@@ -7,6 +7,14 @@ import {
 export interface AcquisitionSocialAccountPrivateRecord extends AcquisitionSocialAccount {
   accountHandle: string | null;
   upstreamSessionId?: string | null;
+  loginStateVersionHighWater: number;
+}
+
+export interface AcquisitionSocialAccountIdentityFence {
+  accountHandle: string;
+  loginStateVersion: number;
+  revision: number;
+  etag: string;
 }
 
 export interface AcquisitionSocialLoginSessionPrivateRecord {
@@ -66,6 +74,8 @@ export interface AcquisitionSocialAccountRepository {
   findById(workspaceId: string, id: string): Promise<AcquisitionSocialAccountPrivateRecord | null>;
   upsert(record: AcquisitionSocialAccountPrivateRecord): Promise<AcquisitionSocialAccountPrivateRecord>;
   bindActive(record: AcquisitionSocialAccountPrivateRecord): Promise<AcquisitionSocialAccountPrivateRecord | "active_handle_conflict">;
+  pauseActiveAccount(workspaceId: string, id: string, identity: AcquisitionSocialAccountIdentityFence,
+    updatedAt: string): Promise<AcquisitionSocialAccountPrivateRecord | null>;
   disconnect(workspaceId: string, id: string, etag: string, updatedAt: string): Promise<AcquisitionSocialAccountPrivateRecord | null>;
   saveLoginSession(record: AcquisitionSocialLoginSessionPrivateRecord): Promise<void>;
   findLoginSession(workspaceId: string, id: string): Promise<AcquisitionSocialLoginSessionPrivateRecord | null>;
@@ -83,13 +93,29 @@ function cloneRecord(record: AcquisitionSocialAccountPrivateRecord) {
 
 const privateRecordKeys = new Set([
   "id", "workspaceId", "platform", "accountHandle", "upstreamSessionId", "displayName", "state",
-  "loginStateVersion", "revision", "etag", "lastValidatedAt", "createdAt", "updatedAt"
+  "loginStateVersion", "loginStateVersionHighWater", "revision", "etag", "lastValidatedAt", "createdAt", "updatedAt"
 ]);
 
 export function assertValidAcquisitionSocialAccountPrivateRecord(record: AcquisitionSocialAccountPrivateRecord) {
   if (Object.keys(record).some((key) => !privateRecordKeys.has(key))) {
     throw new TypeError("social_account_private_field_forbidden");
   }
+  if (!Number.isSafeInteger(record.loginStateVersionHighWater)
+    || record.loginStateVersionHighWater < 0
+    || (record.loginStateVersion !== null
+      && record.loginStateVersionHighWater < record.loginStateVersion)) {
+    throw new TypeError("social_account_login_version_high_water_invalid");
+  }
+}
+
+export function hasValidBoundActiveIdentity(record: AcquisitionSocialAccountPrivateRecord) {
+  return record.state === "active"
+    && typeof record.accountHandle === "string"
+    && /^dyacct_[0-9a-f]{64}$/u.test(record.accountHandle)
+    && typeof record.displayName === "string"
+    && record.displayName.trim().length > 0
+    && Number.isSafeInteger(record.loginStateVersion)
+    && (record.loginStateVersion ?? 0) > 0;
 }
 
 interface MemoryReplayRecord {
@@ -177,6 +203,8 @@ export class InMemoryAcquisitionSocialAccountRepository implements AcquisitionSo
     assertValidAcquisitionSocialAccountPrivateRecord(record);
     const saved = cloneRecord(record);
     return this.transaction(() => {
+      const current = this.records.get(this.accountKey(saved.workspaceId, saved.platform));
+      if (current) return current;
       this.records.set(this.accountKey(saved.workspaceId, saved.platform), saved);
       return saved;
     });
@@ -187,9 +215,36 @@ export class InMemoryAcquisitionSocialAccountRepository implements AcquisitionSo
     const candidate = cloneRecord(record);
     return this.transaction(() => {
       const current = this.records.get(this.accountKey(candidate.workspaceId, candidate.platform));
-      if (current?.state === "active" && current.accountHandle !== candidate.accountHandle) return "active_handle_conflict" as const;
-      if (current?.state === "active" && current.accountHandle === candidate.accountHandle) return current;
-      const saved = candidate;
+      if (current && hasValidBoundActiveIdentity(current)
+        && current.accountHandle !== candidate.accountHandle) return "active_handle_conflict" as const;
+      if (current && (candidate.loginStateVersion ?? 0)
+        <= current.loginStateVersionHighWater) return current;
+      const revision = current ? current.revision + 1 : 1;
+      const saved = cloneRecord({ ...candidate,
+        id: current?.id ?? candidate.id,
+        createdAt: current?.createdAt ?? candidate.createdAt,
+        loginStateVersionHighWater: Math.max(current?.loginStateVersionHighWater ?? 0,
+          candidate.loginStateVersionHighWater, candidate.loginStateVersion ?? 0),
+        revision, etag: `"account-v${revision}"`
+      });
+      this.records.set(this.accountKey(saved.workspaceId, saved.platform), saved);
+      return saved;
+    });
+  }
+
+  pauseActiveAccount(workspaceId: string, id: string,
+    identity: AcquisitionSocialAccountIdentityFence, updatedAt: string) {
+    return this.transaction(() => {
+      const existing = [...this.records.values()].find((record) =>
+        record.workspaceId === workspaceId && record.id === id);
+      if (!existing || existing.state !== "active"
+        || existing.accountHandle !== identity.accountHandle
+        || existing.loginStateVersion !== identity.loginStateVersion
+        || existing.revision !== identity.revision
+        || existing.etag !== identity.etag) return null;
+      const revision = existing.revision + 1;
+      const saved = cloneRecord({ ...existing, state: "risk_paused" as const,
+        revision, etag: `"account-v${revision}"`, updatedAt });
       this.records.set(this.accountKey(saved.workspaceId, saved.platform), saved);
       return saved;
     });

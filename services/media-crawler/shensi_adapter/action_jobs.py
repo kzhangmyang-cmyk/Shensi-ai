@@ -16,6 +16,7 @@ from .schemas import (
     ActionReconciliationRequest,
     ActionRequest,
 )
+from .profile_lease import ProfileLeaseBusy, acquire_profile_lease
 
 
 class ActionReplayConflict(RuntimeError):
@@ -49,6 +50,7 @@ class ActionJobManager:
         self._root = root.resolve() / "action-receipts"
         self._root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self._root, 0o700)
+        self._lease_root = root.resolve()
         self._resolve, self._execute = account_resolver, executor
         self._reconcile = reconciler
         self._now = now or (lambda: datetime.now(UTC))
@@ -77,11 +79,36 @@ class ActionJobManager:
 
     def _persist_value(self, path: Path, value: dict[str, object]) -> None:
         temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(value, sort_keys=True,
-            separators=(",", ":")), encoding="utf-8")
-        os.chmod(temporary, 0o600)
+        encoded = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        file_flags = os.O_CREAT | os.O_TRUNC | os.O_WRONLY
+        if hasattr(os, "O_CLOEXEC"):
+            file_flags |= os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            file_flags |= os.O_NOFOLLOW
+        descriptor = os.open(temporary, file_flags, 0o600)
+        try:
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb", closefd=False) as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
         os.replace(temporary, path)
-        os.chmod(path, 0o600)
+        directory_flags = os.O_RDONLY
+        if hasattr(os, "O_CLOEXEC"):
+            directory_flags |= os.O_CLOEXEC
+        if hasattr(os, "O_DIRECTORY"):
+            directory_flags |= os.O_DIRECTORY
+        parent_descriptor = os.open(path.parent, directory_flags)
+        try:
+            os.fsync(parent_descriptor)
+        finally:
+            os.close(parent_descriptor)
 
     def _persist_started(self, path: Path, request_hash: str) -> None:
         self._persist_value(path, {
@@ -118,8 +145,21 @@ class ActionJobManager:
                     raise DouyinActionFailure("action_rejected")
                 profile = self._resolve(request.account_handle,
                                         request.login_state_version)
-                self._persist_started(path, request_hash)
-                receipt = ActionReceipt.model_validate(self._execute(profile, request))
+                try:
+                    lease = acquire_profile_lease(profile, self._lease_root)
+                except ProfileLeaseBusy:
+                    return ActionReceipt(
+                        action_id=request.action_id,
+                        state="failed",
+                        platform_receipt_reference=None,
+                        occurred_at=self._now(),
+                        failure_code="douyin_profile_busy",
+                    )
+                with lease:
+                    self._persist_started(path, request_hash)
+                    receipt = ActionReceipt.model_validate(
+                        self._execute(profile, request)
+                    )
             except KeyError:
                 receipt = ActionReceipt(action_id=request.action_id, state="failed",
                     platform_receipt_reference=None, occurred_at=self._now(),
@@ -206,9 +246,20 @@ class ActionJobManager:
                     **request.model_dump(),
                     not_before=not_before,
                 )
-                receipt = ActionReceipt.model_validate(
-                    self._reconcile(profile, reconciliation_request)
-                )
+                try:
+                    lease = acquire_profile_lease(profile, self._lease_root)
+                except ProfileLeaseBusy:
+                    return ActionReceipt(
+                        action_id=request.action_id,
+                        state="failed",
+                        platform_receipt_reference=None,
+                        occurred_at=self._now(),
+                        failure_code="douyin_profile_busy",
+                    )
+                with lease:
+                    receipt = ActionReceipt.model_validate(
+                        self._reconcile(profile, reconciliation_request)
+                    )
             except KeyError:
                 receipt = ActionReceipt(
                     action_id=request.action_id,

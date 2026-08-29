@@ -1,5 +1,19 @@
 # Third-party notices
 
+## Optional Douyin action visual locator
+
+The MediaCrawler sidecar's optional `visual-locator` dependency group contains:
+
+- `rapidocr@3.9.2` — Apache-2.0; local OCR used only to suggest a missing
+  allowlisted Douyin action entry/send control before exact DOM rebind.
+- `onnxruntime@1.29.0` — MIT; unmodified local inference runtime used by
+  RapidOCR.
+
+These packages are installed only for the explicit
+`DOUYIN_ACTION_VISUAL_LOCATOR=rapidocr` runtime. The default is `disabled`.
+They do not choose accounts, targets, recipients, text, or receipts, and Shensi
+does not persist or log action screenshots or recognized text.
+
 ## Douyin public comment sample provider
 
 The narrow public-response field normalization in

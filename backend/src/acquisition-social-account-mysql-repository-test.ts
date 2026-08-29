@@ -15,10 +15,12 @@ import { AcquisitionSocialAccountService } from "./acquisition-social-account-se
 test("repository rejects raw cookie and profile fields and retains a restart-readable safe record", async () => {
   const repository = new InMemoryAcquisitionSocialAccountRepository();
   await assert.rejects(repository.upsert({ id: "a", workspaceId: "w", platform: "douyin", accountHandle: "h", displayName: null,
-    state: "active", loginStateVersion: 1, revision: 1, etag: '"account-v1"', lastValidatedAt: null,
+    state: "active", loginStateVersion: 1, loginStateVersionHighWater: 1,
+    revision: 1, etag: '"account-v1"', lastValidatedAt: null,
     createdAt: "2026-08-24T00:00:00.000Z", updatedAt: "2026-08-24T00:00:00.000Z", cookies: "nope" } as never));
   await repository.upsert({ id: "a", workspaceId: "w", platform: "douyin", accountHandle: "h", displayName: null,
-    state: "active", loginStateVersion: 1, revision: 1, etag: '"account-v1"', lastValidatedAt: null,
+    state: "active", loginStateVersion: 1, loginStateVersionHighWater: 1,
+    revision: 1, etag: '"account-v1"', lastValidatedAt: null,
     createdAt: "2026-08-24T00:00:00.000Z", updatedAt: "2026-08-24T00:00:00.000Z" });
   const stored = await repository.findByWorkspaceAndPlatform("w", "douyin");
   assert.equal(stored?.accountHandle, "h");
@@ -27,14 +29,60 @@ test("repository rejects raw cookie and profile fields and retains a restart-rea
 
 test("MySQL bind uses a transaction and rolls back a competing active handle", async () => {
   const calls: string[] = [];
+  const currentHandle = `dyacct_${"b".repeat(64)}`;
+  const candidateHandle = `dyacct_${"a".repeat(64)}`;
   const connection = {
     async beginTransaction() { calls.push("begin"); }, async commit() { calls.push("commit"); }, async rollback() { calls.push("rollback"); }, release() { calls.push("release"); },
-    async execute(sql: string) { calls.push(sql.startsWith("SELECT") ? "select" : "write"); return [[{ id: "a", workspace_id: "w", platform: "douyin", account_handle: "other", display_name: null, state: "active", login_state_version: 1, revision: 1, etag: '"account-v1"', last_validated_at: null, created_at: "x", updated_at: "x" }], []] as never; }
+    async execute(sql: string) { calls.push(sql.startsWith("SELECT") ? "select" : "write"); return [[{ id: "a", workspace_id: "w", platform: "douyin", account_handle: currentHandle, upstream_session_id: "current-session", display_name: "当前账号", state: "active", login_state_version: 1, login_state_version_high_water: 1, revision: 1, etag: '"account-v1"', last_validated_at: null, created_at: "x", updated_at: "x" }], []] as never; }
   };
   const repository = new MysqlAcquisitionSocialAccountRepository({ getConnection: async () => connection } as never);
-  const result = await repository.bindActive({ id: "a", workspaceId: "w", platform: "douyin", accountHandle: "new", displayName: null, state: "active", loginStateVersion: 1, revision: 2, etag: '"account-v2"', lastValidatedAt: null, createdAt: "x", updatedAt: "x" });
+  const result = await repository.bindActive({ id: "a", workspaceId: "w", platform: "douyin", accountHandle: candidateHandle, upstreamSessionId: "candidate-session", displayName: "新账号", state: "active", loginStateVersion: 2, loginStateVersionHighWater: 2, revision: 2, etag: '"account-v2"', lastValidatedAt: null, createdAt: "x", updatedAt: "x" });
   assert.equal(result, "active_handle_conflict");
   assert.deepEqual(calls, ["begin", "select", "rollback", "release"]);
+});
+
+test("MySQL bind replaces the same handle with a newer global login version", async () => {
+  const calls: string[] = [];
+  const writes: unknown[][] = [];
+  const handle = `dyacct_${"a".repeat(64)}`;
+  const connection = {
+    async beginTransaction() { calls.push("begin"); },
+    async commit() { calls.push("commit"); },
+    async rollback() { calls.push("rollback"); },
+    release() { calls.push("release"); },
+    async execute(sql: string, values: unknown[] = []) {
+      if (sql.startsWith("SELECT")) {
+        calls.push("select");
+        return [[{ id: "a", workspace_id: "w", platform: "douyin",
+          account_handle: handle, upstream_session_id: "old-session",
+          display_name: "旧昵称", state: "active", login_state_version: 1,
+          login_state_version_high_water: 1,
+          revision: 7, etag: '"account-v7"', last_validated_at: null,
+          created_at: "x", updated_at: "x" }], []] as never;
+      }
+      calls.push("write");
+      writes.push(values);
+      return [{ affectedRows: 1 }, []] as never;
+    }
+  };
+  const repository = new MysqlAcquisitionSocialAccountRepository({
+    getConnection: async () => connection
+  } as never);
+  const replacement = { id: "a", workspaceId: "w", platform: "douyin" as const,
+    accountHandle: handle, upstreamSessionId: "new-session", displayName: "新昵称",
+    state: "active" as const, loginStateVersion: 2, loginStateVersionHighWater: 2,
+    revision: 2,
+    etag: '"account-v2"', lastValidatedAt: "y", createdAt: "x", updatedAt: "y" };
+
+  const result = await repository.bindActive(replacement);
+
+  assert.notEqual(result, "active_handle_conflict");
+  assert.equal(result !== "active_handle_conflict" ? result.id : null, "a");
+  assert.equal(result !== "active_handle_conflict" ? result.revision : null, 8);
+  assert.equal(result !== "active_handle_conflict" ? result.etag : null, '"account-v8"');
+  assert.equal(writes[0]?.includes(8), true);
+  assert.equal(writes[0]?.includes('"account-v8"'), true);
+  assert.deepEqual(calls, ["begin", "select", "write", "commit", "release"]);
 });
 
 type ColumnMetadata = {
@@ -74,6 +122,8 @@ class StatefulLegacyReplaySchemaPool {
     ["response_json", { columnType: "json", nullable: "NO", defaultValue: null }],
     ["response_status", { columnType: "int", nullable: "NO", defaultValue: null }]
   ]);
+  readonly accountRows = [{ login_state_version: 5,
+    login_state_version_high_water: 0 }];
   readonly rows = [
     { idempotency_key: "raw-key-completed", idempotency_key_hash: null as string | null,
       response_status: 201, state: null as string | null, response_headers_json: null as object | null,
@@ -116,6 +166,18 @@ class StatefulLegacyReplaySchemaPool {
     if (normalized.startsWith("ALTER TABLE acquisition_social_accounts ADD COLUMN upstream_session_id")) {
       this.accountColumns.set("upstream_session_id", { columnType: "varchar(512)", nullable: "YES", defaultValue: null });
       return [{ affectedRows: 0 }, []];
+    }
+    if (normalized.startsWith("ALTER TABLE acquisition_social_accounts ADD COLUMN login_state_version_high_water")) {
+      this.accountColumns.set("login_state_version_high_water",
+        { columnType: "bigint unsigned", nullable: "NO", defaultValue: "0" });
+      return [{ affectedRows: 0 }, []];
+    }
+    if (normalized.startsWith("UPDATE acquisition_social_accounts SET login_state_version_high_water=GREATEST")) {
+      for (const row of this.accountRows) {
+        row.login_state_version_high_water = Math.max(row.login_state_version_high_water,
+          row.login_state_version ?? 0);
+      }
+      return [{ affectedRows: this.accountRows.length }, []];
     }
     if (normalized.startsWith("ALTER TABLE acquisition_social_account_replays") && normalized.includes("DROP PRIMARY KEY")) {
       this.replayColumns.delete("idempotency_key");
@@ -174,11 +236,14 @@ test("runtime migration makes a legacy replay table statefully identical to fres
   assert.deepEqual(pool.expiryIndex, ["expires_at"]);
   assert.match(pool.stateCheck ?? "", /state.*pending.*completed/iu);
   assert.deepEqual(pool.rows.map((row) => row.state), ["completed", "pending"]);
+  assert.equal(pool.accountRows[0]?.login_state_version_high_water, 5);
   assert.equal("idempotency_key" in pool.rows[0], false);
 });
 
 test("schema definitions contain restart-safe replay state and upstream handle metadata", () => {
   assert.match(acquisitionSocialAccountsDdl, /upstream_session_id VARCHAR\(512\) NULL/u);
+  assert.match(acquisitionSocialAccountsDdl,
+    /login_state_version_high_water BIGINT UNSIGNED NOT NULL DEFAULT 0/u);
   for (const column of ["state", "response_headers_json", "lease_owner", "lease_expires_at", "fencing_token", "expires_at", "created_at", "updated_at", "completed_at"]) {
     assert.match(acquisitionSocialAccountReplaysDdl, new RegExp(`\\b${column}\\b`, "u"));
   }
@@ -193,6 +258,8 @@ test("both checked-in schema snapshots match the runtime social-account state", 
     const account = snapshot.match(/CREATE TABLE acquisition_social_accounts \([\s\S]*?\n\)/u)?.[0] ?? "";
     const replay = snapshot.match(/CREATE TABLE acquisition_social_account_replays \([\s\S]*?\n\)/u)?.[0] ?? "";
     assert.match(account, /upstream_session_id VARCHAR\(512\) NULL/u, name);
+    assert.match(account,
+      /login_state_version_high_water BIGINT UNSIGNED NOT NULL DEFAULT 0/u, name);
     for (const column of ["idempotency_key_hash", "state", "response_json JSON NULL", "response_headers_json", "lease_owner", "lease_expires_at", "fencing_token", "expires_at", "created_at", "updated_at", "completed_at"]) {
       assert.match(replay, new RegExp(column.replaceAll(" ", "\\s+"), "u"), `${name}: ${column}`);
     }
@@ -293,8 +360,43 @@ class StatefulSocialMysqlPool {
       return [{ affectedRows: 1 }, []];
     }
     if (normalized.startsWith("SELECT * FROM acquisition_social_accounts")) {
-      const row = state.accounts.get(`${values[0]}\u0000${values[1]}`);
+      const row = [...state.accounts.values()].find((candidate) =>
+        candidate.workspace_id === values[0]
+        && (candidate.id === values[1] || candidate.platform === values[1]));
       return [[row ? structuredClone(row) : undefined].filter(Boolean), []];
+    }
+    if (normalized.startsWith("INSERT INTO acquisition_social_accounts")) {
+      const [id, workspaceId, platform, accountHandle, upstreamSessionId,
+        displayName, accountState, loginStateVersion, highWater, revision, etag,
+        lastValidatedAt, createdAt, updatedAt] = values;
+      const existingEntry = [...state.accounts].find(([, candidate]) =>
+        candidate.workspace_id === workspaceId && candidate.platform === platform);
+      const next = { id, workspace_id: workspaceId, platform,
+        account_handle: accountHandle, upstream_session_id: upstreamSessionId,
+        display_name: displayName, state: accountState,
+        login_state_version: loginStateVersion,
+        login_state_version_high_water: Math.max(
+          Number(existingEntry?.[1].login_state_version_high_water ?? 0),
+          Number(highWater ?? 0)
+        ),
+        revision, etag, last_validated_at: lastValidatedAt,
+        created_at: existingEntry?.[1].created_at ?? createdAt, updated_at: updatedAt };
+      if (existingEntry) state.accounts.delete(existingEntry[0]);
+      state.accounts.set(`${workspaceId}\u0000${id}`, next);
+      return [{ affectedRows: 1 }, []];
+    }
+    if (normalized.startsWith("UPDATE acquisition_social_accounts SET state='risk_paused'")) {
+      const [revision, etag, updatedAt, workspaceId, id, accountHandle,
+        loginStateVersion, expectedRevision, expectedEtag] = values;
+      const key = `${workspaceId}\u0000${id}`;
+      const row = state.accounts.get(key);
+      if (!row || row.state !== "active" || row.account_handle !== accountHandle
+        || row.login_state_version !== loginStateVersion
+        || row.revision !== expectedRevision || row.etag !== expectedEtag) {
+        return [{ affectedRows: 0 }, []];
+      }
+      Object.assign(row, { state: "risk_paused", revision, etag, updated_at: updatedAt });
+      return [{ affectedRows: 1 }, []];
     }
     if (normalized.startsWith("UPDATE acquisition_social_accounts SET state='disconnected'")) {
       const [revision, etag, updatedAt, workspaceId, id, expectedEtag] = values;
@@ -376,6 +478,127 @@ function replayReservation(overrides: Partial<{
     ...overrides
   };
 }
+
+function socialAccountRow(overrides: Record<string, unknown> = {}) {
+  const now = "2026-08-24T00:00:00.000Z";
+  return { id: "account", workspace_id: "w", platform: "douyin",
+    account_handle: `dyacct_${"a".repeat(64)}`, upstream_session_id: "session-v1",
+    display_name: "Douyin", state: "active", login_state_version: 1,
+    login_state_version_high_water: 1, revision: 1, etag: '"account-v1"',
+    last_validated_at: now, created_at: now, updated_at: now, ...overrides };
+}
+
+function socialAccountCandidate(version: number) {
+  const now = `2026-08-24T00:00:0${version}.000Z`;
+  return { id: `stale-${version}`, workspaceId: "w", platform: "douyin" as const,
+    accountHandle: `dyacct_${"a".repeat(64)}`, upstreamSessionId: `session-v${version}`,
+    displayName: "Douyin", state: "active" as const, loginStateVersion: version,
+    loginStateVersionHighWater: version, revision: 2, etag: '"account-v2"',
+    lastValidatedAt: now, createdAt: now, updatedAt: now };
+}
+
+test("stateful fake MySQL serializes newer binds and rejects a stale disconnect ETag", async () => {
+  const pool = new StatefulSocialMysqlPool();
+  pool.state.accounts.set("w\u0000account", socialAccountRow());
+  const repository = new MysqlAcquisitionSocialAccountRepository(pool as never);
+
+  const [second, third] = await Promise.all([
+    repository.bindActive(socialAccountCandidate(2)),
+    repository.bindActive(socialAccountCandidate(3))
+  ]);
+  const stored = await repository.findById("w", "account");
+
+  assert.notEqual(second, "active_handle_conflict");
+  assert.notEqual(third, "active_handle_conflict");
+  assert.equal(second !== "active_handle_conflict" ? second.revision : null, 2);
+  assert.equal(third !== "active_handle_conflict" ? third.revision : null, 3);
+  assert.equal(stored?.id, "account");
+  assert.equal(stored?.loginStateVersion, 3);
+  assert.equal(stored?.loginStateVersionHighWater, 3);
+  assert.equal(stored?.revision, 3);
+  assert.equal(stored?.etag, '"account-v3"');
+  const staleUpsert = await repository.upsert(socialAccountCandidate(1));
+  assert.equal(staleUpsert.loginStateVersion, 3);
+  assert.equal(staleUpsert.loginStateVersionHighWater, 3);
+  assert.equal((await repository.findById("w", "account"))?.revision, 3);
+  assert.equal(await repository.disconnect("w", "account", '"account-v2"',
+    "2026-08-24T00:00:04.000Z"), null);
+  assert.equal((await repository.findById("w", "account"))?.state, "active");
+});
+
+test("stateful fake MySQL replaces an invalid legacy active identity with a newer valid login", async () => {
+  const pool = new StatefulSocialMysqlPool();
+  pool.state.accounts.set("w\u0000account", socialAccountRow({
+    account_handle: "legacy-random-handle", display_name: null,
+    login_state_version: 1, login_state_version_high_water: 1,
+    revision: 3, etag: '"account-v3"'
+  }));
+  const repository = new MysqlAcquisitionSocialAccountRepository(pool as never);
+
+  const result = await repository.bindActive(socialAccountCandidate(2));
+  const stored = await repository.findById("w", "account");
+
+  assert.notEqual(result, "active_handle_conflict");
+  assert.equal(stored?.id, "account");
+  assert.equal(stored?.accountHandle, `dyacct_${"a".repeat(64)}`);
+  assert.equal(stored?.displayName, "Douyin");
+  assert.equal(stored?.loginStateVersion, 2);
+  assert.equal(stored?.loginStateVersionHighWater, 2);
+  assert.equal(stored?.revision, 4);
+});
+
+test("stateful fake MySQL high-water rejects old sessions after disconnect or risk pause", async () => {
+  for (const state of ["disconnected", "risk_paused"] as const) {
+    const pool = new StatefulSocialMysqlPool();
+    pool.state.accounts.set("w\u0000account", socialAccountRow({
+      state, account_handle: state === "disconnected" ? null : `dyacct_${"a".repeat(64)}`,
+      upstream_session_id: state === "disconnected" ? null : "session-v3",
+      login_state_version: state === "disconnected" ? null : 3,
+      login_state_version_high_water: 3, revision: 4, etag: '"account-v4"'
+    }));
+    const repository = new MysqlAcquisitionSocialAccountRepository(pool as never);
+
+    const result = await repository.bindActive(socialAccountCandidate(2));
+
+    assert.notEqual(result, "active_handle_conflict");
+    assert.equal(result !== "active_handle_conflict" ? result.state : null, state);
+    const stored = await repository.findById("w", "account");
+    assert.equal(stored?.state, state);
+    assert.equal(stored?.loginStateVersionHighWater, 3);
+    assert.equal(stored?.revision, 4);
+  }
+});
+
+test("stateful fake MySQL pause CAS cannot roll a newer reconnect back", async () => {
+  const pool = new StatefulSocialMysqlPool();
+  pool.state.accounts.set("w\u0000account", socialAccountRow());
+  const repository = new MysqlAcquisitionSocialAccountRepository(pool as never);
+  const oldIdentity = { accountHandle: `dyacct_${"a".repeat(64)}`,
+    loginStateVersion: 1, revision: 1, etag: '"account-v1"' };
+  await repository.bindActive(socialAccountCandidate(2));
+
+  assert.equal(await repository.pauseActiveAccount("w", "account", oldIdentity,
+    "2026-08-24T00:00:03.000Z"), null);
+  const stored = await repository.findById("w", "account");
+  assert.equal(stored?.state, "active");
+  assert.equal(stored?.loginStateVersion, 2);
+  assert.equal(stored?.revision, 2);
+
+  const pauseFirstPool = new StatefulSocialMysqlPool();
+  pauseFirstPool.state.accounts.set("w\u0000account", socialAccountRow());
+  const pauseFirst = new MysqlAcquisitionSocialAccountRepository(pauseFirstPool as never);
+  const [paused, rebound] = await Promise.all([
+    pauseFirst.pauseActiveAccount("w", "account", oldIdentity,
+      "2026-08-24T00:00:02.000Z"),
+    pauseFirst.bindActive(socialAccountCandidate(2))
+  ]);
+  assert.equal(paused?.state, "risk_paused");
+  assert.notEqual(rebound, "active_handle_conflict");
+  const reboundStored = await pauseFirst.findById("w", "account");
+  assert.equal(reboundStored?.state, "active");
+  assert.equal(reboundStored?.loginStateVersion, 2);
+  assert.equal(reboundStored?.revision, 3);
+});
 
 test("stateful fake MySQL isolates replay keys and gives one concurrent claimant the lease", async () => {
   const repository = new MysqlAcquisitionSocialAccountRepository(new StatefulSocialMysqlPool() as never);
