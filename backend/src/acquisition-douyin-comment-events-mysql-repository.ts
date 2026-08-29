@@ -1634,7 +1634,7 @@ implements AcquisitionDouyinCommentEventRepository {
          ?, '$[*]' COLUMNS(
            requested_event_id VARCHAR(160) PATH '$.eventId'
          )
-       ) ids ON ids.requested_event_id = e.event_id
+       ) ids ON BINARY ids.requested_event_id = BINARY e.event_id
        WHERE e.owner_id = ? AND e.team_id = ?`,
       [
         JSON.stringify(links.map((link) => ({ eventId: link.eventId }))),
@@ -1649,7 +1649,7 @@ implements AcquisitionDouyinCommentEventRepository {
          ?, '$[*]' COLUMNS(
            requested_observation_id VARCHAR(160) PATH '$.observationId'
          )
-       ) ids ON ids.requested_observation_id = o.observation_id
+       ) ids ON BINARY ids.requested_observation_id = BINARY o.observation_id
        WHERE o.owner_id = ? AND o.team_id = ?`,
       [
         JSON.stringify(links.map((link) => ({

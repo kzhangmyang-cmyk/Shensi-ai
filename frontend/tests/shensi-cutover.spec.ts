@@ -58,14 +58,28 @@ test("restored Shensi runtime reaches the current acquisition application", asyn
   await page.locator("#loginPassword").fill(password);
   await page.locator("#loginButton").click();
   await expect(page.locator(".replica-shell")).toBeVisible();
+  await expect(page).toHaveURL(/#agents$/u);
 
   await page.goto(`${origin}#acquisition`);
-  await expect(page.getByRole("heading", { name: "启动抖音自动获客" })).toBeVisible();
+  await expect(page).toHaveURL(/#acquisition$/u);
+  const acquisitionWorkspace = page.getByRole(
+    "region",
+    { name: "抖音自动获客工作台" }
+  );
+  await expect(acquisitionWorkspace).toBeVisible();
+  await expect(acquisitionWorkspace.getByRole(
+    "heading",
+    { name: "抖音自动获客" }
+  )).toBeVisible();
   await expect(page.locator(".shell")).toHaveCount(0);
 
   await page.reload();
   await expect(page.locator(".replica-shell")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "启动抖音自动获客" })).toBeVisible();
+  await expect(acquisitionWorkspace).toBeVisible();
+  await expect(acquisitionWorkspace.getByRole(
+    "heading",
+    { name: "抖音自动获客" }
+  )).toBeVisible();
 
   for (const viewport of [
     { width: 1440, height: 900 },

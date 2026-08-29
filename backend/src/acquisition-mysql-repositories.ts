@@ -1769,7 +1769,7 @@ implements AcquisitionDomainRepository {
          '$[*]' COLUMNS(
            candidate_id VARCHAR(120) PATH '$.candidateId'
          )
-       ) ids ON ids.candidate_id = c.id
+       ) ids ON BINARY ids.candidate_id = BINARY c.id
        WHERE c.owner_id = ? AND c.team_id = ?`,
       [idSetJson, scope.ownerId, scope.teamId]
     )).map((row) =>
@@ -1783,7 +1783,7 @@ implements AcquisitionDomainRepository {
          '$[*]' COLUMNS(
            candidate_id VARCHAR(120) PATH '$.candidateId'
          )
-       ) ids ON ids.candidate_id = q.candidate_id
+       ) ids ON BINARY ids.candidate_id = BINARY q.candidate_id
        WHERE q.owner_id = ? AND q.team_id = ?`,
       [idSetJson, scope.ownerId, scope.teamId]
     )).map((row) =>
@@ -1797,7 +1797,7 @@ implements AcquisitionDomainRepository {
          '$[*]' COLUMNS(
            candidate_id VARCHAR(120) PATH '$.candidateId'
          )
-       ) ids ON ids.candidate_id = f.candidate_id
+       ) ids ON BINARY ids.candidate_id = BINARY f.candidate_id
        WHERE f.owner_id = ? AND f.team_id = ?`,
       [idSetJson, scope.ownerId, scope.teamId]
     )).map((row) =>
@@ -1816,7 +1816,7 @@ implements AcquisitionDomainRepository {
              '$[*]' COLUMNS(
                evidence_id VARCHAR(${ACQUISITION_EVIDENCE_ID_SQL_WIDTH}) PATH '$.evidenceId'
              )
-           ) ids ON ids.evidence_id = e.id
+           ) ids ON BINARY ids.evidence_id = BINARY e.id
            WHERE e.owner_id = ? AND e.team_id = ?`,
           [
             json(evidenceIds.map((evidenceId) => ({ evidenceId }))),
@@ -1877,7 +1877,7 @@ implements AcquisitionDomainRepository {
          '$[*]' COLUMNS(
            evidence_id VARCHAR(${ACQUISITION_EVIDENCE_ID_SQL_WIDTH}) PATH '$.evidenceId'
          )
-       ) ids ON ids.evidence_id = e.id
+       ) ids ON BINARY ids.evidence_id = BINARY e.id
        WHERE e.owner_id = ? AND e.team_id = ?`,
       [
         json(ids.map((evidenceId) => ({ evidenceId }))),

@@ -1141,6 +1141,14 @@ test("mysql presentation signal facts batch events and observations inside tenan
   ]);
   assert.match(pool.calls[1]!.sql, /JSON_TABLE/u);
   assert.match(pool.calls[2]!.sql, /JSON_TABLE/u);
+  assert.match(
+    pool.calls[1]!.sql,
+    /ON BINARY ids\.requested_event_id = BINARY e\.event_id/u
+  );
+  assert.match(
+    pool.calls[2]!.sql,
+    /ON BINARY ids\.requested_observation_id = BINARY o\.observation_id/u
+  );
   assert.deepEqual(pool.calls[1]!.values.slice(1), ["owner-a", "team-a"]);
   assert.deepEqual(pool.calls[2]!.values.slice(1), ["owner-a", "team-a"]);
 });

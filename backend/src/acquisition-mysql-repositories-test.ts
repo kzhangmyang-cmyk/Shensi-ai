@@ -1504,6 +1504,22 @@ async function testPresentationReadsAreTenantBoundedPagedAndBatched() {
   const batchCalls = domainPool.calls.slice(-4);
   assert.equal(batchCalls.length, 4);
   assert.ok(batchCalls.every((call) => /JSON_TABLE/u.test(call.sql)));
+  assert.match(
+    batchCalls[0]!.sql,
+    /ON BINARY ids\.candidate_id = BINARY c\.id/u
+  );
+  assert.match(
+    batchCalls[1]!.sql,
+    /ON BINARY ids\.candidate_id = BINARY q\.candidate_id/u
+  );
+  assert.match(
+    batchCalls[2]!.sql,
+    /ON BINARY ids\.candidate_id = BINARY f\.candidate_id/u
+  );
+  assert.match(
+    batchCalls[3]!.sql,
+    /ON BINARY ids\.evidence_id = BINARY e\.id/u
+  );
   assert.ok(batchCalls.every((call) =>
     /owner_id = \? AND .*team_id = \?/u.test(call.sql)
   ));
@@ -1523,6 +1539,10 @@ async function testPresentationReadsAreTenantBoundedPagedAndBatched() {
   );
   const evidenceBatch = domainPool.calls.at(-1)!;
   assert.match(evidenceBatch.sql, /JSON_TABLE/u);
+  assert.match(
+    evidenceBatch.sql,
+    /ON BINARY ids\.evidence_id = BINARY e\.id/u
+  );
   assert.match(evidenceBatch.sql, /e\.owner_id = \? AND e\.team_id = \?/u);
   assert.deepEqual(evidenceBatch.values.slice(1), ["owner-a", "team-a"]);
 
