@@ -155,6 +155,10 @@ export function createConnectionCenterController(
   let disposed = false;
   let loadSerial = 0;
   let idlePromise = Promise.resolve();
+  const loadErrors: Record<ConnectionCenterMode, string> = {
+    search: "",
+    model: ""
+  };
 
   function remember<T>(promise: Promise<T>): Promise<T> {
     idlePromise = promise.then(() => undefined, () => undefined);
@@ -224,27 +228,44 @@ export function createConnectionCenterController(
     state.status = "loading";
     state.error = "";
     state.message = message;
+    loadErrors.search = "";
+    loadErrors.model = "";
     render();
-    try {
-      const [providers, searchConnections, modelProfiles, modelConnections] =
-        await Promise.all([
-          api.listSearchProviders(),
-          api.listSearchConnections(),
-          api.listModelEndpointProfiles(),
-          api.listModelConnections()
-        ]);
-      if (disposed || serial !== loadSerial) return;
-      state.providers = providers;
-      state.searchConnections = searchConnections;
-      state.modelProfiles = modelProfiles;
-      state.modelConnections = modelConnections;
-      state.status = "ready";
-      ensureSelections();
-    } catch (error) {
-      if (disposed || serial !== loadSerial) return;
-      state.status = "error";
-      state.error = errorText(error);
+    const [providers, searchConnections, modelProfiles, modelConnections] =
+      await Promise.allSettled([
+        api.listSearchProviders(),
+        api.listSearchConnections(),
+        api.listModelEndpointProfiles(),
+        api.listModelConnections()
+      ]);
+    if (disposed || serial !== loadSerial) return;
+
+    if (providers.status === "fulfilled") state.providers = providers.value;
+    if (searchConnections.status === "fulfilled") {
+      state.searchConnections = searchConnections.value;
     }
+    if (modelProfiles.status === "fulfilled") {
+      state.modelProfiles = modelProfiles.value;
+    }
+    if (modelConnections.status === "fulfilled") {
+      state.modelConnections = modelConnections.value;
+    }
+
+    const searchFailure = [providers, searchConnections].find(
+      (result) => result.status === "rejected"
+    );
+    const modelFailure = [modelProfiles, modelConnections].find(
+      (result) => result.status === "rejected"
+    );
+    loadErrors.search = searchFailure?.status === "rejected"
+      ? errorText(searchFailure.reason)
+      : "";
+    loadErrors.model = modelFailure?.status === "rejected"
+      ? errorText(modelFailure.reason)
+      : "";
+    state.status = loadErrors[state.mode] ? "error" : "ready";
+    state.error = loadErrors[state.mode];
+    ensureSelections();
     render();
   }
 
@@ -335,7 +356,10 @@ export function createConnectionCenterController(
 
     switchMode(mode) {
       state.mode = mode;
-      state.error = "";
+      if (state.status !== "loading") {
+        state.status = loadErrors[mode] ? "error" : "ready";
+      }
+      state.error = loadErrors[mode];
       state.message = "";
       ensureSelections();
       render();

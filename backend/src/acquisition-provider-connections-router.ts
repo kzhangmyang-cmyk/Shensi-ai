@@ -557,7 +557,6 @@ export function createAcquisitionProviderConnectionsRouter(
   });
 
   router.get("/api/v1/acquisition/providers", asyncRoute(async (_req, res) => {
-    await options.store.readBarrier();
     const searchProviders = ACQUISITION_SEARCH_PROVIDER_IDS.map((id) => {
       const provider = getProvider(id);
       if (!provider) {
@@ -597,7 +596,6 @@ export function createAcquisitionProviderConnectionsRouter(
     "/api/v1/acquisition/provider-connections",
     asyncRoute(async (req, res) => {
       const user = actor(req)!;
-      await options.store.readBarrier();
       const personal = options.store.providerConnections
         .filter((connection) =>
           connection.ownerId === user.id

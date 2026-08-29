@@ -181,3 +181,55 @@ await assert.rejects(
 );
 
 controller.destroy();
+
+const searchFailureController = createConnectionCenterController({
+  api: {
+    ...api,
+    async listSearchProviders() {
+      throw new Error("搜索数据源超时");
+    },
+    async listSearchConnections() {
+      throw new Error("搜索连接超时");
+    }
+  }
+});
+
+await searchFailureController.open("model");
+assert.equal(searchFailureController.getState().status, "ready");
+assert.equal(
+  searchFailureController.getState().modelProfiles[1]?.endpointProfileId,
+  "moonshot-cn"
+);
+assert.equal(searchFailureController.getState().modelConnections[0]?.id, "model-1");
+assert.equal(searchFailureController.getState().error, "");
+searchFailureController.switchMode("search");
+assert.equal(searchFailureController.getState().status, "error");
+assert.match(searchFailureController.getState().error, /搜索数据源超时/u);
+searchFailureController.switchMode("model");
+assert.equal(searchFailureController.getState().status, "ready");
+assert.equal(searchFailureController.getState().error, "");
+searchFailureController.destroy();
+
+const modelFailureController = createConnectionCenterController({
+  api: {
+    ...api,
+    async listModelEndpointProfiles() {
+      throw new Error("AI 模型端点超时");
+    },
+    async listModelConnections() {
+      throw new Error("AI 模型连接超时");
+    }
+  }
+});
+
+await modelFailureController.open("search");
+assert.equal(modelFailureController.getState().status, "ready");
+assert.equal(modelFailureController.getState().providers[0]?.id, "baidu_ai_search");
+assert.equal(modelFailureController.getState().error, "");
+modelFailureController.switchMode("model");
+assert.equal(modelFailureController.getState().status, "error");
+assert.match(modelFailureController.getState().error, /AI 模型端点超时/u);
+modelFailureController.switchMode("search");
+assert.equal(modelFailureController.getState().status, "ready");
+assert.equal(modelFailureController.getState().error, "");
+modelFailureController.destroy();

@@ -30,6 +30,25 @@ const OWNER_A = "owner-provider-a";
 const TEAM_A = "team-provider-a";
 const CREDENTIAL_SECRET =
   "acquisition-provider-route-test-secret-at-least-32-characters";
+const REQUEST_TIMEOUT = Symbol("request-timeout");
+
+async function requestBeforeTimeout<T>(
+  request: Promise<T>,
+  timeoutMs = 250
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([
+    request,
+    new Promise<typeof REQUEST_TIMEOUT>((resolve) => {
+      timeout = setTimeout(() => resolve(REQUEST_TIMEOUT), timeoutMs);
+    })
+  ]);
+  if (timeout) clearTimeout(timeout);
+  if (result === REQUEST_TIMEOUT) {
+    assert.fail(`request did not complete within ${timeoutMs}ms`);
+  }
+  return result;
+}
 
 function deterministicIds() {
   let sequence = 0;
@@ -241,6 +260,39 @@ test("v1 acquisition provider catalog exposes six executable searches and two fi
     assert.match(baidu.keyHint, /API Key/u);
     assert.equal(JSON.stringify(result.json).includes("apiKey"), false);
     assert.equal(JSON.stringify(result.json).includes("credential"), false);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("v1 provider catalog GET does not wait for the prospect read barrier", async () => {
+  const store = createStore();
+  store.readBarrier = () => new Promise<void>(() => {});
+  const fixture = await createFixture({ store });
+  try {
+    const result = await requestBeforeTimeout(
+      fixture.request("/api/v1/acquisition/providers")
+    );
+    assert.equal(result.response.status, 200);
+    assert.equal(result.json.items.length, 8);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("v1 provider connections GET does not wait for the prospect read barrier", async () => {
+  const store = createStore();
+  store.providerConnections.push(storedConnection());
+  store.readBarrier = () => new Promise<void>(() => {});
+  const fixture = await createFixture({ store });
+  try {
+    const result = await requestBeforeTimeout(
+      fixture.request("/api/v1/acquisition/provider-connections")
+    );
+    assert.equal(result.response.status, 200);
+    assert.ok(result.json.items.some(
+      (item: { id: string }) => item.id === "provider-connection-visible"
+    ));
   } finally {
     await fixture.close();
   }
