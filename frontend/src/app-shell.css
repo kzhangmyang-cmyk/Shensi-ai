@@ -237,6 +237,27 @@ body.is-authenticated .login-screen {
   filter: saturate(0.45) brightness(0.72);
 }
 
+.shensi-login .login-mode-toggle {
+  min-height: 36px;
+  margin-top: 6px;
+  padding: 6px;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: #9eaaa0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.shensi-login .login-mode-toggle:hover:not(:disabled) {
+  color: #79ff98;
+  filter: none;
+}
+
+.shensi-login .login-mode-toggle[hidden] {
+  display: none;
+}
+
 .login-error {
   min-height: 20px;
   margin: 12px 0 0;

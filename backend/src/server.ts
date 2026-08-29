@@ -592,6 +592,14 @@ const loginLimiter = rateLimit({
   message: { message: "登录尝试过于频繁，请稍后再试" }
 });
 
+const registrationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: ["test", "e2e"].includes(process.env.NODE_ENV || "") ? 10_000 : 5,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { message: "注册尝试过于频繁，请稍后再试" }
+});
+
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: ["test", "e2e"].includes(process.env.NODE_ENV || "") ? 100_000 : 600,
@@ -1160,15 +1168,113 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+const publicAccountPattern = /^[a-z0-9][a-z0-9_-]{2,31}$/u;
+const publicAccountSchema = z.string()
+  .trim()
+  .min(3)
+  .max(32)
+  .transform((value) => value.toLowerCase())
+  .refine((value) => publicAccountPattern.test(value), {
+    message: "账号只能包含小写字母、数字、下划线或连字符"
+  });
+
+const loginIdentitySchema = z.string()
+  .trim()
+  .min(1)
+  .max(180)
+  .transform((value) => value.toLowerCase())
+  .superRefine((value, context) => {
+    const valid = value.includes("@")
+      ? z.string().email().safeParse(value).success
+      : publicAccountPattern.test(value);
+    if (!valid) context.addIssue({ code: z.ZodIssueCode.custom, message: "账号或邮箱格式错误" });
+  });
+
 const loginSchema = z.object({
-  email: z.string().trim().email().max(180).transform((value) => value.toLowerCase()),
+  email: loginIdentitySchema,
   password: z.string().min(1).max(128)
-});
+}).strict();
+
+const registrationSchema = z.object({
+  account: publicAccountSchema,
+  password: z.string().min(8).max(128)
+}).strict();
+
+function canonicalLoginEmail(identity: string) {
+  return identity.includes("@") ? identity : `${identity}@shensi.local`;
+}
+
+function sendAuthenticatedSession(
+  res: Response,
+  user: ReturnType<typeof getStore>["users"][number],
+  status = 200
+) {
+  const sessionUser = publicUser(user);
+  const token = signToken(sessionUser);
+  const csrfToken = createCsrfToken();
+  res.cookie(AUTH_COOKIE_NAME, token, sessionCookieOptions());
+  res.cookie(CSRF_COOKIE_NAME, csrfToken, csrfCookieOptions());
+  res.setHeader("Cache-Control", "no-store");
+  res.status(status).json({ token, csrfToken, user: sessionUser });
+}
+
+class RegistrationConflictError extends Error {}
+
+app.post("/api/auth/register", registrationLimiter, asyncRoute(async (req, res) => {
+  const body = registrationSchema.parse(req.body);
+  const email = `${body.account}@shensi.local`;
+  const user = {
+    id: `u_${randomUUID()}`,
+    name: body.account,
+    email,
+    password: await hashPassword(body.password),
+    role: "admin" as const,
+    teamId: `workspace_${randomUUID()}`,
+    avatar: body.account.slice(0, 2).toUpperCase(),
+    status: "active" as const,
+    authVersion: 1
+  };
+  const store = getStore();
+  const mutation = () => {
+    if (store.users.some((item) => item.email.toLowerCase() === email)) {
+      throw new RegistrationConflictError();
+    }
+    store.users.unshift(user);
+    return {
+      value: user,
+      rollback() {
+        const index = store.users.indexOf(user);
+        if (index >= 0) store.users.splice(index, 1);
+      }
+    };
+  };
+  try {
+    if (store.persistMutation) {
+      await store.persistMutation(mutation);
+    } else {
+      const applied = mutation();
+      try {
+        await store.persist();
+      } catch (error) {
+        applied.rollback();
+        throw error;
+      }
+    }
+  } catch (error) {
+    if (error instanceof RegistrationConflictError) {
+      res.status(409).json({ message: "账号已存在" });
+      return;
+    }
+    throw error;
+  }
+  sendAuthenticatedSession(res, user, 201);
+}));
 
 app.post("/api/auth/login", loginLimiter, asyncRoute(async (req, res) => {
   const body = loginSchema.parse(req.body);
   const store = getStore();
-  const user = store.users.find((item) => item.email.toLowerCase() === body.email && item.status === "active");
+  const email = canonicalLoginEmail(body.email);
+  const user = store.users.find((item) => item.email.toLowerCase() === email && item.status === "active");
   const passwordCheck = user ? await verifyPassword(user.password, body.password) : { valid: false, needsUpgrade: false };
   if (!user || !passwordCheck.valid) {
     res.status(401).json({ message: "账号或密码错误" });
@@ -1179,13 +1285,7 @@ app.post("/api/auth/login", loginLimiter, asyncRoute(async (req, res) => {
     user.authVersion = user.authVersion || 1;
     await store.persist();
   }
-  const sessionUser = publicUser(user);
-  const token = signToken(sessionUser);
-  const csrfToken = createCsrfToken();
-  res.cookie(AUTH_COOKIE_NAME, token, sessionCookieOptions());
-  res.cookie(CSRF_COOKIE_NAME, csrfToken, csrfCookieOptions());
-  res.setHeader("Cache-Control", "no-store");
-  res.json({ token, csrfToken, user: sessionUser });
+  sendAuthenticatedSession(res, user);
 }));
 
 app.post("/api/auth/logout", (req, res) => {

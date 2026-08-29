@@ -101,6 +101,119 @@ try {
   if (app.get("trust proxy") !== "loopback") throw new Error("Express must only trust loopback proxies");
   results.productionNetworkHosts = true;
 
+  const registrationSuffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+  const registrationAccount = `reg${registrationSuffix}`;
+  const registrationPassword = "Registration-123";
+  const weakRegistration = await request("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ account: `weak${registrationSuffix}`, password: "short" })
+  });
+  await expectStatus("registration rejects weak passwords", weakRegistration.response.status, 400);
+  const malformedRegistration = await request("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ account: "not valid!", password: registrationPassword, role: "super_admin" })
+  });
+  await expectStatus("registration rejects invalid accounts and caller authority", malformedRegistration.response.status, 400);
+
+  const registered = await request("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({
+      account: `  ${registrationAccount.toUpperCase()}  `,
+      password: registrationPassword
+    })
+  });
+  await expectStatus("public registration", registered.response.status, 201);
+  const registeredUser = registered.json.user as {
+    id?: string;
+    email?: string;
+    role?: string;
+    teamId?: string;
+  };
+  if (!registered.json.token || !registered.json.csrfToken
+    || registeredUser.email !== `${registrationAccount}@shensi.local`
+    || registeredUser.role !== "admin"
+    || !registeredUser.id?.startsWith("u_")
+    || !registeredUser.teamId?.startsWith("workspace_")) {
+    throw new Error("registration must create and authenticate an isolated tenant administrator");
+  }
+  const registrationPayload = JSON.stringify(registered.json);
+  if (registrationPayload.includes(registrationPassword)
+    || registrationPayload.includes("scrypt$")
+    || /"password"/u.test(registrationPayload)) {
+    throw new Error("registration response leaked password material");
+  }
+  const persistedRegistration = getStore().users.find((item) => item.id === registeredUser.id);
+  if (!persistedRegistration?.password.startsWith("scrypt$")
+    || persistedRegistration.password === registrationPassword) {
+    throw new Error("registration must persist only the password hash");
+  }
+  const registrationSession = await request("/api/auth/me", {
+    headers: bearer(registered.json.token)
+  });
+  if (!registrationSession.response.ok
+    || registrationSession.json.user?.id !== registeredUser.id) {
+    throw new Error("registration must issue an immediately usable session");
+  }
+  const bareAccountLogin = await request("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email: registrationAccount, password: registrationPassword })
+  });
+  if (!bareAccountLogin.response.ok
+    || bareAccountLogin.json.user?.id !== registeredUser.id) {
+    throw new Error("registered account must login with its bare account name");
+  }
+  const canonicalEmailLogin = await request("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({
+      email: `${registrationAccount}@shensi.local`,
+      password: registrationPassword
+    })
+  });
+  if (!canonicalEmailLogin.response.ok
+    || canonicalEmailLogin.json.user?.id !== registeredUser.id) {
+    throw new Error("registered account must login with its canonical email");
+  }
+  const duplicateRegistration = await request("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ account: ` ${registrationAccount.toUpperCase()} `, password: registrationPassword })
+  });
+  await expectStatus("normalized duplicate registration", duplicateRegistration.response.status, 409);
+
+  const concurrentAccount = `race${registrationSuffix}`;
+  const concurrentRegistrations = await Promise.all([
+    request("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ account: concurrentAccount, password: registrationPassword })
+    }),
+    request("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ account: concurrentAccount, password: registrationPassword })
+    })
+  ]);
+  const concurrentStatuses = concurrentRegistrations
+    .map((result) => result.response.status)
+    .sort((left, right) => left - right);
+  if (JSON.stringify(concurrentStatuses) !== JSON.stringify([201, 409])
+    || getStore().users.filter((item) =>
+      item.email.toLowerCase() === `${concurrentAccount}@shensi.local`
+    ).length !== 1) {
+    throw new Error("concurrent duplicate registration must create exactly one account");
+  }
+  const concurrentUser = concurrentRegistrations
+    .find((result) => result.response.status === 201)?.json.user;
+  if (!concurrentUser
+    || concurrentUser.id === registeredUser.id
+    || concurrentUser.teamId === registeredUser.teamId) {
+    throw new Error("each registered account must receive an independent user and workspace");
+  }
+  const isolatedCustomers = await request("/api/customers", {
+    headers: bearer(registered.json.token)
+  });
+  if (!isolatedCustomers.response.ok || isolatedCustomers.json.customers?.length !== 0) {
+    throw new Error("registered workspace must not inherit another tenant's customer data");
+  }
+  results.publicRegistrationIsolated = true;
+
   const aiCredentialContext = {
     id: "ai_security_test",
     provider: "openai",

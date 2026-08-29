@@ -87,14 +87,28 @@ Real API/MySQL surfaces remain real. Browser-local or pending integrations are
 visible and carry the exact label `预览 · 待接入`; their values are not live
 customer results.
 
+The real-mode entry switches between login and public account registration and
+never pre-fills credentials. Login accepts either a valid account name or an
+email. Registration calls `POST /api/auth/register`; the account must be 3–32
+characters, begin with a letter or digit, and otherwise contain only letters,
+digits, `_`, or `-`, while the password must be 8–128 characters. The server
+trims and lowercases the account, returns `409` for an existing account, and
+limits registration to five attempts per observed client IP per hour. A
+successful registration creates an active tenant `admin` in a newly generated
+workspace and immediately issues the normal session and CSRF cookies. All
+product modules remain visible, but that workspace starts with empty business
+data and receives no copied provider/model credentials, Douyin login, candidate,
+task, approval, comment, or private-message state from another tenant.
+
 With `VITE_REAL_TRIAL=true`, `VITE_TRIAL_LOGIN_ALIAS` and
 `VITE_TRIAL_LOGIN_EMAIL` contain position-matched comma-separated values. The
-current trial maps `test` and `test2` to their `@shensi.local` emails before
-calling the email-only backend login API. Matching trims and lowercases the
-alias only; unmatched identities and every password remain unchanged. Empty or
-unequal-length lists fail before a network request. `test` and `test2` are
-tenant `admin` accounts in separate `trial-pilot-001` and `trial-pilot-002`
-workspaces; neither is `super_admin`, and their business data is isolated.
+current trial continues to map `test` and `test2` to their `@shensi.local`
+emails. Matching trims and lowercases the alias only; unmatched identities and
+every password remain unchanged. Empty or unequal-length lists fail before a
+network request. The backend itself accepts either a valid bare account or an
+email. `test` and `test2` are tenant `admin` accounts in separate
+`trial-pilot-001` and `trial-pilot-002` workspaces; neither is `super_admin`, and
+their business data is isolated.
 `test2` has its own persisted, read-only acquisition showcase snapshot so the
 public trial exposes the same task, candidate, and evidence surfaces as `test`
 without sharing operational state. The snapshot contains no provider or model

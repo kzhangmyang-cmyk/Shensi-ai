@@ -394,7 +394,8 @@ function operationId(method: HttpMethod, path: string) {
 }
 
 function securityFor(method: HttpMethod, path: string) {
-  if (path === "/api/health" || path === "/api/auth/login" || path === "/api/auth/logout") return [];
+  if (path === "/api/health" || path === "/api/auth/login"
+    || path === "/api/auth/register" || path === "/api/auth/logout") return [];
   if (path === "/api/whatsapp/webhook/twilio") return [{ twilioSignature: [] }];
   if (method === "get") return [{ bearerAuth: [] }, { cookieAuth: [] }];
   return [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }];
@@ -402,12 +403,39 @@ function securityFor(method: HttpMethod, path: string) {
 
 function requestBodyFor(method: HttpMethod, path: string) {
   if (method === "get" || method === "delete") return undefined;
-  const schema = path === "/api/auth/login"
+  const schema = path === "/api/auth/register"
+    ? {
+        type: "object",
+        required: ["account", "password"],
+        properties: {
+          account: {
+            type: "string",
+            minLength: 3,
+            maxLength: 32,
+            pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{2,31}$",
+            description: "注册账号，服务端会去除首尾空格并转为小写"
+          },
+          password: {
+            type: "string",
+            format: "password",
+            minLength: 8,
+            maxLength: 128,
+            description: "登录密码"
+          }
+        },
+        additionalProperties: false
+      }
+    : path === "/api/auth/login"
     ? {
         type: "object",
         required: ["email", "password"],
         properties: {
-          email: { type: "string", format: "email", description: "CRM 登录邮箱" },
+          email: {
+            type: "string",
+            minLength: 1,
+            maxLength: 180,
+            description: "CRM 登录账号或邮箱"
+          },
           password: { type: "string", format: "password", description: "CRM 登录密码" }
         },
           additionalProperties: false
@@ -1672,6 +1700,42 @@ function responsesFor(method: HttpMethod, path: string) {
     "403": { $ref: "#/components/responses/Forbidden" },
     "404": { $ref: "#/components/responses/NotFound" }
   };
+  if (method === "post" && path === "/api/auth/register") {
+    delete responses["200"];
+    responses["201"] = {
+      description: "已创建独立工作区管理员并签发登录会话",
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            required: ["token", "csrfToken", "user"],
+            properties: {
+              token: { type: "string" },
+              csrfToken: { type: "string" },
+              user: { type: "object", additionalProperties: true }
+            },
+            additionalProperties: false
+          }
+        }
+      }
+    };
+    responses["409"] = {
+      description: "账号已存在",
+      content: {
+        "application/json": {
+          schema: { type: "object", additionalProperties: true }
+        }
+      }
+    };
+    responses["429"] = {
+      description: "注册尝试过于频繁",
+      content: {
+        "application/json": {
+          schema: { type: "object", additionalProperties: true }
+        }
+      }
+    };
+  }
   const campaignMutation = method !== "get" && (
     path === "/api/prospect-campaigns/:id"
     || path === "/api/prospect-campaigns/:id/versions"

@@ -27,9 +27,9 @@
     </div>
     <div class="shensi-login-panel">
       <form id="loginForm" aria-busy="false">
-        <p class="shensi-login-eyebrow">SECURE WORKSPACE</p>
-        <h2>登录 Shensi</h2>
-        <p>使用管理员分配的企业账号进入工作区。</p>
+        <p class="shensi-login-eyebrow" id="loginEyebrow">SECURE WORKSPACE</p>
+        <h2 id="loginTitle">登录 Shensi</h2>
+        <p id="loginDescription">使用管理员分配的企业账号进入工作区。</p>
         <label class="login-field" for="loginEmail"><span>账号</span>
           <input id="loginEmail" name="email" type="text" autocomplete="username" required maxlength="320">
         </label>
@@ -38,6 +38,7 @@
         </label>
         <button type="submit" id="loginButton">登录工作台</button>
         <p class="login-error" id="loginError" role="status" aria-live="polite"></p>
+        <button type="button" class="login-mode-toggle" id="loginModeToggle" hidden>注册账号</button>
       </form>
     </div>
   </section>

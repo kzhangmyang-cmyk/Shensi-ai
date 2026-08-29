@@ -2,9 +2,10 @@
 
 ## Responsibility
 
-Authenticates users, issues and destroys sessions, enforces CSRF and role/team
-visibility, administers accounts, derives Growth workspace capabilities, and
-prevents cross-tenant access to CRM, acquisition, model, and finance data.
+Registers isolated tenant administrators, authenticates users, issues and
+destroys sessions, enforces CSRF and role/team visibility, administers accounts,
+derives Growth workspace capabilities, and prevents cross-tenant access to CRM,
+acquisition, model, and finance data.
 
 ## Entry Points
 
@@ -35,24 +36,37 @@ DDL.
 
 ## Public Interfaces
 
-`POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`,
-`GET/PATCH /api/profile`, and `/api/accounts` administration are registered in
-`backend/src/server.ts`. Protected Growth and acquisition routes apply
-authentication and active-workspace middleware before their routers. Browser
-writes send the CSRF cookie value in `X-CSRF-Token`.
+`POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`,
+`GET /api/auth/me`, `GET/PATCH /api/profile`, and `/api/accounts`
+administration are registered in `backend/src/server.ts`. Registration accepts
+only `{ account, password }`: the account is trimmed, lowercased, 3–32
+characters, starts with a letter or digit, and otherwise contains only letters,
+digits, `_`, or `-`; the password is 8–128 characters. A normalized duplicate
+returns `409`, and the public route is limited to five attempts per observed
+client IP per hour. A successful `201` response persists an active `admin` with
+a new workspace ID and returns the same session user, JWT, and CSRF token shape
+as login. It does not seed or copy another tenant's credentials, social login,
+candidates, tasks, CRM, Growth, finance, approval, comment, or private-message
+data. Protected Growth and acquisition routes apply authentication and
+active-workspace middleware before their routers. Browser writes send the CSRF
+cookie value in `X-CSRF-Token`.
 
-The current unauthenticated entry is the dark Shensi enterprise login. Its
-email and password fields are empty by default and use a semantic submit form.
-While login is pending, the form publishes `aria-busy`, disables the submit
-button, and restores controls only for the current authentication generation.
-The frontend keeps `gj_user` only as a local session hint; real-mode startup
-must validate it through `GET /api/auth/me` before exposing the authenticated
-shell. Session and CSRF authority remain the server-issued `gj_session` and
-`gj_csrf` cookies.
+The current unauthenticated entry is the dark Shensi account form. It has login
+and registration modes, starts with empty account/password fields, and uses one
+semantic submit form. Login accepts a valid bare account or an email. During an
+authentication request the form publishes `aria-busy`, disables submission and
+mode switching, and restores controls only for the current authentication
+generation. Registration success enters the newly created workspace without a
+second login. All modules remain visible there, while empty domain collections
+render as empty states. The frontend keeps `gj_user` only as a local session
+hint; real-mode startup must validate it through `GET /api/auth/me` before
+exposing the authenticated shell. Session and CSRF authority remain the
+server-issued `gj_session` and `gj_csrf` cookies. Demo mode does not expose or
+call public registration.
 
 ## Tests
 
-- Login, visibility, role, account, and CRM boundaries:
+- Registration, login, visibility, role, account, and CRM boundaries:
   `pnpm --filter ./backend test`
 - Security-focused gate: `pnpm --filter ./backend test:security`
 - Growth capability/workspace tests:
@@ -68,8 +82,10 @@ shell. Session and CSRF authority remain the server-issued `gj_session` and
 
 Production requires strong `JWT_SECRET`, secure cookies behind HTTPS, explicit
 CORS origins, MySQL persistence, and no development seed credentials. The
-Shensi form must remain empty in deployed HTML. Verify login/logout/session
-restoration, disabled-account rejection, sales/manager/admin visibility, CSRF
+Shensi form must remain empty in deployed HTML. Verify registration success,
+normalized duplicate `409`, invalid-input rejection, per-IP registration
+limiting, immediate session restoration, and an empty isolated workspace before
+login/logout, disabled-account rejection, sales/manager/admin visibility, CSRF
 failure behavior, and workspace capability checks after identity or proxy
 changes.
 

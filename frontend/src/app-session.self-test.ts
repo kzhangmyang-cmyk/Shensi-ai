@@ -30,10 +30,14 @@ function createStorage(initial: Record<string, string> = {}): MemoryStorage {
 function createDocument() {
   return parseHTML(`<!doctype html><html><body>
     <form id="loginForm" aria-busy="false">
-      <button id="loginButton"></button>
-      <input id="loginEmail" />
-      <input id="loginPassword" />
+      <p id="loginEyebrow">SECURE WORKSPACE</p>
+      <h2 id="loginTitle">登录 Shensi</h2>
+      <p id="loginDescription">使用管理员分配的企业账号进入工作区。</p>
+      <input id="loginEmail" autocomplete="username" />
+      <input id="loginPassword" autocomplete="current-password" />
+      <button id="loginButton">登录工作台</button>
       <p id="loginError" role="alert" aria-live="polite"></p>
+      <button id="loginModeToggle" type="button">注册账号</button>
     </form>
     <button class="replica-user" id="replicaLogoutButton"></button>
     <strong data-session-user-name></strong>
@@ -197,6 +201,168 @@ function click(document: Document, selector: string) {
   const event = document.createEvent("Event");
   event.initEvent("click", true, true);
   document.querySelector<HTMLElement>(selector)?.dispatchEvent(event);
+}
+
+function submit(document: Document, selector: string) {
+  const event = document.createEvent("Event");
+  event.initEvent("submit", true, true);
+  document.querySelector<HTMLFormElement>(selector)?.dispatchEvent(event);
+}
+
+{
+  const document = createDocument();
+  const storage = createStorage();
+  const location = { hash: "#agents" } as Location;
+  const requests: Array<{ path: string; body: unknown }> = [];
+  const controller = createAppSessionController({
+    document,
+    location,
+    storage,
+    demoMode: false,
+    fetchImpl: async (path, init = {}) => {
+      requests.push({ path: String(path), body: JSON.parse(String(init.body)) });
+      return new Response(JSON.stringify({ user: admin }), { status: 201 });
+    }
+  });
+
+  await controller.start();
+  click(document, "#loginModeToggle");
+  assert.equal(document.querySelector("#loginTitle")?.textContent, "注册 Shensi");
+  assert.match(document.querySelector("#loginDescription")?.textContent ?? "", /独立工作区/u);
+  assert.equal(document.querySelector("#loginButton")?.textContent, "注册并进入工作台");
+  assert.equal(document.querySelector("#loginModeToggle")?.textContent, "已有账号？返回登录");
+  assert.equal(
+    document.querySelector<HTMLInputElement>("#loginEmail")?.getAttribute("pattern"),
+    "[A-Za-z0-9][A-Za-z0-9_-]{2,31}"
+  );
+  assert.equal(
+    document.querySelector<HTMLInputElement>("#loginPassword")?.getAttribute("minlength"),
+    "8"
+  );
+  assert.equal(
+    document.querySelector<HTMLInputElement>("#loginPassword")?.getAttribute("autocomplete"),
+    "new-password"
+  );
+
+  const account = document.querySelector<HTMLInputElement>("#loginEmail");
+  const password = document.querySelector<HTMLInputElement>("#loginPassword");
+  if (account) account.value = "new_account";
+  if (password) password.value = "12345678";
+  submit(document, "#loginForm");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(requests, [{
+    path: "/api/auth/register",
+    body: { account: "new_account", password: "12345678" }
+  }]);
+  assert.equal(document.body.classList.contains("is-authenticated"), true);
+  assert.equal(document.body.dataset.sessionMode, "real");
+  assert.equal(document.body.dataset.sessionUserId, admin.id);
+  assert.equal(document.body.dataset.sessionWorkspaceId, admin.teamId);
+  assert.equal(storage.getItem("gj_user")?.includes(admin.id), true);
+  controller.destroy();
+}
+
+for (const scenario of [
+  { status: 409, expected: "账号已存在，请直接登录" },
+  { status: 400, expected: "账号或密码格式不正确，请检查后重试" },
+  { status: 429, expected: "注册过于频繁，请稍后重试" }
+] as const) {
+  const document = createDocument();
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage: createStorage(),
+    demoMode: false,
+    fetchImpl: async () => new Response(JSON.stringify({
+      message: `internal registration detail database=password status=${scenario.status}`
+    }), { status: scenario.status })
+  });
+
+  await assert.rejects(controller.register("new_account", "12345678"));
+  assert.equal(document.querySelector("#loginError")?.textContent, scenario.expected);
+  assert.doesNotMatch(document.querySelector("#loginError")?.textContent ?? "", /database|password/u);
+  controller.destroy();
+}
+
+for (const credentials of [
+  { account: "new.account", password: "12345678" },
+  { account: "new_account", password: "1234567" }
+]) {
+  const document = createDocument();
+  let requests = 0;
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage: createStorage(),
+    demoMode: false,
+    fetchImpl: async () => {
+      requests += 1;
+      return new Response(JSON.stringify({ user: admin }), { status: 201 });
+    }
+  });
+
+  await assert.rejects(controller.register(credentials.account, credentials.password));
+  assert.equal(requests, 0);
+  assert.equal(
+    document.querySelector("#loginError")?.textContent,
+    "账号或密码格式不正确，请检查后重试"
+  );
+  controller.destroy();
+}
+
+{
+  const document = createDocument();
+  let requests = 0;
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage: createStorage(),
+    demoMode: true,
+    fetchImpl: async () => {
+      requests += 1;
+      return new Response(JSON.stringify({ user: admin }), { status: 201 });
+    }
+  });
+
+  await controller.start();
+  assert.equal(document.querySelector<HTMLButtonElement>("#loginModeToggle")?.hidden, true);
+  assert.equal(document.querySelector<HTMLButtonElement>("#loginModeToggle")?.disabled, true);
+  await assert.rejects(controller.register("demo_account", "12345678"));
+  assert.equal(requests, 0);
+  assert.equal(document.body.classList.contains("is-authenticated"), false);
+  controller.destroy();
+}
+
+{
+  const document = createDocument();
+  const pending = createDeferred<Response>();
+  const controller = createAppSessionController({
+    document,
+    location: { hash: "#agents" } as Location,
+    storage: createStorage(),
+    demoMode: false,
+    fetchImpl: async () => pending.promise
+  });
+
+  await controller.start();
+  click(document, "#loginModeToggle");
+  const account = document.querySelector<HTMLInputElement>("#loginEmail");
+  const password = document.querySelector<HTMLInputElement>("#loginPassword");
+  if (account) account.value = "pending_account";
+  if (password) password.value = "12345678";
+  submit(document, "#loginForm");
+  await Promise.resolve();
+
+  assert.equal(document.querySelector<HTMLButtonElement>("#loginButton")?.disabled, true);
+  assert.equal(document.querySelector("#loginButton")?.textContent, "正在创建");
+  assert.equal(document.querySelector<HTMLButtonElement>("#loginModeToggle")?.disabled, true);
+  assert.equal(document.querySelector("#loginForm")?.getAttribute("aria-busy"), "true");
+
+  pending.resolve(new Response(JSON.stringify({ user: admin }), { status: 201 }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(document.querySelector<HTMLButtonElement>("#loginModeToggle")?.disabled, false);
+  controller.destroy();
 }
 
 {

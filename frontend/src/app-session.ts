@@ -12,6 +12,7 @@ export interface AppUser {
 export interface AppSessionController {
   start(): Promise<void>;
   login(email: string, password: string): Promise<void>;
+  register(account: string, password: string): Promise<void>;
   logout(): Promise<void>;
   destroy(): void;
 }
@@ -31,6 +32,8 @@ export interface AppSessionOptions {
 }
 
 const STORAGE_KEY = "gj_user";
+type AuthenticationMode = "login" | "register";
+const REGISTRATION_ACCOUNT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{2,31}$/u;
 
 class AppSessionRequestError extends Error {
   constructor(readonly status: number, message: string) {
@@ -122,31 +125,86 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
     : {};
   let started = false;
   let lifecycleGeneration = 0;
+  let authenticationMode: AuthenticationMode = "login";
 
   const loginForm = documentRef.querySelector<HTMLFormElement>("#loginForm");
   const loginButton = documentRef.querySelector<HTMLButtonElement>("#loginButton");
   const loginError = documentRef.querySelector<HTMLElement>("#loginError");
+  const loginEyebrow = documentRef.querySelector<HTMLElement>("#loginEyebrow");
+  const loginTitle = documentRef.querySelector<HTMLElement>("#loginTitle");
+  const loginDescription = documentRef.querySelector<HTMLElement>("#loginDescription");
+  const loginAccount = documentRef.querySelector<HTMLInputElement>("#loginEmail");
+  const loginPassword = documentRef.querySelector<HTMLInputElement>("#loginPassword");
+  const loginModeToggle = documentRef.querySelector<HTMLButtonElement>("#loginModeToggle");
   const logoutButton = documentRef.querySelector<HTMLButtonElement>("#replicaLogoutButton");
 
   const clearLoginError = () => {
     if (loginError) loginError.textContent = "";
   };
 
-  const showSafeLoginError = (error: unknown) => {
+  const showSafeLoginError = (error: unknown, mode: AuthenticationMode = "login") => {
     if (!loginError) return;
-    loginError.textContent = error instanceof AppSessionRequestError
-      && error.status === 401
-      ? "账号或密码错误，请重试"
-      : error instanceof TypeError
-        ? "网络连接失败，请检查网络后重试"
-        : "登录失败，请稍后重试";
+    if (error instanceof TypeError) {
+      loginError.textContent = "网络连接失败，请检查网络后重试";
+      return;
+    }
+    if (error instanceof AppSessionRequestError) {
+      if (mode === "register" && error.status === 409) {
+        loginError.textContent = "账号已存在，请直接登录";
+        return;
+      }
+      if (mode === "register" && error.status === 400) {
+        loginError.textContent = "账号或密码格式不正确，请检查后重试";
+        return;
+      }
+      if (mode === "register" && error.status === 429) {
+        loginError.textContent = "注册过于频繁，请稍后重试";
+        return;
+      }
+      if (mode === "login" && error.status === 401) {
+        loginError.textContent = "账号或密码错误，请重试";
+        return;
+      }
+    }
+    loginError.textContent = mode === "register"
+      ? "注册失败，请稍后重试"
+      : "登录失败，请稍后重试";
   };
 
   const setLoginPending = (pending: boolean) => {
     loginForm?.setAttribute("aria-busy", String(pending));
+    if (loginModeToggle) loginModeToggle.disabled = demoMode || pending;
     if (!loginButton) return;
     loginButton.disabled = pending;
-    loginButton.textContent = pending ? "正在验证" : "登录工作台";
+    loginButton.textContent = pending
+      ? authenticationMode === "register" ? "正在创建" : "正在验证"
+      : authenticationMode === "register" ? "注册并进入工作台" : "登录工作台";
+  };
+
+  const setAuthenticationMode = (mode: AuthenticationMode) => {
+    authenticationMode = mode;
+    clearLoginError();
+    const registering = mode === "register";
+    if (loginEyebrow) loginEyebrow.textContent = registering ? "CREATE WORKSPACE" : "SECURE WORKSPACE";
+    if (loginTitle) loginTitle.textContent = registering ? "注册 Shensi" : "登录 Shensi";
+    if (loginDescription) {
+      loginDescription.textContent = registering
+        ? "填写账号和密码，将创建属于你的独立工作区。"
+        : "使用管理员分配的企业账号进入工作区。";
+    }
+    if (loginModeToggle) {
+      loginModeToggle.textContent = registering ? "已有账号？返回登录" : "注册账号";
+    }
+    if (loginAccount) {
+      if (registering) loginAccount.setAttribute("pattern", "[A-Za-z0-9][A-Za-z0-9_-]{2,31}");
+      else loginAccount.removeAttribute("pattern");
+    }
+    if (loginPassword) {
+      loginPassword.setAttribute("autocomplete", registering ? "new-password" : "current-password");
+      if (registering) loginPassword.setAttribute("minlength", "8");
+      else loginPassword.removeAttribute("minlength");
+    }
+    setLoginPending(false);
   };
 
   const beginAuthenticationOperation = () => {
@@ -225,9 +283,17 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
 
   const onLoginSubmit = (event: Event) => {
     event.preventDefault();
-    const email = documentRef.querySelector<HTMLInputElement>("#loginEmail")?.value ?? "";
-    const password = documentRef.querySelector<HTMLInputElement>("#loginPassword")?.value ?? "";
-    void controller.login(email, password).catch(() => undefined);
+    const account = loginAccount?.value ?? "";
+    const password = loginPassword?.value ?? "";
+    const operation = authenticationMode === "register"
+      ? controller.register(account, password)
+      : controller.login(account, password);
+    void operation.catch(() => undefined);
+  };
+  const onLoginModeToggle = () => {
+    if (demoMode || loginButton?.disabled) return;
+    setAuthenticationMode(authenticationMode === "login" ? "register" : "login");
+    loginAccount?.focus();
   };
   const onLogoutClick = () => {
     void controller.logout().catch(() => undefined);
@@ -239,7 +305,12 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
       started = true;
       const generation = beginAuthenticationOperation();
       loginForm?.addEventListener("submit", onLoginSubmit);
+      loginModeToggle?.addEventListener("click", onLoginModeToggle);
       logoutButton?.addEventListener("click", onLogoutClick);
+      if (loginModeToggle) {
+        loginModeToggle.hidden = demoMode;
+        loginModeToggle.disabled = demoMode;
+      }
 
       if (!storage.getItem(STORAGE_KEY)) return;
       if (demoMode) {
@@ -275,7 +346,30 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
         }, generation);
         if (isCurrentOperation(generation)) applyAuthenticatedUser(result.user);
       } catch (error) {
-        if (isCurrentOperation(generation)) showSafeLoginError(error);
+        if (isCurrentOperation(generation)) showSafeLoginError(error, "login");
+        throw error;
+      } finally {
+        if (isCurrentOperation(generation)) setLoginPending(false);
+      }
+    },
+
+    async register(account: string, password: string) {
+      const generation = beginAuthenticationOperation();
+      clearLoginError();
+      setLoginPending(true);
+      try {
+        if (demoMode) throw new AppSessionRequestError(403, "registration_unavailable_in_demo");
+        const normalizedAccount = account.trim();
+        if (!REGISTRATION_ACCOUNT_PATTERN.test(normalizedAccount) || password.length < 8) {
+          throw new AppSessionRequestError(400, "invalid_registration_credentials");
+        }
+        const result = await request<{ user: AppUser }>("/api/auth/register", {
+          method: "POST",
+          body: JSON.stringify({ account: normalizedAccount, password })
+        }, generation);
+        if (isCurrentOperation(generation)) applyAuthenticatedUser(result.user);
+      } catch (error) {
+        if (isCurrentOperation(generation)) showSafeLoginError(error, "register");
         throw error;
       } finally {
         if (isCurrentOperation(generation)) setLoginPending(false);
@@ -299,6 +393,7 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
       setLoginPending(false);
       if (!started) return;
       loginForm?.removeEventListener("submit", onLoginSubmit);
+      loginModeToggle?.removeEventListener("click", onLoginModeToggle);
       logoutButton?.removeEventListener("click", onLogoutClick);
       started = false;
     }

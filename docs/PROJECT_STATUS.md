@@ -32,10 +32,17 @@ ledger.
 - The current AI reading path, machine-checkable context contract, and five
   module guides are present; older root `docs/superpowers/{plans,specs}` files
   are archived outside the current reading path.
-- The obsolete unauthenticated surface has been replaced by the Shensi
-  enterprise login. It starts with empty credentials, preserves the existing
-  server authentication and CSRF interfaces, and restores only sessions
-  validated by the server.
+- The obsolete unauthenticated surface has been replaced by the dark Shensi
+  account entry. Its empty account/password form switches between login and
+  registration. Login accepts an account or email. Public registration enforces
+  a 3–32 character account (letter/digit first, then letter/digit/`_`/`-`) and
+  an 8–128 character password, normalizes the account to lowercase, returns
+  `409` for duplicates, and permits five attempts per observed client IP per
+  hour. Success creates a new active workspace `admin` and immediately issues
+  the existing session and CSRF authority; restored sessions are still accepted
+  only after server validation. The new workspace exposes every module with
+  empty business state and never inherits another tenant's credentials,
+  candidates, tasks, CRM/Growth/finance rows, or outreach state.
 - The canonical production topology is `deploy/compose.yaml`: MySQL, backend,
   frontend, and a single public gateway service use an internal Compose
   network. Production backend persistence is MySQL only.
@@ -444,7 +451,9 @@ ledger.
   approval batch, comment/private-message action, CRM, deal, and finance row.
   Frontend preview persistence is namespaced by authenticated workspace and
   user rather than the former shared browser key, so account switching cannot
-  leak local demo edits across the two trial identities.
+  leak local demo edits across the two trial identities. Publicly registered
+  accounts follow the same workspace isolation but receive no `trial:showcase`
+  snapshot; their business surfaces intentionally begin empty.
 - Deployment MediaCrawler now requires an absolute, existing, non-symlinked,
   current-user-owned `0700` `MEDIACRAWLER_CRAWL_OUTPUT_ROOT` strictly inside,
   and not equal to, `MEDIACRAWLER_ENCRYPTED_VOLUME`. Runner creation and cleanup

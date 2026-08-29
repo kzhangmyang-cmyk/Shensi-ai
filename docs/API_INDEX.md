@@ -13,8 +13,15 @@ Do not add parallel handwritten DTOs.
 
 ## Route families
 
-- `/api/auth`, `/api/profile`, `/api/accounts`: session, profile, and account
-  administration in `backend/src/server.ts`.
+- `/api/auth`, `/api/profile`, `/api/accounts`: public registration and login,
+  authenticated session/profile operations, and account administration in
+  `backend/src/server.ts`. `POST /api/auth/register` accepts only
+  `{ account, password }`. The trimmed, lowercased account is 3–32 characters,
+  starts with a letter or digit, and otherwise contains only letters, digits,
+  `_`, or `-`; the password is 8–128 characters. Success returns `201`, creates
+  an active `admin` in a new workspace, and issues the same session/CSRF
+  authority as login. A normalized duplicate returns `409`; the registration
+  route is limited to five attempts per observed client IP per hour.
 - `/api/customers`, `/api/leads`, `/api/deals`, `/api/todos`,
   `/api/commission`: CRM and operating routes in `backend/src/server.ts`.
 - `/api/v1/acquisition`: plans, runs, shards, candidates, evidence, reviews,
@@ -142,11 +149,14 @@ ambiguous risk-paused outcomes.
 
 ## Protocol conventions
 
-Protected routes require an authenticated session or bearer identity. Browser
-writes use the CSRF cookie/header pair. Contracted commands may additionally
-require `Idempotency-Key`; versioned writes use `If-Match`/`ETag` where declared
-by the OpenAPI document. Error shapes and authorization capabilities must come
-from the contract or backend policy registry rather than frontend inference.
+Protected routes require an authenticated session or bearer identity. The
+health, login, registration, logout, and signed webhook exceptions are declared
+by backend policy; public registration grants no authority over any existing
+workspace. Browser writes use the CSRF cookie/header pair. Contracted commands
+may additionally require `Idempotency-Key`; versioned writes use
+`If-Match`/`ETag` where declared by the OpenAPI document. Error shapes and
+authorization capabilities must come from the contract or backend policy
+registry rather than frontend inference.
 Crawler repositories normalize unknown, legacy, and exception-derived failures
 before persistence and public projection; raw messages or credentials are never
 valid public error codes.

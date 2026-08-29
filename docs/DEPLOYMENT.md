@@ -499,14 +499,30 @@ or delete trial data.
 
 ### Login, action gate, and retention
 
+The real-mode account form offers login and public registration and must ship
+with empty fields. `POST /api/auth/register` accepts an account of 3–32
+characters whose first character is a letter or digit and whose remaining
+characters are letters, digits, `_`, or `-`, plus a password of 8–128
+characters. The server trims and lowercases the account. It returns `409` for a
+normalized duplicate and limits the route to five attempts per observed client
+IP per hour after trusted-proxy resolution. A successful request persists an
+active tenant `admin` with a newly generated workspace, sends the normal session
+and CSRF cookies, and lets the frontend enter that workspace immediately. Its
+navigation shows the complete product, but all business collections begin
+empty. Provisioning must not copy provider/model credentials, Douyin sessions
+or social accounts, candidates/evidence, crawler or automation tasks, approval
+batches, outreach actions, CRM, Growth, deal, or finance rows from any existing
+tenant.
+
 The frontend aliases are enabled only when `VITE_REAL_TRIAL=true` and the
 comma-separated `VITE_TRIAL_LOGIN_ALIAS` and `VITE_TRIAL_LOGIN_EMAIL` lists are
 both non-empty with equal lengths. The current values map `test,test2` to
 `test@shensi.local,test2@shensi.local` positionally. Only exact trim/lowercase
 alias matches are mapped; unmatched identities and passwords remain unchanged,
 and incomplete enabled configuration fails before login traffic. The backend
-remains email-only. `test` and `test2` are tenant `admin` accounts in separate
-`trial-pilot-001` and `trial-pilot-002` workspaces; neither is `super_admin`.
+also accepts a valid bare account or an email. `test` and `test2` are tenant
+`admin` accounts in separate `trial-pilot-001` and `trial-pilot-002` workspaces;
+neither is `super_admin`.
 The second workspace's acquisition showcase is populated with
 `pnpm trial:showcase`. This deterministic transaction copies only an archived
 plan, one completed run, candidates, identity aliases, and public discovery
