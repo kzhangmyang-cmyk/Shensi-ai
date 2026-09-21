@@ -3,7 +3,7 @@
 ## 2026-09-21 — 后台入口与桌面身份清单兼容
 
 - `frontend/admin.html` 按共享Vite真实构建输入纳入desktop-app必需文件及根目录分类，修复`MANIFEST_UNCLASSIFIED_FILE`导致的`desktop_dev_build_identity_invalid`。不放宽未知文件/缺失输入门禁。
-- 身份清单15项测试通过，新增后台HTML内容改变须改变摘要、缺失须拒绝；原工作区清单可生成（404项）。未重启Electron、后端或写数据库；由备份负责任务执行原start-ui恢复。根test/build后续复验结果另行记录。
+- 身份清单15项测试及桌面身份测试通过，新增后台HTML内容改变须改变摘要、缺失须拒绝；原工作区清单可生成（404项）。根`pnpm test`、`pnpm build`、context及diff复验均通过（CPJ `job-mub696ol-078e56f1`，exit 0），构建仍有既有大chunk提示。未重启Electron、后端或写数据库；由备份负责任务执行原start-ui恢复。
 
 ## 2026-09-21 — 账号运营后台首增量（源码，未发布）
 
