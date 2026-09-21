@@ -1,0 +1,144 @@
+:root {
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #173d33;
+  background: #f7f5ef;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  width: 360px;
+  min-height: 520px;
+  margin: 0;
+  background: #f7f5ef;
+}
+
+button, input { font: inherit; }
+
+.reader-popup {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.reader-popup__header h1 {
+  margin: 4px 0 6px;
+  font-size: 21px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.reader-popup__header p,
+.reader-popup__section p,
+.reader-popup__privacy {
+  margin: 0;
+  color: #56635f;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.reader-popup__brand {
+  color: #2f6758 !important;
+  font-size: 11px !important;
+  font-weight: 750;
+  letter-spacing: 0.13em;
+}
+
+.reader-popup__section {
+  margin: 0;
+  padding: 13px;
+  border: 1px solid #d8ddd8;
+  border-radius: 10px;
+  background: #fffefa;
+}
+
+.reader-popup__section h2,
+.reader-popup__tabs legend {
+  margin: 0 0 8px;
+  padding: 0;
+  color: #24483f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reader-popup__facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin: 0;
+}
+
+.reader-popup__facts div { min-width: 0; }
+.reader-popup__facts dt { color: #66716d; font-size: 11px; }
+.reader-popup__facts dd {
+  overflow: hidden;
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-popup__tab-list { display: grid; gap: 8px; }
+
+.reader-popup__tab {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 9px;
+  border: 1px solid #d8ddd8;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.reader-popup__tab:has(input:checked) {
+  border-color: #2f6758;
+  background: #edf3ef;
+}
+
+.reader-popup__tab input { margin: 2px 0 0; accent-color: #2f6758; }
+.reader-popup__tab strong, .reader-popup__tab small { display: block; overflow-wrap: anywhere; }
+.reader-popup__tab strong { font-size: 12px; }
+.reader-popup__tab small { margin-top: 3px; color: #66716d; font-size: 10px; }
+
+.reader-popup__status {
+  min-height: 36px;
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: #e9efeb;
+  color: #24483f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.reader-popup__status[data-error="true"] { background: #f5e8e3; color: #7a3628; }
+.reader-popup__actions { display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
+
+.reader-popup__actions button {
+  min-height: 40px;
+  border: 1px solid #173d33;
+  border-radius: 10px;
+  background: #173d33;
+  color: #fffefa;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reader-popup__actions button:active:not(:disabled) { transform: translateY(1px); }
+.reader-popup__actions button:focus-visible { outline: 3px solid #8eb5a8; outline-offset: 2px; }
+.reader-popup__actions button:disabled { border-color: #aeb7b3; background: #d8ddd8; color: #66716d; cursor: not-allowed; }
+
+.reader-popup__actions .reader-popup__button-secondary {
+  border-color: #b5bfba;
+  background: #fffefa;
+  color: #24483f;
+}
+
+.reader-popup__privacy { font-size: 11px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .reader-popup__actions button { transition: background-color 120ms ease, transform 120ms ease; }
+}

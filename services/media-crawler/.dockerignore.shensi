@@ -1,0 +1,17 @@
+.git/
+.superpowers/
+.worktrees/
+deploy/secrets/
+.env
+.env.*
+**/.env
+**/.env.*
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+browser_data/
+user_data_dir/
+**/browser_data/
+**/user_data_dir/
+tests/

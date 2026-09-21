@@ -1,0 +1,239 @@
+:root {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; min-height: 100%; background: #020303; }
+body { min-width: 320px; min-height: 100vh; margin: 0; background: #020303; }
+button, input { font: inherit; }
+
+.login-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  grid-template-columns: minmax(0, 58.5fr) minmax(0, 41.5fr);
+  min-height: 100dvh;
+  overflow-y: auto;
+  color: #f1f3f0;
+  background: #020303;
+}
+body.is-authenticated .login-screen { display: none; }
+
+.shensi-login-story {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: max(680px, 100dvh);
+  padding: 54px clamp(40px, 6.6vw, 108px) 38px;
+  overflow: hidden;
+}
+.shensi-login-brand {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 15px;
+  color: #f1f3f0;
+  text-decoration: none;
+}
+.shensi-login-mark { display: block; width: 48px; height: 46px; flex: 0 0 48px; }
+.shensi-login-brand > span:last-child,
+.shensi-login-brand strong,
+.shensi-login-brand small { display: block; }
+.shensi-login-brand strong { font-size: 26px; line-height: 1.15; letter-spacing: .15em; font-weight: 680; }
+.shensi-login-brand small { margin-top: 6px; color: #b0bcb7; font-size: 10px; line-height: 1; letter-spacing: .42em; }
+
+.shensi-login-art {
+  position: absolute;
+  top: 92px;
+  left: 0;
+  width: 100%;
+  height: calc(100% - 285px);
+  min-height: 330px;
+  max-height: 560px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+.shensi-login-intro { position: relative; z-index: 1; margin-top: auto; padding-top: 370px; }
+.shensi-login-intro h1 {
+  margin: 0 0 14px;
+  font-size: clamp(30px, 3.3vw, 48px);
+  font-weight: 650;
+  letter-spacing: -.03em;
+  line-height: 1.25;
+}
+.shensi-login-intro > p { margin: 0; color: #acb7b2; font-size: clamp(14px, 1.65vw, 22px); line-height: 1.65; }
+.shensi-login-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+  color: #a4b0aa;
+  font-size: 16px;
+}
+.shensi-login-capabilities li + li::before { content: "·"; margin: 0 18px; color: #58675f; }
+.shensi-login-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin: 72px 0 0;
+  color: #85968b;
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: .1em;
+}
+.shensi-login-footer::before { content: ""; width: 28px; border-top: 1px solid #9bcab0; }
+
+.shensi-login-panel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  margin: 54px 0 20px;
+  padding: 36px clamp(32px, 5.5vw, 72px);
+  border-left: 1px solid #19332a;
+}
+.shensi-login-panel form { width: 100%; max-width: 424px; }
+.shensi-login-eyebrow { margin: 0; color: #45f391; font-size: 12px; font-weight: 600; line-height: 1.5; letter-spacing: .3em; }
+.shensi-login-panel h2 { margin: 16px 0 10px; font-size: 36px; font-weight: 650; letter-spacing: -.025em; line-height: 1.3; }
+.shensi-login-panel form > p:not(.shensi-login-eyebrow, .login-error) { margin: 0 0 32px; color: #a3afa8; font-size: 16px; line-height: 1.7; }
+.login-field { display: grid; gap: 10px; margin-bottom: 24px; }
+.login-field span { color: #d8dfda; font-size: 13px; font-weight: 500; }
+.login-field input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid #35413c;
+  border-radius: 9px;
+  background: #0c1210;
+  color: #f1f3f0;
+  font-size: 15px;
+  caret-color: #18ed78;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.login-field input::placeholder { color: #78857e; opacity: 1; }
+.login-field input:hover { border-color: #61796b; }
+.login-field input:focus { border-color: #18ed78; background: #101a14; }
+.shensi-login :focus-visible { outline: 2px solid #18ed78; outline-offset: 3px; }
+.shensi-login button {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 3px;
+  border: 0;
+  border-radius: 9px;
+  background: #29ef83;
+  color: #051a0d;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 650;
+  transition: transform 140ms ease, background 140ms ease;
+}
+.shensi-login button:hover:not(:disabled) { background: #55f39d; }
+.shensi-login button:active:not(:disabled) { transform: translateY(1px); }
+.shensi-login button:disabled { cursor: wait; opacity: .6; }
+.shensi-login .login-mode-toggle {
+  min-height: 36px;
+  margin-top: 8px;
+  padding: 6px;
+  border-radius: 6px;
+  background: transparent;
+  color: #78d9a3;
+  font-size: 12px;
+  font-weight: 500;
+}
+.shensi-login .login-mode-toggle:hover:not(:disabled) { background: transparent; color: #b2f5ce; }
+.shensi-login .login-mode-toggle[hidden] { display: none; }
+.login-error { min-height: 18px; margin: 10px 0 0; color: #ff9e9e; font-size: 12px; line-height: 1.55; }
+
+@media (min-width: 1600px) {
+  .shensi-login-story { padding-top: 64px; padding-bottom: 52px; }
+  .shensi-login-intro { padding-top: 440px; }
+  .shensi-login-art { top: 112px; }
+  .shensi-login-footer { margin-top: 72px; }
+}
+@media (max-width: 1050px) and (min-width: 761px) {
+  .shensi-login-story { padding-inline: 38px; }
+  .shensi-login-panel { padding-inline: 30px; }
+  .shensi-login-intro h1 { font-size: 30px; }
+  .shensi-login-capabilities li + li::before { margin-inline: 10px; }
+}
+@media (max-width: 760px) {
+  .login-screen { grid-template-columns: 1fr; align-content: start; }
+  .shensi-login-story { min-height: 0; padding: 30px 26px 24px; overflow: visible; }
+  .shensi-login-brand { gap: 12px; }
+  .shensi-login-mark { width: 38px; height: 36px; flex-basis: 38px; }
+  .shensi-login-brand strong { font-size: 22px; }
+  .shensi-login-brand small { font-size: 9px; margin-top: 4px; }
+  .shensi-login-art, .shensi-login-capabilities, .shensi-login-footer { display: none; }
+  .shensi-login-intro { padding-top: 26px; }
+  .shensi-login-intro h1 { font-size: 26px; margin-bottom: 10px; }
+  .shensi-login-intro > p { font-size: 13px; }
+  .shensi-login-panel { margin: 0 26px 30px; padding: 26px 0 0; border-left: 0; border-top: 1px solid #19332a; }
+  .shensi-login-panel form { max-width: none; }
+  .shensi-login-panel h2 { font-size: 28px; margin-top: 10px; }
+  .shensi-login-panel form > p:not(.shensi-login-eyebrow, .login-error) { margin-bottom: 24px; font-size: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shensi-login button, .login-field input { transition: none; }
+}
+
+/* Forms backed by the existing CRM and catalog commands. */
+.real-private-editor, .catalog-editor {
+  margin-block: 14px;
+  padding: 18px;
+  border: 1px solid var(--replica-border, #293c33);
+  border-radius: 12px;
+  background: var(--replica-panel, #101914);
+}
+:is(.real-private-editor, .catalog-editor) fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+  margin: 12px 0;
+  padding: 0;
+  border: 0;
+}
+:is(.real-private-editor, .catalog-editor) label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  color: #c3d0c8;
+}
+:is(.real-private-editor, .catalog-editor) :is(input, select, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #354a3f;
+  border-radius: 7px;
+  padding: 9px 11px;
+  background: #0c1510;
+  color: #e2ece5;
+  font: inherit;
+}
+:is(.real-private-editor, .catalog-editor) textarea { min-height: 86px; resize: vertical; }
+:is(.real-private-editor, .catalog-editor) :is(input, select, textarea):focus-visible {
+  outline: 2px solid #61c992;
+  outline-offset: 2px;
+}
+:is(.real-private-editor, .catalog-editor) fieldset:disabled { opacity: .65; }
+.catalog-form-wide, .real-private-editor label:has(textarea) { grid-column: 1 / -1; }
+.catalog-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.catalog-editor p, [data-catalog-feedback] { font-size: 13px; line-height: 1.6; color: #b7cec0; }
+.catalog-page button { min-height: 34px; padding: 7px 13px; cursor: pointer; border-radius: 7px; border: 1px solid #42604c; background: #153524; color: #cfefda; }
+.catalog-page button:disabled { opacity: .5; cursor: default; }
+#inspector .real-private-editor fieldset { grid-template-columns: 1fr; }
+@media (max-width: 760px) {
+  :is(.real-private-editor, .catalog-editor) fieldset { grid-template-columns: 1fr; }
+}

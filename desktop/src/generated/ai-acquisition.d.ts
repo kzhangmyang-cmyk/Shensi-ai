@@ -1,0 +1,14806 @@
+export interface paths {
+    "/api/v1/acquisition/desktop-installations/enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 创建桌面设备注册凭据
+         * @description Requires active workspace membership and acquisition.outreach.approve. The enrollment is bound to the authenticated workspace/user/team and installation. This operation remains available when desktop action execution is disabled. Exact retries retain the original token and expiry and return 201.
+         */
+        post: operations["createAcquisitionDesktopEnrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/desktop-installations/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 兑换桌面设备凭据
+         * @description Consumes the workspace-bound enrollment token. Browser authentication is not a registration credential; no workspace or user can be supplied in the body. Available when desktop action execution is disabled. First registration returns 201 and an exact replay returns 200 with the same device credential.
+         */
+        post: operations["registerAcquisitionDesktopInstallation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/social-accounts/{accountId}/desktop-binding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取当前账号的桌面绑定版本与交接状态
+         * @description Authenticated workspace-scoped read for an active installation registered to this user and team. Returns only relative ownership, exact generation, lease and unresolved-action state, never device hashes or account handles. No lease renewal or binding mutation occurs. The subsequent binding mutation revalidates the generation and in-flight actions transactionally.
+         */
+        get: operations["getAcquisitionDesktopBindingStatus"];
+        put?: never;
+        /**
+         * 绑定社交账号的桌面执行设备
+         * @description Requires active workspace membership and acquisition.outreach.approve. Binding uses the exact account handle/login version and expected generation; a handoff requires the explicit handoff flag and no conflicting in-flight action. Available when desktop action execution is disabled. Returns only the public binding projection.
+         */
+        post: operations["bindAcquisitionDesktopExecutor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/desktop-outreach-actions/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 领取一条已审批的桌面外联动作
+         * @description Nonblocking claim for exact available account bindings. Both physical device headers are required and checked against fresh active membership; browser cookies or bearer identity do not replace device credentials. X-Shensi-Desktop-Task-Token is forbidden on this route. The response projects the immutable action task without repository fence/device hashes; an empty result carries retryAfterMs. Approval and execution are independent gates.
+         */
+        post: operations["claimAcquisitionDesktopOutreachAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/desktop-outreach-actions/{actionId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 上报桌面动作开始或平台回执
+         * @description Requires physical device credentials plus one exact X-Shensi-Desktop-Task-Token header. The command preserves the original lease/login/task-request snapshot and top-level binding generation. The started event admits one execution attempt; receipt records the result. A reconciliation-only token cannot start or submit content, and its failed observation may only report action_unavailable. receipt.actionId must equal the path actionId. Exact retries replay; changed evidence conflicts.
+         */
+        post: operations["completeAcquisitionDesktopOutreachAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/desktop-outreach-actions/{actionId}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 恢复桌面持久化日志中的动作状态
+         * @description Requires physical device credentials and the complete version-1 durable journal snapshot. X-Shensi-Desktop-Task-Token is forbidden on this route. receiptHash is required only when journalPhase is sidecar_completed and forbidden otherwise. A fresh process can obtain a bounded reconciliation-only task/capability; it cannot retry a platform write. Durable central started or receipt evidence takes precedence over a lagging claimed journal. Returns waiting, terminal, not_authorized, released or the complete read-only reconciliation task. released authorizes cleanup only of the exact claimed action/request/original-lease journal after the central attempt is proven never started, has no receipt and no longer holds claim authority; it grants no execution capability.
+         */
+        post: operations["reconcileAcquisitionDesktopOutreachAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List model providers */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: components["parameters"]["cursor"];
+                    limit?: components["parameters"]["limit"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Cursor-paginated result */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagedResult"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/endpoint-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List official model endpoint profiles and selectable models */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Official model endpoint profiles */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ModelEndpointProfilePagedResult"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List model connections */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: components["parameters"]["cursor"];
+                    limit?: components["parameters"]["limit"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Cursor-paginated result */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagedResult"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Create model connection */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["idempotencyKey"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Model connection */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["model-connection.v1.schema"];
+                    };
+                };
+                /** @description Unified API error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        /** Get model connection */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["id"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Model connection */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["model-connection.v1.schema"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Delete model connection */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["idempotencyKey"];
+                };
+                path: {
+                    id: components["parameters"]["id"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": Record<string, never>;
+                    };
+                };
+                /** @description Unified API error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Connection is retained by active tasks or audit policy */
+                409: {
+                    headers: {
+                        "X-Error-Code": "connection_in_use";
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Update model connection */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["idempotencyKey"];
+                };
+                path: {
+                    id: components["parameters"]["id"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Model connection */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["model-connection.v1.schema"];
+                    };
+                };
+                /** @description Unified API error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/ai/connections/{id}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        /** List supported models */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: components["parameters"]["cursor"];
+                    limit?: components["parameters"]["limit"];
+                };
+                header?: never;
+                path: {
+                    id: components["parameters"]["id"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Cursor-paginated result */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagedResult"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/connections/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test model connection */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["idempotencyKey"];
+                };
+                path: {
+                    id: components["parameters"]["id"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Accepted asynchronous operation */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["async-operation.v1.schema"];
+                    };
+                };
+                /** @description Unified API error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/connections/{id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate model connection */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["idempotencyKey"];
+                };
+                path: {
+                    id: components["parameters"]["id"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Model connection */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["model-connection.v1.schema"];
+                    };
+                };
+                /** @description Unified API error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List model call records */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: components["parameters"]["cursor"];
+                    limit?: components["parameters"]["limit"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Cursor-paginated result */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagedResult"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/calls/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        /** Get model call record */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["id"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Model call record */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["model-call-record.v1.schema"];
+                    };
+                };
+                /** @description Unified API error */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Douyin QR login */
+        post: operations["createAcquisitionDouyinLoginSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** Poll Douyin QR login */
+        get: operations["getAcquisitionDouyinLoginSession"];
+        put?: never;
+        post?: never;
+        /** Cancel the workspace-bound Douyin login session */
+        delete: operations["cancelAcquisitionDouyinLoginSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/interactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Interact with the workspace-bound Douyin login page */
+        post: operations["interactAcquisitionDouyinLoginSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create an interactive Douyin login window for the workspace-bound session */
+        post: operations["createAcquisitionDouyinLiveLoginSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/social-accounts/douyin/desktop-login-completions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bind a bounded identity from the authenticated local Douyin profile
+         * @description Accepts only the public, versioned identity asserted by the local Sidecar. Browser state, cookies and profile paths never cross this boundary.
+         */
+        post: operations["completeAcquisitionDouyinDesktopLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/social-accounts/douyin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workspace Douyin account */
+        get: operations["listAcquisitionDouyinSocialAccounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/social-accounts/{accountId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Disconnect workspace social account */
+        delete: operations["disconnectAcquisitionSocialAccount"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/plans/{planId}/automation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        /** Get current Douyin automation policy */
+        get: operations["getAcquisitionDouyinAutomation"];
+        /**
+         * Publish immutable Douyin automation policy version
+         * @description Manual policy keywords require neither a public-search API nor an AI model.
+         */
+        put: operations["putAcquisitionDouyinAutomation"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/plans/{planId}/run-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Freeze and enqueue a Douyin run intent now */
+        post: operations["runAcquisitionDouyinAutomationNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/plans/{planId}/desktop-run-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Freeze a run and create its desktop-owned crawler job
+         * @description Returns one bounded local task and an opaque in-memory capability for that exact workspace job. It never returns local paths, browser state or Sidecar credentials.
+         */
+        post: operations["prepareAcquisitionDouyinDesktopRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate editable Douyin search keywords from server-owned plan business and ICP context
+         * @description This optional convenience requires an active official model selected with workspace context on the server; the command accepts no model, workspace, or business authority from callers.
+         */
+        post: operations["suggestAcquisitionDouyinKeywords"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/runs/{runId}/crawler-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read persisted Douyin crawler status
+         * @description Reads only the workspace-bound Node persistence projection and never proxies live sidecar process state.
+         */
+        get: operations["getAcquisitionCrawlerStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Claim one exact desktop-owned crawler job */
+        post: operations["claimAcquisitionDesktopCrawlerJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/lease": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Renew the fenced lease for one exact desktop crawler job */
+        put: operations["renewAcquisitionDesktopCrawlerJobLease"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Persist one idempotent normalized result page
+         * @description The capability is accepted only in X-Shensi-Desktop-Task-Token. The body accepts bounded public Douyin records and exact terminal activity only; it rejects browser, cookie, profile, command and Sidecar fields.
+         */
+        put: operations["uploadAcquisitionDesktopCrawlerJobPage"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ingest and project one terminal desktop crawler job */
+        post: operations["completeAcquisitionDesktopCrawlerJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel one exact desktop crawler job under its current fence */
+        post: operations["cancelAcquisitionDesktopCrawlerJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/runs/{runId}/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List evidence-bound candidates for an acquisition run
+         * @description Cursor is bound to the active workspace, run, full filter set, and candidate snapshot. Only bounded public evidence is returned. Optional public HTTPS avatar and cover hints are display-only and never change candidate, approval, or action authority. When a candidate has multiple Douyin evidence rows, an exact commentable video is projected before a profile-only inspection fallback.
+         */
+        get: operations["listAcquisitionRunCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/runs/{runId}/outreach-batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Persist Task 6 drafts as immutable revision one
+         * @description Requires a succeeded or partial crawler job whose terminal ingestion has succeeded for the current alias generation. A live or reopened projection returns outreach_candidate_projection_pending and persists no batch or actions; a failed, paused, or cancelled authority returns outreach_candidate_projection_unavailable.
+         */
+        post: operations["createAcquisitionOutreachBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outreach-batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List outreach batches for one run candidate
+         * @description Requires the acquisition.outreach.approve capability.
+         */
+        get: operations["listAcquisitionOutreachBatches"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outreach-batches/{batchId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        /** Read current immutable outreach batch revision */
+        get: operations["getAcquisitionOutreachBatch"];
+        /** Create a new immutable batch revision after edits */
+        put: operations["updateAcquisitionOutreachBatch"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outreach-batches/{batchId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Human second confirmation; persist comment actions without executing them
+         * @description Revalidates and transactionally locks the crawler finalization authority before creating one queued comment action per selected candidate. This first-stage approval creates comments only; after a durable successful comment receipt, the separate version-2 direct-message approval may create one DM for that candidate. Historical non-v2 direct-message rows remain readable but are never claimed or executed. Approval is rejected without actions while terminal ingestion or alias projection is pending, and stale candidate evidence requires a newly generated final batch.
+         */
+        post: operations["approveAcquisitionOutreachBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outreach-batches/{batchId}/direct-messages/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Independently confirm and queue direct messages
+         * @description Authorizes v3 direct-message actions using the current reviewed sender login, recipient and exact body. No comment or comment receipt is required. The batch and comment approval are unchanged; this HTTP request never executes a browser send. Historical v2 approvals retain their comment-linked authority.
+         */
+        post: operations["approveAcquisitionOutreachBatchDirectMessages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outreach-batches/{batchId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject an awaiting outreach batch */
+        post: operations["rejectAcquisitionOutreachBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outreach-batches/{batchId}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause an approved outreach batch */
+        post: operations["pauseAcquisitionOutreachBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outreach-batches/{batchId}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume a paused approved outreach batch */
+        post: operations["resumeAcquisitionOutreachBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outreach-batches/{batchId}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        /** List ordered persisted actions without executing them */
+        get: operations["listAcquisitionOutreachActions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outreach-batches/{batchId}/actions/recover-account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume the exact safe comments, or an audited empty queue, after manual review
+         * @description Atomically restores the same-version bound social account from risk_paused and clears its execution gate only when the submitted pending-action set exactly equals the current queue and no other account actions are queued or executing. An empty set restores only the account and enables no action. Disconnected, stale-version, or malformed account authority is rejected. Historical uncertain writes remain frozen and are never resent.
+         */
+        post: operations["recoverAcquisitionOutreachActionAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+                actionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read-only reconcile one uncertain action after explicit operator verification */
+        post: operations["reconcileAcquisitionOutreachAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List discovery providers */
+        get: operations["listAcquisitionProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/provider-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List provider connections */
+        get: operations["listAcquisitionProviderConnections"];
+        put?: never;
+        /** Create provider connection */
+        post: operations["createAcquisitionProviderConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/provider-connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** Get provider connection */
+        get: operations["getAcquisitionProviderConnection"];
+        put?: never;
+        post?: never;
+        /** Delete provider connection */
+        delete: operations["deleteAcquisitionProviderConnection"];
+        options?: never;
+        head?: never;
+        /** Update provider connection */
+        patch: operations["updateAcquisitionProviderConnection"];
+        trace?: never;
+    };
+    "/api/v1/acquisition/provider-connections/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test provider connection */
+        post: operations["testAcquisitionProviderConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/content-fetch-operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List content fetch operations */
+        get: operations["listAcquisitionContentFetchOperations"];
+        put?: never;
+        /** Create content fetch operation */
+        post: operations["createAcquisitionContentFetchOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/content-fetch-operations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** Get content fetch operation */
+        get: operations["getAcquisitionContentFetchOperation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/import-operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List import operations */
+        get: operations["listAcquisitionImportOperations"];
+        put?: never;
+        /** Create import operation */
+        post: operations["createAcquisitionImportOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/import-operations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** Get import operation */
+        get: operations["getAcquisitionImportOperation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/evidence/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        /** Get discovery evidence */
+        get: operations["getAcquisitionEvidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/cfo-workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a durable CFO acquisition workflow and reviewable plan */
+        post: operations["createCfoAcquisitionWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/cfo-workflows/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Restore the current actor's latest CFO acquisition workflow */
+        get: operations["getLatestCfoAcquisitionWorkflow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/cfo-workflows/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        /** Read and reconcile one owned CFO acquisition workflow */
+        get: operations["getCfoAcquisitionWorkflow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/cfo-workflows/{id}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record human plan approval and start the existing acquisition run */
+        post: operations["approveCfoAcquisitionWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/cfo-workflows/{id}/candidate-decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record one human candidate decision and create CRM follow-up when approved */
+        post: operations["decideCfoAcquisitionWorkflowCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/cfo-workflows/{id}/candidate-decisions/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record an ordered batch of human candidate approvals and create CRM follow-ups */
+        post: operations["decideCfoAcquisitionWorkflowCandidates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/cfo-workflows/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel the workflow before any not-yet-started candidate writes */
+        post: operations["cancelCfoAcquisitionWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create acquisition plan
+         * @description Omit executionMode for the compatible generic provider-operation contract. douyin_mediacrawler accepts no search provider, operation, or model connection and must later use approval, automation policy, and run-now.
+         */
+        post: operations["createAcquisitionPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/plans/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** Get acquisition plan */
+        get: operations["getAcquisitionPlan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update acquisition plan */
+        patch: operations["updateAcquisitionPlan"];
+        trace?: never;
+    };
+    "/api/v1/acquisition/plans/{id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create acquisition plan revision */
+        post: operations["createAcquisitionPlanRevision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/plans/{id}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve acquisition plan */
+        post: operations["approveAcquisitionPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/plans/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create acquisition run
+         * @description Starts only the generic provider-operation shard runtime. douyin_mediacrawler plans must use /plans/{planId}/run-now.
+         */
+        post: operations["createAcquisitionRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** Get acquisition run */
+        get: operations["getAcquisitionRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/runs/{id}/shards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** List acquisition run shards */
+        get: operations["listAcquisitionRunShards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/runs/{id}/presentation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** Get acquisition run presentation */
+        get: operations["getAcquisitionRunPresentation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/runs/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause acquisition run */
+        post: operations["pauseAcquisitionRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/runs/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume acquisition run */
+        post: operations["resumeAcquisitionRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/runs/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel acquisition run */
+        post: operations["cancelAcquisitionRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/visual-reader-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an explicitly authorized visual reader session
+         * @description The server derives the Plan, PlanVersion, Douyin platform, authorized visible top-level sample coverage, authorization clock, expiry, and final hard-capped limits from the referenced Run.
+         */
+        post: operations["createAcquisitionVisualReaderSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/visual-reader-sessions/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** Get an authorized visual reader session */
+        get: operations["getAcquisitionVisualReaderSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/visual-reader-sessions/{sessionId}/observations:batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Persist a bounded batch of visible comment observations
+         * @description Standard schemas validate each identifier independently; the Task 3 service must require every sourceUrl video segment to equal its videoId and the route, response session, and normalized observation sessionId values to agree before persistence or response.
+         */
+        post: operations["appendAcquisitionVisualReaderObservationBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/visual-reader-sessions/{sessionId}:complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete an authorized visual reader session */
+        post: operations["completeAcquisitionVisualReaderSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/visual-reader-sessions/{sessionId}:abort": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Abort an authorized visual reader session */
+        post: operations["abortAcquisitionVisualReaderSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/visual-reader-artifacts/{artifactId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifactId: string;
+            };
+            cookie?: never;
+        };
+        /** Read an authorized redacted comment-card crop */
+        get: operations["getAcquisitionVisualReaderArtifact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List candidates */
+        get: operations["listAcquisitionCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        /** Get candidate */
+        get: operations["getAcquisitionCandidate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{id}/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        /** List candidate evidence */
+        get: operations["listAcquisitionCandidateEvidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{id}/identity-confirmation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm candidate identity */
+        post: operations["confirmAcquisitionCandidateIdentity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{candidateId}/intelligence-operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidateId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create candidate intelligence operation */
+        post: operations["createAcquisitionCandidateIntelligenceOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidate-intelligence-operations/{operationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operationId: string;
+            };
+            cookie?: never;
+        };
+        /** Get candidate intelligence operation */
+        get: operations["getAcquisitionCandidateIntelligenceOperation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{candidateId}/intelligence-operation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidateId: string;
+            };
+            cookie?: never;
+        };
+        /** Get latest candidate intelligence operation */
+        get: operations["getLatestAcquisitionCandidateIntelligenceOperation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidate-intelligence-operations/{operationId}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operationId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry candidate intelligence operation */
+        post: operations["retryAcquisitionCandidateIntelligenceOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{candidateId}/douyin-identity-resolution-operation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidateId: string;
+            };
+            cookie?: never;
+        };
+        /** Get latest Douyin identity resolution operation */
+        get: operations["getLatestAcquisitionDouyinIdentityResolutionOperation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{candidateId}/douyin-identity-resolution-operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidateId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create or retry Douyin identity resolution operation */
+        post: operations["createAcquisitionDouyinIdentityResolutionOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{id}/qualification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        /** Get qualification decision */
+        get: operations["getAcquisitionCandidateQualification"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{id}/financial-value": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        /** Get financial value decision */
+        get: operations["getAcquisitionCandidateFinancialValue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{id}/battle-card": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        /** Get battle card */
+        get: operations["getAcquisitionCandidateBattleCard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        /** List review events */
+        get: operations["listAcquisitionCandidateReviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review candidate */
+        post: operations["reviewAcquisitionCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/candidates/{id}/convert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Convert candidate */
+        post: operations["convertAcquisitionCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/outcomes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List outcome feedback */
+        get: operations["listAcquisitionOutcomes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/performance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read acquisition funnel, currency-separated contract values, and owner briefing facts */
+        get: operations["getAcquisitionPerformance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/copilot/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create copilot session */
+        post: operations["createAcquisitionCopilotSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/copilot/sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        /** Get copilot session */
+        get: operations["getAcquisitionCopilotSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/copilot/sessions/{id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        /** List copilot messages */
+        get: operations["listAcquisitionCopilotMessages"];
+        put?: never;
+        /** Send copilot message */
+        post: operations["sendAcquisitionCopilotMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/copilot/tasks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        /** Get copilot task */
+        get: operations["getAcquisitionCopilotTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition/audit-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List audit events */
+        get: operations["listAcquisitionAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+}
+export type webhooks = Record<string, never>;
+export interface components {
+    schemas: {
+        /** @description Read-only directory projection of an authorized opportunity or public LEI record. Unknown registry fields are not inferred; public records do not confer CRM conversion authority. */
+        EnterpriseQueryRecord: {
+            id: string;
+            company: string;
+            business: string;
+            country: string;
+            website: string;
+            contact: string;
+            contactInfo: string;
+            description: string;
+            status: string;
+            sourceLabel?: string;
+            sourceUpdatedAt?: string;
+            lei?: string;
+            /** @description Identifier returned by the source registration authority; not automatically classified as a unified social credit code. */
+            registryNumber?: string;
+            /** @description Source registration authority identifier. */
+            registryAuthority?: string;
+            postalCode?: string;
+            /** @description LEI registration renewal status */
+            leiRegistrationStatus?: string;
+            address?: string;
+            founded?: string;
+            operatingStatus?: string;
+            tenantProspectId?: string;
+            customerId?: string;
+            leadId?: string;
+        };
+        EnterpriseQueryPage: {
+            items: components["schemas"]["EnterpriseQueryRecord"][];
+            total: number;
+            page: number;
+            updatedAt: string;
+        };
+        DesktopOpaqueToken: string;
+        DesktopSafeId: string;
+        DesktopPositiveVersion: number;
+        DesktopBareHash: string;
+        DesktopAccountHandle: string;
+        /**
+         * Format: date-time
+         * @description Canonical UTC timestamp with exactly three fractional digits.
+         */
+        DesktopTimestamp: string;
+        DesktopOutreachError: {
+            /** @enum {string} */
+            error: "desktop_client_migration_locked" | "desktop_client_build_not_admitted" | "unsupported_media_type" | "invalid_idempotency_key" | "unauthorized" | "workspace_context_invalid" | "capability_forbidden" | "desktop_device_authentication_required" | "invalid_desktop_task_token" | "unexpected_desktop_task_token" | "invalid_request" | "method_not_allowed" | "desktop_enrollment_invalid" | "desktop_enrollment_idempotency_conflict" | "desktop_registration_idempotency_conflict" | "desktop_enrollment_expired" | "desktop_enrollment_unavailable" | "desktop_membership_inactive" | "desktop_executor_binding_invalid" | "desktop_executor_binding_unavailable" | "desktop_executor_handoff_required" | "desktop_executor_handoff_blocked" | "desktop_executor_generation_stale" | "idempotency_key_conflict" | "social_account_not_found" | "desktop_installation_unavailable" | "invalid_desktop_outreach_claim" | "desktop_outreach_claim_not_authorized" | "desktop_outreach_claim_idempotency_conflict" | "invalid_desktop_outreach_completion" | "desktop_outreach_completion_not_authorized" | "desktop_outreach_completion_stale" | "desktop_outreach_start_expired" | "desktop_action_replay_conflict" | "invalid_desktop_outreach_reconcile" | "desktop_outreach_unavailable" | "desktop_execution_disabled";
+        };
+        DesktopMalformedJsonError: {
+            /** @constant */
+            code: "invalid_json";
+            /** @constant */
+            message: "JSON 格式不正确";
+            details: null;
+            requestId: string;
+            /** @constant */
+            retryable: false;
+        };
+        DesktopPayloadTooLargeError: {
+            /** @constant */
+            message: "请求内容过大";
+        };
+        DesktopEnrollmentRequest: {
+            /** @constant */
+            protocolVersion: 1;
+            installationId: components["schemas"]["DesktopOpaqueToken"];
+        };
+        DesktopEnrollmentResponse: {
+            enrollmentToken: components["schemas"]["DesktopOpaqueToken"];
+            expiresAt: components["schemas"]["DesktopTimestamp"];
+        };
+        DesktopRegistrationRequest: {
+            /** @constant */
+            protocolVersion: 1;
+            installationId: components["schemas"]["DesktopOpaqueToken"];
+            enrollmentToken: components["schemas"]["DesktopOpaqueToken"];
+        };
+        DesktopRegistrationResponse: {
+            deviceToken: components["schemas"]["DesktopOpaqueToken"];
+            workspaceId: components["schemas"]["DesktopSafeId"];
+            /** @constant */
+            protocolVersion: 1;
+        };
+        DesktopExecutorBindingRequest: {
+            installationId: components["schemas"]["DesktopOpaqueToken"];
+            accountHandle: components["schemas"]["DesktopAccountHandle"];
+            loginStateVersion: components["schemas"]["DesktopPositiveVersion"];
+            expectedBindingGeneration: number;
+            handoff: boolean;
+        };
+        DesktopBindingStatus: {
+            accountId: components["schemas"]["DesktopSafeId"];
+            /** @enum {string|null} */
+            executorMode: "desktop" | "server" | null;
+            bindingGeneration: number;
+            /** Format: date-time */
+            leaseExpiresAt: string | null;
+            ownedByInstallation: boolean;
+            hasUnresolvedActions: boolean;
+        };
+        DesktopExecutorBindingResponse: {
+            accountId: components["schemas"]["DesktopSafeId"];
+            /** @constant */
+            executorMode: "desktop";
+            bindingGeneration: components["schemas"]["DesktopPositiveVersion"];
+            leaseExpiresAt: components["schemas"]["DesktopTimestamp"];
+            /** @constant */
+            ownedByInstallation: true;
+        };
+        DesktopOutreachAvailableAccount: {
+            accountId: components["schemas"]["DesktopSafeId"];
+            accountHandle: components["schemas"]["DesktopAccountHandle"];
+            loginStateVersion: components["schemas"]["DesktopPositiveVersion"];
+            bindingGeneration: components["schemas"]["DesktopPositiveVersion"];
+        };
+        DesktopOutreachClaimRequest: {
+            /** @constant */
+            protocolVersion: 1;
+            processInstanceId: components["schemas"]["DesktopOpaqueToken"];
+            /** @constant */
+            waitSeconds: 0;
+            /** @description accountId values must be unique, including entries with different handle/version fields. */
+            availableAccounts: components["schemas"]["DesktopOutreachAvailableAccount"][];
+        };
+        DesktopOutreachActionTask: {
+            actionId: components["schemas"]["DesktopSafeId"];
+            workspaceId: components["schemas"]["DesktopSafeId"];
+            accountId: components["schemas"]["DesktopSafeId"];
+            accountHandle: components["schemas"]["DesktopAccountHandle"];
+            loginStateVersion: components["schemas"]["DesktopPositiveVersion"];
+            executorBindingGeneration: components["schemas"]["DesktopPositiveVersion"];
+            /** @enum {string} */
+            kind: "comment" | "direct_message";
+            /** Format: uri */
+            canonicalTargetPublicUrl: string;
+            content: string;
+            approvedContentHash: string;
+            taskRequestHash: components["schemas"]["DesktopBareHash"];
+            deadlineAt: components["schemas"]["DesktopTimestamp"];
+            leaseVersion: components["schemas"]["DesktopPositiveVersion"];
+            leaseExpiresAt: components["schemas"]["DesktopTimestamp"];
+            predecessorReceipt: string | null;
+        };
+        DesktopOutreachClaimResponse: {
+            /** @constant */
+            kind: "reconcile";
+            task: components["schemas"]["DesktopOutreachReconciliationTask"];
+            taskToken: components["schemas"]["DesktopOpaqueToken"];
+            serverTime: components["schemas"]["DesktopTimestamp"];
+            replayed: boolean;
+        } | {
+            /** @constant */
+            kind: "claimed";
+            task: components["schemas"]["DesktopOutreachActionTask"];
+            taskToken: components["schemas"]["DesktopOpaqueToken"];
+            serverTime: components["schemas"]["DesktopTimestamp"];
+            replayed: boolean;
+        } | {
+            /** @constant */
+            kind: "empty";
+            serverTime: components["schemas"]["DesktopTimestamp"];
+            retryAfterMs: number;
+            replayed: boolean;
+        };
+        DesktopOutreachStartedCommand: {
+            /** @constant */
+            event: "started";
+            leaseVersion: components["schemas"]["DesktopPositiveVersion"];
+            loginStateVersion: components["schemas"]["DesktopPositiveVersion"];
+            taskRequestHash: components["schemas"]["DesktopBareHash"];
+            occurredAt: components["schemas"]["DesktopTimestamp"];
+        };
+        DesktopOutreachSucceededReceipt: {
+            actionId: components["schemas"]["DesktopSafeId"];
+            /** @constant */
+            state: "succeeded";
+            platformReceiptReference: string;
+            occurredAt: components["schemas"]["DesktopTimestamp"];
+            failureCode: null;
+        };
+        DesktopOutreachFailedReceipt: {
+            actionId: components["schemas"]["DesktopSafeId"];
+            /** @constant */
+            state: "failed";
+            platformReceiptReference: null;
+            occurredAt: components["schemas"]["DesktopTimestamp"];
+            /** @enum {string} */
+            failureCode: "action_unavailable" | "action_rejected" | "deadline_exceeded" | "douyin_verification_required" | "douyin_rate_limited" | "douyin_account_warning" | "douyin_account_identity_changed" | "douyin_login_expired" | "douyin_direct_message_unavailable" | "douyin_action_control_missing" | "douyin_action_control_ambiguous" | "douyin_action_content_mismatch" | "douyin_action_receipt_ambiguous" | "douyin_action_timeout" | "douyin_profile_busy";
+        };
+        DesktopOutreachReceiptCommand: {
+            /** @constant */
+            event: "receipt";
+            leaseVersion: components["schemas"]["DesktopPositiveVersion"];
+            loginStateVersion: components["schemas"]["DesktopPositiveVersion"];
+            taskRequestHash: components["schemas"]["DesktopBareHash"];
+            reconciliation: boolean;
+            receipt: components["schemas"]["DesktopOutreachSucceededReceipt"] | components["schemas"]["DesktopOutreachFailedReceipt"];
+        } & ({
+            /** @constant */
+            reconciliation?: false;
+        } | {
+            /** @constant */
+            reconciliation?: true;
+            receipt?: {
+                /** @enum {unknown} */
+                failureCode?: "action_unavailable" | "douyin_action_receipt_ambiguous" | null;
+            };
+        });
+        /** @description command carries the frozen lease, login-state version and task-request hash; receipt.actionId must equal the path actionId. Task capability and idempotency are headers only. */
+        DesktopOutreachCompleteRequest: {
+            /** @constant */
+            protocolVersion: 1;
+            processInstanceId: components["schemas"]["DesktopOpaqueToken"];
+            bindingGeneration: components["schemas"]["DesktopPositiveVersion"];
+            command: components["schemas"]["DesktopOutreachStartedCommand"] | components["schemas"]["DesktopOutreachReceiptCommand"];
+        };
+        DesktopOutreachCompletionResponse: {
+            actionId: components["schemas"]["DesktopSafeId"];
+            /** @enum {string} */
+            state: "executing" | "succeeded" | "failed" | "queued" | "risk_paused" | "reconciliation_required";
+            replayed: boolean;
+            accountPaused: boolean;
+            occurredAt: components["schemas"]["DesktopTimestamp"];
+        };
+        DesktopOutreachReconcileRequest: {
+            /** @constant */
+            protocolVersion: 1;
+            processInstanceId: components["schemas"]["DesktopOpaqueToken"];
+            accountId: components["schemas"]["DesktopSafeId"];
+            accountHandle: components["schemas"]["DesktopAccountHandle"];
+            loginStateVersion: components["schemas"]["DesktopPositiveVersion"];
+            bindingGeneration: components["schemas"]["DesktopPositiveVersion"];
+            originalLeaseVersion: components["schemas"]["DesktopPositiveVersion"];
+            taskRequestHash: components["schemas"]["DesktopBareHash"];
+            /** @enum {string} */
+            journalPhase: "claimed" | "central_started";
+        } | {
+            /** @constant */
+            protocolVersion: 1;
+            processInstanceId: components["schemas"]["DesktopOpaqueToken"];
+            accountId: components["schemas"]["DesktopSafeId"];
+            accountHandle: components["schemas"]["DesktopAccountHandle"];
+            loginStateVersion: components["schemas"]["DesktopPositiveVersion"];
+            bindingGeneration: components["schemas"]["DesktopPositiveVersion"];
+            originalLeaseVersion: components["schemas"]["DesktopPositiveVersion"];
+            taskRequestHash: components["schemas"]["DesktopBareHash"];
+            /** @constant */
+            journalPhase: "sidecar_completed";
+            receiptHash: components["schemas"]["DesktopBareHash"];
+        };
+        DesktopOutreachReconciliationTask: {
+            actionId: components["schemas"]["DesktopSafeId"];
+            workspaceId: components["schemas"]["DesktopSafeId"];
+            accountId: components["schemas"]["DesktopSafeId"];
+            accountHandle: components["schemas"]["DesktopAccountHandle"];
+            loginStateVersion: components["schemas"]["DesktopPositiveVersion"];
+            /** @description Current same-account login authorized for human-requested read-only observation. The original loginStateVersion and taskRequestHash remain unchanged. Never authorizes a write. */
+            observationLoginStateVersion?: components["schemas"]["DesktopPositiveVersion"];
+            executorBindingGeneration: components["schemas"]["DesktopPositiveVersion"];
+            /** @enum {string} */
+            kind: "comment" | "direct_message";
+            /** Format: uri */
+            canonicalTargetPublicUrl: string;
+            content: string;
+            approvedContentHash: string;
+            deadlineAt: components["schemas"]["DesktopTimestamp"];
+            taskRequestHash: components["schemas"]["DesktopBareHash"];
+            leaseVersion: components["schemas"]["DesktopPositiveVersion"];
+            originalLeaseVersion: components["schemas"]["DesktopPositiveVersion"];
+            reconciliationGeneration: components["schemas"]["DesktopPositiveVersion"];
+            /** @constant */
+            capability: "reconcile_only";
+        };
+        DesktopOutreachReconcileResponse: {
+            /** @constant */
+            kind: "released";
+            actionId: string;
+            taskRequestHash: components["schemas"]["DesktopBareHash"];
+            originalLeaseVersion: components["schemas"]["DesktopPositiveVersion"];
+            replayed: boolean;
+        } | {
+            /** @constant */
+            kind: "waiting";
+            retryAfterMs: number;
+            replayed: boolean;
+        } | {
+            /** @constant */
+            kind: "terminal";
+            /** @enum {string} */
+            status: "executing" | "succeeded" | "failed" | "queued" | "risk_paused" | "reconciliation_required";
+            receiptHash: components["schemas"]["DesktopBareHash"];
+            replayed: boolean;
+        } | {
+            /** @constant */
+            kind: "not_authorized";
+            replayed: boolean;
+        } | {
+            /** @constant */
+            kind: "reconcile";
+            replayed: boolean;
+            taskToken: components["schemas"]["DesktopOpaqueToken"];
+            task: components["schemas"]["DesktopOutreachReconciliationTask"];
+        };
+        AsyncOperation: components["schemas"]["async-operation.v1.schema"];
+        ApiError: {
+            code: string;
+            message: string;
+            details: unknown;
+            requestId: string;
+            retryable: boolean;
+        } | {
+            error: {
+                code: string;
+                message: string;
+                details?: unknown;
+                requestId?: string;
+            };
+        };
+        PagedResult: {
+            items: Record<string, never>[];
+            nextCursor: string | null;
+        };
+        ModelOption: {
+            id: string;
+            displayName: string;
+        };
+        ModelEndpointProfile: {
+            /** @enum {string} */
+            provider: "openai" | "moonshot" | "minimax" | "zhipu" | "deepseek" | "qwen" | "doubao" | "hunyuan" | "qianfan";
+            endpointProfileId: string;
+            region: string;
+            /** Format: uri */
+            baseUrl: string | null;
+            requiresWorkspaceId: boolean;
+            /** @enum {string} */
+            modelListPolicy: "same_key" | "not_exposed" | "separate_control_plane";
+            /** Format: uri */
+            officialReference: string;
+            models: components["schemas"]["ModelOption"][];
+        };
+        ModelEndpointProfilePagedResult: {
+            items: components["schemas"]["ModelEndpointProfile"][];
+            nextCursor: string | null;
+        };
+        ModelProvider: components["schemas"]["model-provider.v1.schema"];
+        ModelConnection: components["schemas"]["model-connection.v1.schema"];
+        ModelCallRecord: components["schemas"]["model-call-record.v1.schema"];
+        DiscoveryProvider: components["schemas"]["discovery-provider.v1.schema"];
+        ProviderConnection: components["schemas"]["provider-connection.v1.schema"];
+        ContentFetchOperation: components["schemas"]["content-fetch-operation.v1.schema"];
+        ContentFetchOperationList: {
+            items: components["schemas"]["content-fetch-operation.v1.schema"][];
+        };
+        ImportOperation: components["schemas"]["import-operation.v1.schema"];
+        ImportOperationList: {
+            items: components["schemas"]["import-operation.v1.schema"][];
+        };
+        CandidateIntelligenceOperation: components["schemas"]["candidate-intelligence-operation.v1.schema"];
+        DouyinIdentityResolutionOperation: components["schemas"]["douyin-identity-resolution-operation.v1.schema"];
+        AcquisitionPlan: components["schemas"]["acquisition-plan.v1.schema"];
+        AcquisitionRun: components["schemas"]["acquisition-run.v1.schema"];
+        AcquisitionOperationShard: components["schemas"]["acquisition-operation-shard.v1.schema"];
+        AcquisitionRunPresentation: components["schemas"]["acquisition-run-presentation.v1.schema"];
+        CfoAcquisitionWorkflow: {
+            workflowId: string;
+            instruction: string;
+            /** @enum {string} */
+            stage: "preparing_plan" | "awaiting_plan_approval" | "running_acquisition" | "awaiting_candidate_review" | "completed" | "completed_empty" | "cancelled" | "failed";
+            summary: string;
+            planId: string | null;
+            planEtag: string | null;
+            planReview: {
+                targetPlatform: string;
+                objective: string;
+                providers: {
+                    providerId: string;
+                    status: string;
+                }[];
+                operations: {
+                    kind: string;
+                    query: string;
+                    allocatedBudget: {
+                        requests: number;
+                        results: number;
+                        amountMinor: number;
+                        durationSeconds: number;
+                    };
+                }[];
+                budget: {
+                    currency: string;
+                    requests: number;
+                    results: number;
+                    amountMinor: number;
+                    durationSeconds: number;
+                };
+            } | null;
+            runId: string | null;
+            runStatus: string | null;
+            candidates: {
+                candidateId: string;
+                displayName: string;
+                decisionVersion: string;
+                discoveredEventId: string;
+                /** @enum {string} */
+                decision: "pending" | "approved" | "rejected" | "do_not_contact";
+                customerId: string | null;
+                todoId: string | null;
+            }[];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        OrganizationCandidate: components["schemas"]["organization-candidate.v1.schema"];
+        IndividualDemandSignal: components["schemas"]["individual-demand-signal.v1.schema"];
+        Candidate: components["schemas"]["organization-candidate.v1.schema"] | components["schemas"]["individual-demand-signal.v1.schema"];
+        CandidatePagedResult: {
+            items: components["schemas"]["Candidate"][];
+            nextCursor: string | null;
+        };
+        DiscoveryEvidence: components["schemas"]["discovery-evidence.v1.schema"];
+        QualificationDecision: components["schemas"]["qualification-decision.v1.schema"];
+        BattleCardV1: components["schemas"]["battle-card.v1.schema"];
+        BattleCardV2: components["schemas"]["battle-card.v2.schema"];
+        BattleCard: components["schemas"]["battle-card.v1.schema"] | components["schemas"]["battle-card.v2.schema"];
+        ReviewEvent: components["schemas"]["review-event.v1.schema"];
+        OutcomeFeedback: components["schemas"]["outcome-feedback.v1.schema"];
+        FinancialValueDecision: components["schemas"]["financial-value-decision.v1.schema"];
+        PartyRef: components["schemas"]["party-ref.v1.schema"];
+        CopilotSession: components["schemas"]["copilot-session.v1.schema"];
+        CopilotMessage: components["schemas"]["copilot-message.v1.schema"];
+        CopilotTask: components["schemas"]["copilot-task.v1.schema"];
+        DouyinAutomationPolicyInput: {
+            keywords: string[];
+            schedule: {
+                enabled: boolean;
+                localTime: string;
+                timeZone: string;
+            };
+            /**
+             * @description Legacy approval-budget compatibility field; does not limit candidate discovery.
+             * @default 50
+             */
+            dailyCandidateLimit: number;
+            collectCreators: boolean;
+            collectDemandComments: boolean;
+            limits: {
+                maxVideos: number;
+                maxCommentsPerVideo: number;
+                maxComments?: number;
+                maxPagesPerVideo: number;
+                maxDurationSeconds: number;
+            };
+        };
+        DouyinAutomationPolicyResource: {
+            id: string | null;
+            /** @enum {string} */
+            source: "default" | "version";
+            workspaceId: string;
+            planId: string;
+            planVersionId: string;
+            planVersion: number;
+            planSnapshotHash: string;
+            accountId: string | null;
+            accountLoginStateVersion: number | null;
+            version: number;
+            revision: number;
+            etag: string;
+            policyHash: string;
+            keywords: string[];
+            schedule: {
+                enabled: boolean;
+                localTime: string;
+                timeZone: string;
+            };
+            /**
+             * @description Legacy approval-budget compatibility field; does not limit candidate discovery.
+             * @default 50
+             */
+            dailyCandidateLimit: number;
+            collectCreators: boolean;
+            collectDemandComments: boolean;
+            limits: {
+                maxVideos: number;
+                maxCommentsPerVideo: number;
+                maxComments?: number;
+                maxPagesPerVideo: number;
+                maxDurationSeconds: number;
+            };
+            createdBy: string | null;
+            /** Format: date-time */
+            createdAt: string | null;
+        };
+        DouyinAutomationPolicyVersion: {
+            id: string;
+            /** @enum {string} */
+            source: "version";
+            workspaceId: string;
+            planId: string;
+            planVersionId: string;
+            planVersion: number;
+            planSnapshotHash: string;
+            accountId: string;
+            accountLoginStateVersion: number;
+            version: number;
+            revision: number;
+            etag: string;
+            policyHash: string;
+            keywords: string[];
+            schedule: {
+                enabled: boolean;
+                localTime: string;
+                timeZone: string;
+            };
+            /**
+             * @description Legacy approval-budget compatibility field; does not limit candidate discovery.
+             * @default 50
+             */
+            dailyCandidateLimit: number;
+            collectCreators: boolean;
+            collectDemandComments: boolean;
+            limits: {
+                maxVideos: number;
+                maxCommentsPerVideo: number;
+                maxComments?: number;
+                maxPagesPerVideo: number;
+                maxDurationSeconds: number;
+            };
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        DouyinAutomationRunNowInput: {
+            reason?: string;
+        };
+        DouyinKeywordSuggestions: {
+            keywords: string[];
+            modelSnapshotId: string;
+        };
+        DouyinAutomationRunIntent: {
+            id: string;
+            acquisitionRunId: string;
+            workspaceId: string;
+            planId: string;
+            planVersionId: string;
+            planVersion: number;
+            planSnapshotHash: string;
+            policyVersionId: string;
+            policyHash: string;
+            accountId: string;
+            accountLoginStateVersion: number;
+            dailyBudgetId: string;
+            localDate: string;
+            /** @enum {string} */
+            trigger: "run_now" | "scheduled";
+            collectCreators: boolean;
+            collectDemandComments: boolean;
+            /** @enum {string} */
+            status: "queued";
+            reason: string | null;
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AcquisitionCrawlerStatus: {
+            runId: string;
+            /** @enum {string} */
+            state: "scheduled" | "queued" | "running" | "succeeded" | "partial" | "paused" | "cancelled" | "failed";
+            attempt: number;
+            cursorPersisted: boolean;
+            recordCount: number;
+            candidateBudgetUsed: number;
+            /** @description Null means unlimited candidate discovery; numbers are historical limits. */
+            candidateBudgetLimit: number | null;
+            /** @enum {string} */
+            candidateProjectionState: "pending" | "ready" | "failed";
+            lastErrorCode: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            completedAt: string | null;
+            activity: {
+                /** @enum {string} */
+                phase: "queued" | "starting_browser" | "opening_douyin" | "searching" | "collecting_comments" | "finalizing" | "completed";
+                currentKeyword: string | null;
+                /** @enum {string} */
+                browserMode: "visible" | "headless";
+                sequence: number;
+            };
+        };
+        DesktopDouyinLoginCompletionInput: {
+            accountHandle: string;
+            displayName: string;
+            loginStateVersion: number;
+        };
+        DesktopDouyinAccountResource: {
+            id: string;
+            workspaceId: string;
+            /** @enum {string} */
+            platform: "douyin";
+            displayName: string | null;
+            /** @enum {string} */
+            state: "awaiting_scan" | "active" | "login_expired" | "risk_paused" | "disconnected";
+            loginStateVersion: number | null;
+            revision: number;
+            etag: string;
+            /** Format: date-time */
+            lastValidatedAt: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        DesktopDouyinRunNowInput: {
+            reason?: string;
+        };
+        DesktopDouyinCollectionTask: {
+            taskId: string;
+            loginStateVersion: number;
+            keywords: string[];
+            maxVideos: number;
+            maxCommentsPerVideo: number;
+            maxComments?: number;
+            maxPagesPerVideo: number;
+            collectCreators: boolean;
+            collectDemandComments: boolean;
+            /** Format: date-time */
+            deadlineAt: string;
+        };
+        DesktopDouyinRunPreparation: {
+            run: components["schemas"]["DouyinAutomationRunIntent"];
+            /** @description Opaque one-job capability. Keep only in memory and send only in X-Shensi-Desktop-Task-Token. */
+            taskToken: string;
+            task: components["schemas"]["DesktopDouyinCollectionTask"];
+        };
+        DesktopCrawlerLeaseInput: {
+            leaseVersion: number;
+        };
+        DesktopCrawlerActivity: {
+            /** @enum {string} */
+            phase: "queued" | "starting_browser" | "opening_douyin" | "searching" | "collecting_comments" | "finalizing" | "completed";
+            currentKeyword: string | null;
+            /** @enum {string} */
+            browserMode: "visible" | "headless";
+            sequence: number;
+        };
+        DesktopDouyinNormalizedRecord: {
+            recordId: string;
+            /** @enum {string} */
+            kind: "video" | "creator" | "comment";
+            /** @enum {string|null} */
+            actorKind: "creator" | "commenter" | null;
+            /** Format: uri */
+            canonicalUrl: string;
+            publicDisplayName: string;
+            /** Format: uri */
+            publicProfileUrl: string | null;
+            textExcerpt: string;
+            sourceKeyword: string;
+            /** Format: date-time */
+            observedAt: string;
+            contentHash: string;
+        } & (unknown & unknown & unknown);
+        DesktopCrawlerTerminal: {
+            /** @enum {string} */
+            state: "succeeded" | "partial";
+            /** @enum {string|null} */
+            failureCode: "crawl_interrupted_after_partial_results" | null;
+            activity: components["schemas"]["DesktopCrawlerActivity"] & {
+                /** @constant */
+                phase?: "completed";
+                currentKeyword?: null;
+                /** @constant */
+                browserMode?: "visible";
+            };
+        } & ({
+            /** @constant */
+            state?: "succeeded";
+            failureCode?: null;
+        } | {
+            /** @constant */
+            state?: "partial";
+            /** @constant */
+            failureCode?: "crawl_interrupted_after_partial_results";
+        });
+        DesktopCrawlerPageInput: {
+            leaseVersion: number;
+            cursor: string | null;
+            nextCursor: string | null;
+            done: boolean;
+            records: components["schemas"]["DesktopDouyinNormalizedRecord"][];
+            terminal?: components["schemas"]["DesktopCrawlerTerminal"];
+        } & ({
+            /** @constant */
+            done?: false;
+        } | {
+            /** @constant */
+            done?: true;
+        });
+        DesktopCrawlerJobResource: {
+            jobId: string;
+            runId: string;
+            /** @enum {string} */
+            state: "scheduled" | "queued" | "running" | "succeeded" | "partial" | "paused" | "cancelled" | "failed";
+            leaseVersion: number;
+            /** Format: date-time */
+            leaseExpiresAt: string | null;
+            cursor: string | null;
+            recordCount: number;
+            /** @enum {string|null} */
+            ingestionState: "pending" | "running" | "succeeded" | "failed" | null;
+            cloudDurable: boolean;
+            /** Format: date-time */
+            acknowledgedAt: string | null;
+            activity: components["schemas"]["DesktopCrawlerActivity"];
+        };
+        DesktopCrawlerPageResource: {
+            jobId: string;
+            runId: string;
+            /** @enum {string} */
+            state: "scheduled" | "queued" | "running" | "succeeded" | "partial" | "paused" | "cancelled" | "failed";
+            leaseVersion: number;
+            /** Format: date-time */
+            leaseExpiresAt: string | null;
+            cursor: string | null;
+            recordCount: number;
+            /** @enum {string|null} */
+            ingestionState: "pending" | "running" | "succeeded" | "failed" | null;
+            cloudDurable: boolean;
+            /** Format: date-time */
+            acknowledgedAt: string | null;
+            activity: components["schemas"]["DesktopCrawlerActivity"];
+            replayed: boolean;
+        };
+        AcquisitionRunCandidate: {
+            id: string;
+            status: string;
+            displayName: string;
+            /**
+             * Format: uri
+             * @description Optional display-only public avatar hint. It may be absent and never changes candidate
+             */
+            avatarUrl?: string;
+            /**
+             * Format: uri
+             * @description Optional display-only public content-cover hint. It may be absent and never changes candidate
+             */
+            coverUrl?: string;
+            evidence: {
+                /**
+                 * Format: uri
+                 * @description Prefers an exact commentable Douyin video URL; profile-only evidence is returned only as an inspectable fallback and cannot enter a comment batch.
+                 */
+                sourceUrl: string;
+                excerpt: string;
+            };
+        };
+        AcquisitionOutreachBatchCandidate: {
+            candidateId: string;
+            selected: boolean;
+            candidateRevision: number;
+            evidenceHashes: string[];
+            /**
+             * Format: uri
+             * @description Frozen public candidate profile shown read-only during comment approval; only the separate version-2 direct-message approval may later create one direct-message action after a successful comment receipt.
+             */
+            publicProfileUrl: string;
+            /**
+             * Format: uri
+             * @description Frozen public video that will receive the approved comment.
+             */
+            commentTargetPublicUrl: string;
+            draftRevision: number;
+            comment: string;
+            commentHash: string;
+            directMessage: string;
+            directMessageHash: string;
+            rationaleCodes: ("evidence_grounded" | "public_need_signal" | "manual_review_required")[];
+            modelSnapshotId: string;
+            sourceModelSnapshotId: string;
+            contentHash: string;
+        };
+        AcquisitionOutreachBatch: {
+            id: string;
+            workspaceId: string;
+            runId: string;
+            planId: string;
+            planVersionId: string;
+            planVersion: number;
+            planSnapshotHash: string;
+            policyVersionId: string;
+            policyHash: string;
+            accountId: string;
+            accountLoginStateVersion: number;
+            dailyBudgetId: string;
+            localDate: string;
+            dailyCandidateLimit: number;
+            dailyRemainingLimit: number;
+            revision: number;
+            etag: string;
+            /** @enum {string} */
+            state: "awaiting_approval" | "approved" | "rejected" | "paused";
+            candidates: components["schemas"]["AcquisitionOutreachBatchCandidate"][];
+            batchHash: string;
+            approvedBy: string | null;
+            /** Format: date-time */
+            approvedAt: string | null;
+            approvalHash: string | null;
+            rejectedBy: string | null;
+            /** Format: date-time */
+            rejectedAt: string | null;
+            rejectionReason: string | null;
+            pauseReason: string | null;
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            updatedBy: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        AcquisitionOutreachBatchList: {
+            items: components["schemas"]["AcquisitionOutreachBatch"][];
+            nextCursor: string | null;
+        };
+        AcquisitionOutreachAction: {
+            id: string;
+            workspaceId: string;
+            batchId: string;
+            batchRevision: number;
+            candidateId: string;
+            accountId: string;
+            accountLoginStateVersion: number;
+            policyVersionId: string;
+            localDate: string;
+            /** @enum {string} */
+            kind: "comment" | "direct_message";
+            /**
+             * @description Persisted execution authority. Omitted only by historical server responses.
+             * @enum {string}
+             */
+            executionTarget?: "desktop" | "server";
+            /** @enum {integer} */
+            sequence: 1 | 2;
+            /** @enum {string} */
+            status: "queued" | "blocked_by_predecessor" | "claimed" | "executing" | "succeeded" | "failed" | "risk_paused" | "reconciliation_required";
+            predecessorActionId: string | null;
+            /** Format: uri */
+            targetPublicUrl: string;
+            content: string;
+            contentHash: string;
+            approvalHash: string;
+            /**
+             * @description v3 independently confirmed direct message; v2 retains comment-linked authority; absent on historical actions.
+             * @enum {integer}
+             */
+            authorizationVersion?: 2 | 3;
+            approvedBy?: string;
+            /** Format: date-time */
+            approvedAt?: string;
+            directMessageDailyLimit?: number;
+            directMessageDailyOrdinal?: number;
+            /** Format: date-time */
+            createdAt: string;
+            attemptCount: number;
+            platformReceiptReference: string | null;
+            /** Format: date-time */
+            occurredAt: string | null;
+            /** @enum {string|null} */
+            failureCode: "action_unavailable" | "action_rejected" | "approval_authority_changed" | "predecessor_failed" | "account_risk_paused" | "deadline_exceeded" | "douyin_verification_required" | "douyin_rate_limited" | "douyin_account_warning" | "douyin_account_identity_changed" | "douyin_login_expired" | "douyin_direct_message_unavailable" | "douyin_action_control_missing" | "douyin_action_control_ambiguous" | "douyin_action_content_mismatch" | "douyin_action_receipt_ambiguous" | "douyin_action_timeout" | null;
+        };
+        AcquisitionOutreachActionList: {
+            items: components["schemas"]["AcquisitionOutreachAction"][];
+            executionGate: components["schemas"]["AcquisitionOutreachExecutionGate"];
+        };
+        AcquisitionOutreachUncertainAction: {
+            actionId: string;
+            /** @enum {string} */
+            failureCode: "action_unavailable" | "douyin_action_timeout" | "douyin_action_receipt_ambiguous";
+        };
+        AcquisitionOutreachExecutionGate: {
+            accountId: string;
+            accountLoginStateVersion: number;
+            riskPaused: boolean;
+            pendingActionIds: string[];
+            unresolvedActions: components["schemas"]["AcquisitionOutreachUncertainAction"][];
+        };
+        AcquisitionOutreachAccountRecovery: {
+            accountId: string;
+            accountLoginStateVersion: number;
+            riskPaused: boolean;
+            pendingActionIds: string[];
+            unresolvedActions: components["schemas"]["AcquisitionOutreachUncertainAction"][];
+            enabledActionIds: string[];
+            acknowledgedUncertainActionIds: string[];
+            recoveredBy: string;
+            /** Format: date-time */
+            recoveredAt: string;
+        };
+        /** @enum {string} */
+        DouyinAutomationFailureCode: "unauthorized" | "workspace_required" | "workspace_context_invalid" | "invalid_request" | "invalid_automation_scope" | "invalid_automation_policy" | "invalid_automation_keywords" | "invalid_automation_schedule" | "invalid_automation_local_time" | "invalid_automation_time_zone" | "invalid_automation_collection" | "automation_collection_required" | "invalid_automation_limits" | "invalid_daily_candidate_limit" | "invalid_run_now_input" | "invalid_idempotency_key" | "invalid_if_match" | "if_match_required" | "automation_plan_not_found" | "automation_plan_snapshot_corrupt" | "active_douyin_account_required" | "active_douyin_account_workspace_mismatch" | "automation_policy_required" | "approved_automation_plan_required" | "automation_policy_plan_version_mismatch" | "automation_account_login_state_changed" | "automation_idempotency_conflict" | "automation_precondition_failed" | "automation_policy_binding_conflict" | "automation_run_binding_conflict" | "automation_policy_binding_corrupt" | "automation_idempotency_record_corrupt" | "automation_internal_error";
+        PlatformConnection: components["schemas"]["platform-connection.v1.schema"];
+        PlatformCapabilitySnapshot: components["schemas"]["platform-capability-snapshot.v1.schema"];
+        PlatformEvent: components["schemas"]["platform-event.v1.schema"];
+        DouyinCommentEvent: components["schemas"]["douyin-comment-event.v1.schema"];
+        ActionPolicy: components["schemas"]["action-policy.v1.schema"];
+        ActionReceipt: components["schemas"]["action-receipt.v1.schema"];
+        DouyinVisualCommentObservation: components["schemas"]["douyinVisualCommentObservation"];
+        OpaqueRectRedactionProof: components["schemas"]["visualReaderOpaqueRectRedactionProof"];
+        VisualObservationSubmission: components["schemas"]["visualReaderObservationSubmission"];
+        VisualReaderLimits: components["schemas"]["visualReaderLimits"];
+        VisualReaderUsage: components["schemas"]["visualReaderUsage"];
+        VisualReaderOutcome: components["schemas"]["visualReaderOutcome"];
+        VisualReaderSession: components["schemas"]["visualReaderSession"];
+        VisualReaderCreateRequest: components["schemas"]["visualReaderCreateRequest"];
+        VisualObservationBatchRequest: components["schemas"]["visualReaderObservationBatchRequest"];
+        VisualObservationBatchResponse: components["schemas"]["visualReaderObservationBatchResponse"];
+        VisualReaderCompleteRequest: components["schemas"]["visualReaderCompleteRequest"];
+        VisualReaderAbortRequest: components["schemas"]["visualReaderAbortRequest"];
+        DiscoveryEvidencePagedResult: {
+            items: components["schemas"]["discovery-evidence.v1.schema"][];
+            nextCursor: string | null;
+        };
+        ReviewEventPagedResult: {
+            items: components["schemas"]["review-event.v1.schema"][];
+            nextCursor: string | null;
+        };
+        OutcomeFeedbackPagedResult: {
+            items: components["schemas"]["outcome-feedback.v1.schema"][];
+            nextCursor: string | null;
+        };
+        AcquisitionPerformance: {
+            counts: {
+                discovered: number;
+                highIntent: number;
+                approved: number;
+                converted: number;
+                contacted: number;
+                quoted: number;
+                won: number;
+                lost: number;
+            };
+            rates: {
+                highIntentRate: number | null;
+                approvalRate: number | null;
+                crmConversionRate: number | null;
+                contactRate: number | null;
+                quoteRate: number | null;
+                winRate: number | null;
+            };
+            valuesByCurrency: {
+                currency: string;
+                estimatedPipelineMinor: number;
+                quotedMinor: number;
+                wonContractMinor: number;
+            }[];
+            cost: {
+                /** @enum {string} */
+                status: "available" | "not_aggregatable";
+                executionCostMinor: number | null;
+                currency: string | null;
+                /** @enum {string} */
+                coverage: "recorded_api_execution_only";
+            };
+            roi: {
+                /** @enum {string} */
+                status: "not_computable";
+                /** @enum {string} */
+                reason: "channel_cost_or_verified_margin_unavailable";
+            };
+            dataQuality: {
+                missingAttribution: number;
+                missingFinancial: number;
+                truncated: boolean;
+                /** Format: date-time */
+                lastReconciledAt: string | null;
+            };
+            briefingFacts: {
+                headlines: components["schemas"]["AcquisitionPerformanceFact"][];
+                risks: components["schemas"]["AcquisitionPerformanceFact"][];
+                actions: components["schemas"]["AcquisitionPerformanceFact"][];
+                metricIds: string[];
+            };
+        };
+        AcquisitionPerformanceFact: {
+            metricId: string;
+            text: string;
+            evidenceRefs: string[];
+        };
+        CopilotMessagePagedResult: {
+            items: components["schemas"]["copilot-message.v1.schema"][];
+            nextCursor: string | null;
+        };
+        IdentityResolution: {
+            /** @constant */
+            status: "resolved";
+            /** @enum {unknown} */
+            basis: "organization_domain" | "organization_credit_code" | "provider_public_actor";
+            resolverVersion: string;
+            evidenceIds: string[];
+            /** Format: date-time */
+            resolvedAt: string;
+            resolvedBy: string;
+        };
+        IdentityConfirmationResult: {
+            candidate: components["schemas"]["Candidate"];
+            resolution: components["schemas"]["IdentityResolution"];
+        };
+        ResearchAttempt: {
+            id: string;
+            candidateId: string;
+            requestReason: string;
+            budgetVersion: string;
+            /** @enum {unknown} */
+            status: "pending" | "running" | "completed" | "no_new_evidence" | "access_restricted" | "failed";
+            newEvidenceIds: string[];
+            terminationReason: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            completedAt: string | null;
+        };
+        CandidateReviewResult: {
+            candidate: components["schemas"]["Candidate"];
+            review: components["schemas"]["review-event.v1.schema"];
+            research: components["schemas"]["ResearchAttempt"] | null;
+        };
+        LeadConversion: {
+            id: string;
+            candidateId: string;
+            decisionVersion: string;
+            partyRef: components["schemas"]["party-ref.v1.schema"];
+            leadId: string;
+            reviewerId: string;
+            evidenceSnapshotHash: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AuditEvent: {
+            id: string;
+            candidateId: string | null;
+            actorId: string;
+            eventType: string;
+            /** @enum {unknown} */
+            fromStatus: "discovered" | "unresolvable" | "normalized" | "qualified" | "pending_review" | "approved" | "rejected" | "do_not_contact" | "needs_research" | "converted_to_lead" | null;
+            /** @enum {unknown} */
+            toStatus: "discovered" | "unresolvable" | "normalized" | "qualified" | "pending_review" | "approved" | "rejected" | "do_not_contact" | "needs_research" | "converted_to_lead" | null;
+            resourceId: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AuditEventPagedResult: {
+            items: components["schemas"]["AuditEvent"][];
+            nextCursor: string | null;
+        };
+        /** ModelConnection */
+        "model-connection.v1.schema": {
+            id: string;
+            ownerId: string;
+            teamId?: string | null;
+            /** @enum {unknown} */
+            provider: "openai" | "moonshot" | "minimax" | "zhipu" | "deepseek" | "qwen" | "doubao" | "hunyuan" | "qianfan";
+            model: string;
+            baseUrlFingerprint?: string;
+            credentialVersion: number;
+            capabilitySnapshot: {
+                structuredOutput: boolean;
+                toolCalling: boolean;
+                parallelToolCalling: boolean;
+                streaming: boolean;
+                modelListing: boolean;
+            };
+            /** @enum {unknown} */
+            status: "active" | "inactive" | "disabled";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        /** ApiError */
+        "api-error.v1.schema": {
+            code: string;
+            message: string;
+            details: unknown;
+            requestId: string;
+            retryable: boolean;
+        } | {
+            error: {
+                code: string;
+                message: string;
+                details?: unknown;
+                requestId?: string;
+            };
+        };
+        /** AsyncOperation */
+        "async-operation.v1.schema": {
+            id: string;
+            kind: string;
+            /** @enum {unknown} */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            resourceId?: string | null;
+            error?: null | components["schemas"]["api-error.v1.schema"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            completedAt?: string | null;
+        };
+        /** ModelCallRecord */
+        "model-call-record.v1.schema": {
+            id: string;
+            ownerId: string;
+            teamId: string;
+            jobId: string;
+            attemptId: string;
+            connectionId: string;
+            credentialVersion: number;
+            capabilitySnapshotHash: string;
+            provider: string;
+            baseUrlFingerprint: string;
+            model: string;
+            promptVersion: string;
+            schemaVersion: string;
+            requestId: string;
+            providerRequestId?: string | null;
+            inputTokens: number;
+            outputTokens: number;
+            reasoningTokens: number;
+            latencyMs: number;
+            /** @enum {unknown} */
+            status: "succeeded" | "failed";
+            error: Record<string, never> | null;
+            cost: {
+                amountMinor: number;
+                currency: string;
+                /** @enum {unknown} */
+                kind: "estimated" | "actual" | "unknown";
+            };
+            parameterHash: string;
+            resultHash: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        /** ProviderConnection */
+        "provider-connection.v1.schema": {
+            id: string;
+            ownerId: string;
+            teamId: string | null;
+            providerId: string;
+            /** @enum {unknown} */
+            kind: "search" | "content_fetch" | "import";
+            /** @enum {unknown} */
+            status: "active" | "inactive" | "disabled" | "error";
+            credentialVersion: number;
+            /** Format: date-time */
+            lastHealthAt: string | null;
+            /** @enum {unknown} */
+            lastHealthStatus: "untested" | "passed" | "failed";
+            lastErrorCode: string | null;
+            lastHealthMessage: string;
+            usage: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        /** ContentFetchOperation */
+        "content-fetch-operation.v1.schema": ({
+            id: string;
+            ownerId: string;
+            teamId: string;
+            actorId: string;
+            /** Format: uri */
+            sourceUrl: string;
+            /** Format: uri */
+            finalUrl: string | null;
+            /** @enum {unknown} */
+            subjectChannel: "organization" | "individual";
+            /** @enum {unknown} */
+            status: "queued" | "running" | "succeeded" | "partial_success" | "failed" | "access_restricted";
+            /** @enum {string|null} */
+            accessStatus: "public_content" | "access_restricted" | null;
+            httpStatus: number | null;
+            contentType: string | null;
+            title: string | null;
+            rawArtifactHash: string | null;
+            contentHash: string | null;
+            evidenceCount: number;
+            evidenceIds: string[];
+            candidateCount: number;
+            candidateIds: string[];
+            commentSampleSummary: null | {
+                /** @enum {unknown} */
+                status: "skipped" | "succeeded" | "succeeded_empty" | "partial_success" | "failed";
+                videoCount: number;
+                pagesFetched: number;
+                commentsSampled: number;
+                eventCount: number;
+                evidenceCount: number;
+                candidateIds: string[];
+                unresolvedActorCount: number;
+                strongSignalCount: number;
+                invalidCommentCount: number;
+                errors: {
+                    /** Format: uri */
+                    sourceUrl: string;
+                    videoId: string;
+                    /** @enum {unknown} */
+                    code: "public_sample_unavailable" | "access_restricted" | "rate_limited" | "video_id_unresolved" | "source_payload_invalid" | "no_public_comments";
+                }[];
+                usage: {
+                    requests: number;
+                    results: number;
+                    amountMinor: number;
+                    durationSeconds: number;
+                };
+            };
+            errorCode: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            completedAt: string | null;
+        } & (unknown & unknown & ({
+            /** @constant */
+            candidateCount?: 0;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 1;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 2;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 3;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 4;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 5;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 6;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 7;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 8;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 9;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 10;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 11;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 12;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 13;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 14;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 15;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 16;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 17;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 18;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 19;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 20;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 21;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 22;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 23;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 24;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 25;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 26;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 27;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 28;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 29;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 30;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 31;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 32;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 33;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 34;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 35;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 36;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 37;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 38;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 39;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 40;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 41;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 42;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 43;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 44;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 45;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 46;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 47;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 48;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 49;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 50;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 51;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 52;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 53;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 54;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 55;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 56;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 57;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 58;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 59;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 60;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 61;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 62;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 63;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 64;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 65;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 66;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 67;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 68;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 69;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 70;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 71;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 72;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 73;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 74;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 75;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 76;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 77;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 78;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 79;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 80;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 81;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 82;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 83;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 84;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 85;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 86;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 87;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 88;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 89;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 90;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 91;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 92;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 93;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 94;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 95;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 96;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 97;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 98;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 99;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 100;
+            candidateIds?: unknown[];
+        } | {
+            /** @constant */
+            candidateCount?: 101;
+            candidateIds?: unknown[];
+        }))) & ({
+            /** @enum {unknown} */
+            status?: "succeeded" | "partial_success" | "access_restricted";
+            /** @constant */
+            evidenceCount?: 1;
+            evidenceIds?: unknown[];
+        } | {
+            /** @enum {unknown} */
+            status?: "queued" | "running";
+            /** @constant */
+            evidenceCount?: 0;
+            evidenceIds?: unknown[];
+        } | {
+            /** @constant */
+            status?: "failed";
+            /** @constant */
+            evidenceCount?: 0;
+            evidenceIds?: unknown[];
+        } | {
+            /** @constant */
+            status?: "failed";
+            /** @constant */
+            evidenceCount?: 1;
+            evidenceIds?: unknown[];
+        });
+        /** ImportOperation */
+        "import-operation.v1.schema": {
+            id: string;
+            ownerId: string;
+            teamId: string;
+            actorId: string;
+            fileName: string;
+            /** @enum {unknown} */
+            mediaType: "text/csv" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            /** @enum {unknown} */
+            subjectChannel: "organization" | "individual";
+            artifactHash: string;
+            /** @enum {unknown} */
+            status: "queued" | "running" | "succeeded" | "partial_success" | "failed";
+            rowCount: number;
+            acceptedRowCount: number;
+            errorRows: {
+                sheetName: string;
+                rowNumber: number;
+                code: string;
+                message: string;
+            }[];
+            evidenceCount: number;
+            evidenceIds: string[];
+            candidateCount: number;
+            candidateIds: string[];
+            errorCode: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            completedAt: string | null;
+        } & (unknown & unknown & (unknown | {
+            /** @constant */
+            evidenceCount: 0;
+            evidenceIds: unknown[];
+        } | {
+            evidenceCount: number;
+            evidenceIds: unknown[];
+        }) & (unknown | {
+            /** @constant */
+            candidateCount: 0;
+            candidateIds: unknown[];
+        } | {
+            candidateCount: number;
+            candidateIds: unknown[];
+        }));
+        /** DiscoveryEvidence */
+        "discovery-evidence.v1.schema": {
+            id: string;
+            /** @enum {unknown} */
+            targetType: "organization" | "individual_signal";
+            sourcePlatform: string;
+            sourceTitle: string;
+            sourceSnippet: string;
+            /** Format: date-time */
+            publishedAt: string | null;
+            /** Format: date-time */
+            fetchedAt: string;
+            locale: string;
+            rawArtifactHash: string;
+            contentHash: string;
+            provenance: {
+                /** @constant */
+                kind: "search_result";
+                provider: string;
+                providerConnectionId?: string;
+                requestId?: string;
+                providerRecordId?: string;
+                queryText: string;
+                /** Format: uri */
+                sourceUrl: string;
+                resultRank: number | null;
+                sourceType?: string;
+            } | {
+                /** @constant */
+                kind: "user_submitted_url";
+                /** Format: uri */
+                sourceUrl: string;
+                submittedBy: string;
+            } | {
+                /** @constant */
+                kind: "controlled_public_page";
+                /** Format: uri */
+                sourceUrl: string;
+                discoveredFromEvidenceId: string;
+                redirectChain: string[];
+                /** @constant */
+                extractorVersion: "douyin-public-profile-v1";
+            } | {
+                /** @constant */
+                kind: "platform_public_event";
+                /** Format: uri */
+                sourceUrl: string;
+                platformEventId: string;
+                providerVersion: string;
+                /** @constant */
+                coverage: "public_top_level_sample";
+            } | {
+                /** @constant */
+                kind: "mediacrawler_public_record";
+                /** Format: uri */
+                sourceUrl: string;
+                jobId: string;
+                recordId: string;
+                /** @enum {unknown} */
+                actorKind: "creator" | "commenter";
+                cursor: string | null;
+                upstreamCommit: string;
+            } | {
+                /** @constant */
+                kind: "authorized_visual_observation";
+                /** Format: uri */
+                sourceUrl: string;
+                observationId: string;
+                sessionId: string;
+                /** @enum {unknown} */
+                extractionMethod: "dom" | "accessibility" | "ocr";
+                visibleTextConfidence: number;
+                /** @constant */
+                coverage: "authorized_visible_top_level_sample";
+                artifactId: string | null;
+                domTextHash: string | null;
+                ocrTextHash: string | null;
+            } | {
+                /** @constant */
+                kind: "import_artifact_row";
+                importBatchId: string;
+                artifactHash: string;
+                sheetName: string;
+                rowNumber: number;
+                /** Format: uri */
+                sourceUrl?: string;
+            };
+            /** @enum {unknown} */
+            accessStatus: "indexed_summary" | "public_content" | "user_supplied" | "access_restricted";
+        } & (unknown & unknown & unknown);
+        budgetUsage: {
+            requests: number;
+            results: number;
+            amountMinor: number;
+            durationSeconds: number;
+        };
+        modelSnapshot: {
+            jobSnapshotId: string;
+            connectionId: string;
+            credentialVersion: number;
+            provider: string;
+            model: string;
+            capabilitySnapshotHash: string;
+            promptVersion: string;
+            schemaVersion: string;
+            promptHash: string;
+            schemaHash: string;
+        };
+        douyinPublicCommentSamplePolicy: {
+            enabled: boolean;
+            maxVideosPerRun: number;
+            maxCommentsPerVideo: number;
+            maxPagesPerVideo: number;
+        };
+        providerConnection: {
+            connectionId: string;
+            providerId: string;
+            /** @enum {unknown} */
+            kind: "search" | "content_fetch" | "import";
+            /** @enum {unknown} */
+            status: "active" | "inactive" | "disabled";
+            credentialVersion: number;
+        };
+        operation: {
+            operationId: string;
+            /** @enum {unknown} */
+            subjectChannel: "organization" | "individual";
+            /** @enum {unknown} */
+            kind: "search" | "content_fetch" | "import_rows";
+            connectionId: string;
+            query?: string;
+            sourceRef?: string;
+            allocatedBudget: components["schemas"]["budgetUsage"];
+        };
+        budgetSnapshot: {
+            billingCurrency: string;
+            maxRequests: number;
+            maxResults: number;
+            maxAmountMinor: number;
+            maxDurationSeconds: number;
+        };
+        payload: {
+            /**
+             * @description Absent values are interpreted as generic for persisted legacy plans.
+             * @enum {unknown}
+             */
+            executionMode?: "generic" | "douyin_mediacrawler";
+            /** @enum {unknown} */
+            targetPlatform?: "douyin" | "web";
+            douyinPublicCommentSample?: components["schemas"]["douyinPublicCommentSamplePolicy"];
+            name: string;
+            objective: string;
+            icp: {
+                industries: string[];
+                regions: string[];
+                organizationCriteria: string[];
+                individualCriteria: string[];
+                exclusionRules: string[];
+            };
+            subjectChannels: {
+                organization: boolean;
+                individual: boolean;
+            };
+            providerConnections: components["schemas"]["providerConnection"][];
+            operations: components["schemas"]["operation"][];
+            budgetSnapshot: components["schemas"]["budgetSnapshot"];
+            modelSnapshotRef: components["schemas"]["modelSnapshot"] | null;
+            stopConditions: {
+                stopWhenBudgetExhausted: boolean;
+                stopWhenNoMoreResults: boolean;
+            };
+        } & (unknown & unknown);
+        /** AcquisitionPlan */
+        "acquisition-plan.v1.schema": {
+            id: string;
+            ownerId: string;
+            teamId: string;
+            /** @enum {unknown} */
+            status: "draft" | "approved" | "archived";
+            version: number;
+            revision: number;
+            etag: string;
+            currentVersionId: string;
+            approvedVersionId: string | null;
+            approvedSnapshotHash: string | null;
+            approvedBy: string | null;
+            /** Format: date-time */
+            approvedAt: string | null;
+            budgetSnapshot: components["schemas"]["budgetSnapshot"];
+            payload: components["schemas"]["payload"];
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            updatedBy: string;
+            /** Format: date-time */
+            updatedAt: string;
+            $defs: {
+                budgetUsage: {
+                    requests: number;
+                    results: number;
+                    amountMinor: number;
+                    durationSeconds: number;
+                };
+                budgetSnapshot: {
+                    billingCurrency: string;
+                    maxRequests: number;
+                    maxResults: number;
+                    maxAmountMinor: number;
+                    maxDurationSeconds: number;
+                };
+                modelSnapshot: {
+                    jobSnapshotId: string;
+                    connectionId: string;
+                    credentialVersion: number;
+                    provider: string;
+                    model: string;
+                    capabilitySnapshotHash: string;
+                    promptVersion: string;
+                    schemaVersion: string;
+                    promptHash: string;
+                    schemaHash: string;
+                };
+                providerConnection: {
+                    connectionId: string;
+                    providerId: string;
+                    /** @enum {unknown} */
+                    kind: "search" | "content_fetch" | "import";
+                    /** @enum {unknown} */
+                    status: "active" | "inactive" | "disabled";
+                    credentialVersion: number;
+                };
+                operation: {
+                    operationId: string;
+                    /** @enum {unknown} */
+                    subjectChannel: "organization" | "individual";
+                    /** @enum {unknown} */
+                    kind: "search" | "content_fetch" | "import_rows";
+                    connectionId: string;
+                    query?: string;
+                    sourceRef?: string;
+                    allocatedBudget: components["schemas"]["budgetUsage"];
+                };
+                douyinPublicCommentSamplePolicy: {
+                    enabled: boolean;
+                    maxVideosPerRun: number;
+                    maxCommentsPerVideo: number;
+                    maxPagesPerVideo: number;
+                };
+                payload: {
+                    /**
+                     * @description Absent values are interpreted as generic for persisted legacy plans.
+                     * @enum {unknown}
+                     */
+                    executionMode?: "generic" | "douyin_mediacrawler";
+                    /** @enum {unknown} */
+                    targetPlatform?: "douyin" | "web";
+                    douyinPublicCommentSample?: components["schemas"]["douyinPublicCommentSamplePolicy"];
+                    name: string;
+                    objective: string;
+                    icp: {
+                        industries: string[];
+                        regions: string[];
+                        organizationCriteria: string[];
+                        individualCriteria: string[];
+                        exclusionRules: string[];
+                    };
+                    subjectChannels: {
+                        organization: boolean;
+                        individual: boolean;
+                    };
+                    providerConnections: components["schemas"]["providerConnection"][];
+                    operations: components["schemas"]["operation"][];
+                    budgetSnapshot: components["schemas"]["budgetSnapshot"];
+                    modelSnapshotRef: components["schemas"]["modelSnapshot"] | null;
+                    stopConditions: {
+                        stopWhenBudgetExhausted: boolean;
+                        stopWhenNoMoreResults: boolean;
+                    };
+                } & (unknown & unknown);
+            };
+        };
+        /** AcquisitionRun */
+        "acquisition-run.v1.schema": {
+            /**
+             * @description Absent values are interpreted as generic for persisted legacy runs.
+             * @enum {unknown}
+             */
+            executionMode?: "generic" | "douyin_mediacrawler";
+            id: string;
+            ownerId: string;
+            teamId: string;
+            planId: string;
+            planVersionId: string;
+            planVersion: number;
+            planSnapshotHash: string;
+            parentRunId: string | null;
+            /** @enum {unknown} */
+            status: "queued" | "running" | "pause_requested" | "paused" | "cancel_requested" | "cancelled" | "succeeded" | "succeeded_empty" | "partial_success" | "failed" | "budget_exhausted";
+            /** @enum {unknown} */
+            terminationIntent: "cancelled" | "budget_exhausted" | null;
+            revision: number;
+            etag: string;
+            budgetSnapshotId: string;
+            budgetSnapshot: components["schemas"]["budgetSnapshot"];
+            budgetSnapshotHash: string;
+            billingCurrency: string;
+            modelSnapshotRef: components["schemas"]["modelSnapshot"] | null;
+            consumedBudget: components["schemas"]["budgetUsage"];
+            evidenceCount: number;
+            reason: string | null;
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            updatedBy: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            completedAt: string | null;
+            $defs: {
+                budgetUsage: {
+                    requests: number;
+                    results: number;
+                    amountMinor: number;
+                    durationSeconds: number;
+                };
+                budgetSnapshot: {
+                    billingCurrency: string;
+                    maxRequests: number;
+                    maxResults: number;
+                    maxAmountMinor: number;
+                    maxDurationSeconds: number;
+                };
+                modelSnapshot: {
+                    jobSnapshotId: string;
+                    connectionId: string;
+                    credentialVersion: number;
+                    provider: string;
+                    model: string;
+                    capabilitySnapshotHash: string;
+                    promptVersion: string;
+                    schemaVersion: string;
+                    promptHash: string;
+                    schemaHash: string;
+                };
+            };
+        } & unknown;
+        /** AcquisitionRunPresentation */
+        "acquisition-run-presentation.v1.schema": {
+            run: {
+                id: string;
+                /** @enum {string} */
+                status: "queued" | "running" | "pause_requested" | "paused" | "cancel_requested" | "cancelled" | "succeeded" | "succeeded_empty" | "partial_success" | "failed" | "budget_exhausted";
+                etag: string;
+                /** Format: date-time */
+                updatedAt: string;
+                /** Format: date-time */
+                completedAt: null | string;
+            };
+            providers: {
+                shardId: string;
+                connectionId: string;
+                providerId: string;
+                status: string;
+                rawResultCount: number;
+                acceptedResultCount: number;
+                duplicateResultCount: number;
+                failedResultCount: number;
+                errorCode: null | string;
+                /** Format: date-time */
+                retryAfterAt: null | string;
+            }[];
+            summary: {
+                sourcesSearched: number;
+                /** @description 所有运行分片持久化的执行结果页数。 */
+                pagesAnalyzed: number;
+                organizationsFound: number;
+                dedupedCandidates: number;
+                validOpportunities: number;
+                highIntent: number;
+                financialEvaluatedHighIntentCount: number;
+                financialPendingHighIntentCount: number;
+                discoveredVideos: number;
+                commentsSampled: number;
+                validDemandSignals: number;
+                unresolvedActors: number;
+                highPotentialSignals: number;
+                /** @description 仅合计高意向且绑定当前资格决定的财务值；币种不换算。 */
+                expectedRevenueByCurrency: {
+                    currency: string;
+                    amountMinor: number;
+                }[];
+            };
+            automationSteps: {
+                /** @enum {string} */
+                id: "discover_video_urls" | "resolve_video_ids" | "fetch_public_comment_samples" | "normalize_platform_events" | "aggregate_actor_signals" | "qualify_candidates" | "refresh_run_presentation";
+                /** @enum {string} */
+                status: "pending" | "running" | "succeeded" | "partial_success" | "failed" | "skipped";
+                /** Format: date-time */
+                startedAt: null | string;
+                /** Format: date-time */
+                completedAt: null | string;
+                durationMs: null | number;
+                processedCount: number;
+                /** @enum {null|string} */
+                errorCode: null | "public_sample_unavailable" | "access_restricted" | "rate_limited" | "video_id_unresolved" | "source_payload_invalid" | "no_public_comments" | "model_output_invalid";
+                message: string;
+            }[];
+            authorizedVisualReader?: {
+                sessionId: string;
+                /** @constant */
+                coverage: "authorized_visible_top_level_sample";
+                /** @enum {string} */
+                status: "created" | "collecting" | "completed" | "partial_success" | "aborted" | "expired";
+                limits: {
+                    maxVideos: number;
+                    maxCommentsPerVideo: number;
+                    maxScrolls: number;
+                    maxOcrCalls: number;
+                    maxDurationMs: number;
+                };
+                usage: {
+                    videoCount: number;
+                    observationCount: number;
+                    scrollCount: number;
+                    ocrCallCount: number;
+                    domObservationCount: number;
+                    accessibilityObservationCount: number;
+                    ocrObservationCount: number;
+                    lowConfidenceObservationCount: number;
+                    artifactCount: number;
+                };
+                outcome: {
+                    /** @enum {string} */
+                    status: "completed" | "partial_success" | "aborted" | "expired";
+                    videoCount: number;
+                    observationCount: number;
+                    domObservationCount: number;
+                    accessibilityObservationCount: number;
+                    ocrObservationCount: number;
+                    lowConfidenceObservationCount: number;
+                    artifactCount: number;
+                    errorCodes: ("visual_reader_not_enabled" | "visual_reader_session_expired" | "visual_reader_budget_exhausted" | "visual_source_invalid" | "visual_observation_invalid" | "visual_artifact_invalid" | "visual_extraction_method_disabled" | "visual_extraction_low_confidence" | "visual_reader_user_takeover")[];
+                } | null;
+                lastErrorCode: ("visual_reader_not_enabled" | "visual_reader_session_expired" | "visual_reader_budget_exhausted" | "visual_source_invalid" | "visual_observation_invalid" | "visual_artifact_invalid" | "visual_extraction_method_disabled" | "visual_extraction_low_confidence" | "visual_reader_user_takeover") | null;
+                sessionCount: number;
+                /** @enum {string} */
+                aggregateStatus: "active" | "succeeded" | "partial_success" | "failed" | "stopped";
+                aggregateUsage: {
+                    videoCount: number;
+                    observationCount: number;
+                    scrollCount: number;
+                    ocrCallCount: number;
+                    domObservationCount: number;
+                    accessibilityObservationCount: number;
+                    ocrObservationCount: number;
+                    lowConfidenceObservationCount: number;
+                    artifactCount: number;
+                };
+                visualSteps: {
+                    /** @enum {string} */
+                    id: "authorize_visual_reader" | "read_visible_comment_cards" | "extract_visible_text" | "persist_visual_observations" | "review_visual_signal_confidence";
+                    /** @enum {string} */
+                    status: "pending" | "running" | "succeeded" | "partial_success" | "failed" | "skipped";
+                    /** Format: date-time */
+                    startedAt: null | string;
+                    /** Format: date-time */
+                    completedAt: null | string;
+                    durationMs: null | number;
+                    processedCount: number;
+                    errorCode: ("visual_reader_not_enabled" | "visual_reader_session_expired" | "visual_reader_budget_exhausted" | "visual_source_invalid" | "visual_observation_invalid" | "visual_artifact_invalid" | "visual_extraction_method_disabled" | "visual_extraction_low_confidence" | "visual_reader_user_takeover") | null;
+                    message: string;
+                }[];
+            };
+            commentSignals: {
+                eventId: string;
+                candidateId: string;
+                displayName: string;
+                handle: null | string;
+                text: string;
+                /** Format: date-time */
+                occurredAt: string;
+                likeCount: number;
+                replyCount: number;
+                ipLabel: null | string;
+                /** Format: uri */
+                sourceUrl: string;
+                /** @enum {string} */
+                intentBand: "strong_signal" | "potential_signal" | "noise" | "negative";
+                reasons: string[];
+                confidence: number;
+                /** @enum {string} */
+                identityStatus: "resolved" | "needs_research";
+                evidenceId: string;
+            }[];
+            candidateEvents: {
+                eventId: string;
+                /** Format: date-time */
+                createdAt: string;
+                candidateId: string;
+                candidate: {
+                    id: string;
+                    /** @enum {string} */
+                    subjectKind: "organization" | "individual";
+                    displayName: string;
+                    industry: null | string;
+                    region: null | string;
+                    domain: null | string;
+                    status: string;
+                    version: number;
+                    identityResolved: boolean;
+                    /** Format: date-time */
+                    updatedAt: string;
+                };
+                qualification: null | {
+                    id: string;
+                    candidateId: string;
+                    decisionVersion: string;
+                    /** @enum {string} */
+                    decisionEngine: "model" | "rules";
+                    /** @enum {string} */
+                    grade: "S" | "A" | "B" | "C" | "D";
+                    score: number;
+                    /** @enum {string} */
+                    recommendedAction: "priority_review" | "public_response" | "nurture" | "observe" | "do_not_contact";
+                    evidence: {
+                        evidenceId: string;
+                        excerpt: string;
+                    }[];
+                    positiveSignals: {
+                        name: string;
+                        score: number;
+                    }[];
+                    negativeSignals: {
+                        name: string;
+                        score: number;
+                    }[];
+                    reasons: string[];
+                    confidence: number;
+                    ruleVersion: string;
+                    promptVersion: null | string;
+                    modelProvider: null | string;
+                    model: null | string;
+                    hardGateFailures: ("missing_original_source" | "identity_unresolved" | "do_not_contact" | "explicit_rejection" | "non_public_or_sensitive_data" | "stale_evidence" | "schema_invalid")[];
+                    /** Format: date-time */
+                    createdAt: string;
+                };
+                financialValue: null | {
+                    id: string;
+                    candidateId: string;
+                    qualificationDecisionId: string;
+                    version: string;
+                    /** @enum {string} */
+                    grade: "S" | "A" | "B" | "C" | "D";
+                    score: number;
+                    currency: string;
+                    expectedRevenueMinor: number;
+                    expectedGrossProfitMinor: number;
+                    expectedContributionMinor: number;
+                    factors: {
+                        profitability: number;
+                        cashFlow: number;
+                        creditQuality: number;
+                        repeatPotential: number;
+                        referralPotential: number;
+                        closeProbability: number;
+                    };
+                    /** Format: date-time */
+                    createdAt: string;
+                };
+                sourcePlatforms: string[];
+                evidenceCount: number;
+            }[];
+            nextAfter: string;
+            hasMore: boolean;
+        };
+        visualReaderIdentifier: string;
+        visualReaderCreateRequest: {
+            runId: components["schemas"]["visualReaderIdentifier"];
+            artifactUploadEnabled: boolean;
+        };
+        /** @enum {string} */
+        visualReaderStableErrorCode: "visual_reader_not_enabled" | "visual_reader_session_expired" | "visual_reader_budget_exhausted" | "visual_source_invalid" | "visual_observation_invalid" | "visual_artifact_invalid" | "visual_extraction_method_disabled" | "visual_extraction_low_confidence" | "visual_reader_user_takeover";
+        visualReaderOutcome: {
+            /** @enum {string} */
+            status: "completed" | "partial_success" | "aborted" | "expired";
+            videoCount: number;
+            observationCount: number;
+            domObservationCount: number;
+            accessibilityObservationCount: number;
+            ocrObservationCount: number;
+            lowConfidenceObservationCount: number;
+            artifactCount: number;
+            errorCodes: components["schemas"]["visualReaderStableErrorCode"][];
+        };
+        visualReaderLimits: {
+            maxVideos: number;
+            maxCommentsPerVideo: number;
+            maxScrolls: number;
+            maxOcrCalls: number;
+            maxDurationMs: number;
+        };
+        visualReaderUsage: {
+            videoCount: number;
+            observationCount: number;
+            scrollCount: number;
+            ocrCallCount: number;
+            domObservationCount: number;
+            accessibilityObservationCount: number;
+            ocrObservationCount: number;
+            lowConfidenceObservationCount: number;
+            artifactCount: number;
+        };
+        /**
+         * VisualReaderSession
+         * @description Server-owned public projection for one explicitly authorized, bounded, read-only visual reader session.
+         */
+        visualReaderSession: {
+            sessionId: components["schemas"]["visualReaderIdentifier"];
+            runId: components["schemas"]["visualReaderIdentifier"];
+            planId: components["schemas"]["visualReaderIdentifier"];
+            planVersionId: components["schemas"]["visualReaderIdentifier"];
+            /** @constant */
+            platform: "douyin";
+            /** @constant */
+            coverage: "authorized_visible_top_level_sample";
+            /** @enum {string} */
+            status: "created" | "collecting" | "completed" | "partial_success" | "aborted" | "expired";
+            artifactUploadEnabled: boolean;
+            limits: components["schemas"]["visualReaderLimits"];
+            usage: components["schemas"]["visualReaderUsage"];
+            outcome: components["schemas"]["visualReaderOutcome"] | null;
+            lastErrorCode: components["schemas"]["visualReaderStableErrorCode"] | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            authorizedAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            completedAt: string | null;
+        } & ({
+            /** @enum {unknown} */
+            status?: "created" | "collecting";
+            outcome?: null;
+            completedAt?: null;
+        } | {
+            /** @constant */
+            status?: "completed";
+            outcome?: components["schemas"]["visualReaderOutcome"] & {
+                /** @constant */
+                status?: "completed";
+            };
+            /** Format: date-time */
+            completedAt?: string;
+        } | {
+            /** @constant */
+            status?: "partial_success";
+            outcome?: components["schemas"]["visualReaderOutcome"] & {
+                /** @constant */
+                status?: "partial_success";
+            };
+            /** Format: date-time */
+            completedAt?: string;
+        } | {
+            /** @constant */
+            status?: "aborted";
+            outcome?: components["schemas"]["visualReaderOutcome"] & {
+                /** @constant */
+                status?: "aborted";
+            };
+            /** Format: date-time */
+            completedAt?: string;
+        } | {
+            /** @constant */
+            status?: "expired";
+            outcome?: components["schemas"]["visualReaderOutcome"] & {
+                /** @constant */
+                status?: "expired";
+            };
+            /** Format: date-time */
+            completedAt?: string;
+        });
+        /** Format: uri */
+        visualObservationSourceUrl: string;
+        visualObservationVideoId: string;
+        visualObservationVisibleText: string;
+        visualObservationDigest: string;
+        visualObservationNullableDigest: components["schemas"]["visualObservationDigest"] | null;
+        visualObservationNullableVisibleString: string | null;
+        visualObservationNullableCount: number | null;
+        visualObservationNullablePlatformCommentId: string | null;
+        visualObservationNullablePublicProfileUrl: string | null;
+        visualObservationNullableSecUid: string | null;
+        /** @enum {string} */
+        visualObservationExtractionMethod: "dom" | "accessibility" | "ocr" | "vision";
+        visualObservationFieldConfidences: {
+            visibleText: number;
+            displayName?: number;
+            visibleTimeText?: number;
+            likeCount?: number;
+            replyCount?: number;
+            platformCommentId?: number;
+            publicProfileUrl?: number;
+            secUid?: number;
+        };
+        visualObservationCardBounds: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+        };
+        visualObservationReaderVersion: string;
+        /** Format: date-time */
+        visualObservationCapturedAt: string;
+        /** @description Canonical base64 whose decoded length is at most 262144 bytes. Actual WebP decoding and pixel proof validation are Task 3 service responsibilities. */
+        visualReaderBoundedWebpBase64: string;
+        visualReaderPixelRect: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+        };
+        visualReaderOpaqueRectRedactionProof: {
+            /** @constant */
+            version: "opaque-rect-v1";
+            /** @constant */
+            maskColorRgba: [
+                17,
+                61,
+                51,
+                255
+            ];
+            avatarBounds: components["schemas"]["visualReaderPixelRect"] | null;
+            visibleRegions: components["schemas"]["visualReaderPixelRect"][];
+            maskedRegions: components["schemas"]["visualReaderPixelRect"][];
+        };
+        visualReaderObservationSubmission: {
+            clientObservationKey: components["schemas"]["visualReaderIdentifier"];
+            sourceUrl: components["schemas"]["visualObservationSourceUrl"];
+            videoId: components["schemas"]["visualObservationVideoId"];
+            visibleText: components["schemas"]["visualObservationVisibleText"];
+            domTextHash: components["schemas"]["visualObservationNullableDigest"];
+            ocrTextHash: components["schemas"]["visualObservationNullableDigest"];
+            displayName: components["schemas"]["visualObservationNullableVisibleString"];
+            visibleTimeText: components["schemas"]["visualObservationNullableVisibleString"];
+            likeCount: components["schemas"]["visualObservationNullableCount"];
+            replyCount: components["schemas"]["visualObservationNullableCount"];
+            platformCommentId: components["schemas"]["visualObservationNullablePlatformCommentId"];
+            publicProfileUrl: components["schemas"]["visualObservationNullablePublicProfileUrl"];
+            secUid: components["schemas"]["visualObservationNullableSecUid"];
+            extractionMethod: components["schemas"]["visualObservationExtractionMethod"];
+            fieldConfidences: components["schemas"]["visualObservationFieldConfidences"];
+            viewport: {
+                width: number;
+                height: number;
+                deviceScaleFactor: number;
+            };
+            cardBounds: components["schemas"]["visualObservationCardBounds"];
+            readerVersion: components["schemas"]["visualObservationReaderVersion"];
+            capturedAt: components["schemas"]["visualObservationCapturedAt"];
+            redactedCrop: {
+                /** @constant */
+                mediaType: "image/webp";
+                contentBase64: components["schemas"]["visualReaderBoundedWebpBase64"];
+                redactionProof: components["schemas"]["visualReaderOpaqueRectRedactionProof"];
+            } | null;
+        };
+        /** @description At most 20 client observations, with no more than five redacted crops. */
+        visualReaderObservationBatchRequest: {
+            observations: components["schemas"]["visualReaderObservationSubmission"][];
+        };
+        visualObservationIdentifier: string;
+        /**
+         * DouyinVisualCommentObservationV1
+         * @description Server-normalized observation of one currently visible top-level Douyin comment. Standard JSON Schema validates sourceUrl and videoId independently; the Task 3 service must require the numeric sourceUrl video segment to equal videoId before persistence.
+         */
+        douyinVisualCommentObservation: {
+            observationId: components["schemas"]["visualObservationIdentifier"];
+            sessionId: components["schemas"]["visualObservationIdentifier"];
+            sourceUrl: components["schemas"]["visualObservationSourceUrl"];
+            videoId: components["schemas"]["visualObservationVideoId"];
+            visibleText: components["schemas"]["visualObservationVisibleText"];
+            textHash: components["schemas"]["visualObservationDigest"];
+            domTextHash: components["schemas"]["visualObservationNullableDigest"];
+            ocrTextHash: components["schemas"]["visualObservationNullableDigest"];
+            displayName: components["schemas"]["visualObservationNullableVisibleString"];
+            visibleTimeText: components["schemas"]["visualObservationNullableVisibleString"];
+            likeCount: components["schemas"]["visualObservationNullableCount"];
+            replyCount: components["schemas"]["visualObservationNullableCount"];
+            platformCommentId: components["schemas"]["visualObservationNullablePlatformCommentId"];
+            /** @description Literal public profile link fact only. Standard JSON Schema validates it independently; the Task 3 service must verify its public user key agrees with secUid before persistence. */
+            publicProfileUrl: components["schemas"]["visualObservationNullablePublicProfileUrl"];
+            secUid: components["schemas"]["visualObservationNullableSecUid"];
+            extractionMethod: components["schemas"]["visualObservationExtractionMethod"];
+            fieldConfidences: components["schemas"]["visualObservationFieldConfidences"];
+            viewportHash: components["schemas"]["visualObservationDigest"];
+            cardBounds: components["schemas"]["visualObservationCardBounds"];
+            redactedCropHash: components["schemas"]["visualObservationDigest"] | null;
+            readerVersion: components["schemas"]["visualObservationReaderVersion"];
+            capturedAt: components["schemas"]["visualObservationCapturedAt"];
+        };
+        visualReaderAcceptedObservation: {
+            clientObservationKey: components["schemas"]["visualReaderIdentifier"];
+            observation: components["schemas"]["douyinVisualCommentObservation"];
+        };
+        /** @description Accepted observations are server-normalized facts. Standard JSON Schema validates each sessionId independently; the Task 3 service must require the route, session, and every observation sessionId to agree before returning the response. */
+        visualReaderObservationBatchResponse: {
+            session: components["schemas"]["visualReaderSession"];
+            accepted: components["schemas"]["visualReaderAcceptedObservation"][];
+            duplicates: components["schemas"]["visualReaderIdentifier"][];
+        };
+        visualReaderCompleteRequest: {
+            /** @enum {string} */
+            status: "completed" | "partial_success";
+            errorCodes: components["schemas"]["visualReaderStableErrorCode"][];
+        };
+        visualReaderAbortRequest: {
+            /** @enum {string} */
+            reasonCode: "user_requested" | "visual_reader_user_takeover";
+        };
+        /** OrganizationCandidate */
+        "organization-candidate.v1.schema": {
+            id: string;
+            name: string;
+            domain: string | null;
+            region: string | null;
+            creditCode: string | null;
+            evidenceIds: string[];
+            /** @constant */
+            subjectKind: "organization";
+            version: number;
+            identityResolved: boolean;
+            /** @enum {unknown} */
+            status: "discovered" | "unresolvable" | "normalized" | "qualified" | "pending_review" | "approved" | "rejected" | "do_not_contact" | "needs_research" | "converted_to_lead";
+            latestDecisionVersion: string | null;
+            approvedDecisionVersion: string | null;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        /** IndividualDemandSignal */
+        "individual-demand-signal.v1.schema": {
+            id: string;
+            publicActorKey: string;
+            publicDisplayName: string;
+            /** Format: uri */
+            publicProfileUrl: string;
+            sourcePlatform: string;
+            evidenceIds: string[];
+            demandCategory: string;
+            demandSummary: string;
+            locationHint: string;
+            /** @enum {unknown} */
+            buyingStage: "awareness" | "problem_defined" | "solution_research" | "comparison" | "purchase_ready";
+            negativeSignals: string[];
+            /** @constant */
+            subjectKind: "individual";
+            version: number;
+            identityResolved: boolean;
+            /** @enum {unknown} */
+            status: "discovered" | "unresolvable" | "normalized" | "qualified" | "pending_review" | "approved" | "rejected" | "do_not_contact" | "needs_research" | "converted_to_lead";
+            latestDecisionVersion: string | null;
+            approvedDecisionVersion: string | null;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            firstSeenAt: string;
+            /** Format: date-time */
+            lastSeenAt: string;
+        } & unknown;
+        /** CandidateIntelligenceOperation */
+        "candidate-intelligence-operation.v1.schema": {
+            id: string;
+            candidateId: string;
+            /** @enum {unknown} */
+            status: "queued" | "running" | "succeeded" | "failed";
+            /** @enum {unknown} */
+            currentStage: "research" | "qualification" | "battle_card" | null;
+            completedStages: ("research" | "qualification" | "battle_card")[];
+            skippedStages: ("research" | "qualification" | "battle_card")[];
+            research: {
+                summary: string;
+                findings: {
+                    label: string;
+                    content: string;
+                    evidenceIds: string[];
+                    confidence: number | null;
+                }[];
+            } | null;
+            qualification: {
+                /** @enum {unknown} */
+                grade: "S" | "A" | "B" | "C" | "D";
+                score: number;
+                hardGateFailures: string[];
+                financialValueId: string;
+            } | null;
+            battleCardId: string | null;
+            failure: {
+                /** @enum {unknown} */
+                stage: "research" | "qualification" | "battle_card";
+                errorCode: string;
+            } | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            completedAt: string | null;
+            /** Format: date-time */
+            failedAt: string | null;
+        };
+        "douyin-identity-resolution-operation.v1.schema": {
+            id: string;
+            candidateId: string;
+            candidateVersion: number;
+            /** @enum {string} */
+            status: "queued" | "running" | "succeeded" | "requires_review" | "failed";
+            /** @enum {string|null} */
+            currentStage: "public_page" | "independent_search" | "consensus_gate" | "identity_confirmation" | "intelligence_dispatch" | null;
+            /** @enum {string|null} */
+            outcome: "verified_consensus" | "not_found" | "insufficient_evidence" | "ambiguous" | "conflicting" | "access_restricted" | "redirect_not_allowed" | "stale_candidate" | "provider_unavailable" | null;
+            retryable: boolean;
+            canonicalProfileUrl: string | null;
+            profileCandidates: {
+                publicProfileUrl: string;
+                evidenceIds: string[];
+            }[];
+            evidence: {
+                evidenceId: string;
+                /** @enum {string} */
+                evidenceClass: "douyin_public_page" | "independent_search_result";
+                publicProfileUrl: string;
+                sourceUrl: string;
+                sourceFingerprint: string;
+                /** @enum {string} */
+                accessStatus: "indexed_summary" | "public_content" | "access_restricted" | "redirect_not_allowed" | "provider_unavailable";
+                /** Format: date-time */
+                fetchedAt: string;
+            }[];
+            intelligenceOperationId: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            completedAt: string | null;
+        };
+        /** QualificationDecision */
+        "qualification-decision.v1.schema": {
+            /** @enum {unknown} */
+            decisionEngine: "model" | "rules";
+            /** @enum {unknown} */
+            grade: "S" | "A" | "B" | "C" | "D";
+            score: number;
+            /** @enum {unknown} */
+            recommendedAction: "priority_review" | "public_response" | "nurture" | "observe" | "do_not_contact";
+            evidence: {
+                evidenceId: string;
+                excerpt?: string;
+            }[];
+            positiveSignals: {
+                name: string;
+                score: number;
+            }[];
+            negativeSignals: {
+                name: string;
+                score: number;
+            }[];
+            reasons: string[];
+            confidence: number;
+            ruleVersion: string;
+            promptVersion: string | null;
+            modelProvider: string | null;
+            model: string | null;
+        } & unknown;
+        /** FinancialValueDecision */
+        "financial-value-decision.v1.schema": {
+            id: string;
+            candidateId: string;
+            qualificationDecisionId: string;
+            version: string;
+            /** @enum {unknown} */
+            grade: "S" | "A" | "B" | "C" | "D";
+            score: number;
+            currency: string;
+            expectedRevenueMinor: number;
+            expectedGrossProfitMinor: number;
+            expectedContributionMinor: number;
+            factors: {
+                profitability: number;
+                cashFlow: number;
+                creditQuality: number;
+                repeatPotential: number;
+                referralPotential: number;
+                closeProbability: number;
+            };
+            /** Format: date-time */
+            createdAt: string;
+        };
+        /** BattleCard */
+        "battle-card.v1.schema": {
+            id: string;
+            candidateId: string;
+            qualificationDecisionId: string;
+            /** @enum {unknown} */
+            partyType: "organization" | "individual";
+            /** @constant */
+            schemaVersion: "battle-card.v1";
+            intelligence: null;
+            sections: ({
+                label: string;
+                /** @enum {unknown} */
+                kind: "fact" | "inference" | "unknown";
+                content: string;
+                evidenceIds?: string[];
+                confidence?: number | null;
+            } & unknown)[];
+            evidenceIds: string[];
+            confidence: number;
+            modelProvider: string;
+            model: string;
+            promptVersion: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        claim: {
+            /** @enum {unknown} */
+            kind: "fact" | "inference" | "unknown";
+            text: string;
+            evidenceIds: string[];
+            confidence: number | null;
+        } & (unknown & unknown & unknown);
+        factors: {
+            profitability: number;
+            cashFlow: number;
+            creditQuality: number;
+            repeatPotential: number;
+            referralPotential: number;
+            closeProbability: number;
+        };
+        buyingRole: {
+            role: string;
+            /** @enum {unknown} */
+            priority: 1 | 2 | 3;
+            /** @enum {unknown} */
+            influence: "decision_maker" | "influencer" | "user" | "gatekeeper";
+            concerns: string[];
+            claim: components["schemas"]["claim"];
+        };
+        connectionStrategy: {
+            /** @enum {unknown} */
+            channel: "public_reply" | "wecom" | "phone" | "email" | "referral";
+            targetRole: string;
+            rationale: components["schemas"]["claim"];
+            openingDraft: string;
+        };
+        roleOpener: {
+            role: string;
+            /** @enum {unknown} */
+            channel: "public_reply" | "wecom" | "phone" | "email" | "referral";
+            text: string;
+        };
+        financialSummary: {
+            decisionId: string;
+            decisionVersion: string;
+            /** @enum {unknown} */
+            grade: "S" | "A" | "B" | "C" | "D";
+            score: number;
+            currency: string;
+            expectedRevenueMinor: number;
+            expectedGrossProfitMinor: number;
+            expectedContributionMinor: number;
+            factors: components["schemas"]["factors"];
+        };
+        intelligence: {
+            accountOverview: components["schemas"]["claim"][];
+            needAssessment: components["schemas"]["claim"][];
+            supplierHypotheses: components["schemas"]["claim"][];
+            buyingCommittee: components["schemas"]["buyingRole"][];
+            procurementPreferences: components["schemas"]["claim"][];
+            connectionStrategies: components["schemas"]["connectionStrategy"][];
+            roleSpecificOpeners: components["schemas"]["roleOpener"][];
+            doNotActions: string[];
+            financialSummary: components["schemas"]["financialSummary"] | null;
+        };
+        /** BattleCardV2 */
+        "battle-card.v2.schema": {
+            id: string;
+            candidateId: string;
+            qualificationDecisionId: string;
+            /** @enum {unknown} */
+            partyType: "organization" | "individual";
+            /** @constant */
+            schemaVersion: "battle-card.v2";
+            intelligence: components["schemas"]["intelligence"];
+            evidenceIds: string[];
+            confidence: number;
+            modelProvider: string;
+            model: string;
+            promptVersion: string;
+            /** Format: date-time */
+            createdAt: string;
+            $defs: {
+                claim: {
+                    /** @enum {unknown} */
+                    kind: "fact" | "inference" | "unknown";
+                    text: string;
+                    evidenceIds: string[];
+                    confidence: number | null;
+                } & (unknown & unknown & unknown);
+                buyingRole: {
+                    role: string;
+                    /** @enum {unknown} */
+                    priority: 1 | 2 | 3;
+                    /** @enum {unknown} */
+                    influence: "decision_maker" | "influencer" | "user" | "gatekeeper";
+                    concerns: string[];
+                    claim: components["schemas"]["claim"];
+                };
+                connectionStrategy: {
+                    /** @enum {unknown} */
+                    channel: "public_reply" | "wecom" | "phone" | "email" | "referral";
+                    targetRole: string;
+                    rationale: components["schemas"]["claim"];
+                    openingDraft: string;
+                };
+                roleOpener: {
+                    role: string;
+                    /** @enum {unknown} */
+                    channel: "public_reply" | "wecom" | "phone" | "email" | "referral";
+                    text: string;
+                };
+                factors: {
+                    profitability: number;
+                    cashFlow: number;
+                    creditQuality: number;
+                    repeatPotential: number;
+                    referralPotential: number;
+                    closeProbability: number;
+                };
+                financialSummary: {
+                    decisionId: string;
+                    decisionVersion: string;
+                    /** @enum {unknown} */
+                    grade: "S" | "A" | "B" | "C" | "D";
+                    score: number;
+                    currency: string;
+                    expectedRevenueMinor: number;
+                    expectedGrossProfitMinor: number;
+                    expectedContributionMinor: number;
+                    factors: components["schemas"]["factors"];
+                };
+                intelligence: {
+                    accountOverview: components["schemas"]["claim"][];
+                    needAssessment: components["schemas"]["claim"][];
+                    supplierHypotheses: components["schemas"]["claim"][];
+                    buyingCommittee: components["schemas"]["buyingRole"][];
+                    procurementPreferences: components["schemas"]["claim"][];
+                    connectionStrategies: components["schemas"]["connectionStrategy"][];
+                    roleSpecificOpeners: components["schemas"]["roleOpener"][];
+                    doNotActions: string[];
+                    financialSummary: components["schemas"]["financialSummary"] | null;
+                };
+            };
+        };
+        /** ReviewEvent */
+        "review-event.v1.schema": {
+            id: string;
+            candidateId: string;
+            decisionVersion: string;
+            /** @enum {unknown} */
+            action: "approved" | "rejected" | "do_not_contact" | "needs_research" | "reopen";
+            reason?: string | null;
+            reviewerId: string;
+            idempotencyKey: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        /** PartyRef */
+        "party-ref.v1.schema": {
+            /** @constant */
+            partyType: "organization";
+            organizationId: string;
+            tenantProspectId: string;
+        } | {
+            /** @constant */
+            partyType: "individual";
+            individualPartyId: string;
+            demandSignalId: string;
+        };
+        genericRunAttribution: {
+            /** @constant */
+            attributionVersion: "acquisition-run.v1";
+            runId: string;
+            planId: string;
+            planVersionId: string;
+            planVersion: number;
+            planSnapshotHash: string;
+            discoveredEventId: string;
+            /** Format: date-time */
+            discoveredAt: string;
+            evidenceIds: string[];
+            providerIds: string[];
+            queryIds: string[];
+            strategyVersion: string;
+            qualificationDecisionId: string;
+            decisionVersion: string;
+            decisionSnapshotHash: string;
+            shardId: string;
+            operationId: string;
+            connectionId: string;
+            providerId: string;
+        };
+        crawlerRunAttribution: {
+            /** @constant */
+            attributionVersion: "douyin-crawler.v1";
+            runId: string;
+            planId: string;
+            planVersionId: string;
+            planVersion: number;
+            planSnapshotHash: string;
+            discoveredEventId: string;
+            /** Format: date-time */
+            discoveredAt: string;
+            evidenceIds: string[];
+            providerIds: string[];
+            queryIds: string[];
+            strategyVersion: string;
+            qualificationDecisionId: string;
+            decisionVersion: string;
+            decisionSnapshotHash: string;
+            jobId: string;
+            shardId: null;
+            operationId: null;
+            connectionId: null;
+            providerId: null;
+        };
+        runAttribution: components["schemas"]["genericRunAttribution"] | components["schemas"]["crawlerRunAttribution"];
+        genericLiveAttribution: {
+            /** @constant */
+            attributionVersion: "acquisition-run.v1";
+            runId: string;
+            planId: string;
+            planVersionId: string;
+            planVersion: number;
+            planSnapshotHash: string;
+            discoveredEventId: string;
+            /** Format: date-time */
+            discoveredAt: string;
+            shardId: string;
+            operationId: string;
+            connectionId: string;
+            providerId: string;
+            evidenceIds: string[];
+            providerIds: string[];
+            queryIds: string[];
+            strategyVersion: string;
+            qualificationDecisionId: string;
+            decisionVersion: string;
+            decisionSnapshotHash: string;
+            /** @enum {unknown} */
+            decisionEngine: "model" | "rules";
+            ruleVersion: string;
+            modelProvider: string | null;
+            model: string | null;
+            promptVersion: string | null;
+        };
+        crawlerLiveAttribution: {
+            /** @constant */
+            attributionVersion: "douyin-crawler.v1";
+            runId: string;
+            planId: string;
+            planVersionId: string;
+            planVersion: number;
+            planSnapshotHash: string;
+            discoveredEventId: string;
+            /** Format: date-time */
+            discoveredAt: string;
+            evidenceIds: string[];
+            providerIds: string[];
+            queryIds: string[];
+            strategyVersion: string;
+            qualificationDecisionId: string;
+            decisionVersion: string;
+            decisionSnapshotHash: string;
+            jobId: string;
+            shardId: null;
+            operationId: null;
+            connectionId: null;
+            providerId: null;
+            /** @enum {unknown} */
+            decisionEngine: "model" | "rules";
+            ruleVersion: string;
+            modelProvider: string | null;
+            model: string | null;
+            promptVersion: string | null;
+        };
+        liveAttribution: components["schemas"]["genericLiveAttribution"] | components["schemas"]["crawlerLiveAttribution"];
+        amount: {
+            amountMinor: number;
+            currency: string;
+        };
+        organizationPartyRef: {
+            /** @constant */
+            partyType: "organization";
+            organizationId: string;
+            tenantProspectId: string;
+        };
+        individualPartyRef: {
+            /** @constant */
+            partyType: "individual";
+            individualPartyId: string;
+            demandSignalId: string;
+        };
+        legacyAttribution: {
+            runId: string | null;
+            evidenceIds: string[];
+            providerIds: string[];
+            queryIds: string[];
+            strategyVersion: string | null;
+            qualificationDecisionId: string | null;
+            decisionVersion: string | null;
+            decisionSnapshotHash: string | null;
+            /** @enum {unknown} */
+            decisionEngine: "model" | "rules" | null;
+            ruleVersion: string | null;
+            modelProvider: string | null;
+            model: string | null;
+            promptVersion: string | null;
+        };
+        /** OutcomeFeedback */
+        "outcome-feedback.v1.schema": {
+            $defs: {
+                organizationPartyRef: {
+                    /** @constant */
+                    partyType: "organization";
+                    organizationId: string;
+                    tenantProspectId: string;
+                };
+                individualPartyRef: {
+                    /** @constant */
+                    partyType: "individual";
+                    individualPartyId: string;
+                    demandSignalId: string;
+                };
+                amount: {
+                    amountMinor: number;
+                    currency: string;
+                };
+                runAttribution: components["schemas"]["genericRunAttribution"] | components["schemas"]["crawlerRunAttribution"];
+                snapshotAttribution: components["schemas"]["runAttribution"] | components["schemas"]["liveAttribution"];
+                genericRunAttribution: {
+                    /** @constant */
+                    attributionVersion: "acquisition-run.v1";
+                    runId: string;
+                    planId: string;
+                    planVersionId: string;
+                    planVersion: number;
+                    planSnapshotHash: string;
+                    discoveredEventId: string;
+                    /** Format: date-time */
+                    discoveredAt: string;
+                    evidenceIds: string[];
+                    providerIds: string[];
+                    queryIds: string[];
+                    strategyVersion: string;
+                    qualificationDecisionId: string;
+                    decisionVersion: string;
+                    decisionSnapshotHash: string;
+                    shardId: string;
+                    operationId: string;
+                    connectionId: string;
+                    providerId: string;
+                };
+                crawlerRunAttribution: {
+                    /** @constant */
+                    attributionVersion: "douyin-crawler.v1";
+                    runId: string;
+                    planId: string;
+                    planVersionId: string;
+                    planVersion: number;
+                    planSnapshotHash: string;
+                    discoveredEventId: string;
+                    /** Format: date-time */
+                    discoveredAt: string;
+                    evidenceIds: string[];
+                    providerIds: string[];
+                    queryIds: string[];
+                    strategyVersion: string;
+                    qualificationDecisionId: string;
+                    decisionVersion: string;
+                    decisionSnapshotHash: string;
+                    jobId: string;
+                    shardId: null;
+                    operationId: null;
+                    connectionId: null;
+                    providerId: null;
+                };
+                crawlerLiveAttribution: {
+                    /** @constant */
+                    attributionVersion: "douyin-crawler.v1";
+                    runId: string;
+                    planId: string;
+                    planVersionId: string;
+                    planVersion: number;
+                    planSnapshotHash: string;
+                    discoveredEventId: string;
+                    /** Format: date-time */
+                    discoveredAt: string;
+                    evidenceIds: string[];
+                    providerIds: string[];
+                    queryIds: string[];
+                    strategyVersion: string;
+                    qualificationDecisionId: string;
+                    decisionVersion: string;
+                    decisionSnapshotHash: string;
+                    jobId: string;
+                    shardId: null;
+                    operationId: null;
+                    connectionId: null;
+                    providerId: null;
+                    /** @enum {unknown} */
+                    decisionEngine: "model" | "rules";
+                    ruleVersion: string;
+                    modelProvider: string | null;
+                    model: string | null;
+                    promptVersion: string | null;
+                };
+                liveAttribution: components["schemas"]["genericLiveAttribution"] | components["schemas"]["crawlerLiveAttribution"];
+                genericLiveAttribution: {
+                    /** @constant */
+                    attributionVersion: "acquisition-run.v1";
+                    runId: string;
+                    planId: string;
+                    planVersionId: string;
+                    planVersion: number;
+                    planSnapshotHash: string;
+                    discoveredEventId: string;
+                    /** Format: date-time */
+                    discoveredAt: string;
+                    shardId: string;
+                    operationId: string;
+                    connectionId: string;
+                    providerId: string;
+                    evidenceIds: string[];
+                    providerIds: string[];
+                    queryIds: string[];
+                    strategyVersion: string;
+                    qualificationDecisionId: string;
+                    decisionVersion: string;
+                    decisionSnapshotHash: string;
+                    /** @enum {unknown} */
+                    decisionEngine: "model" | "rules";
+                    ruleVersion: string;
+                    modelProvider: string | null;
+                    model: string | null;
+                    promptVersion: string | null;
+                };
+                legacyAttribution: {
+                    runId: string | null;
+                    evidenceIds: string[];
+                    providerIds: string[];
+                    queryIds: string[];
+                    strategyVersion: string | null;
+                    qualificationDecisionId: string | null;
+                    decisionVersion: string | null;
+                    decisionSnapshotHash: string | null;
+                    /** @enum {unknown} */
+                    decisionEngine: "model" | "rules" | null;
+                    ruleVersion: string | null;
+                    modelProvider: string | null;
+                    model: string | null;
+                    promptVersion: string | null;
+                };
+            };
+        } & ({
+            id: string;
+            ownerId: string;
+            teamId: string;
+            leadId: string | null;
+            customerId: string | null;
+            /** @enum {unknown} */
+            eventType: "validated" | "contacted" | "replied" | "rejected" | "do_not_contact" | "private_domain_entered" | "need_confirmed" | "quoted" | "won" | "lost" | "payment_received";
+            /** Format: date-time */
+            occurredAt: string;
+            amount: components["schemas"]["amount"] | null;
+            reasonCode: string | null;
+            reasonText: string | null;
+            idempotencyKey: string;
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** @constant */
+            recordKind: "live";
+            partyRef: components["schemas"]["organizationPartyRef"] | components["schemas"]["individualPartyRef"];
+            candidateId: string;
+            attribution: components["schemas"]["liveAttribution"];
+        } | {
+            id: string;
+            ownerId: string;
+            teamId: string;
+            leadId: string | null;
+            customerId: string | null;
+            /** @enum {unknown} */
+            eventType: "validated" | "contacted" | "replied" | "rejected" | "do_not_contact" | "private_domain_entered" | "need_confirmed" | "quoted" | "won" | "lost" | "payment_received";
+            /** Format: date-time */
+            occurredAt: string;
+            amount: components["schemas"]["amount"] | null;
+            reasonCode: string | null;
+            reasonText: string | null;
+            idempotencyKey: string;
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** @constant */
+            recordKind: "legacy_migrated";
+            legacySourceId: string;
+            partyRef: components["schemas"]["organizationPartyRef"] | null;
+            candidateId: string | null;
+            attribution: components["schemas"]["legacyAttribution"];
+            migrationWarnings: string[];
+        });
+        /** CopilotSession */
+        "copilot-session.v1.schema": {
+            id: string;
+            ownerId: string;
+            teamId: string;
+            /** @enum {unknown} */
+            status: "active" | "completed" | "failed";
+            modelSnapshot: {
+                connectionId: string;
+                credentialVersion: number;
+                provider: string;
+                model: string;
+                promptVersion: string;
+                schemaVersion: string;
+                promptHash: string;
+                schemaHash: string;
+            };
+            /** Format: date-time */
+            createdAt: string;
+        };
+        textContent: {
+            /** @constant */
+            type: "text";
+            text: string;
+            textSignature?: string;
+        };
+        imageContent: {
+            /** @constant */
+            type: "image";
+            data: string;
+            mimeType: string;
+        };
+        thinkingContent: {
+            /** @constant */
+            type: "thinking";
+            thinking: string;
+            thinkingSignature?: string;
+            redacted?: boolean;
+        };
+        toolCall: {
+            /** @constant */
+            type: "toolCall";
+            id: string;
+            name: string;
+            arguments: {
+                [key: string]: unknown;
+            };
+            thoughtSignature?: string;
+        };
+        inputContent: components["schemas"]["textContent"] | components["schemas"]["imageContent"];
+        assistantContent: components["schemas"]["textContent"] | components["schemas"]["thinkingContent"] | components["schemas"]["toolCall"];
+        usage: {
+            input: number;
+            output: number;
+            cacheRead: number;
+            cacheWrite: number;
+            cacheWrite1h?: number;
+            reasoning?: number;
+            totalTokens: number;
+            cost: {
+                input: number;
+                output: number;
+                cacheRead: number;
+                cacheWrite: number;
+                total: number;
+            };
+        };
+        /** CopilotMessage */
+        "copilot-message.v1.schema": {
+            id: string;
+            sessionId: string;
+            sequence: number;
+            message: {
+                /** @constant */
+                role: "user";
+                content: string | components["schemas"]["inputContent"][];
+                timestamp: number;
+            } | {
+                /** @constant */
+                role: "assistant";
+                content: components["schemas"]["assistantContent"][];
+                api: string;
+                provider: string;
+                model: string;
+                responseModel?: string;
+                responseId?: string;
+                diagnostics?: unknown[];
+                usage: components["schemas"]["usage"];
+                /** @enum {unknown} */
+                stopReason: "stop" | "length" | "toolUse" | "error" | "aborted";
+                errorMessage?: string;
+                timestamp: number;
+            } | {
+                /** @constant */
+                role: "toolResult";
+                toolCallId: string;
+                toolName: string;
+                content: components["schemas"]["inputContent"][];
+                details?: unknown;
+                usage?: components["schemas"]["usage"];
+                addedToolNames?: string[];
+                isError: boolean;
+                timestamp: number;
+            };
+            /** Format: date-time */
+            createdAt: string;
+            $defs: {
+                textContent: {
+                    /** @constant */
+                    type: "text";
+                    text: string;
+                    textSignature?: string;
+                };
+                imageContent: {
+                    /** @constant */
+                    type: "image";
+                    data: string;
+                    mimeType: string;
+                };
+                thinkingContent: {
+                    /** @constant */
+                    type: "thinking";
+                    thinking: string;
+                    thinkingSignature?: string;
+                    redacted?: boolean;
+                };
+                toolCall: {
+                    /** @constant */
+                    type: "toolCall";
+                    id: string;
+                    name: string;
+                    arguments: {
+                        [key: string]: unknown;
+                    };
+                    thoughtSignature?: string;
+                };
+                inputContent: components["schemas"]["textContent"] | components["schemas"]["imageContent"];
+                assistantContent: components["schemas"]["textContent"] | components["schemas"]["thinkingContent"] | components["schemas"]["toolCall"];
+                usage: {
+                    input: number;
+                    output: number;
+                    cacheRead: number;
+                    cacheWrite: number;
+                    cacheWrite1h?: number;
+                    reasoning?: number;
+                    totalTokens: number;
+                    cost: {
+                        input: number;
+                        output: number;
+                        cacheRead: number;
+                        cacheWrite: number;
+                        total: number;
+                    };
+                };
+            };
+        };
+        /** CopilotTask */
+        "copilot-task.v1.schema": {
+            id: string;
+            sessionId: string;
+            /** @constant */
+            kind: "message";
+            /** @enum {unknown} */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            /** @enum {unknown} */
+            responseMode: "assistant" | "plan_draft";
+            /** @enum {unknown} */
+            targetPlatform?: "douyin" | "web";
+            result: {
+                [key: string]: unknown;
+            } | null;
+            errorCode: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            completedAt: string | null;
+        };
+        /** ModelProvider */
+        "model-provider.v1.schema": {
+            /** @enum {unknown} */
+            id: "openai" | "moonshot" | "minimax" | "zhipu" | "deepseek" | "qwen" | "doubao" | "hunyuan" | "qianfan";
+            displayName: string;
+            protocol: string;
+        };
+        /** DiscoveryProvider */
+        "discovery-provider.v1.schema": {
+            id: string;
+            /** @enum {unknown} */
+            kind: "search" | "content_fetch" | "import";
+            displayName: string;
+            capabilities: string[];
+        };
+        /** AcquisitionOperationShard */
+        "acquisition-operation-shard.v1.schema": {
+            id: string;
+            runId: string;
+            parentShardId: string | null;
+            /** @enum {unknown} */
+            kind: "search" | "content_fetch" | "import_rows";
+            sourceRef: string;
+            budgetSnapshotId: string;
+            allocatedBudget: {
+                requests: number;
+                results: number;
+                amountMinor: number;
+                durationSeconds: number;
+            };
+            consumedBudget: {
+                requests: number;
+                results: number;
+                amountMinor: number;
+                durationSeconds: number;
+            };
+            /** @enum {unknown} */
+            status: "queued" | "running" | "retry_scheduled" | "pause_requested" | "paused" | "cancel_requested" | "cancelled" | "succeeded" | "succeeded_empty" | "partial_success" | "failed" | "budget_exhausted";
+        };
+        boundedString: string;
+        /** @description Canonical immutable SHA-256 digest: sha256: followed by exactly 64 lowercase hexadecimal characters. */
+        digest: string;
+        snapshotRef: {
+            id: components["schemas"]["boundedString"];
+            hash: components["schemas"]["digest"];
+        };
+        limit: {
+            limit: number | null;
+            remaining: number | null;
+            /** Format: date-time */
+            resetsAt: string | null;
+        };
+        /** PlatformConnection */
+        "platform-connection.v1.schema": {
+            id: components["schemas"]["boundedString"];
+            tenantId: components["schemas"]["boundedString"];
+            teamId: components["schemas"]["boundedString"] | null;
+            connectorId: components["schemas"]["boundedString"];
+            platform: string;
+            platformAccountRef: components["schemas"]["boundedString"];
+            scopes: string[];
+            credentialVersion: number;
+            sync: {
+                /** @enum {unknown} */
+                mode: "webhook" | "poll" | "hybrid" | "disabled";
+                cursor: string | null;
+            };
+            /** @enum {unknown} */
+            status: "pending" | "active" | "reauthorization_required" | "revoked" | "disabled" | "error";
+            /** Format: date-time */
+            authorizationExpiresAt: string | null;
+            limits: {
+                [key: string]: components["schemas"]["limit"];
+            };
+            /** @description Null only before the first capability capture; active connections require a current snapshot reference. */
+            capabilitySnapshotRef: components["schemas"]["snapshotRef"] | null;
+            createdBy: components["schemas"]["boundedString"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            $defs: {
+                boundedString: string;
+                /** @description Canonical immutable SHA-256 digest: sha256: followed by exactly 64 lowercase hexadecimal characters. */
+                digest: string;
+                snapshotRef: {
+                    id: components["schemas"]["boundedString"];
+                    hash: components["schemas"]["digest"];
+                };
+                limit: {
+                    limit: number | null;
+                    remaining: number | null;
+                    /** Format: date-time */
+                    resetsAt: string | null;
+                };
+            };
+        } & unknown;
+        capability: {
+            /** @enum {unknown} */
+            status: "available" | "unavailable" | "authorization_required" | "temporarily_unavailable";
+            scopes: string[];
+            limitRefs: string[];
+            reasonCode: string | null;
+        };
+        /** @description Extensible identifier: 1-100 ASCII characters, starting with alphanumeric and continuing with alphanumeric, dot, underscore, colon, or hyphen. */
+        extensibleIdentifier: string;
+        /** PlatformCapabilitySnapshot */
+        "platform-capability-snapshot.v1.schema": {
+            id: components["schemas"]["boundedString"];
+            tenantId: components["schemas"]["boundedString"];
+            teamId: components["schemas"]["boundedString"] | null;
+            connectionId: components["schemas"]["boundedString"];
+            credentialVersion: number;
+            snapshotHash: components["schemas"]["digest"];
+            /** Format: date-time */
+            capturedAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            capturedBy: components["schemas"]["boundedString"];
+            capabilities: {
+                [key: string]: components["schemas"]["capability"];
+            };
+            $defs: {
+                boundedString: string;
+                /** @description Canonical immutable SHA-256 digest: sha256: followed by exactly 64 lowercase hexadecimal characters. */
+                digest: string;
+                /** @description Extensible identifier: 1-100 ASCII characters, starting with alphanumeric and continuing with alphanumeric, dot, underscore, colon, or hyphen. */
+                extensibleIdentifier: string;
+                capability: {
+                    /** @enum {unknown} */
+                    status: "available" | "unavailable" | "authorization_required" | "temporarily_unavailable";
+                    scopes: string[];
+                    limitRefs: string[];
+                    reasonCode: string | null;
+                };
+            };
+        };
+        /** PlatformEvent */
+        "platform-event.v1.schema": {
+            id: components["schemas"]["boundedString"];
+            tenantId: components["schemas"]["boundedString"];
+            teamId: components["schemas"]["boundedString"] | null;
+            platform: string;
+            platformAccountRef: components["schemas"]["boundedString"];
+            platformContentRef: components["schemas"]["boundedString"];
+            platformEventRef: components["schemas"]["boundedString"];
+            platformSubjectRef: components["schemas"]["boundedString"];
+            eventType: string;
+            rawPayloadHash: components["schemas"]["digest"];
+            normalizedEventHash: components["schemas"]["digest"];
+            /** Format: date-time */
+            occurredAt: string;
+            /** Format: date-time */
+            capturedAt: string;
+            authorizationSnapshot: {
+                connectionId: components["schemas"]["boundedString"];
+                credentialVersion: number;
+                scopeHash: components["schemas"]["digest"];
+                capabilitySnapshotRef: components["schemas"]["snapshotRef"];
+            };
+            dedupeKey: string;
+            /** @enum {unknown} */
+            accessStatus: "available" | "restricted" | "deleted" | "authorization_revoked";
+            capturedBy: components["schemas"]["boundedString"];
+            $defs: {
+                boundedString: string;
+                /** @description Canonical immutable SHA-256 digest: sha256: followed by exactly 64 lowercase hexadecimal characters. */
+                digest: string;
+                snapshotRef: {
+                    id: components["schemas"]["boundedString"];
+                    hash: components["schemas"]["digest"];
+                };
+            };
+        };
+        "$defs-digest": string;
+        nullableBoundedString: components["schemas"]["boundedString"] | null;
+        /**
+         * DouyinCommentEvent
+         * @description Immutable concrete payload for a publicly accessible top-level Douyin comment sample. Its platformEventId, videoId, and actor identifier populate the generic platform event envelope references.
+         */
+        "douyin-comment-event.v1.schema": {
+            eventId: components["schemas"]["boundedString"];
+            /** @constant */
+            platform: "douyin";
+            /** @constant */
+            eventType: "comment";
+            platformEventId: components["schemas"]["boundedString"];
+            videoId: components["schemas"]["boundedString"];
+            parentCommentId: null;
+            text: string;
+            textHash: components["schemas"]["$defs-digest"];
+            /** Format: date-time */
+            occurredAt: string;
+            /** Format: date-time */
+            capturedAt: string;
+            likeCount: number;
+            replyCount: number;
+            ipLabel: components["schemas"]["nullableBoundedString"];
+            actor: {
+                displayName: components["schemas"]["boundedString"];
+                handle: components["schemas"]["nullableBoundedString"];
+                secUid: components["schemas"]["nullableBoundedString"];
+            };
+            /** Format: uri */
+            sourceUrl: string;
+            /** @constant */
+            coverage: "public_top_level_sample";
+            /** @constant */
+            accessStatus: "public_content";
+            providerVersion: components["schemas"]["boundedString"];
+            rawArtifactHash: components["schemas"]["$defs-digest"];
+            $defs: {
+                boundedString: string;
+                nullableBoundedString: components["schemas"]["boundedString"] | null;
+                digest: string;
+            };
+        };
+        planRef: {
+            id: components["schemas"]["boundedString"];
+            version: number;
+            hash: components["schemas"]["digest"];
+        };
+        ruleBundleRef: {
+            id: components["schemas"]["boundedString"];
+            version: string;
+            hash: components["schemas"]["digest"];
+        };
+        /** ActionPolicy */
+        "action-policy.v1.schema": {
+            id: components["schemas"]["boundedString"];
+            tenantId: components["schemas"]["boundedString"];
+            teamId: components["schemas"]["boundedString"] | null;
+            version: number;
+            planRef: components["schemas"]["planRef"];
+            ruleBundleRef: components["schemas"]["ruleBundleRef"];
+            policyHash: components["schemas"]["digest"];
+            actions: {
+                [key: string]: "auto_allowed" | "review_required" | "blocked";
+            };
+            /** Format: date-time */
+            effectiveAt: string;
+            /** Format: date-time */
+            expiresAt: string | null;
+            createdBy: components["schemas"]["boundedString"];
+            /** Format: date-time */
+            createdAt: string;
+            $defs: {
+                boundedString: string;
+                /** @description Canonical immutable SHA-256 digest: sha256: followed by exactly 64 lowercase hexadecimal characters. */
+                digest: string;
+                /** @description Extensible identifier: 1-100 ASCII characters, starting with alphanumeric and continuing with alphanumeric, dot, underscore, colon, or hyphen. */
+                extensibleIdentifier: string;
+                planRef: {
+                    id: components["schemas"]["boundedString"];
+                    version: number;
+                    hash: components["schemas"]["digest"];
+                };
+                ruleBundleRef: {
+                    id: components["schemas"]["boundedString"];
+                    version: string;
+                    hash: components["schemas"]["digest"];
+                };
+            };
+        };
+        normalizedError: {
+            /** @enum {unknown} */
+            category: "capability_unavailable" | "authorization_insufficient" | "quota_exhausted" | "rate_limited" | "temporary_error" | "permanent_error" | "result_unknown";
+            code: string;
+            message: string;
+            retryable: boolean;
+        };
+        immutableRef: {
+            id: components["schemas"]["boundedString"];
+            hash: components["schemas"]["digest"];
+        };
+        /** ActionReceipt */
+        "action-receipt.v1.schema": {
+            id: components["schemas"]["boundedString"];
+            tenantId: components["schemas"]["boundedString"];
+            teamId: components["schemas"]["boundedString"] | null;
+            intentRef: components["schemas"]["immutableRef"];
+            decisionRef: components["schemas"]["immutableRef"];
+            jobRef: {
+                id: components["schemas"]["boundedString"];
+                attempt: number;
+            };
+            connectionRef: {
+                id: components["schemas"]["boundedString"];
+                credentialVersion: number;
+            };
+            capabilitySnapshotRef: components["schemas"]["immutableRef"];
+            /** @description Bounded idempotency key containing at least one non-whitespace character. */
+            idempotencyKey: string;
+            externalId: components["schemas"]["boundedString"] | null;
+            /** @enum {unknown} */
+            outcome: "succeeded" | "failed" | "unknown";
+            error: components["schemas"]["normalizedError"] | null;
+            requestHash: components["schemas"]["digest"];
+            resultHash: components["schemas"]["digest"];
+            /** Format: date-time */
+            requestedAt: string;
+            /** Format: date-time */
+            completedAt: string;
+            /** Format: date-time */
+            recordedAt: string;
+            recordedBy: components["schemas"]["boundedString"];
+            $defs: {
+                boundedString: string;
+                /** @description Canonical immutable SHA-256 digest: sha256: followed by exactly 64 lowercase hexadecimal characters. */
+                digest: string;
+                immutableRef: {
+                    id: components["schemas"]["boundedString"];
+                    hash: components["schemas"]["digest"];
+                };
+                normalizedError: {
+                    /** @enum {unknown} */
+                    category: "capability_unavailable" | "authorization_insufficient" | "quota_exhausted" | "rate_limited" | "temporary_error" | "permanent_error" | "result_unknown";
+                    code: string;
+                    message: string;
+                    retryable: boolean;
+                };
+            };
+        } & unknown;
+    };
+    responses: never;
+    parameters: {
+        /** @description Exactly one physical header with the admitted build digest. Missing, duplicate, comma-joined or mismatched values return 409 before body parsing; migration_locked returns 503. */
+        desktopBuildManifestSha256: string;
+        /** @description Exactly one physical header; comma-joined values are rejected. Exact retries replay the stored operation result. */
+        desktopOutreachIdempotencyKey: string;
+        /** @description Exactly one physical header; duplicates and comma-joined values are rejected. */
+        desktopInstallationId: components["schemas"]["DesktopOpaqueToken"];
+        /** @description Exactly one physical device credential header, checked against fresh active membership. */
+        desktopDeviceToken: components["schemas"]["DesktopOpaqueToken"];
+        /** @description Exactly one task capability header. A reconciliation-only token can report observed receipts but cannot start an action. Never include it in a URL or request body. */
+        desktopOutreachTaskToken: components["schemas"]["DesktopOpaqueToken"];
+        id: string;
+        cursor: string;
+        limit: number;
+        candidateId: string;
+        idempotencyKey: string;
+        /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+        planIdempotencyKey: string;
+        /** @description Opaque capability scoped to one workspace and desktop crawler job; never place it in a URL or request body. */
+        desktopTaskToken: string;
+        ifMatch: string;
+        acquisitionId: string;
+        acquisitionCursor: string;
+        acquisitionLimit: number;
+        candidateIfMatch: string;
+        presentationAfter: string;
+        presentationLimit: number;
+    };
+    requestBodies: never;
+    headers: never;
+    pathItems: never;
+}
+export type $defs = Record<string, never>;
+export interface operations {
+    createAcquisitionDesktopEnrollment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exactly one physical header with the admitted build digest. Missing, duplicate, comma-joined or mismatched values return 409 before body parsing; migration_locked returns 503. */
+                "X-Shensi-Desktop-Build-Manifest-SHA256": components["parameters"]["desktopBuildManifestSha256"];
+                /** @description Exactly one physical header; comma-joined values are rejected. Exact retries replay the stored operation result. */
+                "Idempotency-Key": components["parameters"]["desktopOutreachIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DesktopEnrollmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Enrollment created or replayed. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopEnrollmentResponse"];
+                };
+            };
+            /** @description Invalid JSON body or physical idempotency/task header. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["DesktopMalformedJsonError"];
+                };
+            };
+            /** @description User session or bearer authentication is missing or invalid. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Workspace membership, capability or cookie-session CSRF check failed. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The operation accepts POST only. */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Build digest is not admitted, idempotency conflicts, or action/binding authority is stale. Admission runs before JSON parsing and authentication. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description JSON body exceeds the configured server parser limit. Admission is checked before body parsing. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopPayloadTooLargeError"];
+                };
+            };
+            /** @description Content-Type must be application/json. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Migration lock, disabled desktop execution (action routes only), or unavailable service. A migration lock is checked before JSON parsing and authentication. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+        };
+    };
+    registerAcquisitionDesktopInstallation: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exactly one physical header with the admitted build digest. Missing, duplicate, comma-joined or mismatched values return 409 before body parsing; migration_locked returns 503. */
+                "X-Shensi-Desktop-Build-Manifest-SHA256": components["parameters"]["desktopBuildManifestSha256"];
+                /** @description Exactly one physical header; comma-joined values are rejected. Exact retries replay the stored operation result. */
+                "Idempotency-Key": components["parameters"]["desktopOutreachIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DesktopRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Installation registered; workspace is determined by the enrollment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopRegistrationResponse"];
+                };
+            };
+            /** @description Installation registered; workspace is determined by the enrollment. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopRegistrationResponse"];
+                };
+            };
+            /** @description Invalid JSON body or physical idempotency/task header. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["DesktopMalformedJsonError"];
+                };
+            };
+            /** @description The operation accepts POST only. */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Build digest is not admitted, idempotency conflicts, or action/binding authority is stale. Admission runs before JSON parsing and authentication. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Enrollment or action start lease expired. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description JSON body exceeds the configured server parser limit. Admission is checked before body parsing. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopPayloadTooLargeError"];
+                };
+            };
+            /** @description Content-Type must be application/json. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Migration lock, disabled desktop execution (action routes only), or unavailable service. A migration lock is checked before JSON parsing and authentication. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+        };
+    };
+    getAcquisitionDesktopBindingStatus: {
+        parameters: {
+            query: {
+                installationId: components["schemas"]["DesktopOpaqueToken"];
+            };
+            header?: never;
+            path: {
+                accountId: components["schemas"]["DesktopSafeId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Non-cacheable read-only account binding snapshot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopBindingStatus"];
+                };
+            };
+            /** @description Invalid JSON body or physical idempotency/task header. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["DesktopMalformedJsonError"];
+                };
+            };
+            /** @description User session or bearer authentication is missing or invalid. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Workspace membership, capability or cookie-session CSRF check failed. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Account or active installation is not available to this principal. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description The operation accepts POST only. */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Migration lock, disabled desktop execution (action routes only), or unavailable service. A migration lock is checked before JSON parsing and authentication. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+        };
+    };
+    bindAcquisitionDesktopExecutor: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exactly one physical header with the admitted build digest. Missing, duplicate, comma-joined or mismatched values return 409 before body parsing; migration_locked returns 503. */
+                "X-Shensi-Desktop-Build-Manifest-SHA256": components["parameters"]["desktopBuildManifestSha256"];
+                /** @description Exactly one physical header; comma-joined values are rejected. Exact retries replay the stored operation result. */
+                "Idempotency-Key": components["parameters"]["desktopOutreachIdempotencyKey"];
+            };
+            path: {
+                accountId: components["schemas"]["DesktopSafeId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DesktopExecutorBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Bound or exact replay of binding. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopExecutorBindingResponse"];
+                };
+            };
+            /** @description Invalid JSON body or physical idempotency/task header. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["DesktopMalformedJsonError"];
+                };
+            };
+            /** @description User session or bearer authentication is missing or invalid. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Workspace membership, capability or cookie-session CSRF check failed. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Account or action is absent or not authorized for this principal. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description The operation accepts POST only. */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Build digest is not admitted, idempotency conflicts, or action/binding authority is stale. Admission runs before JSON parsing and authentication. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description JSON body exceeds the configured server parser limit. Admission is checked before body parsing. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopPayloadTooLargeError"];
+                };
+            };
+            /** @description Content-Type must be application/json. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Migration lock, disabled desktop execution (action routes only), or unavailable service. A migration lock is checked before JSON parsing and authentication. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+        };
+    };
+    claimAcquisitionDesktopOutreachAction: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exactly one physical header with the admitted build digest. Missing, duplicate, comma-joined or mismatched values return 409 before body parsing; migration_locked returns 503. */
+                "X-Shensi-Desktop-Build-Manifest-SHA256": components["parameters"]["desktopBuildManifestSha256"];
+                /** @description Exactly one physical header; comma-joined values are rejected. Exact retries replay the stored operation result. */
+                "Idempotency-Key": components["parameters"]["desktopOutreachIdempotencyKey"];
+                /** @description Exactly one physical header; duplicates and comma-joined values are rejected. */
+                "X-Shensi-Desktop-Installation-Id": components["parameters"]["desktopInstallationId"];
+                /** @description Exactly one physical device credential header, checked against fresh active membership. */
+                "X-Shensi-Desktop-Device-Token": components["parameters"]["desktopDeviceToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DesktopOutreachClaimRequest"];
+            };
+        };
+        responses: {
+            /** @description One task claimed or no eligible task; replayed identifies an exact retry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachClaimResponse"];
+                };
+            };
+            /** @description Invalid JSON body or physical idempotency/task header. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["DesktopMalformedJsonError"];
+                };
+            };
+            /** @description Physical installation/device headers are missing, duplicated, malformed, revoked or lack active membership. Browser authentication does not authorize device operations. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Account or action is absent or not authorized for this principal. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description The operation accepts POST only. */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Build digest is not admitted, idempotency conflicts, or action/binding authority is stale. Admission runs before JSON parsing and authentication. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description JSON body exceeds the configured server parser limit. Admission is checked before body parsing. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopPayloadTooLargeError"];
+                };
+            };
+            /** @description Content-Type must be application/json. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Migration lock, disabled desktop execution (action routes only), or unavailable service. A migration lock is checked before JSON parsing and authentication. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+        };
+    };
+    completeAcquisitionDesktopOutreachAction: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exactly one physical header with the admitted build digest. Missing, duplicate, comma-joined or mismatched values return 409 before body parsing; migration_locked returns 503. */
+                "X-Shensi-Desktop-Build-Manifest-SHA256": components["parameters"]["desktopBuildManifestSha256"];
+                /** @description Exactly one physical header; comma-joined values are rejected. Exact retries replay the stored operation result. */
+                "Idempotency-Key": components["parameters"]["desktopOutreachIdempotencyKey"];
+                /** @description Exactly one physical header; duplicates and comma-joined values are rejected. */
+                "X-Shensi-Desktop-Installation-Id": components["parameters"]["desktopInstallationId"];
+                /** @description Exactly one physical device credential header, checked against fresh active membership. */
+                "X-Shensi-Desktop-Device-Token": components["parameters"]["desktopDeviceToken"];
+                /** @description Exactly one task capability header. A reconciliation-only token can report observed receipts but cannot start an action. Never include it in a URL or request body. */
+                "X-Shensi-Desktop-Task-Token": components["parameters"]["desktopOutreachTaskToken"];
+            };
+            path: {
+                actionId: components["schemas"]["DesktopSafeId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DesktopOutreachCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Authoritative action state after start or receipt, including exact replay. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachCompletionResponse"];
+                };
+            };
+            /** @description Invalid JSON body or physical idempotency/task header. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["DesktopMalformedJsonError"];
+                };
+            };
+            /** @description Physical installation/device headers are missing, duplicated, malformed, revoked or lack active membership. Browser authentication does not authorize device operations. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Account or action is absent or not authorized for this principal. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description The operation accepts POST only. */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Build digest is not admitted, idempotency conflicts, or action/binding authority is stale. Admission runs before JSON parsing and authentication. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Enrollment or action start lease expired. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description JSON body exceeds the configured server parser limit. Admission is checked before body parsing. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopPayloadTooLargeError"];
+                };
+            };
+            /** @description Content-Type must be application/json. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Migration lock, disabled desktop execution (action routes only), or unavailable service. A migration lock is checked before JSON parsing and authentication. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+        };
+    };
+    reconcileAcquisitionDesktopOutreachAction: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exactly one physical header with the admitted build digest. Missing, duplicate, comma-joined or mismatched values return 409 before body parsing; migration_locked returns 503. */
+                "X-Shensi-Desktop-Build-Manifest-SHA256": components["parameters"]["desktopBuildManifestSha256"];
+                /** @description Exactly one physical header; comma-joined values are rejected. Exact retries replay the stored operation result. */
+                "Idempotency-Key": components["parameters"]["desktopOutreachIdempotencyKey"];
+                /** @description Exactly one physical header; duplicates and comma-joined values are rejected. */
+                "X-Shensi-Desktop-Installation-Id": components["parameters"]["desktopInstallationId"];
+                /** @description Exactly one physical device credential header, checked against fresh active membership. */
+                "X-Shensi-Desktop-Device-Token": components["parameters"]["desktopDeviceToken"];
+            };
+            path: {
+                actionId: components["schemas"]["DesktopSafeId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DesktopOutreachReconcileRequest"];
+            };
+        };
+        responses: {
+            /** @description Recovery disposition or full immutable reconciliation task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachReconcileResponse"];
+                };
+            };
+            /** @description Invalid JSON body or physical idempotency/task header. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"] | components["schemas"]["DesktopMalformedJsonError"];
+                };
+            };
+            /** @description Physical installation/device headers are missing, duplicated, malformed, revoked or lack active membership. Browser authentication does not authorize device operations. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description The operation accepts POST only. */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Build digest is not admitted, idempotency conflicts, or action/binding authority is stale. Admission runs before JSON parsing and authentication. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description JSON body exceeds the configured server parser limit. Admission is checked before body parsing. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopPayloadTooLargeError"];
+                };
+            };
+            /** @description Content-Type must be application/json. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+            /** @description Migration lock, disabled desktop execution (action routes only), or unavailable service. A migration lock is checked before JSON parsing and authentication. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopOutreachError"];
+                };
+            };
+        };
+    };
+    createAcquisitionDouyinLoginSession: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    platform: "douyin";
+                };
+            };
+        };
+        responses: {
+            /** @description Existing pending session or idempotent replay */
+            200: {
+                headers: {
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {string} */
+                        platform: "douyin";
+                        /** @enum {string} */
+                        state: "awaiting_scan" | "active" | "login_expired";
+                        /** @enum {string} */
+                        interactionSurface: "external_window" | "remote_canvas";
+                        /** @enum {string} */
+                        runtimeState: "stopped" | "starting" | "running" | "crashed";
+                        /** @enum {string} */
+                        authState: "unknown" | "logged_out" | "waiting_for_user" | "verification_required" | "authenticated" | "expired";
+                        /** @enum {string} */
+                        taskState: "idle" | "preparing" | "running" | "cancelling" | "completed" | "failed";
+                        diagnostic: {
+                            code: string;
+                            message: string;
+                            recoverable: boolean;
+                            /** Format: date-time */
+                            occurredAt: string;
+                        } | null;
+                        screenshotAvailable: boolean;
+                        qrAvailable: boolean;
+                        qrImageDataUrl: string | null;
+                        /** @enum {string|null} */
+                        qrStatus: "opening" | "ready" | "expired" | "network_error" | "verification_required" | null;
+                        loginPage: {
+                            imageDataUrl: string;
+                            width: number;
+                            height: number;
+                        } | null;
+                        /** @enum {string|null} */
+                        failureCode: "douyin_login_ui_unsupported" | "douyin_verification_required" | "douyin_login_page_unavailable" | "douyin_login_page_not_allowed" | "douyin_browser_unavailable" | "douyin_browser_command_timeout" | "douyin_login_open_failed" | null;
+                        /** Format: date-time */
+                        expiresAt: string;
+                        account: {
+                            id: string;
+                            workspaceId: string;
+                            /** @enum {string} */
+                            platform: "douyin";
+                            displayName: string | null;
+                            /** @enum {string} */
+                            state: "awaiting_scan" | "active" | "login_expired" | "risk_paused" | "disconnected";
+                            loginStateVersion: number | null;
+                            revision: number;
+                            etag: string;
+                            /** Format: date-time */
+                            lastValidatedAt: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** Format: date-time */
+                            updatedAt: string;
+                        } | null;
+                    };
+                };
+            };
+            /** @description QR login session */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {string} */
+                        platform: "douyin";
+                        /** @enum {string} */
+                        state: "awaiting_scan" | "active" | "login_expired";
+                        /** @enum {string} */
+                        interactionSurface: "external_window" | "remote_canvas";
+                        /** @enum {string} */
+                        runtimeState: "stopped" | "starting" | "running" | "crashed";
+                        /** @enum {string} */
+                        authState: "unknown" | "logged_out" | "waiting_for_user" | "verification_required" | "authenticated" | "expired";
+                        /** @enum {string} */
+                        taskState: "idle" | "preparing" | "running" | "cancelling" | "completed" | "failed";
+                        diagnostic: {
+                            code: string;
+                            message: string;
+                            recoverable: boolean;
+                            /** Format: date-time */
+                            occurredAt: string;
+                        } | null;
+                        screenshotAvailable: boolean;
+                        qrAvailable: boolean;
+                        qrImageDataUrl: string | null;
+                        /** @enum {string|null} */
+                        qrStatus: "opening" | "ready" | "expired" | "network_error" | "verification_required" | null;
+                        loginPage: {
+                            imageDataUrl: string;
+                            width: number;
+                            height: number;
+                        } | null;
+                        /** @enum {string|null} */
+                        failureCode: "douyin_login_ui_unsupported" | "douyin_verification_required" | "douyin_login_page_unavailable" | "douyin_login_page_not_allowed" | "douyin_browser_unavailable" | "douyin_browser_command_timeout" | "douyin_login_open_failed" | null;
+                        /** Format: date-time */
+                        expiresAt: string;
+                        account: {
+                            id: string;
+                            workspaceId: string;
+                            /** @enum {string} */
+                            platform: "douyin";
+                            displayName: string | null;
+                            /** @enum {string} */
+                            state: "awaiting_scan" | "active" | "login_expired" | "risk_paused" | "disconnected";
+                            loginStateVersion: number | null;
+                            revision: number;
+                            etag: string;
+                            /** Format: date-time */
+                            lastValidatedAt: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** Format: date-time */
+                            updatedAt: string;
+                        } | null;
+                    };
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionDouyinLoginSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description QR login session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {string} */
+                        platform: "douyin";
+                        /** @enum {string} */
+                        state: "awaiting_scan" | "active" | "login_expired";
+                        /** @enum {string} */
+                        interactionSurface: "external_window" | "remote_canvas";
+                        /** @enum {string} */
+                        runtimeState: "stopped" | "starting" | "running" | "crashed";
+                        /** @enum {string} */
+                        authState: "unknown" | "logged_out" | "waiting_for_user" | "verification_required" | "authenticated" | "expired";
+                        /** @enum {string} */
+                        taskState: "idle" | "preparing" | "running" | "cancelling" | "completed" | "failed";
+                        diagnostic: {
+                            code: string;
+                            message: string;
+                            recoverable: boolean;
+                            /** Format: date-time */
+                            occurredAt: string;
+                        } | null;
+                        screenshotAvailable: boolean;
+                        qrAvailable: boolean;
+                        qrImageDataUrl: string | null;
+                        /** @enum {string|null} */
+                        qrStatus: "opening" | "ready" | "expired" | "network_error" | "verification_required" | null;
+                        loginPage: {
+                            imageDataUrl: string;
+                            width: number;
+                            height: number;
+                        } | null;
+                        /** @enum {string|null} */
+                        failureCode: "douyin_login_ui_unsupported" | "douyin_verification_required" | "douyin_login_page_unavailable" | "douyin_login_page_not_allowed" | "douyin_browser_unavailable" | "douyin_browser_command_timeout" | "douyin_login_open_failed" | null;
+                        /** Format: date-time */
+                        expiresAt: string;
+                        account: {
+                            id: string;
+                            workspaceId: string;
+                            /** @enum {string} */
+                            platform: "douyin";
+                            displayName: string | null;
+                            /** @enum {string} */
+                            state: "awaiting_scan" | "active" | "login_expired" | "risk_paused" | "disconnected";
+                            loginStateVersion: number | null;
+                            revision: number;
+                            etag: string;
+                            /** Format: date-time */
+                            lastValidatedAt: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** Format: date-time */
+                            updatedAt: string;
+                        } | null;
+                    };
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    cancelAcquisitionDouyinLoginSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Douyin login session cancelled */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    interactAcquisitionDouyinLoginSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @constant */
+                    type: "refresh_qr";
+                } | {
+                    /** @constant */
+                    type: "click";
+                    normalizedX: number;
+                    normalizedY: number;
+                } | {
+                    /** @constant */
+                    type: "text";
+                    text: string;
+                } | {
+                    /** @constant */
+                    type: "key";
+                    /** @enum {string} */
+                    key: "Enter" | "Tab" | "Backspace" | "Escape" | "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
+                } | {
+                    /** @constant */
+                    type: "scroll";
+                    deltaX: number;
+                    deltaY: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated Douyin login session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {string} */
+                        platform: "douyin";
+                        /** @enum {string} */
+                        state: "awaiting_scan" | "active" | "login_expired";
+                        /** @enum {string} */
+                        interactionSurface: "external_window" | "remote_canvas";
+                        /** @enum {string} */
+                        runtimeState: "stopped" | "starting" | "running" | "crashed";
+                        /** @enum {string} */
+                        authState: "unknown" | "logged_out" | "waiting_for_user" | "verification_required" | "authenticated" | "expired";
+                        /** @enum {string} */
+                        taskState: "idle" | "preparing" | "running" | "cancelling" | "completed" | "failed";
+                        diagnostic: {
+                            code: string;
+                            message: string;
+                            recoverable: boolean;
+                            /** Format: date-time */
+                            occurredAt: string;
+                        } | null;
+                        screenshotAvailable: boolean;
+                        qrAvailable: boolean;
+                        qrImageDataUrl: string | null;
+                        /** @enum {string|null} */
+                        qrStatus: "opening" | "ready" | "expired" | "network_error" | "verification_required" | null;
+                        loginPage: {
+                            imageDataUrl: string;
+                            width: number;
+                            height: number;
+                        } | null;
+                        /** @enum {string|null} */
+                        failureCode: "douyin_login_ui_unsupported" | "douyin_verification_required" | "douyin_login_page_unavailable" | "douyin_login_page_not_allowed" | "douyin_browser_unavailable" | "douyin_browser_command_timeout" | "douyin_login_open_failed" | null;
+                        /** Format: date-time */
+                        expiresAt: string;
+                        account: {
+                            id: string;
+                            workspaceId: string;
+                            /** @enum {string} */
+                            platform: "douyin";
+                            displayName: string | null;
+                            /** @enum {string} */
+                            state: "awaiting_scan" | "active" | "login_expired" | "risk_paused" | "disconnected";
+                            loginStateVersion: number | null;
+                            revision: number;
+                            etag: string;
+                            /** Format: date-time */
+                            lastValidatedAt: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** Format: date-time */
+                            updatedAt: string;
+                        } | null;
+                    };
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAcquisitionDouyinLiveLoginSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Interactive Douyin login window */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        socketPath: string;
+                        /** Format: date-time */
+                        expiresAt: string;
+                    };
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    completeAcquisitionDouyinDesktopLogin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DesktopDouyinLoginCompletionInput"];
+            };
+        };
+        responses: {
+            /** @description Active workspace-bound Douyin account */
+            200: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopDouyinAccountResource"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            400: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            401: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            403: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            409: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            500: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionDouyinSocialAccounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Social accounts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            id: string;
+                            workspaceId: string;
+                            /** @enum {string} */
+                            platform: "douyin";
+                            displayName: string | null;
+                            /** @enum {string} */
+                            state: "awaiting_scan" | "active" | "login_expired" | "risk_paused" | "disconnected";
+                            loginStateVersion: number | null;
+                            revision: number;
+                            etag: string;
+                            /** Format: date-time */
+                            lastValidatedAt: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** Format: date-time */
+                            updatedAt: string;
+                        }[];
+                    };
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    disconnectAcquisitionSocialAccount: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected account */
+            200: {
+                headers: {
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        workspaceId: string;
+                        /** @enum {string} */
+                        platform: "douyin";
+                        displayName: string | null;
+                        /** @enum {string} */
+                        state: "awaiting_scan" | "active" | "login_expired" | "risk_paused" | "disconnected";
+                        loginStateVersion: number | null;
+                        revision: number;
+                        etag: string;
+                        /** Format: date-time */
+                        lastValidatedAt: string | null;
+                        /** Format: date-time */
+                        createdAt: string;
+                        /** Format: date-time */
+                        updatedAt: string;
+                    };
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionDouyinAutomation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current policy or server default */
+            200: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DouyinAutomationPolicyResource"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    putAcquisitionDouyinAutomation: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DouyinAutomationPolicyInput"];
+            };
+        };
+        responses: {
+            /** @description Published policy version */
+            200: {
+                headers: {
+                    ETag: string;
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DouyinAutomationPolicyVersion"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    runAcquisitionDouyinAutomationNow: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DouyinAutomationRunNowInput"];
+            };
+        };
+        responses: {
+            /** @description Frozen queued run intent */
+            202: {
+                headers: {
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DouyinAutomationRunIntent"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    prepareAcquisitionDouyinDesktopRun: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DesktopDouyinRunNowInput"];
+            };
+        };
+        responses: {
+            /** @description Frozen run, desktop job capability and bounded local collection task */
+            202: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopDouyinRunPreparation"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            400: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            401: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            403: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            404: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            409: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            500: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    suggestAcquisitionDouyinKeywords: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Bounded editable keyword suggestions and the frozen active model snapshot identity */
+            200: {
+                headers: {
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DouyinKeywordSuggestions"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionCrawlerStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Persisted crawler status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionCrawlerStatus"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    claimAcquisitionDesktopCrawlerJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque capability scoped to one workspace and desktop crawler job; never place it in a URL or request body. */
+                "X-Shensi-Desktop-Task-Token": components["parameters"]["desktopTaskToken"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Claimed desktop crawler job */
+            200: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopCrawlerJobResource"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            400: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            401: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            403: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            404: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            409: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            500: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    renewAcquisitionDesktopCrawlerJobLease: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque capability scoped to one workspace and desktop crawler job; never place it in a URL or request body. */
+                "X-Shensi-Desktop-Task-Token": components["parameters"]["desktopTaskToken"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DesktopCrawlerLeaseInput"];
+            };
+        };
+        responses: {
+            /** @description Renewed desktop crawler job */
+            200: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopCrawlerJobResource"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            400: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            401: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            403: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            404: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            409: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            500: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    uploadAcquisitionDesktopCrawlerJobPage: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque capability scoped to one workspace and desktop crawler job; never place it in a URL or request body. */
+                "X-Shensi-Desktop-Task-Token": components["parameters"]["desktopTaskToken"];
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DesktopCrawlerPageInput"];
+            };
+        };
+        responses: {
+            /** @description Durably accepted page or same-body replay */
+            200: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopCrawlerPageResource"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            400: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            401: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            403: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            404: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            409: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            500: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    completeAcquisitionDesktopCrawlerJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque capability scoped to one workspace and desktop crawler job; never place it in a URL or request body. */
+                "X-Shensi-Desktop-Task-Token": components["parameters"]["desktopTaskToken"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Cloud-durable desktop crawler job */
+            200: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopCrawlerJobResource"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            400: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            401: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            403: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            404: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            409: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            500: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    cancelAcquisitionDesktopCrawlerJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque capability scoped to one workspace and desktop crawler job; never place it in a URL or request body. */
+                "X-Shensi-Desktop-Task-Token": components["parameters"]["desktopTaskToken"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DesktopCrawlerLeaseInput"];
+            };
+        };
+        responses: {
+            /** @description Cancelled desktop crawler job */
+            200: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesktopCrawlerJobResource"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            400: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            401: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            403: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            404: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            409: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Desktop synchronization request failed */
+            500: {
+                headers: {
+                    "X-Request-Id": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionRunCandidates: {
+        parameters: {
+            query?: {
+                status?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace-bound candidate page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AcquisitionRunCandidate"][];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAcquisitionOutreachBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    candidateIds: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Outreach batch created */
+            201: {
+                headers: {
+                    ETag: string;
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachBatch"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionOutreachBatches: {
+        parameters: {
+            query: {
+                runId: string;
+                candidateId: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Candidate-scoped outreach batch page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachBatchList"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Missing the acquisition.outreach.approve capability or a valid workspace context. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionOutreachBatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Outreach batch */
+            200: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachBatch"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateAcquisitionOutreachBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    candidates: {
+                        candidateId: string;
+                        selected: boolean;
+                        comment: string;
+                        directMessage: string;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description Outreach batch revised */
+            200: {
+                headers: {
+                    ETag: string;
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachBatch"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    approveAcquisitionOutreachBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    batchHash: string;
+                    /** @constant */
+                    confirm: true;
+                };
+            };
+        };
+        responses: {
+            /** @description Outreach batch approved */
+            200: {
+                headers: {
+                    ETag: string;
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachBatch"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    approveAcquisitionOutreachBatchDirectMessages: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    batchRevision: number;
+                    batchHash: string;
+                    accountLoginStateVersion: number;
+                    /** @default 20 */
+                    dailyLimit: number;
+                    candidates: {
+                        candidateId: string;
+                        directMessage: string;
+                    }[];
+                    /** @constant */
+                    confirm: true;
+                };
+            };
+        };
+        responses: {
+            /** @description Direct messages authorized */
+            200: {
+                headers: {
+                    ETag: string;
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachBatch"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    rejectAcquisitionOutreachBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Outreach batch updated */
+            200: {
+                headers: {
+                    ETag: string;
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachBatch"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    pauseAcquisitionOutreachBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Outreach batch updated */
+            200: {
+                headers: {
+                    ETag: string;
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachBatch"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    resumeAcquisitionOutreachBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Outreach batch resumed */
+            200: {
+                headers: {
+                    ETag: string;
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachBatch"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionOutreachActions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ordered outreach actions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachActionList"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    recoverAcquisitionOutreachActionAccount: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    batchRevision: number;
+                    accountLoginStateVersion: number;
+                    pendingActionIds: string[];
+                    acknowledgedUncertainActionIds: string[];
+                    reason: string;
+                    /** @constant */
+                    confirm: true;
+                };
+            };
+        };
+        responses: {
+            /** @description The exact safe batch comments were enabled; uncertain writes remain frozen */
+            200: {
+                headers: {
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachAccountRecovery"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reconcileAcquisitionOutreachAction: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                batchId: string;
+                actionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    batchRevision: number;
+                    approvalHash: string;
+                    contentHash: string;
+                    /** @constant */
+                    confirm: true;
+                };
+            };
+        };
+        responses: {
+            /** @description Reconciled persisted action; no platform write was attempted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionOutreachAction"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discovery provider catalog */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            id: string;
+                            /** @enum {string} */
+                            kind: "search" | "content_fetch" | "import";
+                            displayName: string;
+                            /** Format: uri */
+                            officialDocsUrl?: string;
+                            /** Format: uri */
+                            defaultBaseUrl?: string;
+                            requiresKey?: boolean;
+                            keyHint?: string;
+                            costNote?: string;
+                            capabilities: string[];
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionProviderConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider connections */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["provider-connection.v1.schema"][];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAcquisitionProviderConnection: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    providerId: string;
+                    /** @description 客户自己的官方 API Key，仅加密保存且永不回显。 */
+                    apiKey: string;
+                    /** Format: uri */
+                    baseUrl?: string;
+                    /**
+                     * @default active
+                     * @enum {string}
+                     */
+                    status?: "active" | "disabled";
+                };
+            };
+        };
+        responses: {
+            /** @description Idempotent replay */
+            200: {
+                headers: {
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["provider-connection.v1.schema"];
+                };
+            };
+            /** @description Provider connection created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["provider-connection.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionProviderConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider connection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["provider-connection.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    deleteAcquisitionProviderConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider connection deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateAcquisitionProviderConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description 客户自己的官方 API Key，仅加密保存且永不回显。 */
+                    apiKey: string;
+                    /** Format: uri */
+                    baseUrl?: string;
+                    /** @enum {string} */
+                    status?: "active" | "disabled";
+                } | {
+                    /** @enum {string} */
+                    status: "active" | "disabled";
+                };
+            };
+        };
+        responses: {
+            /** @description Provider connection updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["provider-connection.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    testAcquisitionProviderConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider connection health check */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                        message: string;
+                        errorCode: string | null;
+                        retryable: boolean;
+                        /** Format: date-time */
+                        retryAfterAt: string | null;
+                        usage: string;
+                    };
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionContentFetchOperations: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Content fetch operations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentFetchOperationList"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAcquisitionContentFetchOperation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: uri
+                     * @description 仅允许公开 HTTPS URL。 运行时还会拒绝凭据、非默认端口、内网地址和敏感查询参数。
+                     */
+                    sourceUrl: string;
+                    /** @enum {string} */
+                    subjectChannel: "organization" | "individual";
+                };
+            };
+        };
+        responses: {
+            /** @description Content fetch operation accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["content-fetch-operation.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionContentFetchOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Content fetch operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["content-fetch-operation.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionImportOperations: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Import operations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportOperationList"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAcquisitionImportOperation: {
+        parameters: {
+            query: {
+                fileName: string;
+                subjectChannel: "organization" | "individual";
+                mapping: string;
+            };
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Raw CSV/XLSX only; application/json returns 415 unsupported_media_type. */
+        requestBody: {
+            content: {
+                "text/csv": string;
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Import operation accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["import-operation.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionImportOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Import operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["import-operation.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionEvidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discovery evidence */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["discovery-evidence.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createCfoAcquisitionWorkflow: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    instruction: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Workflow and plan created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CfoAcquisitionWorkflow"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getLatestCfoAcquisitionWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Latest workflow or null */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CfoAcquisitionWorkflow"] | null;
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getCfoAcquisitionWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CfoAcquisitionWorkflow"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    approveCfoAcquisitionWorkflow: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Workflow started or replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CfoAcquisitionWorkflow"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    decideCfoAcquisitionWorkflowCandidate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    candidateId: string;
+                    /** @enum {string} */
+                    action: "approved" | "rejected" | "do_not_contact";
+                    reason: string | null;
+                    /** Format: date-time */
+                    dueAt?: string;
+                    /** @enum {string} */
+                    priority?: "high" | "medium" | "normal";
+                };
+            };
+        };
+        responses: {
+            /** @description Candidate decision and workflow state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CfoAcquisitionWorkflow"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    decideCfoAcquisitionWorkflowCandidates: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    decisions: {
+                        candidateId: string;
+                        /** @enum {string} */
+                        action: "approved" | "rejected" | "do_not_contact";
+                        reason: string | null;
+                        /** Format: date-time */
+                        dueAt?: string;
+                        /** @enum {string} */
+                        priority?: "high" | "medium" | "normal";
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description Ordered candidate decisions and workflow state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CfoAcquisitionWorkflow"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    cancelCfoAcquisitionWorkflow: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Workflow cancelled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CfoAcquisitionWorkflow"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAcquisitionPlan: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description Omit for the compatible generic provider-operation mode. Use douyin_mediacrawler only for private MediaCrawler discovery.
+                     * @default generic
+                     * @enum {string}
+                     */
+                    executionMode?: "generic" | "douyin_mediacrawler";
+                    /** @enum {string} */
+                    targetPlatform?: "douyin" | "web";
+                    douyinPublicCommentSample?: {
+                        enabled: boolean;
+                        maxVideosPerRun: number;
+                        maxCommentsPerVideo: number;
+                        maxPagesPerVideo: number;
+                    };
+                    name: string;
+                    objective: string;
+                    icp: {
+                        industries: string[];
+                        regions: string[];
+                        organizationCriteria: string[];
+                        individualCriteria: string[];
+                        exclusionRules: string[];
+                    };
+                    subjectChannels: {
+                        organization: boolean;
+                        individual: boolean;
+                    };
+                    providerConnections: {
+                        connectionId: string;
+                        providerId: string;
+                        /** @enum {string} */
+                        kind: "search" | "content_fetch" | "import";
+                        /** @enum {string} */
+                        status: "active" | "inactive" | "disabled";
+                        credentialVersion: number;
+                    }[];
+                    operations: {
+                        operationId: string;
+                        /** @enum {string} */
+                        subjectChannel: "organization" | "individual";
+                        /** @enum {string} */
+                        kind: "search" | "content_fetch" | "import_rows";
+                        connectionId: string;
+                        query?: string;
+                        sourceRef?: string;
+                        allocatedBudget: {
+                            requests: number;
+                            results: number;
+                            amountMinor: number;
+                            durationSeconds: number;
+                        };
+                    }[];
+                    budgetSnapshot: {
+                        billingCurrency: string;
+                        maxRequests: number;
+                        maxResults: number;
+                        maxAmountMinor: number;
+                        maxDurationSeconds: number;
+                    };
+                    /** @description Optional BYOK model connection for generic plans. It must be omitted or null for douyin_mediacrawler plans. */
+                    modelConnectionId?: string | null;
+                    stopConditions: {
+                        stopWhenBudgetExhausted: boolean;
+                        stopWhenNoMoreResults: boolean;
+                    };
+                } & (unknown & unknown);
+            };
+        };
+        responses: {
+            /** @description Acquisition plan created */
+            201: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["acquisition-plan.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Acquisition plan */
+            200: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["acquisition-plan.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateAcquisitionPlan: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    targetPlatform?: "douyin" | "web";
+                    douyinPublicCommentSample?: {
+                        enabled: boolean;
+                        maxVideosPerRun: number;
+                        maxCommentsPerVideo: number;
+                        maxPagesPerVideo: number;
+                    };
+                    name?: string;
+                    objective?: string;
+                    icp?: {
+                        industries: string[];
+                        regions: string[];
+                        organizationCriteria: string[];
+                        individualCriteria: string[];
+                        exclusionRules: string[];
+                    };
+                    subjectChannels?: {
+                        organization: boolean;
+                        individual: boolean;
+                    };
+                    providerConnections?: {
+                        connectionId: string;
+                        providerId: string;
+                        /** @enum {string} */
+                        kind: "search" | "content_fetch" | "import";
+                        /** @enum {string} */
+                        status: "active" | "inactive" | "disabled";
+                        credentialVersion: number;
+                    }[];
+                    operations?: {
+                        operationId: string;
+                        /** @enum {string} */
+                        subjectChannel: "organization" | "individual";
+                        /** @enum {string} */
+                        kind: "search" | "content_fetch" | "import_rows";
+                        connectionId: string;
+                        query?: string;
+                        sourceRef?: string;
+                        allocatedBudget: {
+                            requests: number;
+                            results: number;
+                            amountMinor: number;
+                            durationSeconds: number;
+                        };
+                    }[];
+                    budgetSnapshot?: {
+                        billingCurrency: string;
+                        maxRequests: number;
+                        maxResults: number;
+                        maxAmountMinor: number;
+                        maxDurationSeconds: number;
+                    };
+                    modelSnapshotRef?: {
+                        jobSnapshotId: string;
+                        connectionId: string;
+                        credentialVersion: number;
+                        provider: string;
+                        model: string;
+                        capabilitySnapshotHash: string;
+                        promptVersion: string;
+                        schemaVersion: string;
+                        promptHash: string;
+                        schemaHash: string;
+                    };
+                    stopConditions?: {
+                        stopWhenBudgetExhausted: boolean;
+                        stopWhenNoMoreResults: boolean;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Acquisition plan updated */
+            200: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["acquisition-plan.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAcquisitionPlanRevision: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    targetPlatform?: "douyin" | "web";
+                    douyinPublicCommentSample?: {
+                        enabled: boolean;
+                        maxVideosPerRun: number;
+                        maxCommentsPerVideo: number;
+                        maxPagesPerVideo: number;
+                    };
+                    name?: string;
+                    objective?: string;
+                    icp?: {
+                        industries: string[];
+                        regions: string[];
+                        organizationCriteria: string[];
+                        individualCriteria: string[];
+                        exclusionRules: string[];
+                    };
+                    subjectChannels?: {
+                        organization: boolean;
+                        individual: boolean;
+                    };
+                    providerConnections?: {
+                        connectionId: string;
+                        providerId: string;
+                        /** @enum {string} */
+                        kind: "search" | "content_fetch" | "import";
+                        /** @enum {string} */
+                        status: "active" | "inactive" | "disabled";
+                        credentialVersion: number;
+                    }[];
+                    operations?: {
+                        operationId: string;
+                        /** @enum {string} */
+                        subjectChannel: "organization" | "individual";
+                        /** @enum {string} */
+                        kind: "search" | "content_fetch" | "import_rows";
+                        connectionId: string;
+                        query?: string;
+                        sourceRef?: string;
+                        allocatedBudget: {
+                            requests: number;
+                            results: number;
+                            amountMinor: number;
+                            durationSeconds: number;
+                        };
+                    }[];
+                    budgetSnapshot?: {
+                        billingCurrency: string;
+                        maxRequests: number;
+                        maxResults: number;
+                        maxAmountMinor: number;
+                        maxDurationSeconds: number;
+                    };
+                    modelSnapshotRef?: {
+                        jobSnapshotId: string;
+                        connectionId: string;
+                        credentialVersion: number;
+                        provider: string;
+                        model: string;
+                        capabilitySnapshotHash: string;
+                        promptVersion: string;
+                        schemaVersion: string;
+                        promptHash: string;
+                        schemaHash: string;
+                    };
+                    stopConditions?: {
+                        stopWhenBudgetExhausted: boolean;
+                        stopWhenNoMoreResults: boolean;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Acquisition plan revision created */
+            201: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["acquisition-plan.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    approveAcquisitionPlan: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    decision: "approve";
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Acquisition plan approved */
+            200: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["acquisition-plan.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAcquisitionRun: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 租户作用域内的写入幂等键；原文不会持久化。 */
+                "Idempotency-Key": components["parameters"]["planIdempotencyKey"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    parentRunId?: string;
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Acquisition run accepted */
+            202: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["acquisition-run.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Acquisition run */
+            200: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["acquisition-run.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionRunShards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Acquisition run shards */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PagedResult"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionRunPresentation: {
+        parameters: {
+            query?: {
+                after?: components["parameters"]["presentationAfter"];
+                limit?: components["parameters"]["presentationLimit"];
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Acquisition run presentation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["acquisition-run-presentation.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    pauseAcquisitionRun: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Acquisition run updated */
+            200: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["acquisition-run.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    resumeAcquisitionRun: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Acquisition run updated */
+            200: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["acquisition-run.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    cancelAcquisitionRun: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["ifMatch"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Acquisition run updated */
+            200: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["acquisition-run.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAcquisitionVisualReaderSession: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["visualReaderCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Idempotent replay of an existing visual reader session */
+            200: {
+                headers: {
+                    "Idempotency-Replayed": "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["visualReaderSession"];
+                };
+            };
+            /** @description Visual reader session created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["visualReaderSession"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionVisualReaderSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Visual reader session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["visualReaderSession"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    appendAcquisitionVisualReaderObservationBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["visualReaderObservationBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted and duplicate visual observations */
+            200: {
+                headers: {
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["visualReaderObservationBatchResponse"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    completeAcquisitionVisualReaderSession: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["visualReaderCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Completed visual reader session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["visualReaderSession"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    abortAcquisitionVisualReaderSession: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["visualReaderAbortRequest"];
+            };
+        };
+        responses: {
+            /** @description Aborted visual reader session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["visualReaderSession"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionVisualReaderArtifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifactId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redacted WebP comment-card crop */
+            200: {
+                headers: {
+                    "Cache-Control": "private, no-store";
+                    "X-Content-Type-Options": "nosniff";
+                    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; sandbox";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/webp": string;
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionCandidates: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["acquisitionCursor"];
+                limit?: components["parameters"]["acquisitionLimit"];
+                subjectKind?: "organization" | "individual";
+                status?: "discovered" | "unresolvable" | "normalized" | "qualified" | "pending_review" | "approved" | "rejected" | "do_not_contact" | "needs_research" | "converted_to_lead";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cursor-paginated candidates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CandidatePagedResult"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Candidate */
+            200: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Candidate"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionCandidateEvidence: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["acquisitionCursor"];
+                limit?: components["parameters"]["acquisitionLimit"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Candidate evidence */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscoveryEvidencePagedResult"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    confirmAcquisitionCandidateIdentity: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+                "If-Match": components["parameters"]["candidateIfMatch"];
+            };
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    subjectKind: "organization";
+                    domain: string | null;
+                    creditCode: string | null;
+                    evidenceIds: string[];
+                    rationale: string;
+                } | {
+                    /** @enum {string} */
+                    subjectKind: "individual";
+                    /** Format: uri */
+                    publicProfileUrl: string;
+                    sourcePlatform: string;
+                    evidenceIds: string[];
+                    rationale: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Candidate identity confirmed */
+            200: {
+                headers: {
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityConfirmationResult"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAcquisitionCandidateIntelligenceOperation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                candidateId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Candidate intelligence operation accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["candidate-intelligence-operation.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionCandidateIntelligenceOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Candidate intelligence operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["candidate-intelligence-operation.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getLatestAcquisitionCandidateIntelligenceOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidateId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Latest candidate intelligence operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["candidate-intelligence-operation.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    retryAcquisitionCandidateIntelligenceOperation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                operationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Candidate intelligence operation retry accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["candidate-intelligence-operation.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getLatestAcquisitionDouyinIdentityResolutionOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidateId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Latest Douyin identity resolution operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["douyin-identity-resolution-operation.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAcquisitionDouyinIdentityResolutionOperation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                candidateId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Douyin identity resolution operation accepted */
+            202: {
+                headers: {
+                    /** @description Present with value true for an idempotent replay */
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["douyin-identity-resolution-operation.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionCandidateQualification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Qualification decision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["qualification-decision.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionCandidateFinancialValue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Financial value decision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["financial-value-decision.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionCandidateBattleCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Battle card */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BattleCard"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionCandidateReviews: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["acquisitionCursor"];
+                limit?: components["parameters"]["acquisitionLimit"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Review events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewEventPagedResult"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reviewAcquisitionCandidate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    action: "approved" | "do_not_contact";
+                    decisionVersion: string;
+                    reason: string | null;
+                } | {
+                    /** @enum {string} */
+                    action: "rejected" | "needs_research" | "reopen";
+                    decisionVersion: string;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Candidate reviewed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CandidateReviewResult"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    convertAcquisitionCandidate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    decisionVersion: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Candidate converted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadConversion"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionOutcomes: {
+        parameters: {
+            query: {
+                cursor?: components["parameters"]["acquisitionCursor"];
+                limit?: components["parameters"]["acquisitionLimit"];
+                candidateId: components["parameters"]["candidateId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Outcome feedback */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutcomeFeedbackPagedResult"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionPerformance: {
+        parameters: {
+            query: {
+                platform?: "douyin" | "web";
+                from: string;
+                to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Acquisition performance */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionPerformance"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAcquisitionCopilotSession: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    connectionId?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Copilot session creation accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["async-operation.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionCopilotSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Copilot session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["copilot-session.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionCopilotMessages: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["acquisitionCursor"];
+                limit?: components["parameters"]["acquisitionLimit"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Copilot messages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotMessagePagedResult"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    sendAcquisitionCopilotMessage: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    message: string;
+                    /**
+                     * @default assistant
+                     * @enum {string}
+                     */
+                    responseMode?: "assistant" | "plan_draft";
+                    /**
+                     * @default web
+                     * @enum {string}
+                     */
+                    targetPlatform?: "douyin" | "web";
+                };
+            };
+        };
+        responses: {
+            /** @description Queued copilot task */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["copilot-task.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAcquisitionCopilotTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["acquisitionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Copilot task */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["copilot-task.v1.schema"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAcquisitionAuditEvents: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["acquisitionCursor"];
+                limit?: components["parameters"]["acquisitionLimit"];
+                candidateId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Audit events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditEventPagedResult"];
+                };
+            };
+            /** @description Unified API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unified API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+}

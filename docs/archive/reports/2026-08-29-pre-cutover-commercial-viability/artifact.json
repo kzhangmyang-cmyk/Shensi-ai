@@ -1,0 +1,501 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Shensi 产品可售性判断",
+    "description": "基于当前产品实现、项目状态与官方市场信号的商业可行性报告",
+    "generatedAt": "2026-08-29T16:30:00+08:00",
+    "charts": [
+      {
+        "id": "commercial_readiness_chart",
+        "title": "商业就绪度定性分层",
+        "subtitle": "分析师等级：1=弱、2=中、3=强；只比较当前证据强度，不是实测 KPI",
+        "showDescription": true,
+        "type": "bar",
+        "dataset": "commercial_readiness_chart",
+        "sourceId": "readiness_chart_sql",
+        "encodings": {
+          "x": {
+            "field": "dimension",
+            "type": "nominal",
+            "label": "商业维度"
+          },
+          "y": {
+            "field": "readiness_level",
+            "type": "quantitative",
+            "label": "定性等级",
+            "format": "number"
+          },
+          "tooltip": [
+            {
+              "field": "readiness_label",
+              "type": "text",
+              "label": "判断"
+            },
+            {
+              "field": "interpretation",
+              "type": "text",
+              "label": "解释"
+            }
+          ]
+        },
+        "valueFormat": "number",
+        "layout": "full",
+        "maxRows": 6
+      }
+    ],
+    "tables": [
+      {
+        "id": "market_signals_table",
+        "title": "市场需求信号",
+        "subtitle": "截至 2026 年 8 月 29 日；官方平台、竞品与政策材料，只用于判断品类是否存在",
+        "showDescription": true,
+        "dataset": "market_signals",
+        "sourceId": "market_signals_sql",
+        "defaultSort": {
+          "field": "signal",
+          "direction": "asc"
+        },
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "signal",
+            "label": "市场信号",
+            "type": "text"
+          },
+          {
+            "field": "evidence",
+            "label": "可核对证据",
+            "type": "text"
+          },
+          {
+            "field": "implication",
+            "label": "对 Shensi 的含义",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "readiness_table",
+        "title": "当前商业就绪度",
+        "subtitle": "强、中、弱表示证据强度与交付准备度，不是量化评分",
+        "showDescription": true,
+        "dataset": "commercial_readiness",
+        "sourceId": "commercial_readiness_sql",
+        "defaultSort": {
+          "field": "dimension",
+          "direction": "asc"
+        },
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "dimension",
+            "label": "维度",
+            "type": "text"
+          },
+          {
+            "field": "readiness",
+            "label": "判断",
+            "type": "text"
+          },
+          {
+            "field": "evidence",
+            "label": "依据",
+            "type": "text"
+          },
+          {
+            "field": "decision",
+            "label": "销售含义",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "analysis_basis",
+        "label": "Shensi 商业可售性分析与来源说明",
+        "path": "reports/2026-08-29-shensi-commercial-viability/source-notes.md"
+      },
+      {
+        "id": "readiness_chart_sql",
+        "label": "商业就绪度定性映射",
+        "query": {
+          "engine": "sqlite",
+          "sql": "SELECT '客户问题' AS dimension, 3 AS readiness_level, '强' AS readiness_label, '成熟采购类别' AS interpretation UNION ALL SELECT '产品差异化', 2, '中', '闭环有差异，仍需客户验证' UNION ALL SELECT '演示完整度', 2, '中', '可演示，真实与演示需分开' UNION ALL SELECT '生产交付', 1, '弱', '完整运行时验收与切换待完成' UNION ALL SELECT '平台连接能力', 1, '弱', '官方连接与快手适配仍需补齐' UNION ALL SELECT '商业验证', 1, '弱', '缺少付费、使用与续费证据'",
+          "description": "把已审阅的强、中、弱商业就绪度判断映射为 3、2、1，用于定性比较图；不是业务数据库指标。",
+          "executed_at": "2026-08-29T16:30:00+08:00",
+          "language": "sql",
+          "metric_definitions": [
+            "readiness_level：分析师定性等级，1=弱、2=中、3=强；不代表概率、收入、客户数量或统计置信度。"
+          ]
+        }
+      },
+      {
+        "id": "market_signals_sql",
+        "label": "市场需求信号评审映射",
+        "query": {
+          "engine": "sqlite",
+          "sql": "SELECT 1 AS 'order', '抖音线索经营' AS signal, '巨量引擎把线索营销、线索经营和客户留资管理列为正式产品能力' AS evidence, '短视频获客是已被市场教育的采购类别' AS implication UNION ALL SELECT 2, '快手线索管理', '磁力追踪提供推广线索实时落表与跟进管理', '快手获客必须保留，并应通过独立适配器接入统一闭环' UNION ALL SELECT 3, '主动获客与 CRM', '探迹公开宣称服务 50,000+ 企业，并展示制造、物流、财税等案例', '客户愿意为找客户和销售过程协同付费，但效果数据为厂商自报' UNION ALL SELECT 4, '企业管理云订阅', '金蝶公告 2025 年云订阅收入约 35.56 亿元，同比增长约 20.9%', '企业愿意持续购买经营管理软件，但 Shensi 不应正面替代 ERP' UNION ALL SELECT 5, '中小企业数字化政策', '四部门专项行动推动 AI 应用和中小企业数字化，并提出 2027 年上云率超过 40%', '制造与专精特新客户的数字化采购存在持续外部推动'",
+          "description": "把已核对的五类官方市场来源整理成报告证据表；每项的底层网址记录在来源说明。",
+          "executed_at": "2026-08-29T16:30:00+08:00",
+          "language": "sql",
+          "filters": [
+            "只纳入截至 2026 年 8 月 29 日已核对的官方平台、厂商公告与政策来源",
+            "厂商案例只作为品类需求信号，不作为 Shensi 效果证明"
+          ]
+        }
+      },
+      {
+        "id": "commercial_readiness_sql",
+        "label": "当前商业就绪度评审映射",
+        "query": {
+          "engine": "sqlite",
+          "sql": "SELECT 1 AS 'order', '客户问题' AS dimension, '强' AS readiness, '短视频线索、主动获客、销售协同和经营分析均已有成熟采购类别' AS evidence, '可以立即开展客户约访' AS decision UNION ALL SELECT 2, '产品差异化', '中强', '社媒/公开证据、AI 研判、人工门禁、CRM 和财务闭环处于同一系统', '销售闭环，不销售功能清单' UNION ALL SELECT 3, '演示完整度', '中', '已有登录、获客、私域、商机与经营模块及浏览器验收，但部分界面仍有演示模式', '可演示，必须清楚区分真实能力与演示数据' UNION ALL SELECT 4, '生产交付', '中弱', '完整运行时验收和切换尚未完成，Docker 环境验证仍待执行', '先预售/试点，不承诺大规模正式上线日期' UNION ALL SELECT 5, '平台连接能力', '中弱', '抖音公开样本 Beta 已有，官方 OAuth、周期调度和自动动作仍在后续阶段；快手需要正式适配器', '试点采用客户导出、官方线索或明确授权的数据入口' UNION ALL SELECT 6, '商业验证', '弱', '当前仓库未提供付费客户、合同、价格、活跃度、转化率或续费数据', '成交付费试点后才能判断可规模化' UNION ALL SELECT 7, '销售执行', '优势假设', '用户确认已有专业销售团队，但行业资源和交付协同尚未提供数据', '让销售团队承担 ICP 与付费意愿验证'",
+          "description": "基于当前项目文档、测试证据、外部市场来源和用户提供的销售团队条件形成的定性评审表。",
+          "executed_at": "2026-08-29T16:30:00+08:00",
+          "language": "sql",
+          "filters": [
+            "当前实现优先于历史计划或未来能力",
+            "未提供付费、活跃或续费数据的维度不得视为已完成商业验证"
+          ]
+        }
+      },
+      {
+        "id": "project_status",
+        "label": "Shensi 当前项目状态",
+        "path": "docs/PROJECT_STATUS.md"
+      },
+      {
+        "id": "douyin_prd",
+        "label": "抖音 AI 获客首发版 PRD",
+        "path": "docs/product/2026-08-05-douyin-ai-acquisition-prd.md"
+      },
+      {
+        "id": "tungee_cases",
+        "label": "探迹客户案例",
+        "href": "https://m.tungee.com/about/customer-story/"
+      },
+      {
+        "id": "oceanengine_products",
+        "label": "巨量引擎产品",
+        "href": "https://www.oceanengine.com/products/"
+      },
+      {
+        "id": "kuaishou_marketing",
+        "label": "快手磁力引擎",
+        "href": "https://e.kuaishou.com/"
+      },
+      {
+        "id": "kingdee_results",
+        "label": "金蝶 2025 年度业绩",
+        "href": "https://www.kingdee.com/resources/articles/1483562803536758273"
+      },
+      {
+        "id": "miit_digitalization",
+        "label": "中小企业数字化赋能专项行动方案",
+        "href": "https://www.miit.gov.cn/zwgk/zcwj/wjfb/tz/art/2024/art_b286a153d2ff4494a6d8956964499d24.html"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "report_title",
+        "type": "markdown",
+        "body": "# Shensi 产品可售性判断",
+        "layout": "full"
+      },
+      {
+        "id": "executive_summary",
+        "type": "markdown",
+        "body": "## Executive Summary\n\n- **可以卖，但当前应卖“付费试点”，不是成熟平台许可证。** Shensi 已经有社媒/公开商机发现、证据和评分、人工审核、CRM 商机、报价与经营分析的差异化链路；市场也已经被抖音、快手、探迹和企业管理 SaaS 教育。\n\n- **最值得销售的不是“大而全 CRM”或“金蝶替代品”。** 第一款销售包应是“抖音、快手等社媒商机 → AI 研判 → 人工审核 → CRM → 成交与 ROI”的闭环，目标客户是有专职销售团队、单客价值较高、需要主动获客的制造、外贸、物流或企业服务公司。\n\n- **目前最大的风险不是销售能力，而是产品承诺超过现状。** 当前项目账本仍把全运行时验收和切换列为下一步；抖音 PRD 也明确官方连接器、周期调度和自动动作仍在后续阶段。销售可以开始约访和签试点，但不得承诺全量扫描、自动群发、官方私信或完整 ERP 替代。\n\n- **专业销售团队是明显优势，但只能证明获客能力，不能证明产品留存。** 是否真正可规模化，要由同一目标行业的付费试点、日常使用、商机转化和续费来验证。",
+        "layout": "full"
+      },
+      {
+        "id": "market_finding",
+        "type": "markdown",
+        "body": "## 客户愿意为“获客—跟进—经营”付费，市场不是问题\n\n抖音的[巨量引擎](https://www.oceanengine.com/products/)已经把线索营销和线索经营做成正式商业产品；快手的[磁力引擎](https://e.kuaishou.com/)也提供线索实时落表和跟进工具。这说明短视频线索并非边缘需求。与此同时，[探迹](https://m.tungee.com/about/customer-story/)持续销售主动获客与 CRM，[金蝶](https://www.kingdee.com/resources/articles/1483562803536758273)的企业云订阅保持增长；工信部等四部门也在[2025—2027 年专项行动](https://www.miit.gov.cn/zwgk/zcwj/wjfb/tz/art/2024/art_b286a153d2ff4494a6d8956964499d24.html)中推动中小企业数字化和 AI 应用。\n\n**含义：** Shensi 不需要教育客户“为什么需要数字化获客”，而需要回答“为什么现有投放平台、CRM 和报表之外，还要购买 Shensi”。答案应聚焦于证据化商机研判、跨渠道归一、人工安全门禁，以及从线索到毛利和回款的闭环。",
+        "layout": "full"
+      },
+      {
+        "id": "market_signals",
+        "type": "table",
+        "tableId": "market_signals_table",
+        "layout": "full"
+      },
+      {
+        "id": "product_finding",
+        "type": "markdown",
+        "body": "## Shensi 已经有可演示的闭环，但生产交付尚未完全就绪\n\n**可售卖的基础已经存在。** 当前实现覆盖获客计划与运行、公开证据、候选归一、资格评分、人工审核、CRM 客户/线索/商机、报价、ROI 和财务委员会；登录、单一应用外壳、获客入口和私域商机也有浏览器验收。这样的组合比单纯评论采集器或聊天机器人更接近经营系统。\n\n**当前还不能当成成熟标准 SaaS 承诺。** `docs/PROJECT_STATUS.md` 显示完整运行时验收和切换尚未完成；抖音首发 PRD 将当前版本定义为“审批后自动发现和研判、动作前人工决策”的只读 Beta，并明确官方 OAuth、周期调度和自动动作属于后续阶段。\n\n**含义：** 可以立即销售有明确范围、明确成功指标、明确人工边界的付费试点；大规模标准化销售应等生产验收、渠道集成和首批客户复用性得到验证后再启动。",
+        "layout": "full"
+      },
+      {
+        "id": "readiness",
+        "type": "table",
+        "tableId": "readiness_table",
+        "layout": "full"
+      },
+      {
+        "id": "readiness_chart_context",
+        "type": "markdown",
+        "body": "## 当前优势足以支撑试点，短板决定了不能过度承诺\n\n下图把六个产品商业维度按强、中、弱三个宽泛等级进行比较。它不是客户调查或财务模型，而是基于当前实现、项目状态和市场来源的定性审查。客户问题与差异化较强，因此值得销售验证；生产交付、平台连接和商业验证较弱，因此首轮必须采用有边界的付费试点。",
+        "layout": "full"
+      },
+      {
+        "id": "readiness_chart",
+        "type": "chart",
+        "chartId": "commercial_readiness_chart",
+        "layout": "full"
+      },
+      {
+        "id": "readiness_chart_implication",
+        "type": "markdown",
+        "body": "**销售含义：** 可以让专业销售团队现在就去卖，但合同范围、演示口径和交付计划必须以当前能力为准。最先补的不是更多 Agent，而是全运行时验收、抖音/快手合规数据入口、客户 onboarding 和首批结果指标。",
+        "layout": "full"
+      },
+      {
+        "id": "offer_recommendation",
+        "type": "markdown",
+        "body": "## 第一款销售包应该只解决一个高价值问题\n\n建议名称：**Shensi AI 社媒商机与销售经营系统**。\n\n建议销售承诺：**帮助销售团队从抖音、快手及公开/授权数据中识别值得跟进的需求信号，给出证据、优先级和作战建议，并把人工确认后的客户带入 CRM，追踪到商机、成交、回款和渠道 ROI。**\n\n目标客户优先满足以下特征：\n\n- 有专职销售团队，老板或销售负责人能推动流程改变；\n- 单客价值较高，销售需要研究、跟进和多次触达；\n- 已经投入抖音、快手、内容营销、展会或主动拓客；\n- 线索散落在平台、表格和个人微信，难以归因；\n- 能提供合法授权的数据或官方线索导出。\n\n首轮不要销售“全行业通用 Agent 平台”“自动扫描全网”“自动群发获客”或“替代金蝶”。这些表达会放大交付、合规和客户预期风险。",
+        "layout": "full"
+      },
+      {
+        "id": "sales_motion",
+        "type": "markdown",
+        "body": "## 专业销售团队应当用付费试点验证，而不是免费演示堆数量\n\n1. **选择一个行业。** 优先从现有销售团队最熟悉、最容易拿到真实数据的制造、外贸、物流或企业服务细分行业开始。\n\n2. **销售一个闭环。** 演示从社媒/公开信号进入证据和评分，经人工审核进入 CRM，再进入商机与结果归因；不要逐页介绍所有模块。\n\n3. **签有边界的付费试点。** 商业结构建议为“付费试点 → 年度订阅 → 数据/连接器用量与实施服务”，具体价格等待客户付费意愿验证后确定。\n\n4. **用客户结果决定是否规模化。** 推荐的最低商业门槛是：在同一 ICP 中获得至少 3 个非关系型付费试点，其中至少 2 个愿意转年度合同或继续付费；这些是建议验证门槛，不是收入预测。\n\n5. **固定记录五类指标。** 销售认可的有效商机数、商机研判耗时、首次跟进时长、合格商机转化、由 Shensi 归因的商机金额/毛利/回款。只有这些指标改善，产品才具备续费基础。",
+        "layout": "full"
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## 规模化销售前必须回答的问题\n\n- 哪个细分行业是销售团队最有资源、最能拿到真实数据和最快签试点的行业？\n- 客户愿意为哪一段付钱：商机发现、AI 研判、CRM 协同，还是从成交到经营分析的闭环？\n- 抖音、快手数据将通过官方 API、客户导出、广告线索回传，还是合规数据合作方进入？\n- 客户是否要求私有化部署、等保、安全评审或与现有 CRM/ERP 并存？\n- 首批客户能否形成一套重复实施的行业模板，而不是每家都重新定制？",
+        "layout": "full"
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "body": "## Caveats and assumptions\n\n这是一份**可售性判断，不是市场收入预测**。当前仓库没有付费客户、报价、合同、赢单率、产品活跃度或续费数据，因此不能判断可实现的价格、销售周期和收入规模。外部案例主要来自平台和厂商官方材料，可证明品类存在，不能证明 Shensi 会获得同等效果。用户已确认拥有专业销售团队，本报告将其作为优势假设，但尚未验证团队的行业客户资源、交付能力和销售周期。",
+        "layout": "full"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-29T16:30:00+08:00",
+    "status": "ready",
+    "datasets": {
+      "market_signals": [
+        {
+          "order": 1,
+          "signal": "抖音线索经营",
+          "evidence": "巨量引擎把线索营销、线索经营和客户留资管理列为正式产品能力",
+          "implication": "短视频获客是已被市场教育的采购类别"
+        },
+        {
+          "order": 2,
+          "signal": "快手线索管理",
+          "evidence": "磁力追踪提供推广线索实时落表与跟进管理",
+          "implication": "快手获客必须保留，并应通过独立适配器接入统一闭环"
+        },
+        {
+          "order": 3,
+          "signal": "主动获客与 CRM",
+          "evidence": "探迹公开宣称服务 50,000+ 企业，并展示制造、物流、财税等案例",
+          "implication": "客户愿意为找客户和销售过程协同付费，但效果数据为厂商自报"
+        },
+        {
+          "order": 4,
+          "signal": "企业管理云订阅",
+          "evidence": "金蝶公告 2025 年云订阅收入约 35.56 亿元，同比增长约 20.9%",
+          "implication": "企业愿意持续购买经营管理软件，但 Shensi 不应正面替代 ERP"
+        },
+        {
+          "order": 5,
+          "signal": "中小企业数字化政策",
+          "evidence": "四部门专项行动推动 AI 应用和中小企业数字化，并提出 2027 年上云率超过 40%",
+          "implication": "制造与专精特新客户的数字化采购存在持续外部推动"
+        }
+      ],
+      "commercial_readiness": [
+        {
+          "order": 1,
+          "dimension": "客户问题",
+          "readiness": "强",
+          "evidence": "短视频线索、主动获客、销售协同和经营分析均已有成熟采购类别",
+          "decision": "可以立即开展客户约访"
+        },
+        {
+          "order": 2,
+          "dimension": "产品差异化",
+          "readiness": "中强",
+          "evidence": "社媒/公开证据、AI 研判、人工门禁、CRM 和财务闭环处于同一系统",
+          "decision": "销售闭环，不销售功能清单"
+        },
+        {
+          "order": 3,
+          "dimension": "演示完整度",
+          "readiness": "中",
+          "evidence": "已有登录、获客、私域、商机与经营模块及浏览器验收，但部分界面仍有演示模式",
+          "decision": "可演示，必须清楚区分真实能力与演示数据"
+        },
+        {
+          "order": 4,
+          "dimension": "生产交付",
+          "readiness": "中弱",
+          "evidence": "完整运行时验收和切换尚未完成，Docker 环境验证仍待执行",
+          "decision": "先预售/试点，不承诺大规模正式上线日期"
+        },
+        {
+          "order": 5,
+          "dimension": "平台连接能力",
+          "readiness": "中弱",
+          "evidence": "抖音公开样本 Beta 已有，官方 OAuth、周期调度和自动动作仍在后续阶段；快手需要正式适配器",
+          "decision": "试点采用客户导出、官方线索或明确授权的数据入口"
+        },
+        {
+          "order": 6,
+          "dimension": "商业验证",
+          "readiness": "弱",
+          "evidence": "当前仓库未提供付费客户、合同、价格、活跃度、转化率或续费数据",
+          "decision": "成交付费试点后才能判断可规模化"
+        },
+        {
+          "order": 7,
+          "dimension": "销售执行",
+          "readiness": "优势假设",
+          "evidence": "用户确认已有专业销售团队，但行业资源和交付协同尚未提供数据",
+          "decision": "让销售团队承担 ICP 与付费意愿验证"
+        }
+      ],
+      "commercial_readiness_chart": [
+        {
+          "dimension": "客户问题",
+          "readiness_level": 3,
+          "readiness_label": "强",
+          "interpretation": "成熟采购类别"
+        },
+        {
+          "dimension": "产品差异化",
+          "readiness_level": 2,
+          "readiness_label": "中",
+          "interpretation": "闭环有差异，仍需客户验证"
+        },
+        {
+          "dimension": "演示完整度",
+          "readiness_level": 2,
+          "readiness_label": "中",
+          "interpretation": "可演示，真实与演示需分开"
+        },
+        {
+          "dimension": "生产交付",
+          "readiness_level": 1,
+          "readiness_label": "弱",
+          "interpretation": "完整运行时验收与切换待完成"
+        },
+        {
+          "dimension": "平台连接能力",
+          "readiness_level": 1,
+          "readiness_label": "弱",
+          "interpretation": "官方连接与快手适配仍需补齐"
+        },
+        {
+          "dimension": "商业验证",
+          "readiness_level": 1,
+          "readiness_label": "弱",
+          "interpretation": "缺少付费、使用与续费证据"
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "analysis_basis",
+      "label": "Shensi 商业可售性分析与来源说明",
+      "path": "reports/2026-08-29-shensi-commercial-viability/source-notes.md"
+    },
+    {
+      "id": "readiness_chart_sql",
+      "label": "商业就绪度定性映射",
+      "query": {
+        "engine": "sqlite",
+        "sql": "SELECT '客户问题' AS dimension, 3 AS readiness_level, '强' AS readiness_label, '成熟采购类别' AS interpretation UNION ALL SELECT '产品差异化', 2, '中', '闭环有差异，仍需客户验证' UNION ALL SELECT '演示完整度', 2, '中', '可演示，真实与演示需分开' UNION ALL SELECT '生产交付', 1, '弱', '完整运行时验收与切换待完成' UNION ALL SELECT '平台连接能力', 1, '弱', '官方连接与快手适配仍需补齐' UNION ALL SELECT '商业验证', 1, '弱', '缺少付费、使用与续费证据'",
+        "description": "把已审阅的强、中、弱商业就绪度判断映射为 3、2、1，用于定性比较图；不是业务数据库指标。",
+        "executed_at": "2026-08-29T16:30:00+08:00",
+        "language": "sql",
+        "metric_definitions": [
+          "readiness_level：分析师定性等级，1=弱、2=中、3=强；不代表概率、收入、客户数量或统计置信度。"
+        ]
+      }
+    },
+    {
+      "id": "market_signals_sql",
+      "label": "市场需求信号评审映射",
+      "query": {
+        "engine": "sqlite",
+        "sql": "SELECT 1 AS 'order', '抖音线索经营' AS signal, '巨量引擎把线索营销、线索经营和客户留资管理列为正式产品能力' AS evidence, '短视频获客是已被市场教育的采购类别' AS implication UNION ALL SELECT 2, '快手线索管理', '磁力追踪提供推广线索实时落表与跟进管理', '快手获客必须保留，并应通过独立适配器接入统一闭环' UNION ALL SELECT 3, '主动获客与 CRM', '探迹公开宣称服务 50,000+ 企业，并展示制造、物流、财税等案例', '客户愿意为找客户和销售过程协同付费，但效果数据为厂商自报' UNION ALL SELECT 4, '企业管理云订阅', '金蝶公告 2025 年云订阅收入约 35.56 亿元，同比增长约 20.9%', '企业愿意持续购买经营管理软件，但 Shensi 不应正面替代 ERP' UNION ALL SELECT 5, '中小企业数字化政策', '四部门专项行动推动 AI 应用和中小企业数字化，并提出 2027 年上云率超过 40%', '制造与专精特新客户的数字化采购存在持续外部推动'",
+        "description": "把已核对的五类官方市场来源整理成报告证据表；每项的底层网址记录在来源说明。",
+        "executed_at": "2026-08-29T16:30:00+08:00",
+        "language": "sql",
+        "filters": [
+          "只纳入截至 2026 年 8 月 29 日已核对的官方平台、厂商公告与政策来源",
+          "厂商案例只作为品类需求信号，不作为 Shensi 效果证明"
+        ]
+      }
+    },
+    {
+      "id": "commercial_readiness_sql",
+      "label": "当前商业就绪度评审映射",
+      "query": {
+        "engine": "sqlite",
+        "sql": "SELECT 1 AS 'order', '客户问题' AS dimension, '强' AS readiness, '短视频线索、主动获客、销售协同和经营分析均已有成熟采购类别' AS evidence, '可以立即开展客户约访' AS decision UNION ALL SELECT 2, '产品差异化', '中强', '社媒/公开证据、AI 研判、人工门禁、CRM 和财务闭环处于同一系统', '销售闭环，不销售功能清单' UNION ALL SELECT 3, '演示完整度', '中', '已有登录、获客、私域、商机与经营模块及浏览器验收，但部分界面仍有演示模式', '可演示，必须清楚区分真实能力与演示数据' UNION ALL SELECT 4, '生产交付', '中弱', '完整运行时验收和切换尚未完成，Docker 环境验证仍待执行', '先预售/试点，不承诺大规模正式上线日期' UNION ALL SELECT 5, '平台连接能力', '中弱', '抖音公开样本 Beta 已有，官方 OAuth、周期调度和自动动作仍在后续阶段；快手需要正式适配器', '试点采用客户导出、官方线索或明确授权的数据入口' UNION ALL SELECT 6, '商业验证', '弱', '当前仓库未提供付费客户、合同、价格、活跃度、转化率或续费数据', '成交付费试点后才能判断可规模化' UNION ALL SELECT 7, '销售执行', '优势假设', '用户确认已有专业销售团队，但行业资源和交付协同尚未提供数据', '让销售团队承担 ICP 与付费意愿验证'",
+        "description": "基于当前项目文档、测试证据、外部市场来源和用户提供的销售团队条件形成的定性评审表。",
+        "executed_at": "2026-08-29T16:30:00+08:00",
+        "language": "sql",
+        "filters": [
+          "当前实现优先于历史计划或未来能力",
+          "未提供付费、活跃或续费数据的维度不得视为已完成商业验证"
+        ]
+      }
+    },
+    {
+      "id": "project_status",
+      "label": "Shensi 当前项目状态",
+      "path": "docs/PROJECT_STATUS.md"
+    },
+    {
+      "id": "douyin_prd",
+      "label": "抖音 AI 获客首发版 PRD",
+      "path": "docs/product/2026-08-05-douyin-ai-acquisition-prd.md"
+    },
+    {
+      "id": "tungee_cases",
+      "label": "探迹客户案例",
+      "href": "https://m.tungee.com/about/customer-story/"
+    },
+    {
+      "id": "oceanengine_products",
+      "label": "巨量引擎产品",
+      "href": "https://www.oceanengine.com/products/"
+    },
+    {
+      "id": "kuaishou_marketing",
+      "label": "快手磁力引擎",
+      "href": "https://e.kuaishou.com/"
+    },
+    {
+      "id": "kingdee_results",
+      "label": "金蝶 2025 年度业绩",
+      "href": "https://www.kingdee.com/resources/articles/1483562803536758273"
+    },
+    {
+      "id": "miit_digitalization",
+      "label": "中小企业数字化赋能专项行动方案",
+      "href": "https://www.miit.gov.cn/zwgk/zcwj/wjfb/tz/art/2024/art_b286a153d2ff4494a6d8956964499d24.html"
+    }
+  ],
+  "package_info": {
+    "originUrl": "artifact://shensi-commercial-viability-2026-08-29"
+  }
+}

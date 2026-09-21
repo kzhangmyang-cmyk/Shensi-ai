@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "GoodJob 抖音授权视觉读取器",
+  "version": "1.0.0",
+  "description": "只读提取用户已打开的抖音视频中当前可见的一级评论。",
+  "permissions": ["activeTab", "scripting", "storage", "offscreen"],
+  "host_permissions": ["https://www.douyin.com/*"],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "GoodJob 只读视觉读取"
+  },
+  "content_scripts": [
+    {
+      "matches": [],
+      "js": ["goodjob-bridge-content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

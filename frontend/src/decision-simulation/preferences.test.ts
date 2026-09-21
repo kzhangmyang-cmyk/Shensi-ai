@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {parseHTML} from 'linkedom';
+import {mountDecisionPreferences} from './preferences';
+test('preferences are opt-in and feedback candidates never apply without confirmation',()=>{
+  const {document,window}=parseHTML('<html><body><main></main></body></html>');
+  const editor=mountDecisionPreferences(document.querySelector('main')!);
+  const input=(selector:string)=>document.querySelector<HTMLInputElement>(selector)!;
+  assert.equal(editor.read(),undefined);
+  input('[data-pref-enabled]').checked=true;input('[data-pref-enabled]').dispatchEvent(new window.Event('change'));
+  assert.throws(()=>editor.read(),/确认/);
+  input('[data-pref-confirm]').click();assert.equal(editor.read()?.priority,'cash');
+  input('[data-feedback=profit]').click();assert.equal(editor.read()?.priority,'cash');
+  input('[data-pref-learning]').checked=true;input('[data-pref-learning]').dispatchEvent(new window.Event('change'));
+  input('[data-pref-confirm]').click();input('[data-feedback=profit]').click();
+  assert.equal(editor.read()?.priority,'cash');
+  assert.match(input('[data-pref-candidate]').textContent!,/利润/);
+  input('[data-pref-accept]').click();assert.equal(editor.read()?.priority,'profit');assert.equal(editor.read()?.confirmedFrom,'explicit_feedback');
+  input('[data-pref-clear]').click();assert.equal(editor.read(),undefined);assert.equal(input('[data-pref-learning]').checked,false);
+});

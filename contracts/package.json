@@ -1,0 +1,27 @@
+{
+  "name": "goodjob-ai-acquisition-contracts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate:types": "node scripts/generate-frontend-contract-types.mjs && pnpm generate:desktop-types",
+    "check:types": "node scripts/generate-frontend-contract-types.mjs --check && pnpm check:desktop-types && pnpm check:decision-types && pnpm check:platform-types",
+    "generate:platform-types": "node scripts/generate-frontend-contract-types.mjs --input openapi/platform-admin.v1.yaml --output ../frontend/src/generated/platform-admin.ts",
+    "check:platform-types": "pnpm generate:platform-types --check",
+    "generate:decision-types": "node scripts/generate-frontend-contract-types.mjs --input openapi/decision-simulation.v1.yaml --output ../frontend/src/generated/decision-simulation.ts",
+    "check:decision-types": "pnpm generate:decision-types --check",
+    "generate:desktop-types": "node scripts/generate-frontend-contract-types.mjs --output ../desktop/src/generated/ai-acquisition.d.ts",
+    "check:desktop-types": "node scripts/generate-frontend-contract-types.mjs --output ../desktop/src/generated/ai-acquisition.d.ts --check",
+    "build:growth-release": "node scripts/build-growth-contract-release.mjs",
+    "check:growth-release": "node scripts/build-growth-contract-release.mjs --check",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "10.1.1",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
+    "openapi-typescript": "7.13.0",
+    "typescript": "^5.7.2",
+    "yaml": "2.8.1"
+  }
+}

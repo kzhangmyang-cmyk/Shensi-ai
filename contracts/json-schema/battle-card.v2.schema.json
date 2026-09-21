@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/battle-card.v2.schema.json",
+  "title": "BattleCardV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "candidateId",
+    "qualificationDecisionId",
+    "partyType",
+    "schemaVersion",
+    "intelligence",
+    "evidenceIds",
+    "confidence",
+    "modelProvider",
+    "model",
+    "promptVersion",
+    "createdAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "qualificationDecisionId": { "type": "string", "minLength": 1 },
+    "partyType": { "enum": ["organization", "individual"] },
+    "schemaVersion": { "const": "battle-card.v2" },
+    "intelligence": { "$ref": "#/$defs/intelligence" },
+    "evidenceIds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "modelProvider": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "promptVersion": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "text", "evidenceIds", "confidence"],
+      "properties": {
+        "kind": { "enum": ["fact", "inference", "unknown"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "evidenceIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "confidence": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "const": "fact" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "evidenceIds": { "type": "array", "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "inference" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "evidenceIds": { "type": "array", "minItems": 1 },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "unknown" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "evidenceIds": { "type": "array", "maxItems": 0 },
+              "confidence": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "buyingRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "priority", "influence", "concerns", "claim"],
+      "properties": {
+        "role": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "priority": { "enum": [1, 2, 3] },
+        "influence": {
+          "enum": ["decision_maker", "influencer", "user", "gatekeeper"]
+        },
+        "concerns": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+        },
+        "claim": { "$ref": "#/$defs/claim" }
+      }
+    },
+    "connectionStrategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel", "targetRole", "rationale", "openingDraft"],
+      "properties": {
+        "channel": {
+          "enum": ["public_reply", "wecom", "phone", "email", "referral"]
+        },
+        "targetRole": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "rationale": { "$ref": "#/$defs/claim" },
+        "openingDraft": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        }
+      }
+    },
+    "roleOpener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "channel", "text"],
+      "properties": {
+        "role": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "channel": {
+          "enum": ["public_reply", "wecom", "phone", "email", "referral"]
+        },
+        "text": { "type": "string", "minLength": 1, "maxLength": 8000 }
+      }
+    },
+    "factors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profitability",
+        "cashFlow",
+        "creditQuality",
+        "repeatPotential",
+        "referralPotential",
+        "closeProbability"
+      ],
+      "properties": {
+        "profitability": { "type": "number", "minimum": 0, "maximum": 100 },
+        "cashFlow": { "type": "number", "minimum": 0, "maximum": 100 },
+        "creditQuality": { "type": "number", "minimum": 0, "maximum": 100 },
+        "repeatPotential": { "type": "number", "minimum": 0, "maximum": 100 },
+        "referralPotential": { "type": "number", "minimum": 0, "maximum": 100 },
+        "closeProbability": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "financialSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decisionId",
+        "decisionVersion",
+        "grade",
+        "score",
+        "currency",
+        "expectedRevenueMinor",
+        "expectedGrossProfitMinor",
+        "expectedContributionMinor",
+        "factors"
+      ],
+      "properties": {
+        "decisionId": { "type": "string", "minLength": 1 },
+        "decisionVersion": { "type": "string", "minLength": 1 },
+        "grade": { "enum": ["S", "A", "B", "C", "D"] },
+        "score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "expectedRevenueMinor": { "type": "integer" },
+        "expectedGrossProfitMinor": { "type": "integer" },
+        "expectedContributionMinor": { "type": "integer" },
+        "factors": { "$ref": "#/$defs/factors" }
+      }
+    },
+    "intelligence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accountOverview",
+        "needAssessment",
+        "supplierHypotheses",
+        "buyingCommittee",
+        "procurementPreferences",
+        "connectionStrategies",
+        "roleSpecificOpeners",
+        "doNotActions",
+        "financialSummary"
+      ],
+      "properties": {
+        "accountOverview": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claim" }
+        },
+        "needAssessment": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claim" }
+        },
+        "supplierHypotheses": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claim" }
+        },
+        "buyingCommittee": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/buyingRole" }
+        },
+        "procurementPreferences": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claim" }
+        },
+        "connectionStrategies": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/connectionStrategy" }
+        },
+        "roleSpecificOpeners": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/roleOpener" }
+        },
+        "doNotActions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        },
+        "financialSummary": {
+          "oneOf": [
+            { "$ref": "#/$defs/financialSummary" },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.goodjob.ai/finance-document.v1.schema.json",
+  "title": "FinanceDocumentInspection",
+  "type": "object", "additionalProperties": false,
+  "required": ["documentId", "fileName", "expiresAt", "selectedForConversation", "fileHash", "classification", "regions", "cells", "missingStatements", "uncertain", "observations", "modelStatus"],
+  "properties": {
+    "files": { "type": "array", "maxItems": 10, "items": { "type": "object", "additionalProperties": false, "required": ["fileName", "fileHash", "prefix"], "properties": { "fileName": { "type": "string", "maxLength": 255 }, "fileHash": { "$ref": "#/$defs/FileHash" }, "prefix": { "type": "string", "pattern": "^file:[1-9][0-9]*:$" } } } },
+    "documentId": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "fileName": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "selectedForConversation": { "type": "boolean" },
+    "fileHash": { "$ref": "#/$defs/FileHash" },
+    "classification": { "$ref": "#/$defs/Classification" },
+    "regions": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/Region" } },
+    "cells": { "type": "array", "maxItems": 2000, "items": { "$ref": "#/$defs/Cell" } },
+    "missingStatements": { "type": "array", "maxItems": 3, "uniqueItems": true, "items": { "$ref": "#/$defs/StatementKind" } },
+    "uncertain": { "$ref": "#/$defs/Uncertain" },
+    "observations": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/Observation" } },
+    "modelStatus": { "enum": ["not_requested", "consent_required", "completed", "unavailable", "invalid_output"] }
+  },
+  "$defs": {
+    "BatchFile": { "type": "object", "additionalProperties": false, "required": ["fileName", "mediaType", "contentBase64"], "properties": { "fileName": { "$ref": "#/$defs/Input/properties/fileName" }, "mediaType": { "$ref": "#/$defs/Input/properties/mediaType" }, "contentBase64": { "$ref": "#/$defs/Input/properties/contentBase64" } } },
+    "Input": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fileName", "mediaType", "contentBase64", "readWithModel"],
+      "properties": {
+        "additionalFiles": { "type": "array", "maxItems": 9, "description": "Other selected successful files; decoded batch at most 5 MiB. Original references receive unique file prefixes.", "items": { "$ref": "#/$defs/BatchFile" } },
+        "fileName": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "mediaType": { "enum": ["text/csv", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"] },
+        "contentBase64": { "type": "string", "minLength": 4, "maxLength": 6990508, "description": "Canonical Base64-encoded original file; decoded content is bounded to 5 MiB by the server." },
+        "readWithModel": { "type": "boolean", "description": "True is the informed read action: use the configured model and select this read-only source for the current workspace/actor conversation. False only inspects locally." },
+        "analysisPurpose": { "enum": ["finance", "roi", "management"], "description": "Optional read-only question purpose. None requires three statements or creates ledger facts. Missing ROI inputs cannot be invented." }
+      }
+    },
+    "FileHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "Classification": { "enum": ["financial_statements", "ledger", "unknown"] },
+    "StatementKind": { "enum": ["balance_sheet", "income_statement", "cash_flow_statement"] },
+    "SourceRef": { "type": "string", "pattern": "^(?:file:[1-9][0-9]*:)?(?:cell:[1-9][0-9]*:[1-9][0-9]*:[1-9][0-9]*|(?:pdf:[1-9][0-9]*:[1-9][0-9]*|docx:p:[1-9][0-9]*|docx:t:[1-9][0-9]*:[1-9][0-9]*:[1-9][0-9]*)(?::s:[1-9][0-9]*)?)$" },
+    "Refs": { "type": "array", "maxItems": 2000, "uniqueItems": true, "items": { "$ref": "#/$defs/SourceRef" } },
+    "Uncertain": { "type": "array", "maxItems": 100, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
+    "Cell": {
+      "description": "An original spreadsheet cell, PDF text item, Word paragraph or Word table cell. Non-spreadsheet sources never contain fabricated sheet coordinates.",
+      "oneOf": [
+        { "$ref": "#/$defs/SpreadsheetCell" }, { "$ref": "#/$defs/PdfText" },
+        { "$ref": "#/$defs/WordParagraph" }, { "$ref": "#/$defs/WordTableCell" }
+      ]
+    },
+    "SpreadsheetCell": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourceRef", "sheetName", "row", "column", "text"],
+      "properties": {
+        "sourceRef": { "type": "string", "pattern": "^(?:file:[1-9][0-9]*:)?cell:[1-9][0-9]*:[1-9][0-9]*:[1-9][0-9]*$" },
+        "sheetName": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "row": { "type": "integer", "minimum": 1 }, "column": { "type": "integer", "minimum": 1 },
+        "text": { "type": "string", "maxLength": 500 },
+        "valueStatus": { "enum": ["original", "cached_formula"], "description": "Cached formulas are workbook display evidence only; never recalculated or verified." }
+      }
+    },
+    "PdfText": {
+      "type": "object", "additionalProperties": false,
+      "allOf": [{ "$ref": "#/$defs/SegmentMetadata" }],
+      "required": ["sourceRef", "page", "item", "text"],
+      "properties": {
+        "sourceRef": { "type": "string", "pattern": "^(?:file:[1-9][0-9]*:)?pdf:[1-9][0-9]*:[1-9][0-9]*(?::s:[1-9][0-9]*)?$" },
+        "page": { "type": "integer", "minimum": 1 }, "item": { "type": "integer", "minimum": 1 },
+        "segment": { "type": "integer", "minimum": 1 }, "startOffset": { "type": "integer", "minimum": 0 }, "endOffset": { "type": "integer", "minimum": 1 },
+        "text": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "WordParagraph": {
+      "type": "object", "additionalProperties": false,
+      "allOf": [{ "$ref": "#/$defs/SegmentMetadata" }],
+      "required": ["sourceRef", "paragraph", "text"],
+      "properties": {
+        "sourceRef": { "type": "string", "pattern": "^(?:file:[1-9][0-9]*:)?docx:p:[1-9][0-9]*(?::s:[1-9][0-9]*)?$" },
+        "segment": { "type": "integer", "minimum": 1 }, "startOffset": { "type": "integer", "minimum": 0 }, "endOffset": { "type": "integer", "minimum": 1 },
+        "paragraph": { "type": "integer", "minimum": 1 }, "text": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "WordTableCell": {
+      "type": "object", "additionalProperties": false,
+      "allOf": [{ "$ref": "#/$defs/SegmentMetadata" }],
+      "required": ["sourceRef", "table", "row", "column", "text"],
+      "properties": {
+        "sourceRef": { "type": "string", "pattern": "^(?:file:[1-9][0-9]*:)?docx:t:[1-9][0-9]*:[1-9][0-9]*:[1-9][0-9]*(?::s:[1-9][0-9]*)?$" },
+        "segment": { "type": "integer", "minimum": 1 }, "startOffset": { "type": "integer", "minimum": 0 }, "endOffset": { "type": "integer", "minimum": 1 },
+        "table": { "type": "integer", "minimum": 1 }, "row": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 }, "text": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "SegmentMetadata": {
+      "type": "object",
+      "description": "Long PDF/Word text is preserved as segments. Offsets are zero-based UTF-16 indexes into the complete original text; endOffset is exclusive.",
+      "properties": { "segment": {}, "startOffset": {}, "endOffset": {}, "sourceRef": {} },
+      "if": { "properties": { "segment": {} }, "required": ["segment"] },
+      "then": { "required": ["startOffset", "endOffset"], "properties": { "startOffset": {}, "endOffset": {}, "sourceRef": { "type": "string", "pattern": ":s:[1-9][0-9]*$" } } },
+      "else": {
+        "properties": { "sourceRef": { "not": { "type": "string", "pattern": ":s:" } } },
+        "not": { "anyOf": [{ "properties": { "startOffset": {} }, "required": ["startOffset"] }, { "properties": { "endOffset": {} }, "required": ["endOffset"] }] }
+      }
+    },
+    "Region": {
+      "type": "object", "additionalProperties": false,
+      "required": ["regionId", "sheetName", "kind", "startRow", "endRow", "headerRow", "sourceRefs", "uncertain"],
+      "properties": {
+        "regionId": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "sheetName": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "kind": { "enum": ["balance_sheet", "income_statement", "cash_flow_statement", "ledger", "unknown"] },
+        "startRow": { "type": "integer", "minimum": 1 }, "endRow": { "type": "integer", "minimum": 1 },
+        "headerRow": { "type": ["integer", "null"], "minimum": 1 },
+        "sourceRefs": { "$ref": "#/$defs/Refs" }, "uncertain": { "$ref": "#/$defs/Uncertain" }
+      }
+    },
+    "Observation": {
+      "type": "object", "additionalProperties": false, "required": ["text", "sourceRefs"],
+      "properties": { "text": { "type": "string", "minLength": 1, "maxLength": 4000 }, "sourceRefs": { "$ref": "#/$defs/Refs" } }
+    },
+    "MaterialSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "documentId", "fileName", "fileHash", "classification", "missingStatements", "expiresAt"],
+      "properties": {
+        "kind": { "const": "readonly_document" },
+        "documentId": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "fileName": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "fileHash": { "$ref": "#/$defs/FileHash" }, "classification": { "$ref": "#/$defs/Classification" },
+        "missingStatements": { "type": "array", "maxItems": 3, "uniqueItems": true, "items": { "$ref": "#/$defs/StatementKind" } },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

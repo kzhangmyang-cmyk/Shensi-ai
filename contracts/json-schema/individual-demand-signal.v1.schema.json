@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/individual-demand-signal.v1.schema.json",
+  "title": "IndividualDemandSignal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "publicActorKey",
+    "publicDisplayName",
+    "publicProfileUrl",
+    "sourcePlatform",
+    "evidenceIds",
+    "demandCategory",
+    "demandSummary",
+    "locationHint",
+    "buyingStage",
+    "negativeSignals",
+    "subjectKind",
+    "status",
+    "version",
+    "identityResolved",
+    "latestDecisionVersion",
+    "approvedDecisionVersion",
+    "updatedAt",
+    "firstSeenAt",
+    "lastSeenAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "publicActorKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "pattern": "^(?:unmergeable:douyin:visual:visual-observation:[a-f0-9]{64}|(?!unmergeable:douyin:visual:).+)$"
+    },
+    "publicDisplayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "publicProfileUrl": { "type": "string", "format": "uri" },
+    "sourcePlatform": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "evidenceIds": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "demandCategory": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "demandSummary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "locationHint": { "type": "string", "maxLength": 200 },
+    "buyingStage": {
+      "enum": [
+        "awareness",
+        "problem_defined",
+        "solution_research",
+        "comparison",
+        "purchase_ready"
+      ]
+    },
+    "negativeSignals": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "subjectKind": { "const": "individual" },
+    "version": { "type": "integer", "minimum": 1 },
+    "identityResolved": { "type": "boolean" },
+    "status": {
+      "enum": [
+        "discovered",
+        "unresolvable",
+        "normalized",
+        "qualified",
+        "pending_review",
+        "approved",
+        "rejected",
+        "do_not_contact",
+        "needs_research",
+        "converted_to_lead"
+      ]
+    },
+    "latestDecisionVersion": { "type": ["string", "null"] },
+    "approvedDecisionVersion": { "type": ["string", "null"] },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "firstSeenAt": { "type": "string", "format": "date-time" },
+    "lastSeenAt": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "publicActorKey": {
+            "type": "string",
+            "pattern": "^unmergeable:douyin:visual:"
+          }
+        },
+        "required": ["publicActorKey"]
+      },
+      "then": {
+        "properties": {
+          "status": { "const": "needs_research" },
+          "identityResolved": { "const": false }
+        }
+      }
+    }
+  ]
+}

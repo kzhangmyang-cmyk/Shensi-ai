@@ -1,0 +1,3467 @@
+import { createPlatformExecutionAccess } from './platform-execution-access.js';
+import { emptyPlatformState } from './platform-admin-domain.js';
+import { isPlatformMutationPending } from './account-mutation-state.js';
+import {
+  createHash,
+  createHmac,
+  randomUUID
+} from "node:crypto";
+import { Router, type RequestHandler } from "express";
+import mysql from "mysql2/promise";
+import { createMysqlConnectionOptions } from "./mysql-connection-options.js";
+import type {
+  AcquisitionCandidate
+} from "./acquisition-domain.js";
+import {
+  acquisitionCandidateIdentityResolved
+} from "./acquisition-domain.js";
+import {
+  AcquisitionCandidateProcessingPipeline
+} from "./acquisition-candidate-processing-pipeline.js";
+import {
+  AcquisitionCandidateIntelligenceOperationService,
+  InMemoryAcquisitionCandidateIntelligenceOperationRepository,
+  type AcquisitionCandidateIntelligenceOperationRepository
+} from "./acquisition-candidate-intelligence-operations.js";
+import {
+  createAcquisitionCandidateIntelligenceOperationsRouter
+} from "./acquisition-candidate-intelligence-operations-router.js";
+import {
+  AcquisitionCandidateIntelligenceRecoverySweeper
+} from "./acquisition-candidate-intelligence-recovery-sweeper.js";
+import {
+  AcquisitionDouyinIdentityResolutionOperationService,
+  InMemoryAcquisitionDouyinIdentityResolutionOperationRepository,
+  type AcquisitionDouyinIdentityResolutionOperationRepository,
+  type AcquisitionDouyinIdentityResolutionScope
+} from "./acquisition-douyin-identity-resolution-operations.js";
+import {
+  AcquisitionDouyinIdentityResolutionRecoverySweeper
+} from "./acquisition-douyin-identity-resolution-recovery-sweeper.js";
+import {
+  createAcquisitionDouyinIdentityResolutionRouter
+} from "./acquisition-douyin-identity-resolution-router.js";
+import {
+  ensureAcquisitionDouyinIdentityResolutionMysqlSchema,
+  MysqlAcquisitionDouyinIdentityResolutionOperationRepository
+} from "./acquisition-douyin-identity-resolution-mysql-repository.js";
+import {
+  createAcquisitionDouyinPublicProfileDiscovery,
+  type AcquisitionDouyinPublicProfileDiscoveryPort
+} from "./acquisition-douyin-public-profile-discovery.js";
+import {
+  InMemoryAcquisitionDouyinCommentEventRepository,
+  type AcquisitionDouyinCommentEventRepository
+} from "./acquisition-douyin-comment-events.js";
+import {
+  ensureAcquisitionDouyinCommentEventsMysqlSchema,
+  MysqlAcquisitionDouyinCommentEventRepository
+} from "./acquisition-douyin-comment-events-mysql-repository.js";
+import {
+  AcquisitionDouyinCommentIngestionService
+} from "./acquisition-douyin-comment-ingestion.js";
+import {
+  AcquisitionDouyinCommentEnrichmentService
+} from "./acquisition-douyin-comment-enrichment.js";
+import {
+  AcquisitionDouyinCommentIngestionRecoverySweeper,
+  type AcquisitionDouyinCommentIngestionRecoveryPort
+} from "./acquisition-douyin-comment-ingestion-recovery-sweeper.js";
+import {
+  InMemoryAcquisitionDouyinCommentIngestionUnitOfWork,
+  MysqlAcquisitionDouyinCommentIngestionUnitOfWork,
+  type AcquisitionDouyinCommentIngestionUnitOfWork
+} from "./acquisition-douyin-comment-ingestion-unit-of-work.js";
+import {
+  createDouyinPublicCommentProvider,
+  type DouyinPublicCommentProviderPort
+} from "./douyin-public-comment-provider.js";
+import {
+  ensureAcquisitionCandidateIntelligenceMysqlSchema,
+  MysqlAcquisitionCandidateIntelligenceOperationRepository
+} from "./acquisition-candidate-intelligence-mysql-repository.js";
+import {
+  AcquisitionCandidateResearchService
+} from "./acquisition-candidate-research.js";
+import {
+  InMemoryAcquisitionDomainRepository,
+  type AcquisitionDomainRepository
+} from "./acquisition-domain-repository.js";
+import {
+  AcquisitionDomainService,
+  type AcquisitionDomainServiceOptions
+} from "./acquisition-domain-service.js";
+import {
+  AcquisitionDiscoveryOperationService,
+  ControlledPublicContentFetcher,
+  InMemoryAcquisitionDiscoveryOperationRepository,
+  type AcquisitionContentFetcherPort,
+  type AcquisitionDiscoveryOperationRepository
+} from "./acquisition-discovery-operations.js";
+import {
+  createAcquisitionDiscoveryOperationsRouter
+} from "./acquisition-discovery-operations-router.js";
+import {
+  AcquisitionDiscoveryRecoverySweeper
+} from "./acquisition-discovery-recovery-sweeper.js";
+import {
+  ensureAcquisitionDiscoveryMysqlSchema,
+  MysqlAcquisitionDiscoveryOperationRepository
+} from "./acquisition-discovery-mysql-repository.js";
+import {
+  ACQUISITION_SEARCH_PROVIDER_IDS,
+  isTrustedAcquisitionSystemConnection
+} from "./acquisition-discovery-providers.js";
+import {
+  AcquisitionContentFetchShardProcessor,
+  AcquisitionImportRowsShardProcessor
+} from "./acquisition-discovery-shard-processors.js";
+import {
+  createAcquisitionJudgmentPort,
+  createAcquisitionJudgmentSessionResolver
+} from "./acquisition-judgment-port.js";
+import {
+  AcquisitionCrmLeadConversionPort
+} from "./acquisition-lead-conversion-port.js";
+import {
+  AcquisitionPrivateDomainHandoffService
+} from "./acquisition-private-domain-handoff.js";
+import {
+  CfoAcquisitionWorkflowService
+} from "./cfo-acquisition-workflow.js";
+import {
+  createCfoAcquisitionWorkflowRouter
+} from "./cfo-acquisition-workflow-router.js";
+import {
+  AcquisitionLeadConversionReconciliationService
+} from "./acquisition-lead-conversion-reconciliation.js";
+import {
+  AcquisitionCandidateRunAttributionResolver,
+  AcquisitionCrmOutcomeReconciliationService,
+  type AcquisitionCommercialOutcomeAuthority
+} from "./acquisition-crm-outcome-reconciliation.js";
+import type {
+  QuoteProjectedDocumentAuthorityValidator
+} from "./commercial-authority-guard.js";
+import type {
+  ProbabilityAssessmentWriter
+} from "./probability-assessment.js";
+import {
+  AcquisitionCrmOutcomeReconciliationWorker
+} from "./acquisition-crm-outcome-reconciliation-worker.js";
+import {
+  AcquisitionPerformanceQueryService
+} from "./acquisition-performance-query.js";
+import {
+  createAcquisitionPerformanceRouter
+} from "./acquisition-performance-router.js";
+import {
+  AcquisitionLeadConversionRecoverySweeper
+} from "./acquisition-lead-conversion-recovery-sweeper.js";
+import {
+  AcquisitionIdentityResolutionService
+} from "./acquisition-identity-resolution-service.js";
+import {
+  AcquisitionIndividualSignalIngestionService
+} from "./acquisition-individual-signal-ingestion.js";
+import {
+  ACQUISITION_MODEL_CONTENT_HASHES,
+  ACQUISITION_MODEL_PROMPT_VERSION,
+  ACQUISITION_MODEL_SCHEMA_VERSION,
+  acquisitionModelContentForSnapshot
+} from "./acquisition-model-content.js";
+import {
+  canonicalJsonStringify
+} from "./canonical-json.js";
+import {
+  createMysqlAcquisitionRepositories,
+  ensureAcquisitionMysqlSchema,
+  MysqlAcquisitionDomainRepository,
+  MysqlAcquisitionPlanRunRepository
+} from "./acquisition-mysql-repositories.js";
+import {
+  AcquisitionPlanExecutionWorker,
+  AcquisitionShardProcessorRegistry
+} from "./acquisition-plan-execution-worker.js";
+import {
+  AcquisitionPlanExecutionRecoverySweeper
+} from "./acquisition-plan-execution-recovery-sweeper.js";
+import {
+  createAcquisitionPlanRouter
+} from "./acquisition-plan-router.js";
+import {
+  createAcquisitionTaskOverviewRouter
+} from "./acquisition-task-overview-router.js";
+import {
+  createAcquisitionPlanDraftGenerator,
+  type AcquisitionActiveSearchConnectionDirectory,
+  type AcquisitionPlanDraftGenerator
+} from "./acquisition-plan-draft.js";
+import {
+  generateDouyinKeywords
+} from "./acquisition-douyin-keyword-generator.js";
+import {
+  createAcquisitionDouyinKeywordRouter
+} from "./acquisition-douyin-keyword-router.js";
+import {
+  AcquisitionOutreachDraftService
+} from "./acquisition-outreach-draft-service.js";
+import {
+  InMemoryAcquisitionOutreachDraftFinalAuthority,
+  MysqlAcquisitionOutreachDraftFinalAuthority,
+  type AcquisitionOutreachFinalAuthority
+} from "./acquisition-outreach-draft-authority.js";
+import { executeModelConnectionWriteIdempotently } from "./model-providers/idempotency.js";
+import {
+  acquisitionProviderConnectionVersion
+} from "./acquisition-provider-connection-version.js";
+import {
+  createAcquisitionProviderConnectionsRouter
+} from "./acquisition-provider-connections-router.js";
+import {
+  createDouyinCollectionAcquisitionRun,
+  InMemoryAcquisitionPlanRunRepository,
+  type AcquisitionModelSnapshotRef,
+  type AcquisitionProviderConnectionSnapshot,
+  type AcquisitionPlanPayload,
+  type AcquisitionPlanRunRepository
+} from "./acquisition-plan-run-repository.js";
+import {
+  AcquisitionMemoryTransactionCoordinator
+} from "./acquisition-memory-transaction-coordinator.js";
+import {
+  AcquisitionPlanRunService
+} from "./acquisition-plan-run-service.js";
+import {
+  AcquisitionRunPresentationService
+} from "./acquisition-run-presentation.js";
+import {
+  AcquisitionTaskOverviewService
+} from "./acquisition-task-overview.js";
+import {
+  createPiAcquisitionCopilotRunner,
+  createRoutedAcquisitionCopilotRunner
+} from "./acquisition-copilot-runner.js";
+import {
+  AcquisitionCopilotService,
+  InMemoryAcquisitionCopilotRepository,
+  type AcquisitionCopilotRunner,
+  type AcquisitionCopilotRepository,
+  type AcquisitionCopilotScope
+} from "./acquisition-copilot-service.js";
+import {
+  AcquisitionCopilotRecoverySweeper
+} from "./acquisition-copilot-recovery-sweeper.js";
+import {
+  acquisitionPiModelSnapshotFromStored,
+  bindActiveAcquisitionModelSnapshot,
+  createAcquisitionModelGatewayForSnapshot,
+  createAcquisitionPiRuntimeFactory
+} from "./acquisition-pi-runtime-factory.js";
+import type {
+  AcquisitionPiGatewayPort
+} from "./acquisition-pi-gateway-runtime.js";
+import {
+  createAcquisitionPublicSearchPort
+} from "./acquisition-public-search-port.js";
+import type {
+  AcquisitionHttpRuntime
+} from "./acquisition-runtime-bridge.js";
+import {
+  AcquisitionSearchShardProcessor
+} from "./acquisition-search-shard-processor.js";
+import {
+  ProductionAcquisitionAgentToolExecutor,
+  type AcquisitionActionExecutionPort,
+  type AcquisitionPriorityCandidatePort,
+  type AcquisitionPriorityCandidateRow,
+  type ProductionAcquisitionAgentToolExecutorOptions,
+  type SearchPublicSourcesPort
+} from "./acquisition-tool-executor.js";
+import {
+  InMemoryAcquisitionCandidateDirectory,
+  InMemoryAcquisitionReviewTaskRepository,
+  InMemoryAcquisitionToolAuditLedgerAdapter,
+  InMemoryAcquisitionToolResultLedger,
+  MysqlAcquisitionActionExecutionRepository,
+  MysqlAcquisitionCandidateDirectory,
+  MysqlAcquisitionPriorityCandidateRepository,
+  MysqlAcquisitionReviewTaskRepository,
+  MysqlAcquisitionToolAuditStore,
+  MysqlAcquisitionToolResultLedger,
+  ensureAcquisitionToolSupportMysqlSchema
+} from "./acquisition-tool-support-repositories.js";
+import {
+  createAcquisitionV1Router
+} from "./acquisition-v1-router.js";
+import {
+  InMemoryAcquisitionVisualReaderRepository,
+  type AcquisitionVisualReaderRepository
+} from "./acquisition-visual-reader-sessions.js";
+import {
+  ensureAcquisitionVisualReaderMysqlSchema,
+  MysqlAcquisitionVisualReaderRepository
+} from "./acquisition-visual-reader-mysql-repository.js";
+import {
+  AcquisitionVisualArtifactExpirySweeper
+} from "./acquisition-visual-artifact-expiry-sweeper.js";
+import {
+  AcquisitionVisualReaderService
+} from "./acquisition-visual-reader-service.js";
+import {
+  createAcquisitionVisualReaderRouter
+} from "./acquisition-visual-reader-router.js";
+import type { DouyinMediaCrawlerGateway } from "./acquisition-mediacrawler-gateway.js";
+import { InMemoryAcquisitionSocialAccountRepository, type AcquisitionSocialAccountRepository } from "./acquisition-social-account-repository.js";
+import { MysqlAcquisitionSocialAccountRepository, ensureAcquisitionSocialAccountsMysqlSchema } from "./acquisition-social-account-mysql-repository.js";
+import {
+  AcquisitionSocialAccountService
+} from "./acquisition-social-account-service.js";
+import { createAcquisitionSocialAccountRouter } from "./acquisition-social-account-router.js";
+import {
+  createAcquisitionDouyinAutomationAuthorityValidator,
+  InMemoryAcquisitionDouyinAutomationRepository,
+  type AcquisitionDouyinAutomationRepository
+} from "./acquisition-douyin-automation-repository.js";
+import {
+  ensureAcquisitionDouyinAutomationMysqlSchema,
+  MysqlAcquisitionDouyinAutomationRepository
+} from "./acquisition-douyin-automation-mysql-repository.js";
+import { AcquisitionDouyinAutomationService } from "./acquisition-douyin-automation-service.js";
+import { createAcquisitionDouyinAutomationRouter } from "./acquisition-douyin-automation-router.js";
+import { douyinAutomationHash } from "./acquisition-douyin-automation.js";
+import {
+  InMemoryAcquisitionCrawlerJobRepository,
+  type AcquisitionCrawlerJobRepository
+} from "./acquisition-crawler-job-repository.js";
+import {
+  crawlerOutreachFinalizationState
+} from "./acquisition-crawler-job.js";
+import {
+  ensureAcquisitionCrawlerJobMysqlSchema,
+  MysqlAcquisitionCrawlerJobRepository
+} from "./acquisition-crawler-job-mysql-repository.js";
+import { createAcquisitionCrawlerJobRouter } from "./acquisition-crawler-job-router.js";
+import { AcquisitionDesktopSyncService } from "./acquisition-desktop-sync.js";
+import { createAcquisitionDesktopSyncRouter } from "./acquisition-desktop-sync-router.js";
+import {
+  AcquisitionDesktopInstallationService
+} from "./acquisition-desktop-installation-service.js";
+import {
+  InMemoryDesktopInstallationRepository,
+  type DesktopInstallationRepository
+} from "./acquisition-desktop-installation-repository.js";
+import {
+  ensureAcquisitionDesktopInstallationMysqlSchema,
+  MysqlDesktopInstallationRepository
+} from "./acquisition-desktop-installation-mysql-repository.js";
+import { AcquisitionDesktopOutreachSync } from "./acquisition-desktop-outreach-sync.js";
+import { createAcquisitionDesktopOutreachSyncRouter } from
+  "./acquisition-desktop-outreach-sync-router.js";
+import { createAcquisitionRunCandidatesRouter } from "./acquisition-run-candidates-router.js";
+import { discoveryEvidencePublicSourceUrl } from "./acquisition-domain.js";
+import {
+  orderedCandidateEvidenceIds,
+  selectDouyinCandidateEvidence
+} from "./acquisition-douyin-evidence-selection.js";
+import { AcquisitionCrawlerWorker } from "./acquisition-crawler-worker.js";
+import {
+  ingestDouyinCrawlerPage,
+  type DouyinCrawlerEvidenceStore
+} from "./acquisition-douyin-crawler-ingestion.js";
+import {
+  ensureAcquisitionDouyinCrawlerIngestionMysqlSchema,
+  InMemoryAcquisitionDouyinCrawlerIngestionRepository,
+  MysqlAcquisitionDouyinCrawlerIngestionRepository
+} from "./acquisition-douyin-crawler-ingestion-repository.js";
+import {
+  projectDouyinCrawlerTerminalRuns
+} from "./acquisition-douyin-run-lifecycle.js";
+import {
+  AcquisitionDouyinEvidenceRetentionSweeper
+} from "./acquisition-douyin-evidence-retention-sweeper.js";
+import { AcquisitionCrawlerRecoverySweeper } from "./acquisition-crawler-recovery-sweeper.js";
+import { AcquisitionDouyinScheduler } from "./acquisition-douyin-scheduler.js";
+import {
+  InMemoryAcquisitionOutreachBatchRepository,
+  type AcquisitionDesktopOutreachRepository,
+  type AcquisitionOutreachBatchRepository
+} from "./acquisition-outreach-batch-repository.js";
+import {
+  ensureAcquisitionOutreachBatchMysqlSchema,
+  MysqlAcquisitionOutreachBatchRepository
+} from "./acquisition-outreach-batch-mysql-repository.js";
+import { AcquisitionOutreachBatchService } from "./acquisition-outreach-batch-service.js";
+import { createAcquisitionOutreachBatchRouter } from "./acquisition-outreach-batch-router.js";
+import {
+  AcquisitionOutreachActionWorker,
+  douyinActionDeadlineMs
+} from "./acquisition-outreach-action-worker.js";
+import { createAcquisitionOutreachActionAuthority,
+  type DouyinOutreachFeatureFlags } from
+  "./acquisition-outreach-action-authority.js";
+export { resolveDouyinOutreachFeatureFlags } from
+  "./acquisition-outreach-action-authority.js";
+export type { DouyinOutreachFeatureFlags } from
+  "./acquisition-outreach-action-authority.js";
+import { AcquisitionOutreachActionRecoverySweeper } from "./acquisition-outreach-action-recovery-sweeper.js";
+import {
+  AcquisitionVisualCommentIngestionService
+} from "./acquisition-visual-comment-ingestion.js";
+import {
+  AcquisitionVisualReaderRecoverySweeper,
+  type AcquisitionVisualIngestionRecoveryPort
+} from "./acquisition-visual-reader-recovery-sweeper.js";
+import {
+  MODEL_PROVIDER_IDS,
+  type StoredAiJobModelSnapshot
+} from "./model-providers/types.js";
+import type {
+  ModelContentBundle
+} from "./model-providers/gateway.js";
+import type {
+  CrmStore
+} from "./store.js";
+import {
+  assertGrowthCommercialToolPorts,
+  type GrowthCommercialToolPorts
+} from "./growth-commercial-application.js";
+import {
+  assertGrowthTemporalBarrier,
+  InMemoryGrowthTemporalTransactionRunner,
+  type GrowthTemporalTransactionRunner,
+  type GrowthTemporalBarrier
+} from "./growth-temporal-barrier.js";
+import {
+  InMemoryAdvisorCandidateAuthorityRepository
+} from "./growth-advisor-candidate-authority-projection.js";
+import {
+  MysqlAdvisorCandidateAuthorityRepository,
+  ensureAdvisorCandidateAuthorityMysqlSchema
+} from "./growth-advisor-candidate-authority-mysql-repository.js";
+import {
+  assertGrowthAcquisitionWorkspaceResolver,
+  type GrowthAcquisitionWorkspaceResolver
+} from "./growth-workspace-context.js";
+import {
+  GrowthAdvisorQuoteToolExecutor,
+  GrowthQuoteAcquisitionToolDelegate
+} from "./growth-advisor-quote-tools.js";
+import {
+  GrowthAdvisorAcquisitionToolDelegate,
+  GrowthAdvisorToolExecutor,
+  composeGrowthAcquisitionToolDelegates
+} from "./growth-advisor-tools.js";
+import {
+  capabilitiesForHumanRole,
+  GROWTH_CAPABILITY_REGISTRY_VERSION
+} from "./growth-capabilities.js";
+
+export {
+  acquisitionProviderConnectionVersion
+} from "./acquisition-provider-connection-version.js";
+
+type IdFactory = (prefix: string) => string;
+
+function isExecutableAcquisitionSearchProvider(
+  store: Pick<CrmStore, "providerCatalog">,
+  providerId: string
+) {
+  if (!ACQUISITION_SEARCH_PROVIDER_IDS.includes(
+    providerId as (typeof ACQUISITION_SEARCH_PROVIDER_IDS)[number]
+  )) {
+    return false;
+  }
+  return store.providerCatalog.some((catalog) =>
+    catalog.code === providerId
+    && catalog.status === "active"
+    && catalog.accessMode === "api"
+    && catalog.licensePolicy.requiresKey === true
+  );
+}
+
+export function createAcquisitionActiveSearchConnectionDirectory(
+  store: Pick<
+    CrmStore,
+    "providerCatalog" | "providerConnections" | "readBarrier"
+  >
+): AcquisitionActiveSearchConnectionDirectory {
+  return {
+    async list(scope) {
+      await store.readBarrier();
+      return store.providerConnections
+        .filter((connection) =>
+          connection.ownerId === scope.ownerId
+          && connection.teamId === scope.teamId
+          && connection.scope === "personal"
+          && connection.status === "active"
+          && isExecutableAcquisitionSearchProvider(
+            store,
+            connection.providerId
+          )
+        )
+        .sort((left, right) =>
+          left.providerId < right.providerId
+            ? -1
+            : left.providerId > right.providerId
+              ? 1
+              : left.id < right.id
+                ? -1
+                : left.id > right.id
+                  ? 1
+                  : 0
+        )
+        .map((connection) => ({
+          connectionId: connection.id,
+          providerId: connection.providerId,
+          kind: "search" as const,
+          status: "active" as const,
+          credentialVersion:
+            acquisitionProviderConnectionVersion(connection)
+        }));
+    }
+  };
+}
+
+export interface CreateAcquisitionApplicationOptions {
+  store: CrmStore;
+  masterSecret: string;
+  /** C0 forward seams; production supplies the one Growth runtime identities. */
+  growthToolPorts: GrowthCommercialToolPorts;
+  acquisitionWorkspace: GrowthAcquisitionWorkspaceResolver;
+  growthTemporalBarrier: GrowthTemporalBarrier;
+  temporalTransactions?: GrowthTemporalTransactionRunner;
+  advisorCandidateAuthority?:
+    | InMemoryAdvisorCandidateAuthorityRepository
+    | MysqlAdvisorCandidateAuthorityRepository;
+  probabilityAssessments?: ProbabilityAssessmentWriter;
+  quoteProjectedDocumentAuthority?: QuoteProjectedDocumentAuthorityValidator;
+  commercialOutcomeAuthority?: AcquisitionCommercialOutcomeAuthority;
+  databaseUrl?: string;
+  searchPort?: SearchPublicSourcesPort;
+  contentFetcher?: AcquisitionContentFetcherPort;
+  modelGatewayFactory?: (
+    snapshot: StoredAiJobModelSnapshot,
+    contentBundle: ModelContentBundle
+  ) => AcquisitionPiGatewayPort;
+  mysqlPoolFactory?: (databaseUrl: string) => mysql.Pool;
+  workerConcurrency?: number;
+  planExecutionRecoveryIntervalMs?: number;
+  copilotRecoveryIntervalMs?: number;
+  discoveryRecoveryIntervalMs?: number;
+  conversionRecoveryIntervalMs?: number;
+  outcomeReconciliationIntervalMs?: number;
+  outcomeReconciliationBatchSize?: number;
+  candidateIntelligenceRecoveryIntervalMs?: number;
+  candidateIntelligenceRecoveryBatchSize?: number;
+  candidateIntelligenceLeaseDurationMs?: number;
+  douyinIdentityResolutionRecoveryIntervalMs?: number;
+  douyinIdentityResolutionRecoveryBatchSize?: number;
+  douyinIdentityResolutionLeaseDurationMs?: number;
+  douyinCommentIngestionRecoveryIntervalMs?: number;
+  douyinCommentIngestionRecoveryBatchSize?: number;
+  douyinCommentIngestionRecoveryLeaseDurationMs?: number;
+  visualArtifactExpiryIntervalMs?: number;
+  visualArtifactExpiryBatchSize?: number;
+  visualIngestionRecoveryIntervalMs?: number;
+  visualIngestionRecoveryBatchSize?: number;
+  discoveryLeaseDurationMs?: number;
+  domainRepository?: AcquisitionDomainRepository;
+  domainServiceFactory?: (
+    options: AcquisitionDomainServiceOptions
+  ) => AcquisitionDomainService;
+  toolExecutorFactory?: (
+    options: ProductionAcquisitionAgentToolExecutorOptions
+  ) => ProductionAcquisitionAgentToolExecutor;
+  discoveryRepository?: AcquisitionDiscoveryOperationRepository;
+  candidateIntelligenceRepository?:
+    AcquisitionCandidateIntelligenceOperationRepository;
+  douyinIdentityResolutionRepository?:
+    AcquisitionDouyinIdentityResolutionOperationRepository;
+  douyinCommentEventRepository?: AcquisitionDouyinCommentEventRepository;
+  douyinCommentIngestionUnitOfWork?:
+    AcquisitionDouyinCommentIngestionUnitOfWork;
+  douyinCommentIngestionRecoverySweeperFactory?: (
+    service: AcquisitionDouyinCommentIngestionRecoveryPort
+  ) => Pick<AcquisitionDouyinCommentIngestionRecoverySweeper, "start" | "close">;
+  visualReaderRepository?: AcquisitionVisualReaderRepository;
+  visualArtifactExpirySweeperFactory?: (
+    repository: AcquisitionVisualReaderRepository
+  ) => Pick<AcquisitionVisualArtifactExpirySweeper, "start" | "close">;
+  visualReaderRecoverySweeperFactory?: (
+    service: AcquisitionVisualIngestionRecoveryPort
+  ) => Pick<AcquisitionVisualReaderRecoverySweeper, "start" | "close">;
+  douyinPublicCommentProvider?: DouyinPublicCommentProviderPort;
+  douyinPublicProfileDiscovery?:
+    AcquisitionDouyinPublicProfileDiscoveryPort;
+  planRunRepository?: AcquisitionPlanRunRepository;
+  shutdownTimeoutMs?: number;
+  idFactory?: IdFactory;
+  now?: () => string;
+  nowMs?: () => number;
+  /** The internal-only MediaCrawler transport; account HTTP routes mount when configured. */
+  douyinMediaCrawlerGateway?: DouyinMediaCrawlerGateway;
+  /** Literal deployment opt-in; every omitted or false value keeps external actions disabled. */
+  douyinOutreachActionsEnabled?: boolean;
+  douyinOutreachFeatureFlags?: DouyinOutreachFeatureFlags;
+  /** Test/runtime override; production selects Memory or MySQL from the store mode. */
+  socialAccountRepository?: AcquisitionSocialAccountRepository;
+  /** Test/runtime override for immutable policy and run-intent authority. */
+  douyinAutomationRepository?: AcquisitionDouyinAutomationRepository;
+  crawlerJobRepository?: AcquisitionCrawlerJobRepository;
+  crawlerIngestionRepository?: DouyinCrawlerEvidenceStore;
+  /** Required for Task 6 draft generation when custom repositories prevent
+   * the application from constructing a built-in atomic authority adapter. */
+  outreachFinalAuthority?: AcquisitionOutreachFinalAuthority;
+  /** Test/runtime override for immutable outreach batch and ordered outbox persistence. */
+  outreachBatchRepository?: AcquisitionOutreachBatchRepository &
+    AcquisitionDesktopOutreachRepository;
+  /** Test/runtime override for the desktop installation persistence boundary. */
+  desktopInstallationRepository?: DesktopInstallationRepository;
+  crawlerWorkerIntervalMs?: number;
+  crawlerRecoveryIntervalMs?: number;
+  crawlerEvidenceRetentionIntervalMs?: number;
+  douyinSchedulerIntervalMs?: number;
+  outreachActionWorkerIntervalMs?: number;
+  outreachActionRecoveryIntervalMs?: number;
+}
+
+export function effectiveDouyinOutreachActionsEnabled(input: {
+  enabled: boolean;
+  gateway: unknown;
+}) {
+  return input.enabled === true
+    && typeof (input.gateway as { executeAction?: unknown } | null)?.executeAction
+      === "function";
+}
+
+
+export interface AcquisitionApplicationRuntime
+extends AcquisitionHttpRuntime {
+  visualReaderRepository: AcquisitionVisualReaderRepository;
+  planDraftGenerator: AcquisitionPlanDraftGenerator;
+  outreachDraftService: AcquisitionOutreachDraftService;
+  cfoAcquisitionWorkflowService: CfoAcquisitionWorkflowService;
+  runOutcomeReconciliation(
+    scope: { ownerId: string; teamId: string }
+  ): ReturnType<AcquisitionCrmOutcomeReconciliationService["runTenant"]>;
+}
+
+/**
+ * The sole qualification decorator. Keeping it at the application boundary
+ * makes HTTP, Pi, pipelines and recovery paths share the same required write.
+ */
+export function createProbabilityAssessmentQualificationService(
+  rawDomainService: AcquisitionDomainService,
+  probabilityAssessments: ProbabilityAssessmentWriter
+): AcquisitionDomainService {
+  const qualifyCandidate: AcquisitionDomainService["qualifyCandidate"] =
+    async (...args) => {
+      const result = await rawDomainService.qualifyCandidate(...args);
+      const workspace = await rawDomainService
+        .resolveGrowthAcquisitionWorkspace(args[0]);
+      if (!workspace) {
+        throw new Error("growth_acquisition_workspace_not_found");
+      }
+      const source = result.probabilityAssessmentSource;
+      await probabilityAssessments.recordFromQualification({
+        workspaceId: workspace.workspaceId,
+        candidateId: result.candidate.id,
+        dealId: null,
+        qualificationDecisionId: source.qualificationDecisionId,
+        qualificationDecisionVersion: source.qualificationDecisionVersion,
+        qualificationInputHash: source.qualificationInputHash,
+        evidenceRefs: source.evidenceRefs,
+        ruleVersion: source.ruleVersion,
+        modelSnapshotRef: source.modelSnapshotRef,
+        financial: { closeProbabilityBps: source.closeProbabilityBps },
+        assessedAt: source.assessedAt
+      });
+      return result;
+    };
+  return new Proxy(rawDomainService, {
+    get(target, property) {
+      if (property === "qualifyCandidate") return qualifyCandidate;
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function"
+        ? value.bind(target)
+        : value;
+    }
+  });
+}
+
+interface AcquisitionRepositorySet {
+  domain: AcquisitionDomainRepository;
+  copilot: AcquisitionCopilotRepository;
+  planRun: AcquisitionPlanRunRepository;
+  discovery: AcquisitionDiscoveryOperationRepository;
+  candidateIntelligence:
+    AcquisitionCandidateIntelligenceOperationRepository;
+  douyinIdentityResolution:
+    AcquisitionDouyinIdentityResolutionOperationRepository;
+  douyinCommentEvents: AcquisitionDouyinCommentEventRepository;
+  visualReader: AcquisitionVisualReaderRepository;
+}
+
+const GRADE_RANK = Object.freeze({
+  S: 1,
+  A: 2,
+  B: 3,
+  C: 4,
+  D: 5
+});
+
+function unresolvedDouyinCandidate(candidate: AcquisitionCandidate) {
+  return candidate.partyType === "individual"
+    && candidate.partyRef.partyType === "individual"
+    && candidate.profile.kind === "individual"
+    && candidate.profile.sourcePlatform.toLocaleLowerCase("en-US")
+      === "douyin"
+    && !acquisitionCandidateIdentityResolved(candidate);
+}
+
+function automaticDouyinIdentityKey(input: {
+  source: string;
+  candidateId: string;
+  candidateVersion: number;
+  sourceEvidenceIds: string[];
+}) {
+  return `douyin-identity:operation:${createHash("sha256")
+    .update(canonicalJsonStringify(input) ?? "")
+    .digest("hex")}`;
+}
+
+function requireMasterSecret(secret: string) {
+  if (
+    typeof secret !== "string"
+    || !secret.trim()
+    || Buffer.byteLength(secret.trim(), "utf8") < 32
+  ) {
+    throw new TypeError(
+      "masterSecret must contain at least 32 non-whitespace bytes"
+    );
+  }
+  return secret;
+}
+
+function shutdownTimeout(value: number | undefined) {
+  const timeout = value ?? 30_000;
+  if (!Number.isSafeInteger(timeout) || timeout < 10 || timeout > 300_000) {
+    throw new TypeError(
+      "shutdownTimeoutMs must be an integer between 10 and 300000"
+    );
+  }
+  return timeout;
+}
+
+function derivedSecret(masterSecret: string, purpose: string) {
+  return createHmac("sha256", masterSecret)
+    .update("goodjob-acquisition-application\u0000")
+    .update(purpose)
+    .digest("hex");
+}
+
+function isAcquisitionDesktopOutreachRepository(
+  value: AcquisitionOutreachBatchRepository
+): value is AcquisitionOutreachBatchRepository & AcquisitionDesktopOutreachRepository {
+  return ["claimNextDesktopAction", "markDesktopActionStarted",
+    "completeDesktopAction", "completeDesktopReconciliation",
+    "recoverDesktopAction"].every((name) =>
+      typeof Reflect.get(value, name) === "function");
+}
+
+export function trackAcquisitionBackgroundTask<T>(
+  tasks: Set<Promise<T>>,
+  task: Promise<T>
+) {
+  tasks.add(task);
+  void task.then(
+    () => tasks.delete(task),
+    () => tasks.delete(task)
+  );
+  return task;
+}
+
+function waitWithTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("ACQUISITION_APPLICATION_SHUTDOWN_TIMEOUT"));
+    }, timeoutMs);
+    void operation.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+function userMessageText(content: unknown) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return null;
+  const parts: string[] = [];
+  for (const item of content) {
+    if (
+      !item
+      || typeof item !== "object"
+      || (item as { type?: unknown }).type !== "text"
+      || typeof (item as { text?: unknown }).text !== "string"
+    ) {
+      return null;
+    }
+    parts.push((item as { text: string }).text);
+  }
+  return parts.join("");
+}
+
+/**
+ * pi-agent-core normalizes a text prompt into a one-element text content
+ * array. The durable copilot service deliberately persists the canonical
+ * wire transcript with a string user prompt, so adapt that single boundary
+ * without accepting any changed or multimodal content.
+ */
+function canonicalCopilotRunner(
+  runner: AcquisitionCopilotRunner
+): AcquisitionCopilotRunner {
+  return {
+    async run(input) {
+      const response = await runner.run(input);
+      const first = response.newMessages[0];
+      if (
+        first?.role === "user"
+        && userMessageText(first.content) === input.prompt
+        && first.content !== input.prompt
+      ) {
+        return {
+          ...response,
+          newMessages: [{
+            ...first,
+            content: input.prompt
+          }, ...response.newMessages.slice(1)]
+        };
+      }
+      return response;
+    }
+  };
+}
+
+function assertApplicationStore(store: CrmStore) {
+  if (!store || !["memory", "mysql"].includes(store.mode)) {
+    throw new TypeError("A valid CRM store is required");
+  }
+  for (const key of [
+    "leads",
+    "leadActivities",
+    "leadSourceEvents",
+    "providerCatalog",
+    "providerConnections",
+    "providerRequestLogs",
+    "aiModelConfigs",
+    "modelCredentialVersions",
+    "aiJobModelSnapshots",
+    "pendingAiJobModelSnapshots",
+    "modelCallRecords",
+    "pendingModelCallRecords"
+  ] as const) {
+    if (!Array.isArray(store[key])) {
+      throw new TypeError(`CRM store field ${key} must be an array`);
+    }
+  }
+  if (typeof store.persist !== "function"
+    || typeof store.readBarrier !== "function") {
+    throw new TypeError(
+      "CRM store persistence methods are required"
+    );
+  }
+}
+
+function configuredDatabaseUrl(explicit: string | undefined) {
+  return explicit?.trim()
+    || process.env.DATABASE_URL?.trim()
+    || process.env.MYSQL_URL?.trim()
+    || "";
+}
+
+function assertTrustedSearchConnectionSnapshots(
+  store: CrmStore,
+  scope: { ownerId: string; teamId: string },
+  snapshots: AcquisitionProviderConnectionSnapshot[]
+) {
+  if (!Array.isArray(snapshots) || snapshots.length < 1) {
+    throw new Error("ACQUISITION_PROVIDER_SNAPSHOT_UNAVAILABLE");
+  }
+  const seen = new Set<string>();
+  for (const snapshot of snapshots) {
+    if (seen.has(snapshot.connectionId)) {
+      throw new Error("ACQUISITION_PROVIDER_SNAPSHOT_DUPLICATED");
+    }
+    seen.add(snapshot.connectionId);
+    const connection = store.providerConnections.find((candidate) =>
+      candidate.id === snapshot.connectionId
+      && candidate.ownerId === scope.ownerId
+      && candidate.teamId === scope.teamId
+    );
+    if (
+      !connection
+      || connection.scope !== "personal"
+      || connection.status !== "active"
+      || snapshot.kind !== "search"
+      || snapshot.status !== "active"
+      || snapshot.providerId !== connection.providerId
+      || !isExecutableAcquisitionSearchProvider(
+        store,
+        connection.providerId
+      )
+      || snapshot.credentialVersion
+        !== acquisitionProviderConnectionVersion(connection)
+    ) {
+      throw new Error("ACQUISITION_PROVIDER_SNAPSHOT_MISMATCH");
+    }
+  }
+}
+
+function assertTrustedPlanConnectionSnapshots(
+  store: CrmStore,
+  scope: { ownerId: string; teamId: string },
+  snapshots: AcquisitionProviderConnectionSnapshot[]
+) {
+  if (!Array.isArray(snapshots) || snapshots.length < 1) {
+    throw new Error("ACQUISITION_PROVIDER_SNAPSHOT_UNAVAILABLE");
+  }
+  const seen = new Set<string>();
+  for (const snapshot of snapshots) {
+    if (seen.has(snapshot.connectionId)) {
+      throw new Error("ACQUISITION_PROVIDER_SNAPSHOT_DUPLICATED");
+    }
+    seen.add(snapshot.connectionId);
+    if (snapshot.kind === "search") {
+      assertTrustedSearchConnectionSnapshots(store, scope, [snapshot]);
+      continue;
+    }
+    if (isTrustedAcquisitionDouyinPublicCommentConnection(snapshot)) {
+      continue;
+    }
+    if (!isTrustedAcquisitionSystemConnection(snapshot)) {
+      throw new Error("ACQUISITION_PROVIDER_SNAPSHOT_MISMATCH");
+    }
+  }
+}
+
+export function isTrustedAcquisitionDouyinPublicCommentConnection(
+  snapshot: AcquisitionProviderConnectionSnapshot
+) {
+  return snapshot.connectionId === "douyin-public-comments"
+    && snapshot.providerId === "experimental_public_sample"
+    && snapshot.kind === "content_fetch"
+    && snapshot.status === "active"
+    && snapshot.credentialVersion === 1;
+}
+
+function defaultMysqlPool(databaseUrl: string) {
+  return mysql.createPool(createMysqlConnectionOptions(databaseUrl));
+}
+
+function comparePriorityRows(
+  left: AcquisitionPriorityCandidateRow,
+  right: AcquisitionPriorityCandidateRow
+) {
+  const leftRank = left.qualificationGrade
+    ? GRADE_RANK[left.qualificationGrade]
+    : 6;
+  const rightRank = right.qualificationGrade
+    ? GRADE_RANK[right.qualificationGrade]
+    : 6;
+  return leftRank - rightRank
+    || (right.qualificationScore ?? -1)
+      - (left.qualificationScore ?? -1)
+    || (right.financialScore ?? -1)
+      - (left.financialScore ?? -1)
+    || right.updatedAt.localeCompare(left.updatedAt)
+    || left.candidateId.localeCompare(right.candidateId);
+}
+
+class MemoryPriorityCandidateRepository
+implements AcquisitionPriorityCandidatePort {
+  constructor(private readonly repository: AcquisitionDomainRepository) {}
+
+  async listPriorityCandidates(input: {
+    ownerId: string;
+    teamId: string;
+    subjectKinds?: Array<"organization" | "individual">;
+    minimumGrade?: keyof typeof GRADE_RANK;
+    limit: number;
+    sort: "qualification_and_financial_desc";
+  }) {
+    if (!Number.isSafeInteger(input.limit)
+      || input.limit < 1
+      || input.limit > 100
+      || input.sort !== "qualification_and_financial_desc") {
+      throw new TypeError("Invalid priority candidate query");
+    }
+    const candidates: AcquisitionCandidate[] = [];
+    let cursor: string | undefined;
+    let snapshot: string | undefined;
+    do {
+      const page = await this.repository.listCandidates(
+        input,
+        {
+          cursor,
+          snapshot,
+          limit: 100
+        }
+      );
+      candidates.push(...page.items);
+      cursor = page.nextCursor ?? undefined;
+      snapshot = page.snapshot;
+    } while (cursor);
+
+    const rows = await Promise.all(candidates
+      .filter((candidate) =>
+        !input.subjectKinds
+        || input.subjectKinds.includes(candidate.partyType)
+      )
+      .map(async (candidate): Promise<AcquisitionPriorityCandidateRow> => {
+        const qualification = (
+          await this.repository.listQualificationDecisions(
+            input,
+            candidate.id
+          )
+        ).at(-1);
+        const financial = (
+          await this.repository.listFinancialValues(
+            input,
+            candidate.id
+          )
+        ).at(-1);
+        return {
+          candidateId: candidate.id,
+          qualificationGrade: qualification?.grade ?? null,
+          qualificationScore: qualification?.score ?? null,
+          financialScore: financial?.score ?? null,
+          updatedAt: candidate.updatedAt
+        };
+      }));
+    return rows
+      .filter((row) =>
+        !input.minimumGrade
+        || (
+          row.qualificationGrade !== null
+          && GRADE_RANK[row.qualificationGrade]
+            <= GRADE_RANK[input.minimumGrade]
+        )
+      )
+      .sort(comparePriorityRows)
+      .slice(0, input.limit);
+  }
+}
+
+const REJECTING_ACTION_EXECUTION_PORT: AcquisitionActionExecutionPort =
+  Object.freeze({
+    async getVerifiedExecution() {
+      return null;
+    }
+  });
+
+function stableSnapshotJobId(
+  store: CrmStore,
+  scope: AcquisitionCopilotScope,
+  connectionId: string | null,
+  idempotencyKey?: string | null
+) {
+  const idempotentJobId = idempotencyKey
+    ? `acquisition_model_${createHash("sha256")
+        .update(canonicalJsonStringify({
+          ownerId: scope.ownerId,
+          teamId: scope.teamId,
+          requestBindingHash: createHash("sha256")
+            .update(idempotencyKey)
+            .digest("hex")
+        }) ?? "")
+        .digest("hex")}`
+    : null;
+  if (idempotentJobId) {
+    const existing = store.aiJobModelSnapshots.find((snapshot) =>
+      snapshot.jobId === idempotentJobId
+      && snapshot.ownerId === scope.ownerId
+      && snapshot.teamId === scope.teamId
+    );
+    if (existing) {
+      return {
+        connectionId: existing.connectionId,
+        jobId: existing.jobId
+      };
+    }
+  }
+  const config = connectionId
+    ? store.aiModelConfigs.find((item) =>
+        item.id === connectionId
+        && item.ownerId === scope.ownerId
+        && item.teamId === scope.teamId
+        && item.enabled
+      )
+    : store.aiModelConfigs.find((item) =>
+        item.ownerId === scope.ownerId
+        && item.teamId === scope.teamId
+        && item.enabled
+        && MODEL_PROVIDER_IDS.includes(
+          item.provider as (typeof MODEL_PROVIDER_IDS)[number]
+        )
+      );
+  if (!config
+    || !MODEL_PROVIDER_IDS.includes(
+      config.provider as (typeof MODEL_PROVIDER_IDS)[number]
+    )
+    || !config.capabilitySnapshot?.toolCalling) {
+    throw new Error("ACTIVE_ACQUISITION_MODEL_UNAVAILABLE");
+  }
+  const capabilitySnapshot = {
+    modelListing: Boolean(config.capabilitySnapshot.modelListing),
+    parallelToolCalling: Boolean(
+      config.capabilitySnapshot.parallelToolCalling
+    ),
+    streaming: Boolean(config.capabilitySnapshot.streaming),
+    structuredOutput: Boolean(
+      config.capabilitySnapshot.structuredOutput
+    ),
+    toolCalling: Boolean(config.capabilitySnapshot.toolCalling)
+  };
+  const identity = createHash("sha256")
+    .update(canonicalJsonStringify({
+      ownerId: scope.ownerId,
+      teamId: scope.teamId,
+      connectionId: config.id,
+      credentialVersion: config.credentialVersion ?? 1,
+      provider: config.provider,
+      model: config.model,
+      baseUrl: config.baseUrl.trim().replace(/\/+$/u, ""),
+      capabilitySnapshot,
+      capabilityCertificationHash:
+        config.capabilityCertificationHash ?? null,
+      promptVersion: ACQUISITION_MODEL_PROMPT_VERSION,
+      schemaVersion: ACQUISITION_MODEL_SCHEMA_VERSION,
+      promptHash: ACQUISITION_MODEL_CONTENT_HASHES.promptHash,
+      schemaHash: ACQUISITION_MODEL_CONTENT_HASHES.schemaHash
+    }) ?? "")
+    .digest("hex");
+  return {
+    connectionId: config.id,
+    jobId: idempotentJobId ?? `acquisition_model_${identity}`
+  };
+}
+
+function removeSnapshot(
+  store: CrmStore,
+  snapshot: StoredAiJobModelSnapshot
+) {
+  for (const values of [
+    store.aiJobModelSnapshots,
+    store.pendingAiJobModelSnapshots
+  ]) {
+    const index = values.indexOf(snapshot);
+    if (index >= 0) values.splice(index, 1);
+  }
+}
+
+function createModelSnapshotResolver(
+  store: CrmStore
+) {
+  const inFlight = new Map<
+    string,
+    Promise<StoredAiJobModelSnapshot>
+  >();
+  return async (
+    scope: AcquisitionCopilotScope,
+    input: {
+      connectionId: string | null;
+      idempotencyKey?: string;
+    }
+  ) => {
+    await store.readBarrier();
+    const binding = stableSnapshotJobId(
+      store,
+      scope,
+      input.connectionId,
+      input.idempotencyKey
+    );
+    const pending = inFlight.get(binding.jobId);
+    if (pending) {
+      return acquisitionPiModelSnapshotFromStored(await pending);
+    }
+    const existing = store.aiJobModelSnapshots.find((snapshot) =>
+      snapshot.jobId === binding.jobId
+      && snapshot.ownerId === scope.ownerId
+      && snapshot.teamId === scope.teamId
+    );
+    if (existing) {
+      return acquisitionPiModelSnapshotFromStored(existing);
+    }
+    const operation = Promise.resolve().then(async () => {
+      const snapshot = bindActiveAcquisitionModelSnapshot(store, {
+        jobId: binding.jobId,
+        ownerId: scope.ownerId,
+        teamId: scope.teamId,
+        connectionId: binding.connectionId
+      });
+      try {
+        await store.persist();
+        return snapshot;
+      } catch (error) {
+        removeSnapshot(store, snapshot);
+        throw error;
+      }
+    });
+    inFlight.set(binding.jobId, operation);
+    try {
+      return acquisitionPiModelSnapshotFromStored(await operation);
+    } finally {
+      if (inFlight.get(binding.jobId) === operation) {
+        inFlight.delete(binding.jobId);
+      }
+    }
+  };
+}
+
+function trustedPlanSnapshot(
+  store: CrmStore,
+  scope: { ownerId: string; teamId: string },
+  ref: AcquisitionModelSnapshotRef
+) {
+  const stored = store.aiJobModelSnapshots.find((snapshot) =>
+    snapshot.jobId === ref.jobSnapshotId
+    && snapshot.ownerId === scope.ownerId
+    && snapshot.teamId === scope.teamId
+  );
+  if (!stored) {
+    throw new Error("ACQUISITION_PLAN_MODEL_SNAPSHOT_UNAVAILABLE");
+  }
+  try {
+    acquisitionModelContentForSnapshot(stored);
+  } catch {
+    throw new Error("ACQUISITION_PLAN_MODEL_SNAPSHOT_UNTRUSTED");
+  }
+  if (stored.capabilitySnapshot.toolCalling !== true) {
+    throw new Error("ACQUISITION_PLAN_MODEL_SNAPSHOT_UNTRUSTED");
+  }
+  const publicSnapshot = acquisitionPiModelSnapshotFromStored(stored);
+  const matches =
+    ref.connectionId === publicSnapshot.connectionId
+    && ref.credentialVersion === publicSnapshot.credentialVersion
+    && ref.provider === publicSnapshot.provider
+    && ref.model === publicSnapshot.model
+    && ref.capabilitySnapshotHash
+      === publicSnapshot.capabilitySnapshotHash
+    && ref.promptVersion === publicSnapshot.promptVersion
+    && ref.schemaVersion === publicSnapshot.schemaVersion
+    && ref.promptHash === publicSnapshot.promptHash
+    && ref.schemaHash === publicSnapshot.schemaHash;
+  if (!matches) {
+    throw new Error("ACQUISITION_PLAN_MODEL_SNAPSHOT_MISMATCH");
+  }
+  return stored;
+}
+
+function assertTrustedPlanSnapshot(
+  store: CrmStore,
+  scope: { ownerId: string; teamId: string },
+  payload: AcquisitionPlanPayload
+) {
+  if (!payload.modelSnapshotRef) {
+    throw new Error("ACQUISITION_PLAN_MODEL_SNAPSHOT_UNAVAILABLE");
+  }
+  trustedPlanSnapshot(store, scope, payload.modelSnapshotRef);
+}
+
+export async function createAcquisitionApplication(
+  options: CreateAcquisitionApplicationOptions
+): Promise<AcquisitionApplicationRuntime> {
+  if (!options.growthToolPorts) throw new Error("MISSING_GROWTH_TOOL_PORTS");
+  if (!options.acquisitionWorkspace) {
+    throw new Error("MISSING_GROWTH_ACQUISITION_WORKSPACE");
+  }
+  if (!options.growthTemporalBarrier) {
+    throw new Error("MISSING_GROWTH_TEMPORAL_BARRIER");
+  }
+  const growthToolPorts = assertGrowthCommercialToolPorts(
+    options.growthToolPorts
+  );
+  const acquisitionWorkspace = assertGrowthAcquisitionWorkspaceResolver(
+    options.acquisitionWorkspace
+  );
+  const growthTemporalBarrier = assertGrowthTemporalBarrier(
+    options.growthTemporalBarrier
+  );
+  const temporalTransactions = options.temporalTransactions
+    ?? new InMemoryGrowthTemporalTransactionRunner();
+  assertApplicationStore(options.store);
+  const masterSecret = requireMasterSecret(options.masterSecret);
+  const providerCredentialSecret = derivedSecret(
+    masterSecret,
+    "provider-credentials"
+  );
+  const closeTimeoutMs = shutdownTimeout(options.shutdownTimeoutMs);
+  const idFactory =
+    options.idFactory ?? ((prefix: string) => `${prefix}_${randomUUID()}`);
+  const now = options.now ?? (() => new Date().toISOString());
+  const nowMs = options.nowMs ?? Date.now;
+  let pool: mysql.Pool | null = null;
+  let executionWorker: AcquisitionPlanExecutionWorker | null = null;
+  let planExecutionRecoverySweeper:
+    AcquisitionPlanExecutionRecoverySweeper | null = null;
+  let copilotRecoverySweeper:
+    AcquisitionCopilotRecoverySweeper | null = null;
+  let discoveryRecoverySweeper:
+    AcquisitionDiscoveryRecoverySweeper | null = null;
+  let conversionRecoverySweeper:
+    AcquisitionLeadConversionRecoverySweeper | null = null;
+  let outcomeReconciliationWorker:
+    AcquisitionCrmOutcomeReconciliationWorker | null = null;
+  let candidateIntelligenceRecoverySweeper:
+    AcquisitionCandidateIntelligenceRecoverySweeper | null = null;
+  let douyinIdentityResolutionRecoverySweeper:
+    AcquisitionDouyinIdentityResolutionRecoverySweeper | null = null;
+  let douyinCommentIngestionRecoverySweeper:
+    Pick<AcquisitionDouyinCommentIngestionRecoverySweeper, "start" | "close">
+    | null = null;
+  let visualArtifactExpirySweeper:
+    Pick<AcquisitionVisualArtifactExpirySweeper, "start" | "close">
+    | null = null;
+  let visualReaderRecoverySweeper:
+    Pick<AcquisitionVisualReaderRecoverySweeper, "start" | "close">
+    | null = null;
+  let crawlerWorker: AcquisitionCrawlerWorker | null = null;
+  let crawlerRecoverySweeper: AcquisitionCrawlerRecoverySweeper | null = null;
+  let crawlerEvidenceRetentionSweeper:
+    AcquisitionDouyinEvidenceRetentionSweeper | null = null;
+  let douyinScheduler: AcquisitionDouyinScheduler | null = null;
+  let outreachActionWorker: AcquisitionOutreachActionWorker | null = null;
+  let outreachActionRecoverySweeper: AcquisitionOutreachActionRecoverySweeper | null = null;
+  let cfoWorkflowTimer: ReturnType<typeof setInterval> | null = null;
+
+  try {
+    let repositories: AcquisitionRepositorySet;
+    let candidateDirectory;
+    let priorityCandidates: AcquisitionPriorityCandidatePort;
+    let reviewTasks;
+    let actionExecutions: AcquisitionActionExecutionPort;
+    let toolResults;
+    let toolAudit;
+    let advisorCandidateAuthority:
+      | InMemoryAdvisorCandidateAuthorityRepository
+      | MysqlAdvisorCandidateAuthorityRepository
+      | null = null;
+
+    if (options.store.mode === "mysql") {
+      const databaseUrl = configuredDatabaseUrl(options.databaseUrl);
+      if (!databaseUrl) {
+        throw new Error(
+          "DATABASE_URL or MYSQL_URL is required for acquisition MySQL mode"
+        );
+      }
+      pool = (options.mysqlPoolFactory ?? defaultMysqlPool)(databaseUrl);
+      await ensureAcquisitionMysqlSchema(pool);
+      await ensureAcquisitionToolSupportMysqlSchema(pool);
+      await ensureAcquisitionDiscoveryMysqlSchema(pool);
+      await ensureAcquisitionCandidateIntelligenceMysqlSchema(pool);
+      await ensureAcquisitionDouyinIdentityResolutionMysqlSchema(pool);
+      await ensureAcquisitionDouyinCommentEventsMysqlSchema(pool);
+      await ensureAcquisitionVisualReaderMysqlSchema(pool);
+      await ensureAcquisitionSocialAccountsMysqlSchema(pool);
+      await ensureAcquisitionDouyinAutomationMysqlSchema(pool);
+      await ensureAcquisitionCrawlerJobMysqlSchema(pool);
+      await ensureAcquisitionDouyinCrawlerIngestionMysqlSchema(pool);
+      await ensureAcquisitionOutreachBatchMysqlSchema(pool);
+      await ensureAcquisitionDesktopInstallationMysqlSchema(pool);
+      await ensureAdvisorCandidateAuthorityMysqlSchema(pool);
+      const mysqlAuthority = options.advisorCandidateAuthority
+        instanceof MysqlAdvisorCandidateAuthorityRepository
+        ? options.advisorCandidateAuthority
+        : new MysqlAdvisorCandidateAuthorityRepository(
+            pool, growthTemporalBarrier
+          );
+      advisorCandidateAuthority = mysqlAuthority;
+      repositories = {
+        ...createMysqlAcquisitionRepositories(pool, {
+          temporalBarrier: growthTemporalBarrier,
+          advisorAuthority: mysqlAuthority
+        }),
+        discovery:
+          new MysqlAcquisitionDiscoveryOperationRepository(pool),
+        candidateIntelligence:
+          new MysqlAcquisitionCandidateIntelligenceOperationRepository(pool),
+        douyinIdentityResolution:
+          new MysqlAcquisitionDouyinIdentityResolutionOperationRepository(
+            pool
+          ),
+        douyinCommentEvents:
+          new MysqlAcquisitionDouyinCommentEventRepository(pool),
+        visualReader: new MysqlAcquisitionVisualReaderRepository(pool, {
+          masterSecret,
+          now
+        })
+      };
+      candidateDirectory = new MysqlAcquisitionCandidateDirectory(pool, {
+        now,
+        identityAliases: repositories.domain
+      });
+      priorityCandidates =
+        new MysqlAcquisitionPriorityCandidateRepository(pool);
+      reviewTasks = new MysqlAcquisitionReviewTaskRepository(pool, {
+        now,
+        idFactory: () => idFactory("review_task")
+      });
+      actionExecutions = new MysqlAcquisitionActionExecutionRepository(
+        pool,
+        {
+          proofSecret: derivedSecret(masterSecret, "action-execution-proof")
+        }
+      );
+      toolResults = new MysqlAcquisitionToolResultLedger(pool, { now });
+      toolAudit = new MysqlAcquisitionToolAuditStore(pool);
+    } else {
+      const memoryTransactions = new AcquisitionMemoryTransactionCoordinator();
+      const planRun = new InMemoryAcquisitionPlanRunRepository(
+        memoryTransactions
+      );
+      const memoryAuthority = options.advisorCandidateAuthority
+        instanceof InMemoryAdvisorCandidateAuthorityRepository
+        ? options.advisorCandidateAuthority
+        : new InMemoryAdvisorCandidateAuthorityRepository({
+            temporalTransactions,
+            temporalBarrier: growthTemporalBarrier
+          });
+      advisorCandidateAuthority = memoryAuthority;
+      repositories = {
+        domain: new InMemoryAcquisitionDomainRepository({
+          temporalTransactions,
+          temporalBarrier: growthTemporalBarrier,
+          advisorAuthority: memoryAuthority
+        }, planRun),
+        copilot: new InMemoryAcquisitionCopilotRepository(),
+        planRun,
+        discovery:
+          new InMemoryAcquisitionDiscoveryOperationRepository(),
+        candidateIntelligence:
+          new InMemoryAcquisitionCandidateIntelligenceOperationRepository(),
+        douyinIdentityResolution:
+          new InMemoryAcquisitionDouyinIdentityResolutionOperationRepository(),
+        douyinCommentEvents:
+          new InMemoryAcquisitionDouyinCommentEventRepository(),
+        visualReader: new InMemoryAcquisitionVisualReaderRepository({
+          masterSecret,
+          now
+        })
+      };
+      candidateDirectory = new InMemoryAcquisitionCandidateDirectory({
+        now,
+        identityAliases: repositories.domain
+      });
+      priorityCandidates =
+        new MemoryPriorityCandidateRepository(repositories.domain);
+      reviewTasks = new InMemoryAcquisitionReviewTaskRepository({
+        now,
+        idFactory: () => idFactory("review_task")
+      });
+      actionExecutions = REJECTING_ACTION_EXECUTION_PORT;
+      toolResults = new InMemoryAcquisitionToolResultLedger();
+      toolAudit = new InMemoryAcquisitionToolAuditLedgerAdapter();
+    }
+    if (options.discoveryRepository) {
+      repositories.discovery = options.discoveryRepository;
+    }
+    if (options.candidateIntelligenceRepository) {
+      repositories.candidateIntelligence =
+        options.candidateIntelligenceRepository;
+    }
+    if (options.douyinIdentityResolutionRepository) {
+      repositories.douyinIdentityResolution =
+        options.douyinIdentityResolutionRepository;
+    }
+    if (options.douyinCommentEventRepository) {
+      repositories.douyinCommentEvents = options.douyinCommentEventRepository;
+    }
+    if (options.planRunRepository) {
+      repositories.planRun = options.planRunRepository;
+    }
+    if (options.visualReaderRepository) {
+      repositories.visualReader = options.visualReaderRepository;
+    }
+    if (options.domainRepository) {
+      repositories.domain = options.domainRepository;
+      candidateDirectory = options.store.mode === "mysql"
+        ? new MysqlAcquisitionCandidateDirectory(pool!, {
+            now,
+            identityAliases: repositories.domain
+          })
+        : new InMemoryAcquisitionCandidateDirectory({
+            now,
+            identityAliases: repositories.domain
+          });
+    }
+    if (
+      repositories.domain instanceof InMemoryAcquisitionDomainRepository
+    ) {
+      repositories.domain.bindPresentationRunRepository(
+        repositories.planRun
+      );
+    }
+
+    const crawlerJobs = options.crawlerJobRepository
+      ?? (options.store.mode === "mysql"
+        ? new MysqlAcquisitionCrawlerJobRepository(pool!)
+        : new InMemoryAcquisitionCrawlerJobRepository());
+    const candidateRunAttribution = new AcquisitionCandidateRunAttributionResolver({
+      planRuns: repositories.planRun,
+      crawler: {
+        jobs: crawlerJobs,
+        domain: repositories.domain,
+        workspace: acquisitionWorkspace
+      }
+    });
+    const rawDomainService = (
+      options.domainServiceFactory
+      ?? ((input) => new AcquisitionDomainService(input))
+    )({
+      repository: repositories.domain,
+      leadConversionPort: new AcquisitionCrmLeadConversionPort({
+        repository: repositories.domain,
+        store: options.store,
+        now
+      }),
+      growthAcquisitionWorkspace: acquisitionWorkspace,
+      outcomeAttributionResolver: candidateRunAttribution,
+      growthTemporalBarrier,
+      idFactory,
+      now
+    });
+    const domainService = options.probabilityAssessments
+      ? createProbabilityAssessmentQualificationService(
+          rawDomainService,
+          options.probabilityAssessments
+        )
+      : rawDomainService;
+    const privateDomainHandoffService =
+      new AcquisitionPrivateDomainHandoffService({
+        repository: repositories.domain,
+        domainService,
+        store: options.store,
+        attributionResolver: candidateRunAttribution,
+        now
+      });
+    const identityResolutionService =
+      new AcquisitionIdentityResolutionService({
+        domain: domainService
+      });
+    const conversionReconciliation =
+      new AcquisitionLeadConversionReconciliationService({
+        domainService
+      });
+    const outcomeReconciliation =
+      new AcquisitionCrmOutcomeReconciliationService({
+        store: options.store,
+        outcomeRecorder: domainService,
+        planRuns: repositories.planRun,
+        attributionResolver: candidateRunAttribution,
+        commercialAuthority: options.commercialOutcomeAuthority
+          ?? (() => {
+            const projected = options.quoteProjectedDocumentAuthority as
+              (QuoteProjectedDocumentAuthorityValidator & {
+                commercialOutcomeAuthority?: AcquisitionCommercialOutcomeAuthority;
+              }) | undefined;
+            const authority = projected?.commercialOutcomeAuthority;
+            return authority
+              && typeof authority.getVersion === "function"
+              && typeof authority.listAuthorityEvents === "function"
+              ? authority : undefined;
+          })(),
+        now
+      });
+    const performanceQuery = new AcquisitionPerformanceQueryService({
+      planRuns: repositories.planRun,
+      domain: repositories.domain,
+      diagnostics:
+        options.store.acquisitionOutcomeReconciliationDiagnostics,
+      checkpoints:
+        options.store.acquisitionOutcomeReconciliationCheckpoints
+    });
+    const searchPort = options.searchPort
+      ?? createAcquisitionPublicSearchPort(options.store, {
+        credentialSecret: providerCredentialSecret
+      });
+    const individualSignals =
+      new AcquisitionIndividualSignalIngestionService({
+        domain: domainService,
+        candidateDirectory
+      });
+    let douyinCommentIngestionUnitOfWork =
+      options.douyinCommentIngestionUnitOfWork;
+    if (!douyinCommentIngestionUnitOfWork
+      && repositories.domain instanceof InMemoryAcquisitionDomainRepository
+      && repositories.douyinCommentEvents
+        instanceof InMemoryAcquisitionDouyinCommentEventRepository
+      && candidateDirectory instanceof InMemoryAcquisitionCandidateDirectory
+      && repositories.visualReader
+        instanceof InMemoryAcquisitionVisualReaderRepository) {
+      douyinCommentIngestionUnitOfWork =
+        new InMemoryAcquisitionDouyinCommentIngestionUnitOfWork(
+          repositories.domain,
+          repositories.douyinCommentEvents,
+          candidateDirectory,
+          repositories.visualReader
+        );
+    }
+    if (!douyinCommentIngestionUnitOfWork
+      && pool
+      && repositories.domain instanceof MysqlAcquisitionDomainRepository
+      && repositories.douyinCommentEvents
+        instanceof MysqlAcquisitionDouyinCommentEventRepository
+      && candidateDirectory instanceof MysqlAcquisitionCandidateDirectory
+      && repositories.visualReader
+        instanceof MysqlAcquisitionVisualReaderRepository) {
+      douyinCommentIngestionUnitOfWork =
+        new MysqlAcquisitionDouyinCommentIngestionUnitOfWork(
+          pool,
+          repositories.domain,
+          repositories.douyinCommentEvents,
+          candidateDirectory,
+          repositories.visualReader
+        );
+    }
+    if (!douyinCommentIngestionUnitOfWork) {
+      throw new Error(
+        "ACQUISITION_DOUYIN_COMMENT_INGESTION_UNIT_OF_WORK_REQUIRED"
+      );
+    }
+    const douyinCommentIngestion =
+      new AcquisitionDouyinCommentIngestionService({
+        events: repositories.douyinCommentEvents,
+        domain: domainService,
+        individualSignals,
+        unitOfWork: douyinCommentIngestionUnitOfWork,
+        recoveryWorkerId: idFactory("douyin-comment-recovery-worker"),
+        recoveryLeaseDurationMs:
+          options.douyinCommentIngestionRecoveryLeaseDurationMs,
+        now
+      });
+    const visualCommentIngestion =
+      new AcquisitionVisualCommentIngestionService({
+        visualRepository: repositories.visualReader,
+        domain: domainService,
+        individualSignals,
+        publicCommentIngestion: douyinCommentIngestion,
+        unitOfWork: douyinCommentIngestionUnitOfWork,
+        workerId: idFactory("visual-ingestion-recovery-worker"),
+        now
+      });
+    visualReaderRecoverySweeper =
+      options.visualReaderRecoverySweeperFactory
+        ? options.visualReaderRecoverySweeperFactory(visualCommentIngestion)
+        : new AcquisitionVisualReaderRecoverySweeper({
+            service: visualCommentIngestion,
+            intervalMs: options.visualIngestionRecoveryIntervalMs,
+            batchSize: options.visualIngestionRecoveryBatchSize
+          });
+    await visualReaderRecoverySweeper.start();
+    douyinCommentIngestionRecoverySweeper =
+      options.douyinCommentIngestionRecoverySweeperFactory
+        ? options.douyinCommentIngestionRecoverySweeperFactory(
+            douyinCommentIngestion
+          )
+        : new AcquisitionDouyinCommentIngestionRecoverySweeper({
+            service: douyinCommentIngestion,
+            intervalMs: options.douyinCommentIngestionRecoveryIntervalMs,
+            batchSize: options.douyinCommentIngestionRecoveryBatchSize
+          });
+    await douyinCommentIngestionRecoverySweeper.start();
+    const douyinCommentEnrichment =
+      new AcquisitionDouyinCommentEnrichmentService({
+        provider: options.douyinPublicCommentProvider
+          ?? createDouyinPublicCommentProvider(),
+        events: repositories.douyinCommentEvents,
+        ingestion: douyinCommentIngestion,
+        now,
+        nowMs
+      });
+    const discoveryOperations = new AcquisitionDiscoveryOperationService({
+      repository: repositories.discovery,
+      evidence: domainService,
+      individualSignals,
+      commentEnrichment: douyinCommentEnrichment,
+      fetcher: options.contentFetcher
+        ?? new ControlledPublicContentFetcher(),
+      masterSecret: derivedSecret(masterSecret, "discovery-artifacts"),
+      workerId: idFactory("discovery-worker"),
+      leaseDurationMs: options.discoveryLeaseDurationMs,
+      idFactory,
+      now
+    });
+    const copilotJudgmentResolver =
+      createAcquisitionJudgmentSessionResolver({
+        repository: repositories.copilot,
+        store: options.store,
+        gatewayFactory: options.modelGatewayFactory
+          ? (snapshot) => options.modelGatewayFactory!(
+              snapshot,
+              acquisitionModelContentForSnapshot(snapshot)
+            )
+          : undefined
+      });
+    const judgmentResolver: Parameters<
+      typeof createAcquisitionJudgmentPort
+    >[0]["resolveSession"] = async (input) => {
+      const prefix = "acquisition-plan:";
+      if (!input.sessionId.startsWith(prefix)) {
+        return copilotJudgmentResolver(input);
+      }
+      const runId = input.sessionId.slice(prefix.length);
+      const run = runId
+        ? await repositories.planRun.getRun(runId)
+        : null;
+      if (!run
+        || run.ownerId !== input.ownerId
+        || run.teamId !== input.teamId
+        || !run.modelSnapshotRef) {
+        throw new Error("MODEL_SNAPSHOT_UNAVAILABLE");
+      }
+      const snapshot = trustedPlanSnapshot(
+        options.store,
+        input,
+        run.modelSnapshotRef
+      );
+      return {
+        snapshot,
+        gateway: options.modelGatewayFactory
+          ? options.modelGatewayFactory(
+              snapshot,
+              acquisitionModelContentForSnapshot(snapshot)
+            )
+          : createAcquisitionModelGatewayForSnapshot(
+              options.store,
+              snapshot
+            )
+      };
+    };
+    const judgments = createAcquisitionJudgmentPort({
+      resolveSession: judgmentResolver
+    });
+    const activeSearchConnections =
+      createAcquisitionActiveSearchConnectionDirectory(options.store);
+    const planDraftGenerator = createAcquisitionPlanDraftGenerator({
+      resolveSession: judgmentResolver,
+      connections: activeSearchConnections,
+      idFactory
+    });
+    const toolExecutor = (
+      options.toolExecutorFactory
+      ?? ((input) => new ProductionAcquisitionAgentToolExecutor(input))
+    )({
+      domain: domainService,
+      growthToolPorts,
+      growthCommercialTools: composeGrowthAcquisitionToolDelegates(
+        new GrowthQuoteAcquisitionToolDelegate({
+          workspaceResolver: acquisitionWorkspace,
+          sessions: repositories.copilot,
+          async resolveCurrentActor(identity) {
+            await options.store.readBarrier();
+            const actor = options.store.users.find((candidate) =>
+              candidate.id === identity.actorId
+              && candidate.teamId === identity.teamId
+            );
+            if (!actor) return null;
+            return Object.freeze({
+              id: actor.id,
+              teamId: actor.teamId,
+              role: actor.role,
+              status: actor.status,
+              capabilities: capabilitiesForHumanRole(actor.role),
+              capabilityRegistryVersion: GROWTH_CAPABILITY_REGISTRY_VERSION
+            });
+          },
+          executor: new GrowthAdvisorQuoteToolExecutor({
+            toolPorts: growthToolPorts,
+            resultLedger: toolResults,
+            modelSnapshotRef: ACQUISITION_MODEL_SCHEMA_VERSION,
+            promptSnapshotRef: ACQUISITION_MODEL_PROMPT_VERSION,
+            now
+          })
+        }),
+        new GrowthAdvisorAcquisitionToolDelegate({
+          workspaceResolver: acquisitionWorkspace,
+          sessions: repositories.copilot,
+          async resolveCurrentActor(identity) {
+            await options.store.readBarrier();
+            const actor = options.store.users.find((candidate) =>
+              candidate.id === identity.actorId
+              && candidate.teamId === identity.teamId
+            );
+            if (!actor) return null;
+            return Object.freeze({
+              id: actor.id,
+              teamId: actor.teamId,
+              role: actor.role,
+              status: actor.status,
+              capabilities: capabilitiesForHumanRole(actor.role),
+              capabilityRegistryVersion: GROWTH_CAPABILITY_REGISTRY_VERSION
+            });
+          },
+          executor: new GrowthAdvisorToolExecutor({
+            toolPorts: growthToolPorts,
+            resultLedger: toolResults,
+            modelSnapshotRef: ACQUISITION_MODEL_SCHEMA_VERSION,
+            promptSnapshotRef: ACQUISITION_MODEL_PROMPT_VERSION,
+            now
+          })
+        })
+      ),
+      search: searchPort,
+      searchConnections: {
+        async listActiveConnectionIds(scope) {
+          await options.store.readBarrier();
+          return options.store.providerConnections
+            .filter((connection) =>
+              connection.ownerId === scope.ownerId
+              && connection.teamId === scope.teamId
+              && connection.scope === "personal"
+              && connection.status === "active"
+              && ACQUISITION_SEARCH_PROVIDER_IDS.includes(
+                connection.providerId as
+                  (typeof ACQUISITION_SEARCH_PROVIDER_IDS)[number]
+              )
+            )
+            .sort((left, right) =>
+              right.updatedAt.localeCompare(left.updatedAt)
+              || right.id.localeCompare(left.id)
+            )
+            .map((connection) => connection.id);
+        }
+      },
+      candidateDirectory,
+      priorityCandidates,
+      reviewTasks,
+      actionExecutions,
+      toolResults,
+      individualSignals,
+      judgments,
+      performance: performanceQuery,
+      now
+    });
+    const piRuntimeFactory = createAcquisitionPiRuntimeFactory({
+      store: options.store,
+      gatewayFactory: options.modelGatewayFactory
+    });
+    const assistantRunner = canonicalCopilotRunner(
+      createPiAcquisitionCopilotRunner({
+        runtimeFactory: piRuntimeFactory,
+        toolExecutor,
+        toolAudit,
+        toolAuditSecret: derivedSecret(masterSecret, "tool-audit"),
+        now: nowMs
+      })
+    );
+    const copilotRunner = createRoutedAcquisitionCopilotRunner({
+      assistantRunner,
+      planDraftGenerator
+    });
+    const copilotService = new AcquisitionCopilotService({
+      repository: repositories.copilot,
+      runner: copilotRunner,
+      idempotencySecret: derivedSecret(
+        masterSecret,
+        "copilot-idempotency"
+      ),
+      idFactory,
+      now
+    });
+    const resolveModelSnapshot =
+      createModelSnapshotResolver(options.store);
+    const candidateIntelligenceOperations =
+      new AcquisitionCandidateIntelligenceOperationService({
+        repository: repositories.candidateIntelligence,
+        candidates: {
+          getCandidate(scope, candidateId) {
+            return repositories.domain.findCandidate(scope, candidateId);
+          }
+        },
+        sessionFactory: {
+          async createSession(input) {
+            const snapshot = await resolveModelSnapshot(input.scope, {
+              connectionId: null,
+              idempotencyKey: input.idempotencyKey
+            });
+            const session = await copilotService.createSession(
+              input.scope,
+              snapshot,
+              input.idempotencyKey
+            );
+            return { sessionId: session.id };
+          }
+        },
+        executor: toolExecutor,
+        workerId: idFactory("candidate-intelligence-worker"),
+        leaseDurationMs: options.candidateIntelligenceLeaseDurationMs,
+        idFactory: () => idFactory("candidate-intelligence"),
+        now
+      });
+    const douyinIdentityResolutionOperations =
+      new AcquisitionDouyinIdentityResolutionOperationService({
+        repository: repositories.douyinIdentityResolution,
+        evidence: domainService,
+        candidates: {
+          getCandidate(scope, candidateId) {
+            return repositories.domain.findCandidate(scope, candidateId);
+          }
+        },
+        discovery: options.douyinPublicProfileDiscovery
+          ?? createAcquisitionDouyinPublicProfileDiscovery(),
+        search: searchPort,
+        validateSearchConnection: async (input) => {
+          await options.store.readBarrier();
+          assertTrustedSearchConnectionSnapshots(
+            options.store,
+            input.scope,
+            [input.connection]
+          );
+        },
+        identityResolution: identityResolutionService,
+        candidateIntelligence: candidateIntelligenceOperations,
+        workerId: idFactory("douyin-identity-worker"),
+        leaseDurationMs: options.douyinIdentityResolutionLeaseDurationMs,
+        idFactory: () => idFactory("douyin-identity-resolution"),
+        now
+      });
+
+    const candidateResearch = new AcquisitionCandidateResearchService({
+      domain: domainService,
+      search: searchPort,
+      validateConnection: async (input) => {
+        await options.store.readBarrier();
+        assertTrustedSearchConnectionSnapshots(
+          options.store,
+          input.scope,
+          [input.connection]
+        );
+      }
+    });
+    const candidatePipeline = new AcquisitionCandidateProcessingPipeline({
+      executor: toolExecutor,
+      research: candidateResearch,
+      identityResolutionStage: {
+        async resolveBeforeIntelligence(input) {
+          const planSessionId = `acquisition-plan:${input.run.id}`;
+          const owned = await douyinIdentityResolutionOperations
+            .findSucceededForCandidateAndPlanSession(
+              input.scope,
+              input.candidateId,
+              planSessionId
+            );
+          if (owned?.intelligenceOperationId) {
+            return {
+              status: "completed",
+              operationId: owned.id,
+              intelligence: await candidateIntelligenceOperations.get(
+                input.scope,
+                owned.intelligenceOperationId
+              )
+            };
+          }
+          const candidate = await domainService.getCandidate(
+            input.scope,
+            input.candidateId
+          );
+          if (!unresolvedDouyinCandidate(candidate)) {
+            return { status: "not_required" };
+          }
+          const sourceEvidenceIds = [...candidate.evidenceIds];
+          if (sourceEvidenceIds.length === 0) {
+            return {
+              status: "requires_review",
+              operationId: "unavailable",
+              errorCode: "not_found"
+            };
+          }
+          const operation = await douyinIdentityResolutionOperations.create(
+            input.scope,
+            {
+              candidateId: candidate.id,
+              expectedCandidateVersion: candidate.version,
+              sourceEvidenceIds,
+              searchConnections: [input.shard.connection],
+              planSessionId
+            },
+            automaticDouyinIdentityKey({
+              source: `${input.run.id}:${input.shard.id}`,
+              candidateId: candidate.id,
+              candidateVersion: candidate.version,
+              sourceEvidenceIds
+            })
+          );
+          const completed =
+            await douyinIdentityResolutionOperations.execute(
+              input.scope,
+              operation.id,
+              input.signal
+            );
+          if (completed.status !== "succeeded"
+            || !completed.intelligenceOperationId) {
+            return {
+              status: "requires_review",
+              operationId: completed.id,
+              errorCode: completed.outcome ?? "provider_unavailable"
+            };
+          }
+          return {
+            status: "completed",
+            operationId: completed.id,
+            intelligence: await candidateIntelligenceOperations.get(
+              input.scope,
+              completed.intelligenceOperationId
+            )
+          };
+        }
+      }
+    });
+    const searchProcessor = new AcquisitionSearchShardProcessor({
+      executor: toolExecutor,
+      candidatePipeline,
+      commentEnrichment: douyinCommentEnrichment,
+      planRunRepository: repositories.planRun,
+      nowMs
+    });
+    const trustedSearchProcessor = {
+      async process(
+        input: Parameters<typeof searchProcessor.process>[0]
+      ) {
+        await options.store.readBarrier();
+        assertTrustedSearchConnectionSnapshots(
+          options.store,
+          input.scope,
+          [input.shard.connection]
+        );
+        return searchProcessor.process(input);
+      }
+    };
+    const contentFetchProcessor =
+      new AcquisitionContentFetchShardProcessor({
+        operations: discoveryOperations,
+        candidatePipeline,
+        planRunRepository: repositories.planRun,
+        nowMs
+      });
+    const importRowsProcessor = new AcquisitionImportRowsShardProcessor({
+      operations: discoveryOperations,
+      nowMs
+    });
+    const worker = new AcquisitionPlanExecutionWorker({
+      repository: repositories.planRun,
+      processorRegistry: new AcquisitionShardProcessorRegistry({
+        search: trustedSearchProcessor,
+        content_fetch: contentFetchProcessor,
+        import_rows: importRowsProcessor
+      }),
+      maxConcurrency: options.workerConcurrency ?? 2,
+      workerActorId: "acquisition-plan-worker"
+    });
+    executionWorker = worker;
+    const planService = new AcquisitionPlanRunService({
+      repository: repositories.planRun,
+      executionPort: worker,
+      validatePlanPayloadForApproval: async (scope, payload) => {
+        await options.store.readBarrier();
+        assertTrustedPlanSnapshot(options.store, scope, payload);
+        assertTrustedPlanConnectionSnapshots(
+          options.store,
+          scope,
+          payload.providerConnections
+        );
+      },
+      idFactory,
+      now
+    });
+    const cfoAcquisitionWorkflowService = new CfoAcquisitionWorkflowService({
+      store: options.store,
+      planDraftGenerator,
+      resolveModelSnapshot: async (scope, input) => {
+        const snapshot = await resolveModelSnapshot(scope, input);
+        return {
+          jobSnapshotId: snapshot.jobId,
+          connectionId: snapshot.connectionId,
+          credentialVersion: snapshot.credentialVersion,
+          provider: snapshot.provider,
+          model: snapshot.model,
+          capabilitySnapshotHash: snapshot.capabilitySnapshotHash,
+          promptVersion: snapshot.promptVersion,
+          schemaVersion: snapshot.schemaVersion,
+          promptHash: snapshot.promptHash,
+          schemaHash: snapshot.schemaHash
+        };
+      },
+      planService,
+      planRepository: repositories.planRun,
+      domainService,
+      handoffService: privateDomainHandoffService,
+      now
+    });
+    cfoWorkflowTimer = setInterval(() => {
+      void cfoAcquisitionWorkflowService.reconcileRunningJobs();
+    }, 5_000);
+    cfoWorkflowTimer.unref?.();
+    const runPresentationService = new AcquisitionRunPresentationService({
+      planRunRepository: repositories.planRun,
+      domainRepository: repositories.domain,
+      commentEventRepository: repositories.douyinCommentEvents,
+      visualReaderRepository: repositories.visualReader,
+      cursorSecret: derivedSecret(
+        masterSecret,
+        "run-presentation-cursor"
+      )
+    });
+    const taskOverviewService = new AcquisitionTaskOverviewService({
+      repository: repositories.planRun,
+      now
+    });
+    worker.attachService(planService);
+    planExecutionRecoverySweeper =
+      new AcquisitionPlanExecutionRecoverySweeper({
+        service: planService,
+        intervalMs: options.planExecutionRecoveryIntervalMs
+      });
+    await planExecutionRecoverySweeper.start();
+
+    const activeCopilotTasks = new Set<Promise<void>>();
+    const activeCopilotControllers = new Set<AbortController>();
+    const activeDiscoveryTasks = new Set<Promise<void>>();
+    const activeCandidateIntelligenceTasks = new Set<Promise<void>>();
+    const activeDouyinIdentityTasks = new Set<Promise<void>>();
+    let closing = false;
+    const dispatchCopilotTask = (
+      scope: AcquisitionCopilotScope,
+      taskId: string
+    ) => {
+      if (closing) {
+        throw new Error("ACQUISITION_APPLICATION_CLOSING");
+      }
+      const controller = new AbortController();
+      activeCopilotControllers.add(controller);
+      const task = copilotService.runTask(
+        scope,
+        taskId,
+        controller.signal
+      ).then(() => undefined).finally(() => {
+        activeCopilotControllers.delete(controller);
+      });
+      return trackAcquisitionBackgroundTask(activeCopilotTasks, task);
+    };
+    const dispatchDiscoveryTask = (
+      taskFactory: () => Promise<unknown>
+    ) => {
+      if (closing) {
+        throw new Error("ACQUISITION_APPLICATION_CLOSING");
+      }
+      const task = trackAcquisitionBackgroundTask(
+        activeDiscoveryTasks,
+        Promise.resolve()
+          .then(taskFactory)
+          .then(() => undefined)
+      );
+      void task.catch(() => undefined);
+      return Promise.resolve();
+    };
+    const dispatchCandidateIntelligenceTask = (
+      scope: AcquisitionCopilotScope,
+      operationId: string
+    ) => {
+      if (closing) {
+        throw new Error("ACQUISITION_APPLICATION_CLOSING");
+      }
+      const task = trackAcquisitionBackgroundTask(
+        activeCandidateIntelligenceTasks,
+        Promise.resolve()
+          .then(() => candidateIntelligenceOperations.execute(
+            scope,
+            operationId
+          ))
+          .then(() => undefined)
+      );
+      void task.catch(() => undefined);
+      return Promise.resolve();
+    };
+    const dispatchDouyinIdentityTask = (
+      scope: AcquisitionDouyinIdentityResolutionScope,
+      operationId: string
+    ) => {
+      if (closing) {
+        throw new Error("ACQUISITION_APPLICATION_CLOSING");
+      }
+      const task = trackAcquisitionBackgroundTask(
+        activeDouyinIdentityTasks,
+        Promise.resolve()
+          .then(() => douyinIdentityResolutionOperations.execute(
+            scope,
+            operationId
+          ))
+          .then(() => undefined)
+      );
+      void task.catch(() => undefined);
+      return Promise.resolve();
+    };
+    const submitDirectDouyinCandidates = async (
+      scope: AcquisitionDouyinIdentityResolutionScope,
+      source: string,
+      candidateIds: string[]
+    ) => {
+      if (candidateIds.length === 0) return;
+      const searchConnections = await activeSearchConnections.list(scope);
+      for (const candidateId of candidateIds) {
+        const candidate = await domainService.getCandidate(scope, candidateId);
+        if (!unresolvedDouyinCandidate(candidate)
+          || candidate.evidenceIds.length === 0) {
+          continue;
+        }
+        const operation = await douyinIdentityResolutionOperations.create(
+          scope,
+          {
+            candidateId,
+            expectedCandidateVersion: candidate.version,
+            sourceEvidenceIds: candidate.evidenceIds,
+            searchConnections,
+            planSessionId: null
+          },
+          automaticDouyinIdentityKey({
+            source,
+            candidateId,
+            candidateVersion: candidate.version,
+            sourceEvidenceIds: candidate.evidenceIds
+          })
+        );
+        await dispatchDouyinIdentityTask(scope, operation.id);
+      }
+    };
+    const executeContentFetchAndSubmitIdentity = async (
+      scope: AcquisitionDouyinIdentityResolutionScope,
+      operationId: string
+    ) => {
+      const completed =
+        await discoveryOperations.executeContentFetchOperation(
+          scope,
+          operationId
+        );
+      await submitDirectDouyinCandidates(
+        scope,
+        `content-fetch:${operationId}`,
+        completed.candidateIds
+      );
+      return completed;
+    };
+    const executeImportAndSubmitIdentity = async (
+      scope: AcquisitionDouyinIdentityResolutionScope,
+      operationId: string
+    ) => {
+      const completed = await discoveryOperations.executeImportOperation(
+        scope,
+        operationId
+      );
+      await submitDirectDouyinCandidates(
+        scope,
+        `import:${operationId}`,
+        completed.candidateIds
+      );
+      return completed;
+    };
+    const router = Router();
+    const planMemoryTransactions = repositories.planRun
+      instanceof InMemoryAcquisitionPlanRunRepository
+      ? repositories.planRun.memoryTransactions
+      : null;
+    const socialAccountRepository = options.socialAccountRepository
+      ?? (options.store.mode === "mysql"
+        ? new MysqlAcquisitionSocialAccountRepository(pool!)
+        : new InMemoryAcquisitionSocialAccountRepository(
+            planMemoryTransactions
+              ?? new AcquisitionMemoryTransactionCoordinator()
+          ));
+    const unavailableSocialGateway = {
+      async createLoginSession(): Promise<never> {
+        throw new Error("mediacrawler_unavailable");
+      },
+      async getLoginSession(): Promise<never> {
+        throw new Error("mediacrawler_unavailable");
+      },
+      async interactLoginSession(): Promise<never> {
+        throw new Error("mediacrawler_unavailable");
+      }
+    };
+    const socialAccounts = new AcquisitionSocialAccountService({
+      repository: socialAccountRepository,
+      gateway: options.douyinMediaCrawlerGateway ?? unavailableSocialGateway,
+      idFactory: () => idFactory("social_account"),
+      now
+    });
+    const desktopMemoryTransactions = socialAccountRepository
+      instanceof InMemoryAcquisitionSocialAccountRepository
+      ? socialAccountRepository.memoryTransactions
+      : planMemoryTransactions;
+    router.use("/api/v1/acquisition", createAcquisitionSocialAccountRouter({
+      service: socialAccounts,
+      requestIdFactory: () => idFactory("request")
+    }));
+    const defaultDouyinAutomationRepository = () => {
+      if (options.store.mode === "mysql") {
+        return new MysqlAcquisitionDouyinAutomationRepository(pool!);
+      }
+      if (!(repositories.planRun instanceof InMemoryAcquisitionPlanRunRepository)
+        || !(socialAccountRepository
+          instanceof InMemoryAcquisitionSocialAccountRepository)
+        || repositories.planRun.memoryTransactions
+          !== socialAccountRepository.memoryTransactions) {
+        throw new Error("acquisition_memory_automation_transaction_boundary_required");
+      }
+      const memoryTransactions = repositories.planRun.memoryTransactions;
+      return new InMemoryAcquisitionDouyinAutomationRepository(
+        memoryTransactions,
+        createAcquisitionDouyinAutomationAuthorityValidator({
+          memoryTransactions,
+          plans: repositories.planRun,
+          accounts: socialAccountRepository
+        })
+      );
+    };
+    const douyinAutomationRepository = options.douyinAutomationRepository
+      ?? defaultDouyinAutomationRepository();
+    const crawlerIngestion = options.crawlerIngestionRepository
+      ?? (repositories.domain instanceof MysqlAcquisitionDomainRepository
+        && repositories.planRun instanceof MysqlAcquisitionPlanRunRepository
+        && pool
+        ? new MysqlAcquisitionDouyinCrawlerIngestionRepository(
+            pool,
+            repositories.domain,
+            repositories.planRun
+          )
+        : repositories.domain instanceof InMemoryAcquisitionDomainRepository
+          && repositories.planRun instanceof InMemoryAcquisitionPlanRunRepository
+          ? new InMemoryAcquisitionDouyinCrawlerIngestionRepository(
+              repositories.domain,
+              repositories.planRun
+            )
+          : null);
+    const outreachDraftFinalAuthority = options.outreachFinalAuthority
+      ?? (crawlerIngestion
+        instanceof MysqlAcquisitionDouyinCrawlerIngestionRepository
+      && repositories.domain instanceof MysqlAcquisitionDomainRepository
+        ? new MysqlAcquisitionOutreachDraftFinalAuthority({
+            domain: repositories.domain,
+            doNotContact: crawlerIngestion
+          })
+        : crawlerIngestion
+          instanceof InMemoryAcquisitionDouyinCrawlerIngestionRepository
+        && repositories.domain instanceof InMemoryAcquisitionDomainRepository
+          ? new InMemoryAcquisitionOutreachDraftFinalAuthority({
+              domain: repositories.domain,
+              doNotContact: crawlerIngestion
+            })
+          : null);
+    const finalAuthority = outreachDraftFinalAuthority ?? {
+      async hasDoNotContact(): Promise<boolean> {
+        throw new Error("acquisition_outreach_final_authority_required");
+      },
+      async verify(): Promise<never> {
+        throw new Error("acquisition_outreach_final_authority_required");
+      }
+    } satisfies AcquisitionOutreachFinalAuthority;
+    const outreachDraftService = new AcquisitionOutreachDraftService({
+      domain: repositories.domain,
+      finalAuthority,
+      crawlerJobs,
+      resolveSnapshot: async (scope) => {
+        const snapshot = await resolveModelSnapshot(scope, {
+          connectionId: null
+        });
+        return { jobId: snapshot.jobId };
+      },
+      async gateway(snapshotId) {
+        const snapshot = options.store.aiJobModelSnapshots.find((item) =>
+          item.jobId === snapshotId);
+        if (!snapshot) throw new Error("MODEL_SNAPSHOT_UNAVAILABLE");
+        return options.modelGatewayFactory
+          ? options.modelGatewayFactory(
+              snapshot,
+              acquisitionModelContentForSnapshot(snapshot)
+            )
+          : createAcquisitionModelGatewayForSnapshot(options.store, snapshot);
+      }
+    });
+    let desktopInstallationRepository = options.desktopInstallationRepository;
+    let outreachBatchRepository: AcquisitionOutreachBatchRepository | undefined =
+      options.outreachBatchRepository;
+    let installationTesting: {
+      memoryTransactions: AcquisitionMemoryTransactionCoordinator;
+      socialAccounts?: InMemoryAcquisitionSocialAccountRepository;
+      outreachActions?: InMemoryAcquisitionOutreachBatchRepository;
+    } | undefined;
+    if (!desktopInstallationRepository) {
+      if (options.store.mode === "mysql") {
+        desktopInstallationRepository = new MysqlDesktopInstallationRepository(pool!);
+      } else {
+        installationTesting = {
+          memoryTransactions: desktopMemoryTransactions
+            ?? new AcquisitionMemoryTransactionCoordinator(),
+          ...(socialAccountRepository instanceof
+            InMemoryAcquisitionSocialAccountRepository
+            ? { socialAccounts: socialAccountRepository } : {})
+        };
+        desktopInstallationRepository = new InMemoryDesktopInstallationRepository(
+          installationTesting
+        );
+      }
+    }
+    const platformExecutionAccess = createPlatformExecutionAccess(options.store.mode === 'mysql'
+      ? { mysql: pool! }
+      : { isMutationPending: () => isPlatformMutationPending(options.store),
+        readState: async () => options.store.readPlatformAdminState
+        ? options.store.readPlatformAdminState()
+        : options.store.platformAdminStates?.[0] ?? emptyPlatformState() });
+    const acquisitionExecutionAccess = createPlatformExecutionAccess(options.store.mode === 'mysql'
+      ? { mysql: pool!, feature: 'acquisition' }
+      : { feature: 'acquisition', isMutationPending: () => isPlatformMutationPending(options.store),
+        readState: async () => options.store.readPlatformAdminState
+        ? options.store.readPlatformAdminState()
+        : options.store.platformAdminStates?.[0] ?? emptyPlatformState() });
+    if (!outreachBatchRepository) {
+      if (options.store.mode === "mysql") {
+        outreachBatchRepository = new MysqlAcquisitionOutreachBatchRepository(
+          pool!,
+          crawlerIngestion instanceof MysqlAcquisitionDouyinCrawlerIngestionRepository
+            ? crawlerIngestion : undefined,
+          { desktopTaskTokenKey: Buffer.from(derivedSecret(
+            masterSecret, "desktop-outreach-task-capability"), "hex") },
+          platformExecutionAccess
+        );
+      } else {
+        if (!installationTesting) {
+          throw new Error("acquisition_memory_desktop_transaction_boundary_required");
+        }
+        const memoryOutreach = new InMemoryAcquisitionOutreachBatchRepository({
+          platformExecutionAccess,
+          memoryTransactions: installationTesting.memoryTransactions,
+          memoryDomainTransactions: repositories.domain
+            instanceof InMemoryAcquisitionDomainRepository
+            ? repositories.domain : undefined,
+          socialAccounts: installationTesting.socialAccounts,
+          desktopInstallations: desktopInstallationRepository instanceof
+            InMemoryDesktopInstallationRepository
+            ? desktopInstallationRepository : undefined,
+          desktopTaskTokenKey: Buffer.from(derivedSecret(
+            masterSecret, "desktop-outreach-task-capability"), "hex")
+        });
+        installationTesting.outreachActions = memoryOutreach;
+        outreachBatchRepository = memoryOutreach;
+      }
+    }
+    if (!desktopInstallationRepository) {
+      throw new Error("acquisition_desktop_installation_repository_required");
+    }
+    if (!outreachBatchRepository) {
+      throw new Error("acquisition_outreach_repository_required");
+    }
+    const outreachRepository = outreachBatchRepository;
+    const outreachFeatureFlags = options.douyinOutreachFeatureFlags
+      ?? Object.freeze({
+        approvalsEnabled: options.douyinOutreachActionsEnabled === true,
+        serverExecutionEnabled: effectiveDouyinOutreachActionsEnabled({
+          enabled: options.douyinOutreachActionsEnabled === true,
+          gateway: options.douyinMediaCrawlerGateway
+        }),
+        desktopExecutionEnabled: false
+      });
+    if (outreachFeatureFlags.serverExecutionEnabled
+      && typeof options.douyinMediaCrawlerGateway?.executeAction !== "function") {
+      throw new TypeError(
+        "DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED requires a MediaCrawler gateway"
+      );
+    }
+    const desktopInstallationService = new AcquisitionDesktopInstallationService({
+      repository: desktopInstallationRepository,
+      secret: derivedSecret(masterSecret, "desktop-installation-service"),
+      now,
+      async isActiveMembership(scope) {
+        await options.store.readBarrier();
+        const user = options.store.users.find((candidate) =>
+          candidate.id === scope.userId
+          && candidate.teamId === scope.teamId
+          && candidate.status === "active"
+        );
+        if (!user) return false;
+        const workspace = await acquisitionWorkspace.resolve({
+          ownerId: user.id,
+          teamId: user.teamId
+        });
+        return workspace?.workspaceId === scope.workspaceId;
+      }
+    });
+    const actionAuthority = createAcquisitionOutreachActionAuthority({
+      findBatch: (workspaceId, batchId) =>
+        outreachRepository.find(workspaceId, batchId),
+      listActions: (workspaceId, batchId) =>
+        outreachRepository.listActions(workspaceId, batchId),
+      findAccount: (workspaceId, accountId) =>
+        socialAccountRepository.findById(workspaceId, accountId),
+      findRun: (runId) => repositories.planRun.getRun(runId),
+      findCrawlerJob: (workspaceId, runId) =>
+        crawlerJobs.findByRun(workspaceId, runId),
+      listPolicyVersions: (workspaceId, planId) =>
+        douyinAutomationRepository.listVersions(workspaceId, planId),
+      findCandidate: (scope, candidateId) =>
+        repositories.domain.findCandidate(scope, candidateId),
+      findEvidence: (scope, evidenceId) =>
+        repositories.domain.findEvidence(scope, evidenceId),
+      hasDoNotContact: (scope, publicActorKey) =>
+        finalAuthority.hasDoNotContact(scope, publicActorKey),
+      async loadLockedCandidateAuthority({ scope, candidateId, publicActorKey }) {
+        const candidate = await repositories.domain.findCandidate(scope, candidateId);
+        if (!candidate) return null;
+        const evidenceIds = orderedCandidateEvidenceIds(candidate);
+        const evidence = await Promise.all(evidenceIds.map((id) =>
+          repositories.domain.findEvidence(scope, id)));
+        if (evidence.some((item) => !item)) return null;
+        // The claim repository owns the surrounding transaction. The existing
+        // verifier reuses it and locks candidate/evidence/DNC before returning.
+        return finalAuthority.verify({ scope, candidateId, evidenceIds, publicActorKey,
+          expectedCandidate: candidate,
+          expectedEvidence: evidence.filter((item): item is NonNullable<typeof item> => Boolean(item)) });
+      }
+    });
+    const desktopRepository = isAcquisitionDesktopOutreachRepository(
+      outreachRepository
+    ) ? outreachRepository : null;
+    if (outreachFeatureFlags.desktopExecutionEnabled && !desktopRepository) {
+      throw new TypeError(
+        "desktop outreach repository must implement the Task 5 completion/recovery contract"
+      );
+    }
+    if (outreachFeatureFlags.desktopExecutionEnabled
+      && options.store.mode === "memory"
+      && (!(socialAccountRepository instanceof InMemoryAcquisitionSocialAccountRepository)
+        || !(desktopInstallationRepository instanceof InMemoryDesktopInstallationRepository)
+        || !(outreachRepository instanceof InMemoryAcquisitionOutreachBatchRepository)
+        || socialAccountRepository.memoryTransactions
+          !== desktopInstallationRepository.memoryTransactions
+        || outreachRepository.memoryTransactions
+          !== desktopInstallationRepository.memoryTransactions
+        || !desktopInstallationRepository.hasDesktopAuthorityBundle(
+          socialAccountRepository, outreachRepository)
+        || !outreachRepository.hasDesktopAuthorityBundle(
+          socialAccountRepository, desktopInstallationRepository))) {
+      throw new TypeError(
+        "desktop Memory composition must share one transaction coordinator and authority bundle"
+      );
+    }
+    const desktopOutreachSync: Pick<AcquisitionDesktopOutreachSync,
+      "claim" | "complete" | "reconcile"> = desktopRepository
+      ? new AcquisitionDesktopOutreachSync({
+          platformExecutionAccess,
+          repository: desktopRepository,
+          installationService: desktopInstallationService,
+          authority: actionAuthority,
+          now,
+          actionDeadlineMs: douyinActionDeadlineMs(),
+          leaseDurationMs: douyinActionDeadlineMs() + 30_000
+        })
+      : {
+          async claim() { throw new Error("desktop_execution_disabled"); },
+          async complete() { throw new Error("desktop_execution_disabled"); },
+          async reconcile() { throw new Error("desktop_execution_disabled"); }
+        };
+    const outreachBatches = new AcquisitionOutreachBatchService({
+      repository: outreachRepository,
+      approveDirectMessages: (input) =>
+        outreachRepository.approveDirectMessages(input),
+      douyinOutreachActionsEnabled: outreachFeatureFlags.approvalsEnabled,
+      serverExecutionEnabled: outreachFeatureFlags.serverExecutionEnabled,
+      desktopExecutionEnabled: outreachFeatureFlags.desktopExecutionEnabled,
+      idFactory,
+      now,
+      async loadRunAuthority(scope, runId) {
+        const [run, job] = await Promise.all([
+          repositories.planRun.getRun(runId),
+          crawlerJobs.findByRun(scope.workspaceId, runId)
+        ]);
+        if (!run || !job || run.ownerId !== scope.ownerId || run.teamId !== scope.teamId
+          || job.workspaceId !== scope.workspaceId || job.runId !== run.id
+          || job.planId !== run.planId || job.planVersionId !== run.planVersionId
+          || job.planSnapshotHash !== run.planSnapshotHash) return null;
+        const policyVersions = await douyinAutomationRepository.listVersions(
+          scope.workspaceId,
+          job.planId
+        );
+        const policy = policyVersions.find((value) => value.id === job.policyVersionId);
+        if (!policy || policy.policyHash !== job.policyHash) return null;
+        return { workspaceId: job.workspaceId, runId: run.id, planId: run.planId,
+          planVersionId: run.planVersionId, planVersion: run.planVersion,
+          planSnapshotHash: run.planSnapshotHash, policyVersionId: job.policyVersionId,
+          policyHash: job.policyHash, accountId: job.accountId,
+          accountLoginStateVersion: job.accountLoginStateVersion,
+          dailyBudgetId: job.dailyBudgetId, localDate: job.localDate,
+          timeZone: policy.schedule.timeZone,
+          dailyCandidateLimit: job.dailyCandidateLimit,
+          finalizationState: crawlerOutreachFinalizationState(job) };
+      },
+      async listRunCandidateIds(scope, runId) {
+        const run = await repositories.planRun.getRun(runId);
+        if (!run || run.ownerId !== scope.ownerId || run.teamId !== scope.teamId) return [];
+        return (await repositories.planRun.listRunCandidateLinks(runId)).map((link) => link.candidateId);
+      },
+      generateDraft: (scope, candidateId) => outreachDraftService.generate({ scope, candidateId }),
+      async loadCandidateAuthority(scope, candidateId) {
+        const candidate = await repositories.domain.findCandidate(scope, candidateId);
+        if (!candidate || candidate.ownerId !== scope.ownerId || candidate.teamId !== scope.teamId
+          || candidate.profile.kind !== "individual" || candidate.profile.sourcePlatform !== "douyin"
+          || !candidate.profile.publicActorKey) return null;
+        const evidenceIds = orderedCandidateEvidenceIds(candidate);
+        const evidence = await Promise.all(evidenceIds.map((id) =>
+          repositories.domain.findEvidence(scope, id)));
+        if (evidence.some((item) => !item)) return null;
+        const trusted = evidence.filter((item): item is NonNullable<typeof item> => Boolean(item));
+        const verified = await finalAuthority.verify({ scope, candidateId,
+          evidenceIds, publicActorKey: candidate.profile.publicActorKey,
+          expectedCandidate: candidate, expectedEvidence: trusted });
+        const commentEvidence = selectDouyinCandidateEvidence(
+          verified.evidence as readonly import("./acquisition-domain.js").DiscoveryEvidence[],
+          { requireVideo: true }
+        );
+        const commentTargetPublicUrl = commentEvidence
+          ? discoveryEvidencePublicSourceUrl(commentEvidence) : null;
+        if (!commentTargetPublicUrl) return null;
+        return { candidateId: verified.candidate.id,
+          candidateRevision: verified.candidate.version,
+          evidenceHashes: verified.evidence.map((item) => item.contentHash),
+          evidenceText: verified.evidence.map((item) => item.sourceSnippet),
+          publicActorKey: candidate.profile.publicActorKey,
+          publicProfileUrl: candidate.profile.publicProfileUrl,
+          commentTargetPublicUrl,
+          doNotContact: verified.candidate.status === "do_not_contact"
+            || await finalAuthority.hasDoNotContact(scope, candidate.profile.publicActorKey) };
+      },
+      async loadAccountAuthority(scope, accountId) {
+        const account = await socialAccountRepository.findById(scope.workspaceId, accountId);
+        return account ? { accountId: account.id, state: account.state,
+          loginStateVersion: account.loginStateVersion,
+          accountHandle: account.accountHandle,
+          displayName: account.displayName,
+          executorMode: account.executorMode,
+          executorDeviceIdHash: account.executorDeviceIdHash,
+          executorBindingGeneration: account.executorBindingGeneration,
+          executorLeaseExpiresAt: account.executorLeaseExpiresAt } : null;
+      },
+      reconciliationDeadlineMs: douyinActionDeadlineMs(),
+      reconcileAction: options.douyinMediaCrawlerGateway
+        ? (input) => options.douyinMediaCrawlerGateway!.reconcileAction(input)
+        : undefined
+    });
+    const enqueueCrawlerJob = async (
+      run: import("./acquisition-douyin-automation.js").DouyinAutomationRunIntent,
+      policy: import("./acquisition-douyin-automation.js").DouyinAutomationPolicyVersion
+    ) => {
+      await crawlerJobs.createOrGet({
+        id: idFactory("crawler-job"), workspaceId: run.workspaceId,
+        runId: run.acquisitionRunId, automationIntentId: run.id,
+        planId: run.planId, planVersionId: run.planVersionId,
+        planSnapshotHash: run.planSnapshotHash,
+        policyVersionId: run.policyVersionId, policyHash: run.policyHash,
+        accountId: run.accountId,
+        accountLoginStateVersion: run.accountLoginStateVersion,
+        dailyBudgetId: run.dailyBudgetId, localDate: run.localDate,
+        trigger: run.trigger, dailyCandidateLimit: policy.dailyCandidateLimit,
+        keywords: [...policy.keywords],
+        collectCreators: run.collectCreators,
+        collectDemandComments: run.collectDemandComments,
+        limits: { ...policy.limits },
+        createdAt: run.createdAt
+      });
+      await crawlerJobs.enqueue(
+        run.workspaceId,
+        run.acquisitionRunId,
+        run.createdAt
+      );
+    };
+    const douyinAutomation = new AcquisitionDouyinAutomationService({
+      repository: douyinAutomationRepository,
+      plans: repositories.planRun,
+      accounts: socialAccountRepository,
+      resolvePlanWorkspace: (scope) => acquisitionWorkspace.resolve(scope),
+      idFactory,
+      now,
+      onRunIntent: enqueueCrawlerJob
+    });
+    const desktopCrawlerActorId = idFactory("desktop-crawler-ingester");
+    const boundDesktopCrawlerRun = async (
+      job: import("./acquisition-crawler-job.js").AcquisitionCrawlerJob,
+      scope: { workspaceId: string; ownerId: string; teamId: string; actorId: string }
+    ) => {
+      const run = await repositories.planRun.getRun(job.runId);
+      if (!run || run.ownerId !== scope.ownerId || run.teamId !== scope.teamId
+        || run.planId !== job.planId
+        || run.planVersionId !== job.planVersionId
+        || run.planSnapshotHash !== job.planSnapshotHash) {
+        throw new Error("desktop_crawler_ingestion_run_binding_changed");
+      }
+      const resolved = await acquisitionWorkspace.resolve({
+        ownerId: run.ownerId,
+        teamId: run.teamId
+      });
+      if (!resolved || resolved.workspaceId !== job.workspaceId
+        || resolved.workspaceId !== scope.workspaceId) {
+        throw new Error("desktop_crawler_ingestion_workspace_binding_changed");
+      }
+      return run;
+    };
+    const desktopSync = new AcquisitionDesktopSyncService({
+      executionAccess: acquisitionExecutionAccess,
+      automation: douyinAutomation,
+      crawlerJobs,
+      accounts: socialAccountRepository,
+      taskTokenSecret: derivedSecret(
+        masterSecret,
+        "desktop-crawler-task-capability"
+      ),
+      now,
+      async ingestTerminalJob(job, scope) {
+        if (!crawlerIngestion) {
+          throw new Error("acquisition_crawler_ingestion_transaction_boundary_required");
+        }
+        const run = await boundDesktopCrawlerRun(job, scope);
+        await ingestDouyinCrawlerPage({
+          crawlerJobs,
+          repository: crawlerIngestion,
+          workspaceId: job.workspaceId,
+          runId: job.runId,
+          scope: {
+            ownerId: run.ownerId,
+            teamId: run.teamId,
+            actorId: desktopCrawlerActorId
+          },
+          now
+        });
+      },
+      async projectTerminalJob(job, scope) {
+        const run = await boundDesktopCrawlerRun(job, scope);
+        await projectDouyinCrawlerTerminalRuns({
+          repository: repositories.planRun,
+          scope: {
+            workspaceId: job.workspaceId,
+            ownerId: run.ownerId,
+            teamId: run.teamId,
+            actorId: desktopCrawlerActorId
+          },
+          job,
+          at: job.updatedAt
+        });
+      }
+    });
+    const douyinKeywordSuggestions = {
+      async generate(scope: {
+        workspaceId: string; ownerId: string; teamId: string; actorId: string;
+      }, planId: string, idempotencyKey: string) {
+        const plan = await repositories.planRun.getPlan(planId);
+        const workspace = await acquisitionWorkspace.resolve({
+          ownerId: scope.ownerId,
+          teamId: scope.teamId
+        });
+        if (!plan || plan.ownerId !== scope.ownerId || plan.teamId !== scope.teamId
+          || !workspace || workspace.workspaceId !== scope.workspaceId) {
+          throw new Error("automation_plan_not_found");
+        }
+        const outcome = await executeModelConnectionWriteIdempotently(options.store, {
+          ownerId: scope.ownerId, teamId: scope.teamId, idempotencyKey,
+          method: "POST", path: `/api/v1/acquisition/plans/${plan.id}/automation/keyword-suggestions`,
+          body: { operation: "douyin_keyword_suggestions", workspaceId: scope.workspaceId, planId: plan.id, planRevision: plan.updatedAt, objective: plan.payload.objective, icp: plan.payload.icp }
+        }, async () => {
+          // Deliberately no caller idempotency key here: a new command must bind
+          // the currently active credential/model/content snapshot. The replay
+          // repository, not the snapshot resolver, owns replay identity.
+          const snapshot = await resolveModelSnapshot(scope, { connectionId: null });
+          const stored = options.store.aiJobModelSnapshots.find((item) => item.jobId === snapshot.jobId && item.ownerId === scope.ownerId && item.teamId === scope.teamId);
+          if (!stored) throw new Error("MODEL_SNAPSHOT_UNAVAILABLE");
+          const gateway = options.modelGatewayFactory ? options.modelGatewayFactory(stored, acquisitionModelContentForSnapshot(stored)) : createAcquisitionModelGatewayForSnapshot(options.store, stored);
+          const value = await generateDouyinKeywords({ gateway, modelSnapshotId: snapshot.jobId, business: plan.payload.objective, icp: plan.payload.icp });
+          return { status: 200, body: value };
+        }, { persistenceScope: "result" });
+        return { ...(outcome.body as { keywords: readonly string[]; modelSnapshotId: string }), replayed: outcome.replayed };
+      }
+    };
+    router.use(
+      "/api/v1/acquisition",
+      createAcquisitionDouyinAutomationRouter({
+        service: douyinAutomation,
+        requestIdFactory: () => idFactory("request")
+      })
+    );
+    router.use(
+      "/api/v1/acquisition",
+      createAcquisitionDesktopSyncRouter({
+        socialAccounts,
+        desktopSync,
+        requestIdFactory: () => idFactory("request")
+      })
+    );
+    router.use(
+      "/api/v1/acquisition",
+      createAcquisitionDesktopOutreachSyncRouter({
+        installationService: desktopInstallationService,
+        outreachSync: desktopOutreachSync,
+        desktopExecutionEnabled: outreachFeatureFlags.desktopExecutionEnabled
+      })
+    );
+    router.use(
+      "/api/v1/acquisition",
+      createAcquisitionDouyinKeywordRouter({
+        service: douyinKeywordSuggestions,
+        requestIdFactory: () => idFactory("request")
+      })
+    );
+    router.use(
+      "/api/v1/acquisition",
+      createAcquisitionCrawlerJobRouter({
+        repository: crawlerJobs,
+        requestIdFactory: () => idFactory("request")
+      })
+    );
+    router.use(
+      "/api/v1/acquisition",
+      createAcquisitionOutreachBatchRouter({
+        service: outreachBatches,
+        cursorSecret: derivedSecret(masterSecret, "outreach-batch-list-cursor"),
+        requestIdFactory: () => idFactory("request")
+      })
+    );
+    router.use(createAcquisitionRunCandidatesRouter({
+      repository: {
+        async list(workspaceId, runId) {
+          const run = await repositories.planRun.getRun(runId);
+          if (!run) return null;
+          const resolved = await acquisitionWorkspace.resolve({ ownerId: run.ownerId, teamId: run.teamId });
+          if (!resolved || resolved.workspaceId !== workspaceId) return null;
+          const scope = { ownerId: run.ownerId, teamId: run.teamId };
+          const links = await repositories.planRun.listRunCandidateLinks(runId);
+          const results: Array<{ id: string; status: string; displayName: string; evidence: { sourceUrl: string; excerpt: string } }> = [];
+          for (const link of links) {
+            const candidate = await repositories.domain.findCandidate(scope, link.candidateId);
+            if (!candidate) continue;
+            const evidence = await Promise.all(
+              orderedCandidateEvidenceIds(candidate).map((id) =>
+                repositories.domain.findEvidence(scope, id))
+            );
+            const trusted = evidence.filter(
+              (item): item is NonNullable<typeof item> => Boolean(item)
+            );
+            const publicEvidence = selectDouyinCandidateEvidence(trusted, {
+              requireVideo: false
+            });
+            if (!publicEvidence) continue;
+            const sourceUrl = discoveryEvidencePublicSourceUrl(publicEvidence);
+            if (!sourceUrl) continue;
+            results.push({ id: candidate.id, status: candidate.status,
+              displayName: candidate.profile.kind === "individual" ? candidate.profile.publicDisplayName : candidate.profile.name,
+              evidence: { sourceUrl, excerpt: publicEvidence.sourceSnippet } });
+          }
+          return results;
+        }
+      },
+      cursorSecret: derivedSecret(masterSecret, "run-candidates-cursor"),
+      requestIdFactory: () => idFactory("request")
+    }));
+    douyinScheduler = new AcquisitionDouyinScheduler({
+      repository: crawlerJobs,
+      runIntents: {
+        async create(policy, run) {
+          const plan = await repositories.planRun.getPlan(policy.planId);
+          if (!plan || plan.currentVersionId !== policy.planVersionId) {
+            throw new Error("scheduled_automation_plan_binding_changed");
+          }
+          const version = await repositories.planRun.getPlanVersion(
+            policy.planVersionId
+          );
+          if (!version) {
+            throw new Error("scheduled_automation_plan_binding_changed");
+          }
+          const result = await douyinAutomationRepository.createRunIntent({
+            workspaceId: policy.workspaceId, ownerId: plan.ownerId,
+            teamId: plan.teamId, planId: policy.planId,
+            planVersionId: policy.planVersionId,
+            policyVersionId: policy.policyVersionId,
+            accountId: policy.accountId,
+            accountLoginStateVersion: policy.accountLoginStateVersion,
+            idempotencyKey: `scheduled:${policy.policyVersionId}:${run.localDate}`,
+            requestHash: douyinAutomationHash({
+              workspaceId: policy.workspaceId, planId: policy.planId,
+              policyVersionId: policy.policyVersionId,
+              dailyBudgetId: run.dailyBudgetId, localDate: run.localDate,
+              trigger: run.trigger
+            }),
+            value: run,
+            runBinding: createDouyinCollectionAcquisitionRun({
+              id: run.acquisitionRunId,
+              automationIntentId: run.id,
+              plan,
+              version,
+              dailyBudgetId: run.dailyBudgetId,
+              reason: run.reason,
+              actorId: run.createdBy,
+              createdAt: run.createdAt
+            })
+          });
+          if (result.kind === "conflict" || result.kind === "binding_mismatch") {
+            throw new Error("scheduled_automation_run_binding_changed");
+          }
+          return result.value;
+        }
+      },
+      policies: {
+        async listScheduled() {
+          return (await douyinAutomationRepository.listCurrentPolicies()).map(
+            (policy) => ({
+              workspaceId: policy.workspaceId, planId: policy.planId,
+              planVersionId: policy.planVersionId,
+              planVersion: policy.planVersion,
+              planSnapshotHash: policy.planSnapshotHash,
+              policyVersionId: policy.id, policyHash: policy.policyHash,
+              accountId: policy.accountId,
+              accountLoginStateVersion: policy.accountLoginStateVersion,
+              createdBy: policy.createdBy, keywords: [...policy.keywords],
+              dailyCandidateLimit: policy.dailyCandidateLimit,
+              collectCreators: policy.collectCreators,
+              collectDemandComments: policy.collectDemandComments,
+              schedule: { ...policy.schedule }, limits: { ...policy.limits }
+            })
+          );
+        }
+      },
+      idFactory,
+      now
+    });
+    douyinScheduler.start(options.douyinSchedulerIntervalMs);
+    crawlerRecoverySweeper = new AcquisitionCrawlerRecoverySweeper({
+      repository: crawlerJobs, now,
+      intervalMs: options.crawlerRecoveryIntervalMs
+    });
+    crawlerRecoverySweeper.start();
+    if (crawlerIngestion && "cleanupAllExpiredUnlinked" in crawlerIngestion
+      && typeof crawlerIngestion.cleanupAllExpiredUnlinked === "function") {
+      crawlerEvidenceRetentionSweeper =
+        new AcquisitionDouyinEvidenceRetentionSweeper({
+          repository: crawlerIngestion as
+            import("./acquisition-douyin-crawler-ingestion-repository.js")
+              .AcquisitionDouyinEvidenceRetentionRepository,
+          now,
+          intervalMs: options.crawlerEvidenceRetentionIntervalMs
+        });
+      crawlerEvidenceRetentionSweeper.start();
+    }
+    if (options.douyinMediaCrawlerGateway) {
+      if (!crawlerIngestion) {
+        throw new Error("acquisition_crawler_ingestion_transaction_boundary_required");
+      }
+      const crawlerWorkerId = idFactory("crawler-worker");
+      const ingestCrawlerJob = async (
+        job: import("./acquisition-crawler-job.js").AcquisitionCrawlerJob
+      ) => {
+        const run = await repositories.planRun.getRun(job.runId);
+        if (!run || run.planId !== job.planId
+          || run.planVersionId !== job.planVersionId
+          || run.planSnapshotHash !== job.planSnapshotHash) {
+          throw new Error("crawler_ingestion_run_binding_changed");
+        }
+        const resolved = await acquisitionWorkspace.resolve({
+          ownerId: run.ownerId,
+          teamId: run.teamId
+        });
+        if (!resolved || resolved.workspaceId !== job.workspaceId) {
+          throw new Error("crawler_ingestion_workspace_binding_changed");
+        }
+        try {
+          await ingestDouyinCrawlerPage({
+            crawlerJobs,
+            repository: crawlerIngestion,
+            workspaceId: job.workspaceId,
+            runId: job.runId,
+            scope: {
+              ownerId: run.ownerId,
+              teamId: run.teamId,
+              actorId: crawlerWorkerId
+            },
+            now
+          });
+        } catch (error) {
+          const candidate = error as { code?: unknown; message?: unknown };
+          const databaseCode = typeof candidate?.code === "string"
+            && /^ER_[A-Z_]{1,80}$/u.test(candidate.code)
+            ? candidate.code : null;
+          const internalCode = typeof candidate?.message === "string"
+            && /^[a-z][a-z0-9_]{1,100}$/u.test(candidate.message)
+            ? candidate.message : null;
+          console.error(JSON.stringify({
+            event: "acquisition_crawler_ingestion_failed",
+            jobId: job.id,
+            databaseCode,
+            internalCode
+          }));
+          throw error;
+        }
+      };
+      const projectTerminalCrawlerJob = async (
+        job: import("./acquisition-crawler-job.js").AcquisitionCrawlerJob
+      ) => {
+        const run = await repositories.planRun.getRun(job.runIds[0]!);
+        if (!run) throw new Error("crawler_terminal_projection_run_missing");
+        const resolved = await acquisitionWorkspace.resolve({
+          ownerId: run.ownerId,
+          teamId: run.teamId
+        });
+        if (!resolved || resolved.workspaceId !== job.workspaceId) {
+          throw new Error("crawler_terminal_projection_workspace_mismatch");
+        }
+        await projectDouyinCrawlerTerminalRuns({
+          repository: repositories.planRun,
+          scope: {
+            workspaceId: job.workspaceId,
+            ownerId: run.ownerId,
+            teamId: run.teamId,
+            actorId: crawlerWorkerId
+          },
+          job,
+          at: job.updatedAt
+        });
+      };
+      crawlerWorker = new AcquisitionCrawlerWorker({
+        executionAccess: acquisitionExecutionAccess,
+        repository: crawlerJobs,
+        gateway: options.douyinMediaCrawlerGateway,
+        accounts: socialAccountRepository,
+        workerId: crawlerWorkerId,
+        now,
+        ingestAvailableJob: ingestCrawlerJob,
+        ingestTerminalJob: ingestCrawlerJob,
+        projectTerminalJob: projectTerminalCrawlerJob
+      });
+      crawlerWorker.start(options.crawlerWorkerIntervalMs);
+      if (outreachFeatureFlags.serverExecutionEnabled) {
+        outreachActionRecoverySweeper = new AcquisitionOutreachActionRecoverySweeper({
+          repository: outreachRepository, now,
+          intervalMs: options.outreachActionRecoveryIntervalMs
+        });
+        outreachActionRecoverySweeper.start();
+        const actionWorkerId = idFactory("outreach-action-worker");
+        outreachActionWorker = new AcquisitionOutreachActionWorker({
+          platformExecutionAccess,
+          repository: outreachRepository, workerId: actionWorkerId, now,
+          intervalMs: options.outreachActionWorkerIntervalMs,
+          actionDeadlineMs: douyinActionDeadlineMs(),
+          execute: (input) => options.douyinMediaCrawlerGateway!.executeAction(input),
+          accountAuthority: (action) => actionAuthority.resolve(action, actionWorkerId),
+          async pauseAccount(workspaceId, accountId, loginStateVersion, occurredAt) {
+            const account = await socialAccountRepository.findById(workspaceId, accountId);
+            if (!account || account.state !== "active"
+              || !account.accountHandle
+              || account.loginStateVersion !== loginStateVersion) return;
+            await socialAccountRepository.pauseActiveAccount(workspaceId, accountId, {
+              accountHandle: account.accountHandle,
+              loginStateVersion,
+              revision: account.revision,
+              etag: account.etag
+            }, occurredAt);
+          }
+        });
+        outreachActionWorker.start();
+      }
+    }
+    const visualReaderService = new AcquisitionVisualReaderService({
+      repository: repositories.visualReader,
+      planRunRepository: repositories.planRun,
+      purposeSecret: derivedSecret(masterSecret, "visual-reader-service"),
+      now
+    });
+    router.use(createAcquisitionVisualReaderRouter({
+      service: visualReaderService
+    }));
+    router.use(createAcquisitionProviderConnectionsRouter({
+      store: options.store,
+      credentialSecret: providerCredentialSecret,
+      requestIdFactory: idFactory,
+      idFactory,
+      now,
+      connectionTester: async ({ scope, connection }) => {
+        try {
+          const result = await searchPort.search({
+            ownerId: scope.ownerId,
+            teamId: scope.teamId,
+            actorId: scope.ownerId,
+            sessionId: idFactory("provider_connection_test"),
+            providerConnectionId: connection.id,
+            query: "公开采购需求",
+            subjectKinds: ["organization"],
+            maxResults: 1
+          });
+          return {
+            ok: true,
+            message: "数据源连接测试通过",
+            errorCode: null,
+            retryable: false,
+            retryAfterAt: null,
+            usage: `测试返回 ${result.results.length} 条公开结果`
+          };
+        } catch (error) {
+          const failure = error as {
+            code?: unknown;
+            retryable?: unknown;
+            retryAfterAt?: unknown;
+          };
+          return {
+            ok: false,
+            message: "数据源连接测试失败",
+            errorCode: typeof failure.code === "string"
+              ? failure.code
+              : "PROVIDER_CONNECTION_TEST_FAILED",
+            retryable: failure.retryable === true,
+            retryAfterAt: typeof failure.retryAfterAt === "string"
+              ? failure.retryAfterAt
+              : null,
+            usage: ""
+          };
+        }
+      }
+    }));
+    router.use(createAcquisitionDiscoveryOperationsRouter({
+      service: discoveryOperations,
+      requestIdFactory: () => idFactory("request"),
+      dispatchContentFetchOperation: (scope, operationId) =>
+        dispatchDiscoveryTask(() => executeContentFetchAndSubmitIdentity(
+          scope,
+          operationId
+        )),
+      dispatchImportOperation: (scope, operationId) =>
+        dispatchDiscoveryTask(() => executeImportAndSubmitIdentity(
+          scope,
+          operationId
+        ))
+    }));
+    router.use(createAcquisitionCandidateIntelligenceOperationsRouter({
+      service: candidateIntelligenceOperations,
+      dispatchOperation: dispatchCandidateIntelligenceTask,
+      requestIdFactory: () => idFactory("request")
+    }));
+    router.use(createAcquisitionDouyinIdentityResolutionRouter({
+      operations: {
+        findIdempotentReplay(scope, candidateId, idempotencyKey) {
+          return douyinIdentityResolutionOperations.findIdempotentReplay(
+            scope,
+            candidateId,
+            idempotencyKey
+          );
+        },
+        findLatestForCandidate(scope, candidateId) {
+          return douyinIdentityResolutionOperations.findLatestForCandidate(
+            scope,
+            candidateId
+          );
+        },
+        create(scope, input, idempotencyKey) {
+          return douyinIdentityResolutionOperations.createWithResult(
+            scope,
+            input,
+            idempotencyKey
+          );
+        }
+      },
+      candidates: {
+        getCandidate(scope, candidateId) {
+          return repositories.domain.findCandidate(scope, candidateId);
+        }
+      },
+      searchConnections: activeSearchConnections,
+      candidateIsResolved: (candidate) => acquisitionCandidateIdentityResolved(
+        candidate as AcquisitionCandidate
+      ),
+      dispatchOperation: dispatchDouyinIdentityTask,
+      requestIdFactory: () => idFactory("request")
+    }));
+    router.use(createAcquisitionPerformanceRouter({
+      query: performanceQuery,
+      requestIdFactory: () => idFactory("request")
+    }));
+    router.use(createAcquisitionV1Router({
+      domainService,
+      identityResolutionService,
+      copilotService,
+      queryPort: repositories.domain,
+      requestIdFactory: idFactory,
+      cursorSecret: derivedSecret(masterSecret, "v1-cursor"),
+      dispatchCopilotTask,
+      resolveCopilotModelSnapshot: resolveModelSnapshot,
+      privateDomainHandoffService
+    }));
+    router.use(createAcquisitionPlanRouter({
+      service: planService,
+      presentationService: runPresentationService,
+      resolveModelSnapshot: async (scope, input) => {
+        const snapshot = await resolveModelSnapshot(scope, input);
+        return {
+          jobSnapshotId: snapshot.jobId,
+          connectionId: snapshot.connectionId,
+          credentialVersion: snapshot.credentialVersion,
+          provider: snapshot.provider,
+          model: snapshot.model,
+          capabilitySnapshotHash: snapshot.capabilitySnapshotHash,
+          promptVersion: snapshot.promptVersion,
+          schemaVersion: snapshot.schemaVersion,
+          promptHash: snapshot.promptHash,
+          schemaHash: snapshot.schemaHash
+        };
+      },
+      requestIdFactory: () => idFactory("request")
+    }));
+    router.use(createCfoAcquisitionWorkflowRouter({
+      service: cfoAcquisitionWorkflowService,
+      requestIdFactory: () => idFactory("request")
+    }));
+    router.use(createAcquisitionTaskOverviewRouter({
+      overviewService: taskOverviewService,
+      planService,
+      presentationService: runPresentationService,
+      requestIdFactory: () => idFactory("request")
+    }));
+
+    visualArtifactExpirySweeper = options.visualArtifactExpirySweeperFactory
+      ? options.visualArtifactExpirySweeperFactory(repositories.visualReader)
+      : new AcquisitionVisualArtifactExpirySweeper({
+          repository: repositories.visualReader,
+          now,
+          intervalMs: options.visualArtifactExpiryIntervalMs,
+          batchSize: options.visualArtifactExpiryBatchSize
+        });
+    await visualArtifactExpirySweeper.start();
+
+    copilotRecoverySweeper = new AcquisitionCopilotRecoverySweeper({
+      service: copilotService,
+      dispatchTask: dispatchCopilotTask,
+      intervalMs: options.copilotRecoveryIntervalMs,
+      nowMs
+    });
+    await copilotRecoverySweeper.start();
+    discoveryRecoverySweeper =
+      new AcquisitionDiscoveryRecoverySweeper({
+        service: discoveryOperations,
+        dispatchContentFetchOperation: (scope, operationId, executionId) =>
+          dispatchDiscoveryTask(() =>
+            discoveryOperations.recoverContentFetchOperation(
+              scope,
+              operationId,
+              executionId
+            ).then((completed) => submitDirectDouyinCandidates(
+              scope,
+              `content-fetch:${operationId}`,
+              completed.candidateIds
+            ))
+          ),
+        dispatchImportOperation: (scope, operationId) =>
+          dispatchDiscoveryTask(() =>
+            executeImportAndSubmitIdentity(
+              scope,
+              operationId
+            )
+          ),
+        intervalMs: options.discoveryRecoveryIntervalMs,
+        nowMs
+      });
+    await discoveryRecoverySweeper.start();
+    candidateIntelligenceRecoverySweeper =
+      new AcquisitionCandidateIntelligenceRecoverySweeper({
+        service: candidateIntelligenceOperations,
+        dispatch: dispatchCandidateIntelligenceTask,
+        intervalMs: options.candidateIntelligenceRecoveryIntervalMs,
+        batchSize: options.candidateIntelligenceRecoveryBatchSize
+      });
+    await candidateIntelligenceRecoverySweeper.start();
+    douyinIdentityResolutionRecoverySweeper =
+      new AcquisitionDouyinIdentityResolutionRecoverySweeper({
+        service: douyinIdentityResolutionOperations,
+        dispatch: dispatchDouyinIdentityTask,
+        intervalMs: options.douyinIdentityResolutionRecoveryIntervalMs,
+        batchSize: options.douyinIdentityResolutionRecoveryBatchSize
+      });
+    await douyinIdentityResolutionRecoverySweeper.start();
+    conversionRecoverySweeper =
+      new AcquisitionLeadConversionRecoverySweeper({
+        service: conversionReconciliation,
+        intervalMs: options.conversionRecoveryIntervalMs
+      });
+    await conversionRecoverySweeper.start();
+    outcomeReconciliationWorker =
+      new AcquisitionCrmOutcomeReconciliationWorker({
+        service: outcomeReconciliation,
+        listTenantScopes: () => options.store.acquisitionCustomerHandoffs.map(
+          ({ ownerId, teamId }) => ({ ownerId, teamId })
+        ),
+        intervalMs: options.outcomeReconciliationIntervalMs,
+        batchSize: options.outcomeReconciliationBatchSize
+      });
+    await outcomeReconciliationWorker.start();
+
+    let closePromise: Promise<void> | null = null;
+    return {
+      handler: router as RequestHandler,
+      planDraftGenerator,
+      outreachDraftService,
+      cfoAcquisitionWorkflowService,
+      visualReaderRepository: repositories.visualReader,
+      runOutcomeReconciliation(scope) {
+        return outcomeReconciliation.runTenant(scope, {
+          limit: options.outcomeReconciliationBatchSize ?? 100
+        });
+      },
+      close() {
+        if (closePromise) return closePromise;
+        closing = true;
+        closePromise = (async () => {
+          if (cfoWorkflowTimer) {
+            clearInterval(cfoWorkflowTimer);
+            cfoWorkflowTimer = null;
+          }
+          let settlements: PromiseSettledResult<void>[] = [];
+          let gracefulFailure: unknown;
+          try {
+            settlements = await waitWithTimeout(
+              Promise.allSettled([
+                crawlerWorker?.close() ?? Promise.resolve(),
+                crawlerRecoverySweeper?.close() ?? Promise.resolve(),
+                crawlerEvidenceRetentionSweeper?.close() ?? Promise.resolve(),
+                outreachActionWorker?.close() ?? Promise.resolve(),
+                outreachActionRecoverySweeper?.close() ?? Promise.resolve(),
+                Promise.resolve(douyinScheduler?.close()),
+                visualArtifactExpirySweeper?.close() ?? Promise.resolve(),
+                visualReaderRecoverySweeper?.close() ?? Promise.resolve(),
+                douyinCommentIngestionRecoverySweeper?.close()
+                  ?? Promise.resolve(),
+                copilotRecoverySweeper?.close() ?? Promise.resolve(),
+                discoveryRecoverySweeper?.close()
+                  ?? Promise.resolve(),
+                (async () => {
+                  await candidateIntelligenceRecoverySweeper?.stop();
+                  await Promise.all([
+                    ...activeCandidateIntelligenceTasks
+                  ]);
+                })(),
+                (async () => {
+                  await douyinIdentityResolutionRecoverySweeper?.stop();
+                  await Promise.all([
+                    ...activeDouyinIdentityTasks
+                  ]);
+                })(),
+                conversionRecoverySweeper?.close()
+                  ?? Promise.resolve(),
+                outcomeReconciliationWorker?.close()
+                  ?? Promise.resolve(),
+                (async () => {
+                  await planExecutionRecoverySweeper?.close();
+                  await worker.close();
+                })(),
+                ...activeCopilotTasks,
+                ...activeDiscoveryTasks
+              ]),
+              closeTimeoutMs
+            );
+          } catch (error) {
+            gracefulFailure = error;
+            for (const controller of activeCopilotControllers) {
+              controller.abort("ACQUISITION_APPLICATION_SHUTDOWN_TIMEOUT");
+            }
+            await waitWithTimeout(
+              Promise.allSettled([...activeCopilotTasks]).then(
+                () => undefined
+              ),
+              closeTimeoutMs
+            ).catch(() => undefined);
+          }
+          let poolFailure: unknown;
+          if (pool) {
+            try {
+              await pool.end();
+            } catch (error) {
+              poolFailure = error;
+            }
+          }
+          if (gracefulFailure) throw gracefulFailure;
+          const runtimeFailure = settlements.find(
+            (settlement) => settlement.status === "rejected"
+          );
+          if (runtimeFailure?.status === "rejected") {
+            throw runtimeFailure.reason;
+          }
+          if (poolFailure) throw poolFailure;
+        })();
+        return closePromise;
+      }
+    };
+  } catch (error) {
+    douyinScheduler?.close();
+    if (crawlerRecoverySweeper) {
+      await crawlerRecoverySweeper.close().catch(() => undefined);
+    }
+    if (crawlerEvidenceRetentionSweeper) {
+      await crawlerEvidenceRetentionSweeper.close().catch(() => undefined);
+    }
+    if (crawlerWorker) {
+      await crawlerWorker.close().catch(() => undefined);
+    }
+    if (outreachActionWorker) {
+      await outreachActionWorker.close().catch(() => undefined);
+    }
+    if (outreachActionRecoverySweeper) {
+      await outreachActionRecoverySweeper.close().catch(() => undefined);
+    }
+    if (visualArtifactExpirySweeper) {
+      await visualArtifactExpirySweeper.close().catch(() => undefined);
+    }
+    if (visualReaderRecoverySweeper) {
+      await visualReaderRecoverySweeper.close().catch(() => undefined);
+    }
+    if (douyinCommentIngestionRecoverySweeper) {
+      await douyinCommentIngestionRecoverySweeper.close()
+        .catch(() => undefined);
+    }
+    if (douyinIdentityResolutionRecoverySweeper) {
+      await douyinIdentityResolutionRecoverySweeper.stop()
+        .catch(() => undefined);
+    }
+    if (candidateIntelligenceRecoverySweeper) {
+      await candidateIntelligenceRecoverySweeper.stop()
+        .catch(() => undefined);
+    }
+    if (conversionRecoverySweeper) {
+      await conversionRecoverySweeper.close().catch(() => undefined);
+    }
+    if (outcomeReconciliationWorker) {
+      await outcomeReconciliationWorker.close().catch(() => undefined);
+    }
+    if (discoveryRecoverySweeper) {
+      await discoveryRecoverySweeper.close().catch(() => undefined);
+    }
+    if (copilotRecoverySweeper) {
+      await copilotRecoverySweeper.close().catch(() => undefined);
+    }
+    if (planExecutionRecoverySweeper) {
+      await planExecutionRecoverySweeper.close().catch(() => undefined);
+    }
+    if (executionWorker) {
+      await waitWithTimeout(
+        executionWorker.close(),
+        closeTimeoutMs
+      ).catch(() => undefined);
+    }
+    if (pool) await pool.end().catch(() => undefined);
+    throw error;
+  }
+}

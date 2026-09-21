@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoodJob 只读视觉读取</title>
+    <link rel="stylesheet" href="./popup.css">
+  </head>
+  <body>
+    <main class="reader-popup" aria-labelledby="popup-title">
+      <header class="reader-popup__header">
+        <p class="reader-popup__brand">GOODJOB</p>
+        <h1 id="popup-title">抖音可见评论读取</h1>
+        <p>只读取当前视频中已经显示的一级评论。</p>
+      </header>
+
+      <section class="reader-popup__section" aria-labelledby="session-title">
+        <h2 id="session-title">授权会话</h2>
+        <dl class="reader-popup__facts">
+          <div><dt>会话</dt><dd id="session-id">正在检查</dd></div>
+          <div><dt>剩余评论</dt><dd id="remaining-comments">-</dd></div>
+          <div><dt>剩余滚动</dt><dd id="remaining-scrolls">-</dd></div>
+          <div><dt>图片制品</dt><dd id="artifact-mode">-</dd></div>
+        </dl>
+      </section>
+
+      <section class="reader-popup__section" aria-labelledby="scope-title">
+        <h2 id="scope-title">允许的只读动作</h2>
+        <p id="scope-copy">具体读取方式取决于 GoodJob 会话中的图片制品授权。</p>
+      </section>
+
+      <fieldset id="tab-fieldset" class="reader-popup__section reader-popup__tabs">
+        <legend>选择一个抖音视频标签页</legend>
+        <div id="tab-list" class="reader-popup__tab-list"></div>
+      </fieldset>
+
+      <p id="status" class="reader-popup__status" role="status" aria-live="polite">正在连接 GoodJob 授权会话</p>
+      <div class="reader-popup__actions">
+        <button id="start" type="button" disabled>开始只读读取</button>
+        <button id="stop" class="reader-popup__button-secondary" type="button" disabled>停止</button>
+      </div>
+      <p id="privacy-copy" class="reader-popup__privacy">关闭弹窗后读取仍会继续；只有点击“停止”或接管页面才会停止。</p>
+    </main>
+    <script src="./popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/organization-candidate.v1.schema.json",
+  "title": "OrganizationCandidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "domain",
+    "region",
+    "creditCode",
+    "evidenceIds",
+    "subjectKind",
+    "status",
+    "version",
+    "identityResolved",
+    "latestDecisionVersion",
+    "approvedDecisionVersion",
+    "updatedAt",
+    "createdAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "domain": { "type": ["string", "null"] },
+    "region": { "type": ["string", "null"] },
+    "creditCode": { "type": ["string", "null"] },
+    "evidenceIds": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "subjectKind": { "const": "organization" },
+    "version": { "type": "integer", "minimum": 1 },
+    "identityResolved": { "type": "boolean" },
+    "status": {
+      "enum": [
+        "discovered",
+        "unresolvable",
+        "normalized",
+        "qualified",
+        "pending_review",
+        "approved",
+        "rejected",
+        "do_not_contact",
+        "needs_research",
+        "converted_to_lead"
+      ]
+    },
+    "latestDecisionVersion": { "type": ["string", "null"] },
+    "approvedDecisionVersion": { "type": ["string", "null"] },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

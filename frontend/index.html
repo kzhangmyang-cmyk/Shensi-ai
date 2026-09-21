@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shensi · 多智能体增长与经营系统</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2318ed78'/%3E%3Cpath d='M9 9h14v4H14v6h5v-2h-3v-4h7v10H9z' fill='%23020303'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/app-shell.css" />
+  <link rel="stylesheet" href="/src/home/view.css" />
+  <link rel="stylesheet" href="/src/decision-simulation/view.css" />
+  <link rel="stylesheet" href="/src/vendor/phosphor/regular/style.css" />
+  <link rel="stylesheet" href="/src/replica-dashboard.css" />
+  <link rel="stylesheet" href="/src/demo/demo.css" />
+  <link rel="stylesheet" href="/src/growth/styles.css" />
+  <link rel="stylesheet" href="/src/desktop/startup-splash.css" />
+</head>
+<body>
+  <section class="login-screen shensi-login" aria-label="Shensi 登录">
+    <div class="shensi-login-story">
+      <a class="shensi-login-brand" href="#" aria-label="燊锶首页">
+        <svg class="shensi-login-mark" viewBox="280 130 700 635" aria-hidden="true" focusable="false">
+          <defs><filter id="login-brand-on-dark" color-interpolation-filters="sRGB">
+            <feColorMatrix type="matrix" values="0 -1.45 0 0 1.16  0 -0.1 0 0 .98  0 -0.05 0 0 .97  -1 -1 -1 0 2.85" />
+          </filter></defs>
+          <image href="/assets/shensi-logo.png" width="1254" height="1254" filter="url(#login-brand-on-dark)" />
+        </svg>
+        <span><strong>燊锶</strong><small>Shensi</small></span>
+      </a>
+      <img class="shensi-login-art" src="/assets/shensi-login-hero.png" alt="" aria-hidden="true" fetchpriority="high" />
+      <div class="shensi-login-intro">
+        <h1>让经营，从容有序。</h1>
+        <p>获客、客户与财务，在一个工作台协同。</p>
+        <ul class="shensi-login-capabilities" aria-label="系统能力">
+          <li>智能获客</li><li>客户经营</li><li>财务洞察</li>
+        </ul>
+      </div>
+      <p class="shensi-login-footer">燊锶 · 多智能体增长与经营系统</p>
+    </div>
+    <div class="shensi-login-panel">
+      <form id="loginForm" aria-busy="false">
+        <p class="shensi-login-eyebrow" id="loginEyebrow">欢迎回来</p>
+        <h2 id="loginTitle">登录燊锶</h2>
+        <p id="loginDescription">进入你的经营工作台</p>
+        <label class="login-field" for="loginEmail"><span>账号</span>
+          <input id="loginEmail" name="email" type="text" autocomplete="username" placeholder="请输入账号" required maxlength="320">
+        </label>
+        <label class="login-field" for="loginPassword"><span>密码</span>
+          <input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required>
+        </label>
+        <button type="submit" id="loginButton">登录工作台</button>
+        <p class="login-error" id="loginError" role="status" aria-live="polite"></p>
+        <button type="button" class="login-mode-toggle" id="loginModeToggle" hidden>还没有账号？注册账号</button>
+      </form>
+    </div>
+  </section>
+
+  <div class="replica-shell" aria-label="燊锶 多模块自动营销系统">
+    <aside class="replica-sidebar replica-glass">
+      <div class="replica-brand">
+        <svg class="replica-brand-mark" viewBox="280 130 700 635" aria-hidden="true" focusable="false">
+          <defs>
+            <filter id="sidebar-brand-on-dark" color-interpolation-filters="sRGB">
+              <feColorMatrix type="matrix" values="0 -1.45 0 0 1.16  0 -0.1 0 0 .98  0 -0.05 0 0 .97  -1 -1 -1 0 2.85" />
+            </filter>
+          </defs>
+          <image href="/assets/shensi-logo.png" width="1254" height="1254" filter="url(#sidebar-brand-on-dark)" />
+        </svg>
+        <span>燊锶</span>
+      </div>
+
+      <nav class="replica-nav" aria-label="自动营销系统导航">
+        <button type="button" data-replica-view="home" title="首页"><i class="ph ph-house" aria-hidden="true"></i><span>首页</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i></button>
+        <button type="button" data-replica-view="dashboard" title="自动营销总览">
+          <i class="ph ph-squares-four" aria-hidden="true"></i><span>自动营销总览</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="active" data-replica-view="acquisition" title="获客中心">
+          <i class="ph ph-crosshair" aria-hidden="true"></i><span>获客中心</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i>
+        </button>
+        <button type="button" data-replica-view="conversations" title="社媒对话">
+          <i class="ph ph-chats-circle" aria-hidden="true"></i><span>社媒对话</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i>
+        </button>
+        <button type="button" data-replica-view="private-domain" title="私域客户池">
+          <i class="ph ph-users-three" aria-hidden="true"></i><span>私域客户池</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i>
+        </button>
+        <button type="button" data-replica-view="enterprise-query" title="企业查询">
+          <i class="ph ph-buildings" aria-hidden="true"></i><span>企业查询</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i>
+        </button>
+        <button type="button" data-replica-view="agents" title="智能体中心">
+          <i class="ph ph-robot" aria-hidden="true"></i><span>智能体中心</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i>
+        </button>
+        <button type="button" data-replica-view="decision-simulation" title="星盘决策模拟">
+          <i class="ph ph-compass" aria-hidden="true"></i><span>星盘决策模拟</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i>
+        </button>
+        <button type="button" data-replica-view="settings" title="设置中心">
+          <i class="ph ph-gear-six" aria-hidden="true"></i><span>设置中心</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i>
+        </button>
+        <div class="replica-growth-nav" aria-label="增长经营真实模块">
+          <span>增长经营 · 已接入</span>
+          <a href="#growth/advisor" data-growth-nav data-growth-route="advisor"><i class="ph ph-sparkle" aria-hidden="true"></i><span>增长顾问</span></a>
+          <a href="#growth/catalog" data-growth-nav data-growth-route="catalog"><i class="ph ph-books" aria-hidden="true"></i><span>客户目录</span></a>
+          <a href="#growth/quotes" data-growth-nav data-growth-route="quote"><i class="ph ph-file-text" aria-hidden="true"></i><span>报价工作台</span></a>
+          <a href="#growth/finance" data-growth-nav data-growth-route="finance"><i class="ph ph-chart-line-up" aria-hidden="true"></i><span>财务经营</span></a>
+          <a href="#growth/roi" data-growth-nav data-growth-route="roi"><i class="ph ph-target" aria-hidden="true"></i><span>ROI 经营分析</span></a>
+          <a href="#financial-council" data-growth-nav data-growth-route="financial-council"><i class="ph ph-scales" aria-hidden="true"></i><span>财务委员会</span></a>
+        </div>
+      </nav>
+
+      <div class="replica-sidebar-bottom">
+        <div class="replica-workspace">
+          <div class="replica-workspace-head"><span>桌面版本</span><i class="ph ph-plus" aria-hidden="true"></i></div>
+          <button type="button" class="replica-workspace-toggle">
+            <i class="ph ph-desktop-tower" aria-hidden="true"></i><span>Mac / Windows</span><i class="ph ph-caret-down" aria-hidden="true"></i>
+          </button>
+        </div>
+        <button type="button" class="replica-user" id="replicaLogoutButton" aria-label="退出登录">
+          <span class="replica-avatar">AD</span>
+          <span><strong data-session-user-name>Admin</strong><small data-session-user-role>系统管理员</small></span>
+          <i class="ph ph-sign-out" aria-hidden="true"></i>
+        </button>
+      </div>
+    </aside>
+
+    <header class="replica-header">
+      <div class="replica-title">
+        <h1 id="replicaHeaderTitle">自动营销系统</h1>
+        <p id="replicaHeaderSubtitle">获客 · 沟通 · 私域沉淀 · 成交</p>
+      </div>
+
+      <label class="replica-search">
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        <input id="replicaSearchInput" type="search" aria-label="搜索获客任务" placeholder="搜索获客任务..." autocomplete="off" />
+        <kbd>⌘K</kbd>
+      </label>
+
+      <div class="replica-header-actions">
+        <button type="button" class="replica-primary-button" id="replicaNewTaskButton">
+          <i class="ph ph-plus" aria-hidden="true"></i><span id="replicaNewTaskButtonLabel">新建演示获客任务</span><i class="ph ph-caret-down" aria-hidden="true"></i>
+        </button>
+      </div>
+    </header>
+
+    <main class="replica-main" data-replica-module-panel="acquisition">
+      <section class="replica-metrics" aria-label="全渠道获客指标">
+        <article class="replica-metric replica-glass">
+          <div class="replica-metric-head"><h2 id="replicaMetricLabel0">今日发现</h2><span class="replica-metric-icon"><i class="ph ph-magnifying-glass" aria-hidden="true"></i></span></div>
+          <div class="replica-metric-value"><strong id="replicaMetricValue0">128</strong><span id="replicaMetricUnit0">位客户</span></div>
+          <div class="replica-metric-change" id="replicaMetricChange0">较昨日 <b>↑ 20%</b></div>
+        </article>
+        <article class="replica-metric replica-glass">
+          <div class="replica-metric-head"><h2 id="replicaMetricLabel1">正在沟通</h2><span class="replica-metric-icon"><i class="ph ph-chats" aria-hidden="true"></i></span></div>
+          <div class="replica-metric-value"><strong id="replicaMetricValue1">46</strong><span id="replicaMetricUnit1">位客户</span></div>
+          <div class="replica-metric-change" id="replicaMetricChange1">较昨日 <b>↑ 8%</b></div>
+        </article>
+        <article class="replica-metric replica-glass">
+          <div class="replica-metric-head"><h2 id="replicaMetricLabel2">转入私域</h2><span class="replica-metric-icon"><i class="ph ph-user-switch" aria-hidden="true"></i></span></div>
+          <div class="replica-metric-value"><strong id="replicaMetricValue2"><span id="replicaCompletedCount">24</span></strong><span id="replicaMetricUnit2">位客户</span></div>
+          <div class="replica-metric-change" id="replicaMetricChange2">较昨日 <b>↑ 15%</b></div>
+        </article>
+        <article class="replica-metric replica-glass danger">
+          <div class="replica-metric-head"><h2 id="replicaMetricLabel3">待人工接管</h2><span class="replica-metric-icon"><i class="ph ph-warning-circle" aria-hidden="true"></i></span></div>
+          <div class="replica-metric-value"><strong id="replicaMetricValue3">5</strong><span id="replicaMetricUnit3">位客户</span></div>
+          <div class="replica-metric-change" id="replicaMetricChange3">较昨日 <b class="down">↓ 17%</b></div>
+        </article>
+      </section>
+
+      <section class="replica-boardbar" aria-label="任务看板工具栏">
+        <div class="replica-boardbar-left">
+          <h2>全渠道获客任务 <span class="demo-status is-real" id="replicaAcquisitionModeBadge">真实运行</span></h2>
+          <div class="replica-board-tabs" role="tablist" aria-label="运行模式">
+            <button type="button" class="active" role="tab" aria-selected="true" data-replica-scope="all"><span id="replicaScopeAllLabel">全部平台</span></button>
+            <button type="button" role="tab" aria-selected="false" data-replica-scope="agent"><span id="replicaScopeAgentLabel">模拟智能体</span></button>
+            <button type="button" role="tab" aria-selected="false" data-replica-scope="script"><span id="replicaScopeScriptLabel">模拟工作流</span></button>
+            <span class="replica-status-label"><i class="ph ph-check-square-offset" aria-hidden="true"></i><span id="replicaStatusLabel">任务状态</span></span>
+          </div>
+        </div>
+        <div class="replica-boardbar-actions">
+          <div class="replica-acquisition-mode" aria-label="当前获客数据模式">
+            <button type="button" class="active" data-acquisition-mode="real" aria-pressed="true"><i class="ph ph-plugs-connected" aria-hidden="true"></i>真实业务</button>
+          </div>
+          <button type="button" class="replica-compact-button" data-replica-tool="filter"><i class="ph ph-funnel-simple" aria-hidden="true"></i>有意向</button>
+          <button type="button" class="replica-compact-button" data-replica-tool="sort"><i class="ph ph-arrows-down-up" aria-hidden="true"></i>排序</button>
+          <button type="button" class="replica-compact-button icon-only active" data-replica-tool="view" title="列表视图"><i class="ph ph-list-dashes" aria-hidden="true"></i></button>
+        </div>
+      </section>
+
+      <section class="replica-board">
+        <div class="replica-task-groups">
+          <article class="replica-task-group" data-acquisition-demo-task-group>
+            <button type="button" class="replica-group-head" data-group-toggle>
+              <span class="dot"></span><strong>短视频平台</strong><small>2</small><i class="ph ph-caret-down" aria-hidden="true"></i>
+            </button>
+            <div class="replica-task-list">
+              <button type="button" class="replica-task-row active" data-task-id="ACQ-DOUYIN-01" data-task-name="抖音需求客户捕捉" data-task-summary="演示扫描抖音相关话题与评论区，模拟识别有明确需求的客户并发起沟通。" data-task-owner="智能体" data-task-project="抖音" data-task-due="模拟持续运行" data-task-status="演示：模拟获客中" data-task-priority="高" data-task-tags="模拟话题扫描,模拟评论识别,模拟聊天">
+                <span>ACQ-DOUYIN</span><b>抖音话题 / 评论</b><span><span class="priority">智能体</span> 模拟运行中</span>
+              </button>
+              <button type="button" class="replica-task-row" data-task-id="ACQ-KUAISHOU-01" data-task-name="快手评论需求识别" data-task-summary="演示按关键词扫描快手视频评论，由模拟工作流整理需求、地区与联系方式线索。" data-task-owner="自动工作流" data-task-project="快手" data-task-due="模拟每 10 分钟" data-task-status="演示：模拟扫描中" data-task-priority="中" data-task-tags="模拟评论扫描,模拟需求识别,模拟工作流">
+                <span>ACQ-KUAISHOU</span><b>快手评论需求</b><span><span class="priority medium">工作流</span> 模拟运行中</span>
+              </button>
+            </div>
+          </article>
+
+          <article class="replica-task-group blue" data-acquisition-demo-task-group>
+            <button type="button" class="replica-group-head" data-group-toggle>
+              <span class="dot"></span><strong>内容社区平台</strong><small>2</small><i class="ph ph-caret-down" aria-hidden="true"></i>
+            </button>
+            <div class="replica-task-list">
+              <button type="button" class="replica-task-row" data-task-id="ACQ-XHS-01" data-task-name="小红书需求话题追踪" data-task-summary="演示追踪小红书笔记、相关话题与评论，由模拟智能体判断意向并生成对话。" data-task-owner="智能体" data-task-project="小红书" data-task-due="模拟持续运行" data-task-status="演示：模拟沟通中" data-task-priority="高" data-task-tags="模拟笔记话题,模拟评论识别,模拟对话">
+                <span>ACQ-XHS</span><b>小红书话题需求</b><span><span class="priority">智能体</span> 模拟沟通中</span>
+              </button>
+              <button type="button" class="replica-task-row" data-task-id="ACQ-WEIBO-01" data-task-name="微博相关话题获客" data-task-summary="模拟工作流展示微博相关话题和评论的订阅结果，不会登录平台或执行真实筛选。" data-task-owner="自动工作流" data-task-project="微博" data-task-due="模拟每 15 分钟" data-task-status="演示：模拟扫描中" data-task-priority="中" data-task-tags="模拟话题订阅,模拟评论筛选,模拟工作流">
+                <span>ACQ-WEIBO</span><b>微博相关话题</b><span><span class="priority medium">工作流</span> 模拟运行中</span>
+              </button>
+            </div>
+          </article>
+
+          <article class="replica-task-group purple" data-acquisition-demo-task-group>
+            <button type="button" class="replica-group-head" data-group-toggle>
+              <span class="dot"></span><strong>微信获客与私域</strong><small>1</small><i class="ph ph-caret-down" aria-hidden="true"></i>
+            </button>
+            <div class="replica-task-list">
+              <button type="button" class="replica-task-row" data-task-id="ACQ-WECHAT-01" data-task-name="微信客户承接" data-task-summary="演示承接社交平台意向客户，补充标签与来源后写入本地私域客户池，不连接真实微信。" data-task-owner="智能体" data-task-project="微信" data-task-due="模拟实时承接" data-task-status="演示：模拟承接中" data-task-priority="高" data-task-tags="模拟私域承接,客户标签,来源保留">
+                <span>ACQ-WECHAT</span><b>微信客户承接</b><span><span class="priority">智能体</span> 模拟承接</span>
+              </button>
+            </div>
+          </article>
+
+          <article class="replica-task-group real" id="replicaRealTaskGroup" hidden>
+            <button type="button" class="replica-group-head" data-group-toggle>
+              <span class="dot"></span><strong>抖音真实获客任务</strong><small id="replicaRealTaskCount">0</small><i class="ph ph-caret-down" aria-hidden="true"></i>
+            </button>
+            <div class="replica-task-list" id="replicaRealTaskList">
+              <div class="replica-real-empty" role="status">
+                <i class="ph ph-radar" aria-hidden="true"></i>
+                <strong>正在读取真实任务</strong>
+                <span>系统将显示后端返回的任务与运行状态。</span>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="replica-flow" id="replicaFlowStage" aria-labelledby="replicaFlowTitle" tabindex="0" aria-describedby="replicaFlowHint replicaFlowAvailability">
+          <div class="replica-flow-heading">
+            <span>PLATFORM SELECTOR</span>
+            <strong id="replicaFlowTitle">选择获客平台</strong>
+            <small id="replicaFlowAvailability">抖音已接入 · 其他平台待接入</small>
+          </div>
+          <button type="button" class="replica-flow-control previous" data-flow-direction="-1" aria-label="选择上一个项目">
+            <i class="ph ph-caret-left" aria-hidden="true"></i>
+          </button>
+          <div class="replica-flow-track" id="replicaFlowTrack" role="listbox" aria-label="获客项目">
+            <button type="button" class="replica-flow-card is-selected" id="replicaFlowCardDouyin" role="option" aria-selected="true" data-flow-task-id="ACQ-DOUYIN-01" data-flow-state="话题 / 评论">
+              <span class="replica-flow-card-code">01 · DOUYIN</span>
+              <span class="replica-flow-card-icon"><img src="/assets/platform-brands/douyin.jpg" alt="" aria-hidden="true"></span>
+              <span class="replica-flow-card-count"><strong>42</strong><small>位客户</small></span>
+              <span class="replica-flow-card-name">抖音获客</span>
+              <span class="replica-flow-card-state">当前选择</span>
+            </button>
+            <button type="button" class="replica-flow-card" id="replicaFlowCardKuaishou" role="option" aria-selected="false" data-flow-task-id="ACQ-KUAISHOU-01" data-flow-state="评论扫描">
+              <span class="replica-flow-card-code">02 · KUAISHOU</span>
+              <span class="replica-flow-card-icon"><img src="/assets/platform-brands/kuaishou.jpg" alt="" aria-hidden="true"></span>
+              <span class="replica-flow-card-count"><strong>31</strong><small>位客户</small></span>
+              <span class="replica-flow-card-name">快手获客</span>
+              <span class="replica-flow-card-state">评论扫描</span>
+            </button>
+            <button type="button" class="replica-flow-card" id="replicaFlowCardXhs" role="option" aria-selected="false" data-flow-task-id="ACQ-XHS-01" data-flow-state="话题追踪">
+              <span class="replica-flow-card-code">03 · XHS</span>
+              <span class="replica-flow-card-icon"><img src="/assets/platform-brands/xiaohongshu.jpg" alt="" aria-hidden="true"></span>
+              <span class="replica-flow-card-count"><strong>38</strong><small>位客户</small></span>
+              <span class="replica-flow-card-name">小红书获客</span>
+              <span class="replica-flow-card-state">话题追踪</span>
+            </button>
+            <button type="button" class="replica-flow-card" id="replicaFlowCardWeibo" role="option" aria-selected="false" data-flow-task-id="ACQ-WEIBO-01" data-flow-state="话题订阅">
+              <span class="replica-flow-card-code">04 · WEIBO</span>
+              <span class="replica-flow-card-icon"><img src="/assets/platform-brands/weibo.jpg" alt="" aria-hidden="true"></span>
+              <span class="replica-flow-card-count"><strong>17</strong><small>位客户</small></span>
+              <span class="replica-flow-card-name">微博获客</span>
+              <span class="replica-flow-card-state">话题订阅</span>
+            </button>
+            <button type="button" class="replica-flow-card" id="replicaFlowCardWechat" role="option" aria-selected="false" data-flow-task-id="ACQ-WECHAT-01" data-flow-state="转入私域">
+              <span class="replica-flow-card-code">05 · WECHAT</span>
+              <span class="replica-flow-card-icon"><img src="/assets/platform-brands/wechat.jpg" alt="" aria-hidden="true"></span>
+              <span class="replica-flow-card-count"><strong>24</strong><small>位客户</small></span>
+              <span class="replica-flow-card-name">微信承接</span>
+              <span class="replica-flow-card-state">转入私域</span>
+            </button>
+          </div>
+          <button type="button" class="replica-flow-control next" data-flow-direction="1" aria-label="选择下一个项目">
+            <i class="ph ph-caret-right" aria-hidden="true"></i>
+          </button>
+          <div class="replica-flow-footer">
+            <span id="replicaFlowHint"><i class="ph ph-arrows-horizontal" aria-hidden="true"></i>左右滑动选择项目</span>
+            <span class="replica-flow-position" id="replicaFlowPosition">1 / 5</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="replicaRecentRuns" class="replica-recent-runs-host" hidden aria-live="polite"></section>
+
+      <section class="douyin-automation-workspace replica-glass" id="douyinAutomationWorkspace" hidden aria-label="抖音自动获客工作台">
+        <div id="douyinAutomationHost" aria-live="polite">
+          <div class="douyin-empty"><strong>选择一项真实抖音获客计划</strong><p>将从服务器读取账号、自动化与采集状态。</p></div>
+        </div>
+        <div id="douyinOutreachHost" aria-live="polite"></div>
+        <details class="douyin-link-fallback">
+          <summary>授权公开链接导入（备用）</summary>
+          <p>仅在自动采集暂不可用且你有权提交该公开链接时使用。</p>
+        </details>
+      </section>
+
+      <section class="replica-performance replica-glass" id="replicaAcquisitionPerformance" hidden aria-labelledby="replicaAcquisitionPerformanceTitle">
+        <header class="replica-performance-header">
+          <div>
+            <span class="replica-performance-eyebrow">真实经营结果</span>
+            <h2 id="replicaAcquisitionPerformanceTitle">渠道漏斗与老板简报</h2>
+            <p>数字由后端根据获客运行、CRM 活动和商机事件确定性聚合。</p>
+          </div>
+          <div class="replica-performance-filters" aria-label="经营结果筛选">
+            <label><span>开始日期</span><input id="replicaPerformanceFrom" type="date" /></label>
+            <label><span>结束日期</span><input id="replicaPerformanceTo" type="date" /></label>
+            <label><span>平台</span><select id="replicaPerformancePlatform"><option value="">全部平台</option><option value="douyin">抖音</option><option value="web">Web</option></select></label>
+            <button type="button" id="replicaPerformanceRefresh"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>刷新</button>
+          </div>
+        </header>
+        <div id="replicaAcquisitionPerformanceBody" aria-live="polite"></div>
+      </section>
+
+      <section class="replica-timeline replica-glass" id="replicaDemoTimeline" aria-label="获客转化链路">
+        <div class="replica-timeline-head">
+          <div class="replica-timeline-title"><i class="ph ph-chart-bar-horizontal" aria-hidden="true"></i><h2>获客转化链路（演示）</h2><i class="ph ph-calendar-blank" aria-hidden="true"></i><span>今日模拟节奏</span></div>
+          <div class="replica-timeline-controls"><button type="button" class="active" data-timeline-scale="week">周</button><button type="button" data-timeline-scale="today">今天</button></div>
+        </div>
+        <div class="replica-timeline-grid">
+          <div class="replica-timeline-labels"><span>话题 / 评论扫描</span><span>发起沟通</span><span>意向确认</span><span>转入私域</span></div>
+          <div class="replica-timeline-canvas">
+            <div class="replica-days"><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span><span>28</span><span>29</span><span>30</span><span>31</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span></div>
+            <div class="replica-timeline-rows">
+              <div class="replica-timeline-bar" style="grid-column:2 / 8; grid-row:1">模拟平台扫描　09:00 - 10:30</div>
+              <div class="replica-timeline-bar" style="grid-column:7 / 15; grid-row:2">模拟智能体沟通　10:10 - 12:20</div>
+              <div class="replica-timeline-bar green" style="grid-column:10 / 19; grid-row:3">模拟确认需求　11:00 - 14:00</div>
+              <div class="replica-timeline-bar" style="grid-column:16 / 23; grid-row:4">模拟同步私域　13:30 - 15:00</div>
+              <span class="replica-today-line" aria-hidden="true"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="replica-inspector replica-glass" data-replica-module-panel="acquisition">
+      <div class="replica-inspector-head">
+        <div class="replica-inspector-title"><i class="ph ph-sparkle" aria-hidden="true"></i><h2 id="replicaInspectorTitle">获客任务详情 · 演示模式</h2></div>
+        <button type="button" class="replica-icon-button" title="查看来源"><i class="ph ph-crosshair" aria-hidden="true"></i></button>
+      </div>
+
+      <div class="replica-detail-id" id="replicaDetailId">ACQ-DOUYIN-01</div>
+      <h3 class="replica-detail-name"><span id="replicaDetailNameText">抖音需求客户捕捉</span><span id="replicaDetailPriority">高意向</span></h3>
+      <p class="replica-detail-summary" id="replicaDetailSummary">演示扫描抖音相关话题与评论区，模拟识别有明确需求的客户并发起沟通。</p>
+
+      <div class="replica-runtime-status" id="replicaAcquisitionRuntimeStatus" role="status" aria-live="polite" hidden></div>
+
+      <dl class="replica-detail-fields">
+        <div><dt id="replicaDetailOwnerLabel">运行模式（演示）</dt><dd><span class="replica-avatar" style="width:32px;height:32px;font-size:10px">AI</span><span id="replicaDetailOwner">智能体</span></dd></div>
+        <div><dt id="replicaDetailProjectLabel">获客平台</dt><dd><i class="ph ph-device-mobile" aria-hidden="true"></i><span id="replicaDetailProject">抖音</span></dd></div>
+        <div><dt id="replicaDetailDueLabel">模拟周期</dt><dd><i class="ph ph-clock" aria-hidden="true"></i><span id="replicaDetailDue">模拟持续运行</span></dd></div>
+        <div><dt id="replicaDetailStatusLabel">模拟状态</dt><dd><span class="replica-status-dot"></span><span id="replicaDetailStatus">演示：模拟获客中</span></dd></div>
+        <div><dt id="replicaDetailPriorityLabel">意向等级</dt><dd><span class="replica-status-dot red"></span><span id="replicaDetailPriorityText">高</span></dd></div>
+        <div><dt id="replicaDetailTagsLabel">识别方式</dt><dd><span class="replica-tags" id="replicaDetailTags"><span>话题扫描</span><span>评论识别</span><span>自动聊天</span></span></dd></div>
+      </dl>
+
+      <section class="replica-run-metrics" id="replicaRunMetrics" hidden aria-label="真实运行消耗">
+        <div><span>公开证据</span><strong id="replicaRunEvidence">0</strong></div>
+        <div><span>请求次数</span><strong id="replicaRunRequests">0</strong></div>
+        <div><span>返回结果</span><strong id="replicaRunResults">0</strong></div>
+        <div><span>运行时长</span><strong id="replicaRunDuration">0 秒</strong></div>
+      </section>
+
+      <section class="replica-advice">
+        <h3 id="replicaAdviceTitle">AI 助手建议（演示）</h3>
+        <ul>
+          <li id="replicaAdvicePrimary">建议优先回复包含“价格、购买、合作”等明确需求的评论</li>
+          <li id="replicaAdviceSecondary">对话确认意向后，保留来源和聊天记录并转入微信私域</li>
+        </ul>
+        <button type="button" id="replicaAdviceButton">查看演示建议</button>
+      </section>
+
+      <div class="replica-inspector-actions">
+        <button type="button" id="replicaEditTask"><i class="ph ph-pencil-simple" aria-hidden="true"></i><span id="replicaEditTaskLabel">编辑演示任务</span></button>
+        <button type="button" class="complete" id="replicaCompleteTask" data-demo-action="simulate-acquisition-sync"><i class="ph ph-user-switch" aria-hidden="true"></i><span id="replicaCompleteTaskLabel">模拟同步私域</span></button>
+        <button type="button" title="更多操作"><i class="ph ph-dots-three" aria-hidden="true"></i></button>
+      </div>
+    </aside>
+
+    <main class="replica-demo-main" id="demoModuleMain" hidden aria-live="polite"></main>
+    <aside class="replica-demo-inspector replica-glass" id="demoModuleInspector" hidden></aside>
+
+    <div class="replica-toast" id="replicaToast" role="status" aria-live="polite"><i class="ph ph-check-circle" aria-hidden="true"></i><span>任务已更新</span></div>
+  </div>
+
+  <dialog class="replica-modal" id="replicaTaskModal">
+    <form method="dialog" id="replicaTaskForm">
+      <div class="replica-modal-head"><h2>新建演示获客任务</h2><button type="button" id="replicaModalClose" aria-label="关闭"><i class="ph ph-x" aria-hidden="true"></i></button></div>
+      <label>任务名称<input id="replicaTaskName" required placeholder="例如：寻找有装修需求的小红书客户" /></label>
+      <label>获客平台<select id="replicaTaskStage"><option>抖音</option><option>小红书</option><option>快手</option><option>微信</option><option>微博</option></select></label>
+      <label>运行模式<select id="replicaTaskMode"><option>智能体</option><option>自动工作流</option></select></label>
+      <label>启动时间<input id="replicaTaskDue" type="datetime-local" /></label>
+      <label>识别要求<textarea id="replicaTaskSummary" placeholder="填写相关话题、评论关键词和目标客户特征"></textarea></label>
+      <div class="replica-modal-footer"><button type="button" id="replicaModalCancel">取消</button><button type="submit">创建演示任务</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="replica-modal replica-real-task-modal" id="replicaRealTaskModal">
+    <form id="replicaRealTaskForm">
+      <div class="replica-modal-head">
+        <div>
+          <span class="replica-wizard-kicker">DOUYIN · REAL ACQUISITION</span>
+          <h2>创建公开搜索增强任务（可选）</h2>
+        </div>
+        <button type="button" id="replicaRealTaskClose" aria-label="关闭"><i class="ph ph-x" aria-hidden="true"></i></button>
+      </div>
+
+      <ol class="replica-wizard-steps" aria-label="任务创建步骤">
+        <li class="active"><b>01</b><span>可选连接</span></li>
+        <li><b>02</b><span>定义客户</span></li>
+        <li><b>03</b><span>搜索与预算</span></li>
+        <li><b>04</b><span>人工批准</span></li>
+      </ol>
+
+      <div class="replica-real-task-scroll">
+        <section class="replica-real-form-section replica-preflight-section">
+          <div class="replica-form-section-head">
+            <div><span>可选增强</span><h3>连接公开搜索与 AI 模型</h3></div>
+            <div class="replica-form-section-actions">
+              <button type="button" class="is-primary" id="replicaUseMediaCrawler"><i class="ph ph-arrow-left" aria-hidden="true"></i>无需 API，使用 MediaCrawler</button>
+              <button type="button" id="replicaRealConnectionsConfigure"><i class="ph ph-plugs-connected" aria-hidden="true"></i>配置连接</button>
+              <button type="button" id="replicaRealConnectionsRefresh"><i class="ph ph-arrow-clockwise" aria-hidden="true"></i>重新检查</button>
+            </div>
+          </div>
+          <div class="replica-connection-grid">
+            <label>
+              <span>公开搜索 API（仅本增强方式）</span>
+              <select id="replicaRealSearchConnection" required><option value="">正在读取可用连接…</option></select>
+              <small>用于搜索引擎检索公开收录的抖音页面，不等于抖音官方接口。</small>
+            </label>
+            <label>
+              <span>AI 模型连接（仅本增强方式）</span>
+              <select id="replicaRealModelConnection" required><option value="">正在读取可用模型…</option></select>
+              <small>只显示已启用且支持工具调用的模型连接。</small>
+            </label>
+          </div>
+          <div class="replica-preflight-status" id="replicaRealPreflightStatus" role="status" aria-live="polite">正在核验真实运行条件…</div>
+        </section>
+
+        <section class="replica-real-form-section replica-plan-mode-section">
+          <div class="replica-form-section-head"><div><span>创建方式</span><h3>先让 AI 生成完整方案，或手动逐项配置</h3></div></div>
+          <div class="replica-plan-mode-switch" role="group" aria-label="任务创建方式">
+            <button type="button" id="replicaRealTaskModeAi" aria-pressed="true">AI 一句话生成</button>
+            <button type="button" id="replicaRealTaskModeManual" aria-pressed="false">手动创建</button>
+          </div>
+        </section>
+
+        <section class="replica-real-form-section replica-comment-sample-section" aria-labelledby="replicaRealCommentSampleTitle">
+          <div class="replica-form-section-head"><div><span>公开评论样本</span><h3 id="replicaRealCommentSampleTitle">从已发现视频提取一级公开样本</h3></div></div>
+          <label class="replica-comment-sample-toggle">
+            <input id="replicaRealCommentSampleEnabled" type="checkbox" aria-describedby="replicaRealCommentSampleHint" />
+            <span>启用公开评论样本</span>
+          </label>
+          <p class="replica-form-note" id="replicaRealCommentSampleHint"><i class="ph ph-info" aria-hidden="true"></i>一级公开样本，非全量；访问、频率或页面限制时会保留已获得的公开样本。</p>
+          <fieldset id="replicaRealCommentSampleFields" disabled>
+            <legend>样本上限</legend>
+            <div class="replica-budget-grid">
+              <label><span>每次最多视频</span><input id="replicaRealCommentMaxVideos" type="number" min="1" max="20" step="1" value="10" required /><small>个视频</small></label>
+              <label><span>每个视频评论</span><input id="replicaRealCommentMaxComments" type="number" min="1" max="100" step="1" value="30" required /><small>条</small></label>
+              <label><span>每个视频页数</span><input id="replicaRealCommentMaxPages" type="number" min="1" max="5" step="1" value="3" required /><small>页</small></label>
+            </div>
+          </fieldset>
+        </section>
+
+        <section class="replica-real-form-section replica-ai-plan-section" id="replicaRealAiSection">
+          <div class="replica-form-section-head"><div><span>AI 增长参谋</span><h3>用一句话生成可批准的完整服务端计划</h3></div></div>
+          <label class="wide"><span>你的抖音获客目标</span><textarea id="replicaRealAiPrompt" maxlength="20000" required>帮我寻找厦门企业服务和装修行业，在抖音公开表达采购、询价或合作需求的企业和老板。</textarea><small>AI 会保留所有服务端生成的搜索连接、查询、预算与停止条件，供人工完整核对。</small></label>
+          <div class="replica-form-section-actions"><button type="button" class="is-primary" id="replicaRealAiGenerate" aria-describedby="replicaRealPreflightStatus"><i class="ph ph-sparkle" aria-hidden="true"></i>生成完整计划</button></div>
+          <div id="replicaRealAiDraft" hidden></div>
+        </section>
+
+        <div id="replicaRealManualFields" hidden>
+        <section class="replica-real-form-section">
+          <div class="replica-form-section-head"><div><span>任务与 ICP</span><h3>先定义谁值得被发现</h3></div></div>
+          <div class="replica-real-form-grid two">
+            <label><span>任务名称</span><input id="replicaRealTaskName" required maxlength="200" value="抖音公开商机获客计划" /></label>
+            <label><span>目标地区</span><input id="replicaRealRegions" required value="中国大陆" placeholder="多个地区用逗号分隔" /></label>
+            <label class="wide"><span>获客目标</span><textarea id="replicaRealObjective" required maxlength="2000">发现公开表达采购、获客或经营需求的组织和个人</textarea></label>
+            <label><span>目标行业</span><input id="replicaRealIndustries" required value="企业服务" placeholder="例如：装修, 美业, 财税" /></label>
+            <label><span>排除规则</span><input id="replicaRealExclusions" value="明确拒绝联系, 同行广告, 无关内容" placeholder="多个规则用逗号分隔" /></label>
+            <label class="wide"><span>企业判断条件</span><textarea id="replicaRealOrganizationCriteria" required>企业公开表达采购、获客或增长需求</textarea></label>
+            <label class="wide"><span>个人判断条件</span><textarea id="replicaRealIndividualCriteria" required>个人账号公开表达经营、询价或合作需求</textarea></label>
+          </div>
+        </section>
+
+        <section class="replica-real-form-section">
+          <div class="replica-form-section-head"><div><span>公开搜索</span><h3>企业与个人两条证据发现路径</h3></div></div>
+          <div class="replica-query-stack">
+            <label>
+              <span>企业公开信号关键词</span>
+              <div class="replica-query-input"><code>site:douyin.com</code><input id="replicaRealOrganizationQuery" required value="企业 获客难 寻找供应商" /></div>
+            </label>
+            <label>
+              <span>个人公开信号关键词</span>
+              <div class="replica-query-input"><code>site:iesdouyin.com</code><input id="replicaRealIndividualQuery" required value="老板 获客难 询价" /></div>
+            </label>
+          </div>
+          <p class="replica-form-note"><i class="ph ph-info" aria-hidden="true"></i>系统只检索公开网页证据；发现结果仍需 AI 研判和人工审核，不能直接视为意向客户。</p>
+        </section>
+
+        <section class="replica-real-form-section">
+          <div class="replica-form-section-head"><div><span>安全预算</span><h3>限制单次真实运行的资源消耗</h3></div></div>
+          <div class="replica-budget-grid">
+            <label><span>最大请求</span><input id="replicaRealMaxRequests" type="number" min="2" step="1" value="4" required /><small>次</small></label>
+            <label><span>最大结果</span><input id="replicaRealMaxResults" type="number" min="2" step="1" value="40" required /><small>条</small></label>
+            <label><span>最长运行</span><input id="replicaRealMaxDuration" type="number" min="2" step="1" value="240" required /><small>秒</small></label>
+            <label><span>费用上限</span><input id="replicaRealMaxAmount" type="number" min="0" step="1" value="0" required /><small>分</small></label>
+          </div>
+        </section>
+        </div>
+
+        <section class="replica-real-form-section replica-approval-section">
+          <div class="replica-form-section-head"><div><span>人工批准</span><h3>核对后再创建、批准并启动</h3></div></div>
+          <div class="replica-real-form-grid two">
+            <label><span>批准理由</span><textarea id="replicaRealApprovalReason" required>已人工确认公开数据源、搜索范围、预算及企业与个人两条检索条件</textarea></label>
+            <label><span>运行理由</span><textarea id="replicaRealRunReason" required>开始执行抖音公开商机检索</textarea></label>
+          </div>
+          <label class="replica-approval-confirm"><input id="replicaRealApprovalConfirmed" type="checkbox" required /><span>我已核对搜索连接、AI 模型、公开搜索范围和预算，同意批准并启动本次真实任务。</span></label>
+        </section>
+      </div>
+
+      <div class="replica-real-submit-status" id="replicaRealTaskSubmitStatus" role="status" aria-live="polite" hidden></div>
+      <div class="replica-modal-footer replica-real-modal-footer">
+        <button type="button" id="replicaRealTaskCancel">取消</button>
+        <button type="submit" class="replica-real-submit" id="replicaRealTaskSubmit" disabled><i class="ph ph-play" aria-hidden="true"></i>创建、批准并启动</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="replica-modal replica-connection-center" id="replicaConnectionCenter">
+    <div class="replica-connection-center-shell">
+      <div class="replica-modal-head replica-connection-center-head">
+        <div>
+          <span class="replica-wizard-kicker">CONNECTION CENTER</span>
+          <h2>搜索与 AI 连接中心</h2>
+          <p>统一配置客户自己的官方 API Key。密钥只提交给当前系统，不会在页面回显。</p>
+        </div>
+        <button type="button" id="replicaConnectionCenterClose" aria-label="关闭"><i class="ph ph-x" aria-hidden="true"></i></button>
+      </div>
+      <div class="replica-connection-center-body" id="replicaConnectionCenterBody" aria-live="polite">
+        <section class="replica-connection-center-placeholder" role="status">
+          <i class="ph ph-plugs-connected" aria-hidden="true"></i>
+          <div><strong>正在读取连接配置</strong><span>将显示真实搜索 API 与支持工具调用的 AI 模型。</span></div>
+        </section>
+      </div>
+      <div class="replica-modal-footer replica-connection-center-footer">
+        <p><i class="ph ph-shield-check" aria-hidden="true"></i>连接需通过测试后才能用于真实获客任务。</p>
+        <button type="button" id="replicaConnectionCenterDone">完成</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="replica-modal replica-acquisition-detail-center" id="replicaAcquisitionDetailCenter" aria-labelledby="replicaAcquisitionDetailCenterTitle" hidden>
+    <div class="replica-acquisition-detail-shell">
+      <div class="replica-modal-head replica-acquisition-detail-head">
+        <div>
+          <span class="replica-wizard-kicker">REAL ACQUISITION INTELLIGENCE</span>
+          <h2 id="replicaAcquisitionDetailCenterTitle">候选资料与私域交接</h2>
+          <p>核对候选与公开来源后，明确提交新建或关联私域客户。</p>
+        </div>
+        <button type="button" id="replicaAcquisitionDetailCenterClose" data-acquisition-detail-action="close" aria-label="关闭"><i class="ph ph-x" aria-hidden="true"></i></button>
+      </div>
+      <div class="replica-acquisition-detail-body" id="replicaAcquisitionDetailCenterBody" aria-live="polite">
+        <section class="replica-acquisition-detail-state" role="status">
+          <strong>选择一个真实抖音任务</strong>
+          <span>计划、运行和候选研判会在这里显示。</span>
+        </section>
+      </div>
+      <div class="replica-modal-footer replica-acquisition-detail-footer">
+        <p><i class="ph ph-shield-check" aria-hidden="true"></i>关闭不会提交；确认交接后才会加入私域客户池。</p>
+        <button type="button" id="replicaAcquisitionDetailCenterDone" data-acquisition-detail-action="close">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="replica-modal replica-deal-create-dialog" id="replicaDealCreateDialog" aria-labelledby="replicaDealCreateTitle">
+    <form id="replicaDealCreateForm">
+      <div class="replica-modal-head">
+        <div><span class="replica-wizard-kicker">REAL DEAL</span><h2 id="replicaDealCreateTitle">创建真实商机</h2></div>
+        <button type="button" id="replicaDealCreateClose" aria-label="关闭"><i class="ph ph-x" aria-hidden="true"></i></button>
+      </div>
+      <div class="replica-deal-create-fields">
+        <input id="dealCustomerIdInput" type="hidden" />
+        <label>关联客户<input id="dealCustomerInput" readonly /></label>
+        <label>商机名称<input id="dealTitleInput" required placeholder="例如：年度采购项目" /></label>
+        <label>产品 / 采购需求<input id="dealProductInput" required placeholder="例如：产品型号 / 数量 / 规格" /></label>
+        <label>获客来源<select id="dealAcquisitionBindingInput" required></select></label>
+        <label>币种<select id="dealCurrencyInput"><option>USD</option><option>EUR</option><option>GBP</option><option>CNY</option><option>JPY</option><option>AED</option></select></label>
+        <label>数量<input id="dealQuantityInput" type="number" min="0.01" step="0.01" value="30" required /></label>
+        <label>单价<input id="dealUnitPriceInput" type="number" min="0.01" step="0.01" value="600" required /></label>
+        <label>金额<input id="dealAmountInput" type="number" value="18000" readonly /></label>
+        <label>下一动作日期<input id="dealNextActionAtInput" type="date" required /></label>
+        <label>预计成交日期<input id="dealExpectedCloseAtInput" type="date" /></label>
+        <label class="replica-deal-create-wide">下一步动作<input id="dealNextActionInput" value="确认采购清单并安排报价" required /></label>
+      </div>
+      <div class="replica-real-submit-status" id="replicaDealCreateStatus" role="status" aria-live="polite" hidden></div>
+      <div class="replica-modal-footer">
+        <button type="button" id="replicaDealCreateCancel">取消</button>
+        <button type="submit" class="replica-real-submit" id="saveDealButton">保存商机</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/src/app-entry.ts"></script>
+  <script type="module" src="/src/replica-dashboard.ts"></script>
+  <script type="module" src="/src/demo/demo-app.ts"></script>
+  <div id="growthWorkspace" hidden>
+    <nav class="growth-nav" aria-label="增长工作区">
+      <a href="#growth/agents">经营顾问</a>
+      <a href="#growth/advisor">增长参谋</a>
+      <a href="#growth/catalog">产品目录</a>
+      <a href="#growth/quotes">报价</a>
+      <a href="#growth/finance">财务核销</a>
+      <a href="#growth/roi">ROI</a>
+      <a href="#financial-council">财务委员会</a>
+    </nav>
+  </div>
+</body>
+</html>

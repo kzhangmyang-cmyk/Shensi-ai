@@ -1,0 +1,314 @@
+import { requireGrowthCapabilities } from "./growth-capabilities.js";
+import {operatingMemorySelectionSchema,type AgentOperatingMemoryService,type OperatingPreferences} from './agent-operating-memory.js';
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import type { CfoConversationSessionRepository } from './cfo-conversation-session-repository.js';
+import { observeCfoStage, type CfoConversationProgress } from './cfo-conversation-progress.js';
+import type { FinanceDocumentService } from './finance-document-service.js';
+import { GrowthHttpError } from './growth-command-context.js';
+import { cfoQuestionSchema, type CfoChatModel } from './cfo-conversation.js';
+import { selectFinancialCouncilModelRoute } from './financial-council-model-routing.js';
+import { financialCouncilError, type FinancialCouncilRun } from
+  "./financial-council-domain.js";
+import { FINANCIAL_COUNCIL_MODEL_ROLES } from
+  "./financial-council-model-routing.js";
+import type { FinancialCouncilModelRoutingRepository } from
+  "./financial-council-model-routing-repository.js";
+import type { FinancialCouncilRepository } from
+  "./financial-council-repository.js";
+import type { FinancialStatementPackageRepository } from
+  "./financial-statement-package-repository.js";
+import type { ActiveWorkspaceContext } from "./growth-workspace-context.js";
+import type { FinancialCouncilModelRoutingRuntimeState } from
+  "./model-providers/runtime.js";
+import { parseFinancialCouncilModelCallJobId, type ModelCallRecord } from
+  "./model-providers/call-ledger.js";
+
+const ERROR_CODES = new Set([
+  "MODEL_RATE_LIMITED", "MODEL_TIMEOUT", "MODEL_UNAVAILABLE",
+  "MODEL_AUTH_FAILED", "MODEL_OUTPUT_INVALID", "MODEL_POLICY_CONFLICT",
+  "MODEL_ERROR"
+]);
+
+function instant(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+}
+
+function completedAt(call: ModelCallRecord): string | null {
+  if (!instant(call.createdAt) || !Number.isSafeInteger(call.latencyMs)
+    || call.latencyMs < 0) return null;
+  const value = Date.parse(call.createdAt) + call.latencyMs;
+  if (!Number.isSafeInteger(value) || value < 0
+    || value > 8_640_000_000_000_000) return null;
+  try { return new Date(value).toISOString(); } catch { return null; }
+}
+
+function scopeMatches(value: { ownerId: string; teamId: string | null },
+  context: ActiveWorkspaceContext) {
+  return context.kind === "team" ? value.teamId === context.workspaceId
+    : value.ownerId === context.actorId && value.teamId === context.teamId;
+}
+
+function publicErrorCode(call: ModelCallRecord): string | null {
+  if (call.status === "succeeded") return null;
+  const code = call.error?.code;
+  return typeof code === "string" && ERROR_CODES.has(code) ? code : "MODEL_ERROR";
+}
+
+function centerStatus(run: Pick<FinancialCouncilRun, "status"> | null,
+  hasPackage: boolean, hasModels: boolean) {
+  if (!hasPackage) return "not_connected" as const;
+  if (!hasModels) return "model_error" as const;
+  if (!run) return "ready" as const;
+  if (["snapshot_frozen", "analyzing"].includes(run.status)) return "running" as const;
+  if (["auditing", "synthesizing", "optimizing"].includes(run.status)) {
+    return "waiting" as const;
+  }
+  if (["awaiting_approval", "approved"].includes(run.status)) return "completed" as const;
+  if (["rejected", "stale", "expired", "not_computable"].includes(run.status)) {
+    return "manual_review" as const;
+  }
+  return "model_error" as const;
+}
+
+function roleStatus(run: Pick<FinancialCouncilRun, "status"> | null,
+  role: (typeof FINANCIAL_COUNCIL_MODEL_ROLES)[number], calls: readonly ModelCallRecord[]) {
+  if (calls.some((call) => call.status === "succeeded")) return "completed" as const;
+  if (calls.some((call) => call.status === "failed")) return "model_error" as const;
+  if (!run) return "ready" as const;
+  if (role === "cfo") {
+    return ["synthesizing", "optimizing"].includes(run.status)
+      ? "running" as const : "waiting" as const;
+  }
+  return ["analyzing", "auditing"].includes(run.status)
+    ? "running" as const : "waiting" as const;
+}
+
+export class FinancialCouncilAgentCenter {
+  constructor(private readonly dependencies: {
+    readonly latestPackage: Pick<FinancialStatementPackageRepository,
+      "getLatestVerified">;
+    readonly latestRun: Pick<FinancialCouncilRepository,
+      "findLatestRun" | "findRun">;
+    readonly routing: Pick<FinancialCouncilModelRoutingRepository, "getCurrent">;
+    readonly runtimeState: () => FinancialCouncilModelRoutingRuntimeState;
+    readonly chatModel?: CfoChatModel;
+    readonly documents?: FinanceDocumentService;
+    readonly sessions?: CfoConversationSessionRepository;
+    readonly operatingMemory?: AgentOperatingMemoryService;
+  }) {}
+
+  async askWithOperatingMemory(context:ActiveWorkspaceContext,raw:unknown,signal?:AbortSignal){
+    requireGrowthCapabilities(context,['finance.council.run']);
+    const input=z.object({selection:operatingMemorySelectionSchema,input:cfoQuestionSchema,
+      session:z.object({sessionId:z.string().uuid(),revision:z.number().int().min(1)}).strict().optional()}).strict().safeParse(raw);
+    if(!input.success)throw new GrowthHttpError(422,'decision_memory_input_invalid');
+    if(!this.dependencies.operatingMemory)throw new GrowthHttpError(503,'decision_memory_unavailable');
+    const preferences=await this.dependencies.operatingMemory.confirmed(context,input.data.selection);
+    if(input.data.session){
+      if(input.data.input.role&&input.data.input.role!=='cfo')throw new GrowthHttpError(422,'cfo_session_input_invalid');
+      const reply=await this.askInSession(context,input.data.session.sessionId,{question:input.data.input.question,
+        revision:input.data.session.revision,documentId:input.data.input.documentId??null,history:input.data.input.history},signal,undefined,preferences);
+      return {answer:reply.answer,session:{sessionId:reply.session.sessionId,revision:reply.session.revision}};
+    }
+    return {answer:await this.ask(context,input.data.input,signal,undefined,preferences)};
+  }
+
+  private sessionRepository(context: ActiveWorkspaceContext) {
+    requireGrowthCapabilities(context, ['finance.council.run']);
+    if (!this.dependencies.sessions) throw new GrowthHttpError(503, 'cfo_sessions_unavailable');
+    return this.dependencies.sessions;
+  }
+  async listSessions(context: ActiveWorkspaceContext) {
+    const sessions = await this.sessionRepository(context).list(context);
+    return sessions.map(({ turns, ...session }) => ({ ...session, turnCount: turns.length }));
+  }
+  async getSession(context: ActiveWorkspaceContext, sessionId: string) {
+    const value = await this.sessionRepository(context).get(context, sessionId);
+    if (!value) throw new GrowthHttpError(404, 'cfo_session_not_found');
+    return value;
+  }
+  async createSession(context: ActiveWorkspaceContext, raw: unknown) {
+    const repository = this.sessionRepository(context);
+    const parsed = z.object({ documentId: z.string().min(1).max(191).nullable() }).strict().safeParse(raw);
+    if (!parsed.success) throw new GrowthHttpError(422, 'cfo_session_input_invalid');
+    if (parsed.data.documentId && !this.dependencies.documents?.selected(context, parsed.data.documentId))
+      throw new GrowthHttpError(409, 'finance_document_not_selected');
+    const now = new Date().toISOString();
+    const value = { sessionId: randomUUID(), revision: 1, title: '新对话', documentId: parsed.data.documentId,
+      createdAt: now, updatedAt: now, turns: [] };
+    await repository.save(context, value, 0); return value;
+  }
+  async askInSession(context: ActiveWorkspaceContext, sessionId: string, raw: unknown, signal?: AbortSignal, onProgress?: CfoConversationProgress, personalPreferences?:OperatingPreferences) {
+    const parsed = z.object({ question: z.string().trim().min(1).max(2000), revision: z.number().int().min(1),
+      documentId: z.string().min(1).max(191).nullable(), history: cfoQuestionSchema.shape.history.optional() }).strict().safeParse(raw);
+    if (!parsed.success) throw new GrowthHttpError(422, 'cfo_session_input_invalid');
+    const session = await this.getSession(context, sessionId);
+    if (session.revision !== parsed.data.revision) throw new GrowthHttpError(409, 'cfo_session_revision_conflict');
+    if (session.documentId !== parsed.data.documentId) throw new GrowthHttpError(409, 'cfo_session_source_changed');
+    if (session.turns.length > 98) throw new GrowthHttpError(409, 'cfo_session_full');
+    const answer = await this.ask(context, { question: parsed.data.question, role: 'cfo', documentId: session.documentId,
+      history: parsed.data.history ?? session.turns.slice(-10).map(({ role, text }) => ({ role, text })) }, signal, onProgress,personalPreferences);
+    signal?.throwIfAborted();
+    const material = answer.material;
+    const sourceLabel = !material ? '无已验证报表' : 'kind' in material
+      ? `${material.fileName} · 只读资料` : `${material.companyName} · ${material.period} · 已确认报表`;
+    const next = { ...session, revision: session.revision + 1,
+      title: session.turns.length ? session.title : parsed.data.question.slice(0, 120), updatedAt: new Date().toISOString(),
+      turns: [...session.turns, { role: 'user' as const, text: parsed.data.question },
+        { role: 'assistant' as const, text: answer.answer, model: answer.model, sourceLabel: sourceLabel.slice(0, 1000) }] };
+    await this.sessionRepository(context).save(context, next, session.revision);
+    return { session: next, answer };
+  }
+
+  async ask(context: ActiveWorkspaceContext, raw: unknown, signal?: AbortSignal, onProgress?: CfoConversationProgress, personalPreferences?:OperatingPreferences) {
+    requireGrowthCapabilities(context, ['finance.council.run']);
+    const parsed = cfoQuestionSchema.safeParse(raw);
+    if (!parsed.success) throw new GrowthHttpError(422, 'cfo_conversation_input_invalid');
+    signal?.throwIfAborted();
+    if (parsed.data.documentId && !this.dependencies.documents) throw new GrowthHttpError(409, 'finance_document_expired');
+    const selectedDocument = parsed.data.documentId ? this.dependencies.documents!.selected(context, parsed.data.documentId) : null;
+    if (!selectedDocument && !this.dependencies.chatModel) throw new GrowthHttpError(503, 'cfo_conversation_model_not_ready');
+    const material = selectedDocument ? null : await this.dependencies.latestPackage.getLatestVerified(context.workspaceId, { limit: 1 });
+    if (material && material.workspaceId !== context.workspaceId)
+      throw new GrowthHttpError(409, 'cfo_conversation_material_unavailable');
+    const observer = (parsed.data.role ?? 'cfo') === 'cfo' ? onProgress : undefined;
+    observeCfoStage(observer, 'material_ready', signal);
+    const policy = await this.dependencies.routing.getCurrent(context);
+    let connectionId: string | undefined;
+    if (policy) {
+      const runtime = this.dependencies.runtimeState();
+      connectionId = selectFinancialCouncilModelRoute({ role: parsed.data.role ?? 'cfo', policy,
+        connections: runtime.connections, recentCalls: runtime.recentCalls, prices: [], activeWorkspace: context }).orderedConnectionIds[0];
+      if (!connectionId) throw new GrowthHttpError(409, 'cfo_conversation_model_not_ready');
+    }
+    const source = material ? { packageId: material.packageId, companyName: material.companyName,
+      period: material.period, currency: material.currency } : null;
+    signal?.throwIfAborted();
+    if (selectedDocument) {
+      const answer = await this.dependencies.documents!.askSelected(context, parsed.data, connectionId, signal, observer,personalPreferences);
+      observeCfoStage(observer, 'answer_validated', signal);
+      return answer;
+    }
+    const result = await this.dependencies.chatModel!({ ...parsed.data, context, connectionId, signal, onProgress: observer,personalPreferences,
+      material: material && source ? { ...source, businessReport: material.businessReport,
+        provenance: { parserVersion: material.parserVersion, packageHash: material.packageHash,
+          createdAt: material.createdAt, unit: 'minor', warnings: material.warnings,
+          sourceFiles: material.sourceFiles.map(file => ({ kind: file.kind, fileHash: file.fileHash })) } } : null });
+    observeCfoStage(observer, 'answer_validated', signal);
+    return { ...result, material: source, answeredAt: new Date().toISOString() };
+  }
+
+  private async state(context: ActiveWorkspaceContext) {
+    requireGrowthCapabilities(context, ["finance.council.run"]);
+    const [rawStatementPackage, rawRun, routing] = await Promise.all([
+      this.dependencies.latestPackage.getLatestVerified(context.workspaceId,
+        Object.freeze({ limit: 1 })),
+      this.dependencies.latestRun.findLatestRun(context,
+        Object.freeze({ limit: 1 })),
+      this.dependencies.routing.getCurrent(context)
+    ]);
+    const statementPackage = rawStatementPackage?.workspaceId === context.workspaceId
+      ? rawStatementPackage : null;
+    const run = rawRun?.workspaceId === context.workspaceId ? rawRun : null;
+    const runtime = this.dependencies.runtimeState();
+    const eligible = runtime.connections.filter((connection) =>
+      scopeMatches(connection, context) && connection.status === "active"
+      && connection.capabilitySnapshot?.structuredOutput === true);
+    return { statementPackage, run, routing, runtime, eligible };
+  }
+
+  async get(context: ActiveWorkspaceContext) {
+    const { statementPackage, run, routing, runtime, eligible } =
+      await this.state(context);
+    return Object.freeze({
+      data: Object.freeze({ status: statementPackage ? "ready" : "not_connected",
+        packageId: statementPackage?.packageId ?? null,
+        companyName: statementPackage?.companyName ?? null,
+        period: statementPackage?.period ?? null,
+        verifiedAt: statementPackage?.createdAt ?? null,
+        warningCodes: Object.freeze(statementPackage?.warnings.map((item) =>
+          item.code) ?? []) }),
+      models: Object.freeze({ status: routing && eligible.length
+        ? "ready" : "not_connected",
+        routingPolicyVersionId: routing?.policyVersionId ?? null,
+        roles: Object.freeze(FINANCIAL_COUNCIL_MODEL_ROLES.map((role) => {
+          const calls = this.calls(runtime.recentCalls, context, run?.runId, role);
+          const latest = calls.at(-1);
+          const connection = latest
+            ? runtime.connections.find((item) => item.id === latest.connectionId)
+            : eligible[0];
+          return Object.freeze({ role, status: roleStatus(run, role, calls),
+            provider: connection?.provider ?? null,
+            model: connection?.model ?? null,
+            connectionDisplayName: connection ? this.displayName(connection) : null });
+        })) }),
+      latestRun: run ? Object.freeze({ runId: run.runId, status: run.status,
+        revision: run.revision, updatedAt: run.updatedAt }) : null,
+      capabilities: Object.freeze({
+        canRun: context.capabilities.includes("finance.council.run"),
+        canApprove: context.capabilities.includes("finance.council.approve"),
+        canManageRouting: context.capabilities.includes(
+          "finance.council.policy.manage")
+      })
+    });
+  }
+
+  async getRunAgents(context: ActiveWorkspaceContext, runId: string) {
+    requireGrowthCapabilities(context, ["finance.council.run"]);
+    if (typeof runId !== "string" || !runId.trim() || runId.length > 255) {
+      throw financialCouncilError("financial_council_input_invalid");
+    }
+    const repository = this.dependencies.latestRun;
+    const raw = typeof repository.findRun === "function"
+      ? await repository.findRun(context, runId)
+      : await repository.findLatestRun(context, Object.freeze({ limit: 1 }));
+    if (!raw || raw.workspaceId !== context.workspaceId || raw.runId !== runId) {
+      throw financialCouncilError("financial_council_run_not_found");
+    }
+    const runtime = this.dependencies.runtimeState();
+    return Object.freeze({ runId: raw.runId, status: raw.status,
+      revision: raw.revision, updatedAt: raw.updatedAt,
+      roles: Object.freeze(FINANCIAL_COUNCIL_MODEL_ROLES.map((role) => {
+        const calls = this.calls(runtime.recentCalls, context, runId, role);
+        return Object.freeze({ role,
+          phase: role === "cfo" ? "consensus" : "analysis",
+          status: roleStatus(raw, role, calls),
+          attempts: Object.freeze(calls.map((call) => {
+            const parsed = parseFinancialCouncilModelCallJobId(call.jobId)!;
+            const connection = runtime.connections.find((item) =>
+              item.id === call.connectionId && scopeMatches(item, context));
+            return Object.freeze({ attempt: parsed.attempt,
+              provider: call.provider, model: call.model,
+              connectionDisplayName: connection
+                ? this.displayName(connection) : call.model,
+              status: call.status, errorCode: publicErrorCode(call),
+              startedAt: instant(call.createdAt) ? call.createdAt : null,
+              completedAt: completedAt(call) });
+          })) });
+      })) });
+  }
+
+  private calls(calls: readonly ModelCallRecord[], context: ActiveWorkspaceContext,
+    runId: string | undefined,
+    role: (typeof FINANCIAL_COUNCIL_MODEL_ROLES)[number]) {
+    if (!runId) return [];
+    return calls.filter((call) => {
+      const parsed = parseFinancialCouncilModelCallJobId(call.jobId);
+      return parsed?.runId === runId && parsed.role === role
+        && scopeMatches(call, context);
+    }).sort((left, right) => {
+      const a = parseFinancialCouncilModelCallJobId(left.jobId)!.attempt;
+      const b = parseFinancialCouncilModelCallJobId(right.jobId)!.attempt;
+      return a - b || left.id.localeCompare(right.id);
+    });
+  }
+
+  private displayName(connection: object) {
+    const name = Reflect.get(connection, "name");
+    return typeof name === "string" && name.trim()
+      ? name : String(Reflect.get(connection, "model"));
+  }
+}

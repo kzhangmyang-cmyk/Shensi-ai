@@ -1,0 +1,52 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { DecisionPreparationService } from './decision-preparation.js';
+import { DecisionSimulationService, MemoryDecisionSimulationRepository } from './decision-simulation-service.js';
+import { workspace } from './financial-council-repository-contract-test.js';
+
+const context={...workspace('prep'),capabilities:['finance.council.run'] as const};
+const upload={dataKind:'synthetic',files:[{fileName:'合成.csv',mediaType:'text/csv',contentBase64:Buffer.from('项目,值,单位\n月订单,100,件').toString('base64')}]};
+const input={runId:'7707614e-521a-479e-9e3d-b8da6d76eab1',title:'合成完整流程',dataKind:'synthetic',assumptionNote:'人工确认模拟参数；无期初应收应付是假设',baseline:{cashMinor:6000000,monthlyOrders:100,backlogUnits:0,capacityUnits:120,priceMinor:10000,unitCostMinor:6000,fixedCostMinor:250000,collectionMonths:1,receivables:[],payables:[]},alternatives:[],options:{seed:7,samples:100,months:12,assumptions:{demand:[1,1],procurement:[1,1],delivery:[1,1],collectionDelay:[0,0],persistence:0,commonWeight:0}}};
+test('explicit confirmation runs five roles then persists source-backed 100-path report in the same scope',async()=>{
+  const simulations=new DecisionSimulationService(new MemoryDecisionSimulationRepository());
+  const service=new DecisionPreparationService({simulations,model:async request=>({inspection:{...request.inspection,modelStatus:'completed',observations:[{text:'月订单100件，需跟踪交付。',sourceRefs:['file:1:cell:1:2:2']}]},provider:'fixture',model:'fixture'})});
+  const material=await service.create(context,upload);
+  assert.equal(material.state,'awaiting_confirmation');
+  assert.equal(material.facts.find(fact=>fact.field==='monthlyOrders')?.candidates[0].value,100);
+  assert.throws(()=>service.get({...context,actorId:'other'},material.id),/not_found/);
+  const started=service.start(context,material.id,{confirm:true,input});
+  assert.equal(started.state,'analyzing');
+  for(let i=0;i<100&&service.get(context,material.id).state==='analyzing';i++)await new Promise(resolve=>setImmediate(resolve));
+  const completed=service.get(context,material.id);
+  assert.equal(completed.state,'completed');
+  const record=await simulations.get(context,input.runId);
+  assert.equal(record.paths.length,100);
+  assert.equal(record.analysis?.agents.length,5);
+  assert.equal(record.analysis?.files[0].fileName,'合成.csv');
+  assert.equal(service.start(context,material.id,{confirm:true,input}).state,'completed');
+  service.close();
+});
+test('model failure does not manufacture a completed integrated report',async()=>{
+  const simulations=new DecisionSimulationService(new MemoryDecisionSimulationRepository());
+  const service=new DecisionPreparationService({simulations,model:async()=>{throw new Error('secret provider failure');}});
+  const material=await service.create(context,upload);
+  service.start(context,material.id,{confirm:true,input});
+  for(let i=0;i<100&&service.get(context,material.id).state==='analyzing';i++)await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(service.get(context,material.id).state,'failed');
+  assert.deepEqual(await simulations.list(context),[]);
+  assert.doesNotMatch(JSON.stringify(service.get(context,material.id)),/secret provider/);
+  service.close();
+});
+test('explicit same-input retry restarts a failed preparation without duplicating a running task',async()=>{
+  const simulations=new DecisionSimulationService(new MemoryDecisionSimulationRepository());let available=false,calls=0;
+  const service=new DecisionPreparationService({simulations,model:async request=>{calls++;if(!available)throw new Error('unavailable');return {inspection:{...request.inspection,modelStatus:'completed',observations:[{text:'确认资料后跟踪交付。',sourceRefs:['file:1:cell:1:2:2']}]},provider:'fixture',model:'fixture'};}});
+  const material=await service.create(context,upload);service.start(context,material.id,{confirm:true,input});
+  for(let i=0;i<100&&service.get(context,material.id).state==='analyzing';i++)await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(service.get(context,material.id).state,'failed');available=true;const before=calls;
+  assert.equal(service.start(context,material.id,{confirm:true,input}).state,'analyzing');
+  service.start(context,material.id,{confirm:true,input});
+  for(let i=0;i<100&&service.get(context,material.id).state==='analyzing';i++)await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(service.get(context,material.id).state,'completed');assert.equal(calls-before,5);
+  assert.equal((await simulations.list(context)).length,1);assert.equal(service.get(context,material.id).errorCode,null);
+  assert.throws(()=>service.start(context,material.id,{confirm:true,input:{...input,title:'changed'}}),/conflict/);service.close();
+});

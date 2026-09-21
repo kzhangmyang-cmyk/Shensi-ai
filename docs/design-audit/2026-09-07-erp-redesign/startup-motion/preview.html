@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shensi 启动动效概念预览</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #020303;
+      --surface: rgba(14, 16, 17, 0.9);
+      --line: rgba(229, 238, 233, 0.18);
+      --text: #f1f3f0;
+      --muted: #8c928e;
+      --green: #18ed78;
+      --cyan: #09b8c9;
+      --navy: #062f5c;
+      --ease: cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 980px;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background: #080a0a;
+      color: var(--text);
+      font: 14px/1.5 Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    }
+
+    .preview-shell {
+      position: relative;
+      width: min(1440px, 100vw);
+      aspect-ratio: 1440 / 960;
+      max-height: 100vh;
+      overflow: hidden;
+      background: var(--bg);
+      isolation: isolate;
+    }
+
+    .app-frame {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      background: var(--bg);
+    }
+
+    .app-frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      transform: scale(1.018);
+    }
+
+    .splash {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 48%, rgba(9, 184, 201, 0.11), transparent 28%),
+        radial-gradient(circle at 50% 50%, rgba(24, 237, 120, 0.055), transparent 46%),
+        var(--bg);
+    }
+
+    .ambient-grid {
+      position: absolute;
+      inset: -14%;
+      opacity: 0;
+      background-image:
+        linear-gradient(rgba(24, 237, 120, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(24, 237, 120, 0.04) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(circle at 50% 50%, black, transparent 68%);
+      transform: perspective(780px) rotateX(58deg) translateY(16%);
+    }
+
+    .brand-stage {
+      position: relative;
+      width: 620px;
+      height: 620px;
+      transform: translateY(-4%);
+    }
+
+    .orbit {
+      position: absolute;
+      left: 50%;
+      top: 43%;
+      width: 520px;
+      height: 520px;
+      margin: -260px;
+      border: 1px solid rgba(9, 184, 201, 0.16);
+      border-radius: 50%;
+      opacity: 0;
+      transform: rotateX(62deg) rotateZ(18deg);
+    }
+
+    .orbit::before,
+    .orbit::after {
+      content: "";
+      position: absolute;
+      inset: 54px;
+      border-radius: inherit;
+      border: 1px solid rgba(24, 237, 120, 0.14);
+    }
+
+    .orbit::after {
+      inset: 112px;
+      border-color: rgba(9, 184, 201, 0.22);
+    }
+
+    .trail {
+      position: absolute;
+      left: 50%;
+      top: 43%;
+      width: 470px;
+      height: 470px;
+      margin: -235px;
+      border-radius: 50%;
+      opacity: 0;
+      background: conic-gradient(from 28deg, transparent 0 30%, rgba(9,184,201,.68) 38%, transparent 43% 65%, rgba(24,237,120,.46) 75%, transparent 82%);
+      mask: radial-gradient(circle, transparent 0 63%, #000 64% 66%, transparent 67%);
+      filter: blur(1px) drop-shadow(0 0 12px rgba(9,184,201,.34));
+      transform: rotateX(58deg) rotateZ(0deg);
+    }
+
+    .trail-b {
+      width: 392px;
+      height: 392px;
+      margin: -196px;
+      opacity: 0;
+      background: conic-gradient(from 210deg, transparent 0 24%, rgba(24,237,120,.56) 32%, transparent 39% 69%, rgba(9,184,201,.5) 77%, transparent 84%);
+      mask: radial-gradient(circle, transparent 0 61%, #000 62% 64%, transparent 65%);
+      filter: blur(.5px) drop-shadow(0 0 10px rgba(24,237,120,.25));
+    }
+
+    .trail-c {
+      width: 308px;
+      height: 308px;
+      margin: -154px;
+      opacity: 0;
+      background: conic-gradient(from 126deg, transparent 0 36%, rgba(9,184,201,.62) 43%, transparent 50% 78%, rgba(24,237,120,.38) 84%, transparent 90%);
+      mask: radial-gradient(circle, transparent 0 59%, #000 60% 63%, transparent 64%);
+    }
+
+    .atom {
+      position: absolute;
+      z-index: 4;
+      width: 54px;
+      height: 54px;
+      overflow: hidden;
+      border-radius: 50%;
+      background: #fff;
+      opacity: 0;
+      box-shadow:
+        0 0 0 1px rgba(9, 184, 201, 0.18),
+        0 0 26px rgba(9, 184, 201, 0.38),
+        0 0 72px rgba(24, 237, 120, 0.13);
+    }
+
+    .atom img {
+      position: absolute;
+      width: 620px;
+      max-width: none;
+      height: 620px;
+    }
+
+    .atom-top { left: 282px; top: 65px; }
+    .atom-top img { left: -282px; top: -65px; }
+    .atom-left { left: 139px; top: 313px; }
+    .atom-left img { left: -139px; top: -313px; }
+    .atom-right { left: 430px; top: 311px; }
+    .atom-right img { left: -430px; top: -311px; }
+
+    .energy-core {
+      position: absolute;
+      z-index: 3;
+      left: 50%;
+      top: 43%;
+      width: 28px;
+      height: 28px;
+      margin: -14px;
+      border-radius: 50%;
+      background: var(--cyan);
+      opacity: 0;
+      box-shadow: 0 0 24px rgba(9,184,201,.9), 0 0 70px rgba(24,237,120,.32);
+    }
+
+    .logo-layer {
+      position: absolute;
+      z-index: 5;
+      inset: 0;
+      width: 620px;
+      height: 620px;
+      object-fit: contain;
+      opacity: 0;
+      border-radius: 24px;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.09),
+        0 28px 90px rgba(0,0,0,.42),
+        0 0 80px rgba(9,184,201,.14);
+    }
+
+    .startup-copy {
+      position: absolute;
+      z-index: 7;
+      left: 50%;
+      bottom: 48px;
+      transform: translateX(-50%);
+      display: grid;
+      gap: 6px;
+      min-width: 340px;
+      text-align: center;
+      opacity: 0;
+    }
+
+    .startup-copy strong { font-size: 14px; letter-spacing: .04em; }
+    .startup-copy span { color: var(--muted); font-size: 12px; }
+
+    .error-state {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      display: none;
+      place-items: center;
+      background: var(--bg);
+    }
+
+    .error-state article {
+      width: min(460px, calc(100% - 48px));
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--surface);
+    }
+
+    .error-state h2 { margin: 0 0 8px; font-size: 20px; }
+    .error-state p { margin: 0 0 20px; color: var(--muted); }
+    .error-state button,
+    .preview-actions button {
+      min-height: 38px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      background: rgba(255,255,255,.04);
+      cursor: pointer;
+    }
+    .error-state button:first-of-type { border-color: rgba(24,237,120,.5); background: var(--green); color: #041008; }
+
+    .preview-actions {
+      position: absolute;
+      z-index: 20;
+      right: 18px;
+      bottom: 18px;
+      display: flex;
+      gap: 8px;
+      opacity: .76;
+    }
+
+    .preview-shell.is-playing .ambient-grid { animation: ambient-in 7.6s var(--ease) both; }
+    .preview-shell.is-playing .orbit { animation: orbit-field 4.4s var(--ease) .35s both; }
+    .preview-shell.is-playing .trail-a { animation: trail-spin 4.9s cubic-bezier(.4,0,.2,1) .55s both; }
+    .preview-shell.is-playing .trail-b { animation: trail-spin-reverse 4.65s cubic-bezier(.4,0,.2,1) .72s both; }
+    .preview-shell.is-playing .trail-c { animation: trail-spin 4.3s cubic-bezier(.4,0,.2,1) .9s both; }
+    .preview-shell.is-playing .energy-core { animation: core-pulse 6.2s var(--ease) .2s both; }
+    .preview-shell.is-playing .atom-top { animation: atom-top 4.55s var(--ease) .25s both; }
+    .preview-shell.is-playing .atom-left { animation: atom-left 4.65s var(--ease) .45s both; }
+    .preview-shell.is-playing .atom-right { animation: atom-right 4.75s var(--ease) .65s both; }
+    .preview-shell.is-playing .logo-layer { animation: logo-complete 3.1s var(--ease) 4.15s both; }
+    .preview-shell.is-playing .startup-copy { animation: status-copy 6.9s var(--ease) .45s both; }
+    .preview-shell.is-playing .splash { animation: splash-exit 8.8s cubic-bezier(.3,0,1,1) both; }
+    .preview-shell.is-playing .app-frame img { animation: app-enter 8.8s var(--ease) both; }
+
+    @keyframes ambient-in {
+      0% { opacity: 0; transform: perspective(780px) rotateX(58deg) translateY(20%) scale(.96); }
+      16%, 67% { opacity: .7; }
+      100% { opacity: 0; transform: perspective(780px) rotateX(58deg) translateY(11%) scale(1.08); }
+    }
+    @keyframes orbit-field {
+      0% { opacity: 0; transform: rotateX(62deg) rotateZ(-35deg) scale(.68); }
+      22% { opacity: 1; }
+      74% { opacity: .78; transform: rotateX(62deg) rotateZ(215deg) scale(1); }
+      100% { opacity: 0; transform: rotateX(62deg) rotateZ(305deg) scale(.78); }
+    }
+    @keyframes trail-spin {
+      0% { opacity: 0; transform: rotateX(58deg) rotateZ(-90deg) scale(.7); }
+      16% { opacity: .9; }
+      78% { opacity: .62; transform: rotateX(58deg) rotateZ(420deg) scale(1.03); }
+      100% { opacity: 0; transform: rotateX(58deg) rotateZ(560deg) scale(.7); }
+    }
+    @keyframes trail-spin-reverse {
+      0% { opacity: 0; transform: rotateX(64deg) rotateZ(120deg) scale(.74); }
+      18% { opacity: .78; }
+      76% { opacity: .5; transform: rotateX(64deg) rotateZ(-330deg) scale(1.05); }
+      100% { opacity: 0; transform: rotateX(64deg) rotateZ(-470deg) scale(.72); }
+    }
+    @keyframes core-pulse {
+      0% { opacity: 0; transform: scale(.2); }
+      22% { opacity: .35; transform: scale(.75); }
+      50% { opacity: 1; transform: scale(1.15); }
+      72% { opacity: .8; transform: scale(.9); }
+      100% { opacity: 0; transform: scale(18); }
+    }
+    @keyframes atom-top {
+      0% { opacity: 0; transform: translate(-282px, 70px) scale(.36) rotate(-100deg); }
+      13% { opacity: 1; }
+      37% { transform: translate(150px, -87px) scale(.78) rotate(120deg); }
+      69% { transform: translate(103px, 455px) scale(.92) rotate(310deg); }
+      88% { transform: translate(-30px, 18px) scale(1.07) rotate(438deg); }
+      100% { opacity: 1; transform: translate(0, 0) scale(1) rotate(480deg); }
+    }
+    @keyframes atom-left {
+      0% { opacity: 0; transform: translate(397px, -287px) scale(.34) rotate(80deg); }
+      13% { opacity: 1; }
+      36% { transform: translate(289px, 176px) scale(.72) rotate(230deg); }
+      68% { transform: translate(-44px, -143px) scale(.92) rotate(390deg); }
+      88% { transform: translate(18px, 24px) scale(1.08) rotate(530deg); }
+      100% { opacity: 1; transform: translate(0, 0) scale(1) rotate(560deg); }
+    }
+    @keyframes atom-right {
+      0% { opacity: 0; transform: translate(-88px, 262px) scale(.32) rotate(-60deg); }
+      13% { opacity: 1; }
+      35% { transform: translate(-437px, -73px) scale(.72) rotate(110deg); }
+      67% { transform: translate(-47px, -246px) scale(.9) rotate(310deg); }
+      88% { transform: translate(20px, -20px) scale(1.08) rotate(470deg); }
+      100% { opacity: 1; transform: translate(0, 0) scale(1) rotate(520deg); }
+    }
+    @keyframes logo-complete {
+      0% { opacity: 0; transform: scale(.78); filter: blur(10px); }
+      28% { opacity: .92; filter: blur(2px); }
+      50%, 78% { opacity: 1; transform: scale(1); filter: blur(0); }
+      100% { opacity: 0; transform: scale(1.035); filter: blur(0); }
+    }
+    @keyframes status-copy {
+      0%, 8% { opacity: 0; transform: translate(-50%, 10px); }
+      18%, 62% { opacity: 1; transform: translate(-50%, 0); }
+      76%, 100% { opacity: 0; transform: translate(-50%, -8px); }
+    }
+    @keyframes splash-exit {
+      0%, 82% { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(1.03); visibility: hidden; }
+    }
+    @keyframes app-enter {
+      0%, 79% { opacity: 0; transform: scale(1.018); filter: blur(8px); }
+      100% { opacity: 1; transform: scale(1); filter: blur(0); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .preview-shell.is-playing .ambient-grid,
+      .preview-shell.is-playing .orbit,
+      .preview-shell.is-playing .trail,
+      .preview-shell.is-playing .energy-core,
+      .preview-shell.is-playing .atom { display: none; }
+      .preview-shell.is-playing .logo-layer { animation: reduced-logo 1.2s ease both; }
+      .preview-shell.is-playing .startup-copy { display: none; }
+      .preview-shell.is-playing .splash { animation: reduced-splash 1.8s ease both; }
+      .preview-shell.is-playing .app-frame img { animation: reduced-app 1.8s ease both; }
+      @keyframes reduced-logo { 0% { opacity: 0; } 30%, 70% { opacity: 1; } 100% { opacity: 0; } }
+      @keyframes reduced-splash { 0%, 72% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+      @keyframes reduced-app { 0%, 72% { opacity: 0; } 100% { opacity: 1; } }
+    }
+  </style>
+</head>
+<body>
+  <main class="preview-shell is-playing" data-preview>
+    <div class="app-frame" aria-label="当前开发版主界面截图">
+      <img src="assets/current-app-overview.jpg" alt="当前 Shensi 自动营销总览" />
+    </div>
+
+    <section class="splash" aria-label="Shensi 启动动画概念">
+      <div class="ambient-grid" aria-hidden="true"></div>
+      <div class="brand-stage" aria-hidden="true">
+        <div class="orbit"></div>
+        <div class="trail trail-a"></div>
+        <div class="trail trail-b"></div>
+        <div class="trail trail-c"></div>
+        <div class="energy-core"></div>
+
+        <div class="atom atom-top"><img src="assets/shensi-logo-original.png" alt="" /></div>
+        <div class="atom atom-left"><img src="assets/shensi-logo-original.png" alt="" /></div>
+        <div class="atom atom-right"><img src="assets/shensi-logo-original.png" alt="" /></div>
+
+        <img class="logo-layer" src="assets/shensi-logo-original.png" alt="" />
+      </div>
+      <div class="startup-copy" role="status" aria-live="polite">
+        <strong>正在准备经营工作台</strong>
+        <span>初始化与品牌动效并行；界面就绪后立即进入</span>
+      </div>
+    </section>
+
+    <section class="error-state" data-error-state aria-live="assertive">
+      <article>
+        <h2>启动未完成</h2>
+        <p>经营工作台初始化失败。动画不会无限等待，你可以重试或关闭预览。</p>
+        <button type="button" data-retry>重新尝试</button>
+        <button type="button" data-dismiss-error>返回预览</button>
+      </article>
+    </section>
+
+    <nav class="preview-actions" aria-label="预览控制">
+      <button type="button" data-replay>重播动效</button>
+      <button type="button" data-simulate-error>模拟初始化失败</button>
+    </nav>
+  </main>
+  <script>
+    const preview = document.querySelector('[data-preview]');
+    const errorState = document.querySelector('[data-error-state]');
+    const replay = () => {
+      errorState.style.display = 'none';
+      preview.classList.remove('is-playing');
+      void preview.offsetWidth;
+      preview.classList.add('is-playing');
+    };
+    document.querySelector('[data-replay]').addEventListener('click', replay);
+    document.querySelector('[data-retry]').addEventListener('click', replay);
+    document.querySelector('[data-dismiss-error]').addEventListener('click', () => {
+      errorState.style.display = 'none';
+    });
+    document.querySelector('[data-simulate-error]').addEventListener('click', () => {
+      preview.classList.remove('is-playing');
+      errorState.style.display = 'grid';
+    });
+  </script>
+</body>
+</html>

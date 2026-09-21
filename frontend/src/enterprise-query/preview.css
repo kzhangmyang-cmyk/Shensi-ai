@@ -1,0 +1,17 @@
+body { margin: 0; background: #030d08; color: #e3ece8; font-family: -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; }
+#enterprise-preview { display: grid; grid-template-columns: 214px minmax(0,1fr); min-height: 100vh; }
+.enterprise-preview-sidebar { border-right: 1px solid #264438; padding-top: 20px; }
+.enterprise-preview-brand { display: flex; align-items: center; gap: 12px; padding: 0 24px 30px; font-size: 22px; }
+.enterprise-preview-brand img { width: 38px; height: 38px; object-fit: contain; }
+.enterprise-preview-brand img { filter: invert(1) grayscale(1); mix-blend-mode: screen; }
+.enterprise-preview-sidebar .replica-nav { display: flex; flex-direction: column; padding: 8px; }
+.enterprise-preview-sidebar .replica-growth-nav { display: none; }
+.enterprise-preview-sidebar .replica-nav button { border: 0; border-radius: 0; background: transparent; color: #e3ece8; display: flex; gap: 14px; align-items: center; text-align: left; font-size: 16px; min-height: 55px; padding: 12px 18px; }
+.enterprise-preview-sidebar .replica-nav button.active { background: #083322; color: #00d393; box-shadow: inset 4px 0 #00d393; }
+.enterprise-preview-sidebar .replica-nav button i { font-size: 22px; }
+.enterprise-preview-sidebar .replica-nav-caret { display: none; }
+.enterprise-preview-main { min-width: 0; }
+.enterprise-preview-top { height: 58px; border-bottom: 1px solid #264438; display: flex; justify-content: flex-end; align-items: center; padding: 0 26px; color: #91aa9d; font-size: 12px; }
+.enterprise-preview-main h1 { font-size: 28px; margin: 20px 26px 0; }
+.enterprise-preview-main .enterprise-query { padding: 8px 14px 24px; }
+@media(max-width:760px) { #enterprise-preview { grid-template-columns: 72px minmax(0,1fr); } .enterprise-preview-brand { padding: 0 16px 24px; } .enterprise-preview-brand strong,.enterprise-preview-sidebar .replica-nav span,.enterprise-preview-sidebar .replica-nav-caret { display: none; } }

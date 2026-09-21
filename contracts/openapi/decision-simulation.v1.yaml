@@ -1,0 +1,648 @@
+openapi: 3.0.3
+info: {title: Shensi decision simulation, version: 1.0.0}
+paths:
+  /api/v1/agent-memory/operating:
+    $ref: '#/paths/~1api~1v1~1decision-simulations~1memory'
+  /api/v1/agent-memory/operating/export:
+    $ref: '#/paths/~1api~1v1~1decision-simulations~1memory~1export'
+  /api/v1/agent-memory/operating/profile:
+    $ref: '#/paths/~1api~1v1~1decision-simulations~1memory~1profile'
+  /api/v1/agent-memory/operating/reviews:
+    $ref: '#/paths/~1api~1v1~1decision-simulations~1memory~1reviews'
+  /api/v1/agent-memory/operating/adopt:
+    $ref: '#/paths/~1api~1v1~1decision-simulations~1memory~1adopt'
+  /api/v1/finance/operating-memory-question:
+    post:
+      description: Explicit current operating-domain personal preferences for a read-only specialist question. Existing finance authorization and source rules apply; never an acquisition command.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OperatingMemoryQuestion'}
+      responses:
+        '200':
+          description: Read-only answer, optionally persisted in the existing CFO session
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OperatingMemoryReply'}
+  /api/v1/decision-simulations/memory:
+    get:
+      description: Personal actor/workspace scoped encrypted preferences and manual reviews; no model calls.
+      responses:
+        '200':
+          description: Current revision and personal records
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DecisionMemory'}
+  /api/v1/decision-simulations/memory/export:
+    get:
+      responses:
+        '200':
+          description: Complete personal memory export, excluding other actors and shared company documents
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/DecisionMemory'}
+                  - type: object
+                    required: [format, exportedAt]
+                    properties:
+                      format: {type: string, enum: [shensi-personal-decision-memory.v1]}
+                      exportedAt: {type: string, format: date-time}
+  /api/v1/decision-simulations/memory/profile:
+    put:
+      description: Explicit replacement with CAS; disabled learning clears pending candidates. No historical report mutation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DecisionProfileWrite'}
+      responses:
+        '200':
+          description: Saved personal memory
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DecisionMemory'}
+        '409': {description: Stale revision}
+    delete:
+      description: Remove profile contents and candidates; retain revision, manual reviews and immutable report snapshots. Reports currently have no individual deletion endpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DecisionMemoryRevision'}
+      responses:
+        '200':
+          description: Profile removed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DecisionMemory'}
+        '409': {description: Stale revision}
+  /api/v1/decision-simulations/memory/reviews:
+    put:
+      description: Claim/plan and manually review an owned saved suggestion. Maximum 200 review records per actor/workspace. Does not complete advisor actions. Plan locks once results exist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DecisionReviewWrite'}
+      responses:
+        '200':
+          description: Saved manual review
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DecisionMemory'}
+        '404': {description: Owned report or recommendation not found}
+        '409': {description: Stale revision, locked plan or capacity reached}
+  /api/v1/decision-simulations/memory/adopt:
+    post:
+      description: Explicitly adopt pending personal preference feedback only while learning is enabled; CAS applies to the entire personal memory.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DecisionCandidateAdoption'}
+      responses:
+        '200':
+          description: Updated profile, candidate cleared
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DecisionMemory'}
+        '409': {description: Stale revision, learning disabled or no candidate}
+  /api/v1/decision-simulations/preparations:
+    post:
+      description: Parse explicitly selected files without calling a model. Authenticated scope and cookie CSRF apply. Maximum combined binary size 5 MiB; preparations expire in one hour.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SourceInput'}
+      responses:
+        '201':
+          description: Source references and unconfirmed baseline candidates
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Preparation'}
+  /api/v1/decision-simulations/preparations/{id}:
+    parameters: [{in: path, name: id, required: true, schema: {type: string, format: uuid}}]
+    get:
+      responses:
+        '200':
+          description: Actor scoped preparation and actual role execution state
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Preparation'}
+  /api/v1/decision-simulations/preparations/{id}/analyze:
+    parameters: [{in: path, name: id, required: true, schema: {type: string, format: uuid}}]
+    post:
+      description: Confirm corrected baseline and consent to sending selected source text to the configured model. Starts five role calls and a 100-path computation. Exact retries do not restart work.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirm, input]
+              properties:
+                confirm: {type: boolean, enum: [true]}
+                input: {$ref: '#/components/schemas/Input'}
+      responses:
+        '202':
+          description: Accepted or replayed preparation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Preparation'}
+  /api/v1/decision-simulations:
+    get:
+      responses:
+        '200':
+          description: Actor and workspace scoped recent records
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/ListItem'}}
+    post:
+      description: Explicitly calculate and save; same runId and same input replay, changed input conflicts. Cookie authentication and CSRF apply.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Input'}
+      responses:
+        '201':
+          description: Persisted immutable record
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Record'}
+  /api/v1/decision-simulations/{runId}:
+    parameters: [{in: path, name: runId, required: true, schema: {type: string, format: uuid}}]
+    get:
+      description: Read stored result only; never rerun or write a plan.
+      responses:
+        '200':
+          description: Scoped record
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Record'}
+components:
+  schemas:
+    OperatingMemorySelection:
+      type: object
+      additionalProperties: false
+      required: [domain, revision]
+      properties:
+        domain: {type: string, enum: [operating]}
+        revision: {type: integer, minimum: 0}
+    OperatingMemoryQuestion:
+      type: object
+      additionalProperties: false
+      required: [selection, input]
+      properties:
+        selection: {$ref: '#/components/schemas/OperatingMemorySelection'}
+        input: {$ref: '../json-schema/cfo-conversation.v1.schema.json#/$defs/Input'}
+        session:
+          type: object
+          additionalProperties: false
+          required: [sessionId, revision]
+          properties:
+            sessionId: {type: string, format: uuid}
+            revision: {type: integer, minimum: 1}
+    OperatingMemoryReply:
+      type: object
+      additionalProperties: false
+      required: [answer]
+      properties:
+        answer: {$ref: '../json-schema/cfo-conversation.v1.schema.json'}
+        session:
+          type: object
+          additionalProperties: false
+          required: [sessionId, revision]
+          properties:
+            sessionId: {type: string, format: uuid}
+            revision: {type: integer, minimum: 1}
+    DecisionMemoryRevision:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision]
+      properties:
+        expectedRevision: {type: integer, minimum: 0, maximum: 9007199254740990}
+    DecisionProfileWrite:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision, enabled, preferences]
+      properties:
+        expectedRevision: {type: integer, minimum: 0, maximum: 9007199254740990}
+        enabled: {type: boolean}
+        preferences: {$ref: '#/components/schemas/DecisionPreferences'}
+    DecisionReviewPlan:
+      type: object
+      additionalProperties: false
+      required: [action, metric, unit, baseline, target, dueDate, source]
+      properties:
+        action: {type: string, minLength: 1, maxLength: 2000}
+        metric: {type: string, minLength: 1, maxLength: 120}
+        unit: {type: string, minLength: 1, maxLength: 40}
+        baseline: {type: number, minimum: -1000000000000, maximum: 1000000000000}
+        target: {type: number, minimum: -1000000000000, maximum: 1000000000000}
+        dueDate: {type: string, format: date}
+        source: {type: string, minLength: 1, maxLength: 2000}
+    DecisionReviewResult:
+      type: object
+      additionalProperties: false
+      required: [actual, observedDate, source, attribution]
+      properties:
+        actual: {type: number, minimum: -1000000000000, maximum: 1000000000000}
+        observedDate: {type: string, format: date}
+        source: {type: string, minLength: 1, maxLength: 2000}
+        attribution: {type: string, minLength: 1, maxLength: 2000}
+        feedbackPriority: {type: string, enum: [cash, profit, delivery]}
+    DecisionReviewWrite:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision, runId, recommendationId, plan]
+      properties:
+        expectedRevision: {type: integer, minimum: 0, maximum: 9007199254740990}
+        runId: {type: string, format: uuid}
+        recommendationId: {type: string, pattern: '^[a-z_]{1,60}$'}
+        plan: {$ref: '#/components/schemas/DecisionReviewPlan'}
+        result: {$ref: '#/components/schemas/DecisionReviewResult'}
+    DecisionCandidateAdoption:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision, runId, recommendationId]
+      properties:
+        expectedRevision: {type: integer, minimum: 0, maximum: 9007199254740990}
+        runId: {type: string, format: uuid}
+        recommendationId: {type: string, pattern: '^[a-z_]{1,60}$'}
+    DecisionReview:
+      type: object
+      required: [runId, recommendationId, recommendationTitle, originalEvidence, originalAction, claimedAt, recordedAt, state, sourceKind, plan, comparison, candidate]
+      properties:
+        runId: {type: string, format: uuid}
+        recommendationId: {type: string}
+        recommendationTitle: {type: string}
+        originalEvidence: {type: string}
+        originalAction: {type: string}
+        claimedAt: {type: string, format: date-time}
+        recordedAt: {type: string, format: date-time}
+        state: {type: string, enum: [planned, reviewed]}
+        sourceKind: {type: string, enum: [manual_observation]}
+        plan: {$ref: '#/components/schemas/DecisionReviewPlan'}
+        result: {$ref: '#/components/schemas/DecisionReviewResult'}
+        comparison:
+          type: object
+          nullable: true
+          required: [actualMinusTarget, actualMinusBaseline]
+          properties:
+            actualMinusTarget: {type: number}
+            actualMinusBaseline: {type: number}
+        candidate: {type: string, nullable: true, enum: [cash, profit, delivery, null]}
+    DecisionMemory:
+      type: object
+      required: [revision, updatedAt, profile, reviews]
+      properties:
+        revision: {type: integer, minimum: 0}
+        updatedAt: {type: string, nullable: true, format: date-time}
+        profile:
+          type: object
+          nullable: true
+          required: [enabled, preferences]
+          properties:
+            enabled: {type: boolean}
+            preferences: {$ref: '#/components/schemas/DecisionPreferences'}
+        reviews: {type: array, maxItems: 200, items: {$ref: '#/components/schemas/DecisionReview'}}
+    SourceInput:
+      type: object
+      additionalProperties: false
+      required: [dataKind, files]
+      properties:
+        dataKind: {type: string, enum: [synthetic, user_defined]}
+        files:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: false
+            required: [fileName, mediaType, contentBase64]
+            properties:
+              fileName: {type: string, minLength: 1, maxLength: 255}
+              mediaType: {type: string, enum: [text/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document]}
+              contentBase64: {type: string, minLength: 4, maxLength: 6990508}
+    SourceFile:
+      type: object
+      additionalProperties: false
+      required: [fileName, fileHash, prefix]
+      properties:
+        fileName: {type: string}
+        fileHash: {type: string}
+        prefix: {type: string}
+    SourceText:
+      type: object
+      additionalProperties: false
+      required: [sourceRef, text]
+      properties:
+        sourceRef: {type: string}
+        text: {type: string}
+    AgentResult:
+      type: object
+      additionalProperties: false
+      required: [role, state, observations, provider, model, errorCode]
+      properties:
+        role: {type: string, enum: [founder, market, operations, finance, judge]}
+        state: {type: string, enum: [queued, running, completed, insufficient, failed, cancelled]}
+        provider: {type: string, nullable: true}
+        model: {type: string, nullable: true}
+        errorCode: {type: string, nullable: true}
+        observations:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [text, sourceRefs]
+            properties:
+              text: {type: string}
+              sourceRefs: {type: array, items: {type: string}}
+    SourceFact:
+      type: object
+      additionalProperties: false
+      required: [field, label, status, candidates]
+      properties:
+        field: {type: string, enum: [cashMinor, monthlyOrders, backlogUnits, capacityUnits, priceMinor, unitCostMinor, fixedCostMinor, collectionMonths]}
+        label: {type: string}
+        status: {type: string, enum: [missing, candidate, conflict]}
+        candidates:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [value, sourceRefs]
+            properties:
+              value: {type: integer}
+              sourceRefs: {type: array, items: {type: string}}
+    AnalysisEvidence:
+      type: object
+      additionalProperties: false
+      required: [files, sources, agents, uncertain]
+      properties:
+        files: {type: array, items: {$ref: '#/components/schemas/SourceFile'}}
+        sources: {type: array, items: {$ref: '#/components/schemas/SourceText'}}
+        agents: {type: array, items: {$ref: '#/components/schemas/AgentResult'}}
+        uncertain: {type: array, items: {type: string}}
+    Preparation:
+      type: object
+      additionalProperties: false
+      required: [id, expiresAt, dataKind, state, files, sources, facts, uncertain, agents, runId, errorCode]
+      properties:
+        id: {type: string, format: uuid}
+        expiresAt: {type: string, format: date-time}
+        dataKind: {type: string, enum: [synthetic, user_defined]}
+        state: {type: string, enum: [awaiting_confirmation, analyzing, completed, failed, cancelled]}
+        files: {type: array, items: {$ref: '#/components/schemas/SourceFile'}}
+        sources: {type: array, items: {$ref: '#/components/schemas/SourceText'}}
+        facts: {type: array, items: {$ref: '#/components/schemas/SourceFact'}}
+        uncertain: {type: array, items: {type: string}}
+        agents: {type: array, items: {$ref: '#/components/schemas/AgentResult'}}
+        runId: {type: string, nullable: true}
+        errorCode: {type: string, nullable: true}
+    Scheduled:
+      type: object
+      additionalProperties: false
+      required: [dueMonth, amountMinor]
+      properties:
+        dueMonth: {type: integer, minimum: 1, maximum: 48}
+        amountMinor: {type: integer, minimum: 0, maximum: 1000000000000}
+    Baseline:
+      type: object
+      additionalProperties: false
+      required: [cashMinor, monthlyOrders, backlogUnits, capacityUnits, priceMinor, unitCostMinor, fixedCostMinor, collectionMonths, receivables, payables]
+      properties:
+        cashMinor: {type: integer, minimum: -1000000000000, maximum: 1000000000000}
+        monthlyOrders: {type: integer, minimum: 0, maximum: 1000000}
+        backlogUnits: {type: integer, minimum: 0, maximum: 1000000}
+        capacityUnits: {type: integer, minimum: 0, maximum: 1000000}
+        priceMinor: {type: integer, minimum: 0, maximum: 1000000000000}
+        unitCostMinor: {type: integer, minimum: 0, maximum: 1000000000000}
+        fixedCostMinor: {type: integer, minimum: 0, maximum: 1000000000000}
+        collectionMonths: {type: integer, minimum: 0, maximum: 24}
+        receivables: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/Scheduled'}}
+        payables: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/Scheduled'}}
+    Plan:
+      type: object
+      additionalProperties: false
+      required: [id, demandMultiplier, capacityMultiplier, priceMultiplier, costMultiplier, extraFixedCostMinor]
+      properties:
+        id: {type: string, minLength: 1, maxLength: 100}
+        demandMultiplier: {type: number, minimum: 0, maximum: 10}
+        capacityMultiplier: {type: number, minimum: 0, maximum: 10}
+        priceMultiplier: {type: number, minimum: 0, maximum: 10}
+        costMultiplier: {type: number, minimum: 0, maximum: 10}
+        extraFixedCostMinor: {type: integer, minimum: 0, maximum: 1000000000000}
+    Range:
+      type: array
+      minItems: 2
+      maxItems: 2
+      items: {type: number, minimum: 0, maximum: 24}
+    Assumptions:
+      type: object
+      additionalProperties: false
+      required: [demand, procurement, collectionDelay, delivery, persistence, commonWeight]
+      properties:
+        demand: {$ref: '#/components/schemas/Range'}
+        procurement: {$ref: '#/components/schemas/Range'}
+        collectionDelay: {$ref: '#/components/schemas/Range'}
+        delivery: {$ref: '#/components/schemas/Range'}
+        persistence: {type: number, minimum: 0, maximum: 1}
+        commonWeight: {type: number, minimum: 0, maximum: 1}
+    OperatingEvent:
+      type: object
+      additionalProperties: false
+      description: Explicit scenario assumption, not a calibrated event probability. Active value replaces the corresponding background factor. Same-factor windows cannot overlap.
+      required: [template, startMonth, durationMonths, value, probability, assumption]
+      properties: &operatingEventProperties
+        template: {type: string, enum: [staffing_shortage, staffing_recovery, sales_gain, sales_loss, cost_rise, cost_fall, payment_delay, payment_recovery]}
+        startMonth: {type: integer, minimum: 1, maximum: 24}
+        durationMonths: {type: integer, minimum: 1, maximum: 24}
+        value: {type: number, minimum: 0, maximum: 24}
+        probability: {type: number, minimum: 0, maximum: 1}
+        assumption: {type: string, minLength: 1, maxLength: 500}
+    RealizedEvent:
+      type: object
+      additionalProperties: false
+      required: [template, startMonth, durationMonths, value, probability, assumption, backgroundValue]
+      properties:
+        <<: *operatingEventProperties
+        backgroundValue: {type: number}
+    Options:
+      type: object
+      additionalProperties: false
+      required: [seed, samples, months, assumptions]
+      properties:
+        seed: {type: integer, minimum: 0, maximum: 4294967295}
+        samples: {type: integer, minimum: 1, maximum: 100}
+        months: {type: integer, minimum: 1, maximum: 24}
+        assumptions: {$ref: '#/components/schemas/Assumptions'}
+        events: {type: array, maxItems: 8, items: {$ref: '#/components/schemas/OperatingEvent'}}
+    DecisionPreferences:
+      type: object
+      additionalProperties: false
+      required: [priority, pilotFirst, reviewCadence, learningEnabled, confirmedFrom]
+      properties:
+        priority: {type: string, enum: [cash, profit, delivery]}
+        cashFloorMinor: {type: integer, minimum: 0, maximum: 1000000000000}
+        pilotFirst: {type: boolean}
+        reviewCadence: {type: string, enum: [weekly, monthly]}
+        learningEnabled: {type: boolean}
+        confirmedFrom: {type: string, enum: [self_report, explicit_feedback]}
+    PreferenceAssessment:
+      type: object
+      required: [priority, plans, basis]
+      properties:
+        priority: {type: string, enum: [cash, profit, delivery]}
+        basis: {type: string}
+        plans:
+          type: array
+          items:
+            type: object
+            required: [planId, meetsCashFloor]
+            properties:
+              planId: {type: string}
+              meetsCashFloor: {type: boolean, nullable: true}
+    Input:
+      type: object
+      additionalProperties: false
+      required: [runId, title, dataKind, assumptionNote, baseline, alternatives, options]
+      properties:
+        runId: {type: string, format: uuid}
+        title: {type: string, minLength: 1, maxLength: 100}
+        dataKind: {type: string, enum: [synthetic, user_defined]}
+        assumptionNote: {type: string, minLength: 1, maxLength: 1000}
+        decisionPreferences: {$ref: '#/components/schemas/DecisionPreferences'}
+        baseline: {$ref: '#/components/schemas/Baseline'}
+        alternatives: {type: array, maxItems: 3, items: {$ref: '#/components/schemas/Plan'}}
+        options: {$ref: '#/components/schemas/Options'}
+    Shock:
+      type: object
+      required: [demand, procurement, collectionDelay, delivery]
+      properties:
+        demand: {type: number}
+        procurement: {type: number}
+        collectionDelay: {type: integer}
+        delivery: {type: number}
+        events: {type: array, items: {$ref: '#/components/schemas/RealizedEvent'}}
+    Month:
+      type: object
+      required: [month, orders, delivered, backlogUnits, revenueMinor, receiptsMinor, paymentsMinor, profitMinor, cashMinor, receivablesMinor, shock]
+      properties:
+        month: {type: integer}
+        orders: {type: integer}
+        delivered: {type: integer}
+        backlogUnits: {type: integer}
+        revenueMinor: {type: integer}
+        receiptsMinor: {type: integer}
+        paymentsMinor: {type: integer}
+        profitMinor: {type: integer}
+        cashMinor: {type: integer}
+        receivablesMinor: {type: integer}
+        shock: {$ref: '#/components/schemas/Shock'}
+    Summary:
+      type: object
+      required: [planId, sampleCount, profitRangeMinor, worstMinimumCashMinor, samplesWithFundingGap, samplesWithBacklog, maximumBacklogUnits, pairedProfitDifferenceMinor]
+      properties:
+        planId: {type: string}
+        sampleCount: {type: integer}
+        profitRangeMinor: {type: array, items: {type: integer}}
+        worstMinimumCashMinor: {type: integer}
+        samplesWithFundingGap: {type: integer}
+        samplesWithBacklog: {type: integer}
+        maximumBacklogUnits: {type: integer}
+        pairedProfitDifferenceMinor: {type: array, items: {type: integer}}
+    OperatingRecommendation:
+      type: object
+      additionalProperties: false
+      required: [id, title, priority, evidenceKind, evidence, evidenceRefs, action, mechanism, costAndPrerequisites, ownerRole, timeframe, reviewMetric, validation]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        priority: {type: string, enum: [high, normal]}
+        evidenceKind: {type: string, enum: [simulation_signal]}
+        evidence: {type: string}
+        evidenceRefs: {type: array, items: {type: string}}
+        action: {type: string}
+        mechanism: {type: string}
+        costAndPrerequisites: {type: string}
+        ownerRole: {type: string}
+        timeframe: {type: string}
+        reviewMetric: {type: string}
+        validation: {type: string, enum: [pilot_required]}
+        scenarioComparison:
+          type: object
+          required: [label, baselineProfitRangeMinor, changedProfitRangeMinor, baselineWorstCashMinor, changedWorstCashMinor]
+          properties:
+            label: {type: string}
+            baselineProfitRangeMinor: {type: array, items: {type: integer}, minItems: 2, maxItems: 2}
+            changedProfitRangeMinor: {type: array, items: {type: integer}, minItems: 2, maxItems: 2}
+            baselineWorstCashMinor: {type: integer}
+            changedWorstCashMinor: {type: integer}
+    Report:
+      type: object
+      required: [modelVersion, plans, replays, sensitivity, threshold]
+      properties:
+        modelVersion: {type: string}
+        recommendations: {type: array, items: {$ref: '#/components/schemas/OperatingRecommendation'}}
+        preferenceAssessment: {$ref: '#/components/schemas/PreferenceAssessment'}
+        plans: {type: array, items: {$ref: '#/components/schemas/Summary'}}
+        replays:
+          type: array
+          items:
+            type: object
+            required: [planId, modelVersion, samples]
+            properties:
+              planId: {type: string}
+              modelVersion: {type: string}
+              samples:
+                type: array
+                items:
+                  type: object
+                  required: [months, minimumCashMinor, totalProfitMinor, fundingGapMinor]
+                  properties:
+                    months: {type: array, items: {$ref: '#/components/schemas/Month'}}
+                    minimumCashMinor: {type: integer}
+                    totalProfitMinor: {type: integer}
+                    fundingGapMinor: {type: integer}
+        sensitivity:
+          type: array
+          items:
+            type: object
+            required: [factor, direction, adjustment, plans]
+            properties:
+              factor: {type: string, enum: [demand, procurement, collectionDelay, delivery]}
+              direction: {type: string, enum: [up, down]}
+              adjustment: {type: string}
+              plans: {type: array, items: {$ref: '#/components/schemas/Summary'}}
+        threshold:
+          type: object
+          required: [unitsForMonthlyOperatingBreakEven, withinBaselineCapacity, conditions]
+          properties:
+            unitsForMonthlyOperatingBreakEven: {type: integer, nullable: true}
+            withinBaselineCapacity: {type: boolean}
+            conditions: {type: string}
+    ListItem:
+      type: object
+      required: [runId, title, dataKind, createdAt]
+      properties:
+        runId: {type: string, format: uuid}
+        title: {type: string}
+        dataKind: {type: string, enum: [synthetic, user_defined]}
+        createdAt: {type: string}
+    Record:
+      type: object
+      required: [runId, createdAt, recordVersion, input, paths, report]
+      properties:
+        runId: {type: string, format: uuid}
+        createdAt: {type: string}
+        recordVersion: {type: string, enum: [decision-simulation.v1]}
+        input: {$ref: '#/components/schemas/Input'}
+        paths: {type: array, items: {type: array, items: {$ref: '#/components/schemas/Shock'}}}
+        report: {$ref: '#/components/schemas/Report'}
+        analysis: {$ref: '#/components/schemas/AnalysisEvidence'}

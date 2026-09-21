@@ -1,0 +1,58 @@
+{
+  "records": [
+    {
+      "schema": "discovery-evidence",
+      "value": {
+        "id": "ev_person_001",
+        "targetType": "individual_signal",
+        "sourcePlatform": "zhihu",
+        "sourceTitle": "Looking for a CRM for my shop",
+        "sourceSnippet": "Need a CRM that handles repeat customers.",
+        "publishedAt": "2026-07-21T09:00:00.000Z",
+        "fetchedAt": "2026-07-23T09:00:00.000Z",
+        "locale": "zh-CN",
+        "rawArtifactHash": "sha256:personraw",
+        "contentHash": "sha256:personcontent",
+        "provenance": {
+          "kind": "user_submitted_url",
+          "sourceUrl": "https://example.org/public-post",
+          "submittedBy": "owner_001"
+        },
+        "accessStatus": "user_supplied"
+      }
+    },
+    {
+      "schema": "individual-demand-signal",
+      "value": {
+        "id": "signal_001",
+        "publicActorKey": "zhihu:user-001",
+        "publicDisplayName": "公开用户",
+        "publicProfileUrl": "https://example.org/public-profile",
+        "sourcePlatform": "zhihu",
+        "evidenceIds": ["ev_person_001"],
+        "demandCategory": "crm",
+        "demandSummary": "寻找适合门店复购管理的 CRM。",
+        "locationHint": "厦门",
+        "buyingStage": "comparison",
+        "negativeSignals": [],
+        "subjectKind": "individual",
+        "status": "pending_review",
+        "version": 1,
+        "identityResolved": true,
+        "latestDecisionVersion": null,
+        "approvedDecisionVersion": null,
+        "updatedAt": "2026-07-23T09:00:00.000Z",
+        "firstSeenAt": "2026-07-21T09:00:00.000Z",
+        "lastSeenAt": "2026-07-23T09:00:00.000Z"
+      }
+    },
+    {
+      "schema": "party-ref",
+      "value": {
+        "partyType": "individual",
+        "individualPartyId": "party_001",
+        "demandSignalId": "signal_001"
+      }
+    }
+  ]
+}

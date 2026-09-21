@@ -1,0 +1,42 @@
+{
+  "schema": "shensi.render-aiven-free-test-evidence.v1",
+  "observedAt": "2026-09-07T14:44:57Z",
+  "environment": {
+    "renderServiceId": "srv-dafb6rn40ujc73ahj35g",
+    "renderServiceUrl": "https://shensi-api-test.onrender.com",
+    "deployedCommit": "08e9511b4d716fcf48099e47e852dfac9943138e",
+    "databaseProvider": "Aiven MySQL",
+    "localBusinessDataCopied": false,
+    "paidResourceCreated": false
+  },
+  "health": {
+    "httpStatus": 200,
+    "ok": true,
+    "store": "mysql",
+    "prospectQueueMode": "mysql_polling",
+    "prospectQueueRunning": true,
+    "degraded": false
+  },
+  "businessSmoke": {
+    "randomTestWorkspacesOnly": true,
+    "twoIndependentSessionsForOneAccount": true,
+    "clientACreatedCustomer": true,
+    "clientBReadAndUpdatedSameCustomer": true,
+    "secondWorkspaceCouldNotReadCustomer": true,
+    "clientBLogoutLeftClientAAuthenticated": true,
+    "originalClientASessionSurvivedFullRestart": true,
+    "updatedCustomerPersistedAcrossFullRestart": true,
+    "testCustomerRemoved": true
+  },
+  "restartEvidence": {
+    "ordinaryRollingRestartPassed": false,
+    "ordinaryRollingRestartFailure": "process-wide MySQL API advisory lock rejected the overlapping replacement instance",
+    "fullSuspendThenResumePassed": true,
+    "productionConstraint": "replace the process-wide API singleton with worker-scoped leader election before zero-downtime production deploys"
+  },
+  "boundaries": {
+    "twoPhysicalMacsTested": false,
+    "realDouyinPlatformActionsTested": false,
+    "existingUserAccountMigrationTested": false
+  }
+}

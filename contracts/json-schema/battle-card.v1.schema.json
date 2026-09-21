@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/battle-card.v1.schema.json",
+  "title": "BattleCard",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "candidateId",
+    "qualificationDecisionId",
+    "partyType",
+    "schemaVersion",
+    "intelligence",
+    "sections",
+    "evidenceIds",
+    "confidence",
+    "modelProvider",
+    "model",
+    "promptVersion",
+    "createdAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "qualificationDecisionId": { "type": "string", "minLength": 1 },
+    "partyType": { "enum": ["organization", "individual"] },
+    "schemaVersion": { "const": "battle-card.v1" },
+    "intelligence": { "type": "null" },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "kind", "content"],
+        "properties": {
+          "label": { "type": "string" },
+          "kind": { "enum": ["fact", "inference", "unknown"] },
+          "content": { "type": "string" },
+          "evidenceIds": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "confidence": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "allOf": [{
+          "if": {
+            "properties": { "kind": { "const": "inference" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["evidenceIds", "confidence"],
+            "properties": {
+              "evidenceIds": { "type": "array", "minItems": 1 },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        }]
+      }
+    },
+    "evidenceIds": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "modelProvider": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "promptVersion": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

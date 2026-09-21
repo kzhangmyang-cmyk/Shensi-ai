@@ -1,0 +1,26 @@
+openapi: 3.1.0
+info: { title: Enterprise Query, version: enterprise-query.v1 }
+servers: [{ url: / }]
+security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+    cookieAuth: { type: apiKey, in: cookie, name: gj_session }
+paths:
+  /api/enterprise-query/gleif:
+    get:
+      operationId: searchPublicLeiEnterprises
+      summary: Search Chinese LEI entities, not a national company directory
+      parameters:
+        - { name: keyword, in: query, required: true, schema: { type: string, minLength: 2, maxLength: 100 } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 1 } }
+      responses:
+        '200':
+          description: Read-only results, ten records per upstream page
+          content:
+            application/json:
+              schema: { $ref: './ai-acquisition.v1.yaml#/components/schemas/EnterpriseQueryPage' }
+        '400': { description: Invalid query }
+        '401': { description: Login required }
+        '429': { description: Rate limited }
+        '502': { description: Source unavailable }

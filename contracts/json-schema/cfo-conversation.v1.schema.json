@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.goodjob.ai/cfo-conversation.v1.schema.json",
+  "title": "CfoConversationAnswer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["answer", "provider", "model", "material", "answeredAt"],
+  "properties": {
+    "answer": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "provider": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "material": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/MaterialSource" }, { "$ref": "finance-document.v1.schema.json#/$defs/MaterialSource" }] },
+    "answeredAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "Input": {
+      "type": "object", "additionalProperties": false,
+      "required": ["question", "history"],
+      "properties": {
+        "documentId": { "type": ["string", "null"], "minLength": 1, "maxLength": 255, "description": "Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics." },
+        "role": { "enum": ["cfo", "finance", "profit", "cost", "cashflow", "tax"], "default": "cfo", "description": "Selected specialist; omitted means CFO. One role/model per question." },
+        "question": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "history": { "type": "array", "maxItems": 10, "items": { "$ref": "#/$defs/Turn" } }
+      }
+    },
+    "Turn": {
+      "type": "object", "additionalProperties": false, "required": ["role", "text"],
+      "properties": {
+        "role": { "enum": ["user", "assistant"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 4000 }
+      }
+    },
+    "MaterialSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["packageId", "companyName", "period", "currency"],
+      "properties": {
+        "packageId": { "type": "string" }, "companyName": { "type": "string" },
+        "period": { "type": "string" }, "currency": { "type": "string" }
+      }
+    }
+  }
+}

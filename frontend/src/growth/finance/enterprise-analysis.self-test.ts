@@ -1,0 +1,91 @@
+import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
+import { mountEnterpriseAnalysis, enterpriseReportHtml } from './enterprise-analysis';
+import { validateCouncilReportRequest } from '../../../../desktop/src/shared/council-report';
+
+export async function runEnterpriseAnalysisTests() {
+  const { document } = parseHTML('<html><body data-session-workspace-id="ws-enterprise" data-session-user-id="actor"><main></main></body></html>');
+  const host = document.querySelector('main')!; const calls: any[] = []; let exports = 0;
+  const source = { documentId: 'sample', fileName: 'sample.csv', fileHash: `sha256:${'a'.repeat(64)}`,
+    expiresAt: '2026-10-01T00:00:00Z', classification: 'unknown', missingStatements: ['balance_sheet', 'income_statement', 'cash_flow_statement'],
+    regions: [], uncertain: [], cells: [{ sourceRef: 'cell:1:1:1', sheetName: 'Sheet1', row: 1, column: 1, text: '<script>活动回款尚未核对</script>' }],
+    observations: [{ text: '缺少可比投入、产出和周期，当前无法计算ROI。建议补充活动明细。', sourceRefs: ['cell:1:1:1'] }],
+    modelStatus: 'completed', selectedForConversation: true };
+  document.defaultView!.shensiCouncilReport = { exportPdf: async ({ html }) => {
+    validateCouncilReportRequest({ html, filename: 'enterprise-analysis.pdf' });
+    assert.match(html, /cell:1:1:1/); assert.doesNotMatch(html, /<script>/); exports++; return { status: 'saved' };
+  } };
+  const view = mountEnterpriseAnalysis({ host, purpose: 'roi', canAnalyze: true, http: { request: async (_path, options) => {
+    calls.push(options?.body); const requested = (options?.body as any).readWithModel;
+    return { body: requested ? source : { ...source, observations: [], modelStatus: 'not_requested', selectedForConversation: false } } as any;
+  } } });
+  assert.equal(host.querySelector('select'), null, 'no mandatory report category');
+  const file = host.querySelector<HTMLInputElement>('[data-enterprise-file]')!;
+  Object.defineProperty(file, 'files', { value: [new File(['说明\n活动资料'], 'sample.csv', { type: 'text/csv' })], configurable: true });
+  file.dispatchEvent(new document.defaultView!.Event('change'));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(calls[0].readWithModel, false); assert.equal(calls[0].analysisPurpose, 'roi');
+  assert.equal(host.querySelector<HTMLButtonElement>('[data-enterprise-html]')!.disabled, true);
+  host.querySelector<HTMLButtonElement>('[data-enterprise-analyze]')!.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(calls[1].readWithModel, true); assert.match(host.textContent!, /当前无法计算ROI/);
+  assert.equal(host.querySelector<HTMLAnchorElement>('[data-enterprise-agent]')!.hidden, false);
+  host.querySelector<HTMLButtonElement>('[data-enterprise-pdf]')!.click();
+  await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(exports, 1);
+  assert.match(host.textContent!, /PDF已保存/);
+  assert.throws(() => enterpriseReportHtml({ ...source, modelStatus: 'not_requested' } as any, 'ROI'), /report_not_ready/);
+  view.dispose();
+  const batchDoc = parseHTML('<html><body data-session-workspace-id="ws-enterprise" data-session-user-id="actor"><main></main></body></html>').document;
+  const batchHost = batchDoc.querySelector('main')!; const requests: any[] = []; let fail = true;
+  let releaseSlow: (() => void) | undefined;
+  const batch = mountEnterpriseAnalysis({ host: batchHost, purpose: 'finance', canAnalyze: true, http: { request: async (_path, options) => {
+    const request = options?.body as any; requests.push(request);
+    if (request.fileName === 'bad.xls' && fail) throw new Error('无法读取测试文件');
+    if (request.fileName === 'slow.csv') await new Promise<void>(resolve => { releaseSlow = resolve; });
+    return { body: { ...source, fileName: request.fileName, observations: request.readWithModel ? source.observations : [], modelStatus: request.readWithModel ? 'completed' : 'not_requested', selectedForConversation: request.readWithModel } } as any;
+  } } });
+  const flush = () => new Promise(resolve => setTimeout(resolve, 10));
+  batch.setFiles([new File(['a'], 'a.csv'), new File(['bad'], 'bad.xls'), new File(['c'], 'c.docx')]); await flush();
+  assert.match(batchHost.textContent!, /已识别2份，失败1份/);
+  batchHost.querySelector<HTMLButtonElement>('[data-enterprise-analyze]')!.click(); await flush();
+  assert.equal(requests.at(-1).additionalFiles.length, 1); assert.equal(requests.at(-1).additionalFiles[0].fileName, 'c.docx');
+  fail = false; batchHost.querySelector<HTMLButtonElement>('[data-enterprise-retry]')!.click(); await flush();
+  assert.match(batchHost.textContent!, /已识别3份，失败0份/);
+  batchHost.querySelector<HTMLButtonElement>('[data-enterprise-analyze]')!.click(); await flush();
+  assert.equal(requests.at(-1).additionalFiles.length, 2);
+  batchHost.querySelector<HTMLButtonElement>('[data-enterprise-remove]')!.click();
+  assert.equal(batchHost.querySelector<HTMLButtonElement>('[data-enterprise-html]')!.disabled, true, 'selection change invalidates report');
+  batch.setFiles([new File(['slow'], 'slow.csv')]); await flush();
+  batch.setFiles([new File(['fast'], 'fast.csv')]); await flush(); releaseSlow?.(); await flush();
+  assert.match(batchHost.textContent!, /fast.csv/); assert.doesNotMatch(batchHost.textContent!, /slow.csv/);
+  const drop = new batchDoc.defaultView!.Event('drop', { bubbles: true });
+  Object.defineProperty(drop, 'dataTransfer', { value: { files: [new File(['drag'], 'drag.csv'), new File(['xls'], 'drag.xls')] } });
+  batchHost.dispatchEvent(drop); await flush();
+  assert.match(batchHost.textContent!, /drag.csv/); assert.match(batchHost.textContent!, /drag.xls/);
+  assert.match(batchHost.textContent!, /已识别2份/);
+  assert.equal(batchHost.querySelector<HTMLInputElement>('[data-enterprise-file]')!.hasAttribute('multiple'), true);
+  batch.dispose();
+  for (const purpose of ['finance', 'roi', 'management'] as const) {
+    const d = parseHTML('<html><body data-session-workspace-id="ws-enterprise" data-session-user-id="actor"><main></main></body></html>').document;
+    const h = d.querySelector('main')!; let invalid = true; let analysisCalls = 0;
+    const v = mountEnterpriseAnalysis({ host: h, purpose, canAnalyze: true, http: { request: async (_path, options) => {
+      const request = options?.body as any;
+      assert.equal(request.analysisPurpose, purpose);
+      if (request.readWithModel) { analysisCalls++; assert.equal(request.additionalFiles.length, 1); }
+      return { body: { ...source, modelStatus: !request.readWithModel ? 'not_requested' : invalid ? 'invalid_output' : 'completed',
+        observations: invalid ? [] : source.observations, uncertain: invalid ? ['model_output_output_limits'] : [],
+        selectedForConversation: request.readWithModel } } as any;
+    } } });
+    v.setFiles([new File(['a'], 'a.csv'), new File(['b'], 'b.xls')]); await flush();
+    h.querySelector<HTMLButtonElement>('[data-enterprise-analyze]')!.click(); await flush();
+    assert.match(h.textContent!, /超出报告条数、长度或引用数量限制/);
+    assert.equal(h.querySelector<HTMLButtonElement>('[data-enterprise-html]')!.disabled, true);
+    assert.equal(h.querySelectorAll('[data-enterprise-select]:checked').length, 2);
+    assert.equal(analysisCalls, 1, 'UI never automatically repeats model requests');
+    invalid = false; h.querySelector<HTMLButtonElement>('[data-enterprise-analyze]')!.click(); await flush();
+    assert.match(h.textContent!, /分析报告已生成/);
+    assert.equal(h.querySelector<HTMLButtonElement>('[data-enterprise-html]')!.disabled, false);
+    assert.equal(h.querySelector<HTMLAnchorElement>('[data-enterprise-agent]')!.hidden, false);
+    v.dispose();
+  }
+}

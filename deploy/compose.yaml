@@ -1,0 +1,130 @@
+name: shensi
+services:
+  mysql:
+    image: mysql:8.4.11
+    environment:
+      MYSQL_DATABASE: shensi
+      MYSQL_USER: shensi_app
+      MYSQL_PASSWORD_FILE: /run/secrets/mysql_app_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+    secrets: [mysql_app_password, mysql_root_password]
+    volumes: ["shensi_mysql:/var/lib/mysql"]
+    networks: [shensi_internal]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$(cat /run/secrets/mysql_root_password) --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  media-crawler:
+    build:
+      context: ..
+      dockerfile: services/media-crawler/Dockerfile.shensi
+      args:
+        DOUYIN_ACTION_VISUAL_LOCATOR: ${DOUYIN_ACTION_VISUAL_LOCATOR-disabled}
+    environment:
+      MEDIACRAWLER_SERVICE_SECRET_FILE: /run/secrets/mediacrawler_service_secret
+      MEDIACRAWLER_ENCRYPTED_VOLUME: /var/lib/shensi-mediacrawler
+      MEDIACRAWLER_PROFILE_ROOT: /var/lib/shensi-mediacrawler/profiles
+      MEDIACRAWLER_CRAWL_OUTPUT_ROOT: /var/lib/shensi-mediacrawler/crawl-output
+      MEDIACRAWLER_BROWSER_DISPLAY: virtual
+      DOUYIN_OUTREACH_ACTIONS_ENABLED: ${DOUYIN_OUTREACH_ACTIONS_ENABLED:-false}
+      DOUYIN_ACTION_VISUAL_LOCATOR: ${DOUYIN_ACTION_VISUAL_LOCATOR-disabled}
+      MEDIACRAWLER_BROWSER_HEADLESS: ${MEDIACRAWLER_BROWSER_HEADLESS:-true}
+      MEDIACRAWLER_BROWSER_CHANNEL: ${MEDIACRAWLER_BROWSER_CHANNEL:-}
+    secrets:
+      - source: mediacrawler_service_secret
+        target: /run/secrets/mediacrawler_service_secret
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    volumes:
+      - type: bind
+        source: ${MEDIACRAWLER_ENCRYPTED_VOLUME:?MEDIACRAWLER_ENCRYPTED_VOLUME is required}
+        target: /var/lib/shensi-mediacrawler
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+    shm_size: 1gb
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    cpus: "1.5"
+    mem_limit: 2048M
+    stop_grace_period: 25s
+    networks: [shensi_mediacrawler, shensi_egress]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,urllib.request; s=open(os.environ['MEDIACRAWLER_SERVICE_SECRET_FILE'],encoding='utf-8').read(); r=urllib.request.Request('http://127.0.0.1:8899/internal/v1/health',headers={'Authorization':'Bearer '+s}); raise SystemExit(0 if urllib.request.urlopen(r,timeout=4).status == 200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 2048M
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+    env_file: ../.env.production.local
+    environment:
+      NODE_ENV: production
+      CRM_STORE: mysql
+      BACKEND_HOST: 0.0.0.0
+      PORT: 4188
+      TRUSTED_PROXY_CIDRS: 172.30.0.4/32
+      MEDIACRAWLER_BASE_URL: http://media-crawler:8899
+      MEDIACRAWLER_SERVICE_SECRET_FILE: /run/secrets/mediacrawler_service_secret
+      DOUYIN_OUTREACH_ACTIONS_ENABLED: ${DOUYIN_OUTREACH_ACTIONS_ENABLED:-false}
+    secrets:
+      - source: mediacrawler_service_secret
+        target: /run/secrets/mediacrawler_service_secret
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
+    depends_on:
+      mysql: { condition: service_healthy }
+      media-crawler: { condition: service_healthy }
+    networks: [shensi_internal, shensi_mediacrawler, shensi_egress]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4188/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/docker/frontend.Dockerfile
+    networks: [shensi_internal]
+  gateway:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    ports: ["${SHENSI_HTTP_PORT:-8080}:8080"]
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend: { condition: service_healthy }
+      frontend: { condition: service_started }
+      media-crawler: { condition: service_healthy }
+    networks:
+      shensi_internal:
+        ipv4_address: 172.30.0.4
+      shensi_mediacrawler:
+secrets:
+  mysql_app_password: { file: ./secrets/mysql_app_password }
+  mysql_root_password: { file: ./secrets/mysql_root_password }
+  mediacrawler_service_secret: { file: ./secrets/mediacrawler_service_secret }
+volumes:
+  shensi_mysql:
+networks:
+  shensi_internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  shensi_egress:
+  shensi_mediacrawler:
+    internal: true

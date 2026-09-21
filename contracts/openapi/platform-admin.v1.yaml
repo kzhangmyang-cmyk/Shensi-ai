@@ -1,0 +1,1056 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Shensi platform administration",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/platform/v1/overview": {
+      "get": {
+        "operationId": "getPlatformOverview",
+        "responses": {
+          "200": {
+            "description": "Authenticated platform snapshot; paginated lists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Overview"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "customerSession": [],
+            "platformSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000,
+              "default": 1
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 100,
+              "default": ""
+            }
+          }
+        ]
+      }
+    },
+    "/api/platform/v1/enterprises": {
+      "post": {
+        "operationId": "createEnterprise",
+        "security": [
+          {
+            "customerSession": [],
+            "platformSession": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session or MFA required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision or state conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewEnterpriseCommand"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/platform/v1/enterprises/{id}": {
+      "patch": {
+        "operationId": "updateEnterprise",
+        "security": [
+          {
+            "customerSession": [],
+            "platformSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session or MFA required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision or state conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceUpdateCommand"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/platform/v1/plans": {
+      "post": {
+        "operationId": "createPlanVersion",
+        "security": [
+          {
+            "customerSession": [],
+            "platformSession": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session or MFA required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision or state conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanDraftCommand"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/platform/v1/accounts/{id}": {
+      "patch": {
+        "operationId": "updateAccountAccess",
+        "security": [
+          {
+            "customerSession": [],
+            "platformSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountAccessResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session or MFA required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision or state conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountAccessCommand"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/platform/v1/session": {
+      "post": {
+        "operationId": "verifyPlatformMfa",
+        "security": [
+          {
+            "customerSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session or MFA required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision or state conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaInput"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "endPlatformSession",
+        "security": [
+          {
+            "customerSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session or MFA required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision or state conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Workspace": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "contact": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "suspended"
+            ]
+          },
+          "planVersionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startsAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "contact",
+          "status",
+          "planVersionId",
+          "startsAt",
+          "expiresAt",
+          "revision"
+        ]
+      },
+      "Plan": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "trial",
+              "basic",
+              "pro"
+            ]
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "acquisition",
+                "agents",
+                "decision",
+                "crm",
+                "growth",
+                "outreach"
+              ]
+            }
+          },
+          "seatLimit": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "durationDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "published": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "code",
+          "features",
+          "seatLimit",
+          "durationDays",
+          "published"
+        ]
+      },
+      "Account": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "sales",
+              "manager",
+              "admin",
+              "super_admin"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "workspaceId",
+          "role",
+          "status"
+        ]
+      },
+      "Audit": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "actorId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "targetId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "actorId",
+          "action",
+          "targetId",
+          "reason",
+          "occurredAt",
+          "revision"
+        ]
+      },
+      "Overview": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "type": "integer"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "operator"
+            ]
+          },
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "workspaceCount": {
+            "type": "integer"
+          },
+          "accountCount": {
+            "type": "integer"
+          },
+          "auditCount": {
+            "type": "integer"
+          },
+          "workspaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Workspace"
+            }
+          },
+          "plans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Plan"
+            }
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Account"
+            }
+          },
+          "audits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Audit"
+            }
+          }
+        },
+        "required": [
+          "revision",
+          "role",
+          "page",
+          "pageSize",
+          "workspaceCount",
+          "accountCount",
+          "auditCount",
+          "workspaces",
+          "plans",
+          "accounts",
+          "audits"
+        ]
+      },
+      "NewEnterprise": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "contact": {
+            "type": "string",
+            "maxLength": 180
+          },
+          "account": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{2,31}$"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "name",
+          "contact",
+          "account",
+          "password"
+        ]
+      },
+      "WorkspaceUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "suspended"
+            ]
+          },
+          "planVersionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startsAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "planVersionId",
+          "startsAt",
+          "expiresAt"
+        ]
+      },
+      "PlanDraft": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "trial",
+              "basic",
+              "pro"
+            ]
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "acquisition",
+                "agents",
+                "decision",
+                "crm",
+                "growth",
+                "outreach"
+              ]
+            }
+          },
+          "seatLimit": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "durationDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "published": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "features",
+          "seatLimit",
+          "durationDays",
+          "published"
+        ]
+      },
+      "AccountAccess": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "disable",
+              "enable",
+              "revoke"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "NewEnterpriseCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "value": {
+            "$ref": "#/components/schemas/NewEnterprise"
+          }
+        },
+        "required": [
+          "revision",
+          "reason",
+          "value"
+        ]
+      },
+      "WorkspaceUpdateCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "value": {
+            "$ref": "#/components/schemas/WorkspaceUpdate"
+          }
+        },
+        "required": [
+          "revision",
+          "reason",
+          "value"
+        ]
+      },
+      "PlanDraftCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "value": {
+            "$ref": "#/components/schemas/PlanDraft"
+          }
+        },
+        "required": [
+          "revision",
+          "reason",
+          "value"
+        ]
+      },
+      "AccountAccessCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "value": {
+            "$ref": "#/components/schemas/AccountAccess"
+          }
+        },
+        "required": [
+          "revision",
+          "reason",
+          "value"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Session": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "authenticated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "authenticated"
+        ]
+      },
+      "AccountAccessResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ]
+      },
+      "MfaInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "customerSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "gj_session"
+      },
+      "platformSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "shensi_platform"
+      }
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodjob.example/contracts/json-schema/financial-value-decision.v1.schema.json",
+  "title": "FinancialValueDecision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "candidateId",
+    "qualificationDecisionId",
+    "version",
+    "grade",
+    "score",
+    "currency",
+    "expectedRevenueMinor",
+    "expectedGrossProfitMinor",
+    "expectedContributionMinor",
+    "factors",
+    "createdAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "qualificationDecisionId": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "grade": { "enum": ["S", "A", "B", "C", "D"] },
+    "score": { "type": "number" },
+    "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+    "expectedRevenueMinor": { "type": "integer" },
+    "expectedGrossProfitMinor": { "type": "integer" },
+    "expectedContributionMinor": { "type": "integer" },
+    "factors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profitability",
+        "cashFlow",
+        "creditQuality",
+        "repeatPotential",
+        "referralPotential",
+        "closeProbability"
+      ],
+      "properties": {
+        "profitability": { "type": "number" },
+        "cashFlow": { "type": "number" },
+        "creditQuality": { "type": "number" },
+        "repeatPotential": { "type": "number" },
+        "referralPotential": { "type": "number" },
+        "closeProbability": { "type": "number" }
+      }
+    },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

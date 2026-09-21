@@ -1,0 +1,1164 @@
+-- GoodJob CRM MySQL initialization script.
+-- Open-source safe: schema only, no private customer/todo/memo/business rows.
+
+DROP DATABASE IF EXISTS goodjob_crm;
+CREATE DATABASE goodjob_crm CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE goodjob_crm;
+
+CREATE TABLE users (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(180) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  role VARCHAR(20) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  avatar VARCHAR(8),
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  outbound_email VARCHAR(180) DEFAULT '',
+  email_sender_name VARCHAR(120) DEFAULT '',
+  email_signature TEXT,
+  smtp_host VARCHAR(180) DEFAULT '',
+  smtp_port INT DEFAULT 465,
+  smtp_secure BOOLEAN DEFAULT TRUE,
+  smtp_user VARCHAR(180) DEFAULT '',
+  smtp_password TEXT,
+  last_development_email_at DATETIME NULL,
+  last_development_email_to VARCHAR(180) DEFAULT '',
+  last_development_email_subject VARCHAR(255) DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE acquisition_social_accounts (
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) NOT NULL,
+  platform VARCHAR(32) NOT NULL,
+  account_handle VARCHAR(512) NULL,
+  upstream_session_id VARCHAR(512) NULL,
+  display_name VARCHAR(512) NULL,
+  state VARCHAR(32) NOT NULL,
+  login_state_version BIGINT NULL,
+  login_state_version_high_water BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  executor_mode VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  executor_device_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  executor_binding_generation BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  executor_binding_generation_high_water BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  executor_lease_expires_at VARCHAR(40) NULL,
+  revision BIGINT NOT NULL,
+  etag VARCHAR(64) NOT NULL,
+  last_validated_at VARCHAR(40) NULL,
+  created_at VARCHAR(40) NOT NULL,
+  updated_at VARCHAR(40) NOT NULL,
+  UNIQUE KEY acquisition_social_accounts_workspace_platform (workspace_id, platform),
+  INDEX acquisition_social_accounts_executor_lookup
+    (workspace_id,executor_mode,executor_device_id_hash,executor_lease_expires_at),
+  CONSTRAINT acquisition_social_accounts_executor_binding CHECK (
+    ((executor_mode IS NULL OR executor_mode='server') AND executor_device_id_hash IS NULL
+      AND executor_binding_generation=0 AND executor_lease_expires_at IS NULL)
+    OR (executor_mode='desktop' AND executor_device_id_hash IS NOT NULL
+      AND executor_binding_generation>0 AND executor_lease_expires_at IS NOT NULL))
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_social_account_sessions (
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) NOT NULL,
+  upstream_id VARCHAR(512) NOT NULL,
+  interaction_surface VARCHAR(32) NOT NULL DEFAULT 'remote_canvas',
+  expires_at VARCHAR(40) NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  INDEX acquisition_social_account_sessions_expiry (expires_at),
+  UNIQUE KEY acquisition_social_account_sessions_workspace_id (workspace_id, id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_social_account_login_openings (
+  workspace_id VARCHAR(255) NOT NULL PRIMARY KEY,
+  session_id VARCHAR(255) NULL,
+  lease_owner VARCHAR(128) NULL,
+  lease_expires_at VARCHAR(40) NULL,
+  fencing_token BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at VARCHAR(40) NOT NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_social_account_replays (
+  workspace_id VARCHAR(255) NOT NULL,
+  operation_name VARCHAR(120) NOT NULL,
+  idempotency_key_hash CHAR(64) NOT NULL,
+  request_hash CHAR(64) NOT NULL,
+  state VARCHAR(16) NOT NULL,
+  response_json JSON NULL,
+  response_status INT NOT NULL DEFAULT 0,
+  response_headers_json JSON NULL,
+  lease_owner VARCHAR(128) NULL,
+  lease_expires_at VARCHAR(40) NULL,
+  fencing_token BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  expires_at VARCHAR(40) NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  updated_at VARCHAR(40) NOT NULL,
+  completed_at VARCHAR(40) NULL,
+  PRIMARY KEY (workspace_id, operation_name, idempotency_key_hash),
+  INDEX acquisition_social_account_replays_expiry (expires_at),
+  CONSTRAINT acquisition_social_account_replays_state
+    CHECK (state IN ('pending', 'completed'))
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_plans (
+  id VARCHAR(160) PRIMARY KEY,
+  owner_id VARCHAR(100) NOT NULL,
+  team_id VARCHAR(100) NOT NULL,
+  revision BIGINT UNSIGNED NOT NULL,
+  payload_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  UNIQUE KEY uk_acquisition_plan_scope (owner_id,team_id,id),
+  KEY idx_acquisition_plan_scope (owner_id,team_id,updated_at,id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_plan_versions (
+  id VARCHAR(160) PRIMARY KEY,
+  plan_id VARCHAR(160) NOT NULL,
+  owner_id VARCHAR(100) NOT NULL,
+  team_id VARCHAR(100) NOT NULL,
+  version_no BIGINT UNSIGNED NOT NULL,
+  payload_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  UNIQUE KEY uk_acquisition_plan_version_scope (owner_id,team_id,id),
+  UNIQUE KEY uk_acquisition_plan_version_number
+    (owner_id,team_id,plan_id,version_no),
+  UNIQUE KEY uk_acquisition_plan_version_identity (owner_id,team_id,plan_id,id),
+  KEY idx_acquisition_plan_version_plan
+    (owner_id,team_id,plan_id,version_no,id),
+  CONSTRAINT fk_acquisition_plan_version_plan
+    FOREIGN KEY (owner_id,team_id,plan_id)
+    REFERENCES acquisition_plans(owner_id,team_id,id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_runs (
+  id VARCHAR(160) PRIMARY KEY,
+  plan_id VARCHAR(160) NOT NULL,
+  plan_version_id VARCHAR(160) NOT NULL,
+  owner_id VARCHAR(100) NOT NULL,
+  team_id VARCHAR(100) NOT NULL,
+  revision BIGINT UNSIGNED NOT NULL,
+  plan_snapshot_hash CHAR(64) NOT NULL,
+  budget_snapshot_hash CHAR(64) NOT NULL,
+  payload_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  completed_at DATETIME(3) NULL,
+  UNIQUE KEY uk_acquisition_run_scope (owner_id,team_id,id),
+  KEY idx_acquisition_run_plan (owner_id,team_id,plan_id,created_at,id),
+  CONSTRAINT fk_acquisition_run_plan
+    FOREIGN KEY (owner_id,team_id,plan_id)
+    REFERENCES acquisition_plans(owner_id,team_id,id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT fk_acquisition_run_plan_version
+    FOREIGN KEY (owner_id,team_id,plan_id,plan_version_id)
+    REFERENCES acquisition_plan_versions(owner_id,team_id,plan_id,id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_discovery_evidence (
+  id VARCHAR(255) PRIMARY KEY,
+  owner_id VARCHAR(100) NOT NULL,
+  team_id VARCHAR(100) NOT NULL,
+  payload_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  UNIQUE KEY uk_acquisition_evidence_scope (owner_id,team_id,id),
+  KEY idx_acquisition_evidence_scope_time (owner_id,team_id,created_at,id)
+) ENGINE=InnoDB;
+
+
+CREATE TABLE acquisition_douyin_automation_policy_versions (
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) NOT NULL,
+  owner_id VARCHAR(100) NOT NULL,
+  team_id VARCHAR(100) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  plan_version_id VARCHAR(160) NOT NULL,
+  account_id VARCHAR(255) NOT NULL,
+  account_login_state_version BIGINT UNSIGNED NOT NULL,
+  version_no BIGINT UNSIGNED NOT NULL,
+  revision BIGINT UNSIGNED NOT NULL,
+  etag VARCHAR(255) NOT NULL,
+  policy_hash CHAR(71) NOT NULL,
+  payload_json JSON NOT NULL,
+  created_by VARCHAR(255) NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  UNIQUE KEY acquisition_douyin_automation_policy_version_number (workspace_id, plan_id, version_no),
+  UNIQUE KEY acquisition_douyin_automation_policy_version_scope (workspace_id, plan_id, id),
+  INDEX acquisition_douyin_automation_policy_plan (workspace_id, plan_id, version_no)
+);
+
+CREATE TABLE acquisition_douyin_automation_policy_heads (
+  workspace_id VARCHAR(255) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  current_version_id VARCHAR(255) NOT NULL,
+  revision BIGINT UNSIGNED NOT NULL,
+  etag VARCHAR(255) NOT NULL,
+  updated_at VARCHAR(40) NOT NULL,
+  PRIMARY KEY (workspace_id, plan_id),
+  CONSTRAINT acquisition_douyin_automation_policy_head_version
+    FOREIGN KEY (workspace_id, plan_id, current_version_id)
+    REFERENCES acquisition_douyin_automation_policy_versions (workspace_id, plan_id, id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+
+CREATE TABLE acquisition_douyin_automation_command_replays (
+  workspace_id VARCHAR(255) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  operation_name VARCHAR(32) NOT NULL,
+  idempotency_key_hash CHAR(64) NOT NULL,
+  request_hash CHAR(71) NOT NULL,
+  result_kind VARCHAR(16) NOT NULL,
+  result_id VARCHAR(255) NOT NULL,
+  response_json JSON NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  PRIMARY KEY (workspace_id, plan_id, operation_name, idempotency_key_hash),
+  CONSTRAINT acquisition_douyin_automation_replay_operation
+    CHECK (operation_name IN ('put_policy', 'run_now')),
+  CONSTRAINT acquisition_douyin_automation_replay_result
+    CHECK (result_kind IN ('policy', 'run'))
+);
+
+CREATE TABLE acquisition_douyin_run_intents (
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) NOT NULL,
+  owner_id VARCHAR(100) NOT NULL,
+  team_id VARCHAR(100) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  plan_version_id VARCHAR(160) NOT NULL,
+  policy_version_id VARCHAR(255) NOT NULL,
+  account_id VARCHAR(255) NOT NULL,
+  account_login_state_version BIGINT UNSIGNED NOT NULL,
+  daily_budget_id CHAR(71) NOT NULL,
+  local_date CHAR(10) NOT NULL,
+  trigger_kind VARCHAR(16) NOT NULL,
+  status VARCHAR(16) NOT NULL,
+  payload_json JSON NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  UNIQUE KEY acquisition_douyin_run_intent_scope (workspace_id, id),
+  INDEX acquisition_douyin_run_intent_daily_budget (workspace_id, daily_budget_id, created_at),
+  CONSTRAINT acquisition_douyin_run_intent_policy
+    FOREIGN KEY (workspace_id, plan_id, policy_version_id)
+    REFERENCES acquisition_douyin_automation_policy_versions (workspace_id, plan_id, id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT acquisition_douyin_run_intent_trigger
+    CHECK (trigger_kind IN ('run_now', 'scheduled')),
+  CONSTRAINT acquisition_douyin_run_intent_status
+    CHECK (status IN ('queued'))
+);
+
+CREATE TABLE acquisition_douyin_run_bindings (
+  automation_intent_id VARCHAR(255) NOT NULL PRIMARY KEY,
+  acquisition_run_id VARCHAR(160) NOT NULL,
+  workspace_id VARCHAR(255) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  plan_version_id VARCHAR(160) NOT NULL,
+  plan_snapshot_hash VARCHAR(200) NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  UNIQUE KEY acquisition_douyin_run_binding_run (acquisition_run_id),
+  CONSTRAINT acquisition_douyin_run_binding_intent FOREIGN KEY (automation_intent_id)
+    REFERENCES acquisition_douyin_run_intents(id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT acquisition_douyin_run_binding_authoritative_run FOREIGN KEY (acquisition_run_id)
+    REFERENCES acquisition_runs(id) ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE customers (
+  id VARCHAR(64) PRIMARY KEY,
+  company VARCHAR(200) NOT NULL,
+  country VARCHAR(80),
+  contact VARCHAR(100),
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  stage VARCHAR(40),
+  amount DECIMAL(14,2) DEFAULT 0,
+  health INT DEFAULT 0,
+  next_reminder VARCHAR(100),
+  wecom_bound BOOLEAN DEFAULT FALSE,
+  billing_name VARCHAR(200) DEFAULT '',
+  billing_address TEXT,
+  document_contact VARCHAR(200) DEFAULT '',
+  default_port_discharge VARCHAR(120) DEFAULT '',
+  default_incoterm VARCHAR(80) DEFAULT '',
+  default_payment_term VARCHAR(255) DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_customers_owner(owner_id),
+  INDEX idx_customers_team(team_id)
+);
+
+CREATE TABLE customer_activities (
+  id VARCHAR(64) PRIMARY KEY,
+  customer_id VARCHAR(64) NOT NULL,
+  type VARCHAR(30) DEFAULT 'note',
+  content TEXT,
+  operator_id VARCHAR(64) DEFAULT '',
+  next_reminder VARCHAR(100) DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_customer_activities_customer(customer_id)
+);
+
+CREATE TABLE leads (
+  id VARCHAR(64) PRIMARY KEY,
+  company VARCHAR(200) NOT NULL,
+  contact VARCHAR(100) DEFAULT '',
+  country VARCHAR(80) DEFAULT '',
+  email VARCHAR(180) DEFAULT '',
+  phone VARCHAR(80) DEFAULT '',
+  wechat VARCHAR(80) DEFAULT '',
+  source VARCHAR(80) DEFAULT '',
+  source_type VARCHAR(30) DEFAULT 'outbound',
+  source_channel VARCHAR(80) DEFAULT 'manual',
+  source_campaign VARCHAR(120) DEFAULT '',
+  external_id VARCHAR(180) DEFAULT '',
+  source_url VARCHAR(500) DEFAULT '',
+  intent VARCHAR(20) DEFAULT '中',
+  stage VARCHAR(40) DEFAULT '新线索',
+  status VARCHAR(20) DEFAULT 'new',
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  estimated_amount DECIMAL(14,2) DEFAULT 0,
+  next_follow_at VARCHAR(100) DEFAULT '',
+  last_activity_at VARCHAR(100) DEFAULT '',
+  remark TEXT,
+  converted_customer_id VARCHAR(64) DEFAULT '',
+  converted_deal_id VARCHAR(64) DEFAULT '',
+  deleted_at DATETIME NULL,
+  deleted_reason VARCHAR(255) DEFAULT '',
+  deleted_by VARCHAR(64) DEFAULT '',
+  purge_at DATETIME NULL,
+  status_before_delete VARCHAR(20) DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_leads_owner(owner_id),
+  INDEX idx_leads_team(team_id),
+  INDEX idx_leads_stage(stage)
+);
+
+CREATE TABLE lead_activities (
+  id VARCHAR(64) PRIMARY KEY,
+  lead_id VARCHAR(64) NOT NULL,
+  type VARCHAR(30) DEFAULT 'note',
+  content TEXT,
+  operator_id VARCHAR(64) DEFAULT '',
+  next_follow_at VARCHAR(100) DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_lead_activities_lead(lead_id)
+);
+
+CREATE TABLE lead_source_events (
+  id VARCHAR(64) PRIMARY KEY,
+  lead_id VARCHAR(64) NOT NULL,
+  source_type VARCHAR(30) NOT NULL,
+  channel VARCHAR(80) NOT NULL,
+  campaign VARCHAR(120) DEFAULT '',
+  external_id VARCHAR(180) DEFAULT '',
+  source_url VARCHAR(500) DEFAULT '',
+  occurred_at DATETIME NOT NULL,
+  received_at DATETIME NOT NULL,
+  raw_payload JSON,
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  UNIQUE KEY uniq_lead_source_external (owner_id, channel, external_id),
+  INDEX idx_lead_source_events_lead(lead_id)
+);
+
+CREATE TABLE deals (
+  id VARCHAR(64) PRIMARY KEY,
+  customer_id VARCHAR(64) NOT NULL,
+  title VARCHAR(200) NOT NULL,
+  stage VARCHAR(40) NOT NULL,
+  product VARCHAR(200) DEFAULT '',
+  quantity INT DEFAULT 0,
+  unit_price DECIMAL(14,2) DEFAULT 0,
+  amount DECIMAL(14,2) DEFAULT 0,
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  next_action VARCHAR(200),
+  archived_at TIMESTAMP NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE todos (
+  id VARCHAR(64) PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  type VARCHAR(40) NOT NULL,
+  priority VARCHAR(20) NOT NULL,
+  due_at VARCHAR(100),
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  related VARCHAR(200),
+  done BOOLEAN DEFAULT FALSE,
+  status VARCHAR(24) DEFAULT 'pending',
+  pin_state VARCHAR(20) DEFAULT '',
+  sort_order INT DEFAULT 0,
+  impact_amount DECIMAL(14,2),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  history_at TIMESTAMP NULL,
+  INDEX idx_todos_owner_history(owner_id, history_at)
+);
+
+CREATE TABLE reminders (
+  id VARCHAR(64) PRIMARY KEY,
+  title VARCHAR(200) NOT NULL,
+  rule_text VARCHAR(255),
+  due_at VARCHAR(100),
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  channel VARCHAR(40),
+  status VARCHAR(40),
+  rule_type VARCHAR(40),
+  target_stage VARCHAR(40),
+  days_count INT DEFAULT 3,
+  priority VARCHAR(20) DEFAULT 'normal',
+  enabled BOOLEAN DEFAULT TRUE,
+  generated_count INT DEFAULT 0
+);
+
+CREATE TABLE knowledge_assets (
+  id VARCHAR(64) PRIMARY KEY,
+  title VARCHAR(200) NOT NULL,
+  category VARCHAR(100),
+  status VARCHAR(40),
+  owner_id VARCHAR(64),
+  version VARCHAR(40),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE exams (
+  id VARCHAR(64) PRIMARY KEY,
+  title VARCHAR(200) NOT NULL,
+  category VARCHAR(100),
+  status VARCHAR(40),
+  pass_rate DECIMAL(5,2),
+  question_count INT DEFAULT 0,
+  duration_minutes INT DEFAULT 20,
+  pass_score INT DEFAULT 80,
+  target_role VARCHAR(40) DEFAULT 'sales',
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE exam_questions (
+  id VARCHAR(64) PRIMARY KEY,
+  exam_id VARCHAR(64) DEFAULT 'bank',
+  stem TEXT NOT NULL,
+  options_json JSON NOT NULL,
+  answer_index INT NOT NULL,
+  answer_indexes_json JSON,
+  question_type VARCHAR(20) DEFAULT 'single',
+  tags_json JSON,
+  explanation TEXT,
+  category VARCHAR(100),
+  difficulty VARCHAR(20),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_exam_questions_exam_id (exam_id)
+);
+
+CREATE TABLE exam_question_links (
+  exam_id VARCHAR(64) NOT NULL,
+  question_id VARCHAR(64) NOT NULL,
+  sort_order INT DEFAULT 0,
+  PRIMARY KEY (exam_id, question_id),
+  INDEX idx_exam_question_links_exam(exam_id),
+  INDEX idx_exam_question_links_question(question_id)
+);
+
+CREATE TABLE exam_attempts (
+  id VARCHAR(64) PRIMARY KEY,
+  exam_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  user_name VARCHAR(120),
+  category VARCHAR(100),
+  score DECIMAL(5,2),
+  passed BOOLEAN,
+  answers_json JSON,
+  correct_count INT DEFAULT 0,
+  total_questions INT DEFAULT 0,
+  submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_exam_attempts_exam_id (exam_id),
+  INDEX idx_exam_attempts_user_id (user_id)
+);
+
+CREATE TABLE ocr_jobs (
+  id VARCHAR(64) PRIMARY KEY,
+  status VARCHAR(40),
+  confidence DECIMAL(5,2),
+  fields_json JSON,
+  created_by VARCHAR(64),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE website_opportunities (
+  id VARCHAR(64) PRIMARY KEY,
+  company VARCHAR(200) NOT NULL,
+  business VARCHAR(255),
+  country VARCHAR(80),
+  website VARCHAR(255),
+  contact VARCHAR(120),
+  contact_info VARCHAR(255),
+  description TEXT,
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  status VARCHAR(30),
+  customer_id VARCHAR(64),
+  deal_id VARCHAR(64),
+  lead_id VARCHAR(64),
+  parse_mode VARCHAR(20) DEFAULT 'rule',
+  source VARCHAR(40) DEFAULT '',
+  source_label VARCHAR(80) DEFAULT '',
+  confidence INT NULL,
+  last_development_email_at DATETIME NULL,
+  last_development_email_subject VARCHAR(255) DEFAULT '',
+  last_development_email_to VARCHAR(180) DEFAULT '',
+  verified_at DATETIME NULL,
+  status_changed_at DATETIME NULL,
+  excluded_reason VARCHAR(255) DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_website_opps_owner(owner_id),
+  INDEX idx_website_opps_team(team_id)
+);
+
+CREATE TABLE ai_model_configs (
+  id VARCHAR(64) PRIMARY KEY,
+  provider VARCHAR(40) NOT NULL DEFAULT 'openai',
+  protocol VARCHAR(40) NOT NULL DEFAULT 'openai-compatible',
+  name VARCHAR(120) NOT NULL,
+  base_url VARCHAR(255) NOT NULL,
+  endpoint_profile_id VARCHAR(80) NULL,
+  endpoint_region VARCHAR(80) NULL,
+  endpoint_workspace_id VARCHAR(120) NULL,
+  adapter_version VARCHAR(80) NULL,
+  model VARCHAR(120) NOT NULL,
+  api_key TEXT,
+  enabled BOOLEAN DEFAULT FALSE,
+  is_default BOOLEAN NOT NULL DEFAULT FALSE,
+  credential_version INT NOT NULL DEFAULT 1,
+  capability_snapshot_json JSON,
+  capability_certification_hash VARCHAR(80) NULL,
+  temperature DECIMAL(4,2) DEFAULT 0.10,
+  use_lead_finder BOOLEAN DEFAULT TRUE,
+  use_website_parse BOOLEAN DEFAULT TRUE,
+  use_scoring BOOLEAN DEFAULT TRUE,
+  use_email_draft BOOLEAN DEFAULT TRUE,
+  use_exam BOOLEAN DEFAULT FALSE,
+  last_test_at DATETIME NULL,
+  last_test_status VARCHAR(20) DEFAULT 'untested',
+  last_test_message VARCHAR(255) DEFAULT '',
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  default_owner_team_key VARCHAR(191) GENERATED ALWAYS AS (
+    CASE
+      WHEN enabled AND is_default THEN
+        CONCAT(CHAR_LENGTH(owner_id), ':', owner_id, ':', team_id)
+      ELSE NULL
+    END
+  ) STORED,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_ai_model_default_owner_team(default_owner_team_key),
+  INDEX idx_ai_model_owner(owner_id)
+);
+
+CREATE TABLE ai_model_credential_versions (
+  connection_id VARCHAR(64) NOT NULL,
+  credential_version INT NOT NULL,
+  provider VARCHAR(40) NOT NULL,
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  credential_ref VARCHAR(80) NOT NULL UNIQUE,
+  api_key_encrypted TEXT NOT NULL,
+  key_mask VARCHAR(8) NOT NULL DEFAULT '',
+  created_by VARCHAR(64) NOT NULL,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY(connection_id, credential_version),
+  INDEX idx_ai_credential_owner(owner_id, connection_id)
+);
+
+CREATE TABLE ai_model_connection_activation_events (
+  id VARCHAR(90) PRIMARY KEY,
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  actor_id VARCHAR(64) NOT NULL,
+  previous_connection_id VARCHAR(64) NULL,
+  connection_id VARCHAR(64) NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  created_at DATETIME NOT NULL,
+  INDEX idx_ai_activation_owner(owner_id, created_at)
+);
+
+CREATE TABLE ai_model_connection_idempotency (
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  idempotency_key_hash CHAR(64) NOT NULL,
+  request_fingerprint CHAR(64) NOT NULL,
+  response_status SMALLINT UNSIGNED NOT NULL,
+  response_body_json JSON NOT NULL,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY(owner_id, team_id, idempotency_key_hash),
+  INDEX idx_ai_connection_idempotency_created(created_at)
+);
+
+CREATE TABLE ai_job_model_snapshots (
+  job_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  connection_id VARCHAR(64) NOT NULL,
+  credential_version INT NOT NULL,
+  provider VARCHAR(40) NOT NULL,
+  model VARCHAR(120) NOT NULL,
+  base_url VARCHAR(500) NOT NULL,
+  base_url_fingerprint VARCHAR(80) NOT NULL,
+  capability_snapshot_json JSON NOT NULL,
+  prompt_version VARCHAR(120) NOT NULL,
+  schema_version VARCHAR(120) NOT NULL,
+  prompt_hash VARCHAR(80) NOT NULL,
+  schema_hash VARCHAR(80) NOT NULL,
+  created_at DATETIME NOT NULL,
+  INDEX idx_ai_job_snapshot_connection(connection_id, credential_version)
+);
+
+CREATE TABLE ai_model_call_records (
+  id VARCHAR(100) NOT NULL,
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  job_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  attempt_id VARCHAR(100) NOT NULL,
+  connection_id VARCHAR(64) NOT NULL,
+  credential_version INT NOT NULL,
+  capability_snapshot_hash VARCHAR(80) NOT NULL,
+  provider VARCHAR(40) NOT NULL,
+  base_url_fingerprint VARCHAR(80) NOT NULL,
+  model VARCHAR(120) NOT NULL,
+  prompt_version VARCHAR(120) NOT NULL,
+  schema_version VARCHAR(120) NOT NULL,
+  request_id VARCHAR(100) NOT NULL,
+  provider_request_id VARCHAR(160) NULL,
+  input_tokens INT UNSIGNED NOT NULL DEFAULT 0,
+  output_tokens INT UNSIGNED NOT NULL DEFAULT 0,
+  reasoning_tokens INT UNSIGNED NOT NULL DEFAULT 0,
+  latency_ms INT UNSIGNED NOT NULL DEFAULT 0,
+  call_status ENUM('succeeded','failed') NOT NULL,
+  error_json JSON NULL,
+  cost_json JSON NOT NULL,
+  parameter_hash VARCHAR(80) NOT NULL,
+  result_hash VARCHAR(80) NOT NULL,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY(id),
+  UNIQUE KEY uniq_ai_model_call_attempt(attempt_id),
+  INDEX idx_ai_model_call_owner(owner_id, created_at),
+  INDEX idx_ai_model_call_job(job_id, created_at)
+);
+
+CREATE TABLE provider_catalog (
+  id VARCHAR(64) PRIMARY KEY,
+  code VARCHAR(64) NOT NULL UNIQUE,
+  name VARCHAR(160) NOT NULL,
+  category VARCHAR(40) NOT NULL,
+  source_level VARCHAR(40) NOT NULL,
+  access_mode VARCHAR(40) NOT NULL,
+  base_url VARCHAR(255) DEFAULT '',
+  official_docs_url VARCHAR(255) DEFAULT '',
+  capability_json JSON NOT NULL,
+  allowed_fields_json JSON NOT NULL,
+  license_policy_json JSON NOT NULL,
+  default_rate_policy_json JSON NOT NULL,
+  retention_policy_json JSON NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  version VARCHAR(40) NOT NULL DEFAULT '1.0',
+  reviewed_at DATETIME NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  INDEX idx_provider_catalog_status(status)
+);
+
+CREATE TABLE provider_connections (
+  id VARCHAR(64) PRIMARY KEY,
+  provider_id VARCHAR(64) NOT NULL,
+  scope VARCHAR(20) NOT NULL DEFAULT 'personal',
+  credential_ref VARCHAR(80) NOT NULL UNIQUE,
+  credential_version BIGINT UNSIGNED NOT NULL DEFAULT 1,
+  configuration_encrypted TEXT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'disabled',
+  quota_policy_json JSON NOT NULL,
+  budget_policy_json JSON NOT NULL,
+  last_health_at DATETIME NULL,
+  last_health_status VARCHAR(20) NOT NULL DEFAULT 'untested',
+  last_error_code VARCHAR(80) DEFAULT '',
+  last_health_message VARCHAR(255) DEFAULT '',
+  usage_text TEXT,
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  created_by VARCHAR(64) NOT NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  UNIQUE KEY uk_provider_connection_owner_team(
+    provider_id, owner_id, team_id
+  ),
+  INDEX idx_provider_connection_team(team_id),
+  INDEX idx_provider_connection_status(status)
+);
+
+CREATE TABLE import_export_jobs (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  type VARCHAR(20) NOT NULL,
+  rows_count INT DEFAULT 0,
+  status VARCHAR(40),
+  operator_id VARCHAR(64),
+  created_at VARCHAR(100)
+);
+
+CREATE TABLE trade_documents (
+  id VARCHAR(64) PRIMARY KEY,
+  doc_type VARCHAR(10) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  doc_number VARCHAR(80) NOT NULL,
+  issue_date VARCHAR(40),
+  buyer VARCHAR(200),
+  buyer_address TEXT,
+  buyer_contact VARCHAR(200),
+  seller VARCHAR(200),
+  seller_address TEXT,
+  currency VARCHAR(12),
+  incoterm VARCHAR(80),
+  payment_term VARCHAR(255),
+  shipping_method VARCHAR(120),
+  port_loading VARCHAR(120),
+  port_discharge VARCHAR(120),
+  validity_date VARCHAR(40),
+  bank_info TEXT,
+  notes TEXT,
+  template_style VARCHAR(40),
+  status VARCHAR(40),
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  items_json JSON,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_trade_documents_owner(owner_id),
+  INDEX idx_trade_documents_team(team_id)
+);
+
+CREATE TABLE wecom_messages (
+  id VARCHAR(64) PRIMARY KEY,
+  customer_id VARCHAR(64),
+  summary TEXT,
+  owner_id VARCHAR(64),
+  team_id VARCHAR(64),
+  status VARCHAR(40),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE problems (
+  id VARCHAR(64) PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  category VARCHAR(80),
+  severity VARCHAR(20),
+  status VARCHAR(30),
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  related_customer VARCHAR(200),
+  root_cause TEXT,
+  solution TEXT,
+  next_action VARCHAR(255),
+  due_at VARCHAR(100),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_problems_owner(owner_id),
+  INDEX idx_problems_team(team_id)
+);
+
+CREATE TABLE memos (
+  id VARCHAR(64) PRIMARY KEY,
+  title VARCHAR(200) NOT NULL,
+  content TEXT,
+  category VARCHAR(80),
+  tags VARCHAR(255),
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  pinned BOOLEAN DEFAULT FALSE,
+  archived BOOLEAN DEFAULT FALSE,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_memos_owner(owner_id),
+  INDEX idx_memos_team(team_id)
+);
+
+CREATE TABLE competitors (
+  id VARCHAR(64) PRIMARY KEY,
+  company VARCHAR(200) NOT NULL,
+  country VARCHAR(80),
+  segment VARCHAR(100),
+  threat_level VARCHAR(20),
+  website VARCHAR(255),
+  strengths TEXT,
+  weaknesses TEXT,
+  competing_products TEXT,
+  our_strategy TEXT,
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_competitors_owner(owner_id),
+  INDEX idx_competitors_team(team_id)
+);
+
+CREATE TABLE case_studies (
+  id VARCHAR(64) PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  customer VARCHAR(200),
+  country VARCHAR(80),
+  product VARCHAR(160),
+  industry VARCHAR(120),
+  result_text VARCHAR(255),
+  story TEXT,
+  reusable_points TEXT,
+  status VARCHAR(30),
+  owner_id VARCHAR(64) NOT NULL,
+  team_id VARCHAR(64) NOT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_case_studies_owner(owner_id),
+  INDEX idx_case_studies_team(team_id)
+);
+
+CREATE TABLE acquisition_crawler_jobs (
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) NOT NULL,
+  plan_id VARCHAR(160) NOT NULL,
+  policy_version_id VARCHAR(255) NOT NULL,
+  local_date DATE NOT NULL,
+  execution_target VARCHAR(16) NOT NULL DEFAULT 'server',
+  state VARCHAR(32) NOT NULL,
+  lease_worker_id VARCHAR(255) NULL,
+  lease_token CHAR(64) NULL,
+  lease_expires_at DATETIME(3) NULL,
+  fencing_token BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  payload_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  UNIQUE KEY acquisition_crawler_job_daily (workspace_id,plan_id,policy_version_id,local_date,execution_target),
+  INDEX acquisition_crawler_job_claim (state,execution_target,created_at),
+  CONSTRAINT acquisition_crawler_job_lease_token CHECK (lease_token IS NULL OR lease_token REGEXP '^[0-9a-f]{64}$'),
+  CONSTRAINT acquisition_crawler_job_execution_target CHECK (execution_target IN ('server','desktop'))
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_crawler_job_runs (
+  workspace_id VARCHAR(255) NOT NULL,
+  run_id VARCHAR(160) NOT NULL,
+  job_id VARCHAR(255) NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,run_id),
+  CONSTRAINT acquisition_crawler_job_run_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id),
+  CONSTRAINT acquisition_crawler_job_run_authority FOREIGN KEY (run_id) REFERENCES acquisition_runs(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_crawler_job_intents (
+  workspace_id VARCHAR(255) NOT NULL,
+  automation_intent_id VARCHAR(255) NOT NULL,
+  job_id VARCHAR(255) NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,automation_intent_id),
+  CONSTRAINT acquisition_crawler_job_intent_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id),
+  CONSTRAINT acquisition_crawler_job_intent_authority FOREIGN KEY (automation_intent_id) REFERENCES acquisition_douyin_run_intents(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_crawler_job_records (
+  job_id VARCHAR(255) NOT NULL,
+  sequence_no BIGINT UNSIGNED NOT NULL,
+  record_id VARCHAR(255) NOT NULL,
+  content_hash CHAR(71) NOT NULL,
+  payload_json JSON NOT NULL,
+  persisted_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (job_id,sequence_no),
+  UNIQUE KEY acquisition_crawler_record_identity (job_id,record_id),
+  CONSTRAINT acquisition_crawler_record_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id),
+  CONSTRAINT acquisition_crawler_record_hash CHECK (content_hash REGEXP '^sha256:[0-9a-f]{64}$')
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_crawler_job_cursors (
+  job_id VARCHAR(255) NOT NULL,
+  page_sequence BIGINT UNSIGNED NOT NULL,
+  cursor_value VARBINARY(512) NOT NULL,
+  persisted_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (job_id,page_sequence),
+  UNIQUE KEY acquisition_crawler_cursor_unique (job_id,cursor_value),
+  CONSTRAINT acquisition_crawler_cursor_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_crawler_desktop_page_replays (
+  job_id VARCHAR(255) NOT NULL,
+  idempotency_key_hash CHAR(71) NOT NULL,
+  request_hash CHAR(71) NOT NULL,
+  response_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (job_id,idempotency_key_hash),
+  CONSTRAINT acquisition_crawler_desktop_page_replay_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id),
+  CONSTRAINT acquisition_crawler_desktop_page_replay_key_hash CHECK (idempotency_key_hash REGEXP '^sha256:[0-9a-f]{64}$'),
+  CONSTRAINT acquisition_crawler_desktop_page_replay_request_hash CHECK (request_hash REGEXP '^sha256:[0-9a-f]{64}$')
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_douyin_crawler_evidence_index (
+  workspace_id VARCHAR(255) NOT NULL,
+  content_hash CHAR(71) NOT NULL,
+  platform_record_id VARCHAR(255) NOT NULL,
+  evidence_id VARCHAR(255) NOT NULL,
+  job_id VARCHAR(255) NOT NULL,
+  source_url VARCHAR(2000) NOT NULL,
+  observed_at DATETIME(3) NOT NULL,
+  candidate_id VARCHAR(120) NULL,
+  retain_until DATETIME(3) NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,content_hash),
+  UNIQUE KEY acquisition_douyin_crawler_evidence_id (workspace_id,evidence_id),
+  KEY acquisition_douyin_crawler_record_version (workspace_id,platform_record_id,observed_at,evidence_id),
+  KEY acquisition_douyin_crawler_evidence_retention (candidate_id,retain_until),
+  CONSTRAINT acquisition_douyin_crawler_evidence_authority FOREIGN KEY (evidence_id) REFERENCES acquisition_discovery_evidence(id) ON DELETE CASCADE,
+  CONSTRAINT acquisition_douyin_crawler_evidence_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_douyin_do_not_contact (
+  workspace_id VARCHAR(255) NOT NULL,
+  identity_hash CHAR(75) NOT NULL,
+  reason VARCHAR(100) NOT NULL,
+  first_observed_at DATETIME(3) NOT NULL,
+  last_observed_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,identity_hash),
+  CONSTRAINT acquisition_douyin_dnc_hash CHECK (identity_hash REGEXP '^dnc:sha256:[0-9a-f]{64}$')
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_desktop_installation_enrollments (
+  workspace_id VARCHAR(255) NOT NULL,
+  user_id VARCHAR(255) NOT NULL,
+  team_id VARCHAR(255) NOT NULL,
+  device_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  protocol_version TINYINT UNSIGNED NOT NULL,
+  enrollment_token_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  expires_at DATETIME(3) NOT NULL,
+  consumed_at DATETIME(3) NULL,
+  registration_idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  registration_request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,idempotency_key_hash),
+  UNIQUE KEY acquisition_desktop_enrollment_token (enrollment_token_hash),
+  INDEX acquisition_desktop_enrollment_workspace_device (workspace_id,device_id_hash),
+  INDEX acquisition_desktop_enrollment_expiry (expires_at),
+  CONSTRAINT acquisition_desktop_enrollment_protocol CHECK (protocol_version=1)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_desktop_installations (
+  workspace_id VARCHAR(255) NOT NULL,
+  user_id VARCHAR(255) NOT NULL,
+  team_id VARCHAR(255) NOT NULL,
+  device_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  device_credential_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  protocol_version TINYINT UNSIGNED NOT NULL,
+  state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  revoked_at DATETIME(3) NULL,
+  PRIMARY KEY (workspace_id,device_id_hash),
+  UNIQUE KEY acquisition_desktop_installation_workspace_credential
+    (workspace_id,device_credential_hash),
+  INDEX acquisition_desktop_installation_state (workspace_id,state),
+  INDEX acquisition_desktop_installation_device_credential
+    (device_id_hash,device_credential_hash,protocol_version,state),
+  CONSTRAINT acquisition_desktop_installation_protocol CHECK (protocol_version=1),
+  CONSTRAINT acquisition_desktop_installation_state_check CHECK (state IN ('active','revoked'))
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_batches (
+  id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  run_id VARCHAR(160) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  revision INT NOT NULL, state VARCHAR(40) NOT NULL, account_id VARCHAR(255) NOT NULL,
+  local_date DATE NOT NULL, daily_candidate_limit INT NOT NULL, etag VARCHAR(255) NOT NULL,
+  batch_hash CHAR(71) NOT NULL, payload_json JSON NOT NULL, created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (id, revision), UNIQUE KEY uk_acquisition_outreach_batch_revision (workspace_id, id, revision),
+  KEY ix_acquisition_outreach_batch_head (workspace_id, id, revision),
+  KEY ix_acquisition_outreach_batch_run_page (workspace_id,run_id,created_at,id,revision)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_batch_candidates (
+  batch_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, batch_revision INT NOT NULL,
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  candidate_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  draft_revision INT NOT NULL, selected BOOLEAN NOT NULL,
+  candidate_revision INT NOT NULL, evidence_hashes_json JSON NOT NULL, comment_hash CHAR(71) NOT NULL,
+  direct_message_hash CHAR(71) NOT NULL, model_snapshot_id VARCHAR(255) NOT NULL, payload_json JSON NOT NULL,
+  PRIMARY KEY (batch_id, batch_revision, candidate_id),
+  KEY ix_acquisition_outreach_candidate_page (workspace_id,candidate_id,batch_id,batch_revision),
+  CONSTRAINT fk_acquisition_outreach_batch_candidate FOREIGN KEY (batch_id, batch_revision)
+    REFERENCES acquisition_outreach_batches (id, revision)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_batch_command_replays (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  operation_name VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  response_json JSON NOT NULL, created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id, operation_name, idempotency_key_hash)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_actions (
+  id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  batch_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, batch_revision INT NOT NULL,
+  candidate_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  account_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  local_date DATE NOT NULL, kind VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  sequence INT NOT NULL, status VARCHAR(40) NOT NULL,
+  execution_target VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'server',
+  predecessor_action_id VARCHAR(255) NULL,
+  target_public_url VARCHAR(2000) NOT NULL,
+  content_text TEXT NOT NULL, content_hash CHAR(71) NOT NULL, approval_hash CHAR(71) NOT NULL,
+  authorization_version TINYINT NULL, approved_by VARCHAR(255) NULL,
+  approved_at DATETIME(3) NULL, direct_message_daily_limit INT NULL,
+  direct_message_daily_ordinal INT NULL,
+  payload_json JSON NOT NULL, created_at DATETIME(3) NOT NULL, attempt_count INT NOT NULL DEFAULT 0,
+  platform_write_attempt_count INT NOT NULL DEFAULT 0,
+  lease_owner VARCHAR(255) NULL, lease_token CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  fencing_token BIGINT NOT NULL DEFAULT 0, lease_expires_at DATETIME(3) NULL, claimed_at DATETIME(3) NULL,
+  desktop_device_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  desktop_process_instance_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  desktop_executor_binding_generation BIGINT NULL,
+  desktop_task_request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  desktop_task_token_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  desktop_action_deadline_at DATETIME(3) NULL,
+  platform_receipt_reference VARCHAR(255) NULL, occurred_at DATETIME(3) NULL,
+  failure_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  UNIQUE KEY uk_acquisition_outreach_action_sequence (batch_id, batch_revision, candidate_id, sequence),
+  UNIQUE KEY uk_acquisition_outreach_daily_candidate (workspace_id, account_id, local_date, candidate_id, kind),
+  UNIQUE KEY uk_acquisition_outreach_direct_message_ordinal
+    (workspace_id, account_id, local_date, kind, direct_message_daily_ordinal),
+  KEY ix_acquisition_outreach_action_claim (status,created_at,id),
+  KEY ix_acquisition_outreach_action_desktop_claim (execution_target,status,created_at,id),
+  CONSTRAINT acquisition_outreach_action_execution_target
+    CHECK (execution_target IN ('server','desktop')),
+  CONSTRAINT fk_acquisition_outreach_action_batch FOREIGN KEY (batch_id, batch_revision)
+    REFERENCES acquisition_outreach_batches (id, revision)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_action_accounts (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  account_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  next_eligible_at DATETIME(3) NULL, consecutive_failures INT NOT NULL DEFAULT 0,
+  risk_paused BOOLEAN NOT NULL DEFAULT FALSE, updated_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id, account_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_action_attempts (
+  action_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  fencing_token BIGINT NOT NULL, lease_token CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  worker_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  claimed_at DATETIME(3) NOT NULL, lease_expires_at DATETIME(3) NOT NULL,
+  completed_at DATETIME(3) NULL, outcome VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  failure_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  platform_receipt_reference VARCHAR(255) NULL,
+  execution_target VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'server',
+  device_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  process_instance_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  executor_binding_generation BIGINT NULL,
+  task_request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  task_token_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  account_handle CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  predecessor_receipt VARCHAR(255) NULL,
+  action_deadline_at DATETIME(3) NULL,
+  platform_write_attempt_count INT NOT NULL DEFAULT 0,
+  started_at DATETIME(3) NULL,
+  started_request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  started_response_json JSON NULL,
+  receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  receipt_request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  receipt_json JSON NULL,
+  receipt_response_json JSON NULL,
+  reconciliation_generation BIGINT NOT NULL DEFAULT 0,
+  recovery_process_instance_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  recovery_task_token_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  recovery_lease_expires_at DATETIME(3) NULL,
+  PRIMARY KEY (action_id, fencing_token),
+  UNIQUE KEY uk_acquisition_outreach_action_attempt_fence (action_id, fencing_token),
+  CONSTRAINT fk_acquisition_outreach_action_attempt FOREIGN KEY (action_id)
+    REFERENCES acquisition_outreach_actions (id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_desktop_outreach_claim_replays (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  device_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  claim_request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  response_kind VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  action_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  server_time DATETIME(3) NOT NULL,
+  retry_after_ms INT NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,idempotency_key_hash),
+  CONSTRAINT acquisition_desktop_outreach_claim_replay_kind
+    CHECK ((response_kind='pending' AND action_id IS NULL AND retry_after_ms IS NULL)
+      OR (response_kind='claimed' AND action_id IS NOT NULL AND retry_after_ms IS NULL)
+      OR (response_kind='empty' AND action_id IS NULL AND retry_after_ms BETWEEN 3000 AND 5000))
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_desktop_outreach_completion_replays (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  operation_name VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  action_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  fencing_token BIGINT NOT NULL,
+  response_json JSON NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,operation_name,idempotency_key_hash),
+  CONSTRAINT acquisition_desktop_outreach_completion_replay_operation
+    CHECK (operation_name IN ('started','receipt','reconciliation_receipt'))
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_desktop_outreach_recovery_replays (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  action_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  original_fencing_token BIGINT NOT NULL,
+  response_kind VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  response_json JSON NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,idempotency_key_hash),
+  CONSTRAINT acquisition_desktop_outreach_recovery_replay_kind
+    CHECK ((response_kind='pending' AND response_json IS NULL)
+      OR (response_kind IN ('waiting','released','terminal','reconcile') AND response_json IS NOT NULL))
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_desktop_outreach_human_reconciliations (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  operation_name VARCHAR(48) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  batch_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  action_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  batch_revision INT NOT NULL,
+  approval_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  content_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  requested_by_user_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  requested_at DATETIME(3) NOT NULL,
+  expected_execution_lease_version BIGINT NOT NULL,
+  response_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,operation_name,idempotency_key_hash),
+  KEY ix_acquisition_desktop_outreach_human_reconciliation_action
+    (workspace_id,batch_id,action_id,requested_at),
+  CONSTRAINT acquisition_desktop_outreach_human_reconciliation_operation
+    CHECK (operation_name='request_desktop_action_reconciliation')
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_account_recoveries (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  batch_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  account_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  account_login_state_version INT NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(71) NOT NULL,
+  actor_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  reason_text TEXT NOT NULL,
+  enabled_action_ids_json JSON NOT NULL,
+  acknowledged_uncertain_action_ids_json JSON NOT NULL,
+  recovered_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id, batch_id, idempotency_key_hash),
+  KEY ix_acquisition_outreach_account_recovery
+    (workspace_id,account_id,recovered_at)
+) ENGINE=InnoDB;
