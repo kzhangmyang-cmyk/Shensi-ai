@@ -524,6 +524,17 @@ assert.equal(
   host.querySelector(".outreach-technical code")?.textContent,
   "outreach_actions_disabled"
 );
+renderOutreachBatchView(host, { ...reconciliationState, error: "outreach_actions_disabled" }, {
+  surface: "direct_messages",
+  desktopStatus: { state: "disabled", diagnostic: null, currentActionKind: null,
+    updatedAt: null, pendingReconciliationCount: 0, ownership: "this_device" }
+});
+assert.match(host.textContent ?? "", /当前桌面发送尚未启用/u);
+assert.doesNotMatch(host.textContent ?? "", /服务器尚未开启真实抖音评论/u);
+renderOutreachBatchView(host, { ...reconciliationState, error: "douyin_desktop_executor_invalid" });
+assert.match(host.textContent ?? "", /桌面执行绑定已失效.*管理账号.*重新检测本机登录.*重新绑定本机账号/u);
+assert.equal(host.querySelector(".outreach-technical code")?.textContent,
+  "douyin_desktop_executor_invalid", "keep the diagnostic code without exposing it as the only recovery instruction");
 renderOutreachBatchView(host, {
   ...reconciliationState,
   batch: batch("awaiting_approval"),

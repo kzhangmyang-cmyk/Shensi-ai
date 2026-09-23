@@ -30,6 +30,8 @@ const failureLabel: Record<string, string> = {
   douyin_action_timeout: "等待抖音回执超时，动作已冻结"
 };
 const errorLabel: Record<string, string> = {
+  douyin_desktop_executor_invalid:
+    "桌面执行绑定已失效或不可用。请进入管理账号，点击“重新检测本机登录”，再点击“重新绑定本机账号”；恢复就绪后重新核对并确认新任务。",
   outreach_candidate_projection_pending:
     "候选数据仍在采集中或等待最终入库。完成后再确认；当前不会排队真实评论或私信。私信可在候选人与当前发送账号就绪后单独确认。",
   outreach_candidate_projection_unavailable:
@@ -115,9 +117,11 @@ function technicalDetail(code: string): string {
   return `<details class="outreach-technical"><summary>技术信息</summary><code>${escape(code)}</code></details>`;
 }
 
-function renderError(value: string): string {
+function renderError(value: string, desktop = false): string {
   const normalized = value.trim();
-  const friendly = errorLabel[normalized]
+  const friendly = desktop && normalized === "outreach_actions_disabled"
+    ? "当前桌面发送尚未启用，请启用桌面执行服务后重试。"
+    : errorLabel[normalized]
     ?? (/HTTP 500/iu.test(normalized) ? "服务器处理评论批次时出错，请刷新后重试" : normalized);
   return `<div class="douyin-alert" role="alert" tabindex="-1"><strong>${escape(friendly)}</strong>${friendly === normalized ? "" : technicalDetail(normalized)}</div>`;
 }
@@ -355,7 +359,7 @@ export function renderOutreachBatchView(
     ${showComments ? '<div class="douyin-panel-title"><span class="douyin-step">05</span><div><h3>公开评论审批</h3><p>只核对并授权公开评论，不会批准或排队私信。</p></div></div>' : surface === "history" ? '<div class="douyin-panel-title"><div><h3>发送记录</h3><p>按服务器回执独立展示评论与私信结果。</p></div></div>' : ""}
     ${desktopStatus !== undefined ? `<p class="douyin-inline-status" role="status" data-outreach-desktop-status>${escape(desktopOutreachCopy(desktopStatus))}</p>` : ""}
     ${legacyPending ? `<p class="douyin-inline-status is-warning">存在旧版服务器待执行动作，切换前需先处理</p>` : ""}
-    ${state.error ? renderError(state.error) : ""}
+    ${state.error ? renderError(state.error, desktopStatus !== undefined) : ""}
     ${state.conflict ? `<p class="douyin-conflict" role="status">批次已更新为最新修订，请重新检查精确文案后再确认。</p>` : ""}
     ${state.recoveryNotice ? `<p class="douyin-conflict" role="status">${escape(state.recoveryNotice)}</p>` : ""}
     ${!batch ? `<div class="douyin-empty"><strong>选择候选人后生成待审批批次</strong><p>批次会冻结证据、模型来源与当日限额。</p></div>` : `${showComments ? `<div class="outreach-summary"><div><span>批次状态</span><strong>${escape(batchState[batch.state] ?? batch.state)}</strong></div><div><span>选中候选人</span><strong>${batch.candidates.filter((candidate) => candidate.selected).length}</strong></div><div><span>本批次剩余 / 上限</span><strong>${batch.dailyRemainingLimit} / ${batch.dailyCandidateLimit}</strong></div><div><span>预计最短时长</span><strong>${Math.ceil(batch.candidates.filter((candidate) => candidate.selected).length * 4)} 分钟</strong></div></div>

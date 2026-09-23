@@ -215,6 +215,18 @@ explicit recheck reuses the same session after service repair. Device enrollment
 uses the same specific admission copy instead of claiming the device is simply
 unregistered. Daily login diagnosis uses the paired desktop-local `start-ui`
 launcher described in `docs/DEPLOYMENT.md`, preserving old outreach tasks.
+The `start-ui` runtime deliberately disables approvals and desktop sending;
+social conversations report desktop sending as disabled rather than asking for
+a server executor. Normal `desktop:local` enables the approved desktop lane.
+Before switching an acceptance runtime back to normal with retained queued
+actions, inspect that queue and obtain the user's intended disposition.
+Desktop execution leases expire after 90 seconds without renewal. A still-active
+Douyin login alone does not restore an expired executor lease: claim renewal
+rejects expired bindings. Use “重新检测本机登录” then “重新绑定本机账号”
+in account management to explicitly renew the same-device binding. Successful
+claims keep its lease alive; do not bypass the lease check or resume paused
+historical batches when recovering a device. The approval view explains this
+recovery path for `douyin_desktop_executor_invalid` and retains its diagnostic code.
 An already connected desktop account offers “更新抖音登录” through the same
 explicit browser flow, so fresh platform verification does not require first
 disconnecting its saved account. Historical local records remain labeled as such.
