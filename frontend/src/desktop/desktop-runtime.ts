@@ -2,6 +2,7 @@ import { getDesktopBridge, type ConnectorStatus, type ShensiDesktopApi, type Des
 import { createDesktopEnrollmentApi, type DesktopEnrollmentApi, type DesktopBindingStatus } from "./desktop-enrollment-api";
 import type { DouyinAccount } from "../acquisition/douyin-automation-api";
 import type { OutreachAction } from "../acquisition/outreach-batch-api";
+import { desktopAdmissionMessage } from "./desktop-admission-error";
 
 export interface DesktopRuntimeState {
   bridge: ShensiDesktopApi | null;
@@ -197,7 +198,7 @@ export function createDesktopRuntimeState(
           }
         }
       })().catch((error: unknown) => {
-        if (current()) { enrollmentError = "未注册此设备，请重试注册"; notifyOutreach(); }
+        if (current()) { enrollmentError = desktopAdmissionMessage(error) ?? "未注册此设备，请重试注册"; notifyOutreach(); }
         throw error;
       });
       workspaceFlight = flight;

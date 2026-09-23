@@ -13,6 +13,16 @@ import type {
   DouyinLoginStatus,
   ShensiDesktopApi
 } from "../desktop/desktop-bridge";
+import { desktopAdmissionMessage } from "../desktop/desktop-admission-error";
+
+export class DesktopLoginSyncError extends Error {
+  readonly session: DouyinLoginSession;
+  constructor(status: DouyinLoginStatus, message: string) {
+    super(message);
+    this.name = "DesktopLoginSyncError";
+    this.session = { ...desktopLoginSession(status), state: "awaiting_scan" };
+  }
+}
 
 export type AcquisitionBrowserRuntimeKind = "remote" | "desktop";
 
@@ -265,7 +275,14 @@ export class LocalDesktopBrowserRuntime implements AcquisitionBrowserRuntime {
         if (this.completionFlight === tracked) this.completionFlight = null;
       }).catch(() => undefined);
     }
-    const account = await flight;
+    let account: DouyinAccount;
+    try { account = await flight; }
+    catch (error) {
+      if (signal?.aborted || own !== this.generation || this.activeSessionId !== status.sessionId) throw abortError();
+      const message = desktopAdmissionMessage(error);
+      if (message) throw new DesktopLoginSyncError(status, message);
+      throw error;
+    }
     if (signal?.aborted || own !== this.generation
       || this.activeSessionId !== status.sessionId) throw abortError();
     if (account.workspaceId !== workspaceId || account.state !== "active"

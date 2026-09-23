@@ -171,6 +171,13 @@ unmountBindingUi();
 assert.equal(statusSubscriber, null);
 
 renderDouyinAutomationView(host, automationState(desktopSession));
+{
+  const expiredHost = document.createElement("div");
+  renderDouyinAutomationView(expiredHost, automationState({ ...desktopSession,
+    state: "login_expired", runtimeState: "starting" }));
+  assert.match(expiredHost.textContent ?? "", /登录会话已过期/u);
+  assert.doesNotMatch(expiredHost.textContent ?? "", /正在打开外部浏览器/u);
+}
 assert.match(
   host.textContent ?? "",
   /已打开外部浏览器，请在浏览器中完成登录/u,
@@ -405,6 +412,13 @@ const cloudAccount = {
   revision: 1, etag: '"account-v1"', lastValidatedAt: now,
   createdAt: now, updatedAt: now
 };
+{
+  const connectedHost = document.createElement("div");
+  renderDouyinAutomationView(connectedHost, { ...automationState(desktopSession),
+    account: cloudAccount, connectorStatus: { state: "ready", protocolVersion: 1, diagnostic: null } });
+  assert.equal(connectedHost.querySelector('[data-douyin-action="connect"]')?.textContent, "更新抖音登录",
+    "an existing account can verify its platform login without a destructive disconnect");
+}
 let completionAttempts = 0;
 const completionKeys: string[] = [];
 const completionApi = {
@@ -921,6 +935,42 @@ const controllerBridge: ShensiDesktopApi = {
   getAppVersion: async () => "test",
   onConnectorStatus: () => () => undefined
 };
+for (const entry of ["open", "poll", "confirm"] as const) {
+  let rejected = true;
+  let starts = 0;
+  let timers = 0;
+  const expiry = new Date(Date.now() + 60_000).toISOString();
+  const admissionRuntime = installDesktopRuntime({ shensiDesktop: { ...controllerBridge,
+    getDesktopInstallationInfo: async () => ({ installationId: "a".repeat(43), protocolVersion: 1, registeredWorkspaceIds: ["workspace-desktop"] }),
+    startDouyinLogin: async () => { starts++; return { ...(entry === "open" ? activeLoginStatus("admission") : loginStatus("admission")), expiresAt: expiry }; },
+    getDouyinLoginStatus: async () => ({ ...(entry === "confirm" ? loginStatus("admission") : activeLoginStatus("admission")), expiresAt: expiry }),
+    confirmDouyinLogin: async () => ({ ...activeLoginStatus("admission"), expiresAt: expiry })
+  } }, { body: { dataset: { sessionWorkspaceId: "workspace-desktop" } } });
+  await admissionRuntime.synchronizeWorkspace("workspace-desktop");
+  const admissionApi: DouyinAutomationApi & Pick<DouyinDesktopSyncApi, "completeDesktopLogin"> = { ...runtimeApi,
+    completeDesktopLogin: async () => {
+      if (rejected) throw new AcquisitionHttpError(409, "desktop_client_build_not_admitted", "desktop_client_build_not_admitted");
+      return cloudAccount;
+    }
+  };
+  const admissionController = createDouyinAutomationController({ api: admissionApi,
+  setTimer: (() => { timers++; return 0; }) as unknown as typeof setTimeout,
+  clearTimer: (() => undefined) as typeof clearTimeout });
+  await admissionController.connect();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  if (entry === "confirm") { timers = 0; await admissionController.confirmLogin(); }
+  assert.match(admissionController.getState().error ?? "", /应用版本与后台允许的版本不一致/u);
+  assert.equal(admissionController.getState().loginSession?.authState, "authenticated");
+  assert.equal(admissionController.getState().loginSession?.state, "awaiting_scan", "local auth is not a completed product connection");
+  assert.equal(admissionController.getState().account, null);
+  assert.equal(timers, 0, "deterministic admission rejection must stop automatic retries");
+  rejected = false;
+  await admissionController.confirmLogin();
+  assert.equal(admissionController.getState().account?.id, cloudAccount.id);
+  assert.equal(starts, 1, "recovery reuses the authenticated browser session");
+  admissionController.close();
+}
+
 installDesktopRuntime({ shensiDesktop: controllerBridge }, {
   body: { dataset: { sessionWorkspaceId: "workspace-desktop" } }
 });

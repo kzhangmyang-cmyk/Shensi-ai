@@ -105,6 +105,15 @@ source Electron build as `desktop:local`, but disables outreach approval and bot
 server/desktop executors for that process. It does not modify queued tasks.
 Other hosts must select their own existing validated engine, not copy this path.
 
+Use this launcher for login-only diagnosis too: it rebuilds the client and gives
+the same exact manifest digest to Backend 5638 while keeping retained outreach
+tasks inactive. Restart the complete launcher after source changes, not Electron
+alone. The 5680 admin-preview API is a separate synthetic-account environment,
+not the daily acquisition backend; do not repoint the daily app there or copy
+its accounts, secrets or browser profiles into desktop-local. If the UI reports
+`desktop_client_build_not_admitted`, compare the running Main's manifest with
+the running Backend admission before asking the user to scan again.
+
 ## Fresh local desktop development
 
 The current delivery route provisions a new persistent local database from the

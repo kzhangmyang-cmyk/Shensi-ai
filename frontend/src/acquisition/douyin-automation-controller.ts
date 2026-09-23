@@ -5,7 +5,7 @@ import {
   type DouyinCrawlerStatus, type DouyinLoginInteraction, type DouyinLoginSession, type DouyinPolicy,
   type DouyinPolicyInput, type DouyinRunCandidate, type DouyinRunIntent
 } from "./douyin-automation-api";
-import { createAcquisitionBrowserRuntimes, isDesktopLoginSessionUnavailable } from "./acquisition-browser-runtime";
+import { createAcquisitionBrowserRuntimes, DesktopLoginSyncError, isDesktopLoginSessionUnavailable } from "./acquisition-browser-runtime";
 import { getInstalledDesktopRuntime } from "../desktop/desktop-runtime";
 import type { ConnectorStatus, DouyinCollectionStatus } from "../desktop/desktop-bridge";
 
@@ -255,6 +255,11 @@ export function createDouyinAutomationController(options: {
     } catch (error) {
       if (!currentLogin(ownGeneration)
         || error instanceof DOMException && error.name === "AbortError") return;
+      if (error instanceof DesktopLoginSyncError) {
+        emit({ phase: "ready", loginSession: error.session, error: error.message,
+          errorRetry: null, connectionPending: false, interactionPending: false });
+        return;
+      }
       const activeSession = state.loginSession;
       if (!activeSession || activeSession.id !== sessionId
         || activeSession.state !== "awaiting_scan" || activeSession.failureCode) return;
@@ -537,6 +542,11 @@ export function createDouyinAutomationController(options: {
           }
         } catch (error) {
           if (!currentLogin(own)) return;
+          if (error instanceof DesktopLoginSyncError) {
+            emit({ phase: "ready", loginSession: error.session, error: error.message,
+              errorRetry: null, connectionPending: false, interactionPending: false });
+            return;
+          }
           if (!cancellationCompleted && previousSession) {
             emit({ phase: "error", loginSession: previousSession,
               error: `取消旧登录失败：${loginMessage(error)}`,
@@ -593,7 +603,10 @@ export function createDouyinAutomationController(options: {
       } catch (error) {
         if (!currentLogin(own) || state.loginSession?.id !== sessionId
           || error instanceof DOMException && error.name === "AbortError") return;
-        if (isExpiredLoginError(error) || isDesktopLoginSessionUnavailable(error)) {
+        if (error instanceof DesktopLoginSyncError) {
+          emit({ phase: "ready", loginSession: error.session, error: error.message,
+            errorRetry: null, connectionPending: false });
+        } else if (isExpiredLoginError(error) || isDesktopLoginSessionUnavailable(error)) {
           emit({
             phase: "ready",
             loginSession: expiredLoginSession(state.loginSession),

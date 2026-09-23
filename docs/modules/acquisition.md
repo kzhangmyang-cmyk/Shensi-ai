@@ -206,6 +206,19 @@ launch, repeated-connect deduplication, session cancellation, and exact same-
 Profile reuse after Sidecar restart. Current manual login, binding and collection
 acceptance results are recorded in `docs/PROJECT_STATUS.md`.
 
+Local platform authentication and Backend connection are separate milestones.
+If an authenticated local session cannot complete because the Backend rejects
+the client build or keeps desktop migration locked, the dialog retains the local
+authenticated observation without marking the product account connected. It
+shows the exact service recovery instruction and stops automatic login polls;
+explicit recheck reuses the same session after service repair. Device enrollment
+uses the same specific admission copy instead of claiming the device is simply
+unregistered. Daily login diagnosis uses the paired desktop-local `start-ui`
+launcher described in `docs/DEPLOYMENT.md`, preserving old outreach tasks.
+An already connected desktop account offers “更新抖音登录” through the same
+explicit browser flow, so fresh platform verification does not require first
+disconnecting its saved account. Historical local records remain labeled as such.
+
 Desktop login completion uses the same canonical bare 64-hex SHA-256 request
 digest as other social-account operations, matching
 `acquisition_social_account_replays.request_hash CHAR(64)`. Crawler/action

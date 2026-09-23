@@ -145,6 +145,8 @@ function loginDialog(state: DouyinAutomationState): string {
       ? loginFailureCopy(failure)
       : session.state === "active"
         ? "登录已保存，登录窗口已自动关闭。"
+      : session.state === "login_expired"
+        ? "登录会话已过期，请重新打开登录页。"
       : session.runtimeState === "starting"
         ? "正在打开外部浏览器…"
         : session.runtimeState === "crashed"
@@ -152,10 +154,8 @@ function loginDialog(state: DouyinAutomationState): string {
           : session.authState === "verification_required"
             ? "抖音要求完成安全验证，请在外部浏览器中按提示处理。"
             : session.authState === "authenticated"
-              ? "登录已确认，正在绑定账号。"
-              : session.state === "login_expired"
-                ? "登录会话已过期，请重新打开登录页。"
-                : "已打开外部浏览器，请在浏览器中完成登录。";
+              ? state.error ? "抖音登录已确认，连接后台失败；请按错误提示处理后重新检测。" : "登录已确认，正在绑定账号。"
+              : "已打开外部浏览器，请在浏览器中完成登录。";
     const actions = awaiting && !failure
       ? `<button type="button" class="primary" data-douyin-action="confirm-login" ${state.interactionPending ? "disabled" : ""}>${state.interactionPending ? "正在检测…" : "我已完成登录，重新检测"}</button><button type="button" class="secondary" data-douyin-action="cancel-login">取消登录</button>`
       : session.state === "active"
@@ -278,7 +278,7 @@ export function renderDouyinAutomationView(host: HTMLElement, state: DouyinAutom
         <article class="douyin-panel douyin-account-card">
           <div class="douyin-panel-title"><span class="douyin-step">01</span><div><h3>抖音账号</h3><p>一个工作区连接一个专用账号</p></div></div>
           ${account ? `<div class="douyin-account-identity"><span class="douyin-account-mark">抖</span><div><strong>${escape(account.displayName ?? "已连接抖音账号")}</strong><span>状态：${escape(stateLabel[account.state] ?? account.state)}</span><small>最近校验 ${account.lastValidatedAt ? escape(new Date(account.lastValidatedAt).toLocaleString("zh-CN", { hour12: false })) : "待校验"}</small></div></div>` : `<div class="douyin-empty"><strong>连接抖音账号</strong><p>打开登录页后即可设置自动采集。凭据不会返回浏览器。</p></div>`}
-          <div class="douyin-actions">${account && account.state === "active" ? `<button type="button" class="secondary" data-douyin-action="disconnect">断开连接</button>` : `<button type="button" class="primary" data-douyin-action="connect" ${state.connectionPending ? "disabled" : ""}>${state.connectionPending ? "正在打开…" : account ? "重新打开抖音登录页" : "打开抖音登录页"}</button>`}</div>
+          <div class="douyin-actions">${account && account.state === "active" ? `${state.connectorStatus ? `<button type="button" class="secondary" data-douyin-action="connect" ${state.connectionPending ? "disabled" : ""}>${state.connectionPending ? "正在打开…" : "更新抖音登录"}</button>` : ""}<button type="button" class="secondary" data-douyin-action="disconnect">断开连接</button>` : `<button type="button" class="primary" data-douyin-action="connect" ${state.connectionPending ? "disabled" : ""}>${state.connectionPending ? "正在打开…" : account ? "重新打开抖音登录页" : "打开抖音登录页"}</button>`}</div>
         </article>
         <article class="douyin-panel douyin-policy-card">
           <div class="douyin-panel-title"><span class="douyin-step">02</span><div><h3>MediaCrawler 采集计划</h3><p>${state.planId ? `当前计划：${escape(state.planName || state.planId)}` : "尚未保存"}</p></div></div>

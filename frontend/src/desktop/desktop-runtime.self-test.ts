@@ -137,6 +137,18 @@ assert.equal(bindingRecords.length, 1, "concurrent observations of the same loca
 bindingRuntime.dispose();
 
 const publicApiCalls: Array<{ url: string; init?: RequestInit }> = [];
+for (const [code, expected] of [
+  ["desktop_client_build_not_admitted", /应用版本与后台允许的版本不一致/u],
+  ["desktop_client_migration_locked", /后台暂未开放桌面连接/u]
+] as const) {
+  const rejected = createDesktopRuntimeState(workspaceBridge as never,
+    { body: { dataset: {} } }, { enroll: async () => { throw new Error(code); } } as never);
+  await assert.rejects(rejected.synchronizeWorkspace("workspace-7"));
+  assert.match(rejected.enrollmentError() ?? "", expected,
+    "build admission failure must not be mislabeled as missing device registration");
+  rejected.dispose();
+}
+
 const enrollmentApi = createDesktopEnrollmentApi({ cookieSource: () => "gj_csrf=csrf%2Dvalue", fetchImpl: async (url, init) => {
   publicApiCalls.push({ url: String(url), init });
   return new Response(JSON.stringify({ enrollmentToken: "b".repeat(43), expiresAt: new Date(Date.now() + 60_000).toISOString() }), { status: 200 });
