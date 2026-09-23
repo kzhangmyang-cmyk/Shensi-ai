@@ -1,4 +1,52 @@
 export interface paths {
+    "/api/platform/v1/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createPlatformAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/v1/accounts/{id}/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["issuePlatformPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["consumePlatformPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/platform/v1/overview": {
         parameters: {
             query?: never;
@@ -99,6 +147,50 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        CustomerAccess: {
+            /** @enum {string} */
+            status: "unmanaged" | "pending" | "suspended" | "unconfigured" | "scheduled" | "active" | "expired";
+            workspaceId: string;
+            workspaceName: string | null;
+            /** @enum {string|null} */
+            planCode: "trial" | "basic" | "pro" | null;
+            /** Format: date-time */
+            startsAt: string | null;
+            /** Format: date-time */
+            expiresAt: string | null;
+            features: ("acquisition" | "agents" | "decision" | "crm" | "growth" | "outreach")[];
+            canRead: boolean;
+            canExecute: boolean;
+            /** Format: date-time */
+            checkedAt: string;
+        };
+        NewAccount: {
+            workspaceId: string;
+            name: string;
+            account: string;
+            password: string;
+            /** @enum {string} */
+            role: "manager" | "sales";
+        };
+        NewAccountCommand: {
+            revision: number;
+            reason: string;
+            value: components["schemas"]["NewAccount"];
+        };
+        PasswordResetCommand: {
+            revision: number;
+            reason: string;
+            value: Record<string, never>;
+        };
+        PasswordResetResult: {
+            token: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        PasswordResetInput: {
+            token: string;
+            password: string;
+        };
         Workspace: {
             id: string;
             name: string;
@@ -221,6 +313,96 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    createPlatformAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewAccountCommand"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+        };
+    };
+    issuePlatformPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetCommand"];
+            };
+        };
+        responses: {
+            /** @description One-time bearer token; expires in 15 minutes; never persisted in plaintext */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetResult"];
+                };
+            };
+        };
+    };
+    consumePlatformPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetInput"];
+            };
+        };
+        responses: {
+            /** @description Password changed and sessions revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        completed: boolean;
+                    };
+                };
+            };
+            /** @description Invalid, expired or already used token */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     getPlatformOverview: {
         parameters: {
             query?: {

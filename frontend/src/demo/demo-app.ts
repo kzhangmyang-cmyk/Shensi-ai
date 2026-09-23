@@ -629,6 +629,8 @@ export function startDemoApp(): void {
     if (router.current() === "acquisition" || router.current() === "enterprise-query" || router.current() === "decision-simulation") return;
     const form = event.target as HTMLFormElement;
     const action = form.dataset.demoAction;
+    // Real modules own their submissions; only explicitly marked demo forms belong here.
+    if (!action || event.defaultPrevented) return;
     const conversationId = form.dataset.conversationId;
     if (action === "send-message" && conversationId) {
       event.preventDefault();

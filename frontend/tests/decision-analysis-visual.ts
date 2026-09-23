@@ -8,3 +8,6 @@ const view=mountDecisionAnalysis(document.querySelector<HTMLElement>('#analysis'
 view.setActive(true);
 function draw(mode:string){const state:Preparation['state']=mode==='failed'?'failed':mode==='completed'?'completed':'analyzing';view.update({...value,state,agents:roles.map((role,index)=>({role,state:mode==='completed'||index<2?'completed':index===2?mode==='failed'?'failed':'running':'queued',provider:index<2?'fixture':null,model:index<2?'isolated-visual-state':null,errorCode:null,observations:[]}))});}
 document.querySelectorAll<HTMLButtonElement>('[data-fixture]').forEach(button=>button.onclick=()=>draw(button.dataset.fixture!));draw('running');
+document.querySelectorAll<HTMLButtonElement>('[data-theme-fixture]').forEach(button=>button.onclick=()=>{
+ document.documentElement.dataset.theme=button.dataset.themeFixture!;
+});

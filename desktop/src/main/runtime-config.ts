@@ -7,6 +7,21 @@ export interface RemoteOriginOptions {
   environment: Record<string, string | undefined>;
 }
 
+export interface DesktopRuntime {
+  remoteOrigin: string;
+  dataEnvironment: "production" | "development" | "test";
+  testId?: string;
+}
+
+/** Local installation acceptance must never reuse a customer's profile or device identity. */
+export async function resolveDesktopRuntime(options: RemoteOriginOptions): Promise<DesktopRuntime> {
+  const remoteOrigin = await resolveRemoteOrigin(options);
+  if (options.production && remoteOrigin.startsWith("http://127.0.0.1:")) {
+    return { remoteOrigin, dataEnvironment: "test", testId: "packaged-local" };
+  }
+  return { remoteOrigin, dataEnvironment: options.production ? "production" : "development" };
+}
+
 const PLACEHOLDER_HOSTS = new Set(["example.com", "api.example.com", "localhost"]);
 
 function validatedOrigin(value: unknown): string {

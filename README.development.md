@@ -7,14 +7,24 @@ layer, and the shared acquisition and Growth contracts.
 
 ## Canonical commands
 
+The independent blue-and-white bilingual brand website lives in `website/`.
+Run `pnpm website:dev` for its dedicated local preview and `pnpm website:build`
+for 40 pre-rendered pages with checked internal links. It does not replace the customer workspace or trial.
+See [website operations and boundaries](website/README.md).
+
 Platform account administration and overseas-to-Alibaba launch planning are
 documented in [launch readiness](docs/operations/account-admin-launch-readiness.md).
 The source includes an independent `/admin.html` console for enterprises,
 accounts, package versions and operations logs; see
 [platform administration](docs/modules/platform-administration.md) for current
-boundaries and remaining recovery/onboarding work. Trial/basic/pro start as
+boundaries, member creation, password/MFA recovery and remaining onboarding work. Trial/basic/pro start as
 unpublished configurable drafts. Source implementation does not provision real
 customer grants or a production deployment.
+
+For the isolated persistent-MySQL admin development environment, follow
+[local admin acceptance](docs/DEPLOYMENT.md#isolated-admin-development).
+Its local entry is `http://localhost:5681/preview-access`; it uses synthetic
+credentials/data and must be started before opening that address.
 
 The desktop home presents acquisition, the agent center and decision simulation
 as its three primary entries. More functions and the existing sidebar retain all

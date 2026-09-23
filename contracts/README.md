@@ -5,7 +5,10 @@ contract under `/api/platform/v1`. `pnpm generate:platform-types` generates
 `frontend/src/generated/platform-admin.ts`; `check:types` includes drift checks.
 This API uses aggregate revision/reason commands, customer authentication plus
 an independent MFA cookie, and existing cookie CSRF. It does not use Growth's
-Idempotency-Key response replay protocol. See `../docs/modules/platform-administration.md`.
+Idempotency-Key response replay protocol. It includes member creation and reset
+issuance; the same contract also defines anonymous, rate-limited
+`/api/auth/reset-password` consumption using a single-use token.
+See `../docs/modules/platform-administration.md`.
 
 This workspace is the normative, executable boundary for the AI acquisition
 agent. JSON Schemas use Draft 2020-12 and OpenAPI describes authenticated

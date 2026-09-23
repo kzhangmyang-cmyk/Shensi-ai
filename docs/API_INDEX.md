@@ -1,15 +1,30 @@
 # API Index
 
+## Public brand website
+
+`contracts/openapi/website-contact.v1.yaml` documents the independent website
+server's `POST /api/website-contact`. It is not mounted in the customer Backend,
+does not use customer sessions and cannot access workspace data. The shared
+website form validator is `website/src/contact-validation.mjs`; mail is only
+sent when explicitly configured and CRM synchronization is disabled by default.
+See `website/README.md` for origin, body, validation, rate and deployment limits.
+
 ## Platform administration v1
 
 `contracts/openapi/platform-admin.v1.yaml` generates
 `frontend/src/generated/platform-admin.ts`. `/api/platform/v1` provides
 POST/DELETE `/session`, GET `/overview?page=&q=`, POST `/enterprises`,
-PATCH `/enterprises/{id}`, POST `/plans`, PATCH `/accounts/{id}`.
+PATCH `/enterprises/{id}`, POST `/plans`, POST `/accounts`,
+PATCH `/accounts/{id}`, POST `/accounts/{id}/password-reset`.
 Mutations carry `{revision, reason, value}`; conflict returns 409. Business
 authentication, independent MFA session and cookie CSRF apply. The account
 actions are disable/enable/revoke; enterprise creation includes its primary
-admin. See [module boundaries](modules/platform-administration.md).
+admin. Member creation supports manager/sales roles and enforces published-plan
+seats. Reset issuance returns a one-time token; public
+POST `/api/auth/reset-password` accepts `{token,password}`, with rate limiting
+and existing transport/CSRF checks, and atomically consumes the token.
+Overview search also matches audit actor/action/target/reason.
+See [module boundaries](modules/platform-administration.md).
 
 - `GET /api/enterprise-query/gleif`：登录后只读查询中国LEI登记企业；参数 `keyword`（2–100字）、`page`（1–1000），十条一页。返回 `EnterpriseQueryPage`，路由契约为 `contracts/openapi/enterprise-query.v1.yaml`，共享生成模型在 acquisition v1，来源边界见 `modules/enterprise-data-sources.md`。
 

@@ -51,14 +51,35 @@ data. Protected Growth and acquisition routes apply authentication and
 active-workspace middleware before their routers. Browser writes send the CSRF
 cookie value in `X-CSRF-Token`.
 
+Once platform membership is initialized, registration atomically creates a
+`pending` enterprise and `register_enterprise` audit with the new account.
+There is no automatic trial or package grant. A failed commit leaves neither
+account, workspace nor audit; concurrent normalized duplicates return 409.
+`SHENSI_REQUIRE_PLATFORM_OWNER=true` rejects registration with 503 until an
+active operator owner backed by an active account exists. Default legacy
+environments retain their unmanaged registration behavior when this flag is
+unset and the platform has never been initialized.
+
+Login, registration and `/api/auth/me` return top-level `access`, the generated
+`CustomerAccess` contract in `platform-admin.v1.yaml`. It contains only the
+authenticated workspace's name/id, published plan code/features, explicit
+dates, check time, status and commercial read/execute flags. States are
+`unmanaged`, `pending`, `suspended`, `unconfigured`, `scheduled`, `active`, and
+`expired`. Expired grants retain reads and deny execution. During uncommitted
+platform mutations the summary returns `unconfigured`, no configuration
+details/features, and both flags false. Unmanaged flags preserve legacy
+behavior; they never bypass business-role, ownership or module checks.
+Activation/renewal/suspension and account changes still revoke old sessions:
+a 401 while refreshing status requires a new login.
+
 The current unauthenticated entry is the dark Shensi account form. It has login
 and registration modes, starts with empty account/password fields, and uses one
 semantic submit form. Login accepts a valid bare account or an email. During an
 authentication request the form publishes `aria-busy`, disables submission and
 mode switching, and restores controls only for the current authentication
-generation. Registration success enters the newly created workspace without a
-second login. All modules remain visible there, while empty domain collections
-render as empty states. The frontend keeps `gj_user` only as a local session
+generation. Registration success establishes a session; managed pending
+workspaces wait for operator activation before business access. The frontend
+keeps `gj_user` only as a local session
 hint; real-mode startup must validate it through `GET /api/auth/me` before
 exposing the authenticated shell. Session and CSRF authority remain the
 server-issued `gj_session` and `gj_csrf` cookies. Demo mode does not expose or

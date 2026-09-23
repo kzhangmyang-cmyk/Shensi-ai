@@ -15,7 +15,7 @@ const DESKTOP_REQUIRED = [
   "frontend/package.json", "frontend/index.html", "frontend/admin.html", "frontend/ui-kit.html", "frontend/vite.config.ts", "frontend/tsconfig.json",
   "frontend/contracts/pinned/growth-advisor-quote-roi.manifest.json", "desktop/package.json", "desktop/shensi-sidecar.spec",
   "desktop/electron-builder.yml", "desktop/electron-builder.release.yml", "desktop/tsconfig.json", "desktop/tsconfig.build.json",
-  "desktop/build/entitlements.mac.empty.plist", "desktop/build/entitlements.mac.plist", "desktop/build/icon-approval.json", "desktop/build/icon-source.svg",
+  "desktop/build/entitlements.mac.empty.plist", "desktop/build/entitlements.mac.plist", "desktop/build/icon-approval.json", "desktop/build/icon-source.png",
   ...["package-macos.sh", "build-preload.mjs", "build-sidecar.mjs", "build-sidecar.sh", "frozen-sidecar-entrypoint.py", "generate-macos-icon.mjs", "check-package-environment.mjs", "write-runtime-config.mjs", "release-policy.mjs", "package-content-policy.mjs", "macos-entitlements-policy.mjs", "macos-signature-policy.mjs", "macos-release-sign.mjs", "macos-release-hooks.mjs", "verify-desktop-renderer.mjs", "verify-package.mjs", "verify-macos-artifacts.sh"].map((name) => `desktop/scripts/${name}`),
   "services/media-crawler/pyproject.toml", "services/media-crawler/uv.lock", "services/media-crawler/var.py", "services/media-crawler/LICENSE",
   "services/media-crawler/libs/stealth.min.js", "services/media-crawler/libs/douyin.js", "services/media-crawler/config/__init__.py",
@@ -265,7 +265,7 @@ test("desktop-app exactly mirrors static config imports and excludes unreached d
 
 test("desktop-app enumerates build source assets while excluding regenerated and rejecting unrelated artifacts", async () => {
   const root = await fixture();
-  const sources = ["entitlements.mac.empty.plist", "entitlements.mac.plist", "icon-approval.json", "icon-source.svg"];
+  const sources = ["entitlements.mac.empty.plist", "entitlements.mac.plist", "icon-approval.json", "icon-source.png"];
   const before = await createSourceContentManifest(root, "desktop-app");
   for (const name of sources) assert.equal(before.records.some((record) => record.path === `desktop/build/${name}`), true);
   await writeFixtureFiles(root, { "desktop/build/icon.icns": "generated-v1" });
@@ -330,7 +330,7 @@ test("desktop-app record set exactly follows renderer Electron packaging and Sid
     "desktop/src/shared/contracts.ts": "export {}", "desktop/build/icon.icns": "generated-icon",
     "desktop/src/generated/ai-acquisition.d.ts": "export {}",
     "desktop/build/entitlements.mac.empty.plist": "empty-plist", "desktop/build/entitlements.mac.plist": "plist",
-    "desktop/build/icon-approval.json": "{}", "desktop/build/icon-source.svg": "<svg />",
+    "desktop/build/icon-approval.json": "{}", "desktop/build/icon-source.png": "<svg />",
     "services/media-crawler/pyproject.toml": "[project]", "services/media-crawler/uv.lock": "lock",
     "services/media-crawler/LICENSE": "license", "services/media-crawler/var.py": "VALUE = 1",
     "services/media-crawler/shensi_adapter/app.py": "pass",

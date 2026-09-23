@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
+import type { components } from "./generated/platform-admin";
 import {
   clearAppSession,
   createAppSessionController,
@@ -18,6 +19,48 @@ const admin: AppUser = {
   teamId: "team-1",
   avatar: "AD"
 };
+
+const accessFixture = (status: components["schemas"]["CustomerAccess"]["status"]): components["schemas"]["CustomerAccess"] => ({
+  status, workspaceId: admin.teamId, workspaceName: "合成注册企业", planCode: status === "pending" ? null : "trial",
+  startsAt: "2026-09-01T00:00:00.000Z", expiresAt: "2026-10-01T00:00:00.000Z", checkedAt: "2026-09-21T00:00:00.000Z", features: ["crm"],
+  canRead: ["active", "expired", "unmanaged"].includes(status), canExecute: ["active", "unmanaged"].includes(status)
+});
+
+for (const status of ["pending", "suspended", "unconfigured", "scheduled", "expired", "active", "unmanaged"] as const) {
+  const document = createDocument(), storage = createStorage();
+  let failure = 0;
+  const controller = createAppSessionController({ document, storage, location: { hash: "#agents" }, demoMode: false,
+    fetchImpl: async () => new Response(JSON.stringify(failure ? { message: "失效" } : { user: admin, access: accessFixture(status) }), { status: failure || 200 }) });
+  await controller.start();
+  assert.equal(document.body.classList.contains("is-authenticated"), accessFixture(status).canRead, status);
+  if (["active", "unmanaged"].includes(status)) assert.equal(document.querySelector("[data-account-access-panel]"), null);
+  else {
+    assert.match(document.querySelector("[data-account-access-panel]")!.textContent!, /合成注册企业/);
+    failure = 503; await controller.refreshAccess();
+    assert.match(document.querySelector("[data-account-access-feedback]")!.textContent!, /刷新失败/);
+    assert.notEqual(storage.getItem("gj_user"), null);
+  }
+  failure = 401; await controller.refreshAccess();
+  assert.equal(storage.getItem("gj_user"), null);
+  assert.equal(document.querySelector("[data-account-access-panel]"), null);
+  assert.equal(document.body.classList.contains("is-authenticated"), false);
+  assert.match(document.querySelector("#loginError")!.textContent!, /请重新登录/);
+  controller.destroy();
+}
+
+for (const ending of ["destroy", "external-clear"] as const) {
+  const document = createDocument(), storage = createStorage();
+  const response = createDeferred<Response>(); let calls = 0;
+  const controller = createAppSessionController({ document, storage, location: { hash: "#agents" }, demoMode: false,
+    fetchImpl: async () => ++calls === 1 ? new Response(JSON.stringify({ user: admin, access: accessFixture("pending") })) : response.promise });
+  await controller.start(); const refresh = controller.refreshAccess();
+  await controller.refreshAccess(); assert.equal(calls, 2, "refreshes are single flight");
+  if (ending === "destroy") controller.destroy(); else clearAppSession({ document, storage });
+  response.resolve(new Response(JSON.stringify({ user: admin, access: accessFixture("active") }))); await refresh;
+  assert.equal(document.body.classList.contains("is-authenticated"), false, ending);
+  assert.equal(document.querySelector("[data-account-access-panel]"), null, ending);
+  controller.destroy();
+}
 
 function createStorage(initial: Record<string, string> = {}): MemoryStorage {
   const values = new Map(Object.entries(initial));
@@ -271,7 +314,7 @@ for (const cached of [false, true]) {
   await assert.rejects(controller.login(admin.email, "wrong"));
   assert.equal(
     document.querySelector("#loginError")?.textContent,
-    "账号或密码错误，请重试"
+    "账号或密码错误，或账号已停用，请联系运营确认。"
   );
   const retry = controller.login(admin.email, "goodjob123");
   assert.equal(document.querySelector("#loginError")?.textContent, "");
@@ -344,7 +387,7 @@ function submit(document: Document, selector: string) {
   click(document, "#loginModeToggle");
   assert.equal(document.querySelector("#loginTitle")?.textContent, "注册燊锶");
   assert.match(document.querySelector("#loginDescription")?.textContent ?? "", /独立工作区/u);
-  assert.equal(document.querySelector("#loginButton")?.textContent, "注册并进入工作台");
+  assert.equal(document.querySelector("#loginButton")?.textContent, "注册账号");
   assert.equal(document.querySelector("#loginModeToggle")?.textContent, "已有账号？返回登录");
   assert.equal(
     document.querySelector<HTMLInputElement>("#loginEmail")?.getAttribute("pattern"),

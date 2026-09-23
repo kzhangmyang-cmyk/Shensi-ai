@@ -41,6 +41,21 @@ atomically. After owner bootstrap, public registration also creates pending
 workspaces. Existing unmanaged workspaces preserve permissions and are not
 silently imported into the console.
 
+Public registration commits the new user, pending workspace and
+`register_enterprise` audit in one serialized transaction. Deployment may require
+an initialized active platform owner with `SHENSI_REQUIRE_PLATFORM_OWNER=true`;
+until one exists, registration returns 503. The default remains compatible
+with existing unmanaged development environments. Public registration never
+grants an automatic trial. Login/register/me expose a safe `CustomerAccess`
+summary for the customer's own workspace; operator grant changes still require
+the customer to log in again because existing sessions are revoked.
+
+Operators create `manager` and `sales` members through `POST /api/platform/v1/accounts`.
+Pending enterprises may prepare members before choosing a package; activation
+checks all active seats. When a published plan is attached, member creation and
+restoration enforce its seat limit. Account names are normalized and globally
+unique. Membership creation, user persistence and audit commit together.
+
 The three initial plans are unpublished drafts with no features, seats or days.
 Publishing requires explicit values; each edit adds an immutable version without
 changing existing grants. Activation requires a published plan, explicit dates
@@ -68,6 +83,30 @@ secrets, plan versions, workspaces and audit as one JSON aggregate. Only the API
 writes this aggregate; workers read it fresh. Single API instance locking and
 snapshot persistence remain required. Enterprise/account/audit responses have
 50-entry pagination; aggregate size and all-plan responses limit scale.
+The overview `q` query searches audit actor, action, target and reason as well
+as enterprise/account lists.
+
+## Recovery
+
+An MFA-authenticated operator issues a customer reset using
+`POST /api/platform/v1/accounts/:id/password-reset`. The 256-bit random token
+is returned once, expires after 15 minutes, and only its SHA-256 hash is stored.
+Issuance revokes existing sessions and replaces earlier tokens. Anonymous
+`POST /api/auth/reset-password` consumes the token once and changes the password
+transactionally with another session revocation and audit. Failure rolls back
+both credential and consumption; disabled accounts stay disabled. Neither logs
+nor audit contain plaintext tokens/passwords. Both HTTP paths require the
+normal transport/CSRF protections and reset consumption is rate limited.
+
+Lost operator MFA uses only the offline `backend/src/platform-admin-recover-mfa.ts`
+CLI under production settings, with the same exclusive API database lock as
+bootstrap. Set `SHENSI_PLATFORM_RECOVERY_CONFIRM_DATABASE` to the exact target
+database, `SHENSI_PLATFORM_RECOVERY_USER_ID`, a privately supplied new base32
+`SHENSI_PLATFORM_RECOVERY_TOTP_SECRET`, and `SHENSI_PLATFORM_RECOVERY_REASON`.
+The stable encryption key is required. The operation replaces the encrypted
+seed, resets its counter, revokes customer and operator sessions, and audits
+the recovery. There is no public operator-recovery endpoint. Coordinate the
+API maintenance window and deliver the new seed privately; never commit it.
 
 See [deployment](../DEPLOYMENT.md#platform-operator-bootstrap) and
 [migration](../DATA_MIGRATION.md#platform-administration-migration). Current
@@ -75,14 +114,16 @@ progress and verification results live only in `../PROJECT_STATUS.md`.
 
 ## Remaining release work
 
-This increment supports primary-account creation, grants, suspension/restoration
-and session revocation. Existing-workspace onboarding, secondary account
-creation, one-time customer password recovery, operator management/MFA recovery,
-audit before/after details and filtered export remain unfinished. Recovery and
-administration flows must be completed before paid-production release.
+This increment supports enterprise/member creation, grants, suspension/restoration,
+session revocation, one-time customer recovery, offline operator MFA recovery
+and audit search. Existing-workspace onboarding, operator membership management,
+audit before/after details and filtered export remain unfinished.
 
 ## Verification
 
+- [Isolated admin development](../DEPLOYMENT.md#isolated-admin-development)
+  provides a persistent synthetic-only MySQL runtime and actual browser
+  enterprise/member/grant/customer-write/expiry/renewal/recovery acceptance.
 - `pnpm --dir backend test:accounts`: synthetic rollback, MFA, HTTP lifecycle,
   legacy bypass and fresh execution authority tests.
 - Root `pnpm test`, `pnpm build`, `pnpm typecheck:desktop` and context/diff gates.

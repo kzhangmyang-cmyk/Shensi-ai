@@ -3,7 +3,19 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { resolveRemoteOrigin } from "../src/main/runtime-config.ts";
+import { resolveRemoteOrigin, resolveDesktopRuntime } from "../src/main/runtime-config.ts";
+
+test("loopback installation tests isolate application and browser state from production", async () => {
+  const resourcesPath = await mkdtemp(path.join(tmpdir(), "shensi-runtime-config-"));
+  await writeFile(path.join(resourcesPath, "desktop-config.json"), JSON.stringify({ remoteOrigin: "http://127.0.0.1:5680" }));
+  const runtime = await resolveDesktopRuntime({ production: true, resourcesPath, environment: {} });
+  assert.deepEqual(runtime, { remoteOrigin: "http://127.0.0.1:5680", dataEnvironment: "test", testId: "packaged-local" });
+  await writeFile(path.join(resourcesPath, "desktop-config.json"), JSON.stringify({ remoteOrigin: "https://api.shensi.cn" }));
+  assert.deepEqual(await resolveDesktopRuntime({ production: true, resourcesPath, environment: {} }),
+    { remoteOrigin: "https://api.shensi.cn", dataEnvironment: "production" });
+  assert.deepEqual(await resolveDesktopRuntime({ production: false, resourcesPath, environment: { SHENSI_REMOTE_ORIGIN: "http://127.0.0.1:5638" } }),
+    { remoteOrigin: "http://127.0.0.1:5638", dataEnvironment: "development" });
+});
 
 test("packaged runtime reads the signed public API origin from app resources", async () => {
   const resourcesPath = await mkdtemp(path.join(tmpdir(), "shensi-runtime-config-"));

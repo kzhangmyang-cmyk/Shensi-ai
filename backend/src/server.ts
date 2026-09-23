@@ -95,8 +95,9 @@ import { ProspectWorkerService } from "./prospect-worker-service.js";
 import { loadLocalEnv } from "./runtime-env.js";
 import { registerSwagger } from "./swagger.js";
 import { AccountCommandError, createAccount, updateAccountAccess, persistAccountMutation } from './account-command.js';
-import { isAccountMutationPending } from './account-mutation-state.js';
-import { createPlatformAdminRouter } from './platform-admin-router.js';
+import { isAccountMutationPending, beginAccountMutation, beginPlatformMutation } from './account-mutation-state.js';
+import { customerAccess, platformState } from './platform-admin-service.js';
+import { createPlatformAdminRouter, createPlatformPasswordResetRouter } from './platform-admin-router.js';
 import { resolveBackendHost, resolveTrustedProxy } from "./server-network.js";
 import {
   createAcquisitionApplication
@@ -667,6 +668,7 @@ const apiLimiter = rateLimit({
 });
 app.use("/api", apiLimiter);
 app.use('/api/platform/v1', createPlatformAdminRouter());
+app.use('/api/auth/reset-password', createPlatformPasswordResetRouter());
 
 function asyncRoute(handler: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -1273,12 +1275,16 @@ function sendAuthenticatedSession(
   res.cookie(AUTH_COOKIE_NAME, token, sessionCookieOptions());
   res.cookie(CSRF_COOKIE_NAME, csrfToken, csrfCookieOptions());
   res.setHeader("Cache-Control", "no-store");
-  res.status(status).json({ token, csrfToken, user: sessionUser });
+  res.status(status).json({ token, csrfToken, user: sessionUser, access: customerAccess(getStore(), user.teamId) });
 }
 
 class RegistrationConflictError extends Error {}
 
 app.post("/api/auth/register", registrationLimiter, asyncRoute(async (req, res) => {
+  const store = getStore();
+  const ownerRequired = process.env.SHENSI_REQUIRE_PLATFORM_OWNER === 'true';
+  const hasOwner = () => platformState(store).memberships.some(member => member.role === 'owner' && member.status === 'active' && store.users.some(user => user.id === member.userId && user.status === 'active'));
+  if (ownerRequired && !hasOwner()) { res.status(503).json({ message: '平台尚未开放注册，请联系运营人员' }); return; }
   const body = registrationSchema.parse(req.body);
   const email = `${body.account}@shensi.local`;
   const user = {
@@ -1292,17 +1298,21 @@ app.post("/api/auth/register", registrationLimiter, asyncRoute(async (req, res) 
     status: "active" as const,
     authVersion: 1
   };
-  const store = getStore();
+  const finishes: (() => void)[] = [];
   const mutation = () => {
+    if (ownerRequired && !hasOwner()) throw new AccountCommandError(503, '平台尚未开放注册，请联系运营人员');
     if (store.users.some((item) => item.email.toLowerCase() === email)) {
       throw new RegistrationConflictError();
     }
+    finishes.push(beginAccountMutation(user.id));
     store.users.unshift(user);
     const previousPlatform = store.platformAdminStates;
     if (previousPlatform?.[0]?.memberships.length) {
+      finishes.push(beginPlatformMutation(store));
       const platform = structuredClone(previousPlatform[0]);
       platform.revision++;
       platform.workspaces.push({ id: user.teamId, name: body.account, contact: '', status: 'pending', planVersionId: null, startsAt: null, expiresAt: null, revision: 1 });
+      platform.audits.push({ id: randomUUID(), actorId: user.id, targetId: user.teamId, action: 'register_enterprise', reason: '客户公开注册，等待运营开通', occurredAt: new Date().toISOString(), revision: platform.revision });
       store.platformAdminStates = [platform];
     }
     return {
@@ -1315,24 +1325,15 @@ app.post("/api/auth/register", registrationLimiter, asyncRoute(async (req, res) 
     };
   };
   try {
-    if (store.persistMutation) {
-      await store.persistMutation(mutation);
-    } else {
-      const applied = mutation();
-      try {
-        await store.persist();
-      } catch (error) {
-        applied.rollback();
-        throw error;
-      }
-    }
+    await persistAccountMutation(store, mutation);
   } catch (error) {
     if (error instanceof RegistrationConflictError) {
       res.status(409).json({ message: "账号已存在" });
       return;
     }
+    if (error instanceof AccountCommandError) { res.status(error.status).json({ message: error.message }); return; }
     throw error;
-  }
+  } finally { finishes.forEach(finish => finish()); }
   sendAuthenticatedSession(res, user, 201);
 }));
 
@@ -1380,7 +1381,7 @@ app.post("/api/auth/logout", (req, res) => {
 
 app.get("/api/auth/me", requireAuth, (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json({ user: req.user });
+  res.json({ user: req.user, access: customerAccess(getStore(), req.user!.teamId) });
 });
 
 app.get("/api/profile", requireAuth, (req, res) => {

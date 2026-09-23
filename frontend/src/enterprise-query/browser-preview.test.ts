@@ -44,6 +44,8 @@ test('built-in open is explicit and capture displays the same preview', async ()
     const root = document.querySelector('main')!; const preview=mountBrowserEnterprisePreview(root as unknown as HTMLElement);
     assert.equal(opened, 0); assert.equal(captured, 0);
     assert.ok(root.querySelector('[data-local-open]'));
+    assert.match(root.querySelector('[data-browser-read]')!.textContent!, /可选.*Chrome 扩展/);
+    assert.match(root.querySelector('[role="status"]')!.textContent!, /不需要安装 Chrome/);
     root.querySelector('[data-local-open]')!.dispatchEvent(new window.Event('click'));
     await new Promise(resolve => setImmediate(resolve)); assert.equal(opened, 1);
     await preview!.openSearch('郑州 塑料'); assert.deepEqual(keywords,[undefined,'郑州 塑料']);

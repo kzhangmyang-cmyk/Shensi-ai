@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { listPackage } from "@electron/asar";
 import { findDeveloperAbsolutePath } from "./package-content-policy.mjs";
 import { normalizePackageMode, validateRemoteOrigin } from "./release-policy.mjs";
+import { readDesktopBuildIdentity } from "../dist/main/desktop-build-identity.js";
 
 const execFileAsync = promisify(execFile);
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -26,6 +27,7 @@ const CFO_GREETING_ASSET_SHA256 = "78340a80314916b19bbb7cac6a85dcb2b1f512df1d7e0
 const cfoGreetingAsset = path.join(resources, "audio", CFO_GREETING_ASSET_FILENAME);
 const required = [
   asarPath,
+  path.join(resources, "desktop-build-manifest.json"),
   path.join(resources, "desktop-config.json"),
   path.join(resources, "frontend", "index.html"),
   path.join(resources, "sidecar", "shensi-sidecar"),
@@ -41,6 +43,7 @@ const required = [
   path.join(sidecarInternal, "certifi", "cacert.pem"),
 ];
 for (const candidate of required) await stat(candidate);
+const buildManifestSha256 = await readDesktopBuildIdentity(resources);
 
 const cfoGreetingBytes = await readFile(cfoGreetingAsset);
 if (cfoGreetingBytes.length !== 126_764
@@ -165,5 +168,5 @@ for (const candidate of packagedFiles) {
   }
 }
 
-console.log(JSON.stringify({ ok: true, appPath: appReal, entries, architecture: process.arch,
+console.log(JSON.stringify({ ok: true, appPath: appReal, entries, architecture: process.arch, buildManifestSha256,
   browserExecutable: path.relative(resources, browserExecutable) }));

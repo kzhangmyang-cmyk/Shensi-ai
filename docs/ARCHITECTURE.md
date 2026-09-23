@@ -2,6 +2,16 @@
 
 ## System shape
 
+`website/` is a separate public brand-site source boundary, built with the
+existing Vite toolchain and shared pure TypeScript templates into 40 bilingual
+static pages. Its standalone loopback Node server serves only those assets and
+`POST /api/website-contact`; it has no customer database or business API access.
+Optional SMTP delivery reuses the existing Nodemailer dependency. CRM is an
+unconfigured injected adapter, not an active integration. See `website/README.md`
+at the repository root for routes, motion, privacy and deployment requirements.
+Website product and editorial-topic pages are generated from `page-content.ts`
+and `page-sections.ts`; prerendering checks every internal link and fragment.
+
 Platform administration uses the separate `frontend/admin.html` entry and
 `backend/src/platform-admin-router.ts` under `/api/platform/v1`. Its independent
 MFA membership does not grant customer business roles. Users, platform authority

@@ -1,0 +1,4 @@
+# Replace with the operator's approved VPN or fixed egress CIDRs.
+# This file is mounted into the TLS gateway, not served as a web asset.
+allow 127.0.0.1;
+deny all;

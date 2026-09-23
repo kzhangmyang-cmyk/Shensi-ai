@@ -7,7 +7,7 @@ export function mountBrowserEnterprisePreview(root: HTMLElement, onCapture?: (ca
   if (!bridge) return;
   const section = document.createElement('section');
   section.className = 'enterprise-browser-preview';
-  section.innerHTML = `<header><h3>企业浏览器 · 当前页预览</h3>${bridge.openLocal ? '<button type="button" data-local-open>打开爱企查</button><button type="button" data-local-capture>读取内置浏览器当前页</button>' : ''}<button type="button" data-browser-read>读取 Chrome 扩展预览</button><button type="button" data-browser-clear hidden>关闭预览</button></header><p role="status">打开爱企查后正常登录、搜索，再读取当前页。首次需本人登录；预览不自动保存客户。</p><div data-browser-rows></div>`;
+  section.innerHTML = `<header><h3>企业浏览器 · 当前页预览</h3>${bridge.openLocal ? '<button type="button" data-local-open>打开爱企查</button><button type="button" data-local-capture>读取内置浏览器当前页</button>' : ''}<button type="button" data-browser-read>${bridge.openLocal ? '可选 · 读取 Chrome 扩展预览' : '读取 Chrome 扩展预览'}</button><button type="button" data-browser-clear hidden>关闭预览</button></header><p role="status">${bridge.openLocal ? '优先使用内置浏览器：打开爱企查、本人登录并搜索，再读取当前页；不需要安装 Chrome。扩展预览只供已安装扩展的用户选用。' : '使用 Chrome 扩展发送当前页后在此读取；预览不自动保存客户。'}</p><div data-browser-rows></div>`;
   root.prepend(section);
   const status = section.querySelector<HTMLElement>('[role="status"]')!;
   const rows = section.querySelector<HTMLElement>('[data-browser-rows]')!;

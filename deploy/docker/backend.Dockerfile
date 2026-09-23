@@ -10,6 +10,7 @@ COPY backend backend
 COPY contracts contracts
 COPY frontend/src/generated/ai-acquisition.ts frontend/src/generated/ai-acquisition.ts
 COPY frontend/src/generated/decision-simulation.ts frontend/src/generated/decision-simulation.ts
+COPY frontend/src/generated/platform-admin.ts frontend/src/generated/platform-admin.ts
 COPY desktop/src/generated/ai-acquisition.d.ts desktop/src/generated/ai-acquisition.d.ts
 RUN pnpm --filter ./contracts check:types && pnpm --filter ./backend build
 

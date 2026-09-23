@@ -11,6 +11,7 @@
     "test": "tsx src/self-test.ts && tsx --test src/growth/catalog/*.test.ts src/enterprise-query/*.test.ts src/decision-simulation/*.test.ts src/home/*.test.ts src/platform-admin/*.test.tsx && tsx --test ../backend/test/shared-agent-ui.test.ts",
     "test:finance-document-runtime": "tsx scripts/test-finance-document-runtime.mts",
     "test:real-primary-actions": "tsx scripts/test-real-primary-actions.mts",
+    "test:theme": "tsx scripts/test-product-theme.mts",
     "test:e2e": "playwright test",
     "test:e2e:shensi-cutover": "playwright test --config=playwright.shensi-cutover.config.ts --project=chromium",
     "test:e2e:douyin-mediacrawler:real": "playwright test --config=playwright.douyin-mediacrawler-real.config.ts --project=chromium",

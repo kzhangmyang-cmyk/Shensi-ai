@@ -8,6 +8,7 @@ import { requireAuth, sessionCookieOptions } from './auth.js';
 import { AccountCommandError } from './account-command.js';
 import { isPlatformMutationPending } from './account-mutation-state.js';
 import { platformState, platformMember, platformMutation, verifyPlatformMfa, createPlatformEnterprise, updatePlatformEnterprise, savePlatformPlan, platformAccountAccess } from './platform-admin-service.js';
+import { createPlatformAccount, issuePlatformPasswordReset, consumePlatformPasswordReset } from './platform-admin-service.js';
 
 const developmentKey = randomBytes(48).toString('base64url');
 function signingKey() {
@@ -64,7 +65,16 @@ export function createPlatformAdminRouter() {
     const take = <T>(rows: T[]) => rows.slice((page - 1) * 50, page * 50);
     const workspaces = state.workspaces.filter(row => `${row.name} ${row.id}`.toLowerCase().includes(query));
     const accounts = store.users.filter(user => state.workspaces.some(row => row.id === user.teamId) && `${user.name} ${user.email}`.toLowerCase().includes(query)).map(user => ({ id: user.id, name: user.name, email: user.email, workspaceId: user.teamId, role: user.role, status: user.status }));
-    res.json({ revision: state.revision, role: member.role, page, pageSize: 50, workspaces: take(workspaces), workspaceCount: workspaces.length, accounts: take(accounts), accountCount: accounts.length, plans: state.plans, audits: take([...state.audits].reverse()), auditCount: state.audits.length });
+    const audits = [...state.audits].reverse().filter(row => `${row.actorId} ${row.action} ${row.targetId} ${row.reason}`.toLowerCase().includes(query));
+    res.json({ revision: state.revision, role: member.role, page, pageSize: 50, workspaces: take(workspaces), workspaceCount: workspaces.length, accounts: take(accounts), accountCount: accounts.length, plans: state.plans, audits: take(audits), auditCount: audits.length });
+  }));
+  router.post('/accounts', wrap(async (req, res) => {
+    const body = command.parse(req.body);
+    res.status(201).json(await createPlatformAccount(getStore(), req.user!.id, body.revision, body.value, body.reason));
+  }));
+  router.post('/accounts/:id/password-reset', wrap(async (req, res) => {
+    const body = command.parse(req.body); z.object({}).strict().parse(body.value);
+    res.json(await issuePlatformPasswordReset(getStore(), req.user!.id, body.revision, String(req.params.id), body.reason));
   }));
   router.post('/enterprises', wrap(async (req, res) => {
     const body = command.parse(req.body);
@@ -85,6 +95,20 @@ export function createPlatformAdminRouter() {
   router.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
     if (error instanceof AccountCommandError) { res.status(error.status).json({ message: error.message }); return; }
     if (error instanceof z.ZodError) { res.status(400).json({ message: '输入格式不正确，请检查必填项和配置范围' }); return; }
+    next(error);
+  });
+  return router;
+}
+
+export function createPlatformPasswordResetRouter() {
+  const router = Router();
+  router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+  router.post('/', rateLimit({ windowMs: 15 * 60_000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false }), wrap(async (req, res) => {
+    res.json(await consumePlatformPasswordReset(getStore(), req.body));
+  }));
+  router.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
+    if (error instanceof AccountCommandError) { res.status(error.status).json({ message: error.message }); return; }
+    if (error instanceof z.ZodError) { res.status(400).json({ message: '恢复凭证或密码格式不正确' }); return; }
     next(error);
   });
   return router;

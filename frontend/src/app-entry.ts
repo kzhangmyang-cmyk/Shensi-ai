@@ -3,6 +3,7 @@ import { douyinLiveLoginSessionId } from "./app-route";
 import { installDesktopRuntime } from "./desktop/desktop-runtime";
 import { installCfoGreeting } from './desktop/cfo-greeting';
 import { installStartupSplash } from './desktop/startup-splash';
+import { installProductTheme } from './theme';
 
 declare const __SHENSI_DESKTOP_BUILD__: boolean;
 
@@ -99,5 +100,6 @@ export async function startAppEntry(options: AppEntryOptions): Promise<void> {
 }
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
+  installProductTheme(document);
   void startAppEntry({ windowLike: window, documentLike: document });
 }

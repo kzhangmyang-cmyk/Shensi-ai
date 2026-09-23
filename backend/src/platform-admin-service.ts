@@ -1,14 +1,15 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { z } from 'zod';
 import { hashPassword } from './auth.js';
-import { beginAccountMutation, beginPlatformMutation } from './account-mutation-state.js';
+import { beginAccountMutation, beginPlatformMutation, isPlatformMutationPending } from './account-mutation-state.js';
 import { TOTP, Secret } from 'otpauth';
 import { encryptAgentJobPayload, decryptAgentJobPayload } from './agent-job-security.js';
 import { AccountCommandError, persistAccountMutation } from './account-command.js';
-import { emptyPlatformState, planDraftSchema, type PlatformAdminState } from './platform-admin-domain.js';
+import { emptyPlatformState, planDraftSchema, summarizeCustomerAccess, type PlatformAdminState } from './platform-admin-domain.js';
 import type { CrmStore } from './store.js';
 
 export const platformState = (store: CrmStore) => store.platformAdminStates?.[0] ?? emptyPlatformState();
+export const customerAccess = (store: CrmStore, workspaceId: string) => summarizeCustomerAccess(platformState(store), workspaceId, Date.now(), isPlatformMutationPending(store));
 const mfaIdentity = (userId: string) => ({ id: userId, ownerId: userId, teamId: 'platform', jobType: 'platform-mfa.v1' });
 
 export function platformMember(store: CrmStore, userId: string) {
@@ -145,5 +146,79 @@ export async function savePlatformPlan(store: CrmStore, actorId: string, revisio
     const plan = { ...value, id: `${value.code}:${version}`, version };
     draft.plans.push(plan);
     return plan;
+  });
+}
+
+export const newAccountSchema = z.object({ workspaceId: z.string().min(1).max(100), name: z.string().trim().min(1).max(100), account: newEnterpriseSchema.shape.account, password: newEnterpriseSchema.shape.password, role: z.enum(['manager', 'sales']) }).strict();
+export async function createPlatformAccount(store: CrmStore, actorId: string, revision: number, input: unknown, reason: string) {
+  const body = newAccountSchema.parse(input), password = await hashPassword(body.password), id = `u_${randomUUID()}`;
+  return platformMutation(store, actorId, revision, 'create_account', id, reason, (draft, undo, finish) => {
+    const workspace = draft.workspaces.find(row => row.id === body.workspaceId);
+    if (!workspace) throw new AccountCommandError(404, '未找到纳管企业');
+    const plan = draft.plans.find(row => row.id === workspace.planVersionId && row.published);
+    if ((!plan || plan.seatLimit === null) && workspace.status !== 'pending') throw new AccountCommandError(409, '请先为企业配置已发布套餐');
+    if (plan?.seatLimit != null && store.users.filter(row => row.teamId === workspace.id && row.status === 'active').length >= plan.seatLimit) throw new AccountCommandError(409, '套餐席位已满');
+    const email = `${body.account}@shensi.local`;
+    if (store.users.some(row => row.email.toLowerCase() === email)) throw new AccountCommandError(409, '账号已存在');
+    const user = { id, name: body.name, email, password, role: body.role, teamId: workspace.id, avatar: body.name.slice(0, 2), status: 'active' as const, authVersion: 1 };
+    finish(beginAccountMutation(id));
+    store.users.unshift(user);
+    undo(() => { const index = store.users.indexOf(user); if (index >= 0) store.users.splice(index, 1); });
+    return { id, name: user.name, email, role: user.role, workspaceId: user.teamId, status: user.status };
+  });
+}
+
+const resetHash = (token: string) => createHash('sha256').update(token).digest('hex');
+export async function issuePlatformPasswordReset(store: CrmStore, actorId: string, revision: number, targetId: string, reason: string, now = Date.now()) {
+  const token = randomBytes(32).toString('base64url'), expiresAt = new Date(now + 15 * 60_000).toISOString();
+  return platformMutation(store, actorId, revision, 'issue_password_reset', targetId, reason, (draft, undo, finish) => {
+    const user = store.users.find(row => row.id === targetId);
+    if (!user || !draft.workspaces.some(row => row.id === user.teamId)) throw new AccountCommandError(404, '未找到纳管账号');
+    if (draft.memberships.some(row => row.userId === targetId)) throw new AccountCommandError(403, '运营身份必须通过受控运维恢复');
+    const previous = user.authVersion;
+    finish(beginAccountMutation(user.id));
+    user.authVersion = (previous || 1) + 1;
+    undo(() => { user.authVersion = previous; });
+    draft.passwordResets = (draft.passwordResets ?? []).filter(row => row.userId !== targetId && Date.parse(row.expiresAt) > now);
+    draft.passwordResets.push({ tokenHash: resetHash(token), userId: targetId, expiresAt, authVersion: user.authVersion });
+    return { token, expiresAt };
+  });
+}
+
+export const passwordResetSchema = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), password: z.string().min(8).max(128) }).strict();
+export async function consumePlatformPasswordReset(store: CrmStore, input: unknown, now?: number) {
+  const body = passwordResetSchema.parse(input), password = await hashPassword(body.password);
+  const finishes: (() => void)[] = [];
+  try { return await persistAccountMutation(store, () => {
+    const previous = store.platformAdminStates, state = platformState(store);
+    const reset = state.passwordResets?.find(row => row.tokenHash === resetHash(body.token));
+    const user = reset && store.users.find(row => row.id === reset.userId);
+    const currentTime = now ?? Date.now();
+    if (!reset || !user || !Number.isFinite(Date.parse(reset.expiresAt)) || Date.parse(reset.expiresAt) <= currentTime || reset.authVersion !== (user.authVersion || 1) || state.memberships.some(row => row.userId === user.id)) throw new AccountCommandError(400, '恢复凭证无效或已过期，请重新申请');
+    const before = { password: user.password, authVersion: user.authVersion };
+    finishes.push(beginPlatformMutation(store), beginAccountMutation(user.id));
+    const draft = structuredClone(state);
+    draft.passwordResets = draft.passwordResets!.filter(row => row.userId !== user.id);
+    draft.revision++;
+    draft.audits.push({ id: randomUUID(), actorId: user.id, targetId: user.id, action: 'consume_password_reset', reason: '使用一次性恢复凭证修改密码', occurredAt: new Date(currentTime).toISOString(), revision: draft.revision });
+    user.password = password; user.authVersion = (user.authVersion || 1) + 1;
+    store.platformAdminStates = [draft];
+    return { value: { completed: true }, rollback() { Object.assign(user, before); store.platformAdminStates = previous; } };
+  }); } finally { finishes.forEach(finish => finish()); }
+}
+
+// Deliberately only exposed to an offline operator with explicit database confirmation.
+export async function recoverPlatformMfaOffline(store: CrmStore, userId: string, base32Secret: string, reason: string) {
+  if (!/^[A-Z2-7]{32,128}$/.test(base32Secret)) throw new AccountCommandError(400, 'MFA密钥格式无效');
+  if (store.mode === 'mysql' && (process.env.AGENT_JOB_ENCRYPTION_KEY?.trim().length ?? 0) < 32) throw new AccountCommandError(400, '恢复必须配置稳定加密密钥');
+  const secretEncrypted = encryptAgentJobPayload(mfaIdentity(userId), 'input', { secret: base32Secret });
+  return platformMutation(store, userId, platformState(store).revision, 'recover_platform_mfa', userId, reason, (draft, undo, finish) => {
+    const member = draft.memberships.find(row => row.userId === userId)!;
+    const user = store.users.find(row => row.id === userId)!;
+    const previous = user.authVersion;
+    finish(beginAccountMutation(userId));
+    user.authVersion = (previous || 1) + 1;
+    undo(() => { user.authVersion = previous; });
+    member.secretEncrypted = secretEncrypted; member.lastOtpCounter = -1; member.sessionVersion++;
   });
 }

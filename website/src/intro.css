@@ -1,0 +1,54 @@
+/* The opening sequence is a reversible function of the document scroll position. */
+.motion-active .hero-scroll {
+  height: 250svh;
+  min-height: 0;
+}
+.motion-active .hero {
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  min-height: 620px;
+  max-height: none;
+}
+.motion-active .hero .orbit,
+.motion-active .hero .core-pulse,
+.motion-active .hero .hero-title,
+.motion-active .hero .hero-description,
+.motion-active .hero .hero-buttons,
+.motion-active .hero .scroll-cue > span::after {
+  animation: none;
+  transition: none;
+}
+.motion-active .hero .brand-orbit {
+  opacity: var(--intro-brand, 0);
+  transform: translateY(var(--intro-logo-y, 130px)) scale(var(--intro-logo-scale, 1.5));
+  transform-origin: center;
+  will-change: transform;
+}
+.motion-active .hero .hero-title {
+  opacity: var(--intro-title, 0);
+  transform: translateY(calc((1 - var(--intro-title, 0)) * 28px));
+}
+.motion-active .hero .hero-description {
+  opacity: var(--intro-description, 0);
+  transform: translateY(calc((1 - var(--intro-description, 0)) * 22px));
+}
+.motion-active .hero .hero-buttons {
+  opacity: var(--intro-buttons, 0);
+  transform: translateY(calc((1 - var(--intro-buttons, 0)) * 18px));
+}
+.motion-active .hero .hero-disciplines {
+  opacity: var(--intro-disciplines, 0);
+}
+.motion-active .hero .core-pulse {
+  opacity: var(--intro-pulse, 0);
+  box-shadow: 0 0 24px 12px rgb(22 180 207 / 35%);
+}
+@media (max-width: 800px) {
+  .motion-active .hero-scroll { height: 220svh; }
+  .motion-active .hero { min-height: 580px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-active .hero-scroll { height: auto; }
+  .motion-active .hero { position: relative; }
+}

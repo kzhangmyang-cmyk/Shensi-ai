@@ -90,12 +90,20 @@ function renderSettings(): string {
       <div class="real-settings-layout">
       <aside class="demo-panel real-settings-nav" aria-label="设置分类">
         <strong>设置分类</strong>
+        <button type="button" data-settings-target="settings-appearance" aria-controls="settings-appearance"><i class="ph ph-palette" aria-hidden="true"></i>外观主题</button>
         <button type="button" class="active" data-settings-target="settings-model" aria-controls="settings-model" aria-current="true"><i class="ph ph-cube" aria-hidden="true"></i>模型与搜索</button>
         <button type="button" data-settings-target="settings-voice" aria-controls="settings-voice"><i class="ph ph-microphone" aria-hidden="true"></i>语音服务</button>
         <button type="button" data-settings-target="settings-greeting" aria-controls="settings-greeting"><i class="ph ph-chat-circle-dots" aria-hidden="true"></i>启动问候</button>
         <button type="button" data-settings-target="settings-account" aria-controls="settings-account"><i class="ph ph-desktop-tower" aria-hidden="true"></i>账号与工作区</button>
       </aside>
       <div class="real-settings-content">
+        <section id="settings-appearance" class="demo-panel real-settings-section product-theme-settings" aria-label="外观主题" tabindex="-1">
+          <h3>外观主题</h3><p>仅调整本机显示，不改变账号或业务数据。</p>
+          <div class="product-theme-choices" role="group" aria-label="外观主题">
+            <button type="button" data-theme-choice="dark" aria-pressed="true">黑绿深色</button>
+            <button type="button" data-theme-choice="light" aria-pressed="false">蓝白浅色</button>
+          </div>
+        </section>
         <section id="settings-model" class="demo-panel real-settings-section" aria-label="模型与搜索" tabindex="-1">
           <header><h3>模型与搜索</h3><span>客户自带密钥 · 保存后不回显</span></header>
           <article class="real-settings-row"><i class="ph ph-cube" aria-hidden="true"></i><div><b>AI 模型</b><span>经营问答使用的模型</span></div><em data-settings-status="model">正在读取…</em><button type="button" data-demo-action="open-connection-center" data-connection-mode="model">管理模型</button></article>

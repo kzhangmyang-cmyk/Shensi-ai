@@ -88,7 +88,7 @@
 
 `agent-operating-memory.ts`、`decision-memory-repository.ts`、`decision-memory-router.ts`提供该边界。`decision_personal_memory`按actor/workspace一行加密聚合，复用AES-GCM身份绑定；偏好、关闭学习与候选写入共享CAS，删除保留修订号避免旧页面复活数据。上限200条复盘，达到上限返回明确错误，已有记录可更新、完整导出，不截断导出。无新依赖、图数据库、训练或外部集成。个性化规则自动推断仍未实现。
 
-分析中的星系使用`analysis-view.ts`、青蓝品牌资产`assets/galaxy-cyan-brand.png`及`galaxy-dust.ts`；黑绿外壳不变，固定的上1下2能量球构图不对应角色数量。五角色标签独立保持可读，内部青白Canvas星尘沿近正面五旋臂分三层差速流动，宽画布4400粒子、宽度不足600时2200粒子；三球仅叠加原素材的局部光照呼吸，不旋转底图。完成/运行/等待来自实际准备状态。手动或系统减少动态、后台与离页会取消动画帧，卸载清理监听；装饰不延迟报告，也不代表额外计算进度。
+分析中的星系使用`analysis-view.ts`、青蓝品牌资产`assets/galaxy-cyan-brand.png`及`galaxy-dust.ts`；黑绿外壳不变，固定的上1下2能量球构图不对应角色数量。蓝白浅色主题仍让整块星系保持深色画布，右侧分析进度保持浅色表面；节点文字和画布标题须在深色背景上可读，不能只把星图内部变暗却让外层保持白色。五角色标签独立保持可读，内部青白Canvas星尘沿近正面五旋臂分三层差速流动，宽画布4400粒子、宽度不足600时2200粒子；三球仅叠加原素材的局部光照呼吸，不旋转底图。完成/运行/等待来自实际准备状态。手动或系统减少动态、后台与离页会取消动画帧，卸载清理监听；装饰不延迟报告，也不代表额外计算进度。
 
 `replay-data.ts`只映射保存的月度结果，所有方案与月份共用纵轴，当前月现金不足与全路径资金缺口统计分开。`replay-view.ts`提供100编号情景选择、月末现金轨迹、同情景对照、月份拖动、播放/暂停和速度；默认暂停，播放不会调用模型或重新生成样本。页面隐藏/离开时停止计时，减少动态效果偏好保留静态与逐月操作。
 
@@ -98,6 +98,7 @@
 
 ```bash
 pnpm --dir backend exec tsx --test src/decision-simulation-engine-test.ts src/decision-simulation-analysis-test.ts
+pnpm --dir frontend exec playwright test --config=playwright.decision-theme.config.ts
 pnpm --dir backend build
 ./scripts/context-check
 pnpm test

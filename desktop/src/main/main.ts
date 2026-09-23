@@ -9,11 +9,11 @@ import {
   SidecarProcessManager,
   type SidecarProcessManagerOptions,
 } from "./sidecar-process-manager.ts";
-import { createAppPaths } from "./app-paths.ts";
+import { createAppPaths, type AppPaths } from "./app-paths.ts";
 import { createDesktopLogger } from "./logger.ts";
 import { desktopExecutionPaths, rendererLocation } from "./runtime-location.ts";
 import { installControlledQuitSignalHandlers, stopDesktopServices } from "./controlled-shutdown.ts";
-import { resolveRemoteOrigin } from "./runtime-config.ts";
+import { resolveDesktopRuntime, type DesktopRuntime } from "./runtime-config.ts";
 import { launchSingleInstanceApplication } from "./main-bootstrap.ts";
 import { readDesktopBuildIdentity, readDevelopmentDesktopBuildIdentity } from "./desktop-build-identity.ts";
 import { DesktopCentralApiClient } from "./desktop-central-api-client.ts";
@@ -34,14 +34,10 @@ import { CFO_REALTIME_EVENT } from '../shared/cfo-realtime.ts';
 import { registerEnterpriseBrowserIpc } from './enterprise-browser-ipc.ts';
 import { createEnterpriseLocalBrowser } from './enterprise-local-browser.ts';
 
-async function main(): Promise<void> {
+async function main(runtime: DesktopRuntime, paths: AppPaths): Promise<void> {
   const environment: "production" | "development" = app.isPackaged
     ? "production"
     : "development";
-  const paths = createAppPaths({
-    baseUserData: app.getPath("appData"),
-    environment,
-  });
   const logger = createDesktopLogger(path.join(paths.logs, "desktop.jsonl"));
   const executionPaths = desktopExecutionPaths({
     production: environment === "production",
@@ -54,11 +50,7 @@ async function main(): Promise<void> {
     resourcesPath: process.resourcesPath,
     repositoryRoot: executionPaths.repositoryRoot,
   });
-  const remoteOrigin = await resolveRemoteOrigin({
-    production: environment === "production",
-    resourcesPath: process.resourcesPath,
-    environment: process.env,
-  });
+  const remoteOrigin = runtime.remoteOrigin;
   // Resolve once in Main. Neither Renderer nor a later environment change can
   // override the identity/origin used by enrollment and action requests.
   const buildManifestSha256 = environment === "production"
@@ -174,6 +166,7 @@ async function main(): Promise<void> {
       localOrigin: renderer.origin,
       preloadPath: executionPaths.preloadPath,
       BrowserWindow,
+      openExternal: url => shell.openExternal(url),
     });
     window = createdWindow;
     createdWindow.on("closed", () => { realtime.stop(); window = null; void voice.stop().catch(() => undefined); });
@@ -231,13 +224,8 @@ async function main(): Promise<void> {
   void manager.start().catch(() => logger.error("sidecar.start_failed"));
 }
 
-function reportBootstrapFailure(): void {
+function reportBootstrapFailure(paths: AppPaths): void {
   try {
-    const environment = app.isPackaged ? "production" : "development";
-    const paths = createAppPaths({
-      baseUserData: app.getPath("appData"),
-      environment,
-    });
     createDesktopLogger(path.join(paths.logs, "desktop.jsonl"))
       .error("desktop.bootstrap_failed", { code: "initialization_failed" });
   } catch {
@@ -245,10 +233,19 @@ function reportBootstrapFailure(): void {
   }
 }
 
-launchSingleInstanceApplication({
-  requestSingleInstanceLock: () => app.requestSingleInstanceLock(),
-  whenReady: () => app.whenReady(),
-  start: main,
-  quit: () => app.quit(),
-  onFailure: reportBootstrapFailure,
-});
+async function bootstrap(): Promise<void> {
+  const runtime = await resolveDesktopRuntime({ production: app.isPackaged,
+    resourcesPath: process.resourcesPath, environment: process.env });
+  const paths = createAppPaths({ baseUserData: app.getPath("appData"),
+    environment: runtime.dataEnvironment, testId: runtime.testId });
+  // Before the single-instance lock and Chromium session initialization.
+  if (runtime.dataEnvironment === "test") app.setPath("userData", path.join(paths.userData, "browser-session"));
+  launchSingleInstanceApplication({
+    requestSingleInstanceLock: () => app.requestSingleInstanceLock(),
+    whenReady: () => app.whenReady(),
+    start: () => main(runtime, paths),
+    quit: () => app.quit(),
+    onFailure: () => reportBootstrapFailure(paths),
+  });
+}
+await bootstrap().catch(() => { console.error("desktop.bootstrap_failed"); app.quit(); });

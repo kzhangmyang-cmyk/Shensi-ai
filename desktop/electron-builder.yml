@@ -49,6 +49,7 @@ mac:
 dmg:
   sign: true
 
+afterPack: scripts/macos-release-hooks.mjs
 afterSign: scripts/macos-release-hooks.mjs
 artifactBuildCompleted: scripts/macos-release-hooks.mjs
 

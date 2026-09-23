@@ -5,8 +5,55 @@ import { TOTP } from 'otpauth';
 import { app } from './server.js';
 import { getStore, setStore } from './store.js';
 import { hashPassword, publicUser, signToken, requireAuth } from './auth.js';
-import { bootstrapPlatformOwner, platformState } from './platform-admin-service.js';
+import { bootstrapPlatformOwner, platformState, savePlatformPlan, updatePlatformEnterprise } from './platform-admin-service.js';
 import type { User } from './types.js';
+
+test('public registration waits for operator grant and returns safe access with atomic audit', async () => {
+  const previous = getStore(), previousFlag = process.env.SHENSI_REQUIRE_PLATFORM_OWNER;
+  process.env.SHENSI_REQUIRE_PLATFORM_OWNER = 'true';
+  const owner: User = { id: 'registration-owner', name: 'Owner', email: 'owner@example.test', password: await hashPassword('synthetic-password'), role: 'admin', teamId: 'owner-workspace', avatar: 'SO', status: 'active', authVersion: 1 };
+  const store = { ...previous, mode: 'memory' as const, users: [owner], platformAdminStates: [], persistMutation: undefined, persist: async () => {} };
+  setStore(store);
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('listen_failed');
+  const base = `http://127.0.0.1:${address.port}`;
+  const post = (path: string, body: unknown) => fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const registration = { account: 'public_customer', password: 'synthetic-password' };
+  try {
+    assert.equal((await post('/api/auth/register', registration)).status, 503);
+    assert.equal(store.users.length, 1);
+    await bootstrapPlatformOwner(store, owner.id, new TOTP().secret.base32);
+    const before = structuredClone(platformState(store));
+    store.persist = async () => { throw new Error('synthetic_registration_commit_failed'); };
+    assert.equal((await post('/api/auth/register', registration)).status, 500);
+    assert.equal(store.users.length, 1); assert.deepEqual(platformState(store), before);
+    store.persist = async () => {};
+    const concurrent = await Promise.all([post('/api/auth/register', registration), post('/api/auth/register', registration)]);
+    assert.deepEqual(concurrent.map(row => row.status).sort(), [201, 409]);
+    const registered = await concurrent.find(row => row.status === 201)!.json() as { token: string; user: { teamId: string }; access: { status: string; canExecute: boolean; features: string[] } };
+    assert.equal(registered.access.status, 'pending'); assert.equal(registered.access.canExecute, false); assert.deepEqual(registered.access.features, []);
+    assert.equal(platformState(store).audits.filter(row => row.action === 'register_enterprise').length, 1);
+    assert.equal(platformState(store).workspaces.length, 1);
+    const authHeaders = { Authorization: `Bearer ${registered.token}` };
+    const me = await fetch(`${base}/api/auth/me`, { headers: authHeaders });
+    assert.equal((await me.json() as { access: { status: string } }).access.status, 'pending');
+    assert.equal((await fetch(`${base}/api/customers`, { headers: authHeaders })).status, 403);
+    const revision = () => platformState(store).revision;
+    const plan = await savePlatformPlan(store, owner.id, revision(), { code: 'trial', features: ['crm'], seatLimit: 2, durationDays: 7, published: true }, 'synthetic grant');
+    await updatePlatformEnterprise(store, owner.id, revision(), registered.user.teamId, { status: 'active', planVersionId: plan.id, startsAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 86400000).toISOString() }, 'manual grant');
+    assert.equal((await fetch(`${base}/api/auth/me`, { headers: authHeaders })).status, 401);
+    const login = await post('/api/auth/login', { email: registration.account, password: registration.password });
+    assert.equal(login.status, 200);
+    const granted = await login.json() as { token: string; access: { status: string; canExecute: boolean; features: string[] } };
+    assert.equal(granted.access.status, 'active'); assert.equal(granted.access.canExecute, true); assert.deepEqual(granted.access.features, ['crm']);
+    assert.equal((await fetch(`${base}/api/customers`, { headers: { Authorization: `Bearer ${granted.token}` } })).status, 200);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    setStore(previous);
+    if (previousFlag === undefined) delete process.env.SHENSI_REQUIRE_PLATFORM_OWNER; else process.env.SHENSI_REQUIRE_PLATFORM_OWNER = previousFlag;
+  }
+});
 
 test('platform MFA and enterprise lifecycle use isolated accounts; legacy customer admin has no platform access', async () => {
   const previous = getStore();
@@ -47,6 +94,10 @@ test('platform MFA and enterprise lifecycle use isolated accounts; legacy custom
     assert.ok(!JSON.stringify(overview.body).includes('secretEncrypted'));
     const created = await command('/enterprises', { name: 'Synthetic Enterprise', contact: '', account: 'synthetic-customer', password: 'synthetic-password' });
     assert.equal(created.status, 201);
+    const member = await command('/accounts', { workspaceId: created.body.id, name: 'Synthetic member', account: 'synthetic-member', password: 'synthetic-password', role: 'sales' });
+    assert.equal(member.status, 201);
+    assert.equal(member.body.role, 'sales');
+    assert.ok(!JSON.stringify(member.body).includes('password'));
     const customer = store.users.find(user => user.teamId === created.body.id)!;
     let customerToken = signToken(publicUser(customer));
     assert.equal((await request('/api/customers', undefined, 'GET', customerToken)).status, 403);
@@ -58,6 +109,17 @@ test('platform MFA and enterprise lifecycle use isolated accounts; legacy custom
     assert.equal((await request('/api/customers', undefined, 'GET', customerToken)).status, 401);
     customerToken = signToken(publicUser(customer));
     assert.equal((await request('/api/customers', undefined, 'GET', customerToken)).status, 200);
+    const reset = await command(`/accounts/${member.body.id}/password-reset`, {});
+    assert.equal(reset.status, 200);
+    assert.equal(typeof reset.body.token, 'string');
+    const auditSearch = await request('/api/platform/v1/overview?q=issue_password_reset');
+    assert.equal(auditSearch.body.auditCount, 1);
+    assert.ok(!JSON.stringify(auditSearch.body).includes(reset.body.token));
+    // Anonymous bearer-token recovery: no operator cookie or customer session.
+    const recovery = await fetch(`${base}/api/auth/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: reset.body.token, password: 'replacement-password' }) });
+    assert.equal(recovery.status, 200);
+    const replay = await fetch(`${base}/api/auth/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: reset.body.token, password: 'replacement-password' }) });
+    assert.equal(replay.status, 400);
     assert.equal((await command(`/accounts/${customer.id}`, { action: 'disable' }, 'PATCH')).status, 200);
     assert.equal((await request('/api/auth/me', undefined, 'GET', customerToken)).status, 401);
     assert.equal((await command(`/accounts/${customer.id}`, { action: 'enable' }, 'PATCH')).status, 200);

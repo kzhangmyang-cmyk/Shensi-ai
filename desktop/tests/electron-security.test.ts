@@ -15,6 +15,7 @@ test("main window has the required locked-down preferences and denies external n
   const created = createMainWindow({
     localOrigin: "http://127.0.0.1:45678",
     preloadPath: "/app/preload.js",
+    openExternal: async () => undefined,
     BrowserWindow: class { constructor(value: Record<string, any>) { options = value; return window as any; } } as any
   });
   assert.equal(created, window);
@@ -35,4 +36,38 @@ test("main window has the required locked-down preferences and denies external n
   prevented = false;
   assert.doesNotThrow(() => handlers.get("will-navigate")!({ preventDefault() { prevented = true; } }, "not a valid URL"));
   assert.equal(prevented, true);
+});
+
+test("user-facing HTTPS links open in the macOS default browser without navigating the app", async () => {
+  const handlers = new Map<string, (...args: any[]) => any>();
+  const opened: string[] = [];
+  createMainWindow({
+    localOrigin: "http://127.0.0.1:45678",
+    preloadPath: "/app/preload.js",
+    openExternal: async (url: string) => { opened.push(url); },
+    BrowserWindow: class { constructor() { return {
+      webContents: {
+        setWindowOpenHandler(handler: (...args: any[]) => any) { handlers.set("open", handler); },
+        on() {},
+      },
+      loadURL: async () => undefined,
+    } as any; } } as any,
+  });
+  const open = handlers.get("open")!;
+  for (const url of [
+    "https://www.douyin.com/video/123",
+    "https://help.aliyun.com/zh/model-studio/get-api-key",
+  ]) assert.equal(open({ url }).action, "deny");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(opened, [
+    "https://www.douyin.com/video/123",
+    "https://help.aliyun.com/zh/model-studio/get-api-key",
+  ]);
+  for (const url of [
+    "javascript:alert(1)", "file:///etc/passwd", "http://example.com/",
+    "https://127.0.0.1/private", "https://localhost/private",
+    "https://user:pass@example.com/private", "http://127.0.0.1:45678/#settings",
+  ]) assert.equal(open({ url }).action, "deny");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(opened.length, 2);
 });

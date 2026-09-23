@@ -159,8 +159,8 @@ test("macOS packaging scripts are fail-closed and use the owned output tree", ()
     status?: string;
     source?: string;
   };
-  assert.equal(iconApproval.status, "temporary");
-  assert.equal(iconApproval.source, "icon-source.svg");
+  assert.equal(iconApproval.status, "product-owner-approved");
+  assert.equal(iconApproval.source, "icon-source.png");
   assert.match(read("desktop/scripts/check-package-environment.mjs"), /product-owner-approved/u);
 });
 

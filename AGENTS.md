@@ -44,3 +44,14 @@
 ## Documentation synchronization
 Behavior, contracts, data structures, interactions, deployment, and module
 responsibilities must update their current documentation in the same change.
+
+## Private GitHub source backup
+- After each verified product change, synchronize the latest rebuildable source to
+  the existing private `kzhangmyang-cmyk/Shensi-ai` repository on `main`.
+- Use its curated source snapshot as the publishing workspace. Do not push this
+  development checkout wholesale: it has local runtime data and a separate Git
+  history. Review changed paths and run secret/data exclusion checks first.
+- Never include environment secrets, account notes, customer files, databases,
+  browser profiles, logs, screenshots of real data, build outputs or installers.
+- Report the pushed revision only after GitHub confirms it; a local copy or
+  unpushed commit is not a completed backup.

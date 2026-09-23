@@ -1,6 +1,7 @@
 # Shensi macOS 桌面客户端架构
 
 本文档是 macOS 桌面版的当前执行规范。Git 历史和外部浏览器取证见 `macos-external-browser-audit.md`。
+客户无需安装 Chrome；内置、随包和系统默认浏览器的职责及 V1.0 跨浏览器验收见 [浏览器兼容边界](browser-compatibility-acceptance.md)。
 
 ## 产品边界
 
@@ -280,13 +281,15 @@ pnpm desktop:verify:mac:release
 pnpm desktop:local
 ```
 
-`desktop:build:renderer` 构建最新前端并验证桌面产物不包含可执行的 remote-canvas/noVNC 链。打包入口的 production build-manifest producer 尚未接入，不应使用本阶段源码替换已安装 App 或宣称可安装验收；Main 不会为缺失清单降级。后续打包验收时，开发包接受真实、准确、无凭据的 HTTPS Origin，或带显式端口的 `http://127.0.0.1:<port>`；release 只接受真实 HTTPS。所有模式均拒绝 `.example`、`.invalid`、`.test`、`.localhost` 等占位主机。保留的打包命令为：
+`desktop:build:renderer` 构建最新前端并验证桌面产物不包含可执行的 remote-canvas/noVNC 链。打包入口的 `afterPack` 在签名前生成 `desktop-build-manifest.json`，记录源码、Renderer、Main、Sidecar 和运行配置摘要；包验证器要求 Main 能读取该清单，缺失时不降级。开发包接受真实、准确、无凭据的 HTTPS Origin，或带显式端口的 `http://127.0.0.1:<port>`；release 只接受真实 HTTPS。所有模式均拒绝 `.example`、`.invalid`、`.test`、`.localhost` 等占位主机。本机隔离验收命令为：
 
 ```bash
-SHENSI_REMOTE_ORIGIN=http://127.0.0.1:5608 pnpm desktop:package:mac
+SHENSI_REMOTE_ORIGIN=http://127.0.0.1:5680 pnpm desktop:package:mac
 ```
 
-该命令只清理任务自有的 `dist/desktop/macos`、`desktop/.build/sidecar` 和 staging 目录，随后生成当前宿主架构的 `Shensi-0.1.0-<arch>.dmg`、同名 ZIP、解包后的 app 和 `SHA256SUMS`。验证器检查 DMG 挂载结构、ZIP 完整性、校验和、所有 Mach-O 的宿主架构、具体 Chromium executable、Sidecar/CA/metadata/bundled Node、runtime config、asar 入口，并拒绝远程显示服务、secret、用户 Profile、Playwright `.links`，以及任意不超过 2 MiB、无 NUL 且为有效 UTF-8 的文件内容或符号链接目标中出现的具体 `/Users/<user>/` 或 `/home/<user>/` 开发机路径。包本身位于 `/Users/...` 不构成内容泄漏；Playwright 的通用 `/home/$Username/` WSL 脚本也不是开发机路径。脚本只支持 Darwin `arm64` 或 `x64` 宿主；当前实际构建与验证证据只有 arm64。
+该命令将已有 `dist/desktop/macos` 移至带时间戳的 `.previous-*` 同级目录，保留恢复能力；重建任务自有的 `desktop/.build/sidecar` 和 staging 目录，随后生成当前宿主架构的 `Shensi-0.1.0-<arch>.dmg`、同名 ZIP、解包后的 app 和 `SHA256SUMS`。验证器检查 DMG 挂载结构、ZIP 完整性、校验和、所有 Mach-O 的宿主架构、具体 Chromium executable、Sidecar/CA/metadata/bundled Node、runtime config、asar 入口，并拒绝远程显示服务、secret、用户 Profile、Playwright `.links`，以及任意不超过 2 MiB、无 NUL 且为有效 UTF-8 的文件内容或符号链接目标中出现的具体 `/Users/<user>/` 或 `/home/<user>/` 开发机路径。包本身位于 `/Users/...` 不构成内容泄漏；Playwright 的通用 `/home/$Username/` WSL 脚本也不是开发机路径。脚本只支持 Darwin `arm64` 或 `x64` 宿主；当前实际构建与验证证据只有 arm64。
+
+环回地址测试包使用 `Application Support/Shensi Test/packaged-local`，Chromium 会话位于其 `browser-session` 子目录，不复用正式版或源码开发版的资料。5680 仅为隔离验收 API，不是客户部署地址；后端必须精确准入该包的清单 SHA-256。生成清单不等于签名或客户端可信证明，也不代表安装、注册、人工开通或跨机器验收已经通过。
 
 包验证器还要求 `Contents/Resources/audio/startup-greeting-qwen35-tina-v1.wav`
 存在，并校验固定字节数、RIFF/WAVE 头和已验证样本的精确 SHA-256；缺失、
@@ -304,7 +307,7 @@ pnpm desktop:verify:mac
 
 这会由宿主检测选择 electron-builder `--x64`，并必须通过与 arm64 相同的 frozen Sidecar、具体 Chromium、资源/路径、ZIP/DMG、Mach-O 架构和校验和门禁。公开发布还必须在该 Intel 环境配置真实 Developer ID 与 notarytool Keychain profile、替换并审批正式图标，然后运行 `pnpm desktop:package:mac:release` 和 `pnpm desktop:verify:mac:release`；不能用 arm64 产物或 Rosetta 运行结果代替 x64 产物证据。
 
-`desktop/build/icon-source.svg` 是明确的临时黑/绿 Shensi 图标设计。当前 `generate-macos-icon.mjs` 不渲染该 SVG；它先校验 SVG 的固定哈希，再以脚本中硬编码的像素规则和 PNG 编码生成 iconset，最后由系统 `iconutil` 生成 `build/icon.icns`。因此只替换 SVG 或只更新哈希不会替换输出图标。正式素材流程是：产品负责人提供并批准主素材；实现者同时把生成器改为实际读取/渲染该素材，更新源文件完整性校验，重建并人工检查 16–1024 px 的 alpha、清晰度和品牌一致性；最后把 `icon-approval.json` 的 `source` 指向真实输入并将 `status` 改成 `product-owner-approved`。完成这些步骤前发布门禁不得关闭。
+`desktop/build/icon-source.png` 是用户指定青蓝轨道三角 Logo 的高清 imagegen 图稿。`icon-approval.json` 记录用户授权、源文件和精确 SHA-256，素材状态为 `product-owner-approved`，不代表应用签名或发布验收通过。`generate-macos-icon.mjs` 先校验素材摘要及至少 1024 像素的正方形 PNG，再通过 macOS `sips` 从实际素材生成 16–1024 px 的 iconset，最后用 `iconutil` 生成 `build/icon.icns`；没有另行硬编码的 S 图案。修改素材须同步审阅审批记录，不能只绕过摘要检查。高清源为深色不透明背景，不宣称透明底。
 
 ## 发布边界
 
@@ -326,11 +329,11 @@ release hook 在任何 notarytool upload 前先对最外层 app 执行 `codesign
 | --- | --- | --- | --- |
 | `com.apple.security.cs.allow-jit` | Electron app/main 与普通主 Helper/Renderer/GPU、Playwright driver Node、Chromium app/main/Renderer/GPU | 这些可执行角色承载 V8/JIT；electron-builder 26.15.3 的本地类型说明明确指出 arm64 Electron 20+ 需要 JIT entitlement，锁定的 osx-sign 也只给 Renderer/GPU 默认 `allow-jit` | 正式 Developer ID 包必须分别启动 Electron Renderer、Sidecar driver Node 和可见 Chromium 才能评估进一步收紧；Framework 与 Plugin Helper 在没有具体错误证据时保持空 |
 
-当前机器 `security find-identity -v -p codesigning` 返回 0 个有效身份，因此 release 命令按设计在预检阶段停止；没有签名、公证、Gatekeeper 通过、hardened runtime 或上述最小 entitlement 对真实运行影响的发布证据。正式证书环境若出现运行错误，只能根据具体失败对象追加最小权限并重新完成全套门禁，不得预先恢复宽 entitlement。发布前还必须按真实素材流程替换图标，在目标架构上重打包，并在安装版中实测认证读取与一个 CSRF 写请求。
+当前机器 `security find-identity -v -p codesigning` 返回 0 个有效身份，因此 release 命令按设计在预检阶段停止；没有签名、公证、Gatekeeper 通过、hardened runtime 或上述最小 entitlement 对真实运行影响的发布证据。正式证书环境若出现运行错误，只能根据具体失败对象追加最小权限并重新完成全套门禁，不得预先恢复宽 entitlement。发布前仍须在目标架构上重打包，并在签名安装版中实测认证读取与一个 CSRF 写请求。
 
 ## 源码验证与发布边界
 
-Task 9 源码已通过 203 项桌面 TypeScript 测试、4 项构建清单 producer 测试、6 项 frozen-entrypoint 测试，以及 Renderer/Main 构建和类型检查。浏览器测试使用当前获客页面与模拟数据，验证选择、焦点、滚动和节点稳定。生产构建清单、完整 disposable MySQL 矩阵及真实双 Mac 验收仍未完成；本阶段没有生成安装包或替换 `/Applications/Shensi.app`。当前总进度以 `../PROJECT_STATUS.md` 为准。
+Task 9 的历史源码验证包括 203 项桌面 TypeScript 测试、4 项构建清单 producer 测试、6 项 frozen-entrypoint 测试，以及 Renderer/Main 构建和类型检查。浏览器测试使用当前获客页面与模拟数据，验证选择、焦点、滚动和节点稳定。打包清单 producer 与环回测试资料隔离已有针对性测试；最新安装包、完整 disposable MySQL 矩阵及真实双 Mac 验收必须分别记录结果，不能由源码测试推断。当前总进度以 `../PROJECT_STATUS.md` 为准。
 
 ### 历史开发包验收（归档记录）
 

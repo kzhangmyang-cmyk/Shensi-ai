@@ -42,12 +42,44 @@ export interface PlatformAdminState {
   plans: PlatformPlan[];
   workspaces: PlatformWorkspace[];
   audits: PlatformAudit[];
+  passwordResets?: { tokenHash: string; userId: string; expiresAt: string; authVersion: number }[];
 }
 export function emptyPlatformState(): PlatformAdminState {
   return { revision: 0, memberships: [], workspaces: [], audits: [], plans: planCodes.map(code => ({ id: `${code}:1`, version: 1, code, features: [], seatLimit: null, durationDays: null, published: false })) };
 }
 
 export type PlatformFeature = typeof platformFeatures[number];
+export interface CustomerAccess {
+  status: 'unmanaged' | 'pending' | 'suspended' | 'unconfigured' | 'scheduled' | 'active' | 'expired';
+  workspaceId: string;
+  workspaceName: string | null;
+  planCode: typeof planCodes[number] | null;
+  startsAt: string | null;
+  expiresAt: string | null;
+  features: PlatformFeature[];
+  canRead: boolean;
+  canExecute: boolean;
+  checkedAt: string;
+}
+
+// Customer-facing commercial summary only. Business role and ownership checks remain separate.
+export function summarizeCustomerAccess(state: PlatformAdminState, workspaceId: string, now = Date.now(), updating = false): CustomerAccess {
+  const base: CustomerAccess = { status: 'unconfigured', workspaceId, workspaceName: null, planCode: null, startsAt: null, expiresAt: null, features: [], canRead: false, canExecute: false, checkedAt: new Date(now).toISOString() };
+  if (updating) return base;
+  const workspace = state.workspaces.find(row => row.id === workspaceId);
+  if (!workspace) return { ...base, status: 'unmanaged', features: [...platformFeatures], canRead: true, canExecute: true };
+  base.workspaceName = workspace.name;
+  base.startsAt = workspace.startsAt; base.expiresAt = workspace.expiresAt;
+  const plan = state.plans.find(row => row.id === workspace.planVersionId && row.published);
+  if (plan) { base.planCode = plan.code; base.features = [...plan.features]; }
+  if (workspace.status !== 'active') return { ...base, status: workspace.status };
+  const starts = Date.parse(workspace.startsAt ?? ''), ends = Date.parse(workspace.expiresAt ?? '');
+  if (!plan || !Number.isFinite(starts) || !Number.isFinite(ends) || starts >= ends) return base;
+  if (now < starts) return { ...base, status: 'scheduled' };
+  if (now >= ends) return { ...base, status: 'expired', canRead: true };
+  return { ...base, status: 'active', canRead: true, canExecute: true };
+}
+
 export function evaluatePlatformAccess(state: PlatformAdminState, workspaceId: string, feature: PlatformFeature | null, operation: 'read' | 'execute', now: number) {
   const workspace = state.workspaces.find(row => row.id === workspaceId);
   // Explicitly unmanaged existing customers preserve their current permissions.

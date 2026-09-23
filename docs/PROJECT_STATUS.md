@@ -1,5 +1,86 @@
 # Project Status
 
+## 2026-09-23 — 公网后台准备与抖音代码核验
+
+- 本轮未修改抖音获客、登录、采集或发送实现，也未触发真实抖音任务、评论或私信。以当前开发代码运行后端抖音获客测试 108 通过/1 条环境跳过、桌面登录 50/50、采集适配器 20/20、桌面发送与恢复 58/58，以及前端获客浏览器运行时自测通过；这些结果不等同于实时平台交付验收。
+- 云部署静态检查测试 2/2 通过，但没有正式产品域名、常驻境外主机与正式持久数据库配置。旧 Render API 联调地址本轮两次健康请求分别在 20 秒与 75 秒超时，未确认其当前可用，不将旧联调环境视为线上后台；未创建安装包或迁移真实客户数据。
+
+
+## 2026-09-23 — 官网 Cloudflare Pages 首次公网部署
+
+- `shensi-ai` Pages 项目已通过直接上传发布静态官网，公开入口为 `https://shensi-ai-c4y.pages.dev/`。Cloudflare 显示 51/51 文件上传完成及部署成功；从公网请求首页、星盘产品页和联系页均返回 HTTP 200，浏览器已读取首页正文与导航。
+- 此部署仅包含官网静态文件；联系页没有启用咨询提交，产品、客户账号服务与运营后台仍未部署到公网。Render/Aiven 旧环境仅为 API 联调，不等同于当前后台生产部署；V1.0 安装包尚未生成。
+
+
+## 2026-09-23 — 桌面端免 Chrome 浏览器边界
+
+- 抖音桌面登录继续使用应用管理的 Playwright Chromium 独立 Profile，企业查询优先使用 Electron 内置爱企查窗口；两者均不要求客户安装 Chrome，也不复用 Safari、Edge、Firefox 的既有 Cookie。Chrome 企业查询扩展仍是可选补充，前端已明确标示。
+- Electron 主窗口的公开 HTTPS 新窗口链接交由系统默认浏览器打开，并继续拒绝应用内部子窗口；本地地址、IP、文件及脚本 URL 不外开。Chromium、Firefox、WebKit 网站自动化冒烟已覆盖桌面/移动导航与咨询失败提示；原生 Safari、Edge、安装包与公网账号登录仍需真实环境验收，不能据此宣称全部浏览器兼容。
+- 代码边界、手动验收和未完成门禁见 `docs/desktop/browser-compatibility-acceptance.md`；未生成新安装包或发布公网。
+
+## 2026-09-23 — 官网跨浏览器静态包验收
+
+- `website/dist-pages/` 在本机 Pages 模拟服务中经 Chromium、Firefox、WebKit 的 1280×720 桌面与 390×844 手机宽度验证：首页滚动推进与回退、产品总览到详情、静态咨询页无表单且标明未开放、减少动态效果后标题及内容可读、无横向溢出与页面脚本错误。桌面 Safari 另经实际界面验证滚动、导航、详情、静态咨询和关闭动效。尚未以真实 iPhone Safari 或 Edge 实机验收；此项不代表公网发布。
+
+## 2026-09-23 — Cloudflare境外临时上线边界
+
+- 已核对官方Pages、Workers、Tunnel与Access文档，并把最低改动的官网静态托管、产品/后台同源常驻服务、咨询API、管理员边缘防护、阿里云迁移前提以及“外网真实验收→桌面包验收→正式V1.0”的门禁写入`docs/operations/account-admin-cloud-runbook.md`。Cloudflare账号已在浏览器登录，但仍无已确认的正式域名、境外常驻主机/持久MySQL、SMTP及运营Access身份；没有公网产品/后台部署、购买或真实客户数据迁移。Cloudflare Quick Tunnel和本机5680/5681不作为生产入口。
+
+## 2026-09-23 — 本机运营管理员
+
+- 按用户明确要求，在专用`shensi_admin_preview`创建`adminkamiran`平台operator账号及独立TOTP，账号/加密验证器/审计同事务持久化。真实浏览器密码+MFA登录、平台overview返回operator/HTTP200验证通过，并退出验证会话。私密验证器设置仅存`.runtime/admin-preview/`，文档不记录密码或密钥。入口仍为`http://localhost:5681/admin.html`，不属于公网或真实客户生产库；本次无产品源码改动。
+
+## 2026-09-22 — 官网内页与完整导航
+
+- 保留蓝白山水、玻璃导航、原子开场与五业务粒子特色，扩充到40个中英预渲染页面：新增产品总览、智能获客/智能体/财务协同/星盘四产品详情，以及三类洞察专题方向页。
+- 五业务详情各有服务路径、拟议输出、方案关联和FAQ；数智/沙盘关联产品。产品卡片、首页产品行、洞察专题入口、语言切换和需求咨询连接完整。方案与关于页补充合作路径；没有虚构文章或真实产品入口。
+- 构建校验40页中1000个内部链接/锚点；HTTP逐页40/40返回200及完整正文。IAB桌面1280×720和手机390×844各检查40页，无空白/横向溢出/框架报错，控制台无error/warn。实点产品→星盘详情→FAQ→咨询（decision正确传入）、洞察→财税专题→对应英文页、手机菜单→业务总览→外贸详情均通过。
+- `pnpm test`、`pnpm build`、最终 `pnpm website:build`、context与diff检查通过。日志 `/tmp/shensi-pages-{test,full-build,final-build}.log`，截图 `/tmp/shensi-pages-{desktop,mobile}.png`。仅本机5691，SMTP真实投递及正式文章仍未开通，未发布公网。
+
+## 2026-09-22 — 官网复用原品牌开场动画
+
+- 已定位应用原开场源码 `frontend/src/desktop/startup-splash.ts/.css` 和历史HTML概念预览；没有找到独立视频文件。独立原预览可在5692运行，官网仍使用5691。
+- 官网 `website/src/brand-entry.ts/.css` 复用三原子轨迹、旋转光迹、核心扩散与Logo关键帧，蓝白配色；`motion.ts` / `intro.css` 以滚动推进或回退，末尾显露首页文案再自然进入五业务。没有修改应用启动或trial。
+- IAB验收1280×720桌面、390×844手机：滚动360px的原子变换在上滑回到360px后完全一致；开场结束标题显示、继续滚动进入五业务；动态关闭/重启可用，手机无横向溢出。修复手机舞台偏右裁切；控制台无error/warn。系统reduced-motion代码路径保留，本轮实测同等手动静态开关，没有改系统设置。
+- `pnpm test`、`pnpm build`、`./scripts/context-check`、`git diff --check`通过；最终视觉修复后 `pnpm website:build`再次通过。日志 `/tmp/shensi-entry-{test,build,focused-build}.log`，截图 `/tmp/shensi-entry-{desktop,mobile}.png`。仅本机预览，未公网发布。
+
+## 2026-09-22 — 蓝白双语品牌官网本机首版
+
+- 独立 `website/` 保留五大业务（数智、沙盘、财智、智库、外贸）、企业需求映射、产品概念展示、待发布洞察、信任说明、咨询及中英文路由；新增隐私说明，共24个预渲染页面。当前执行入口、SMTP与上线条件见 `../website/README.md`。
+- 蓝白山水/云雾首屏、完整品牌Logo、玻璃导航、三轨道原子聚合、核心脉冲、分阶段入场已实现。五业务桌面滚动驱动3200粒子形态切换及鼠标扰动；手机普通内容流、系统reduced-motion和手动动态开关保留可读内容。数智/沙盘文案对应现有获客、智能体、企业资料与星盘能力，不伪造产品接入或经营成果。
+- 独立官网静态/咨询服务为 `pnpm website:serve` 的本机5691，开发预览为 `pnpm website:dev` 的5690；均不是客户trial入口。表单含共享校验、隐私同意、蜜罐、来源白名单、16KiB上限、连接IP限流和SMTP真实回执。SMTP未配置，浏览器实测503提示且保留输入，无邮件发出；CRM仅预留注入接口。
+- IAB实测24个构建路由、1440×900/1280×720桌面及390×844手机；320px补查无横向溢出。确认菜单、业务切换、需求→组合→咨询参数、语言路由、无动态可读布局；最终页面无脚本error/warn。设计与截图对照见 `../website/design/README.md`，已修复背景对比过强和SVG网格误填充。
+- 最终 `pnpm test`（含官网3项接口测试）、`pnpm build`（含24页预渲染）、context及diff检查通过。日志 `/tmp/shensi-website-final-{test,build}.log`。未知构建路径HTTP404；公开域名未配置时robots/noindex禁索引，不编造canonical。
+- 尚未公网部署。正式域名、SMTP真实投递、二维码/直接联系方式、隐私责任人与保存期限、CRM和真实产品界面接入仍待配置/验收。没有替换客户工作台、发布trial、操作真实数据库或重打桌面安装包。
+
+## 2026-09-22 — 主题开发版临时隔离准入
+
+- 为主产品任务源码Electron主题视觉验收，5680临时仅exact准入`edc15856d4288cd93f5fe6ff19fa81a6db84c7edcc62952486a0d24e940b5016`。重启后实际进程身份及四outreach=false断言通过，MySQL健康HTTP200；不创建业务数据、不改5638、不重打包。验收结束后恢复下面Logo包指纹，尚待主产品任务通知结束。
+
+## 2026-09-22 — 青蓝Logo测试包隔离准入
+
+- 5680当前仅以exact准入`0c0a7c126e255cc72901cc0a50adc90db44172dde989120bd1e8e4275d367f04`。主产品任务报告新Logo包三份2694 entries检查通过；本任务已替换旧准入、重启专用runtime，并从实际后端进程断言核对新指纹及四个outreach开关false，MySQL健康HTTP200。已通知继续原生验收；未改真实5638或客户数据库。下面记录的旧包指纹只用于对应历史验收证据。
+
+## 2026-09-22 — 客户注册与人工授权浏览器闭环
+
+- 修复提示后的测试包当前仅在5680以exact准入`06bf2d0eee33df666b6a624337d1d9a86ca3a492cf28603fe9ab1f4793d4e11e`，已替换旧指纹并从重启后实际进程确认，四外联开关false、MySQL健康200。主产品任务报告最终包原生重开保留登录并读取PKG0922，新增`PKGFIX0922 / Final Package Fixture`保存后无演示toast。本任务只读SQL确认两条产品归属同一测试企业，新记录`catalog-item-da853eca-6690-4de7-ad92-af7f8e29ebd7`，证据`.runtime/admin-preview/artifacts/package-sql-result.json`。本机隔离测试包注册/人工开通/重新登录/业务保存/重开读取链路闭合；未改真实5638，不代表公网、正式签名或跨机器验收。
+- 包内首次注册发现隔离CORS未包含桌面网关重写后的5680 upstream Origin，返回403；仅补固定`http://127.0.0.1:5680`并重启专用runtime。经过真实55624桌面网关的空参数请求进入注册校验返回400，直接携带任意环回Origin仍403；未代客户注册。隔离环境2项红绿及最终根test/build/context/diff复验通过（CPJ `job-mubfx10c-24765ed2`，exit0）。
+- 主产品任务实际包内注册`pkgaccept0922`后，本任务在运营后台UI为其企业`workspace_a1e4c8f9-6a43-471e-8782-9a5ebb294322`开通合成trial:4（2席位/明确7天）。包内刷新提示重新登录、登录进入工作台并保存`PKG0922 / Package Acceptance Fixture`；本任务只读SQL确认`catalog_items`记录`catalog-item-e37f5ce5-8e8e-43d2-b291-5f35f3ef809e`真实存在且企业归属准确。旧演示submit兜底同时显示误导toast，由主产品任务负责修复/重打包及新包复验；该产品保存证据不等于最终修复包已验收。
+- auth注册/登录/me增加自身企业`CustomerAccess`摘要（生成契约）；客户端待开通/冻结/未配置/未生效显示阻断面板，过期显示只读提醒，支持手动刷新及焦点节流核验。授权改变继续撤销旧session，明确要求重新登录，不以本地状态绕过后端。
+- 注册改用统一串行事务，用户、pending企业、审计同提交，失败回滚；`SHENSI_REQUIRE_PLATFORM_OWNER=true`时缺有效owner拒绝注册。默认兼容旧环境，隔离预览及新cloud配置强制门禁。针对后端25项、会话focused和类型检查通过。
+- 真实浏览器8项注册闭环及专用MySQL核对通过：注册UI建立pending、后台搜索并人工授权、刷新要求重新登录、客户UI真实业务写入、冻结提示及拒绝、到期只读、续期恢复、停用登录提示/恢复；第二独立注册且已开通企业无法读取或修改第一企业客户。结果`.runtime/admin-preview/artifacts/registration-result.json`、同目录`registration-*.png`。最终根build/test、环境与部署静态检查、context及diff通过（CPJ `job-mubfjg30-d7c8a63c`，exit0）；5680健康和5681后台均HTTP200。安装包内链路仍由主产品任务独立验收，不以浏览器结果替代。
+- 常驻单API/外部持久MySQL/TLS/受限运营入口配置见`deploy/compose.cloud.yaml`及`operations/account-admin-cloud-runbook.md`，默认仅环回绑定，不代表已公网部署。静态配置2项及真实Nginx容器`nginx -t`通过；修复Backend Dockerfile漏带平台生成类型。远程备份脚本TLS适配仍需验证，文档明确使用受管快照/PITR并保留新空库恢复要求。
+- 测试安装包/API地址/独立资料目录由主产品任务处理；本任务仅为专用5680加入显式manifest exact准入能力，四外联开关保持false。真实库、5638和独立GitHub备份未动。正式服务器/域名/云账户未确定，未购买或部署。
+- 主产品任务报告arm64测试包/ZIP/DMG构建及2694 entries验证通过，manifest为`8c901f879dfbed8a24d330a4882b31c2b5ab2e74744d0ae7b0d73a2351275e16`。专用5680已重启并从运行进程核对exact仅准入该指纹、四外联开关false，健康检查MySQL/HTTP200。不代表正式签名或跨机器交付；重打包后的新指纹须另行加入隔离准入。
+
+## 2026-09-21 — 账号运营闭环与持久开发入口
+
+- 独立MySQL开发入口为`http://localhost:5681/preview-access`，后台`/admin.html`、客户应用`/`。专用带归属标签的容器与私有配置持久保留；仅合成账号/数据，全量真实后端且外联开关关闭。启动/停止与环境隔离见`DEPLOYMENT.md#isolated-admin-development`。未初始化真实运营者、改真实桌面数据库、重启5638服务、发布trial或部署公网。
+- 企业成员创建（待开通可先准备成员、授权及恢复检查席位）、一次性密码恢复（15分钟、仅存哈希、消费/撤销/审计同事务）、离线运营MFA恢复、操作日志搜索已实现。业务409保留“席位已满/账号重复”，仅revision变化提示并发冲突。
+- 实际浏览器10项闭环通过：运营密码+MFA、企业/成员创建、待开通拒绝、席位拒绝保留输入、授权后客户登录并用真实客户页面保存业务数据、停用/恢复及旧会话失效、企业冻结/到期只读且页面写入拒绝、续期、一次性改密和重放拒绝、审计查询。关键写入已核对专用MySQL。结果`.runtime/admin-preview/artifacts/browser-result.json`及同目录截图；企业`合成验收企业-muba624s`。桌面1440及窄屏390无页面横向溢出、无浏览器脚本错误。
+- 针对账号22项、UI4项、隔离环境1项通过。真实离线MFA恢复6项通过：恢复前会话有效、CLI提交、重启后企业/套餐/账号密码/客户/审计保留、旧普通及运营会话失效、旧验证码拒绝、新验证码浏览器登录成功。结果`.runtime/admin-preview/artifacts/mfa-recovery-result.json`及`mfa-recovered-admin.png`。最终根`pnpm test`、`pnpm build`、context及diff通过（CPJ `job-muba9nf4-47dd3ec2`，exit 0）；构建仍有既有大chunk提示。恢复后的后台和登录说明入口均HTTP200，专用预览保持运行。
+- 仍待生产交付：老客户显式纳管、运营成员管理、审计前后值/导出、真实商业套餐确认、固定HTTPS常驻部署与受管云迁移/回退验收。仅合成套餐设2席位/7天供测试，不代表试用版商业规则。独立GitHub备份及原remote保持不变。
+
 ## 2026-09-21 — 后台入口与桌面身份清单兼容
 
 - `frontend/admin.html` 按共享Vite真实构建输入纳入desktop-app必需文件及根目录分类，修复`MANIFEST_UNCLASSIFIED_FILE`导致的`desktop_dev_build_identity_invalid`。不放宽未知文件/缺失输入门禁。
@@ -14,7 +95,7 @@
 - 真实MySQL隔离演练通过：独立临时容器内4个合成账号，重启持久化、审计INSERT失败时账号回滚、AES-GCM加密备份恢复到另一空库并核对账号/审计/平台状态。临时容器/卷与备份已清理；日志`/tmp/shensi-admin-mysql-acceptance.log`。这不是阿里云/受管库或真实数据迁移验收。
 - 宝塔源码包纳入`admin.html`；2项打包验证通过，日志`/tmp/shensi-admin-final-package.log`。容器前端仍使用完整标准构建，未发布包到任何环境。
 - 四页DOM交互与1280/390宽度合成页面验收通过；截图`/tmp/shensi-admin-desktop.png`、`/tmp/shensi-admin-mobile.png`为退出按钮加入前的布局证据。没有重启源码客户端、发布trial、初始化真实运营者或购置云资源；源码不代表运行中界面已同步。
-- 尚未交付：老客户纳管、企业成员创建、客户一次性密码恢复、运营成员管理/MFA恢复、审计前后值与筛选导出、真实固定域名常驻部署及云迁移切换验收。当前为首增量，不宣称收费生产可用。OTPAuth9.5.2/MIT已锁定并同步来源/许可文档。
+- 生产交付缺口：老客户纳管、运营成员管理、审计前后值与专项筛选导出、真实固定域名常驻部署及云迁移切换验收。不宣称收费生产可用。OTPAuth9.5.2/MIT已锁定并同步来源/许可文档。
 
 ## 2026-09-21 — 账号运营后台与境外上线缺口检查
 

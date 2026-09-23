@@ -1,5 +1,10 @@
 # Deployment
 
+For the single-instance persistent account service, fixed HTTPS, private operator
+initialization, backup and rollback, use
+[account cloud runbook](operations/account-admin-cloud-runbook.md) and
+`deploy/compose.cloud.yaml`. This configuration is staged, not a deployed service.
+
 ## Platform operator bootstrap
 
 The browser console is `/admin.html` in the standard frontend build and uses
@@ -21,8 +26,72 @@ credentials. Restart the API and verify MFA at `/admin.html`.
 Preserve stable `AGENT_JOB_ENCRYPTION_KEY` and `JWT_SECRET` in secret storage.
 The former encrypts MFA along with existing protected payloads; never rotate
 it as a recovery shortcut. Owner initialization makes new registrations pending;
-existing unmanaged customers remain unchanged. Operator MFA recovery remains a
-release blocker. Source tests did not initialize a real owner.
+existing unmanaged customers remain unchanged. Source tests did not initialize a real owner.
+
+For lost operator MFA, stop the API and use the same production database and
+stable keys with `SHENSI_PLATFORM_RECOVERY_CONFIRM_DATABASE` (exact database
+name), `SHENSI_PLATFORM_RECOVERY_USER_ID`, privately supplied base32
+`SHENSI_PLATFORM_RECOVERY_TOTP_SECRET`, and `SHENSI_PLATFORM_RECOVERY_REASON`.
+Run `pnpm --dir backend exec tsx src/platform-admin-recover-mfa.ts` with
+`NODE_ENV=production`. The CLI requires the exclusive API lock and atomically
+replaces MFA, revokes both ordinary/operator sessions and appends an audit.
+Restart the API and verify the new authenticator; distribute the new seed
+privately. Customer recovery is separate: the console issues a 15-minute,
+single-use token, consumed at `/admin.html#reset`.
+
+## Isolated admin development
+
+Build with `pnpm build`, then start this Mac's dedicated test environment:
+
+```sh
+DOCKER_HOST=unix:///Users/mac/.colima/shensi-trial/docker.sock node scripts/admin-preview-runtime.mjs start
+```
+
+Open `http://localhost:5681/preview-access` for synthetic operator credentials
+and the current one-time authenticator code; open `/admin.html` for operations
+or `/` for the actual customer application. Use separate browser profiles for
+operator and customer sessions. The helper is loopback-only, checks Host/Origin
+and must never be used as a production login/recovery mechanism.
+
+The launcher creates its own labeled MySQL container/volume and database
+`shensi_admin_preview`, validates engine/container/port identity on reuse, and
+starts the full backend on loopback 5680 with gateway 5681. Its CORS allowlist
+contains exactly the browser gateway origin and `http://127.0.0.1:5680`, because
+the packaged desktop gateway rewrites Origin to its configured upstream API.
+Arbitrary dynamic loopback origins are not allowed. Private configuration
+in `.runtime/admin-preview/` persists across starts. No desktop/trial database
+configuration is loaded; provider credentials are absent and all outreach
+execution flags are disabled. Trial plan values used by acceptance are synthetic,
+not commercial defaults. The gateway serves `frontend/dist`; rebuild frontend
+changes and restart this isolated runtime for backend changes.
+
+`node scripts/admin-preview-runtime.mjs stop` stops only the recorded, verified
+preview listeners and retains its MySQL data. Do not delete its private config
+or change engines to repair startup. This preview requires this computer and
+Docker to remain running; it is not a public deployment.
+
+Verification: `node --test scripts/admin-preview-runtime.test.mjs`, then
+`pnpm --dir frontend exec tsx scripts/admin-preview-browser.mts` against the
+running preview. The browser test creates clearly synthetic enterprises and
+customers, checks real MySQL commits and saves screenshots/results under
+`.runtime/admin-preview/artifacts/`. Credentials and sessions remain private
+under the runtime directory, never in tracked documents.
+
+Immediately after successful browser acceptance, run
+`SHENSI_ADMIN_PREVIEW_MFA_ACCEPTANCE=1 pnpm --dir frontend exec tsx scripts/admin-preview-mfa-recovery.mts`
+to validate offline MFA recovery. It stops/restarts only the verified preview,
+updates its synthetic authenticator, rejects saved old sessions and old OTP,
+and compares persisted enterprise/account/customer data. Run within the saved
+operator session's 15-minute lifetime. Results are stored alongside browser
+artifacts; the preview remains running with the new helper code after success.
+
+Package acceptance may explicitly save one verified test build SHA with
+`node scripts/admin-preview-runtime.mjs admit <64-character-manifest-sha256>`.
+The command validates only this preview's engine/container identity; restarting
+the isolated runtime applies exact admission for that digest, retaining all four
+outreach switches as false. It never modifies the desktop-local database identity.
+
+## Desktop development operations
 
 The decision module initializes the additive `decision_personal_memory` table on
 normal Backend startup. Its encrypted actor/workspace aggregate shares the existing

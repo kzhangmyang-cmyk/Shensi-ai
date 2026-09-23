@@ -47,6 +47,40 @@ async function mount(page: Page, hash: string, mode = 'real', delayDashboard?: P
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
 }
 try {
+  for (const mode of ['real', 'demo']) {
+    await check(`${mode} unmarked forms are not owned by the demo submit handler`, async page => {
+      await mount(page, '#settings', mode);
+      const cancelled = await page.evaluate(() => {
+        const form = document.createElement('form');
+        document.querySelector('.replica-shell')!.append(form);
+        return !form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+      assert.equal(cancelled, false);
+      assert.equal(await page.locator('#replicaToast').innerText(), '');
+    });
+  }
+  await check('explicit demo forms retain simulated submission feedback', async page => {
+    await mount(page, '#settings', 'demo');
+    const cancelled = await page.evaluate(() => {
+      const form = document.createElement('form');
+      form.dataset.demoAction = 'fixture-demo-submit';
+      document.querySelector('.replica-shell')!.append(form);
+      return !form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    assert.equal(cancelled, true);
+    assert.match(await page.locator('#replicaToast').innerText(), /表单提交已模拟完成/);
+  });
+  await check('already handled marked forms do not receive a second demo result', async page => {
+    await mount(page, '#settings', 'demo');
+    await page.evaluate(() => {
+      const form = document.createElement('form');
+      form.dataset.demoAction = 'fixture-demo-submit';
+      form.addEventListener('submit', event => event.preventDefault());
+      document.querySelector('.replica-shell')!.append(form);
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    assert.equal(await page.locator('#replicaToast').innerText(), '');
+  });
   await check('real private-domain requests the customer form instead of demo success', async page => {
     await mount(page, '#private-domain');
     await page.locator('#replicaNewTaskButton').click();

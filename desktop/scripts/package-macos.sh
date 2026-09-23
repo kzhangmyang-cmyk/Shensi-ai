@@ -30,7 +30,11 @@ case "$OUTPUT_ROOT" in
   "$REPOSITORY_ROOT/dist/desktop/macos") ;;
   *) echo "error: refusing to clean an unexpected output directory" >&2; exit 1 ;;
 esac
-rm -rf "$OUTPUT_ROOT"
+if [[ -e "$OUTPUT_ROOT" ]]; then
+  PREVIOUS_OUTPUT="${OUTPUT_ROOT}.previous-$(date +%Y%m%d-%H%M%S)"
+  [[ ! -e "$PREVIOUS_OUTPUT" ]] || { echo "error: previous artifact path already exists" >&2; exit 1; }
+  mv "$OUTPUT_ROOT" "$PREVIOUS_OUTPUT"
+fi
 mkdir -p "$OUTPUT_ROOT"
 
 node "$SCRIPT_DIR/generate-macos-icon.mjs"
