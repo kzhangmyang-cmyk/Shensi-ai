@@ -58,6 +58,14 @@ body.is-authenticated .login-screen { display: none; }
   pointer-events: none;
   user-select: none;
 }
+.shensi-login-light-art { display: none; }
+.shensi-login .login-theme-toggle {
+  position: absolute; top: 0; right: 32px; width: auto; min-height: 40px;
+  padding: 8px 14px; margin: 0; border: 1px solid var(--appearance-border, #35483d);
+  background: transparent; color: var(--appearance-text-secondary, #a5b3ab);
+  font-size: 12px; font-weight: 500;
+}
+.shensi-login .login-theme-toggle:hover:not(:disabled) { background: var(--appearance-bg-raised, #18201c); }
 .shensi-login-intro { position: relative; z-index: 1; margin-top: auto; padding-top: 370px; }
 .shensi-login-intro h1 {
   margin: 0 0 14px;
@@ -184,6 +192,80 @@ body.is-authenticated .login-screen { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .shensi-login button, .login-field input { transition: none; }
+}
+
+/* The light login is a complete blue/white composition, including brand artwork. */
+html[data-theme="light"] .shensi-login {
+  grid-template-columns: minmax(0, 55fr) minmax(0, 45fr);
+  padding: 24px; gap: 24px; background: #fff;
+}
+html[data-theme="light"] .shensi-login-story {
+  min-height: max(660px, calc(100dvh - 48px));
+  padding: 40px clamp(32px, 4.5vw, 76px) 32px;
+  border: 1px solid #e1ebf8; border-radius: 28px;
+  color: #17365e;
+  background: radial-gradient(ellipse at 54% 38%, #ffffff 0%, #e8f3ff 48%, #f3f7fd 85%);
+}
+html[data-theme="light"] .shensi-login-brand { color: #17365e; }
+html[data-theme="light"] .shensi-login-brand small { color: #526d90; }
+html[data-theme="light"] .shensi-login-mark image { filter: url(#login-brand-on-light); }
+html[data-theme="light"] .shensi-login-art { display: none; }
+html[data-theme="light"] .shensi-login-light-art {
+  display: grid; place-items: center; position: absolute;
+  width: clamp(260px, 29vw, 420px); aspect-ratio: 1;
+  top: 120px; left: 50%; transform: translateX(-50%); pointer-events: none;
+}
+.login-orbit { position: absolute; border: 1px solid #9bbde04d; border-radius: 50%; }
+.login-orbit-outer { inset: 0; }
+.login-orbit-inner { inset: 10%; border-style: dashed; border-color: #a9c8e66b; }
+.login-brand-disc {
+  width: 66%; aspect-ratio: 1; display: grid; place-items: center; border-radius: 50%;
+  background: linear-gradient(145deg, #ffffffed, #d5e9feab);
+  border: 1px solid #fff; box-shadow: 0 24px 48px #23599a14, inset 0 2px 6px #fff;
+  transform: rotate(-8deg);
+}
+.login-brand-disc svg { width: 64%; height: 64%; overflow: hidden; transform: rotate(8deg); }
+.login-orbit-node {
+  position: absolute; width: 13px; height: 13px; border-radius: 50%;
+  background: linear-gradient(135deg, #a4d5ff, #2864ce); border: 2px solid #fff;
+  box-shadow: 0 4px 12px #175cd326;
+}
+.login-orbit-node-one { top: 3%; left: 29%; }
+.login-orbit-node-two { right: 2%; top: 60%; width: 18px; height: 18px; }
+.login-orbit-node-three { left: 15%; bottom: 11%; width: 9px; height: 9px; }
+html[data-theme="light"] .shensi-login-intro { padding-top: clamp(340px, 31vw, 430px); }
+html[data-theme="light"] .shensi-login-intro h1 { color: #17365e; font-size: clamp(28px, 2.6vw, 42px); letter-spacing: -.035em; }
+html[data-theme="light"] .shensi-login-intro > p { color: #526d90; font-size: clamp(14px, 1.25vw, 18px); }
+html[data-theme="light"] .shensi-login-capabilities { color: #3d608a; font-size: 13px; margin-top: 22px; }
+html[data-theme="light"] .shensi-login-capabilities li + li::before { color: #90accd; margin-inline: 14px; }
+html[data-theme="light"] .shensi-login-footer { color: #526d90; margin-top: 40px; font-size: 11px; letter-spacing: .04em; }
+html[data-theme="light"] .shensi-login-panel { border: 0; margin: 16px 0; padding: 72px clamp(24px, 4vw, 64px); }
+html[data-theme="light"] .shensi-login-panel form { max-width: 390px; }
+html[data-theme="light"] .shensi-login-panel h2 { font-size: 34px; color: #142d50; margin-top: 14px; }
+html[data-theme="light"] .shensi-login-panel .login-field { margin-bottom: 22px; }
+html[data-theme="light"] .login-field input { min-height: 52px; background: #f8fafd; border-color: #d6e1ef; caret-color: #175cd3; }
+html[data-theme="light"] .login-field input:hover { border-color: #9bb6dc; }
+html[data-theme="light"] .login-field input:focus { background: #fff; border-color: #175cd3; outline-color: #9cbef4; }
+html[data-theme="light"] .shensi-login #loginButton { min-height: 52px; box-shadow: 0 5px 12px #175cd318; }
+html[data-theme="light"] .shensi-login #loginButton:hover:not(:disabled) { background: #124caf; }
+html[data-theme="light"] .shensi-login .login-mode-toggle { font-size: 13px; min-height: 44px; }
+@media (max-width: 1050px) and (min-width: 761px) {
+  html[data-theme="light"] .shensi-login { padding: 16px; gap: 8px; }
+  html[data-theme="light"] .shensi-login-story { padding-inline: 28px; }
+  html[data-theme="light"] .shensi-login-panel { padding-inline: 20px; }
+  html[data-theme="light"] .shensi-login-intro h1 { font-size: 28px; }
+}
+@media (max-width: 760px) {
+  .shensi-login .login-theme-toggle { top: 18px; right: 24px; }
+  .shensi-login-panel { padding-top: 80px; }
+  html[data-theme="light"] .shensi-login { grid-template-columns: 1fr; padding: 16px; gap: 0; }
+  html[data-theme="light"] .shensi-login-story { min-height: 0; padding: 26px 24px; border-radius: 20px; }
+  html[data-theme="light"] .shensi-login-light-art { display: none; }
+  html[data-theme="light"] .shensi-login-intro { padding-top: 32px; }
+  html[data-theme="light"] .shensi-login-intro h1 { font-size: 27px; }
+  html[data-theme="light"] .shensi-login-panel { margin: 0; padding: 80px 20px 24px; }
+  html[data-theme="light"] .shensi-login-panel form { max-width: 440px; }
+  html[data-theme="light"] .shensi-login-footer { display: none; }
 }
 
 /* Forms backed by the existing CRM and catalog commands. */

@@ -23,12 +23,24 @@
         <svg class="shensi-login-mark" viewBox="280 130 700 635" aria-hidden="true" focusable="false">
           <defs><filter id="login-brand-on-dark" color-interpolation-filters="sRGB">
             <feColorMatrix type="matrix" values="0 -1.45 0 0 1.16  0 -0.1 0 0 .98  0 -0.05 0 0 .97  -1 -1 -1 0 2.85" />
-          </filter></defs>
-          <image href="/assets/shensi-logo.png" width="1254" height="1254" filter="url(#login-brand-on-dark)" />
+          </filter><filter id="login-brand-on-light" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+            <feColorMatrix type="matrix" values="0 0 0 0 .08  0 0 0 0 .32  0 0 0 0 .72  -1 -1 -1 0 2.85" />
+          </filter><clipPath id="login-symbol-crop"><rect x="280" y="130" width="700" height="630" /></clipPath></defs>
+          <image href="/assets/shensi-logo.png" width="1254" height="1254" filter="url(#login-brand-on-dark)" clip-path="url(#login-symbol-crop)" />
         </svg>
         <span><strong>燊锶</strong><small>Shensi</small></span>
       </a>
       <img class="shensi-login-art" src="/assets/shensi-login-hero.png" alt="" aria-hidden="true" fetchpriority="high" />
+      <div class="shensi-login-light-art" aria-hidden="true">
+        <div class="login-orbit login-orbit-outer"></div>
+        <div class="login-orbit login-orbit-inner"></div>
+        <div class="login-brand-disc">
+          <svg viewBox="280 130 700 635" focusable="false"><image href="/assets/shensi-logo.png" width="1254" height="1254" filter="url(#login-brand-on-light)" clip-path="url(#login-symbol-crop)" /></svg>
+        </div>
+        <span class="login-orbit-node login-orbit-node-one"></span>
+        <span class="login-orbit-node login-orbit-node-two"></span>
+        <span class="login-orbit-node login-orbit-node-three"></span>
+      </div>
       <div class="shensi-login-intro">
         <h1>让经营，从容有序。</h1>
         <p>获客、客户与财务，在一个工作台协同。</p>
@@ -39,6 +51,7 @@
       <p class="shensi-login-footer">燊锶 · 多智能体增长与经营系统</p>
     </div>
     <div class="shensi-login-panel">
+      <button type="button" class="login-theme-toggle" data-theme-toggle aria-label="切换到蓝白浅色">☀ 蓝白浅色</button>
       <form id="loginForm" aria-busy="false">
         <p class="shensi-login-eyebrow" id="loginEyebrow">欢迎回来</p>
         <h2 id="loginTitle">登录燊锶</h2>

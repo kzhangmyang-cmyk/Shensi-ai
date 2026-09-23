@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { chromium } from '@playwright/test';
 const require = createRequire(import.meta.url);
@@ -57,3 +59,22 @@ try {
   console.log('PASS theme default, switch, early restore, changed port, dynamic settings, keyboard, transition cleanup, invalid preference');
   await context.close();
 } finally { await browser.close(); }
+
+const profile = await mkdtemp(join(tmpdir(), 'shensi-theme-restart-'));
+try {
+  for (const [port, expected, next] of [[47703, 'dark', 'light'], [47704, 'light', 'dark'], [47705, 'dark', null]] as const) {
+    const persistent = await chromium.launchPersistentContext(profile, { headless: true });
+    try {
+      await persistent.route('**/*', route => route.fulfill({ contentType: 'text/html', body:
+        `<html><head><script>${init}</script></head><body><button data-theme-toggle></button><script>${result.outputFiles[0].text};ProductTheme.installProductTheme(document);</script></body></html>` }));
+      const page = await persistent.newPage();
+      await page.goto(`http://127.0.0.1:${port}/`);
+      assert.equal(await page.locator('html').getAttribute('data-theme'), expected, 'persisted theme restores after process restart and port change');
+      if (next) {
+        await page.locator('[data-theme-toggle]').click();
+        assert.equal(await page.locator('html').getAttribute('data-theme'), next);
+      }
+    } finally { await persistent.close(); }
+  }
+  console.log('PASS both themes survive a real browser process restart and changed gateway port');
+} finally { await rm(profile, { recursive: true, force: true }); }

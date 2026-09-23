@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
-const PORT = 5391;
+const PORT = Number(process.env.PORT ?? 5391);
 const NOW = "2026-08-25T09:30:00.000Z";
 const hash = (char: string) => `sha256:${char.repeat(64)}`;
 const TEST_QR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240" shape-rendering="crispEdges">

@@ -3,6 +3,17 @@
 本文档是 macOS 桌面版的当前执行规范。Git 历史和外部浏览器取证见 `macos-external-browser-audit.md`。
 客户无需安装 Chrome；内置、随包和系统默认浏览器的职责及 V1.0 跨浏览器验收见 [浏览器兼容边界](browser-compatibility-acceptance.md)。
 
+## 登录外观与记忆
+
+登录和注册共用双主题界面：黑绿使用深色品牌视觉；蓝白使用浅蓝品牌区、
+蓝色品牌标志与独立的白色表单区。登录页也提供主题切换入口，启动动画跟随
+同一主题。`theme-init.js` 在样式绘制和账号检查之前恢复外观，不依赖账号已登录。
+上次选择保存于 `shensi.theme` 本地存储及一年有效的 `shensi_theme` 主机 Cookie；
+Cookie 优先，使 Electron 网关端口变化后仍能恢复。退出账号不清除外观。
+首次启动默认黑绿；用户清理应用数据或存储被禁用时不保证恢复。
+隔离验收：`pnpm --dir frontend exec playwright test --config=playwright.login.config.ts`
+与 `pnpm --dir frontend test:theme`，覆盖登录/注册、宽窄屏、首次绘制与跨端口恢复。
+
 ## 产品边界
 
 日常源码开发使用仓库根目录的 `pnpm desktop:local`。它保留本地数据库，

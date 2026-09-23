@@ -88,8 +88,6 @@ html[data-theme="light"] .decision-galaxy {
   color:#edf3ed;
 }
 html[data-theme="light"] .decision-galaxy>header h3 { color:var(--decision-art-heading); }
-html[data-theme="light"] .shensi-login-story { background:#061210; color:#f1f3f0; }
-html[data-theme="light"] .shensi-login-story :is(h1,p,li,strong,small) { color:inherit; }
 html[data-theme="light"] .account-access-panel { background:var(--theme-surface); color:var(--theme-text); }
 html[data-theme="light"] .account-access-panel button { background:var(--theme-accent); color:var(--theme-on-accent); }
 html[data-theme="light"] .account-access-panel button:focus-visible { outline-color:var(--theme-accent); }

@@ -24,6 +24,26 @@
   pointer-events: none;
 }
 
+html[data-theme="light"] .startup-splash {
+  --startup-bg: #f5f9ff;
+  --startup-green: #175cd3;
+  --startup-cyan: #338de0;
+  color: #17365e;
+  background: radial-gradient(circle at 50% 48%, #dcecff, #f5f9ff 64%);
+}
+html[data-theme="light"] .startup-status { color: #17365e; }
+html[data-theme="light"] .startup-status span,
+html[data-theme="light"] .startup-error p { color: #52657e; }
+html[data-theme="light"] .startup-error { background: #fff; border-color: #c8d5e6; }
+html[data-theme="light"] .startup-error button { color: #fff; border-color: #175cd3; }
+html[data-theme="light"] .startup-ambient-grid {
+  background-image: linear-gradient(#175cd30b 1px, transparent 1px), linear-gradient(90deg, #175cd30b 1px, transparent 1px);
+}
+html[data-theme="light"] .startup-trail { background: conic-gradient(from 28deg, transparent 0 30%, #338de0ad 38%, transparent 43% 65%, #175cd375 75%, transparent 82%); }
+html[data-theme="light"] .startup-orbit,
+html[data-theme="light"] .startup-orbit::before,
+html[data-theme="light"] .startup-orbit::after { border-color: #338de030; }
+
 .startup-ambient-grid {
   position: absolute;
   inset: -14%;

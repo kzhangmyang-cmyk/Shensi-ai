@@ -23,7 +23,9 @@ export function installProductTheme(doc: Document): () => void {
     doc.documentElement.style.colorScheme = theme;
     try { win.localStorage.setItem('shensi.theme', theme); } catch { /* Optional cache. */ }
     // Host-scoped appearance cookie survives desktop gateway port changes.
-    doc.cookie = `shensi_theme=${theme}; Path=/; Max-Age=31536000; SameSite=Strict${win.location.protocol === 'https:' ? '; Secure' : ''}`;
+    try {
+      doc.cookie = `shensi_theme=${theme}; Path=/; Max-Age=31536000; SameSite=Strict${win.location.protocol === 'https:' ? '; Secure' : ''}`;
+    } catch { /* Local storage remains available when cookies are restricted. */ }
     updateControls();
     void doc.documentElement.offsetHeight;
     win.requestAnimationFrame(() => win.requestAnimationFrame(() => freeze.remove()));
