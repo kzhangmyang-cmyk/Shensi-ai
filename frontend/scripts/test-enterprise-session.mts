@@ -49,6 +49,7 @@ try {
   });
   await page.goto('http://fixture.test/');
   await page.setContent(`<html data-theme="${theme}"><head><style>${css}</style></head><body class="is-authenticated" data-session-workspace-id="fixture" data-session-user-id="user"><div class="replica-shell" style="display:block;padding:12px"><main></main></div></body></html>`);
+  await page.addScriptTag({content:'window.__name=(fn)=>fn;'});
   await page.addScriptTag({type:'module',content:bundle.outputFiles[0].text});
   const picker=page.locator('[data-enterprise-file]');
   await picker.setInputFiles({name:'收入.csv',mimeType:'text/csv',buffer:Buffer.from('收入,100')});
@@ -74,12 +75,21 @@ try {
   await page.screenshot({path:output+'/home-'+theme+'-'+width+'.png',fullPage:true});
   await page.evaluate(()=>(window as any).openEnterprise());
   await page.locator('[name=keyword]').fill('合成企业');
-  await page.evaluate(()=>{(document.querySelector('[name=region]') as HTMLInputElement).value='410000';});
+  const chipContrast=await page.locator('[data-condition-clear=keyword]').evaluate(el=>{
+    const style=getComputedStyle(el);const luminance=(value:string)=>{
+      const rgb=value.match(/[\d.]+/g)!.slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
+      return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;
+    };const a=luminance(style.color),b=luminance(style.backgroundColor);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+  });
+  assert.ok(chipContrast>=4.5,`${theme}: selected filter text needs readable contrast, got ${chipContrast}`);
+  await page.getByLabel('选择地区', {exact:true}).click();
+  await page.locator('[data-region-province]').selectOption({label:'河南省'});
+  await page.locator('[data-region-done]').click();
   await page.locator('[data-online-search]').click();
   assert.equal(await page.evaluate(()=>(window as any).searchCalls),0,'ordinary search must not silently omit region');
   assert.match(await page.locator('#enterprise-online-scope').innerText(),/地区/);
   await page.screenshot({path:output+'/enterprise-'+theme+'-'+width+'.png',fullPage:true});
-  await page.evaluate(()=>{(document.querySelector('[name=region]') as HTMLInputElement).value='';});
+  await page.locator('[data-condition-clear=region]').click();
   await page.evaluate(()=>{(document.querySelector('[name=industry]') as HTMLInputElement).value='C';});
   await page.locator('[data-online-search]').click();
   assert.equal(await page.evaluate(()=>(window as any).searchCalls),0,'ordinary search must not silently omit industry');

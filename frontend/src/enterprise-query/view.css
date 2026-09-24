@@ -54,7 +54,7 @@
 .enterprise-query-filters .enterprise-query-search { flex: 1; min-width: 220px; border: 1px solid var(--appearance-border, #264438); border-radius: 4px; padding-left: 12px; }
 .enterprise-query-search input { border: 0; width: 100%; }
 .enterprise-query-filters button { background: var(--appearance-accent-solid, #00d393); color: var(--appearance-on-accent, #002218); padding: 11px 30px; border: 0; border-radius: 4px; cursor: pointer; font-weight: 600; }
-.enterprise-query .enterprise-query-filters button:not(.enterprise-query-chip):not(.enterprise-query-reset) { color: var(--appearance-on-accent, #002218) !important; }
+.enterprise-query .enterprise-query-filters button:not(.enterprise-query-chip):not(.enterprise-query-reset):not([data-condition-clear]) { color: var(--appearance-on-accent, #002218) !important; }
 .enterprise-query :is(input,select,button):focus-visible { outline: 2px solid var(--appearance-accent-border, #00d393); outline-offset: 3px; }
 .enterprise-query-panes { display: grid; grid-template-columns: minmax(0,1.5fr) minmax(280px,1fr); gap: 12px; }
 .enterprise-query-list,.enterprise-query-detail { background: var(--appearance-bg-surface, #09150f); border: 1px solid var(--appearance-border, #264438); border-radius: 4px; min-width: 0; }
