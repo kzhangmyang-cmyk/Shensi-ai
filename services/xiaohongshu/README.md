@@ -23,3 +23,5 @@
 `upstream_transport.py`桥接固定上游`XHSWebSocket.send_chat_message/events`，保留已持久化的客户端消息ID，不使用上游会生成新ID的快捷方法。发送前和接收时校验平台用户身份；传输返回不视为成功。不提供HTTP补发。兼容检查已覆盖真实上游编码器→合成socket→真实解码器→持久回执，重复执行仅一次socket写入；没有实际连接平台。
 
 既定行为与验收见 `../../docs/design/xiaohongshu-independent-messaging.md`。正常专用会话登录、单条批准、消息ACK关联和未知结果不重发是后续接入要求；当前不启动浏览器、不读取认证材料、不访问小红书、不外发。
+
+后端独立业务内核位于`backend/src/xiaohongshu-messaging.ts`，具备能力校验、作用域加密存储、正文/收件人版本批准、UTC日配额预留及执行重验、单次领取和精确回执。正文或收件人编辑撤销批准；账号/设备不可编辑，需新建草稿。超过批准有效期的未决执行读取为未知，不重新发放命令；精确迟到回执可对账。当前仅可信内部接口，尚未挂载HTTP、设备鉴权或产品账号读取器。MySQL独立仓库使用工作区/用户主键和聚合修订CAS保护并发配额；SQL边界测试使用受控驱动，尚未实际创建表或执行真实MySQL验收。可运行`pnpm --dir backend test:xiaohongshu`，已纳入根测试。
