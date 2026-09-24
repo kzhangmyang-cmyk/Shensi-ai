@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GoodJob Growth Advisor, Quote and ROI API
-  version: 1.0.32
+  version: 1.0.33
 servers:
   - url: /
 
@@ -949,6 +949,47 @@ paths:
         '401': *apiErrorResponse
         '403': *apiErrorResponse
         '404': *apiErrorResponse
+  /api/v1/finance/public-research:
+    get:
+      <<: *read
+      operationId: listAgentWebResearchConnections
+      responses:
+        '200':
+          description: Current actor's enabled real public-search connections, without credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentWebResearchConnections' }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '422': *apiErrorResponse
+        '503': *apiErrorResponse
+    post:
+      operationId: runAgentWebResearch
+      description: Search explicitly supplied public keywords and answer using indexed snippets. Does not accept files, conversation history or private company records. Missing sources or provider failures do not become fabricated answers.
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/workspaceHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AgentWebResearchInput' }
+      responses:
+        '200':
+          description: Answer with provider-sourced URLs, retrieval times and validated citation IDs; not a full-page verification
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentWebResearch' }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
+        '429': *apiErrorResponse
+        '502': *apiErrorResponse
+        '503': *apiErrorResponse
   /api/v1/finance/documents/attachments/clear:
     post:
       operationId: clearFinanceChatAttachment
@@ -1940,6 +1981,9 @@ components:
     FinanceDocumentInspection: { $ref: '../json-schema/finance-document.v1.schema.json' }
     FinanceDocumentInspectionInput: { $ref: '../json-schema/finance-document.v1.schema.json#/$defs/Input' }
     FinanceDocumentAttachmentClear: { $ref: '../json-schema/finance-document.v1.schema.json#/$defs/AttachmentClear' }
+    AgentWebResearch: { $ref: '../json-schema/agent-web-research.v1.schema.json' }
+    AgentWebResearchInput: { $ref: '../json-schema/agent-web-research.v1.schema.json#/$defs/Input' }
+    AgentWebResearchConnections: { $ref: '../json-schema/agent-web-research.v1.schema.json#/$defs/Connections' }
     FinanceDocumentMaterialSource: { $ref: '../json-schema/finance-document.v1.schema.json#/$defs/MaterialSource' }
     FinanceImportPreview: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinanceImportPreview' }
     FinanceImportPreviewInput: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinanceImportPreviewInput' }

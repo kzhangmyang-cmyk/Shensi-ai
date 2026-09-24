@@ -14,6 +14,7 @@ import {mountCfoConversation} from './src/growth/agents/cfo-conversation';
 let view;window.calls=[];window.expired=false;
 const http={request:async(path,options)=>{
  window.calls.push({path,body:options?.body});
+ if(path.endsWith('/public-research'))return {body:!options?.method?{connections:[{id:'search',provider:'fixture',name:'合成搜索连接'}]}:{answer:'合成公开查询回答',citationIds:['S1'],model:'fixture',provider:'fixture',searchProvider:'fixture',query:options.body.query,retrievedAt:new Date().toISOString(),evidenceKind:'search_index_snippets',sources:[{id:'S1',title:'合成来源',url:'https://example.org/source',snippet:'这是受控提供商的公开摘要，不包含附件或聊天内容。',fetchedAt:new Date().toISOString()}]}};
  if(path.endsWith('/cfo-sessions'))return {body:[]};
  if(path.endsWith('/inspect'))return {body:{documentId:crypto.randomUUID(),fileName:options.body.fileName,expiresAt:new Date(Date.now()+(window.expired?-1000:3600000)).toISOString(),fileHash:'sha256:'+'a'.repeat(64),selectedForConversation:true,modelStatus:'not_requested',classification:'unknown',cells:[],regions:[],uncertain:[],observations:[],missingStatements:[]}};
  if(path.endsWith('/cfo-conversation'))return {body:{answer:'合成附件回答',model:'fixture',material:null}};
@@ -49,6 +50,14 @@ try {
     await page.locator('#cfoQuestion').fill('过期后不能发送');
     await page.locator('[data-cfo-question-form] [type=submit]').click();
     assert.equal(await page.evaluate(() => (window as any).calls.filter((c: any) => c.path.endsWith('/cfo-conversation')).length), 1);
+    await page.locator('.cfo-web-research summary').click();
+    await page.locator('[data-web-query]').fill('公开方法查询');
+    await page.locator('[data-web-query]').press('Enter');
+    await page.getByText('合成公开查询回答', { exact: true }).waitFor();
+    const webCalls = await page.evaluate(() => (window as any).calls.filter((c: any) => c.path.endsWith('/public-research') && c.body));
+    assert.deepEqual(webCalls.map((c: any) => c.body), [{ query: '公开方法查询', connectionId: 'search', role: 'cfo' }]);
+    assert.equal(await page.evaluate(() => (window as any).calls.filter((c: any) => c.path.endsWith('/cfo-conversation')).length), 1, 'public query Enter must not submit the private chat form');
+    assert.equal(await page.locator('[data-web-results] a').getAttribute('href'), 'https://example.org/source');
     await page.locator('.cfo-composer').screenshot({ path: `${output}/${theme}-${width}.png` });
     assert.deepEqual(errors, []);
     const overflow = await page.locator('.cfo-chat-attachments').evaluate(el => el.scrollWidth > el.clientWidth + 1);

@@ -9,6 +9,7 @@ import YAML from "yaml";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const schemasDirectory = path.join(root, "json-schema");
 const growthSchemaNames = new Set([
+  "agent-web-research",
   "cfo-conversation",
   "cfo-session",
   "acquisition-cohort",

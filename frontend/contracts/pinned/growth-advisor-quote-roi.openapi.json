@@ -3060,6 +3060,184 @@
         "title": "AdvisorTodayResponse",
         "type": "object"
       },
+      "AgentWebResearch": {
+        "$defs": {
+          "Connections": {
+            "additionalProperties": false,
+            "properties": {
+              "connections": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "provider": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "provider",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "connections"
+            ],
+            "type": "object"
+          },
+          "Input": {
+            "additionalProperties": false,
+            "properties": {
+              "connectionId": {
+                "maxLength": 191,
+                "minLength": 1,
+                "type": "string"
+              },
+              "query": {
+                "description": "Explicit public keywords only; never automatically append attachments, history or company records.",
+                "maxLength": 500,
+                "minLength": 2,
+                "type": "string"
+              },
+              "role": {
+                "enum": [
+                  "cfo",
+                  "finance",
+                  "profit",
+                  "cost",
+                  "cashflow",
+                  "tax"
+                ]
+              }
+            },
+            "required": [
+              "query",
+              "connectionId",
+              "role"
+            ],
+            "type": "object"
+          },
+          "Source": {
+            "additionalProperties": false,
+            "properties": {
+              "fetchedAt": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^S[1-5]$",
+                "type": "string"
+              },
+              "snippet": {
+                "maxLength": 3000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              "url": {
+                "format": "uri",
+                "pattern": "^https?://",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "url",
+              "snippet",
+              "fetchedAt"
+            ],
+            "type": "object"
+          }
+        },
+        "$id": "https://schemas.goodjob.ai/agent-web-research.v1.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "citationIds": {
+            "items": {
+              "pattern": "^S[1-5]$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "evidenceKind": {
+            "const": "search_index_snippets"
+          },
+          "model": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "query": {
+            "maxLength": 500,
+            "minLength": 2,
+            "type": "string"
+          },
+          "retrievedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "searchProvider": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/AgentWebResearch/%24defs/Source"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "answer",
+          "citationIds",
+          "model",
+          "provider",
+          "query",
+          "searchProvider",
+          "sources",
+          "retrievedAt",
+          "evidenceKind"
+        ],
+        "title": "AgentWebResearch",
+        "type": "object"
+      },
+      "AgentWebResearchConnections": {
+        "$ref": "#/components/schemas/AgentWebResearch/%24defs/Connections"
+      },
+      "AgentWebResearchInput": {
+        "$ref": "#/components/schemas/AgentWebResearch/%24defs/Input"
+      },
       "ApiError": {
         "$id": "https://goodjob.example/contracts/json-schema/api-error.v1.schema.json",
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -14201,7 +14379,7 @@
   },
   "info": {
     "title": "GoodJob Growth Advisor, Quote and ROI API",
-    "version": "1.0.32"
+    "version": "1.0.33"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -21263,6 +21441,195 @@
             "description": "API error"
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/finance/public-research": {
+      "get": {
+        "operationId": "listAgentWebResearchConnections",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspaceHeader"
+          },
+          {
+            "$ref": "#/components/parameters/cursor"
+          },
+          {
+            "$ref": "#/components/parameters/limit"
+          },
+          {
+            "$ref": "#/components/parameters/sort"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentWebResearch/%24defs/Connections"
+                }
+              }
+            },
+            "description": "Current actor's enabled real public-search connections, without credentials"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ]
+      },
+      "post": {
+        "description": "Search explicitly supplied public keywords and answer using indexed snippets. Does not accept files, conversation history or private company records. Missing sources or provider failures do not become fabricated answers.",
+        "operationId": "runAgentWebResearch",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspaceHeader"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentWebResearch/%24defs/Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentWebResearch"
+                }
+              }
+            },
+            "description": "Answer with provider-sourced URLs, retrieval times and validated citation IDs; not a full-page verification"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {

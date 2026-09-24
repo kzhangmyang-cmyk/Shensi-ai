@@ -107,6 +107,8 @@ Rate limit: 12 requests per minute per workspace/actor. No automatic frontend re
 idempotency/ETag requirement, mutation command or audio transport. See
 `docs/modules/cfo-conversation.md` and the generated Growth 1.0.29 DTOs.
 
+`GET /api/v1/finance/public-research` returns current owned active real search connections (id/provider/name only). `POST` accepts closed `{query, connectionId, role}`: 2–500 characters of explicit public keywords and one of the six council roles. Requires `finance.council.run`, cookie CSRF and no query parameters; limited to 6 requests/minute/workspace/actor, with no automatic client retry. It returns answer/model/provider/searchProvider, validated citationIds, query/retrievedAt and up to five unique sources with id/title/url/snippet/fetchedAt. `evidenceKind` is `search_index_snippets`; no verified-page claim or business mutation. Both responses are no-store. Missing sources/connection return 409, malformed input 422, invalid model citations 502, unavailable search/model 503. Generated Growth 1.0.33 DTOs own this transport; private file/history fields are rejected.
+
 `POST /api/v1/finance/documents/inspect` accepts the bounded original CSV/XLSX/PDF/DOCX JSON
 envelope and `readWithModel`. False only inspects; true uses the configured model
 and returns a selected short-lived source ID for later questions. Responses expose

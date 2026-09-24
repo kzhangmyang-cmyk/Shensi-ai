@@ -8,6 +8,7 @@ import { voiceErrorMessage } from '../../../../desktop/src/shared/cfo-realtime';
 import { BUSINESS_AGENT_TEAM } from './agents';
 import { mountCfoChatMessages } from './cfo-chat-messages';
 import { mountChatAttachments } from './chat-attachments';
+import { mountAgentWebResearch } from './web-research';
 import { financeDocumentScope, getFinanceDocumentSelection, setFinanceDocumentSelection, subscribeFinanceDocumentSelection } from '../finance/document-selection';
 import {
   createCfoAcquisitionWorkflowApi,
@@ -74,6 +75,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
       <form data-cfo-question-form class="cfo-composer"><div class="cfo-composer-heading"><label for="cfoQuestion">想先解决什么经营问题？</label><span>最多 2000 字</span></div>
       <textarea id="cfoQuestion" rows="3" maxlength="2000" placeholder="例如：改善现金流应该先看哪些数据？" required></textarea>
       <div data-cfo-chat-attachments></div>
+      <div data-cfo-web-research></div>
       <p data-cfo-document-source></p><button type="button" data-cfo-clear-document hidden>取消当前资料，使用已确认报表</button>
       <div class="cfo-actions"><p data-cfo-status role="status">尚未提问；本次对话不会自动写入公司资料。</p>
       <div class="cfo-action-buttons"><button type="button" data-cfo-stop hidden>停止回答</button><button type="submit" class="primary">发送问题</button></div></div></form>
@@ -112,6 +114,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
   }
   function newSession() {
     void attachments.clear();
+    webResearch.clear();
     operating.clear();
     sessionSequence++; cancel(); live?.stop(); savedSession = null; history = []; messages.clear();
     status.textContent = '已开始新对话，未发送的输入仍保留。';
@@ -121,6 +124,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>('[data-cfo-session]');
     if (!button || !historyList.contains(button) || agent.id !== 'cfo') return;
     void attachments.clear();
+    webResearch.clear();
     const sequence = ++sessionSequence; cancel(); live?.stop();
     try {
       const { body } = await options.http.request<CfoSession>(`/api/v1/finance/cfo-sessions/${encodeURIComponent(button.dataset.cfoSession!)}`);
@@ -227,6 +231,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
     sessionSequence++; savedSession = null;
     cancel(); live?.stop(); agent = next; history = []; messages.dispose(); messages = mountCfoChatMessages({ host: turns, agent, userName });
     attachments.setRole(agent.id);
+    webResearch.setRole(agent.id);
     renderDocumentSource();
     historyPanel.hidden = agent.id !== 'cfo';
     for (const button of roleStrip.querySelectorAll<HTMLButtonElement>('[data-cfo-role-choice]')) {
@@ -571,8 +576,9 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
   attachments = mountChatAttachments({ host: host.querySelector<HTMLElement>('[data-cfo-chat-attachments]')!, http: options.http,
     scope: documentScope, role: agent.id, onChange() { cancel(); live?.stop(); sessionSequence++; savedSession = null; history = []; messages.clear(); renderDocumentSource(); } });
   renderDocumentSource();
+  const webResearch = mountAgentWebResearch({ host: host.querySelector<HTMLElement>('[data-cfo-web-research]')!, http: options.http, scope: documentScope, role: agent.id });
   form.addEventListener('submit', send); stop.addEventListener('click', cancel);
-  return { dispose() { disposed = true; attachments.dispose(); operating.dispose(); unsubscribeDocument(); clearDocument.removeEventListener('click', onClearDocument); scopeObserver?.disconnect(); live?.stop(); voiceSettings.dispose(); pending?.abort(); pending = undefined;
+  return { dispose() { disposed = true; webResearch.dispose(); attachments.dispose(); operating.dispose(); unsubscribeDocument(); clearDocument.removeEventListener('click', onClearDocument); scopeObserver?.disconnect(); live?.stop(); voiceSettings.dispose(); pending?.abort(); pending = undefined;
     sessionSequence++; historyList.removeEventListener('click', chooseSession); newSessionButton.removeEventListener('click', newSession);
     voiceButton.removeEventListener('click', toggleVoice); doc.defaultView?.removeEventListener('pagehide', endVoice);
     form.removeEventListener('submit', send); stop.removeEventListener('click', cancel); roleStrip.removeEventListener('click', chooseRole);

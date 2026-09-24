@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type express from "express";
+import express from "express";
+import type { AddressInfo } from 'node:net';
+import type { CrmStore } from './store.js';
+import { createDefaultProviderCatalog } from './provider-catalog.js';
 import {
   FinancialCouncilWakeRelay,
   GROWTH_FINANCIAL_COUNCIL_SERVICES,
@@ -368,10 +371,10 @@ test("wake relay advances a composite cursor so persistent first-page facts do n
   await relay.close();
 });
 
-async function moduleFixture(documentModel?: import('./finance-document-service.js').FinanceDocumentReadModel) {
+async function moduleFixture(documentModel?: import('./finance-document-service.js').FinanceDocumentReadModel, webResearchStore?: CrmStore) {
   const registry = createGrowthPrivateServiceRegistry();
   const foundation = {
-    workspaceContext: (() => { throw new Error("unused"); }) as never,
+    workspaceContext: (() => { if (webResearchStore) return policyWorkspace(); throw new Error("unused"); }) as never,
     commandContextFactory: (() => { throw new Error("unused"); }) as never,
     httpIdempotency: {} as never
   } as never;
@@ -408,11 +411,25 @@ async function moduleFixture(documentModel?: import('./finance-document-service.
     use() { mounts += 1; events.push("route:mount"); }
   } as unknown as express.Router);
   const module = createGrowthFinancialCouncilModule({
+    webResearchStore,
     async initializeSchema() { events.push("schema"); },
     async createResources() { events.push("resources:create"); return resources; }
   });
   return { registry, events, resources, router, module, mounts: () => mounts };
 }
+
+test('council module exposes real scoped public research connection discovery without starting a search', async () => {
+  const fixture = await moduleFixture(undefined, { providerConnections: [{ id: 'owned-search', providerId: 'tavily', ownerId: 'admin-1', teamId: 'ws-1', scope: 'personal', status: 'active' }],
+    providerCatalog: createDefaultProviderCatalog() } as CrmStore);
+  const app = express(); app.use(express.json());
+  const installation = await fixture.module.install({ router: app, toolPorts: {} as never, privateServices: fixture.registry });
+  const server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
+  try {
+    const result = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/finance/public-research`);
+    assert.equal(result.status, 200); assert.equal(result.headers.get('cache-control'), 'no-store');
+    assert.equal((await result.json()).connections[0].id, 'owned-search');
+  } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await installation.close(); }
+});
 
 test("constructed resources own a workspace policy repository", async () => {
   const fixture = await moduleFixture();

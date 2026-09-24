@@ -7,3 +7,11 @@
 .cfo-chat-attachments li span { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
 .cfo-chat-attachments button { padding: 5px 10px; min-height: 32px; flex-shrink: 0; font-size: 12px; }
 .cfo-chat-attachments button:focus-visible, .cfo-chat-attachments input:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.cfo-web-research { margin: 12px 0; padding: 12px; border: 1px solid var(--appearance-border); border-radius: 12px; color: var(--appearance-text-primary); background: var(--appearance-bg-surface); }
+.cfo-web-research summary { cursor: pointer; font-size: 13px; font-weight: 650; }
+.cfo-web-research p { font-size: 12px; line-height: 1.7; color: var(--appearance-text-primary); overflow-wrap: anywhere; }
+.cfo-web-research label { display: grid; gap: 6px; margin: 10px 0; font-size: 12px; }
+.cfo-web-research input, .cfo-web-research select { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid var(--appearance-border); border-radius: 8px; background: var(--appearance-bg-surface); color: var(--appearance-text-primary); }
+.cfo-web-research [data-web-results] article { margin-top: 10px; padding: 10px; border: 1px solid var(--appearance-border); border-radius: 8px; overflow-wrap: anywhere; }
+.cfo-web-research a { color: var(--appearance-text-primary); text-decoration: underline; }
+.cfo-web-research small { color: var(--appearance-text-primary); font-size: 11px; }

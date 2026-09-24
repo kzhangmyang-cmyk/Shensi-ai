@@ -1123,6 +1123,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/finance/public-research": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAgentWebResearchConnections"];
+        put?: never;
+        /** @description Search explicitly supplied public keywords and answer using indexed snippets. Does not accept files, conversation history or private company records. Missing sources or provider failures do not become fabricated answers. */
+        post: operations["runAgentWebResearch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/finance/settlement-allocation-sets": {
         parameters: {
             query?: never;
@@ -2054,6 +2071,47 @@ export interface components {
                 nullableId: string | null;
             };
         };
+        /** AgentWebResearch */
+        AgentWebResearch: {
+            answer: string;
+            citationIds: string[];
+            /** @constant */
+            evidenceKind: "search_index_snippets";
+            model: string;
+            provider: string;
+            query: string;
+            /** Format: date-time */
+            retrievedAt: string;
+            searchProvider: string;
+            sources: components["schemas"]["AgentWebResearch_Source"][];
+            $defs: {
+                Connections: {
+                    connections: {
+                        id: string;
+                        name: string;
+                        provider: string;
+                    }[];
+                };
+                Input: {
+                    connectionId: string;
+                    /** @description Explicit public keywords only; never automatically append attachments, history or company records. */
+                    query: string;
+                    /** @enum {unknown} */
+                    role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+                };
+                Source: {
+                    /** Format: date-time */
+                    fetchedAt: string;
+                    id: string;
+                    snippet: string;
+                    title: string;
+                    /** Format: uri */
+                    url: string;
+                };
+            };
+        };
+        AgentWebResearchConnections: components["schemas"]["AgentWebResearch_Connections"];
+        AgentWebResearchInput: components["schemas"]["AgentWebResearch_Input"];
         /** ApiError */
         ApiError: {
             code: string;
@@ -4919,6 +4977,29 @@ export interface components {
         AdvisorTodayResponse_hash: string;
         AdvisorTodayResponse_nonempty: string;
         AdvisorTodayResponse_nullableId: string | null;
+        AgentWebResearch_Connections: {
+            connections: {
+                id: string;
+                name: string;
+                provider: string;
+            }[];
+        };
+        AgentWebResearch_Input: {
+            connectionId: string;
+            /** @description Explicit public keywords only; never automatically append attachments, history or company records. */
+            query: string;
+            /** @enum {unknown} */
+            role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+        };
+        AgentWebResearch_Source: {
+            /** Format: date-time */
+            fetchedAt: string;
+            id: string;
+            snippet: string;
+            title: string;
+            /** Format: uri */
+            url: string;
+        };
         AttributionAllocationSet_AttributionAllocationItem: {
             allocationBps: number;
             /** @enum {unknown} */
@@ -12528,6 +12609,157 @@ export interface operations {
             };
             /** @description API error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAgentWebResearchConnections: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["cursor"];
+                limit?: components["parameters"]["limit"];
+                sort?: components["parameters"]["sort"];
+            };
+            header: {
+                "X-Workspace-Id": components["parameters"]["workspaceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current actor's enabled real public-search connections, without credentials */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentWebResearch_Connections"];
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    runAgentWebResearch: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": components["parameters"]["workspaceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentWebResearch_Input"];
+            };
+        };
+        responses: {
+            /** @description Answer with provider-sourced URLs, retrieval times and validated citation IDs; not a full-page verification */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentWebResearch"];
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

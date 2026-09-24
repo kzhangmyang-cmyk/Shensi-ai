@@ -17,6 +17,7 @@ export async function runCfoConversationTests() {
   const view = mountCfoConversation({ host, scope: () => 'ws-1:user-1', http: {
     request: async (path, input) => {
       if (path.endsWith('/cfo-sessions')) return { body: null } as any;
+      if (path.endsWith('/public-research')) return { body: { connections: [] } } as any;
       if (path.endsWith('/cfo-workflows/latest')) return { body: null } as any;
       calls.push(input); return new Promise(r => { resolve = r; });
     }
@@ -53,6 +54,7 @@ export async function runCfoConversationTests() {
   let failClear = true;
   const sourceView = mountCfoConversation({ host, scope: () => 'ws-1:user-1', http: { request: async (path, options) => {
     if (path.endsWith('/cfo-sessions')) return { body: null } as any;
+      if (path.endsWith('/public-research')) return { body: { connections: [] } } as any;
       if (path.endsWith('/cfo-workflows/latest')) return { body: null } as any;
     selectionCalls.push({ path, options });
     if (options?.method === 'DELETE') { if (failClear) throw new Error('fixture failure'); return { status: 204 } as any; }
@@ -80,6 +82,7 @@ export async function runCfoConversationTests() {
   const roleCalls: any[] = []; let finish!: (value: any) => void;
   const roles = mountCfoConversation({ host, scope: () => 'ws-1:user-1', http: { request: async (path, value) => {
     if (path.endsWith('/cfo-sessions')) return { body: null } as any;
+      if (path.endsWith('/public-research')) return { body: { connections: [] } } as any;
       if (path.endsWith('/cfo-workflows/latest')) return { body: null } as any;
     roleCalls.push(value); return new Promise(r => { finish = r; }); } } });
   const roleChoices = host.querySelectorAll<HTMLButtonElement>('[data-cfo-role-choice]');
@@ -108,6 +111,7 @@ export async function runCfoConversationTests() {
   const execution = mountCfoConversation({ host, scope: () => 'ws-1:user-1', http: {
     request: async (path: string, input: any = {}) => {
       if (path.endsWith('/cfo-sessions')) return { body: null } as any;
+      if (path.endsWith('/public-research')) return { body: { connections: [] } } as any;
       if (path.endsWith('/cfo-workflows/latest')) return { body: null } as any;
       executionCalls.push([path, input]);
       if (path === '/api/v1/acquisition/cfo-workflows') return { body: {
@@ -148,6 +152,7 @@ export async function runCfoConversationTests() {
   const batch = mountCfoConversation({ host, scope: () => 'ws-1:user-1', http: {
     request: async (path: string, input: any = {}) => {
       if (path.endsWith('/cfo-sessions')) return { body: null } as any;
+      if (path.endsWith('/public-research')) return { body: { connections: [] } } as any;
       if (path.endsWith('/cfo-workflows/latest')) return { body: reviewableWorkflow } as any;
       batchCalls.push([path, input]);
       if (path.endsWith('/candidate-decisions/batch')) return { body: {
@@ -244,6 +249,7 @@ async function runSavedCfoSessionTests() {
   const calls: string[] = [];
   const view = mountCfoConversation({ host, scope: () => 'saved:actor', http: { request: async (path, options) => {
     calls.push(path);
+    if (path.endsWith('/public-research')) return { body: { connections: [] } } as any;
     if (path.endsWith('/cfo-workflows/latest')) return { body: null } as any;
     if (path.endsWith('/cfo-sessions')) return { body: [session] } as any;
     if (path.endsWith('/turns')) {

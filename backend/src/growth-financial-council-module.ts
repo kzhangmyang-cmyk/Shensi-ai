@@ -1,4 +1,7 @@
 import type express from "express";
+import type { CrmStore } from './store.js';
+import { createAgentWebResearchRuntime } from './agent-web-research-runtime.js';
+import { createAgentWebResearchRouter } from './agent-web-research-router.js';
 import { InMemoryCfoConversationSessionRepository, MysqlCfoConversationSessionRepository,
   CFO_CONVERSATION_SESSION_MYSQL_SCHEMA } from './cfo-conversation-session-repository.js';
 import { createCfoChatModel } from './cfo-conversation.js';
@@ -291,6 +294,7 @@ export class FinancialCouncilWakeRelay {
 }
 
 export interface GrowthFinancialCouncilModuleOptions {
+  readonly webResearchStore?: CrmStore;
   readonly documentModel?: FinanceDocumentReadModel;
   readonly mode?: "memory" | "mysql";
   readonly pool?: mysql.Pool;
@@ -724,6 +728,22 @@ export function createGrowthFinancialCouncilModule(
         input.router.use('/api/v1/finance', createFinanceDocumentRouter({
           service: resources.documents, workspaceContext: foundation.workspaceContext
         }));
+        if (options.webResearchStore) {
+          const webStore = options.webResearchStore;
+          const routing = resources.modelRoutingRepository;
+          const webResearch = createAgentWebResearchRuntime(webStore, {
+            async connectionFor(context, role) {
+              const policy = await routing.getCurrent(context);
+              if (!policy) return undefined;
+              const runtime = readFinancialCouncilModelRoutingRuntimeState(webStore);
+              const connection = selectFinancialCouncilModelRoute({ role, policy, connections: runtime.connections,
+                recentCalls: runtime.recentCalls, prices: [], activeWorkspace: context }).orderedConnectionIds[0];
+              if (!connection) throw new GrowthHttpError(409, 'cfo_conversation_model_not_ready');
+              return connection;
+            }
+          });
+          input.router.use('/api/v1/finance', createAgentWebResearchRouter({ service: webResearch, workspaceContext: foundation.workspaceContext }));
+        }
         const policyRouterFactory = options.createPolicyRouter
           ?? createFinancialCouncilPolicyRouter;
         input.router.use(

@@ -19,7 +19,7 @@ import { syntheticPdf, syntheticDocx } from './secure-finance-document-text-test
 
 test('released document and six-role ask responses conform through production composition and controlled gateway', async () => {
   const release = loadGrowthContractRelease();
-  assert.equal(release.manifest.contractVersion, '1.0.32');
+  assert.equal(release.manifest.contractVersion, '1.0.33');
   const document = release.document as Record<string, any>;
   const components = structuredClone(document.components);
   for (const schema of Object.values(components.schemas)) if (schema && typeof schema === 'object') delete (schema as any).$id;

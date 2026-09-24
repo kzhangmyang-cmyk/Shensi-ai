@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.goodjob.ai/agent-web-research.v1.schema.json",
+  "title": "AgentWebResearch",
+  "type": "object", "additionalProperties": false,
+  "required": ["answer", "citationIds", "model", "provider", "query", "searchProvider", "sources", "retrievedAt", "evidenceKind"],
+  "properties": {
+    "answer": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "citationIds": { "type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": true, "items": { "type": "string", "pattern": "^S[1-5]$" } },
+    "model": { "type": "string", "minLength": 1 }, "provider": { "type": "string", "minLength": 1 },
+    "query": { "type": "string", "minLength": 2, "maxLength": 500 },
+    "searchProvider": { "type": "string", "minLength": 1 },
+    "sources": { "type": "array", "minItems": 1, "maxItems": 5, "items": { "$ref": "#/$defs/Source" } },
+    "retrievedAt": { "type": "string", "format": "date-time" },
+    "evidenceKind": { "const": "search_index_snippets" }
+  },
+  "$defs": {
+    "Source": { "type": "object", "additionalProperties": false, "required": ["id", "title", "url", "snippet", "fetchedAt"], "properties": {
+      "id": { "type": "string", "pattern": "^S[1-5]$" }, "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+      "url": { "type": "string", "format": "uri", "pattern": "^https?://" },
+      "snippet": { "type": "string", "minLength": 1, "maxLength": 3000 }, "fetchedAt": { "type": "string", "format": "date-time" }
+    } },
+    "Input": { "type": "object", "additionalProperties": false, "required": ["query", "connectionId", "role"], "properties": {
+      "query": { "type": "string", "minLength": 2, "maxLength": 500, "description": "Explicit public keywords only; never automatically append attachments, history or company records." },
+      "connectionId": { "type": "string", "minLength": 1, "maxLength": 191 },
+      "role": { "enum": ["cfo", "finance", "profit", "cost", "cashflow", "tax"] }
+    } },
+    "Connections": { "type": "object", "additionalProperties": false, "required": ["connections"], "properties": {
+      "connections": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "provider", "name"], "properties": {
+        "id": { "type": "string", "minLength": 1 }, "provider": { "type": "string", "minLength": 1 }, "name": { "type": "string", "minLength": 1 }
+      } } }
+    } }
+  }
+}
