@@ -17,9 +17,49 @@ export function enterpriseReportHtml(value: FinanceDocumentInspection, purpose: 
     <h2>来源标识</h2><p>${escape(value.fileHash)}</p></body></html>`;
 }
 
-/** One mounted read-only analysis surface; no ledger/council/ROI mutation ports. */
-export function mountEnterpriseAnalysis(options: { host: HTMLElement; http: GrowthHttpClient;
-  purpose: 'finance' | 'roi' | 'management'; canAnalyze: boolean }) {
+type AnalysisOptions = { host: HTMLElement; http: GrowthHttpClient;
+  purpose: 'finance' | 'roi' | 'management'; canAnalyze: boolean };
+type AnalysisSession = { scope: string; canAnalyze: boolean; panel: HTMLElement;
+  controller: ReturnType<typeof createEnterpriseAnalysis>; destroy(): void };
+// Retain the live view and its File objects only in this document's memory. A
+// route unmount detaches it; authentication changes destroy it and abort work.
+const analysisSessions = new WeakMap<Document, Map<AnalysisOptions['purpose'], AnalysisSession>>();
+export function mountEnterpriseAnalysis(options: AnalysisOptions) {
+  const doc = options.host.ownerDocument;
+  const scope = financeDocumentScope(doc.body.dataset.sessionWorkspaceId, doc.body.dataset.sessionUserId);
+  if (!scope) return createEnterpriseAnalysis(options);
+  let sessions = analysisSessions.get(doc);
+  if (!sessions) { sessions = new Map(); analysisSessions.set(doc, sessions); }
+  let session = sessions.get(options.purpose);
+  if (session && (session.scope !== scope || session.canAnalyze !== options.canAnalyze)) { session.destroy(); session = undefined; }
+  if (!session) {
+    const panel = doc.createElement('div');
+    const controller = createEnterpriseAnalysis({ ...options, host: panel });
+    const onAuth = (event: Event) => {
+      if ((event as CustomEvent<{ authenticated?: boolean }>).detail?.authenticated === false) entry.destroy();
+    };
+    const Observer = doc.defaultView?.MutationObserver;
+    const observer = Observer ? new Observer(() => {
+      if (financeDocumentScope(doc.body.dataset.sessionWorkspaceId, doc.body.dataset.sessionUserId) !== scope) entry.destroy();
+    }) : undefined;
+    const entry: AnalysisSession = { scope, canAnalyze: options.canAnalyze, panel, controller, destroy() {
+      controller.dispose(); panel.replaceChildren(); panel.remove();
+      observer?.disconnect(); doc.removeEventListener('goodjob:auth-state-changed', onAuth);
+      if (sessions!.get(options.purpose) === entry) sessions!.delete(options.purpose);
+    } };
+    observer?.observe(doc.body, { attributes: true, attributeFilter: ['data-session-workspace-id', 'data-session-user-id'] });
+    doc.addEventListener('goodjob:auth-state-changed', onAuth);
+    sessions.set(options.purpose, entry); session = entry;
+  }
+  options.host.replaceChildren(session.panel);
+  const current = session;
+  return { setFiles: current.controller.setFiles, dispose() {
+    if (current.panel.parentElement === options.host) current.panel.remove();
+  } };
+}
+
+/** One session-owned read-only surface; no ledger/council/ROI mutation ports. */
+function createEnterpriseAnalysis(options: AnalysisOptions) {
   const { host } = options; const doc = host.ownerDocument; const api = createFinanceApi(options.http);
   const scope = financeDocumentScope(doc.body.dataset.sessionWorkspaceId, doc.body.dataset.sessionUserId);
   type Item = { id: number; file: File; selected: boolean; state: 'queued' | 'reading' | 'ready' | 'failed'; error?: string; preview?: FinanceDocumentInspection };
@@ -108,7 +148,22 @@ export function mountEnterpriseAnalysis(options: { host: HTMLElement; http: Grow
     finally { if (pending === abort) { pending = null; controls(); } }
   }
   function choose() {
-    setFiles(Array.from(input.files ?? []));
+    appendFiles(Array.from(input.files ?? []));
+    input.value = '';
+  }
+  function appendFiles(files: File[]) {
+    if (!active() || !files.length) return;
+    if (pending) { status.textContent = '请等待当前识别或分析完成，或先停止，再添加文件；已有资料保留。'; return; }
+    const same = (a: File, b: File) => a === b || (a.name === b.name && a.size === b.size && a.lastModified === b.lastModified && a.type === b.type);
+    const added: File[] = [];
+    for (const file of files) if (!items.some(item => same(item.file, file)) && !added.some(other => same(other, file))) added.push(file);
+    if (!added.length) { status.textContent = '这些文件已在列表中，没有重复添加。'; return; }
+    if (items.length + added.length > 10 || [...items.map(item => item.file), ...added].reduce((sum, file) => sum + file.size, 0) > 5 * 1024 * 1024) {
+      status.textContent = '每批最多10份文件，合计不超过5MB；已有文件保留，请移除部分文件后再添加。'; return;
+    }
+    generation++; invalidate();
+    items.push(...added.map(file => ({ id: ++sequence, file, selected: false, state: 'queued' as const })));
+    controls(); void previews();
   }
   function setFiles(files: File[]) {
     if (!active()) return;
@@ -129,7 +184,7 @@ export function mountEnterpriseAnalysis(options: { host: HTMLElement; http: Grow
     else item.selected = (target as HTMLInputElement).checked;
     controls();
   }
-  function drop(event: DragEvent) { event.preventDefault(); if (event.type === 'drop') setFiles(Array.from(event.dataTransfer?.files ?? [])); }
+  function drop(event: DragEvent) { event.preventDefault(); if (event.type === 'drop') appendFiles(Array.from(event.dataTransfer?.files ?? [])); }
   async function download(format: 'html' | 'pdf') {
     if (!active() || pending || result?.modelStatus !== 'completed') return;
     const value = result; const report = enterpriseReportHtml(value, purposeLabel);

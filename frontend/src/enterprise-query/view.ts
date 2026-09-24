@@ -38,7 +38,7 @@ export function mountEnterpriseQuery(host: HTMLElement, previewApi?: Pick<Return
   }) : undefined;
   if (browser) {
     root.querySelector('form')!.insertAdjacentHTML('beforeend','<button type="button" data-online-search aria-describedby="enterprise-online-scope">普通搜索 · 爱企查</button>');
-    root.querySelector('form')!.insertAdjacentHTML('afterend','<p id="enterprise-online-scope" class="enterprise-capture-source">普通搜索仅使用输入关键词，未应用上方地区、行业与规模；非会员按网站实际可见范围回传，不自动翻页。</p><details class="enterprise-advanced-query"><summary>高级条件查询（需要网站权限）</summary><p>省市 + 门类/二级行业，关键词可不填。更细行业及人数规模不自动转换。</p><button type="button" data-advanced-search>执行高级条件查询</button></details>');
+    root.querySelector('form')!.insertAdjacentHTML('afterend','<p id="enterprise-online-scope" class="enterprise-capture-source" role="status">普通搜索仅支持关键词。已选地区、行业或规模时不会执行；省市及门类/二级行业可使用下方高级条件查询，需网站权限。非会员按网站实际可见范围回传。</p><details class="enterprise-advanced-query"><summary>高级条件查询（需要网站权限）</summary><p>省市 + 门类/二级行业，关键词可不填。更细行业及人数规模不自动转换。</p><button type="button" data-advanced-search>执行高级条件查询</button></details>');
   }
   root.querySelector("form")?.insertAdjacentHTML("beforeend", '<button type="button" class="enterprise-query-reset" data-reset-filters>重置筛选</button>');
   const api = previewApi ?? createEnterpriseApi();
@@ -138,6 +138,14 @@ export function mountEnterpriseQuery(host: HTMLElement, previewApi?: Pick<Return
     if (!button || button.disabled) return;
     if(button.hasAttribute('data-copy-value')){event.stopPropagation();void copyEnterpriseValue(button);return;}
     if (button.hasAttribute('data-online-search')) {
+      const unsupported = [['region', '地区'], ['industry', '行业'], ['size', '规模']]
+        .filter(([name]) => root.querySelector<HTMLInputElement>(`[name=${name}]`)!.value.trim()).map(([, label]) => label);
+      const notice = root.querySelector<HTMLElement>('#enterprise-online-scope')!;
+      if (unsupported.length) {
+        notice.textContent = `普通搜索不支持已选的${unsupported.join('、')}条件，尚未发起查询。请使用支持的高级条件查询，或明确清除这些条件后再搜索。`;
+        return;
+      }
+      notice.textContent = '本次普通搜索仅使用关键词，没有地区、行业或规模条件；结果以网站实际可见范围为准。';
       const keyword=root.querySelector<HTMLInputElement>('[name=keyword]')!.value.trim();
       button.disabled=true;const text=button.textContent;button.textContent='正在搜索并读取…';
       try{await browser?.search(keyword);}finally{button.disabled=false;button.textContent=text;}

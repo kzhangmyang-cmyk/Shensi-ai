@@ -60,10 +60,19 @@ export async function runEnterpriseAnalysisTests() {
   assert.match(batchHost.textContent!, /fast.csv/); assert.doesNotMatch(batchHost.textContent!, /slow.csv/);
   const drop = new batchDoc.defaultView!.Event('drop', { bubbles: true });
   Object.defineProperty(drop, 'dataTransfer', { value: { files: [new File(['drag'], 'drag.csv'), new File(['xls'], 'drag.xls')] } });
-  batchHost.dispatchEvent(drop); await flush();
+  batchHost.querySelector('.enterprise-analysis')!.dispatchEvent(drop); await flush();
   assert.match(batchHost.textContent!, /drag.csv/); assert.match(batchHost.textContent!, /drag.xls/);
-  assert.match(batchHost.textContent!, /已识别2份/);
+  assert.match(batchHost.textContent!, /已识别3份/);
   assert.equal(batchHost.querySelector<HTMLInputElement>('[data-enterprise-file]')!.hasAttribute('multiple'), true);
+  const chooser = batchHost.querySelector<HTMLInputElement>('[data-enterprise-file]')!;
+  const extra = new File(['extra'], 'extra.csv', { lastModified: 100 });
+  Object.defineProperty(chooser, 'files', { value: [extra], configurable: true });
+  chooser.dispatchEvent(new batchDoc.defaultView!.Event('change')); await flush();
+  assert.equal(batchHost.querySelectorAll('[data-enterprise-select]').length, 4, 'a second picker selection appends instead of replacing earlier files');
+  chooser.dispatchEvent(new batchDoc.defaultView!.Event('change')); await flush();
+  assert.equal(batchHost.querySelectorAll('[data-enterprise-select]').length, 4, 'selecting the same file again does not duplicate it');
+  batchHost.querySelector<HTMLButtonElement>('[data-enterprise-analyze]')!.click(); await flush();
+  assert.deepEqual(requests.at(-1).additionalFiles.map((f: { fileName: string }) => f.fileName), ['drag.csv', 'drag.xls', 'extra.csv']);
   batch.dispose();
   for (const purpose of ['finance', 'roi', 'management'] as const) {
     const d = parseHTML('<html><body data-session-workspace-id="ws-enterprise" data-session-user-id="actor"><main></main></body></html>').document;
@@ -87,5 +96,38 @@ export async function runEnterpriseAnalysisTests() {
     assert.equal(h.querySelector<HTMLButtonElement>('[data-enterprise-html]')!.disabled, false);
     assert.equal(h.querySelector<HTMLAnchorElement>('[data-enterprise-agent]')!.hidden, false);
     v.dispose();
+    const nextHost = d.createElement('main'); d.body.append(nextHost);
+    const restored = mountEnterpriseAnalysis({ host: nextHost, purpose, canAnalyze: true, http: { request: async () => { throw new Error('navigation must not repeat a request'); } } });
+    assert.equal(nextHost.querySelectorAll('[data-enterprise-select]').length, 2, 'route remount preserves selected file objects');
+    assert.equal(nextHost.querySelector<HTMLButtonElement>('[data-enterprise-html]')!.disabled, false, 'completed report survives route remount');
+    assert.equal(analysisCalls, 2, 'remount never repeats model analysis');
+    restored.dispose();
+    const logout = new d.defaultView!.Event('goodjob:auth-state-changed');
+    Object.defineProperty(logout, 'detail', { value: { authenticated: false } }); d.dispatchEvent(logout);
+    const cleared = mountEnterpriseAnalysis({ host: nextHost, purpose, canAnalyze: true, http: { request: async () => { throw new Error('empty state must not request'); } } });
+    assert.equal(nextHost.querySelectorAll('[data-enterprise-select]').length, 0, 'logout clears files even when the analysis surface is unmounted');
+    cleared.dispose();
+  }
+  {
+    const d = parseHTML('<html><body data-session-workspace-id="pending-ws" data-session-user-id="actor"><main></main></body></html>').document;
+    const h = d.querySelector('main')!;
+    let finish!: () => void; let modelCalls = 0;
+    const http = { request: async (_path: string, options: any) => {
+      if (options.body.readWithModel) { modelCalls++; await new Promise<void>(resolve => { finish = resolve; }); }
+      return { body: { ...source, modelStatus: options.body.readWithModel ? 'completed' : 'not_requested' } } as any;
+    } };
+    const v = mountEnterpriseAnalysis({ host: h, purpose: 'finance', canAnalyze: true, http });
+    v.setFiles([new File(['a'], 'pending.csv')]); await flush();
+    h.querySelector<HTMLButtonElement>('[data-enterprise-analyze]')!.click(); await flush(); v.dispose();
+    finish(); await flush();
+    const restored = mountEnterpriseAnalysis({ host: h, purpose: 'finance', canAnalyze: true, http });
+    assert.equal(h.querySelector<HTMLButtonElement>('[data-enterprise-html]')!.disabled, false, 'analysis may complete while its route is detached');
+    assert.equal(modelCalls, 1, 'returning to the route does not submit the analysis again');
+    restored.dispose();
+    d.body.dataset.sessionWorkspaceId = 'other'; await flush();
+    d.body.dataset.sessionWorkspaceId = 'pending-ws'; await flush();
+    const cleared = mountEnterpriseAnalysis({ host: h, purpose: 'finance', canAnalyze: true, http });
+    assert.equal(h.querySelectorAll('[data-enterprise-select]').length, 0, 'switching workspace discards the old in-memory files');
+    cleared.dispose();
   }
 }

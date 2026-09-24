@@ -42,6 +42,10 @@
 - Relevant deployment or migration verification when those surfaces change.
 
 ## Documentation synchronization
+Every product UI change must support and separately validate both black/green
+and blue/white themes, at wide and narrow widths. Check text contrast and
+selected, disabled, error and success states; a single-theme pass is not acceptance.
+
 Behavior, contracts, data structures, interactions, deployment, and module
 responsibilities must update their current documentation in the same change.
 
