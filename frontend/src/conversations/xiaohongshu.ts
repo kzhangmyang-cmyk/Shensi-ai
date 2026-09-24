@@ -14,6 +14,13 @@ interface Bridge {
 }
 const escape=(value:unknown)=>String(value??'').replace(/[&<>"']/gu,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const labels:Record<Schema['XhsDraft']['status'],string>={draft:'待审批',approved:'已批准 · 待确认发送',executing:'正在发送',unknown:'结果未知 · 不自动重发',confirmed:'平台已确认',rejected:'平台拒绝'};
+export function xhsErrorMessage(error:unknown):string {
+  const message=error instanceof Error?error.message:'操作失败';
+  const code=/^(?:Error invoking remote method 'shensi:xiaohongshu': Error: )?(xhs_[a-z_]+)$/u.exec(message)?.[1];
+  if(code==='xhs_sending_disabled')return '当前尚未启用小红书发送，账号登录可单独使用。';
+  if(code==='xhs_login_not_open')return '登录窗口已关闭或尚未打开，请先打开登录浏览器。';
+  return message;
+}
 export function renderXhs(state:State) {
   const disabled=state.busy?'disabled':'';
   return `<section class="xhs-workspace" aria-label="小红书私信"><header><div><p class="xhs-eyebrow">社媒对话 / 小红书</p><h2>小红书私信</h2><p>专用浏览器登录，逐条核对收件人与正文。</p></div><button type="button" data-xhs-back>返回抖音</button></header>
@@ -64,7 +71,7 @@ export function createXhsController(host:HTMLElement) {
   async function perform(action:()=>Promise<void>) {
     if(state.busy)return;
     const version=epoch;state.busy=true;state.error=null;draw();
-    try{await action();}catch(error){if(version===epoch)state.error=error instanceof Error?error.message:'操作失败';}
+    try{await action();}catch(error){if(version===epoch)state.error=xhsErrorMessage(error);}
     finally{if(version===epoch){state.busy=false;draw();}}
   }
   const onInput=()=>{

@@ -406,7 +406,7 @@ recovery. A fixture handshake or silent PCM playback cannot establish these.
   conflicts, missing data, follow-up and actual gateway-request integration)
 - `pnpm --dir backend build` (copies the runtime skill asset)
 - `pnpm --dir desktop exec tsx --test tests/cfo-voice.test.ts`
-- `pnpm --dir desktop exec tsx --test tests/cfo-realtime-settings.test.ts tests/cfo-realtime-config-flow.test.ts tests/cfo-realtime-provider.test.ts tests/cfo-realtime-service.test.ts tests/cfo-realtime-ipc.test.ts`
+- `pnpm --dir desktop exec tsx --test tests/cfo-realtime-settings.test.ts tests/cfo-realtime-config-flow.test.ts tests/cfo-realtime-provider.test.ts tests/cfo-realtime-service.test.ts tests/cfo-realtime-lifecycle.test.ts tests/cfo-realtime-ipc.test.ts` (includes disconnected-session cleanup, late events, explicit restart and missing-audio timeout without a microphone)
 - `pnpm --dir frontend exec playwright test --config=playwright.cfo-voice.config.ts`
 - `pnpm --dir frontend test` (question, isolation, stale result, lifecycle tests)
 - `./scripts/context-check`, `pnpm test`, `pnpm build`,
