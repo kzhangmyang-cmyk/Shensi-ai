@@ -4,7 +4,12 @@ import json
 import pathlib
 import subprocess
 import sys
+import asyncio
+import tempfile
+from types import SimpleNamespace
 from receipts import ReceiptTracker
+from single_send import ApprovedCommand, SendJournal, SingleSendExecutor
+from upstream_transport import UpstreamImTransport
 
 root = pathlib.Path(sys.argv[1]).resolve(strict=True)
 revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
@@ -27,3 +32,42 @@ for frame in frames:
     result = tracker.observe("account-a", "generation-a", XHSWebSocket._decode_text_frame(json.dumps(frame)))
     assert result.status == "confirmed" and result.server_message_id == "server-a"
 print("XHS_PINNED_DECODER_COMPATIBILITY_OK: direct and push-batch ACK; no network")
+
+
+async def verify_send_boundary():
+    from apis.xhs_live import _pb_read_fields
+    class Wire:
+        def __init__(self):
+            self.sent = []
+        async def send_str(self, text):
+            self.sent.append(json.loads(text))
+        def __aiter__(self):
+            return self.incoming()
+        async def incoming(self):
+            yield SimpleNamespace(type=SimpleNamespace(name='TEXT'), data=json.dumps(frames[0]))
+    client = XHSWebSocket(SimpleNamespace(user_id='sender-a'), uid='sender-a')
+    client.ws = Wire()
+    with tempfile.TemporaryDirectory(dir=pathlib.Path(tempfile.gettempdir()).resolve()) as directory:
+        journal = SendJournal(pathlib.Path(directory) / 'journal.sqlite')
+        try:
+            command = ApprovedCommand('cmd-a','workspace-a','actor-a','device-a','account-a','recipient-a','synthetic',1,'client-a',200)
+            sender = SingleSendExecutor(journal, UpstreamImTransport(client,'account-a','sender-a',clock=lambda:100),
+                                        'account-a','generation-a',enabled=True)
+            receipt = await sender.execute(command,now=100)
+            assert receipt.status == 'confirmed' and receipt.server_message_id == 'server-a'
+            await sender.execute(command,now=100)
+            assert len(client.ws.sent) == 1
+            data = client.ws.sent[0]['b']['d']
+            assert data['biz'] == 'im' and data['c'] == 'sendMessage'
+            outer = _pb_read_fields(base64.b64decode(data['b']))
+            message = _pb_read_fields(outer[9][0][1])
+            assert message[1][0][1] == b'client-a'
+            assert message[4][0][1] == b'sender-a'
+            assert message[5][0][1] == b'recipient-a'
+            assert message[6][0][1] == b'synthetic'
+        finally:
+            journal.close()
+    print('XHS_PINNED_SINGLE_SEND_OK: real encoder/decoder, synthetic socket, one write')
+
+
+asyncio.run(verify_send_boundary())
