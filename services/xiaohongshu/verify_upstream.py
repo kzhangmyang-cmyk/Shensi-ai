@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from receipts import ReceiptTracker
 from single_send import ApprovedCommand, SendJournal, SingleSendExecutor
 from upstream_transport import UpstreamImTransport
+from browser_login import BrowserImState
 
 root = pathlib.Path(sys.argv[1]).resolve(strict=True)
 revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
@@ -19,6 +20,16 @@ if subprocess.check_output(["git", "-C", str(root), "status", "--porcelain"], te
     raise SystemExit("modified_upstream_source")
 sys.path.insert(0, str(root))
 from apis.xhs_live import XHSWebSocket
+
+# Only reuse upstream's WS codec/client; no alternate QR/SMS/fingerprint factory.
+owned_state = BrowserImState('synthetic-user', 'synthetic-sid', 'synthetic-device', 'synthetic-fingerprint', {})
+owned_client = owned_state.create_client(XHSWebSocket)
+owned_handshake = json.loads(owned_client.handshake())['b']['d']['b']
+assert owned_handshake['authInfo']['uid'] == 'synthetic-user'
+assert owned_handshake['authInfo']['sid'] == 'synthetic-sid'
+assert owned_handshake['deviceInfo']['deviceId'] == 'synthetic-device'
+assert owned_handshake['deviceInfo']['fingerprint'] == 'synthetic-fingerprint'
+print('XHS_OWNED_BROWSER_STATE_COMPATIBILITY_OK: exact state, no network')
 
 # Hand-built protobuf: outer ChatACK field 5; mid field 1 and messageid field 2.
 # Zero status is omitted on the wire by protobuf's default-value convention.

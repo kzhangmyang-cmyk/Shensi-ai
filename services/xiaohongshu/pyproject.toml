@@ -3,7 +3,7 @@ name = "shensi-xiaohongshu-adapter"
 version = "0.1.0"
 description = "Isolated local Xiaohongshu adapter development environment"
 requires-python = ">=3.11,<3.14"
-dependencies = ["aiohttp>=3.12,<4", "curl-cffi==0.15.0"]
+dependencies = ["aiohttp>=3.12,<4", "curl-cffi==0.15.0", "playwright==1.61.0"]
 
 [tool.uv]
 package = false
