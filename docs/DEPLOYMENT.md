@@ -1,5 +1,10 @@
 # Deployment
 
+## Xiaohongshu desktop development
+
+The independent source integration uses `SHENSI_XHS_UPSTREAM_PATH` (absolute clean pinned checkout) and the locked `services/xiaohongshu/.venv` Python environment. See [adapter setup](../services/xiaohongshu/README.md). It does not reuse Douyin profiles or queues. `XHS_DESKTOP_SENDING_ENABLED` defaults false in both Main and Backend; `XHS_DAILY_LIMIT` defaults 20 and accepts 1–100. Do not enable real sends for offline verification. Backend MySQL startup initializes the independent encrypted `xiaohongshu_messaging` table using its existing pool; database errors abort composition, never fall back to memory. No new installer is required for development. Current live application has not been restarted for this integration.
+
+
 For the single-instance persistent account service, fixed HTTPS, private operator
 initialization, backup and rollback, use
 [account cloud runbook](operations/account-admin-cloud-runbook.md) and

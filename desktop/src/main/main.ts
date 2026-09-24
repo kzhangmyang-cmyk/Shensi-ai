@@ -1,5 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, shell } from "electron";
 import { writeFile, readFile } from 'node:fs/promises';
+import { mkdirSync } from 'node:fs';
+import { createXhsAuthority } from './xiaohongshu-authority.ts';
+import { createXhsWorker } from './xiaohongshu-worker.ts';
+import { XhsDesktopService } from './xiaohongshu-service.ts';
+import { registerXhsIpc } from './xiaohongshu-ipc.ts';
 import { registerCouncilReportIpc } from './council-report-ipc.ts';
 import path from "node:path";
 import { createMainWindow } from "./create-window.ts";
@@ -96,6 +101,28 @@ async function main(runtime: DesktopRuntime, paths: AppPaths): Promise<void> {
     onFailure: () => logger.error("desktop.outreach_lifecycle_failed"),
   });
   let window: BrowserWindow | null = null;
+  const xhsEnabled = process.env.XHS_DESKTOP_SENDING_ENABLED === 'true';
+  const xhsUpstream = process.env.SHENSI_XHS_UPSTREAM_PATH;
+  const xhsService = new XhsDesktopService(createXhsAuthority({ localOrigin: renderer.origin,
+    session: () => window?.webContents.session, installationStore, credentialStore }), scope => {
+    if (!executionPaths.repositoryRoot || !xhsUpstream || !path.isAbsolute(xhsUpstream))
+      throw new Error('xhs_runtime_not_configured');
+    const directory = path.join(executionPaths.repositoryRoot, 'services', 'xiaohongshu');
+    const storage = path.join(paths.userData, 'xiaohongshu');
+    mkdirSync(storage, { recursive: true, mode: 0o700 });
+    return createXhsWorker({ executable: path.join(directory, '.venv', 'bin', 'python'), cwd: directory,
+      args: ['-u', path.join(directory, 'worker_process.py'), '--workspace', scope.workspaceId,
+        '--actor', scope.actorId, '--device', scope.deviceId, '--storage', storage, '--upstream', xhsUpstream,
+        ...(xhsEnabled ? ['--enable-sending'] : [])] });
+  }, xhsEnabled);
+  const xhsIpc = registerXhsIpc({localOrigin: renderer.origin, authorizedSender: () => window?.webContents, ipcMain, service: xhsService});
+  let xhsChecking = false;
+  const xhsMonitor = setInterval(() => {
+    if (xhsChecking) return;
+    xhsChecking = true;
+    void xhsService.checkSession().finally(() => { xhsChecking = false; });
+  }, 15_000);
+  xhsMonitor.unref();
   const enterpriseLocal = createEnterpriseLocalBrowser({
     createWindow: options => new BrowserWindow(options),
     captureScript: await readFile(path.join(import.meta.dirname, 'enterprise-capture.js'), 'utf8'),
@@ -169,7 +196,7 @@ async function main(runtime: DesktopRuntime, paths: AppPaths): Promise<void> {
       openExternal: url => shell.openExternal(url),
     });
     window = createdWindow;
-    createdWindow.on("closed", () => { realtime.stop(); window = null; void voice.stop().catch(() => undefined); });
+    createdWindow.on("closed", () => { realtime.stop(); window = null; void voice.stop().catch(() => undefined); void xhsService.dispose().catch(() => undefined); });
     createdWindow.webContents.on('did-start-navigation', (_event: unknown, _url: string, _inPlace: boolean, isMainFrame: boolean) => { if (isMainFrame) realtime.stop(); });
     createdWindow.webContents.on('render-process-gone', () => realtime.stop());
     const localMedia = (contents: unknown, url?: string) => {
@@ -201,13 +228,14 @@ async function main(runtime: DesktopRuntime, paths: AppPaths): Promise<void> {
     event.preventDefault();
     if (cleaning) return;
     cleaning = true;
+    clearInterval(xhsMonitor);
     councilReportIpc.dispose();
     enterpriseBrowserIpc.dispose();
     voiceIpc.dispose();
     realtimeIpc.dispose();
     outreach.dispose();
     disposeOutreachLifecycle();
-    void stopDesktopServices({ coordinator, sidecar: manager, renderer })
+    void (async () => { try { await xhsIpc.dispose(); } finally { await stopDesktopServices({ coordinator, sidecar: manager, renderer }); } })()
       .catch(() => logger.error("desktop.shutdown_failed")).then(() => {
       disposeSignals();
       unsubscribeStatus();

@@ -1,6 +1,7 @@
 import { createPlatformExecutionAccess } from './platform-execution-access.js';
 import { emptyPlatformState } from './platform-admin-domain.js';
 import { isPlatformMutationPending } from './account-mutation-state.js';
+import { createXhsApplication } from './xiaohongshu-application.js';
 import {
   createHash,
   createHmac,
@@ -2503,6 +2504,11 @@ export async function createAcquisitionApplication(
         return workspace?.workspaceId === scope.workspaceId;
       }
     });
+    router.use('/api/v1/acquisition/xiaohongshu', await createXhsApplication({
+      pool, installationService: desktopInstallationService,
+      enabled: process.env.XHS_DESKTOP_SENDING_ENABLED === 'true',
+      dailyLimit: process.env.XHS_DAILY_LIMIT ? Number(process.env.XHS_DAILY_LIMIT) : 20,
+    }));
     const actionAuthority = createAcquisitionOutreachActionAuthority({
       findBatch: (workspaceId, batchId) =>
         outreachRepository.find(workspaceId, batchId),

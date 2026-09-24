@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { exposeXhsApi } from './xiaohongshu-api.ts';
 import { exposeDesktopApi } from './desktop-api.ts';
 import { exposeCfoVoiceApi } from './cfo-voice-api.ts';
 import { exposeCfoRealtimeApi } from './cfo-realtime-api.ts';
@@ -10,6 +11,7 @@ contextBridge.exposeInMainWorld('shensiEnterpriseBrowser', Object.freeze({ readP
   queryLocal: (query:EnterpriseQuery) => ipcRenderer.invoke(ENTERPRISE_QUERY_CHANNEL, query),
   searchLocal: (keyword:string) => ipcRenderer.invoke(ENTERPRISE_SEARCH_CHANNEL, keyword),nextLocal:(batchId:string)=>ipcRenderer.invoke(ENTERPRISE_NEXT_CHANNEL,batchId) }));
 exposeDesktopApi({ contextBridge, ipcRenderer });
+exposeXhsApi({ contextBridge, ipcRenderer });
 exposeCfoVoiceApi({ contextBridge, ipcRenderer });
 exposeCfoRealtimeApi({ contextBridge, ipcRenderer });
 exposeCouncilReportApi({ contextBridge, ipcRenderer });

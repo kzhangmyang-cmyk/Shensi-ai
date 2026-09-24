@@ -67,6 +67,7 @@ test("current acquisition view preserves candidate, focus and one-pixel scroll d
   const bundled = await build({ stdin: { contents: fixture, resolveDir: root, loader: "ts" },
     bundle: true, write: false, format: "esm", platform: "browser", logLevel: "silent" });
   const css = await readFile(path.join(root, "frontend/src/replica-dashboard.css"), "utf8");
+  const enterpriseCss = await readFile(path.join(root, "frontend/src/enterprise-query/view.css"), "utf8");
   const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Shensi · 隔离桌面回归</title>
     <style>${css}</style><style>body{display:block!important;height:auto!important;overflow:auto!important;background:#080d0a;color:#eef5ef;margin:0;padding:24px}
     main{max-width:1200px;margin:auto}footer{height:900px}.douyin-candidate-table{max-height:none!important}</style></head>
@@ -74,6 +75,7 @@ test("current acquisition view preserves candidate, focus and one-pixel scroll d
   const server = createServer((request, response) => {
     if (request.url === "/fixture.js") { response.setHeader("Content-Type", "text/javascript"); response.end(bundled.outputFiles[0].text); }
     else if (request.url === "/") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(html); }
+    else if (request.url === "/enterprise-query/view.css") { response.setHeader("Content-Type", "text/css"); response.end(enterpriseCss); }
     else { response.statusCode = 404; response.end(); }
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

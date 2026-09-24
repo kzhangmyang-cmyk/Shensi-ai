@@ -1,4 +1,5 @@
 import { createDemoRouter, demoModuleMeta } from "./demo-router";
+import { createXhsController } from '../conversations/xiaohongshu';
 import { renderConversationsView, resetConversationViewState, setConversationFilter } from "./demo-conversations-view";
 import { renderCapabilityDemoView } from "./demo-capabilities-view";
 import { isOpportunityStage, lossReasons, renderConversionView } from "./demo-conversion-view";
@@ -182,6 +183,8 @@ export function startDemoApp(): void {
   createDealCreateController();
   let realPrivateDomainActive = false;
   let realConversationsActive = false;
+  const xhsController = createXhsController(host);
+  let xhsSelected = false;
   let realDashboardActive = false;
   let requestedRealCustomerId = "";
   let greetingSettings: { dispose(): void } | null = null;
@@ -223,6 +226,7 @@ export function startDemoApp(): void {
   };
   document.addEventListener("goodjob:cfo-role-changed", updateAgentInspector);
   const render = () => {
+    if (router.current() !== 'conversations' || document.body.dataset.sessionMode !== 'real' || parseGrowthHash(window.location.hash)) { xhsSelected = false; xhsController.deactivate(); }
     if (currentRoute() !== "#agents") pendingAgentEntry = null;
     greetingSettings?.dispose();
     greetingSettings = null;
@@ -264,6 +268,13 @@ export function startDemoApp(): void {
       agentsDemoController?.dispose();
       agentsDemoController = null;
       agentsAuthority = null;
+      if (xhsSelected) {
+        if (realConversationsActive) realConversationsController.deactivate();
+        realConversationsActive = false;
+        void xhsController.open();
+        return;
+      }
+      xhsController.deactivate();
       if (!realConversationsActive) {
         realConversationsActive = true;
         void realConversationsController.open().catch(() => undefined);
@@ -327,6 +338,12 @@ export function startDemoApp(): void {
   }
 
   shell.addEventListener("click", (event) => {
+    const xhsTarget = event.target as HTMLElement;
+    if (router.current() === 'conversations' && xhsTarget.closest('[data-xhs-open], [data-xhs-back]')) {
+      xhsSelected = Boolean(xhsTarget.closest('[data-xhs-open]'));
+      render();
+      return;
+    }
     const target = event.target as HTMLElement;
     if (target.closest("#replicaNewTaskButton") && document.body.dataset.sessionMode === "real") {
       event.preventDefault();

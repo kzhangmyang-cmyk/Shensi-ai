@@ -3,18 +3,17 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import express from 'express';
 import type { AddressInfo } from 'node:net';
-import { MemoryXhsMessagingRepository, XiaohongshuMessagingService } from './xiaohongshu-messaging.js';
 import { capabilitiesForHumanRole } from './growth-capabilities.js';
 import { desktopInstallationIdHash } from './acquisition-desktop-installation.js';
 import { readFileSync } from 'node:fs';
 import YAML from 'yaml';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { XhsAccountService } from './xiaohongshu-accounts.js';
 
 test('XHS HTTP uses authenticated user scope plus registered device before issuing one exact command',async()=>{
   assert.ok(existsSync(new URL('./xiaohongshu-messaging-router.ts',import.meta.url)), 'independent HTTP boundary exists');
-  const { createXhsMessagingRouter }=await import('./xiaohongshu-messaging-router.js');
+  assert.ok(existsSync(new URL('./xiaohongshu-application.ts',import.meta.url)), 'production XHS composition exists');
+  const { createXhsApplication }=await import('./xiaohongshu-application.js');
   const installationId='i'.repeat(43), token='t'.repeat(43), deviceId=desktopInstallationIdHash(installationId);
   const contract=YAML.parse(readFileSync(new URL('../../contracts/openapi/xiaohongshu-messaging.v1.yaml',import.meta.url),'utf8'));
   const ajv=new Ajv2020({strict:false}); addFormats(ajv);
@@ -25,15 +24,12 @@ test('XHS HTTP uses authenticated user scope plus registered device before issui
   let wrongDeviceScope=false;
   const context={workspaceId:'workspace',actorId:'actor',teamId:'team',kind:'personal' as const,role:'admin' as const,
     capabilities:capabilitiesForHumanRole('admin'),capabilityRegistryVersion:'growth-capabilities.v1'};
-  const repository=new MemoryXhsMessagingRepository();
-  const accounts=new XhsAccountService(repository);
-  const service=new XiaohongshuMessagingService(repository,{enabled:true,account:(scope,id,device)=>accounts.resolve(scope,id,device)});
   const app=express(); app.use(express.json());
   app.use((req,_res,next)=>{
     if(req.header('X-Test-User')==='yes') {req.user={id:'actor',teamId:'team'} as never;req.activeWorkspace=context;}
     next();
   });
-  app.use('/api/v1/acquisition/xiaohongshu',createXhsMessagingRouter({service,accounts,installationService:{authenticateDevice:async input=>
+  app.use('/api/v1/acquisition/xiaohongshu',await createXhsApplication({pool:null,enabled:true,installationService:{authenticateDevice:async input=>
     input.installationId===installationId && input.deviceToken===token
       ? {workspaceId:wrongDeviceScope?'other':'workspace',userId:'actor',teamId:'team',deviceIdHash:deviceId,protocolVersion:1} : null}}));
   const server=app.listen(0,'127.0.0.1'); await new Promise<void>(resolve=>server.once('listening',resolve));

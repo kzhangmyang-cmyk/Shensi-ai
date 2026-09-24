@@ -1,33 +1,46 @@
 # 小红书独立适配环境
 
-状态：独立依赖锁定、上游导入和消息回执关联内核已通过离线验证，尚未连接产品的登录、批准或发送入口。不能据此认为私信可用。
+源码已连接后端独立路由、Electron Main/Preload、私有stdio进程与社媒对话入口；当前运行应用尚未更新，真实平台登录、消息发送和真实MySQL验收未完成。发送默认关闭。
 
-固定参考 `cv-cat/Spider_XHS@7077c88f82771f547cc1afdadaec4025be2355e6`，开发源码置于独立目录，不复制到抖音Sidecar。上游README标注非商业学习交流，虽然徽章链接MIT，固定提交未包含LICENSE文件；不据徽章推断可再分发。当前仅在用户已授权的非商业本机开发范围使用。
+## 环境与启动
 
-`apis/xhs_live.py` 的导入链只需 `curl_cffi`，WebSocket连接另需 `aiohttp`。本环境不安装上游的图像、Excel、二维码、PyExecJS依赖；不导入整个采集应用。完整认证签名路径是否需要其他依赖，应在接入该路径时单独验证，当前不宣称覆盖。
+固定参考 `cv-cat/Spider_XHS@7077c88f82771f547cc1afdadaec4025be2355e6`。上游README限定非商业学习交流，固定提交无LICENSE文件；不据MIT徽章推断再分发许可。只在用户授权的非商业本机开发范围使用，源码保留在独立外部目录，不复制到本仓库或抖音Sidecar。
 
-环境准备：`uv sync --project services/xiaohongshu`；重建使用 `uv sync --frozen --project services/xiaohongshu`。依赖独立锁定，不改 `services/media-crawler`。
+运行 `uv sync --frozen --project services/xiaohongshu`。Python环境独立锁定；Playwright1.61.0与项目既有版本一致，安装Python依赖不会下载Chromium。必须使用本机已准备的Playwright浏览器，不提供自动下载/安装路径。
 
-离线测试：`uv run --frozen --project services/xiaohongshu python -m unittest discover -s services/xiaohongshu -p 'test_*.py'`。
+启动桌面开发实例前设置 `SHENSI_XHS_UPSTREAM_PATH` 为固定提交的干净Git仓库绝对路径。主进程使用本目录 `.venv/bin/python`，运行器校验仓库根目录、精确提交和工作区干净状态后才导入上游。当前不支持打包分发，不产生新App/DMG。
 
-固定上游兼容检查：`uv run --frozen --project services/xiaohongshu python services/xiaohongshu/verify_upstream.py /path/to/Spider_XHS`。只接受指定提交的干净源码；用手写合成protobuf经过上游真实解码器检验直接ACK和推送批次，不连接网络。
+`XHS_DESKTOP_SENDING_ENABLED` 在桌面Main与后端分别默认false；需要后续真实验收时两端均明确启用，不能由Renderer设置。`XHS_DAILY_LIMIT` 后端默认20、范围1–100。发送开关不影响独立账号登录/绑定。现有抖音开关和历史队列不变。
 
-`receipts.py` 的 `ReceiptTracker`只关联当前账号、会话代次和客户端消息ID的`chatACK`。握手、其他ID、畸形事件保持未决；断线变为未知；精确迟到ACK可对账；终态不会被重复事件覆盖。账号和代次由会话拥有者传入，不得接受网络自报身份。模块不发送消息、不承担批准、持久化或重发控制；这些调用链尚待实现。
+## 产品路径
 
-`single_send.py`提供私有SQLite单次提交日志与可注入transport执行边界，默认关闭。日志在网络操作前持久化未知状态；相同命令不会重复调用transport，重启也不重发。批准的账号、收件人、正文、修订及作用域绑定为摘要，不存正文或凭据。超时、连接错误、取消保留未知；只有匹配消息ACK变为确认/拒绝。目录必须属于当前用户且权限0700，文件0600，不接受符号链接。测试目录须使用macOS解析后的真实路径。
+社媒对话 → 小红书私信 → 打开登录浏览器 → 用户手动登录官网 → 已登录，连接账号 → 选择发送账号 → 精确收件人/正文 → 保存草稿 → 批准当前版本 → 二次确认发送 → 展示平台回执或结果未知。
 
-此层接受可信调用方传入的`ApprovedCommand`，不是公开鉴权接口；后端批准验证、设备注册、配额尚待接通。不可将构造此对象等同于获得用户批准，当前未注册任何产品外发入口。
+正文/收件人编辑撤销批准；未保存编辑不能直接批准或发送旧版本。结果未知和终态记录不提供重发。前端黑绿/蓝白、1440/390使用离线合成API验收，不代表真实平台发送通过。
 
-`sessions.py`管理本进程专用IM客户端，按账号独占、按工作区/用户/设备及会话代次校验执行。账号内串行等待后重新读取时钟验证批准有效期，关闭取消正在连接和执行的工作，未决日志保持未知；关闭失败保留账号占用，不新建重叠连接。其他账号不共享锁。它只接受可信登录层交付的客户端，不加载凭据、不扫描浏览器，也不是已经实现的网页登录入口。进程级单实例、正常登录获取客户端和后端批准验证须由后续产品装配实现。
+## 模块与边界
 
-`upstream_transport.py`桥接固定上游`XHSWebSocket.send_chat_message/events`，保留已持久化的客户端消息ID，不使用上游会生成新ID的快捷方法。发送前和接收时校验平台用户身份；传输返回不视为成功。不提供HTTP补发。兼容检查已覆盖真实上游编码器→合成socket→真实解码器→持久回执，重复执行仅一次socket写入；没有实际连接平台。
+- `browser_login.py`：独占可见persistent Context，不生成二维码、不截图、不引入noVNC。仅读取本Context官方页面IM状态与push域Cookie；过期/缺失状态返回未就绪，不生成认证字段。上下文仅由本模块关闭。
+- `worker_process.py`：无HTTP端口，仅父进程stdin/stdout；按工作区/用户/设备派生私有根目录，0700 Profile与0600日志/租约。flock阻止同身份重复进程。EOF/SIGTERM取消请求并关闭本进程会话；不恢复队列。
+- `protocol.py`：open/connect/close/execute四种严格操作，UUID关联、64KiB UTF-8限制、重复键/未知字段拒绝。批准身份必须匹配进程Owner，后端毫秒截止时间转换为秒。公开消息不含Cookie、认证状态、Profile路径或原始异常。
+- `worker_runtime.py`：调度浏览器、IM会话及单次执行，关闭账号会取消该账号请求。公开ready来自IM连接成功而非仅浏览器登录。固定上游connect等待握手ACK后返回。
+- `sessions.py`：账号独占、身份/代次隔离、账号内锁，无全局发送锁；关闭失败保留占用。排队后重验过期，取消留下未知状态。
+- `single_send.py`：网络写入前将命令绑定摘要和未知状态提交SQLite，不存正文/凭据。重复命令不再写socket，冲突拒绝。重启不重发。
+- `upstream_transport.py`/`receipts.py`：复用固定上游WS编码与事件，保留持久化mid。只接受精确账号/代次/mid的chatACK，传输返回不视为成功；无HTTP补发。
+- `desktop/src/main/xiaohongshu-*.ts`：当前用户会话/CSRF与已有设备凭据留在Main。Renderer仅可传账号ID、草稿ID/修订等窄参数；正文命令必须由Main从后端单次领取。身份变化阻止发送，关闭应用时回收独立进程。
+- `backend/src/xiaohongshu-application.ts`：由当前Acquisition应用装配，复用其池与桌面设备认证器。MySQL模式建立独立加密CAS表；仅宿主明确内存模式使用内存仓库，不在DB失败后降级。HTTP位于正常鉴权/CSRF/工作区中间件后。
+- `frontend/src/conversations/xiaohongshu.ts`：独立平台工作区；共享DTO来自 `contracts/openapi/xiaohongshu-messaging.v1.yaml`，不手写业务DTO。
 
-既定行为与验收见 `../../docs/design/xiaohongshu-independent-messaging.md`。正常专用会话登录、单条批准、消息ACK关联和未知结果不重发是后续接入要求；当前不启动浏览器、不读取认证材料、不访问小红书、不外发。
+## 验证
 
-后端独立业务内核位于`backend/src/xiaohongshu-messaging.ts`，具备能力校验、作用域加密存储、正文/收件人版本批准、UTC日配额预留及执行重验、单次领取和精确回执。正文或收件人编辑撤销批准；账号/设备不可编辑，需新建草稿。超过批准有效期的未决执行读取为未知，不重新发放命令；精确迟到回执可对账。当前仅可信内部接口，尚未挂载HTTP、设备鉴权或产品账号读取器。MySQL独立仓库使用工作区/用户主键和聚合修订CAS保护并发配额；SQL边界测试使用受控驱动，尚未实际创建表或执行真实MySQL验收。可运行`pnpm --dir backend test:xiaohongshu`，已纳入根测试。
+```sh
+uv run --frozen --project services/xiaohongshu python -m unittest discover -s services/xiaohongshu -p 'test_*.py'
+uv run --frozen --project services/xiaohongshu python services/xiaohongshu/verify_upstream.py /path/to/Spider_XHS
+pnpm --dir backend test:xiaohongshu
+pnpm --dir desktop exec tsx --test tests/xiaohongshu-*.test.ts
+pnpm --dir frontend test:xiaohongshu
+pnpm --dir frontend exec playwright test --config=playwright.xiaohongshu.config.ts
+pnpm test && pnpm build && ./scripts/context-check && git diff --check
+```
 
-`xiaohongshu-messaging-router.ts`已提供独立HTTP路由和既有桌面设备凭据验证接口；隔离合成HTTP验证真实业务内核及OpenAPI响应。它尚未挂入主服务器，须在正常身份/CSRF/工作区中间件之后装配并提供真实账号绑定读取器。共享DTO由独立OpenAPI生成；桌面领取时必须同时具备当前用户会话与匹配设备凭据。当前后台和原生应用不会因此开始外发。
-
-`xiaohongshu-accounts.ts`与批准模块共用加密聚合及CAS：账号回传仅由已鉴权设备绑定当前用户/工作区，禁止静默替换平台用户或用多个账号ID重复绑定同一平台用户。准备批准时读取同作用域、同设备且已报告ready的账号，代次变化阻止旧批准执行。已提供`GET /accounts`及设备专用`POST /accounts/bind`合成HTTP链路；账号状态是桌面报告，不是平台实时验权。正常网页登录、客户端身份确认及主服务器装配仍待接通。
-
-`browser_login.py`提供可注入Playwright Chromium的专用可见登录生命周期，Profile仅位于调用方提供的当前身份私有根目录。打开官网后由用户操作，不生成二维码、不截图、不引入noVNC。只读取该页面三项IM状态键及目标push域的Cookie；缺少/过期状态返回未就绪，不制造身份字段。`BrowserImState`私有对象直接交给固定上游WS客户端，不调用其替代扫码、短信或指纹生成工厂；Cookie只允许该push端点读取，不进入公开DTO。Playwright版本复用项目已锁定的1.61.0；安装Python依赖不下载新的浏览器安装包。当前仅模拟浏览器测试和真实上游构造/编码兼容通过，尚未在真实浏览器或账号运行，也未连接桌面IPC。
+兼容检查使用真实上游编码/解码器与合成socket，无网络。MySQL SQL边界目前使用受控驱动；只有明确配置隔离测试库才能执行真实MySQL验收，不替换为用户数据库。当前进度见 `../../docs/PROJECT_STATUS.md`。

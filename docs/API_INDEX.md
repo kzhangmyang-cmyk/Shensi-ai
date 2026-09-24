@@ -536,6 +536,8 @@ valid public error codes.
 
 ## Change workflow
 
+Xiaohongshu endpoints are defined in `contracts/openapi/xiaohongshu-messaging.v1.yaml` and mounted under `/api/v1/acquisition/xiaohongshu` by `xiaohongshu-application.ts`, after the host user/CSRF/workspace middleware. Binding, claim and receipt also require the existing registered desktop credentials. Desktop stdio is a private Main-to-worker protocol, not a public API; renderer cannot provide an execution command or credentials. Generate/check with `pnpm --dir contracts generate:xhs-types` and `pnpm --dir contracts check:xhs-types`.
+
 1. Edit the relevant OpenAPI/JSON Schema source and backend runtime together.
 2. Regenerate committed frontend types with
    `pnpm generate:frontend-contract-types`.

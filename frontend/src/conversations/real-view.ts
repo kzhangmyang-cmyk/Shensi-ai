@@ -239,7 +239,7 @@ function renderMain(state: RealConversationsViewState): string {
       ${tabs}
       <button type="button" data-real-conversations-action="retry">刷新公开证据</button>
     </div>`;
-  const accountStrip = `<div class="real-conversations-account-strip"><i class="ph ph-shield-check" aria-hidden="true"></i><span>每次发送前都会核对发送账号、精确收件人与正文</span><a href="#acquisition">管理账号</a></div>`;
+  const accountStrip = `<div class="real-conversations-account-strip"><i class="ph ph-shield-check" aria-hidden="true"></i><span>每次发送前都会核对发送账号、精确收件人与正文</span><button type="button" data-xhs-open>小红书私信</button><a href="#acquisition">管理账号</a></div>`;
 
   if (state.status === "loading" && snapshot === null) {
     return `<section class="real-conversations" aria-label="抖音公开互动">${heading}${accountStrip}<section class="demo-panel demo-empty" role="status"><h2>正在读取真实公开互动…</h2><p>数据来自现有获客任务和候选证据接口。</p></section></section>`;
