@@ -2,6 +2,8 @@
 
 ## 2026-09-25 — 授权与执行范围
 
+- 安全同步核对：已有精选源码受控重启授权，无需重复索要。但当前后端5638（PID42568）采用exact构建准入，允许的摘要与最新精选桌面manifest不一致，且无additional准入；仅更新Main/Renderer将使获客写请求返回409。新版Main的XHS本身是延迟启动，不会直接建表；标准完整启动器会连接持久业务MySQL并重启后端，后端createXhsApplication在pool存在时无条件执行CREATE TABLE IF NOT EXISTS xiaohongshu_messaging，与发送开关无关。因此不能在本次“不连接/迁移业务数据库、不改变冻结抖音运行”的约束下完成可用的同步；未重启、未伪造旧manifest、未放宽准入。后续需要先完成隔离MySQL验收，再明确安排业务库schema与客户端/后端配套版本更新，而非再次确认同一重启授权。
+
 - 原生验收收尾源码已备份，私有GitHub main核对为产品提交 `cbcbb3e7190923a280a8505da0aa9053a745999d`。本批自主离线/隔离验收已完成；真实平台、物理语音、搜索连接和专用MySQL配置边界见下项，不以重复测试替代。应用未重启，冻结模块未部署。
 
 - 隔离原生小红书整页验收已实际完成：隐藏Electron窗口加载生产页面、完整Preload、Main鉴权/IPC/service和真实Python worker；合成环回API验证创建→修改撤销批准→重新批准→精确二次确认→Main禁发，未调用claim/receipt或worker execute。非法IPC和未打开登录的拒绝通过，EOF关闭完成；黑绿/蓝白1440/390四组无横向溢出、无Renderer错误，截图与结果仅在本机临时验收目录。首轮失败来自夹具漏建0700目录和/tmp路径别名，按正式启动约定修正，未改生产权限校验。
