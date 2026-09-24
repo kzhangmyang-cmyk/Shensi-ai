@@ -104,6 +104,8 @@ test('configured model gateway receives only public sources and rejects invented
         const planning=!('history' in payload);
         let value:unknown;
         if(planning){plannerPayloads.push(payload);assert.ok(Object.keys(payload).every(k=>['question','previousPublicTopic'].includes(k)));
+          const rules=outgoing.messages.find((m:any)=>m.role==='system').content;
+          for(const example of ['{"kind":"not_needed"}','{"kind":"clarify","question":"需要澄清的问题"}','{"kind":"search","topic":"公开主题","region":"","freshness":""}']) assert.ok(rules.includes(example),'planner receives the exact JSON alternatives');
           value=payload.question==='解释现金流'?{kind:'not_needed'}:{kind:'search',topic:'公共政策',region:'中国',freshness:'最新'};
         }else{answerPayloads.push(payload);value=payload.cells
           ?{observations:[{template:'原文为{{cell:1:2:2}}，政策适用需另核对。',sourceRefs:['cell:1:2:2']}],...(payload.publicEvidence?{citationIds:['S1']}:{})}
