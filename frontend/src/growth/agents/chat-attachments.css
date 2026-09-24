@@ -1,0 +1,9 @@
+.cfo-chat-attachments { margin: 12px 0; padding: 12px; border: 1px solid var(--appearance-border); border-radius: 12px; color: var(--appearance-text-primary); background: var(--appearance-bg-surface); min-width: 0; }
+.cfo-chat-attachments > label { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-weight: 600; }
+.cfo-chat-attachments input[type=file] { max-width: 100%; min-width: 0; font: inherit; color: inherit; }
+.cfo-chat-attachments p { margin: 8px 0; font-size: 12px; line-height: 1.6; color: var(--appearance-text-primary); overflow-wrap: anywhere; }
+.cfo-chat-attachments ul { display: grid; gap: 6px; padding: 0; margin: 8px 0; list-style: none; }
+.cfo-chat-attachments li { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
+.cfo-chat-attachments li span { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.cfo-chat-attachments button { padding: 5px 10px; min-height: 32px; flex-shrink: 0; font-size: 12px; }
+.cfo-chat-attachments button:focus-visible, .cfo-chat-attachments input:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }

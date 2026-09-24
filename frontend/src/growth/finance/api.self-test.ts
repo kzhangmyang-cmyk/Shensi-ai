@@ -125,3 +125,12 @@ for (const [name, mediaType] of [
   assert.equal(calls.length, requestCountBeforeRejectedImport, 'PDF/DOCX must never reach ledger preview');
 }
 await assert.rejects(api.inspectDocument(new Blob(['fixture']), '旧版.doc', false), /另存为 DOCX/);
+const attachmentScope = { conversationKey: '12345678-1234-4234-8234-123456789012', role: 'cost' as const };
+await api.inspectDocument(new Blob(['来源']), '聊天.csv', false, undefined, undefined, [], attachmentScope);
+assert.deepEqual((calls.at(-1)?.options?.body as { attachmentScope: unknown }).attachmentScope, attachmentScope);
+const beforeForbiddenModel = calls.length;
+await assert.rejects(api.inspectDocument(new Blob(['来源']), '聊天.csv', true, undefined, undefined, [], attachmentScope));
+assert.equal(calls.length, beforeForbiddenModel, 'attachment parsing cannot authorize model traffic');
+const clearInput = { ...attachmentScope, documentId: '22345678-1234-4234-8234-123456789012' };
+await api.clearChatAttachment(clearInput);
+assert.deepEqual(calls.at(-1), { path: '/api/v1/finance/documents/attachments/clear', options: { method: 'POST', body: clearInput, signal: undefined } });

@@ -169,7 +169,7 @@ export class FinancialCouncilAgentCenter {
     if (!parsed.success) throw new GrowthHttpError(422, 'cfo_conversation_input_invalid');
     signal?.throwIfAborted();
     if (parsed.data.documentId && !this.dependencies.documents) throw new GrowthHttpError(409, 'finance_document_expired');
-    const selectedDocument = parsed.data.documentId ? this.dependencies.documents!.selected(context, parsed.data.documentId) : null;
+    const selectedDocument = parsed.data.documentId ? this.dependencies.documents!.selected(context, parsed.data.documentId, parsed.data) : null;
     if (!selectedDocument && !this.dependencies.chatModel) throw new GrowthHttpError(503, 'cfo_conversation_model_not_ready');
     const material = selectedDocument ? null : await this.dependencies.latestPackage.getLatestVerified(context.workspaceId, { limit: 1 });
     if (material && material.workspaceId !== context.workspaceId)

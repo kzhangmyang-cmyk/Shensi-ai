@@ -66,4 +66,9 @@ test('readonly PDF and DOCX sources use page or document coordinates, not fabric
     assert.equal(input({ fileName: 'source', mediaType, contentBase64: 'dGV4dA==', readWithModel: false }), true, JSON.stringify(input.errors));
   }
   assert.equal(input({ fileName: 'old.doc', mediaType: 'application/msword', contentBase64: 'dGV4dA==', readWithModel: false }), false);
+  const chat = { fileName: 'chat.csv', mediaType: 'text/csv', contentBase64: 'dGV4dA==', readWithModel: false,
+    attachmentScope: { conversationKey: '12345678-1234-4234-8234-123456789012', role: 'cost' } };
+  assert.equal(input(chat), true, JSON.stringify(input.errors));
+  assert.equal(input({ ...chat, readWithModel: true }), false, 'attachment upload is never a model authorization');
+  assert.equal(input({ ...chat, attachmentScope: { ...chat.attachmentScope, role: 'invented' } }), false);
 });

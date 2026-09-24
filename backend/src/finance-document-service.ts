@@ -7,13 +7,17 @@ import type { ActiveWorkspaceContext } from './growth-workspace-context.js';
 import type { CfoQuestion } from './cfo-conversation.js';
 import { inspectFinanceDocument, type FinanceDocumentInspection } from './finance-document-inspection.js';
 import { inspectFinanceTextDocument } from './secure-finance-document-text.js';
+import { FINANCIAL_COUNCIL_MODEL_ROLES } from './financial-council-model-routing.js';
 
 const MAX_BYTES = 5 * 1024 * 1024;
+const attachmentScopeSchema = z.object({ conversationKey: z.string().uuid(), role: z.enum(FINANCIAL_COUNCIL_MODEL_ROLES) }).strict();
+const attachmentClearSchema = attachmentScopeSchema.extend({ documentId: z.string().uuid() }).strict();
 const fileSchema = z.object({ fileName: z.string().trim().min(1).max(255),
   mediaType: z.enum(['text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']),
   contentBase64: z.string().min(4).max(4 * Math.ceil(MAX_BYTES / 3)) }).strict();
 const bodySchema = fileSchema.extend({ readWithModel: z.boolean(), additionalFiles: z.array(fileSchema).max(9).optional(),
+  attachmentScope: attachmentScopeSchema.optional(),
   analysisPurpose: z.enum(['finance', 'roi', 'management']).optional() }).strict();
 
 export interface ReadonlyFinanceDocumentMaterial {
@@ -29,6 +33,7 @@ type Selection = { material: ReadonlyFinanceDocumentMaterial; inspection: Financ
 /** Process-local explicit selections, not a knowledge base or verified accounting source. */
 export class FinanceDocumentService {
   private readonly selections = new Map<string, Selection>();
+  private readonly attachments = new Map<string, Selection & { conversationKey: string; role: NonNullable<CfoQuestion['role']> }>();
   private readonly now: () => number;
   constructor(private readonly options: { model?: FinanceDocumentReadModel; now?: () => number;
     connectionFor?: (context: ActiveWorkspaceContext, role: NonNullable<CfoQuestion['role']>) => Promise<string | undefined>;
@@ -42,11 +47,16 @@ export class FinanceDocumentService {
     for (const [key, value] of this.selections) if (Date.parse(value.material.expiresAt) <= this.now()) {
       this.selections.delete(key);
     }
+    for (const [key, value] of this.attachments) if (Date.parse(value.material.expiresAt) <= this.now()) this.attachments.delete(key);
   }
-  selected(context: ActiveWorkspaceContext, documentId?: string): { material: ReadonlyFinanceDocumentMaterial; inspection: FinanceDocumentInspection } | null {
+  selected(context: ActiveWorkspaceContext, documentId?: string, binding?: Pick<CfoQuestion, 'conversationKey' | 'role'>): { material: ReadonlyFinanceDocumentMaterial; inspection: FinanceDocumentInspection } | null {
     this.expire();
     const value = this.selections.get(this.key(context));
-    if (documentId !== undefined && (!value || value.material.documentId !== documentId)) throw new GrowthHttpError(409, 'finance_document_expired');
+    if (documentId !== undefined && (!value || value.material.documentId !== documentId)) {
+      const attached = this.attachments.get(JSON.stringify([this.key(context), documentId]));
+      if (!attached || attached.conversationKey !== binding?.conversationKey || attached.role !== (binding?.role ?? 'cfo')) throw new GrowthHttpError(409, 'finance_document_expired');
+      return structuredClone({ material: attached.material, inspection: attached.inspection });
+    }
     if (!value) return null;
     return structuredClone({ material: value.material, inspection: value.inspection });
   }
@@ -54,11 +64,25 @@ export class FinanceDocumentService {
     requireGrowthCapabilities(context, ['finance.council.run']);
     this.selections.delete(this.key(context));
   }
+  clearAttachment(context: ActiveWorkspaceContext, raw: unknown): void {
+    requireGrowthCapabilities(context, ['finance.council.run']);
+    const parsed = attachmentClearSchema.safeParse(raw);
+    if (!parsed.success) throw new GrowthHttpError(422, 'finance_document_input_invalid');
+    this.expire();
+    const key = JSON.stringify([this.key(context), parsed.data.documentId]);
+    const attachment = this.attachments.get(key);
+    if (!attachment || attachment.conversationKey !== parsed.data.conversationKey || attachment.role !== parsed.data.role) {
+      throw new GrowthHttpError(409, 'finance_document_expired');
+    }
+    this.attachments.delete(key);
+  }
   async inspect(context: ActiveWorkspaceContext, raw: unknown, signal?: AbortSignal) {
     const key = this.key(context);
     const parsed = bodySchema.safeParse(raw);
     if (!parsed.success) throw new GrowthHttpError(422, 'finance_document_input_invalid');
     const input = parsed.data;
+    if (input.attachmentScope && input.readWithModel) throw new GrowthHttpError(422, 'finance_document_input_invalid');
+    if (input.attachmentScope) requireGrowthCapabilities(context, ['finance.council.run']);
     if (input.readWithModel || !context.capabilities.includes('ledger.pending.create')) requireGrowthCapabilities(context, ['finance.council.run']);
     const content = Buffer.from(input.contentBase64, 'base64');
     if (content.toString('base64') !== input.contentBase64) throw new GrowthHttpError(422, 'finance_document_content_invalid');
@@ -100,11 +124,20 @@ export class FinanceDocumentService {
     const material: ReadonlyFinanceDocumentMaterial = { kind: 'readonly_document', documentId,
       fileName: input.fileName, fileHash: inspection.fileHash, classification: inspection.classification,
       missingStatements: [...inspection.missingStatements], expiresAt };
+    if (input.attachmentScope) {
+      this.expire();
+      const bytes = Buffer.byteLength(JSON.stringify(inspection));
+      const used = [...this.selections.values(), ...this.attachments.values()].reduce((sum, value) => sum + value.bytes, 0);
+      if (this.selections.size + this.attachments.size >= (this.options.maxScopes ?? 64)
+        || used + bytes > (this.options.maxStoredBytes ?? 16 * 1024 * 1024)) throw new GrowthHttpError(429, 'finance_document_session_limit');
+      this.attachments.set(JSON.stringify([key, documentId]), { material, inspection: structuredClone(inspection), bytes, ...input.attachmentScope });
+    }
     if (input.readWithModel) {
       this.expire();
       const bytes = Buffer.byteLength(JSON.stringify(inspection));
-      const used = [...this.selections.entries()].reduce((sum, [existingKey, value]) => sum + (existingKey === key ? 0 : value.bytes), 0);
-      const active = [...this.selections.keys()].filter(existingKey => existingKey !== key).length;
+      const used = [...this.selections.entries()].reduce((sum, [existingKey, value]) => sum + (existingKey === key ? 0 : value.bytes), 0)
+        + [...this.attachments.values()].reduce((sum, value) => sum + value.bytes, 0);
+      const active = [...this.selections.keys()].filter(existingKey => existingKey !== key).length + this.attachments.size;
       if (active >= (this.options.maxScopes ?? 64)
         || used + bytes > (this.options.maxStoredBytes ?? 16 * 1024 * 1024)) throw new GrowthHttpError(429, 'finance_document_session_limit');
       // Retain the explicit ID before model traffic; asking for that ID never falls back to verified material.
@@ -122,19 +155,19 @@ export class FinanceDocumentService {
       signal?.throwIfAborted();
     }
     return { documentId, fileName: input.fileName, expiresAt,
-      selectedForConversation: input.readWithModel && this.selections.get(key)?.material.documentId === documentId, ...inspection };
+      selectedForConversation: Boolean(input.attachmentScope) || (input.readWithModel && this.selections.get(key)?.material.documentId === documentId), ...inspection };
   }
   async askSelected(context: ActiveWorkspaceContext, question: CfoQuestion, connectionId?: string, signal?: AbortSignal, onProgress?: CfoConversationProgress,personalPreferences?:OperatingPreferences) {
     requireGrowthCapabilities(context, ['finance.council.run']);
     if (!question.documentId) throw new GrowthHttpError(409, 'finance_document_not_selected');
-    const selected = this.selected(context, question.documentId);
+    const selected = this.selected(context, question.documentId, question);
     if (!selected) throw new GrowthHttpError(409, 'finance_document_not_selected');
     if (!this.options.model) throw new GrowthHttpError(503, 'finance_document_model_unavailable');
     signal?.throwIfAborted();
     const result = await this.options.model({ inspection: selected.inspection, context, consent: true,
       question: question.question, role: question.role ?? 'cfo', history: question.history, connectionId, signal, onProgress,personalPreferences });
     signal?.throwIfAborted();
-    this.selected(context, question.documentId);
+    this.selected(context, question.documentId, question);
     if (result.inspection.modelStatus !== 'completed') throw new GrowthHttpError(503,
       result.inspection.modelStatus === 'invalid_output' ? 'finance_document_model_output_invalid' : 'finance_document_model_unavailable');
     if (!result.provider || !result.model) throw new GrowthHttpError(503, 'finance_document_model_output_invalid');

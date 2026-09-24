@@ -10,6 +10,14 @@ import type { FinanceDocumentService } from './finance-document-service.js';
 
 export function createFinanceDocumentRouter(options: { service: FinanceDocumentService; workspaceContext: GrowthWorkspaceContextResolver }) {
   const router = express.Router();
+  router.post('/documents/attachments/clear', (req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      if (Object.keys(req.query).length) throw new GrowthHttpError(422, 'finance_document_input_invalid');
+      options.service.clearAttachment(options.workspaceContext(req), req.body);
+      res.status(204).end();
+    } catch (error) { next(error); }
+  });
   router.delete('/documents/selection', (req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Cache-Control', 'no-store');
     try {

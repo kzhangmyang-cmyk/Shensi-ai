@@ -7,6 +7,7 @@ import type { FinanceApi } from "./api";
 
 function apiFixture(overrides: Partial<FinanceApi> = {}): FinanceApi {
   return {
+    async clearChatAttachment() { throw new Error('unused'); },
     async inspectDocument() { throw new Error("unused"); },
     async clearDocumentSelection() { throw new Error("unused"); },
     async listCostEntries() {

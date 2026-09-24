@@ -32,6 +32,16 @@ ROI 资料缺少投入、产出、期间或归因依据时只给定性建议和�
 
 ## 数据流与权限
 
+智能体聊天输入框也可直接选择或拖入附件，复用同一只读解析器。请求携带
+`attachmentScope: { conversationKey, role }` 且必须 `readWithModel:false`；上传不调用模型，
+不替换财务页当前资料。发送文字问题才显式携带 `documentId` 和 `conversationKey`，
+后端同时核对工作区、账号、会话与角色。附件问答不进入既有 CFO 持久会话，当前附件也不用于语音。
+附件解析结果保留一小时；过期或后台重启后必须重新解析，不自动换用已确认报表。
+普通跨页保留本次角色附件；清除、新对话或移除文件会解除旧来源，重新解析新集合。
+退出登录/切换身份清空前端文件句柄并尝试清理后端；网络或鉴权不可用时剩余解析结果按一小时期限回收。
+`POST /api/v1/finance/documents/attachments/clear` 只接受精确的 `documentId/conversationKey/role`，
+成功返回204，身份或绑定不匹配返回409；不会清除其他角色或财务页选择。
+
 ```text
 原始 File → POST /api/v1/finance/documents/inspect
   → CSV/XLSX: secure-spreadsheet-artifact → 同 sheet 多区域识别
@@ -41,12 +51,12 @@ ROI 资料缺少投入、产出、期间或归因依据时只给定性建议和�
      → exact documentId + actor/workspace 校验 → 选中角色方法 → 只读来源回答
 ```
 
-- 请求只接受文件名、媒体类型、Base64 原文件和 `readWithModel`，不接受调用方声明的归一化财务事实。
+- 请求接受文件名、媒体类型、Base64 原文件、`readWithModel`、可选批次文件与分析用途；聊天附件额外带会话/角色绑定，不接受调用方声明的归一化财务事实。
 - 纯识别允许 `ledger.pending.create` 或 `finance.council.run`；AI 读取与问答必须有 `finance.council.run`。
 - 只有明确阅读操作选定短期资料；浏览器只在当前登录/工作区内存保留来源标识，不写 localStorage。
   普通页面切换保留当前来源，账号或工作区变化、退出登录时清除；页面清理只销毁上传文件句柄。
-- 后端保存有界解析结果，不保存原文件；有效期一小时，同一 actor/workspace 的新选择替换旧选择。
-  活跃容量默认 64 个 scope、总计 16 MiB，过期数据回收。明确 ID 已失效、被替换、被取消或因重启丢失时返回资料不可用，不改读旧三表。
+- 后端保存有界解析结果，不保存原文件；有效期一小时，同一 actor/workspace 的新财务选择替换旧财务选择，聊天附件独立按会话/角色保存。
+  两类来源共享默认64项、总计16MiB容量，访问时回收过期数据。明确 ID 已失效、被替换、被取消或因重启丢失时返回资料不可用，不改读旧三表。
 - 问答的 `documentId` 为非空字符串时只读该资料；`null` 或旧调用省略该字段时使用既有已确认报表语义。
   `DELETE /api/v1/finance/documents/selection` 仅清除当前 actor/workspace 选择，拒绝 body/query，返回 204。
 - 文字和语音携带同一来源 ID；桌面 Main 在开始语音时冻结 ID，每轮重新核对账号和工作区权限。

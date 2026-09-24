@@ -10,6 +10,7 @@ let commitCalls = 0;
 let previewIdCalls = 0;
 let pollCalls = 0;
 const api: FinanceApi = {
+  async clearChatAttachment() { throw new Error('unused'); },
   async clearDocumentSelection() { throw new Error('unused'); },
   async inspectDocument(_file, filename, readWithModel) {
     return { status: 200, etag: null, body: { documentId: 'document-1', fileName: filename, fileHash: `sha256:${'a'.repeat(64)}`, expiresAt: '2026-09-11T00:00:00Z', selectedForConversation: readWithModel,

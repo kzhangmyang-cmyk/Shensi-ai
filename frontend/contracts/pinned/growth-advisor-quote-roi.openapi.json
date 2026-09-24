@@ -3945,6 +3945,11 @@
           "Input": {
             "additionalProperties": false,
             "properties": {
+              "conversationKey": {
+                "description": "Required for a chat attachment: must match the conversation used when parsing it, together with the selected role.",
+                "format": "uuid",
+                "type": "string"
+              },
               "documentId": {
                 "description": "Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics.",
                 "maxLength": 255,
@@ -5015,8 +5020,40 @@
       "ExpectedRoiCurrencyView": {
         "$ref": "#/components/schemas/GrowthPerformanceResponse/%24defs/ExpectedRoiCurrencyView"
       },
+      "FinanceDocumentAttachmentClear": {
+        "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/AttachmentClear"
+      },
       "FinanceDocumentInspection": {
         "$defs": {
+          "AttachmentClear": {
+            "additionalProperties": false,
+            "properties": {
+              "conversationKey": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "documentId": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "role": {
+                "enum": [
+                  "cfo",
+                  "finance",
+                  "profit",
+                  "cost",
+                  "cashflow",
+                  "tax"
+                ]
+              }
+            },
+            "required": [
+              "documentId",
+              "conversationKey",
+              "role"
+            ],
+            "type": "object"
+          },
           "BatchFile": {
             "additionalProperties": false,
             "properties": {
@@ -5067,6 +5104,14 @@
           },
           "Input": {
             "additionalProperties": false,
+            "if": {
+              "properties": {
+                "attachmentScope": {}
+              },
+              "required": [
+                "attachmentScope"
+              ]
+            },
             "properties": {
               "additionalFiles": {
                 "description": "Other selected successful files; decoded batch at most 5 MiB. Original references receive unique file prefixes.",
@@ -5083,6 +5128,31 @@
                   "roi",
                   "management"
                 ]
+              },
+              "attachmentScope": {
+                "additionalProperties": false,
+                "description": "Parse and retain a temporary chat attachment without model calls. Requires readWithModel=false; isolated by actor/workspace/conversation/role; expires after one hour.",
+                "properties": {
+                  "conversationKey": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "role": {
+                    "enum": [
+                      "cfo",
+                      "finance",
+                      "profit",
+                      "cost",
+                      "cashflow",
+                      "tax"
+                    ]
+                  }
+                },
+                "required": [
+                  "conversationKey",
+                  "role"
+                ],
+                "type": "object"
               },
               "contentBase64": {
                 "description": "Canonical Base64-encoded original file; decoded content is bounded to 5 MiB by the server.",
@@ -5115,6 +5185,13 @@
               "contentBase64",
               "readWithModel"
             ],
+            "then": {
+              "properties": {
+                "readWithModel": {
+                  "const": false
+                }
+              }
+            },
             "type": "object"
           },
           "MaterialSource": {
@@ -14124,7 +14201,7 @@
   },
   "info": {
     "title": "GoodJob Growth Advisor, Quote and ROI API",
-    "version": "1.0.29"
+    "version": "1.0.32"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -19969,6 +20046,81 @@
             "description": "API error"
           },
           "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/finance/documents/attachments/clear": {
+      "post": {
+        "description": "Remove only the authenticated actor and workspace's exact conversation and role attachment. Does not alter the finance page selection.",
+        "operationId": "clearFinanceChatAttachment",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspaceHeader"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/AttachmentClear"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Attachment removed"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
             "content": {
               "application/json": {
                 "schema": {

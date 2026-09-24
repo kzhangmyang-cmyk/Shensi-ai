@@ -20,11 +20,23 @@
     "modelStatus": { "enum": ["not_requested", "consent_required", "completed", "unavailable", "invalid_output"] }
   },
   "$defs": {
+    "AttachmentClear": {
+      "type": "object", "additionalProperties": false,
+      "required": ["documentId", "conversationKey", "role"],
+      "properties": {
+        "documentId": { "type": "string", "format": "uuid" },
+        "conversationKey": { "type": "string", "format": "uuid" },
+        "role": { "enum": ["cfo", "finance", "profit", "cost", "cashflow", "tax"] }
+      }
+    },
     "BatchFile": { "type": "object", "additionalProperties": false, "required": ["fileName", "mediaType", "contentBase64"], "properties": { "fileName": { "$ref": "#/$defs/Input/properties/fileName" }, "mediaType": { "$ref": "#/$defs/Input/properties/mediaType" }, "contentBase64": { "$ref": "#/$defs/Input/properties/contentBase64" } } },
     "Input": {
       "type": "object", "additionalProperties": false,
       "required": ["fileName", "mediaType", "contentBase64", "readWithModel"],
+      "if": { "properties": { "attachmentScope": {} }, "required": ["attachmentScope"] },
+      "then": { "properties": { "readWithModel": { "const": false } } },
       "properties": {
+        "attachmentScope": { "type": "object", "additionalProperties": false, "required": ["conversationKey", "role"], "description": "Parse and retain a temporary chat attachment without model calls. Requires readWithModel=false; isolated by actor/workspace/conversation/role; expires after one hour.", "properties": { "conversationKey": { "type": "string", "format": "uuid" }, "role": { "enum": ["cfo", "finance", "profit", "cost", "cashflow", "tax"] } } },
         "additionalFiles": { "type": "array", "maxItems": 9, "description": "Other selected successful files; decoded batch at most 5 MiB. Original references receive unique file prefixes.", "items": { "$ref": "#/$defs/BatchFile" } },
         "fileName": { "type": "string", "minLength": 1, "maxLength": 255 },
         "mediaType": { "enum": ["text/csv", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"] },

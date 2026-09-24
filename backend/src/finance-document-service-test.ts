@@ -7,6 +7,30 @@ import { syntheticPdf, syntheticDocx } from './secure-finance-document-text-test
 const context = { ...workspace('ws-doc'), capabilities: ['finance.council.run'] as const };
 const body = { fileName: '部分资料.csv', mediaType: 'text/csv', contentBase64: Buffer.from('说明,金额\n未知项目,100').toString('base64'), readWithModel: false };
 
+test('chat attachment parsing does not call models or replace finance selection and enforces conversation/role ownership', async () => {
+  let calls = 0; let now = Date.parse('2026-09-24T00:00:00Z');
+  const service = new FinanceDocumentService({ now: () => now, model: async input => {
+    calls++; return { inspection: { ...input.inspection, modelStatus: 'completed', observations: [{ text: '来源金额100', sourceRefs: [input.inspection.cells[0].sourceRef] }] }, provider: 'fixture', model: 'fixture' };
+  } });
+  const legacy = await service.inspect(context, { ...body, readWithModel: true });
+  const scope = { conversationKey: '12345678-1234-4234-8234-123456789012', role: 'cost' as const };
+  const attachment = await service.inspect(context, { ...body, attachmentScope: scope });
+  assert.equal(calls, 1, 'upload must make zero additional model calls');
+  assert.equal(attachment.modelStatus, 'not_requested');
+  assert.equal(service.selected(context)?.material.documentId, legacy.documentId);
+  const question = { ...scope, documentId: attachment.documentId, question: '这份资料说了什么？', history: [] };
+  for (const wrong of [{ ...question, role: 'tax' as const }, { ...question, conversationKey: '22345678-1234-4234-8234-123456789012' }, { ...question, conversationKey: undefined }])
+    await assert.rejects(service.askSelected(context, wrong), /finance_document_expired/);
+  await assert.rejects(service.askSelected({ ...context, actorId: 'other' }, question), /finance_document_expired/);
+  await assert.rejects(service.askSelected({ ...context, workspaceId: 'other' }, question), /finance_document_expired/);
+  assert.equal(calls, 1);
+  assert.match((await service.askSelected(context, question)).answer, /100/);
+  assert.equal(calls, 2);
+  now += 3_600_000;
+  await assert.rejects(service.askSelected(context, question), /finance_document_expired/);
+  assert.equal(calls, 2);
+});
+
 test('selected batch preserves distinct file sources for model and same actor conversation', async () => {
   let calls = 0;
   const service = new FinanceDocumentService({ model: async input => {

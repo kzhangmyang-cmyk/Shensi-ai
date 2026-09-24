@@ -17,6 +17,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["question", "history"],
       "properties": {
+        "conversationKey": { "type": "string", "format": "uuid", "description": "Required for a chat attachment: must match the conversation used when parsing it, together with the selected role." },
         "documentId": { "type": ["string", "null"], "minLength": 1, "maxLength": 255, "description": "Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics." },
         "role": { "enum": ["cfo", "finance", "profit", "cost", "cashflow", "tax"], "default": "cfo", "description": "Selected specialist; omitted means CFO. One role/model per question." },
         "question": { "type": "string", "minLength": 1, "maxLength": 2000 },

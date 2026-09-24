@@ -13,6 +13,7 @@ import { bindActiveModelSnapshotDurably, bindModelConnectionSnapshotDurably,
   createActiveModelGatewayForSnapshot, type DurableModelRuntimeStore } from './model-providers/runtime.js';
 
 export const cfoQuestionSchema = z.object({ question: z.string().trim().min(1).max(2000),
+  conversationKey: z.string().uuid().optional(),
   role: z.enum(FINANCIAL_COUNCIL_MODEL_ROLES).optional(),
   documentId: z.string().min(1).max(191).refine(value => value.trim() === value).nullable().optional(),
   history: z.array(z.object({ role: z.enum(['user', 'assistant']),

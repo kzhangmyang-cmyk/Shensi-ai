@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GoodJob Growth Advisor, Quote and ROI API
-  version: 1.0.29
+  version: 1.0.32
 servers:
   - url: /
 
@@ -949,6 +949,27 @@ paths:
         '401': *apiErrorResponse
         '403': *apiErrorResponse
         '404': *apiErrorResponse
+  /api/v1/finance/documents/attachments/clear:
+    post:
+      operationId: clearFinanceChatAttachment
+      description: Remove only the authenticated actor and workspace's exact conversation and role attachment. Does not alter the finance page selection.
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/workspaceHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinanceDocumentAttachmentClear' }
+      responses:
+        '204': { description: Attachment removed }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
   /api/v1/finance/documents/selection:
     delete:
       operationId: clearFinanceDocumentSelection
@@ -1918,6 +1939,7 @@ components:
         hasMore: { type: boolean }
     FinanceDocumentInspection: { $ref: '../json-schema/finance-document.v1.schema.json' }
     FinanceDocumentInspectionInput: { $ref: '../json-schema/finance-document.v1.schema.json#/$defs/Input' }
+    FinanceDocumentAttachmentClear: { $ref: '../json-schema/finance-document.v1.schema.json#/$defs/AttachmentClear' }
     FinanceDocumentMaterialSource: { $ref: '../json-schema/finance-document.v1.schema.json#/$defs/MaterialSource' }
     FinanceImportPreview: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinanceImportPreview' }
     FinanceImportPreviewInput: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinanceImportPreviewInput' }

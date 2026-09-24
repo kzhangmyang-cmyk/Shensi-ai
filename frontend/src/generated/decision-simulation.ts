@@ -893,6 +893,11 @@ export interface components {
             text: string;
         };
         "$defs-Input": {
+            /**
+             * Format: uuid
+             * @description Required for a chat attachment: must match the conversation used when parsing it, together with the selected role.
+             */
+            conversationKey?: string;
             /** @description Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics. */
             documentId?: string | null;
             /**
@@ -936,6 +941,11 @@ export interface components {
             answeredAt: string;
             $defs: {
                 Input: {
+                    /**
+                     * Format: uuid
+                     * @description Required for a chat attachment: must match the conversation used when parsing it, together with the selected role.
+                     */
+                    conversationKey?: string;
                     /** @description Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics. */
                     documentId?: string | null;
                     /**

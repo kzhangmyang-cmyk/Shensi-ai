@@ -28,6 +28,8 @@ export type FinanceImportRowError =
   components["schemas"]["FinanceImportOperation_FinanceImportRowError"];
 export type FinanceImportMapping = components["schemas"]["FinanceImportPreviewInput"]["mapping"];
 export type FinanceDocumentInspection = Omit<components["schemas"]["FinanceDocumentInspection"], "$defs">;
+export type ChatAttachmentScope = NonNullable<components['schemas']['FinanceDocumentInspectionInput']['attachmentScope']>;
+export type ChatAttachmentClear = components['schemas']['FinanceDocumentAttachmentClear'];
 
 export function financeImportFileIssue(file: Blob, filename: string): string | null {
   if (!/\.(csv|xlsx)$/iu.test(filename)) return "请选择 CSV 或 XLSX 文件，其他格式请先转换。";
@@ -44,9 +46,10 @@ export function financeDocumentFileIssue(file: Blob, filename: string): string |
 }
 
 export interface FinanceApi {
+  clearChatAttachment(input: ChatAttachmentClear, signal?: AbortSignal): Promise<GrowthHttpResponse<void>>;
   clearDocumentSelection(signal?: AbortSignal): Promise<GrowthHttpResponse<void>>;
   inspectDocument(file: Blob, filename: string, readWithModel: boolean, signal?: AbortSignal,
-    purpose?: 'finance' | 'roi' | 'management', additionalFiles?: readonly File[]): Promise<GrowthHttpResponse<FinanceDocumentInspection>>;
+    purpose?: 'finance' | 'roi' | 'management', additionalFiles?: readonly File[], attachmentScope?: ChatAttachmentScope): Promise<GrowthHttpResponse<FinanceDocumentInspection>>;
   listCostEntries(query: {
     limit: number;
     cursor?: string;
@@ -123,10 +126,14 @@ async function blobToBase64(file: Blob): Promise<string> {
 
 export function createFinanceApi(http: GrowthHttpClient): FinanceApi {
   const api: FinanceApi = {
+    clearChatAttachment(input, signal) {
+      return http.request<void>('/api/v1/finance/documents/attachments/clear', { method: 'POST', body: input, signal });
+    },
     clearDocumentSelection(signal) {
       return http.request<void>("/api/v1/finance/documents/selection", { method: "DELETE", signal });
     },
-    async inspectDocument(file, filename, readWithModel, signal, analysisPurpose, additionalFiles = []) {
+    async inspectDocument(file, filename, readWithModel, signal, analysisPurpose, additionalFiles = [], attachmentScope) {
+      if (attachmentScope && readWithModel) throw new Error('聊天附件上传只解析；发送问题时才使用模型。');
       if (additionalFiles.length > 9 || file.size + additionalFiles.reduce((sum, item) => sum + item.size, 0) > 5 * 1024 * 1024) throw new Error('每批最多10份文件，合计不超过5MB。');
       const issue = financeDocumentFileIssue(file, filename);
       if (issue) throw new Error(issue);
@@ -139,7 +146,7 @@ export function createFinanceApi(http: GrowthHttpClient): FinanceApi {
         fileName: filename,
         mediaType: /\.xls$/iu.test(filename) ? "application/vnd.ms-excel" : /\.pdf$/iu.test(filename) ? "application/pdf"
           : /\.docx$/iu.test(filename) ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : importMediaType(filename),
-        contentBase64, readWithModel, ...(analysisPurpose ? { analysisPurpose } : {}),
+        contentBase64, readWithModel, ...(analysisPurpose ? { analysisPurpose } : {}), ...(attachmentScope ? { attachmentScope } : {}),
         ...(additionalFiles.length ? { additionalFiles: await Promise.all(additionalFiles.map(async item => {
           const issue = financeDocumentFileIssue(item, item.name); if (issue) throw new Error(issue);
           return { fileName: item.name, mediaType: /\.xls$/iu.test(item.name) ? 'application/vnd.ms-excel' as const

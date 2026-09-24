@@ -61,6 +61,7 @@ const operations = {
   "/api/v1/finance/import-templates/{kind}": ["get"],
   "/api/v1/finance/documents/inspect": ["post"],
   "/api/v1/finance/documents/selection": ["delete"],
+  "/api/v1/finance/documents/attachments/clear": ["post"],
   "/api/v1/finance/imports/preview": ["post"],
   "/api/v1/finance/imports/{previewId}/commit": ["post"],
   "/api/v1/finance/imports/{id}": ["get"],
@@ -103,7 +104,7 @@ test("1.0.19 exposes closed real council onboarding routes", async () => {
   const document = await loadNamedOpenApiSource(
     "growth-advisor-quote-roi.v1.yaml"
   );
-  assert.equal(document.info.version, "1.0.29");
+  assert.equal(document.info.version, "1.0.32");
   for (const path of [
     "/api/v1/finance/council-model-routing-policy",
     "/api/v1/finance/council-model-routing-policy/preview",
@@ -874,7 +875,8 @@ test("fix round 1 every operation has a concrete closed success response", async
     assert.ok(successes.length > 0, `${method.toUpperCase()} ${path}`);
     for (const [status, unresolved] of successes) {
       const response = resolveInternalResponse(document, unresolved);
-      if (method === "delete" && path === "/api/v1/finance/documents/selection" && status === "204") {
+      if (((method === "delete" && path === "/api/v1/finance/documents/selection")
+        || (method === "post" && path === "/api/v1/finance/documents/attachments/clear")) && status === "204") {
         assert.equal(response.content, undefined, "clearing a document selection returns no body");
         continue;
       }
@@ -1003,11 +1005,11 @@ test("fix round 1 mutations require auth guards and versioned responses publish 
     if (!["post", "put", "patch", "delete"].includes(method)) continue;
     assert.deepEqual(operation.security, [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }], `${method.toUpperCase()} ${path}`);
     const parameters = effectiveParameters(document, pathItem, operation);
-    if (['/api/v1/finance/cfo-conversation', '/api/v1/finance/documents/inspect',
+    if (['/api/v1/finance/cfo-conversation', '/api/v1/finance/documents/inspect', '/api/v1/finance/documents/attachments/clear',
       '/api/v1/finance/documents/selection', '/api/v1/finance/cfo-sessions', '/api/v1/finance/cfo-sessions/{sessionId}/turns'].includes(path)) {
       assert.equal(parameters.some(p => ['Idempotency-Key', 'If-Match'].includes(p.name)), false);
-      assert.ok(['askCfoConversation', 'inspectFinanceDocument', 'clearFinanceDocumentSelection', 'createCfoSession', 'askCfoSession'].includes(operation.operationId));
-      if (method === 'post') assert.ok(operation.responses['429']);
+      assert.ok(['askCfoConversation', 'inspectFinanceDocument', 'clearFinanceDocumentSelection', 'clearFinanceChatAttachment', 'createCfoSession', 'askCfoSession'].includes(operation.operationId));
+      if (method === 'post' && operation.operationId !== 'clearFinanceChatAttachment') assert.ok(operation.responses['429']);
       continue;
     }
     for (const name of ["Idempotency-Key"]) {

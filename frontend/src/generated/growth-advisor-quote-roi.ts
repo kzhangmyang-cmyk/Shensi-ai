@@ -897,6 +897,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/finance/documents/attachments/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Remove only the authenticated actor and workspace's exact conversation and role attachment. Does not alter the finance page selection. */
+        post: operations["clearFinanceChatAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/finance/documents/inspect": {
         parameters: {
             query?: never;
@@ -2247,6 +2264,11 @@ export interface components {
             provider: string;
             $defs: {
                 Input: {
+                    /**
+                     * Format: uuid
+                     * @description Required for a chat attachment: must match the conversation used when parsing it, together with the selected role.
+                     */
+                    conversationKey?: string;
                     /** @description Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics. */
                     documentId?: string | null;
                     history: components["schemas"]["CfoConversationAnswer_Turn"][];
@@ -2500,6 +2522,7 @@ export interface components {
             type: "pre_quote_disqualified";
         };
         ExpectedRoiCurrencyView: components["schemas"]["GrowthPerformanceResponse_ExpectedRoiCurrencyView"];
+        FinanceDocumentAttachmentClear: components["schemas"]["FinanceDocumentInspection_AttachmentClear"];
         /** FinanceDocumentInspection */
         FinanceDocumentInspection: {
             cells: components["schemas"]["FinanceDocumentInspection_Cell"][];
@@ -2522,6 +2545,14 @@ export interface components {
             selectedForConversation: boolean;
             uncertain: components["schemas"]["FinanceDocumentInspection_Uncertain"];
             $defs: {
+                AttachmentClear: {
+                    /** Format: uuid */
+                    conversationKey: string;
+                    /** Format: uuid */
+                    documentId: string;
+                    /** @enum {unknown} */
+                    role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+                };
                 BatchFile: {
                     contentBase64: components["schemas"]["FinanceDocumentInspection"]["$defs"]["Input"]["contentBase64"];
                     fileName: components["schemas"]["FinanceDocumentInspection"]["$defs"]["Input"]["fileName"];
@@ -2540,6 +2571,13 @@ export interface components {
                      * @enum {unknown}
                      */
                     analysisPurpose?: "finance" | "roi" | "management";
+                    /** @description Parse and retain a temporary chat attachment without model calls. Requires readWithModel=false; isolated by actor/workspace/conversation/role; expires after one hour. */
+                    attachmentScope?: {
+                        /** Format: uuid */
+                        conversationKey: string;
+                        /** @enum {unknown} */
+                        role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+                    };
                     /** @description Canonical Base64-encoded original file; decoded content is bounded to 5 MiB by the server. */
                     contentBase64: string;
                     fileName: string;
@@ -4996,6 +5034,11 @@ export interface components {
             unit?: string;
         };
         CfoConversationAnswer_Input: {
+            /**
+             * Format: uuid
+             * @description Required for a chat attachment: must match the conversation used when parsing it, together with the selected role.
+             */
+            conversationKey?: string;
             /** @description Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics. */
             documentId?: string | null;
             history: components["schemas"]["CfoConversationAnswer_Turn"][];
@@ -5105,6 +5148,14 @@ export interface components {
             reasoning?: number;
             totalTokens: number;
         };
+        FinanceDocumentInspection_AttachmentClear: {
+            /** Format: uuid */
+            conversationKey: string;
+            /** Format: uuid */
+            documentId: string;
+            /** @enum {unknown} */
+            role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+        };
         FinanceDocumentInspection_BatchFile: {
             contentBase64: components["schemas"]["FinanceDocumentInspection"]["$defs"]["Input"]["contentBase64"];
             fileName: components["schemas"]["FinanceDocumentInspection"]["$defs"]["Input"]["fileName"];
@@ -5123,6 +5174,13 @@ export interface components {
              * @enum {unknown}
              */
             analysisPurpose?: "finance" | "roi" | "management";
+            /** @description Parse and retain a temporary chat attachment without model calls. Requires readWithModel=false; isolated by actor/workspace/conversation/role; expires after one hour. */
+            attachmentScope?: {
+                /** Format: uuid */
+                conversationKey: string;
+                /** @enum {unknown} */
+                role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+            };
             /** @description Canonical Base64-encoded original file; decoded content is bounded to 5 MiB by the server. */
             contentBase64: string;
             fileName: string;
@@ -11587,6 +11645,66 @@ export interface operations {
             };
             /** @description API error */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    clearFinanceChatAttachment: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": components["parameters"]["workspaceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinanceDocumentInspection_AttachmentClear"];
+            };
+        };
+        responses: {
+            /** @description Attachment removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

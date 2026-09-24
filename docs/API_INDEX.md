@@ -30,6 +30,13 @@ See [module boundaries](modules/platform-administration.md).
 
 ## Contract authority
 
+Growth 1.0.32 adds temporary chat attachments to document inspection through
+`attachmentScope` (conversation UUID and role), with `readWithModel:false` enforced.
+Text questions carry the matching `conversationKey` and explicit document ID.
+`POST /api/v1/finance/documents/attachments/clear` removes only that authenticated
+actor/workspace/conversation/role source (204); mismatched or expired IDs return409.
+These process-local sources expire after one hour and do not replace finance selections.
+
 Decision simulation v1 supports optional `options.events` (at most eight explicit templates). Start/duration must fit the horizon; duplicate templates, same-factor overlapping windows and wrong-direction values are rejected. Realized `shock.events` retain the replaced background value and input assumption. Fields are optional for historical records. All plans share these realized paths; see `contracts/openapi/decision-simulation.v1.yaml` and `modules/decision-factor-catalog.md`.
 
 New decision reports persist optional `report.recommendations`: rule-backed simulation signals, evidence locations, proposed actions/mechanisms, prerequisites/costs, priority, owner role, timeframe and review metrics. Conditional sensitivity comparisons retain baseline and changed outcomes, not promised ROI. Historical GET does not synthesize absent recommendations; the desktop screen and HTML export read the saved version.

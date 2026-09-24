@@ -7,6 +7,7 @@ import { CfoRealtimeClient } from './cfo-realtime-client';
 import { voiceErrorMessage } from '../../../../desktop/src/shared/cfo-realtime';
 import { BUSINESS_AGENT_TEAM } from './agents';
 import { mountCfoChatMessages } from './cfo-chat-messages';
+import { mountChatAttachments } from './chat-attachments';
 import { financeDocumentScope, getFinanceDocumentSelection, setFinanceDocumentSelection, subscribeFinanceDocumentSelection } from '../finance/document-selection';
 import {
   createCfoAcquisitionWorkflowApi,
@@ -26,6 +27,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
   let history: CfoConversationInput['history'] = [];
   let pending: AbortController | undefined; let disposed = false;
   let savedSession: CfoSession | null = null;
+  let attachments: ReturnType<typeof mountChatAttachments>;
   let sessionSequence = 0; let historyRefreshSequence = 0; let sessionsAvailable = false;
   const scope = options.scope();
   const documentScope = financeDocumentScope(doc.body.dataset.sessionWorkspaceId, doc.body.dataset.sessionUserId) ?? scope;
@@ -71,6 +73,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
       <div data-cfo-turns class="cfo-turns" role="log" aria-label="本次对话"></div>
       <form data-cfo-question-form class="cfo-composer"><div class="cfo-composer-heading"><label for="cfoQuestion">想先解决什么经营问题？</label><span>最多 2000 字</span></div>
       <textarea id="cfoQuestion" rows="3" maxlength="2000" placeholder="例如：改善现金流应该先看哪些数据？" required></textarea>
+      <div data-cfo-chat-attachments></div>
       <p data-cfo-document-source></p><button type="button" data-cfo-clear-document hidden>取消当前资料，使用已确认报表</button>
       <div class="cfo-actions"><p data-cfo-status role="status">尚未提问；本次对话不会自动写入公司资料。</p>
       <div class="cfo-action-buttons"><button type="button" data-cfo-stop hidden>停止回答</button><button type="submit" class="primary">发送问题</button></div></div></form>
@@ -108,6 +111,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
     }
   }
   function newSession() {
+    void attachments.clear();
     operating.clear();
     sessionSequence++; cancel(); live?.stop(); savedSession = null; history = []; messages.clear();
     status.textContent = '已开始新对话，未发送的输入仍保留。';
@@ -116,6 +120,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
   async function chooseSession(event: Event) {
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>('[data-cfo-session]');
     if (!button || !historyList.contains(button) || agent.id !== 'cfo') return;
+    void attachments.clear();
     const sequence = ++sessionSequence; cancel(); live?.stop();
     try {
       const { body } = await options.http.request<CfoSession>(`/api/v1/finance/cfo-sessions/${encodeURIComponent(button.dataset.cfoSession!)}`);
@@ -172,6 +177,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
   }) : undefined;
   function toggleVoice() {
     if (voiceRunning) { live?.stop(); return; }
+    if (attachments.hasFiles()) { status.textContent = '聊天附件当前用于文字问答；请先清除附件再开始语音。'; return; }
     const ws = doc.body.dataset.sessionWorkspaceId;
     if (!live || !voiceReady || !ws || disposed || options.scope() !== scope) return;
     if (savedSession && savedSession.documentId !== currentDocumentId()) { status.textContent = '请先新建对话，使用当前资料开始语音。'; return; }
@@ -183,6 +189,10 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
   const clearDocument = host.querySelector<HTMLButtonElement>('[data-cfo-clear-document]')!;
   const renderDocumentSource = () => {
     const source = getFinanceDocumentSelection(documentScope);
+    if (attachments?.hasFiles()) {
+      host.querySelector<HTMLElement>('[data-cfo-document-source]')!.textContent = '当前来源：当前顾问的聊天附件；不会同时读取财务页资料或已确认报表。';
+      clearDocument.hidden = true; return;
+    }
     host.querySelector<HTMLElement>('[data-cfo-document-source]')!.textContent = source ? `当前来源：${source.fileName} · 只读资料（未验证，未入账）` : '当前来源：已确认报表（若有）';
     clearDocument.hidden = !source;
   };
@@ -216,6 +226,8 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
     operating.clear();
     sessionSequence++; savedSession = null;
     cancel(); live?.stop(); agent = next; history = []; messages.dispose(); messages = mountCfoChatMessages({ host: turns, agent, userName });
+    attachments.setRole(agent.id);
+    renderDocumentSource();
     historyPanel.hidden = agent.id !== 'cfo';
     for (const button of roleStrip.querySelectorAll<HTMLButtonElement>('[data-cfo-role-choice]')) {
       const active = button.dataset.cfoRoleChoice === agent.id;
@@ -489,12 +501,15 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
       void offerAcquisitionWorkflow(question);
       return;
     }
+    let attachment: ReturnType<typeof attachments.source>;
+    try { attachment = attachments.source(); }
+    catch (error) { status.textContent = error instanceof Error ? error.message : '请先完成附件解析。'; return; }
     const abort = new AbortController(); pending = abort; busy(true); status.textContent = `正在向${agent.name}提问…`;
     try {
-      const input: CfoConversationInput = { question, history: history.slice(-10), role: agent.id, documentId: getFinanceDocumentSelection(documentScope)?.documentId ?? null };
+      const input: CfoConversationInput = { question, history: history.slice(-10), role: agent.id, documentId: getFinanceDocumentSelection(documentScope)?.documentId ?? null, ...attachment };
       let body: CfoConversationAnswer;
       const selection=operating.selection();
-      if (agent.id === 'cfo' && sessionsAvailable) {
+      if (!attachment && agent.id === 'cfo' && sessionsAvailable) {
         if (!savedSession) {
           const created = await options.http.request<CfoSession>('/api/v1/finance/cfo-sessions',
             { method: 'POST', body: { documentId: currentDocumentId() }, signal: abort.signal });
@@ -504,11 +519,11 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
       }
       if(selection){
         const result=await options.http.request<DecisionComponents['schemas']['OperatingMemoryReply']>('/api/v1/finance/operating-memory-question',{
-          method:'POST',body:{selection,input,...(agent.id==='cfo'&&savedSession?{session:{sessionId:savedSession.sessionId,revision:savedSession.revision}}:{})},signal:abort.signal});
+          method:'POST',body:{selection,input,...(!attachment&&agent.id==='cfo'&&savedSession?{session:{sessionId:savedSession.sessionId,revision:savedSession.revision}}:{})},signal:abort.signal});
         if(disposed||pending!==abort||abort.signal.aborted||options.scope()!==scope)return;
         body=result.body.answer;
         if(result.body.session&&savedSession){savedSession={...savedSession,revision:result.body.session.revision};void refreshSessions();}
-      }else if(agent.id==='cfo'&&sessionsAvailable&&savedSession){
+      }else if(!attachment&&agent.id==='cfo'&&sessionsAvailable&&savedSession){
         const result = await options.http.request<CfoSessionReply>(`/api/v1/finance/cfo-sessions/${encodeURIComponent(savedSession.sessionId)}/turns`,
           { method: 'POST', body: { question, revision: savedSession.revision, documentId: currentDocumentId(), history: input.history }, signal: abort.signal,
             onProgress: event => {
@@ -553,8 +568,11 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
         : '本次回答未完成，问题已保留，请重试。';
     } finally { if (pending === abort) { pending = undefined; busy(false); } }
   }
+  attachments = mountChatAttachments({ host: host.querySelector<HTMLElement>('[data-cfo-chat-attachments]')!, http: options.http,
+    scope: documentScope, role: agent.id, onChange() { cancel(); live?.stop(); sessionSequence++; savedSession = null; history = []; messages.clear(); renderDocumentSource(); } });
+  renderDocumentSource();
   form.addEventListener('submit', send); stop.addEventListener('click', cancel);
-  return { dispose() { disposed = true; operating.dispose(); unsubscribeDocument(); clearDocument.removeEventListener('click', onClearDocument); scopeObserver?.disconnect(); live?.stop(); voiceSettings.dispose(); pending?.abort(); pending = undefined;
+  return { dispose() { disposed = true; attachments.dispose(); operating.dispose(); unsubscribeDocument(); clearDocument.removeEventListener('click', onClearDocument); scopeObserver?.disconnect(); live?.stop(); voiceSettings.dispose(); pending?.abort(); pending = undefined;
     sessionSequence++; historyList.removeEventListener('click', chooseSession); newSessionButton.removeEventListener('click', newSession);
     voiceButton.removeEventListener('click', toggleVoice); doc.defaultView?.removeEventListener('pagehide', endVoice);
     form.removeEventListener('submit', send); stop.removeEventListener('click', cancel); roleStrip.removeEventListener('click', chooseRole);

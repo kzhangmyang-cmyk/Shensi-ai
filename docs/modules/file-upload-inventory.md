@@ -7,12 +7,15 @@
 | 财务经营、ROI、委员会通用资料 | `frontend/src/growth/finance/enterprise-analysis.ts` | 只读解析，成功文件集合交给当前模型；逐文件原文引用、合并报告、同集合转智能体 |
 | 财务结构化入账 | `frontend/src/growth/finance/view.ts`、`growth/runtime.ts` | 各文件独立映射、预览及明确提交，不跨用途合并事务 |
 | 智能体正式三表准备 | `frontend/src/growth/agents/view.ts`、`controller.ts`、`real-controller.ts` | 每个正式package只能有对应表种各一份；多文件先暂存候选，用户明确选择对应表种，不自动覆盖同种报表 |
+| 智能体聊天附件 | `frontend/src/growth/agents/chat-attachments.ts`、`cfo-conversation.ts` | 选择/拖入最多10份5MB，按当前角色与会话保存只读集合；上传零模型调用，发送文字问题才使用，移除/清除解除旧引用 |
 | 历史双报表演示界面 | 同上view/controller的legacy分支 | 当前真实智能体不用该入口；演示分支明确不执行真实上传，不将它当成产品验收成功 |
 
 检索覆盖 input[type=file]、动态input.type、FileList、drag/drop、showOpenDialog、showOpenFilePicker、上传API和真实调用方。
 当前未发现独立知识库附件、头像、产品图片或桌面原生文件上传接口；PDF保存为导出，不是上传。
 
 ## 实施与验证
+
+聊天附件与财务来源分开保存，不进入知识库、CRM或正式报表。跨页保留内存文件和解析状态，角色切换不串资料；新对话清空当前角色附件，退出登录或切换身份清除全部附件。解析结果有效一小时，过期需重新解析。该入口当前按整个集合解析，损坏成员导致集合不可发送，用户可移除该文件后重新解析；不是逐文件成功集合自动筛选。文字附件不自动进入语音。
 
 通用资料每批最多10份、合计5MB，串行读取并逐份显示状态，支持移除/失败重试/成功集合勾选。选择器及拖放追加资料；同名、同大小、同修改时间及同类型的重复选择不再次加入。识别或分析进行中须先完成或停止，才能追加。一份失败不取消其他预览；改变资料集合使旧报告失效。分析请求由第一份与additionalFiles组成，后端返回逐文件metadata与file前缀引用；同一个documentId对应整个选中集合。报告和智能体沿用该集合。原单文件请求仍兼容。
 

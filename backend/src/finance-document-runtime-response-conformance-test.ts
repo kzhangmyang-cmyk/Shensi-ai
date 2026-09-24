@@ -19,7 +19,7 @@ import { syntheticPdf, syntheticDocx } from './secure-finance-document-text-test
 
 test('released document and six-role ask responses conform through production composition and controlled gateway', async () => {
   const release = loadGrowthContractRelease();
-  assert.equal(release.manifest.contractVersion, '1.0.29');
+  assert.equal(release.manifest.contractVersion, '1.0.32');
   const document = release.document as Record<string, any>;
   const components = structuredClone(document.components);
   for (const schema of Object.values(components.schemas)) if (schema && typeof schema === 'object') delete (schema as any).$id;
@@ -110,6 +110,21 @@ test('released document and six-role ask responses conform through production co
     const foreign = await post(askPath, { documentId: read.value.documentId, question: '请读取资料', history: [] }, true);
     assert.equal(foreign.response.status, 409); assert.equal(foreign.value.code, 'finance_document_expired');
     assert.equal(prompts.length, 7);
+    const attachmentScope = { conversationKey: '12345678-1234-4234-8234-123456789012', role: 'cost' };
+    const attachment = await post(inspectPath, { ...body, attachmentScope });
+    assert.equal(attachment.response.status, 200); assert.equal(prompts.length, 7);
+    const wrongRole = await post(askPath, { ...attachmentScope, role: 'tax', documentId: attachment.value.documentId, question: '解读附件', history: [] });
+    assert.equal(wrongRole.response.status, 409); assert.equal(prompts.length, 7);
+    const attachmentAnswer = await post(askPath, { ...attachmentScope, documentId: attachment.value.documentId, question: '解读附件', history: [] });
+    assert.equal(attachmentAnswer.response.status, 200);
+    assert.equal(attachmentAnswer.value.material.documentId, attachment.value.documentId);
+    assert.match(attachmentAnswer.value.answer, /1234.5/);
+    assert.equal(prompts.length, 8);
+    const removed = await fetch(base + '/api/v1/finance/documents/attachments/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...attachmentScope, documentId: attachment.value.documentId }) });
+    assert.equal(removed.status, 204);
+    const afterClear = await post(askPath, { ...attachmentScope, documentId: attachment.value.documentId, question: '解读附件', history: [] });
+    assert.equal(afterClear.response.status, 409); assert.equal(prompts.length, 8);
     for (const source of [
       { fileName: 'original.pdf', mediaType: 'application/pdf', content: syntheticPdf(['A'.repeat(639)]),
         ref: 'pdf:1:1:s:2', expected: 'A'.repeat(139) },

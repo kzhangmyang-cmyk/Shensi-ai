@@ -14,9 +14,14 @@ This workspace is the normative, executable boundary for the AI acquisition
 agent. JSON Schemas use Draft 2020-12 and OpenAPI describes authenticated
 `/api/v1` operations.
 
-## Growth CRM Quote and Financial Council 1.0.29
+## Growth CRM Quote and Financial Council 1.0.32
 
-Growth `1.0.29` includes closed original CSV/XLSX/PDF/DOCX inspection and explicit short-lived read-only material selection for six-role questions. PDF sources use page/item references; DOCX uses paragraph/table-cell references without fabricated spreadsheet coordinates. `documentId` binds the exact actor/workspace source; missing or expired selections do not silently read a verified package. Null or omitted IDs retain the verified-package question path. Inspection returns bounded raw text/source references, not a verified BusinessReport. It preserves read-only council history and collaboration/report projections, independently persisted six-role states, cursor-based events, verified Douyin crawler attribution, human CRM quotation assessment and the Finance import JSON envelope. The closed council onboarding boundary includes routing
+Chat attachments use `attachmentScope` with a conversation UUID and role and require
+`readWithModel:false`. A matching `conversationKey` accompanies the explicit document
+ID on text questions. The authenticated attachment-clear endpoint removes exactly
+that actor/workspace/conversation/role source; finance selections remain separate.
+
+Growth `1.0.32` includes closed original CSV/XLSX/PDF/DOCX inspection and explicit short-lived read-only material selection for six-role questions. PDF sources use page/item references; DOCX uses paragraph/table-cell references without fabricated spreadsheet coordinates. `documentId` binds the exact actor/workspace source; missing or expired selections do not silently read a verified package. Null or omitted IDs retain the verified-package question path. Inspection returns bounded raw text/source references, not a verified BusinessReport. It preserves read-only council history and collaboration/report projections, independently persisted six-role states, cursor-based events, verified Douyin crawler attribution, human CRM quotation assessment and the Finance import JSON envelope. The closed council onboarding boundary includes routing
 policy GET/PUT/POST-preview, statement package POST-preview/commit,
 run-from-statement-package, agent-center, and per-run agent reads. Reads and
 routing preview require `finance.council.run`; routing PUT requires
@@ -72,9 +77,9 @@ Pure inspection requires ledger creation or council-run permission; AI reading r
 `DELETE /api/v1/finance/documents/selection` clears only the authenticated actor/workspace's selection and rejects body/query.
 These read/selection operations require cookie CSRF but no ledger idempotency/ETag headers.
 
-The current immutable Growth release is `releases/growth-advisor-quote-roi/1.0.29`.
+The current immutable Growth release is `releases/growth-advisor-quote-roi/1.0.32`.
 After contract checks, publish with `pnpm build:growth-contract-release`, import
-it with `pnpm --filter ./frontend contract:import --release ../contracts/releases/growth-advisor-quote-roi/1.0.29`,
+it with `pnpm --filter ./frontend contract:import --release ../contracts/releases/growth-advisor-quote-roi/1.0.32`,
 then regenerate Growth types with `pnpm --filter ./frontend contract:generate`.
 Never overwrite an existing release directory with different bytes.
 
