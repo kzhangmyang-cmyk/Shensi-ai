@@ -67,7 +67,7 @@ function createDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimul
   const scope=JSON.stringify([document.body.dataset.sessionWorkspaceId,document.body.dataset.sessionUserId]);
   host.innerHTML=`<section class="decision-simulation" aria-label="星盘决策模拟">
     <header class="decision-hero"><div><h2>星盘决策模拟</h2><p>相同经营起点 · 相同波动样本</p></div><div class="decision-view-switch"><button type="button" data-show-input aria-pressed="true">资料与校对</button><button type="button" data-show-report aria-pressed="false" disabled>结果与回放</button></div><span class="decision-mode">在营企业模式</span></header>
-    <ol class="decision-workflow" aria-label="决策流程">${[['source','资料与校对'],['agents','五角色'],['worlds','100情景'],['report','报告']].map(([key,label],index)=>`<li data-stage="${key}"><button type="button" data-step="${key}">${index+1}　${label}</button></li>`).join('')}</ol>
+    <ol class="decision-workflow" aria-label="决策流程">${[['source','资料与校对','导入资料 · 确认基础'],['agents','五角色','多视角洞察 · 形成共识'],['worlds','100情景','条件推演 · 对比方案'],['report','报告','保存结论 · 查看依据']].map(([key,label,detail],index)=>`<li data-stage="${key}"><button type="button" data-step="${key}"><span class="decision-step-number" aria-hidden="true">${index+1}</span><span><strong>${label}</strong><small>${detail}</small></span><i class="ph ph-caret-right" aria-hidden="true"></i></button></li>`).join('')}</ol>
     <p class="decision-step-status" data-step-status role="status"></p>
     <section class="decision-source-panel" aria-label="企业资料上传"><h3>从企业资料开始</h3><p>上传资料 → 校对经营起点 → 五角色分析 → 100条平行路径 → 报告与回放</p>
       <label>选择企业文件<input type="file" multiple accept=".csv,.xls,.xlsx,.pdf,.docx" data-source-files></label><p>支持CSV、Excel、文本PDF、Word（DOCX），最多10份、合计5MB。扫描PDF暂不支持OCR。</p>

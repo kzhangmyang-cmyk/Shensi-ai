@@ -69,7 +69,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
       <div class="cfo-chat-empty" data-cfo-empty>
         <span class="cfo-chat-empty-avatar"><img data-cfo-agent-avatar src="${agent.avatarSrc}" alt=""></span>
         <div><strong data-cfo-empty-heading>还没有本次对话</strong>
-        <p>六位顾问可阅读当前工作区最新确认的三表，或你在财务经营明确选择让 AI 读取的只读资料。财务经营台账与未选择的预览不会自动进入问答；只读资料不等于已验证报表。</p></div>
+        <p>六位顾问都可分析你在当前对话上传的流水、收支表或其他企业资料，不要求三表齐全。也可使用你在财务经营明确选择的只读资料，或当前工作区已确认报表。缺失信息会说明，不补造数值；财务经营台账与未选择的预览不会自动进入问答。</p></div>
       </div>
       <div data-cfo-turns class="cfo-turns" role="log" aria-label="本次对话"></div>
       <form data-cfo-question-form class="cfo-composer"><div class="cfo-composer-heading"><label for="cfoQuestion">想先解决什么经营问题？</label><span>最多 2000 字</span></div>

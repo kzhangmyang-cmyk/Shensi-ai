@@ -21,6 +21,17 @@ async function fixture(ask?: (signal: AbortSignal) => Promise<{ answer: string; 
   return { service, scope, events, sent, tools, connections, diagnostics };
 }
 
+test('a failed session records its closed failure category without private history or credentials', async t => {
+  const { service, scope, connections, diagnostics, events } = await fixture(); t.after(() => service.dispose());
+  await service.save(scope, { apiKey: 'private-fixture-key', workspaceId: '' }); await service.check(scope);
+  await service.start(scope, [{ role: 'user', text: 'private-fixture-business' }]);
+  connections.at(-1)!.receive({ type: 'closed', code: 'voice_network_failed' });
+  assert.equal(diagnostics.find(row => row.stage === 'session_failed')?.code, 'voice_network_failed');
+  assert.equal(events.filter(row => row.type === 'ended').length, 1);
+  assert.equal(connections.at(-1)!.closed, true);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /private-fixture/);
+});
+
 test('voice freezes the selected document ID and never accepts a provider-selected source', async t => {
   const { service, scope, connections, tools } = await fixture(); t.after(() => service.dispose());
   await service.save(scope, { apiKey: 'isolated-test-key', workspaceId: '' }); await service.check(scope);

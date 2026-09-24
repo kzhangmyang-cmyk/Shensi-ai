@@ -3,6 +3,7 @@ import { mountGalaxyDust } from './galaxy-dust';
 /** Decorative only; no model, progress, account or business inputs. */
 export function mountDecisionAtmosphere(root: HTMLElement, retainOnDetach=false) {
   const doc = root.ownerDocument, win = doc.defaultView;
+  const background=doc.createElement('img');background.src=new URL('./assets/galaxy-cosmos-blue.png',import.meta.url).href;background.alt='';background.className='decision-cosmos-background';background.setAttribute('aria-hidden','true');root.prepend(background);
   const canvas = doc.createElement('canvas'); canvas.className = 'decision-universe'; canvas.setAttribute('aria-hidden', 'true'); root.prepend(canvas);
   const button = doc.createElement('button'); button.type = 'button'; button.dataset.atmosphereToggle = '';
   root.querySelector('.decision-hero')?.append(button);

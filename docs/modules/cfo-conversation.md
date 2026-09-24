@@ -4,6 +4,12 @@
 
 The real `#agents` question panel supports the six selected specialist roles. The existing six-role reporting
 workflow, verified data ingestion, draft editing and outreach remain unchanged.
+Each role can analyze a selected partial ledger, income/expense table or other
+read-only enterprise document; three complete financial statements are not a
+chat prerequisite. Current-conversation attachments take precedence over an
+explicit finance-page selection, which takes precedence over verified statements.
+Missing values remain missing. The formal financial-council workflow retains its
+separate verified-statement requirements.
 The question editor survives report-controller rerenders. CFO text conversations
 are saved as encrypted, actor/workspace-scoped records in `cfo_conversation_sessions`.
 The history list shows the latest fifty sessions; each retains up to one hundred
@@ -149,6 +155,20 @@ violations fail closed. Existing council-run specialist formulas/knowledge are
 not silently replaced. Only CFO supports realtime voice.
 
 ## In-product voice settings
+
+The CFO realtime connector defaults to the supported `Ethan` voice for the
+male operating-advisor voice. Fresh connections and reopened sessions use the
+same default; an explicit connector voice override remains authoritative.
+Startup-greeting saved voice preferences remain unchanged. The controlled
+WebSocket test checks the actual `session.update` payload, not a persona prompt.
+This is configuration verification, not physical microphone/playback acceptance.
+Provider reference: [Qwen realtime audio](https://help.aliyun.com/zh/model-studio/realtime).
+
+Session failure diagnostics contain only the normalized failure code, elapsed
+timing, audio-gap duration and tool/output pending flags. They contain no audio,
+transcripts, history or credentials. Existing logs without an ending reason are
+insufficient to attribute intermittent disconnections; adding this observation
+does not itself repair reconnection behavior.
 
 Open **智能体中心 → 和经营总管聊聊 → 语音服务设置** in the desktop app.
 **设置中心 → 语音服务 → 配置** also opens this same dialog after the agent

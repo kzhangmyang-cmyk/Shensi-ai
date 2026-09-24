@@ -153,6 +153,33 @@ test('released document and six-role ask responses conform through production co
         assert.equal(textAnswer.value.answer, `原文记载${source.expected}，尚待核对。`);
       }
     }
+    for (const scenario of [
+      { name: '单份流水', csv: '日期,项目,金额\n2026-09-01,客户回款,1200', ref: 'cell:1:2:3', expected: '1200' },
+      { name: '单份收支', csv: '项目,收入,支出\n本月合计,3000,800', ref: 'cell:1:2:2', expected: '3000' },
+      { name: '缺失金额', csv: '项目,说明\n客户回款,金额待核对', ref: 'cell:1:2:2', expected: '金额待核对' },
+    ]) {
+      fixtureWorkspace = `doc-contract:partial-${prompts.length}`;
+      observation = { template: `所选资料记载{{${scenario.ref}}}，不推断缺失数据。`, sourceRefs: [scenario.ref] };
+      const before = prompts.length;
+      const partial = await post(inspectPath, { fileName: `${scenario.name}.csv`, mediaType: 'text/csv',
+        contentBase64: Buffer.from(scenario.csv).toString('base64'), readWithModel: true });
+      assert.equal(partial.response.status, 200);
+      assert.equal(partial.value.missingStatements.length, 3, 'all three formal statements remain absent');
+      for (const role of ['cfo', 'finance', 'profit', 'cost', 'cashflow', 'tax']) {
+        const answer = await post(askPath, { documentId: partial.value.documentId, role, question: '分析这份零散资料，缺失数据不要补造', history: [] });
+        assert.equal(answer.response.status, 200, `${scenario.name}/${role} must not require three statements`);
+        assert.equal(answer.value.answer, `所选资料记载${scenario.expected}，不推断缺失数据。`);
+        assert.equal(answer.value.material.documentId, partial.value.documentId);
+        assert.equal(answer.value.material.kind, 'readonly_document');
+        const outgoing = prompts.at(-1)!;
+        const payload = JSON.parse(outgoing.messages.find(item => item.role === 'user')!.content
+          .replace(/^BEGIN_UNTRUSTED_DATA\n/, '').replace(/\nEND_UNTRUSTED_DATA$/, ''));
+        assert.equal(payload.role, role);
+        assert.ok(payload.cells.some((cell: { sourceRef: string; text: string }) =>
+          cell.sourceRef === scenario.ref && cell.text === scenario.expected));
+      }
+      assert.equal(prompts.length - before, 7, 'one explicit reading and six questions only');
+    }
   } finally {
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     await resources.relay.close(); await resources.closeFinancialCouncilResources();

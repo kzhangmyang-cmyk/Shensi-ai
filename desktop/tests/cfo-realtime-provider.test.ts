@@ -4,6 +4,31 @@ import WebSocket, { WebSocketServer } from 'ws';
 import type { AddressInfo } from 'node:net';
 import { createServer } from 'node:http';
 
+test('fresh and reopened CFO sessions request the male default while explicit voice choices survive', async t => {
+  const { openQwenRealtime } = await import('../src/main/cfo-realtime-provider.ts');
+  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  await new Promise<void>(r => server.once('listening', r));
+  t.after(() => { for (const peer of server.clients) peer.terminate(); server.close(); });
+  const voices: string[] = [];
+  server.on('connection', peer => {
+    peer.send(JSON.stringify({ type: 'session.created' }));
+    peer.on('message', bytes => {
+      const event = JSON.parse(bytes.toString());
+      if (event.type !== 'session.update') return;
+      voices.push(event.session.voice);
+      peer.send(JSON.stringify({ type: 'session.updated', session: event.session }));
+    });
+  });
+  for (const voice of [undefined, undefined, 'Tina', 'Ethan'] as const) {
+    const port = await openQwenRealtime({ apiKey: 'fixture', workspaceId: '' }, [], () => {}, new AbortController().signal, {
+      endpoint: 'dashscope', voice,
+      socket: () => new WebSocket(`ws://127.0.0.1:${(server.address() as AddressInfo).port}`)
+    });
+    port.close();
+  }
+  assert.deepEqual(voices, ['Ethan', 'Ethan', 'Tina', 'Ethan']);
+});
+
 test('realtime detection requires session acknowledgement, configures audio/tools and sends no audio automatically', async t => {
   const module = await import('../src/main/cfo-realtime-provider.ts').catch(() => null);
   assert.ok(module, 'official realtime transport must exist');

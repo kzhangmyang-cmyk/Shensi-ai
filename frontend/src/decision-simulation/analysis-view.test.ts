@@ -40,3 +40,23 @@ test('history galaxy exposes saved role content without showing running progress
   assert.equal(document.querySelector('.decision-analysis')!.getAttribute('data-motion'),'paused','polling must not reactivate a hidden step');
   view.dispose();
 });
+
+test('cosmos progress and result strip use saved observations and references, never concept numbers',()=>{
+  const {document}=parseHTML('<html><body><main></main></body></html>');
+  const view=mountDecisionAnalysis(document.querySelector('main')!,()=>{});
+  const value:components['schemas']['Preparation']={id:'partial',expiresAt:'',dataKind:'user_defined',state:'analyzing',files:[],sources:[{sourceRef:'file:1:A1',text:'已确认来源'}],facts:[],uncertain:[],runId:null,errorCode:null,agents:[{role:'finance',state:'completed',observations:[{text:'现金观察',sourceRefs:['file:1:A1']},{text:'成本观察',sourceRefs:['file:1:A1']}],provider:'fixture',model:'fixture',errorCode:null}]};
+  view.update(value);
+  assert.equal(document.querySelector('progress')?.getAttribute('value'),'1');
+  assert.equal(document.querySelector('progress')?.getAttribute('max'),'5');
+  assert.equal(document.querySelector('[data-findings-count]')?.textContent,'2');
+  assert.equal(document.querySelector('[data-evidence-count]')?.textContent,'1');
+  document.querySelector<HTMLButtonElement>('[data-analysis-open-results]')!.click();
+  assert.match(document.querySelector('[data-analysis-evidence]')!.textContent!,/现金观察/);
+  view.update({...value,agents:[]},'empty');
+  assert.equal(document.querySelector('progress')?.hasAttribute('hidden'),true);
+  assert.equal(document.querySelector('[data-analysis-percent]')?.textContent,'预览');
+  assert.equal(document.querySelector('[data-findings-count]')?.textContent,'0');
+  assert.equal(document.querySelector<HTMLButtonElement>('[data-analysis-open-results]')!.disabled,true);
+  assert.match(document.querySelector('[data-findings-heading]')!.textContent!,/尚无/);
+  view.dispose();
+});

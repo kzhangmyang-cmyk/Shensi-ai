@@ -53,7 +53,7 @@ export function providerFailure(value: unknown): string {
   if (/forbidden|permission|access.?denied|403|quota|balance|limit|429/u.test(code)) return 'voice_permission_failed';
   return 'voice_protocol_failed';
 }
-export function realtimeSessionConfig(history: VoiceTurn[], voice = 'Tina') {
+export function realtimeSessionConfig(history: VoiceTurn[], voice = 'Ethan') {
   return {
     model: CFO_AUDIO_MODEL, modalities: ['text', 'audio'], voice,
     audio: { input: { format: { type: 'pcm', sample_rate: 16000 } }, output: { format: { type: 'pcm', sample_rate: 24000 } } },

@@ -24,7 +24,7 @@ try {
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     await page.route('**/*', async route => {
       const url = route.request().url();
-      if (url.endsWith('/assets/galaxy-cyan-brand.png')) return route.fulfill({ contentType: 'image/png', body: await readFile(`${root}src/decision-simulation/assets/galaxy-cyan-brand.png`) });
+      for(const name of ['galaxy-cyan-brand.png','galaxy-cosmos-blue.png'])if (url.endsWith(`/assets/${name}`)) return route.fulfill({ contentType: 'image/png', body: await readFile(`${root}src/decision-simulation/assets/${name}`) });
       if (url === 'http://127.0.0.1:45679/') return route.fulfill({ contentType: 'text/html', body: '<html></html>' });
       return route.abort();
     });
@@ -51,7 +51,11 @@ try {
     assert.equal(await page.evaluate(() => (window as any).submissions[0].baseline.receivables[0].amountMinor), 29);
     assert.equal(await amount.inputValue(), '0.29');
     await page.locator('[data-step=agents]').click();
+    assert.equal(await page.locator('.decision-galaxy-nodes').isVisible(),false,'empty preview must be pure galaxy without fake role activity');
+    assert.equal(await page.locator('.decision-analysis-sidebar').isVisible(),false);
+    assert.equal(await page.locator('.decision-simulation > .decision-cosmos-background').isVisible(),true);
     await page.locator('[data-step=source]').click();
+    assert.equal(await page.locator('.decision-analysis').isVisible(),false,'role layer must not leak into source step');
     assert.equal(await amount.inputValue(), '0.29');
     assert.equal(await page.locator('.decision-source-inspector').isVisible(), false);
     await page.locator('[data-source-files]').setInputFiles({name:'合成经营资料.csv',mimeType:'text/csv',buffer:Buffer.from('项目,金额\n现金,100')});

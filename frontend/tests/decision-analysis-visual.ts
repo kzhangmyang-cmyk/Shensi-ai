@@ -1,4 +1,5 @@
 import '../src/vendor/phosphor/regular/style.css';
+import '../src/decision-simulation/cosmos.css';
 import {mountDecisionAnalysis} from '../src/decision-simulation/analysis-view';
 import type {components} from '../src/generated/decision-simulation';
 type Preparation=components['schemas']['Preparation'];

@@ -309,7 +309,13 @@ export class CfoRealtimeService {
     this.stage(active, 'tool_output_submitted');
     active.port?.send({ type: 'response.create' });
   }
-  private fail(active: Active, code: string) { if (this.active !== active) return; this.emit(active, { type: 'error', code }); this.stop(); }
+  private fail(active: Active, code: string) {
+    if (this.active !== active) return;
+    this.stage(active, 'session_failed', { code,
+      audioGapMs: Math.max(0, Date.now() - active.lastAudio),
+      toolPending: !!active.tool, outputPending: !!active.output });
+    this.emit(active, { type: 'error', code }); this.stop();
+  }
   stop() {
     this.revision++;
     const active = this.active; if (!active) return;
