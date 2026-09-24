@@ -7,7 +7,8 @@ import { encryptAgentJobPayload, decryptAgentJobPayload } from './agent-job-secu
 
 const id = z.string().min(1).max(160).regex(/^[A-Za-z0-9_-]+$/u);
 const text = z.string().min(1).max(800).refine(value => Boolean(value.trim()));
-const draftSchema = z.object({ id:z.string().uuid(), accountId:id, deviceId:id, recipientId:id, body:text }).strict();
+const deviceId = z.union([id,z.string().regex(/^sha256:[a-f0-9]{64}$/u)]);
+const draftSchema = z.object({ id:z.string().uuid(), accountId:id, deviceId, recipientId:id, body:text }).strict();
 const receiptSchema = z.discriminatedUnion('status', [
   z.object({status:z.literal('unknown')}).strict(),
   z.object({status:z.literal('confirmed'), serverMessageId:id}).strict(),

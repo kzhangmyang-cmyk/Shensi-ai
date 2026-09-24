@@ -30,6 +30,8 @@ test("runtime images are non-root and pinned", () => {
 test("backend image copies both generated contract targets before checking contract drift", () => {
   const backend = read("deploy/docker/backend.Dockerfile");
   const generatedContracts = [
+    "COPY frontend/src/generated/xiaohongshu-messaging.ts frontend/src/generated/xiaohongshu-messaging.ts",
+    "COPY desktop/src/generated/xiaohongshu-messaging.d.ts desktop/src/generated/xiaohongshu-messaging.d.ts",
     "COPY frontend/src/generated/decision-simulation.ts frontend/src/generated/decision-simulation.ts",
     "COPY frontend/src/generated/ai-acquisition.ts frontend/src/generated/ai-acquisition.ts",
     "COPY desktop/src/generated/ai-acquisition.d.ts desktop/src/generated/ai-acquisition.d.ts"

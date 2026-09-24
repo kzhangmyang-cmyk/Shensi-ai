@@ -4,7 +4,7 @@ import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT_FILES = new Set(["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]);
-const BACKEND_RUNTIME_FILES = new Set([".dockerignore", "frontend/package.json", "frontend/src/generated/ai-acquisition.ts", "frontend/src/generated/decision-simulation.ts", "desktop/src/generated/ai-acquisition.d.ts", "deploy/docker/backend.Dockerfile", "deploy/compose.api-only.yaml", "deploy/nginx/api-only.conf", "scripts/container-runtime.mjs", "scripts/source-content-manifest.mjs"]);
+const BACKEND_RUNTIME_FILES = new Set([".dockerignore", "frontend/package.json", "frontend/src/generated/ai-acquisition.ts", "frontend/src/generated/decision-simulation.ts", "frontend/src/generated/xiaohongshu-messaging.ts", "desktop/src/generated/xiaohongshu-messaging.d.ts", "desktop/src/generated/ai-acquisition.d.ts", "deploy/docker/backend.Dockerfile", "deploy/compose.api-only.yaml", "deploy/nginx/api-only.conf", "scripts/container-runtime.mjs", "scripts/source-content-manifest.mjs"]);
 const GENERATED_SEGMENTS = new Set(["node_modules", ".git", ".runtime", "dist", "dist-desktop", "release", "test-results", "coverage", "playwright-report", ".build", "__pycache__", ".pytest_cache", ".venv", ".local-data"]);
 const FORBIDDEN_SEGMENTS = new Set(["profiles", "secrets"]);
 

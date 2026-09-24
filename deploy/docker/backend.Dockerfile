@@ -12,6 +12,8 @@ COPY frontend/src/generated/ai-acquisition.ts frontend/src/generated/ai-acquisit
 COPY frontend/src/generated/decision-simulation.ts frontend/src/generated/decision-simulation.ts
 COPY frontend/src/generated/platform-admin.ts frontend/src/generated/platform-admin.ts
 COPY desktop/src/generated/ai-acquisition.d.ts desktop/src/generated/ai-acquisition.d.ts
+COPY frontend/src/generated/xiaohongshu-messaging.ts frontend/src/generated/xiaohongshu-messaging.ts
+COPY desktop/src/generated/xiaohongshu-messaging.d.ts desktop/src/generated/xiaohongshu-messaging.d.ts
 RUN pnpm --filter ./contracts check:types && pnpm --filter ./backend build
 
 FROM node:22.22.3-bookworm-slim AS runtime

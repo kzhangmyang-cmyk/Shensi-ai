@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "generate:types": "node scripts/generate-frontend-contract-types.mjs && pnpm generate:desktop-types",
-    "check:types": "node scripts/generate-frontend-contract-types.mjs --check && pnpm check:desktop-types && pnpm check:decision-types && pnpm check:platform-types",
+    "check:types": "node scripts/generate-frontend-contract-types.mjs --check && pnpm check:desktop-types && pnpm check:decision-types && pnpm check:platform-types && pnpm check:xhs-types",
+    "generate:xhs-types": "node scripts/generate-frontend-contract-types.mjs --input openapi/xiaohongshu-messaging.v1.yaml --output ../frontend/src/generated/xiaohongshu-messaging.ts && node scripts/generate-frontend-contract-types.mjs --input openapi/xiaohongshu-messaging.v1.yaml --output ../desktop/src/generated/xiaohongshu-messaging.d.ts",
+    "check:xhs-types": "node scripts/generate-frontend-contract-types.mjs --input openapi/xiaohongshu-messaging.v1.yaml --output ../frontend/src/generated/xiaohongshu-messaging.ts --check && node scripts/generate-frontend-contract-types.mjs --input openapi/xiaohongshu-messaging.v1.yaml --output ../desktop/src/generated/xiaohongshu-messaging.d.ts --check",
     "generate:platform-types": "node scripts/generate-frontend-contract-types.mjs --input openapi/platform-admin.v1.yaml --output ../frontend/src/generated/platform-admin.ts",
     "check:platform-types": "pnpm generate:platform-types --check",
     "generate:decision-types": "node scripts/generate-frontend-contract-types.mjs --input openapi/decision-simulation.v1.yaml --output ../frontend/src/generated/decision-simulation.ts",

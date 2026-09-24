@@ -37,6 +37,7 @@ async function fixture() {
     "backend/package.json": "{}", "backend/src/server.ts": "export {}", "contracts/package.json": "{}",
     "contracts/schema.ts": "export {}", "frontend/package.json": "{}", "frontend/src/app.ts": "export {}", "frontend/src/generated/ai-acquisition.ts": "export {}", "frontend/src/generated/decision-simulation.ts": "export {}",
     "desktop/package.json": "{}", "desktop/src/main.ts": "export {}", "desktop/src/generated/ai-acquisition.d.ts": "export {}", "deploy/compose.api-only.yaml": "services: {}",
+    "frontend/src/generated/xiaohongshu-messaging.ts": "export {}", "desktop/src/generated/xiaohongshu-messaging.d.ts": "export {}",
     ".dockerignore": "node_modules", "deploy/docker/backend.Dockerfile": "COPY frontend/package.json frontend/package.json", "deploy/nginx/api-only.conf": "server {}", "scripts/container-runtime.mjs": "export {}", "scripts/source-content-manifest.mjs": "export {}"
   })) await writeFile(join(root, name), body);
   for (const path of DESKTOP_REQUIRED) {
@@ -96,7 +97,9 @@ test("backend-runtime record set exactly follows the current Docker COPY context
     "frontend/package.json": "{}",
     "frontend/src/generated/ai-acquisition.ts": "export {}",
     "frontend/src/generated/decision-simulation.ts": "export {}",
+    "frontend/src/generated/xiaohongshu-messaging.ts": "export {}",
     "desktop/src/generated/ai-acquisition.d.ts": "export {}",
+    "desktop/src/generated/xiaohongshu-messaging.d.ts": "export {}",
     "backend/dist/server.js": "generated",
     "backend/node_modules/x.js": "generated",
     ".runtime/x": "state",
@@ -116,9 +119,11 @@ test("backend-runtime record set exactly follows the current Docker COPY context
     "deploy/docker/backend.Dockerfile",
     "deploy/nginx/api-only.conf",
     "desktop/src/generated/ai-acquisition.d.ts",
+    "desktop/src/generated/xiaohongshu-messaging.d.ts",
     "frontend/package.json",
     "frontend/src/generated/ai-acquisition.ts",
     "frontend/src/generated/decision-simulation.ts",
+    "frontend/src/generated/xiaohongshu-messaging.ts",
     "package.json",
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",

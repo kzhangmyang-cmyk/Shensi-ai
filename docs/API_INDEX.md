@@ -1,5 +1,22 @@
 # API Index
 
+## Independent Xiaohongshu messaging (not mounted in the application yet)
+
+`contracts/openapi/xiaohongshu-messaging.v1.yaml` defines
+`/api/v1/acquisition/xiaohongshu/drafts`: GET list, POST create, PATCH `/{id}`,
+POST `/{id}/approve`, `/{id}/claim` and `/{id}/receipt`. Generated types are
+`frontend/src/generated/xiaohongshu-messaging.ts` and
+`desktop/src/generated/xiaohongshu-messaging.d.ts`.
+The independent router must be mounted behind normal session authentication,
+cookie CSRF and resolved workspace middleware. Claim and receipt additionally
+authenticate the existing desktop installation headers and require the same
+workspace, user and team. Device tokens never enter responses.
+Approval and claim use exact revisions. An issued command is not reissued;
+expiration is Unix milliseconds and must be converted to seconds at the Python
+adapter boundary. Public DTOs contain no platform credentials.
+HTTP synthetic composition and response-schema conformance pass; production
+account binding, startup composition and normal login remain unconnected.
+
 ## Public brand website
 
 `contracts/openapi/website-contact.v1.yaml` documents the independent website
