@@ -1,6 +1,8 @@
 import type express from "express";
 import type { CrmStore } from './store.js';
-import { createAgentWebResearchRuntime } from './agent-web-research-runtime.js';
+import { createAgentWebResearchRuntime, createAgentConversationResearchRuntime } from './agent-web-research-runtime.js';
+import type { ActiveWorkspaceContext } from './growth-workspace-context.js';
+import { FINANCIAL_COUNCIL_MODEL_ROLES } from './financial-council-model-routing.js';
 import { createAgentWebResearchRouter } from './agent-web-research-router.js';
 import { InMemoryCfoConversationSessionRepository, MysqlCfoConversationSessionRepository,
   CFO_CONVERSATION_SESSION_MYSQL_SCHEMA } from './cfo-conversation-session-repository.js';
@@ -128,6 +130,7 @@ extends GrowthFinancialCouncilServices {
   readonly modelRoutingService: FinancialCouncilModelRoutingService;
   readonly agentCenter: FinancialCouncilAgentCenter;
   readonly documents: FinanceDocumentService;
+  readonly webResearch?: ReturnType<typeof createAgentWebResearchRuntime>;
   readonly relay: Pick<FinancialCouncilWakeRelay, "start" | "sweep" | "close">;
   closeFinancialCouncilResources(): Promise<void>;
 }
@@ -372,7 +375,7 @@ function trustedResources(
     || Reflect.ownKeys(value).some((key) => typeof key !== "string")
     || (Reflect.ownKeys(value) as string[]).sort().join("\u0000")
       !== ["service", "modelRoutingRepository", "modelRoutingService",
-        "agentCenter", "documents", "relay",
+        "agentCenter", "documents", "webResearch", "relay",
         "closeFinancialCouncilResources"]
         .sort().join("\u0000")) {
     throw new Error("INVALID_GROWTH_FINANCIAL_COUNCIL_RESOURCES");
@@ -411,6 +414,9 @@ class IdempotentInProcessWakeSink implements FinancialCouncilWakeSink {
 const TRUSTED_FINANCIAL_COUNCIL_RESOURCES = new WeakSet<object>();
 
 export async function createGrowthFinancialCouncilResources(input: {
+  webResearchStore?: CrmStore;
+  modelFetch?: typeof fetch;
+  executeSearch?: NonNullable<Parameters<typeof createAgentWebResearchRuntime>[1]>['executeSearch'];
   operatingMemory?:AgentOperatingMemoryService;
   documentModel?: FinanceDocumentReadModel;
   mode: "memory" | "mysql";
@@ -570,7 +576,7 @@ export async function createGrowthFinancialCouncilResources(input: {
     repository: modelRoutingRepository, runtimeState
   });
   const documents = new FinanceDocumentService({
-    model: input.documentModel ?? (input.modelStore ? createFinanceDocumentModel(input.modelStore) : undefined),
+    model: input.documentModel ?? (input.modelStore ? createFinanceDocumentModel(input.modelStore,{fetch:input.modelFetch}) : undefined),
     async connectionFor(context, role) {
       const policy = await modelRoutingRepository.getCurrent(context);
       if (!policy) return undefined;
@@ -581,11 +587,21 @@ export async function createGrowthFinancialCouncilResources(input: {
       return connection;
     }
   });
+  const researchOptions = {modelFetch:input.modelFetch,executeSearch:input.executeSearch,async connectionFor(context:ActiveWorkspaceContext,role:typeof FINANCIAL_COUNCIL_MODEL_ROLES[number]) {
+    const policy=await modelRoutingRepository.getCurrent(context);
+    if(!policy)return undefined;
+    const runtime=runtimeState();
+    const connection=selectFinancialCouncilModelRoute({role,policy,connections:runtime.connections,recentCalls:runtime.recentCalls,prices:[],activeWorkspace:context}).orderedConnectionIds[0];
+    if(!connection)throw new GrowthHttpError(409,'cfo_conversation_model_not_ready');
+    return connection;
+  }};
+  const webResearch=input.webResearchStore?createAgentWebResearchRuntime(input.webResearchStore,researchOptions):undefined;
   const agentCenter = new FinancialCouncilAgentCenter({
+    research:input.webResearchStore&&webResearch?createAgentConversationResearchRuntime(input.webResearchStore,researchOptions,webResearch):undefined,
     operatingMemory:input.operatingMemory,
     sessions: input.mode === 'mysql' ? new MysqlCfoConversationSessionRepository(input.pool!) : new InMemoryCfoConversationSessionRepository(),
     documents,
-    chatModel: input.modelStore ? createCfoChatModel(input.modelStore) : undefined,
+    chatModel: input.modelStore ? createCfoChatModel(input.modelStore,{fetch:input.modelFetch}) : undefined,
     latestPackage: Object.freeze({
       async getLatestVerified(workspaceId: string) {
         if (!input.finance.statementPackages) return null;
@@ -605,6 +621,7 @@ export async function createGrowthFinancialCouncilResources(input: {
     agentCenter,
     documents,
     relay,
+    webResearch,
     async closeFinancialCouncilResources() {
       await dispatch.close();
       await sweeper?.close();
@@ -673,6 +690,7 @@ export function createGrowthFinancialCouncilModule(
               finance,
               wakeSink: options.wakeSink,
               modelStore: options.modelStore,
+              webResearchStore: options.webResearchStore,
               documentModel: options.documentModel,
               relayIntervalMs: options.relayIntervalMs,
               relayBatchSize: options.relayBatchSize,
@@ -728,21 +746,8 @@ export function createGrowthFinancialCouncilModule(
         input.router.use('/api/v1/finance', createFinanceDocumentRouter({
           service: resources.documents, workspaceContext: foundation.workspaceContext
         }));
-        if (options.webResearchStore) {
-          const webStore = options.webResearchStore;
-          const routing = resources.modelRoutingRepository;
-          const webResearch = createAgentWebResearchRuntime(webStore, {
-            async connectionFor(context, role) {
-              const policy = await routing.getCurrent(context);
-              if (!policy) return undefined;
-              const runtime = readFinancialCouncilModelRoutingRuntimeState(webStore);
-              const connection = selectFinancialCouncilModelRoute({ role, policy, connections: runtime.connections,
-                recentCalls: runtime.recentCalls, prices: [], activeWorkspace: context }).orderedConnectionIds[0];
-              if (!connection) throw new GrowthHttpError(409, 'cfo_conversation_model_not_ready');
-              return connection;
-            }
-          });
-          input.router.use('/api/v1/finance', createAgentWebResearchRouter({ service: webResearch, workspaceContext: foundation.workspaceContext }));
+        if (resources.webResearch) {
+          input.router.use('/api/v1/finance', createAgentWebResearchRouter({ service: resources.webResearch, workspaceContext: foundation.workspaceContext }));
         }
         const policyRouterFactory = options.createPolicyRouter
           ?? createFinancialCouncilPolicyRouter;

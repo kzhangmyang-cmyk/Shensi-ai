@@ -909,6 +909,26 @@ export interface components {
             question: string;
             history: components["schemas"]["Turn"][];
         };
+        Research: {
+            /** @constant */
+            status: "completed";
+            query: string;
+            searchProvider: string;
+            /** Format: date-time */
+            retrievedAt: string;
+            /** @constant */
+            evidenceKind: "search_index_snippets";
+            citationIds: string[];
+            sources: {
+                id: string;
+                title: string;
+                /** Format: uri */
+                url: string;
+                snippet: string;
+                /** Format: date-time */
+                fetchedAt: string;
+            }[];
+        };
         MaterialSource: {
             packageId: string;
             companyName: string;
@@ -933,6 +953,7 @@ export interface components {
         };
         /** CfoConversationAnswer */
         "cfo-conversation.v1.schema": {
+            research?: components["schemas"]["Research"];
             answer: string;
             provider: string;
             model: string;
@@ -940,6 +961,26 @@ export interface components {
             /** Format: date-time */
             answeredAt: string;
             $defs: {
+                Research: {
+                    /** @constant */
+                    status: "completed";
+                    query: string;
+                    searchProvider: string;
+                    /** Format: date-time */
+                    retrievedAt: string;
+                    /** @constant */
+                    evidenceKind: "search_index_snippets";
+                    citationIds: string[];
+                    sources: {
+                        id: string;
+                        title: string;
+                        /** Format: uri */
+                        url: string;
+                        snippet: string;
+                        /** Format: date-time */
+                        fetchedAt: string;
+                    }[];
+                };
                 Input: {
                     /**
                      * Format: uuid

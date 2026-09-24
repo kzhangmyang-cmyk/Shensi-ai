@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { PUBLIC_RESEARCH_RULES, researchCitationIds, type PublicResearchEvidence } from './agent-conversation-research.js';
 import {operatingPreferenceEvidence,type OperatingPreferences} from './agent-operating-memory.js';
 import { observeCfoStage, type CfoConversationProgress } from './cfo-conversation-progress.js';
 import { z } from 'zod';
@@ -134,11 +135,12 @@ function selectModelSources(inspection: FinanceDocumentInspection, question: str
   } };
 }
 
-export function financeDocumentObservationSchema(inspection: Pick<FinanceDocumentInspection, 'cells'>, maxObservations=12, compactEvidence=false) {
+export function financeDocumentObservationSchema(inspection: Pick<FinanceDocumentInspection, 'cells'>, maxObservations=12, compactEvidence=false, publicEvidence?:PublicResearchEvidence) {
   const allowed = new Set(inspection.cells.map(cell => cell.sourceRef));
   return z.object({ observations: z.array(z.object({ template: z.string().trim().min(1).max(compactEvidence?350:2000),
     sourceRefs: z.array(z.string().refine(ref => allowed.has(ref))).min(1).max(compactEvidence?4:20)
-      .refine(refs => new Set(refs).size === refs.length) }).strict()).max(maxObservations) }).strict().superRefine((value, ctx) => {
+      .refine(refs => new Set(refs).size === refs.length) }).strict()).max(maxObservations),
+    ...(publicEvidence?{citationIds:researchCitationIds(publicEvidence)}:{}) }).strict().superRefine((value, ctx) => {
     value.observations.forEach((observation, index) => {
       if(compactEvidence&&observation.template.match(token))ctx.addIssue({code:z.ZodIssueCode.custom,path:['observations',index],message:'For operating roles, write a concise qualitative decision/action without inline source placeholders; cite up to four known sources in sourceRefs. Values are already displayed in the report.'});
       let invalid = false;
@@ -177,8 +179,9 @@ export interface FinanceDocumentModelInput {
   history?: readonly { role: 'user' | 'assistant'; text: string }[];
   operatingRole?: OperatingDecisionRole;
   personalPreferences?:OperatingPreferences;
+  publicEvidence?:PublicResearchEvidence;
 }
-export interface FinanceDocumentModelResult { inspection: FinanceDocumentInspection; provider: string | null; model: string | null }
+export interface FinanceDocumentModelResult { inspection: FinanceDocumentInspection; provider: string | null; model: string | null; citationIds?:string[] }
 export function createFinanceDocumentModel(store: DurableModelRuntimeStore, options: { fetch?: typeof fetch } = {}) {
   return async (input: FinanceDocumentModelInput): Promise<FinanceDocumentModelResult> => {
     const inspection = structuredClone(input.inspection);
@@ -195,7 +198,7 @@ export function createFinanceDocumentModel(store: DurableModelRuntimeStore, opti
       : prepareSpecialistSkill(role, { question, history: [], material: null });
     observeCfoStage(input.onProgress, 'skill_ready', input.signal);
     const operatingMethod=operatingRole?'本次经营模拟的用户已校对输入。confirmed:编号是人工确认的模拟条件，不是审计事实；calc:编号是固定算法产生的条件性结果，不是历史实绩。本模式的紧凑规则优先：template只写简短的定性结论、取舍或行动，不使用任何{{引用}}内联占位，不把原文或完整计算段落粘贴进正文；数值已在页面图表显示。依据仅放sourceRefs，每项最多四个真实引用。每项正文建议六十至一百四十字，最多三百五十字符，最多四项。重点解释当前角色相关的决策取舍、可做动作和需要验证的条件，不重复表头、其他角色摘要或页面已有的示例性质。缺少三表不阻止在明确假设下讨论模拟；仅提影响当前决策的具体缺项。至少一项有依据的可执行建议；不能自行计算或编造新数字。':'';
-    const systemPrompt = `${skill.instructions}\n\n当前职责：${skill.name}。本次不是正式三表委员会，下面的只读资料引用规则优先；不把缺少完整三表作为拒绝阅读现有资料的条件。只输出可供用户阅读的证据与结论摘要，不输出内部推理链。\n${operatingRole?SYSTEM.replace('最多12条observations','最多4条observations'):SYSTEM}\n${operatingMethod}`;
+    const systemPrompt = `${skill.instructions}\n\n当前职责：${skill.name}。本次不是正式三表委员会，下面的只读资料引用规则优先；不把缺少完整三表作为拒绝阅读现有资料的条件。只输出可供用户阅读的证据与结论摘要，不输出内部推理链。\n${operatingRole?SYSTEM.replace('最多12条observations','最多4条observations'):SYSTEM}\n${operatingMethod}${input.publicEvidence?PUBLIC_RESEARCH_RULES:''}`;
     if (!input.context.actorId?.trim() || !input.context.teamId?.trim() || !input.context.workspaceId?.trim()
       || input.context.workspaceId === 'all') throw new Error('finance_document_context_invalid');
     input.signal?.throwIfAborted();
@@ -204,10 +207,11 @@ export function createFinanceDocumentModel(store: DurableModelRuntimeStore, opti
     if (cells.length !== inspection.cells.length && !inspection.uncertain.includes('model_context_truncated'))
       inspection.uncertain.push('model_context_truncated');
     if (!cells.length) return resultWithoutModel('unavailable');
-    const prompt = `BEGIN_UNTRUSTED_DATA\n${JSON.stringify({ question, history, personalTradeoffs:operatingPreferenceEvidence(input.personalPreferences), role: operatingRole ?? role, fileHash: inspection.fileHash,
+    const prompt = `BEGIN_UNTRUSTED_DATA\n${JSON.stringify({ question, history, publicEvidence:input.publicEvidence, personalTradeoffs:operatingPreferenceEvidence(input.personalPreferences), role: operatingRole ?? role, fileHash: inspection.fileHash,
       classification: inspection.classification, missingStatements: inspection.missingStatements,
       uncertain: inspection.uncertain, ...sources })}\nEND_UNTRUSTED_DATA`;
-    const schemaHash = hashModelCallValue({ version: operatingRole?'decision-role-observations.v2':'finance-document-observations.v1', refs: cells.map(cell => cell.sourceRef) });
+    const schemaHash = hashModelCallValue({ version: operatingRole?'decision-role-observations.v2':'finance-document-observations.v1', refs: cells.map(cell => cell.sourceRef),
+      publicSourceIds:input.publicEvidence?.sources.map(source=>source.id) });
     const identity = { jobId: `finance-document:${randomUUID()}`, ownerId: input.context.actorId, teamId: input.context.teamId,
       promptVersion: operatingRole?'decision-role-reading.v2':'finance-document-reading.v1', schemaVersion: operatingRole?'decision-role-observations.v2':'finance-document-observations.v1',
       promptHash: hashModelCallValue({ systemPrompt, userPrompt: prompt }), schemaHash };
@@ -223,10 +227,10 @@ export function createFinanceDocumentModel(store: DurableModelRuntimeStore, opti
           ? AbortSignal.any([input.signal, ...(init?.signal ? [init.signal] : [])]) : init?.signal })) as typeof fetch });
       observeCfoStage(input.onProgress, 'model_started', input.signal);
       const result = await gateway.generateStructured({ systemPrompt, prompt,
-        schema: financeDocumentObservationSchema({ cells },operatingRole?4:12,Boolean(operatingRole)), schemaHash });
+        schema: financeDocumentObservationSchema({ cells },operatingRole?4:12,Boolean(operatingRole),input.publicEvidence), schemaHash });
       input.signal?.throwIfAborted();
-      return { inspection: { ...inspection, observations: renderFinanceDocumentObservations(result.value, { cells }), modelStatus: 'completed' },
-        provider: snapshot.provider, model: snapshot.model };
+      return { inspection: { ...inspection, observations: renderFinanceDocumentObservations({observations:result.value.observations}, { cells }), modelStatus: 'completed' },
+        provider: snapshot.provider, model: snapshot.model, ...(input.publicEvidence?{citationIds:researchCitationIds(input.publicEvidence).parse(result.value.citationIds)}:{}) };
     } catch (error) {
       input.signal?.throwIfAborted();
       inspection.uncertain.push(...modelOutputFailureReasons(error).map(reason => `model_output_${reason}`));

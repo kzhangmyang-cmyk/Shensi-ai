@@ -29,6 +29,20 @@ the saved history to check whether a response was persisted before disconnect.
 If history cannot be loaded, the existing ephemeral text route remains available
 with an explicit history-unavailable message.
 
+Six-role text questions use the current role model to decide whether public
+research is needed, after validating the selected document and role route.
+Planning receives only the question and a same-scope public topic; private
+attachments, history and preferences are never added to a search query.
+Recognizable private internal-analysis questions skip research; mixed private
+search questions require a separate public topic. One bounded retrieval feeds
+the existing answer model. Financial values and document references retain their
+original validators; public snippets provide qualitative context, not company facts.
+An optional `research` snapshot (Growth 1.0.34) contains validated source IDs,
+URLs, snippets and timestamps. It is saved in the same assistant-turn CAS and
+restored without another search. The UI displays expandable sources below the
+answer; search connections remain in settings. Missing connections, empty results
+and invalid citations are explicit failures. Voice research is not enabled.
+
 Text or confirmed voice turns that explicitly ask the software to execute a
 Douyin acquisition workflow are separated from financial Q&A before the CFO
 HTTP route. The panel immediately creates one `cfo.acquisition.orchestrate`

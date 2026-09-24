@@ -105,9 +105,21 @@ The internal CFO skill additionally receives package/parser/source versions and
 prepares deterministic display facts and validates model fact references before returning plain text. Raw Minor values/reports are not included in the expression model context; client facts remain forbidden.
 Rate limit: 12 requests per minute per workspace/actor. No automatic frontend retry; the model gateway allows one bounded structured-output repair. No
 idempotency/ETag requirement, mutation command or audio transport. See
-`docs/modules/cfo-conversation.md` and the generated Growth 1.0.29 DTOs.
+`docs/modules/cfo-conversation.md` and the generated Growth 1.0.34 DTOs.
 
-`GET /api/v1/finance/public-research` returns current owned active real search connections (id/provider/name only). `POST` accepts closed `{query, connectionId, role}`: 2–500 characters of explicit public keywords and one of the six council roles. Requires `finance.council.run`, cookie CSRF and no query parameters; limited to 6 requests/minute/workspace/actor, with no automatic client retry. It returns answer/model/provider/searchProvider, validated citationIds, query/retrievedAt and up to five unique sources with id/title/url/snippet/fetchedAt. `evidenceKind` is `search_index_snippets`; no verified-page claim or business mutation. Both responses are no-store. Missing sources/connection return 409, malformed input 422, invalid model citations 502, unavailable search/model 503. Generated Growth 1.0.33 DTOs own this transport; private file/history fields are rejected.
+Six-role text routes perform optional public research after document and role
+validation. Answers and saved assistant turns may include the closed `research`
+snapshot from `cfo-conversation.v1.schema.json#/$defs/Research`: status, query,
+provider, timestamp, evidence kind, source IDs and bounded source records.
+The snapshot and answer share one session revision CAS; reads never rerun search.
+Client history cannot supply a trusted prior research topic. Page-local follow-ups
+use the existing conversation UUID plus authenticated workspace/actor/role; new
+conversations and role changes use a new UUID. Private mixed search questions
+return `agent_research_public_topic_required`; planner failures return
+`agent_research_plan_unavailable`/`agent_research_plan_invalid`, search failures
+`agent_web_search_unavailable`. These are not completed research responses.
+
+`GET /api/v1/finance/public-research` returns current owned active real search connections (id/provider/name only). The retained explicit `POST` accepts closed `{query, connectionId, role}`: 2–500 characters of public keywords and one of the six council roles. Requires `finance.council.run`, cookie CSRF and no query parameters; limited to 6 requests/minute/workspace/actor, with no automatic client retry. It returns answer/model/provider/searchProvider, validated citationIds, query/retrievedAt and up to five unique sources with id/title/url/snippet/fetchedAt. `evidenceKind` is `search_index_snippets`; no verified-page claim or business mutation. Both responses are no-store. Missing sources/connection return 409, malformed input 422, invalid model citations 502, unavailable search/model 503. Generated Growth 1.0.34 DTOs own this transport; private file/history fields are rejected.
 
 `POST /api/v1/finance/documents/inspect` accepts the bounded original CSV/XLSX/PDF/DOCX JSON
 envelope and `readWithModel`. False only inspects; true uses the configured model

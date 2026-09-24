@@ -105,7 +105,7 @@ test("1.0.19 exposes closed real council onboarding routes", async () => {
   const document = await loadNamedOpenApiSource(
     "growth-advisor-quote-roi.v1.yaml"
   );
-  assert.equal(document.info.version, "1.0.33");
+  assert.equal(document.info.version, "1.0.34");
   for (const path of [
     "/api/v1/finance/council-model-routing-policy",
     "/api/v1/finance/council-model-routing-policy/preview",

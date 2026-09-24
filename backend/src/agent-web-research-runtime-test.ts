@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createAgentWebResearchRuntime } from './agent-web-research-runtime.js';
+import { createAgentWebResearchRuntime, createAgentConversationResearchRuntime } from './agent-web-research-runtime.js';
 import { createDefaultProviderCatalog } from './provider-catalog.js';
 import { workspace } from './financial-council-repository-contract-test.js';
 import type { ProviderConnection } from './types.js';
 import { encryptAiModelApiKey } from './credential-security.js';
 import type { DurableModelRuntimeStore } from './model-providers/runtime.js';
+import express from 'express';
+import type {AddressInfo} from 'node:net';
+import {createGrowthFinancialCouncilResources} from './growth-financial-council-module.js';
+import {createFinancialCouncilAgentCenterRouter} from './financial-council-agent-center-router.js';
+import {RepositoryVerifiedFinancialLedgerSealedReader} from './financial-ledger-as-of-reader.js';
+import {AgentOperatingMemoryService} from './agent-operating-memory.js';
+import {MemoryDecisionMemoryRepository} from './decision-memory-repository.js';
 
 test('web runtime selects only current owned real search connections and preserves provider evidence', async () => {
   const context = { ...workspace('team-a'), actorId: 'owner-a', teamId: 'team-a', capabilities: ['finance.council.run'] as const };
@@ -67,5 +74,73 @@ test('configured model gateway receives only public sources and rejects invented
     assert.equal(result.model, 'moonshot-v1-8k'); assert.deepEqual(result.citationIds, ['S1']); assert.equal(modelCalls, 1);
     invalid = true;
     await assert.rejects(service.run(context, { query: '公开方法', connectionId: 'search', role: 'cost' }));
+    let planningCalls = 0;
+    const conversation = createAgentConversationResearchRuntime(store, {
+      executeSearch: async () => { throw new Error('ordinary question must not search'); },
+      modelFetch: async (_url, init) => {
+        planningCalls++;
+        const outgoing = JSON.parse(String(init?.body));
+        const user = outgoing.messages.find((item: any) => item.role === 'user');
+        const payload = JSON.parse(user.content.replace(/^BEGIN_UNTRUSTED_DATA\n/, '').replace(/\nEND_UNTRUSTED_DATA$/, ''));
+        assert.deepEqual(payload, { question: '解释现金流' });
+        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({kind:'not_needed'}) }, finish_reason:'stop' }],
+          usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2} }), {status:200,headers:{'content-type':'application/json'}});
+      }
+    });
+    assert.equal(await conversation.prepare({context,role:'cfo',question:'解释现金流',history:['私密记录'],attachments:['附件秘密']} as never),null);
+    assert.equal(planningCalls,1);
+
+    // Full production resource ownership and HTTP ingress, with only network IO replaced.
+    let searches=0;const plannerPayloads:any[]=[];const answerPayloads:any[]=[];
+    const operatingMemory=new AgentOperatingMemoryService(new MemoryDecisionMemoryRepository(),{} as never);
+    await operatingMemory.saveProfile(context,{expectedRevision:0,enabled:true,preferences:{priority:'cash',cashFloorMinor:99887766,
+      pilotFirst:true,reviewCadence:'weekly',learningEnabled:false,confirmedFrom:'self_report'}});
+    const resources=await createGrowthFinancialCouncilResources({mode:'memory',modelStore:store,webResearchStore:store as never,operatingMemory,
+      foundation:{} as never,advisor:{today:Object.freeze({getToday(){throw Error('unused');},getTodayAt(){throw Error('unused');},sealTodayCutoff(){throw Error('unused');}})},
+      finance:{verifiedAsOf:new RepositoryVerifiedFinancialLedgerSealedReader({} as never)} as never,wakeSink:{async wake(){}},
+      modelFetch:async(_url,init)=>{
+        const outgoing=JSON.parse(String(init?.body));const user=outgoing.messages.find((m:any)=>m.role==='user').content;
+        const payload=JSON.parse(user.replace(/^BEGIN_UNTRUSTED_DATA\n/,'').replace(/\nEND_UNTRUSTED_DATA$/,''));
+        const planning=!('history' in payload);
+        let value:unknown;
+        if(planning){plannerPayloads.push(payload);assert.ok(Object.keys(payload).every(k=>['question','previousPublicTopic'].includes(k)));
+          value=payload.question==='解释现金流'?{kind:'not_needed'}:{kind:'search',topic:'公共政策',region:'中国',freshness:'最新'};
+        }else{answerPayloads.push(payload);value=payload.cells
+          ?{observations:[{template:'原文为{{cell:1:2:2}}，政策适用需另核对。',sourceRefs:['cell:1:2:2']}],...(payload.publicEvidence?{citationIds:['S1']}:{})}
+          :{answer:'依据现有资料核对口径与适用范围。',...(payload.publicEvidence?{citationIds:['S1']}:{})};}
+        return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(value)},finish_reason:'stop'}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}}),{status:200,headers:{'content-type':'application/json'}});
+      },executeSearch:async input=>{
+        searches++;assert.equal(input.query.goal,'公共政策 中国 最新');
+        for(const secret of ['998877.66','private@example.org','附件秘密'])assert.equal(JSON.stringify(input.query).includes(secret),false);
+        input.onLogs([{id:`full-${searches}`,ownerId:context.actorId,teamId:context.teamId,connectionId:'search',providerId:'tavily',runId:input.context.runId,
+          runShardId:input.context.runShardId,requestFingerprint:'a'.repeat(64),endpointCode:'search',httpStatus:200,attempt:1,quotaUnits:1,costAmount:0,currency:'',durationMs:1,responseSize:50,errorCode:'',requestedAt:'2026-09-25T00:00:00Z'}]);
+        return {records:[{company:'公开政策',sourceUrl:'https://example.org/policy',description:'政策摘要',fetchedAt:'2026-09-25T00:00:00Z'}]} as never;
+      }});
+    const app=express();app.use(express.json());app.use('/api/v1/finance',createFinancialCouncilAgentCenterRouter({center:resources.agentCenter,workspaceContext:()=>context}));
+    const server=app.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server.once('listening',resolve));
+    const base=`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/finance`;
+    const post=async(path:string,body:unknown)=>{const response=await fetch(base+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+      const value=await response.json();assert.ok(response.ok,JSON.stringify(value));return value;};
+    try{
+      assert.ok(resources.webResearch);
+      const ordinary=await post('/cfo-conversation',{question:'解释现金流',history:[]});assert.equal(ordinary.research,undefined);assert.equal(searches,0);
+      for(const role of ['cfo','finance','profit','cost','cashflow','tax']){
+        const result=await post('/cfo-conversation',{role,question:'最新公共政策',history:[{role:'user',text:'附件秘密 private@example.org'}]});
+        assert.equal(result.research.sources[0].url,'https://example.org/policy');
+      }
+      assert.equal(searches,6);
+      const attachment=await resources.documents.inspect(context,{fileName:'private.csv',mediaType:'text/csv',contentBase64:Buffer.from('项目,金额\n附件秘密,998877.66\n').toString('base64'),readWithModel:false,
+        attachmentScope:{conversationKey:'12345678-1234-4234-8234-123456789012',role:'tax'}});
+      const documentAnswer=await post('/cfo-conversation',{role:'tax',question:'最新公共政策对资料的影响',history:[],documentId:attachment.documentId,conversationKey:'12345678-1234-4234-8234-123456789012'});
+      assert.match(documentAnswer.answer,/998877.66/);assert.equal(documentAnswer.research.citationIds[0],'S1');
+      const session=await post('/cfo-sessions',{documentId:null});
+      const reply=await post(`/cfo-sessions/${session.sessionId}/turns`,{question:'最新公共政策',documentId:null,revision:1});
+      const restored=await (await fetch(base+`/cfo-sessions/${session.sessionId}`)).json();
+      assert.deepEqual(restored.turns[1].research,reply.answer.research);
+      const selected=await post('/operating-memory-question',{selection:{domain:'operating',revision:1},input:{question:'最新公共政策',role:'cost',history:[]}});
+      assert.equal(selected.answer.research.status,'completed');assert.equal(answerPayloads.at(-1).personalTradeoffs.priority,'cash');
+      assert.equal(searches,9);
+      for(const payload of plannerPayloads)for(const secret of ['998877.66','private@example.org','附件秘密','cashFloorMinor'])assert.equal(JSON.stringify(payload).includes(secret),false);
+    }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));await resources.relay.close();await resources.closeFinancialCouncilResources();}
   } finally { if (previous === undefined) delete process.env.PROVIDER_CREDENTIAL_KEY; else process.env.PROVIDER_CREDENTIAL_KEY = previous; }
 });

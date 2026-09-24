@@ -397,6 +397,7 @@ async function moduleFixture(documentModel?: import('./finance-document-service.
   }) as never;
   registry.provide(GROWTH_FINANCE_SERVICES, finance);
   const resources = await createGrowthFinancialCouncilResources({
+    webResearchStore,
     documentModel,
     mode: "memory",
     foundation,
@@ -439,7 +440,7 @@ test("constructed resources own a workspace policy repository", async () => {
     InMemoryFinancialCouncilModelRoutingRepository, true);
   assert.deepEqual(Reflect.ownKeys(fixture.resources).sort(), [
     "agentCenter", "closeFinancialCouncilResources", "documents", "modelRoutingRepository",
-    "modelRoutingService", "relay", "service"
+    "modelRoutingService", "relay", "service", "webResearch"
   ]);
   await fixture.resources.relay.close();
   await fixture.resources.closeFinancialCouncilResources();

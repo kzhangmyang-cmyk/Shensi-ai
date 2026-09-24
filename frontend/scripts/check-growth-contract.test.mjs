@@ -100,7 +100,7 @@ test("pinned release verifies against its own manifest hash", async () => {
       "pinned"
     )
   );
-  assert.equal(manifest.contractVersion, "1.0.10");
+  assert.equal(manifest.contractVersion, "1.0.34");
 });
 
 test("pinned release must identify the canonical monorepo release", async () => {

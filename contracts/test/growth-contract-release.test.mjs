@@ -19,7 +19,7 @@ test("growth release derives the version directory and never overwrites differen
     const second = path.join(secondRoot, secondManifest.contractVersion);
     const bytes = await readFile(path.join(first, "openapi.json"));
     const expectedHash = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-    assert.equal(firstManifest.contractVersion, "1.0.33");
+    assert.equal(firstManifest.contractVersion, "1.0.34");
     assert.equal(firstManifest.contractHash, expectedHash);
     assert.deepEqual(firstManifest, secondManifest);
     assert.deepEqual(bytes, await readFile(path.join(second, "openapi.json")));
@@ -33,13 +33,13 @@ test("growth release derives the version directory and never overwrites differen
     );
     await assert.rejects(
       buildGrowthContractRelease({ input, releasesRoot: firstRoot }),
-      /immutable growth contract release collision for 1\.0\.33/u
+      { message: `immutable growth contract release collision for ${firstManifest.contractVersion}` }
     );
     await writeFile(path.join(first, "manifest.json"), committedManifestBytes);
     await writeFile(path.join(first, "openapi.json"), "{}\n", "utf8");
     await assert.rejects(
       buildGrowthContractRelease({ input, releasesRoot: firstRoot }),
-      /immutable growth contract release collision for 1\.0\.33/u
+      { message: `immutable growth contract release collision for ${firstManifest.contractVersion}` }
     );
   } finally {
     await rm(root, { recursive: true, force: true });

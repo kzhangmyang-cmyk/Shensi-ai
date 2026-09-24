@@ -17,7 +17,8 @@
         "role": { "enum": ["user", "assistant"] },
         "text": { "type": "string", "minLength": 1, "maxLength": 4000 },
         "model": { "type": "string", "maxLength": 191 },
-        "sourceLabel": { "type": "string", "maxLength": 1000 }
+        "sourceLabel": { "type": "string", "maxLength": 1000 },
+        "research": { "$ref": "cfo-conversation.v1.schema.json#/$defs/Research" }
       }
     } }
   },

@@ -6,6 +6,7 @@ import express from 'express';
 import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import Ajv2020 from 'ajv/dist/2020.js';
+import addFormats from 'ajv-formats';
 import { GrowthHttpError } from './growth-command-context.js';
 import { createFinancialCouncilAgentCenterRouter } from './financial-council-agent-center-router.js';
 import { FinancialCouncilAgentCenter } from './financial-council-agent-center.js';
@@ -14,7 +15,10 @@ import { createFinancialCouncilModelRoutingPolicyVersion, FINANCIAL_COUNCIL_MODE
 import { InMemoryFinancialStatementPackageRepository } from './financial-statement-package-repository.js';
 import { previewFixture, commitFixture } from './financial-statement-package-repository-contract-test.js';
 import { prepareSpecialistSkill } from './skills/specialists.js';
-import { financialModelEvidence, renderFinancialAnswer } from './skills/financial-answer.js';
+import { financialAnswerSchema, financialModelEvidence, renderFinancialAnswer } from './skills/financial-answer.js';
+import { financeDocumentObservationSchema } from './finance-document-model.js';
+import { AgentConversationResearch } from './agent-conversation-research.js';
+import { AgentWebResearchService } from './agent-web-research.js';
 
 const context = Object.freeze({ ...workspace('ws-1'), role: 'admin' as const,
   capabilities: ['finance.council.run'] as const });
@@ -60,6 +64,99 @@ function center(overrides: Record<string, unknown> = {}) {
       provider: 'deepseek', model: 'fixture' }), ...overrides
   } as never);
 }
+
+test('normal chat retrieves once, passes separate public evidence and atomically restores sources', async () => {
+  let searches = 0;
+  const topics: (string | undefined)[] = [];
+  const research = new AgentConversationResearch({
+    retrieval: new AgentWebResearchService({connections:async()=>[{id:'search',provider:'fixture',name:'搜索'}],
+      search:async()=>{searches++;return {provider:'fixture',sources:[{title:'公开政策',url:'https://example.org/policy',snippet:'公开摘要',fetchedAt:'2026-09-25T00:00:00.000Z'}]};},
+      answer:async()=>assert.fail('chat owns answer')}),
+    plan:async input=>{topics.push(input.previousPublicTopic);return {kind:'search',topic:'公开政策',region:'',freshness:''};}
+  });
+  const service = center({research,sessions:new InMemoryCfoConversationSessionRepository(),chatModel:async(input:any)=>{
+    assert.equal(input.publicEvidence?.sources[0].id,'S1');
+    return {answer:'依据公开摘要，需核对适用范围。',model:'fixture',provider:'fixture',citationIds:['S1']};
+  }});
+  const created=await service.createSession(context,{documentId:null});
+  const first=await service.askInSession(context,created.sessionId,{question:'最新公开政策',revision:1,documentId:null});
+  assert.equal(searches,1);
+  assert.equal(first.answer.research?.sources[0].url,'https://example.org/policy');
+  assert.deepEqual((await service.getSession(context,created.sessionId)).turns[1].research,first.answer.research);
+  assert.equal(searches,1,'restoring history must not search');
+  await service.askInSession(context,created.sessionId,{question:'那项的适用范围？',revision:2,documentId:null});
+  assert.deepEqual(topics,[undefined,'公开政策']);
+  await assert.rejects(service.askInSession({...context,actorId:'another'},created.sessionId,{question:'继续',revision:3,documentId:null}),/not_found/);
+  assert.equal(searches,2);
+});
+
+test('public citations never relax private financial or document numeric validation', () => {
+  const evidence={query:'政策',searchProvider:'fixture',retrievedAt:'2026-09-25T00:00:00.000Z',evidenceKind:'search_index_snippets' as const,
+    sources:[{id:'S1',title:'政策',url:'https://example.org/policy',snippet:'摘要',fetchedAt:'2026-09-25T00:00:00.000Z'}]};
+  const skill=prepareSpecialistSkill('tax',{question:'最新政策',history:[],material:null});
+  const financial=financialAnswerSchema(skill.context,evidence);
+  assert.ok(financial.safeParse({answer:'需核对政策适用范围。',citationIds:['S1']}).success);
+  assert.equal(financial.safeParse({answer:'公司收入为900万元。',citationIds:['S1']}).success,false);
+  assert.equal(financial.safeParse({answer:'需核对。',citationIds:['S9']}).success,false);
+  const document=financeDocumentObservationSchema({cells:[{sourceRef:'cell:1:1:1',text:'费用'}] as never},12,false,evidence);
+  assert.ok(document.safeParse({observations:[{template:'需核对{{cell:1:1:1}}。',sourceRefs:['cell:1:1:1']}],citationIds:['S1']}).success);
+  assert.equal(document.safeParse({observations:[{template:'费用900万元。',sourceRefs:['cell:1:1:1']}],citationIds:['S1']}).success,false);
+  assert.equal(document.safeParse({observations:[{template:'{{cell:9:9:9}}',sourceRefs:['cell:9:9:9']}],citationIds:['S1']}).success,false);
+});
+
+test('invalid citations, expired attachments and cancellation cannot save researched answers', async () => {
+  let searches=0;
+  const research=new AgentConversationResearch({retrieval:new AgentWebResearchService({connections:async()=>[{id:'search',provider:'fixture',name:'搜索'}],
+    search:async()=>{searches++;return {provider:'fixture',sources:[{title:'政策',url:'https://example.org',snippet:'摘要',fetchedAt:'2026-09-25T00:00:00.000Z'}]};},answer:async()=>assert.fail('unused')}),
+    plan:async()=>({kind:'search',topic:'公开政策',region:'',freshness:''})});
+  const sessions=new InMemoryCfoConversationSessionRepository();
+  const service=center({research,sessions,chatModel:async()=>({answer:'无依据答案',model:'fixture',provider:'fixture',citationIds:['S9']})});
+  const created=await service.createSession(context,{documentId:null});
+  await assert.rejects(service.askInSession(context,created.sessionId,{question:'最新政策',documentId:null,revision:1}),/agent_web_answer_invalid/);
+  assert.deepEqual((await service.getSession(context,created.sessionId)).turns,[]);
+  await assert.rejects(service.ask(context,{question:'最新政策',documentId:'expired',history:[]}),/finance_document_expired/);
+  assert.equal(searches,1);
+  const abort=new AbortController();
+  const cancelled=center({research,sessions,chatModel:async()=>{abort.abort();return {answer:'迟到',model:'fixture',provider:'fixture',citationIds:['S1']};}});
+  await assert.rejects(cancelled.askInSession(context,created.sessionId,{question:'最新政策',documentId:null,revision:1},abort.signal),{name:'AbortError'});
+  assert.deepEqual((await service.getSession(context,created.sessionId)).turns,[]);
+});
+
+test('late page-local answers cannot replace a newer scoped public topic',async()=>{
+  const topics:(string|undefined)[]=[];
+  const research=new AgentConversationResearch({retrieval:new AgentWebResearchService({connections:async()=>[{id:'search',provider:'fixture',name:'搜索'}],
+    search:async()=>({provider:'fixture',sources:[{title:'政策',url:'https://example.org',snippet:'摘要',fetchedAt:'2026-09-25T00:00:00.000Z'}]}),answer:async()=>assert.fail('unused')}),
+    plan:async input=>{topics.push(input.previousPublicTopic);return {kind:'search',topic:input.question,region:'',freshness:''};}});
+  let release!:()=>void;let started!:()=>void;const ready=new Promise<void>(resolve=>started=resolve);
+  const service=center({research,chatModel:async(input:any)=>{
+    if(input.question==='政策甲'){started();await new Promise<void>(resolve=>release=resolve);}
+    return {answer:'定性背景',model:'fixture',provider:'fixture',citationIds:['S1']};
+  }});
+  const input={role:'tax',conversationKey:'12345678-1234-4234-8234-123456789012',history:[]};
+  const first=service.ask(context,{...input,question:'政策甲'});await ready;
+  await service.ask(context,{...input,question:'政策乙'});release();await first;
+  await service.ask(context,{...input,question:'继续说明'});
+  assert.equal(topics[2],'政策乙');
+  await service.ask({...context,actorId:'other'},{...input,question:'继续说明'});
+  await service.ask(context,{...input,role:'cost',question:'继续说明'});
+  await service.ask(context,{...input,conversationKey:'22345678-1234-4234-8234-123456789012',question:'继续说明'});
+  assert.deepEqual(topics.slice(3),[undefined,undefined,undefined]);
+});
+
+test('topic request order starts before asynchronous material lookup',async()=>{
+  const topics:(string|undefined)[]=[];let release!:()=>void;let started!:()=>void;
+  const ready=new Promise<void>(resolve=>started=resolve);let reads=0;
+  const research=new AgentConversationResearch({retrieval:new AgentWebResearchService({connections:async()=>[{id:'search',provider:'fixture',name:'搜索'}],
+    search:async()=>({provider:'fixture',sources:[{title:'政策',url:'https://example.org',snippet:'摘要',fetchedAt:'2026-09-25T00:00:00.000Z'}]}),answer:async()=>assert.fail('unused')}),
+    plan:async input=>{topics.push(input.previousPublicTopic);return {kind:'search',topic:input.question,region:'',freshness:''};}});
+  const service=center({research,latestPackage:{getLatestVerified:async()=>{if(++reads===1){started();await new Promise<void>(resolve=>release=resolve);}return null;}},
+    chatModel:async()=>({answer:'定性背景',provider:'fixture',model:'fixture',citationIds:['S1']})});
+  const input={role:'tax',conversationKey:'12345678-1234-4234-8234-123456789012',history:[]};
+  const old=service.ask(context,{...input,question:'旧政策'});await ready;
+  await service.ask(context,{...input,question:'新政策'});release();await old;
+  await service.ask(context,{...input,question:'追问'});
+  assert.equal(topics[2],'新政策');
+});
 
 test('CFO forwards the actual question and prior turns rather than a fixed analysis report', async () => {
   const service = center();
@@ -221,7 +318,8 @@ test('CFO HTTP question validates body, permission, sanitized schema and per-act
     const body = await good.json();
     const schema = JSON.parse(readFileSync(new URL('../../contracts/json-schema/cfo-conversation.v1.schema.json', import.meta.url), 'utf8'));
     const documentSchema = JSON.parse(readFileSync(new URL('../../contracts/json-schema/finance-document.v1.schema.json', import.meta.url), 'utf8'));
-    const validate = new Ajv2020({ strict: false, formats: { 'date-time': true } }).addSchema(documentSchema).compile(schema);
+    const ajv=new Ajv2020({ strict: false });addFormats(ajv);
+    const validate = ajv.addSchema(documentSchema).compile(schema);
     assert.equal(validate(body), true, JSON.stringify(validate.errors));
     assert.equal(body.material, null);
     for (let i = 0; i < 10; i++) await post(input);

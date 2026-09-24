@@ -35,13 +35,14 @@ export class AgentWebResearchService {
     requireGrowthCapabilities(context, ['finance.council.run']);
     return this.options.connections(context);
   }
-  async run(context: ActiveWorkspaceContext, raw: unknown, signal?: AbortSignal) {
+  async retrieve(context: ActiveWorkspaceContext, raw: unknown, signal?: AbortSignal) {
     requireGrowthCapabilities(context, ['finance.council.run']);
     const parsed = agentWebResearchInput.safeParse(raw);
     if (!parsed.success) throw new GrowthHttpError(422, 'agent_web_input_invalid');
     signal?.throwIfAborted();
     const connection = (await this.connections(context)).find(value => value.id === parsed.data.connectionId);
     if (!connection) throw new GrowthHttpError(409, 'agent_web_connection_unavailable');
+    signal?.throwIfAborted();
     const result = await this.options.search({ context, connectionId: connection.id, query: parsed.data.query, signal });
     signal?.throwIfAborted();
     const seen = new Set<string>(); const sources: AgentWebCitation[] = [];
@@ -52,12 +53,20 @@ export class AgentWebResearchService {
       if (sources.length === 5) break;
     }
     if (!sources.length) throw new GrowthHttpError(409, 'agent_web_no_sources');
+    return { query: parsed.data.query, searchProvider: result.provider, sources,
+      retrievedAt: new Date().toISOString(), evidenceKind: 'search_index_snippets' as const };
+  }
+  async run(context: ActiveWorkspaceContext, raw: unknown, signal?: AbortSignal) {
+    requireGrowthCapabilities(context, ['finance.council.run']);
+    const parsed = agentWebResearchInput.safeParse(raw);
+    if (!parsed.success) throw new GrowthHttpError(422, 'agent_web_input_invalid');
+    const evidence = await this.retrieve(context, parsed.data, signal);
+    const { sources } = evidence;
     const answer = await this.options.answer({ context, query: parsed.data.query, role: parsed.data.role, sources, signal });
     signal?.throwIfAborted();
     const valid = z.object({ answer: z.string().trim().min(1).max(4000), model: z.string().min(1), provider: z.string().min(1),
       citationIds: z.array(z.string()).min(1).max(5) }).strict().safeParse(answer);
     if (!valid.success || valid.data.citationIds.some(id => !sources.some(source => source.id === id))) throw new GrowthHttpError(502, 'agent_web_answer_invalid');
-    return { ...valid.data, citationIds: [...new Set(valid.data.citationIds)], query: parsed.data.query, searchProvider: result.provider, sources,
-      retrievedAt: new Date().toISOString(), evidenceKind: 'search_index_snippets' as const };
+    return { ...valid.data, citationIds: [...new Set(valid.data.citationIds)], ...evidence };
   }
 }

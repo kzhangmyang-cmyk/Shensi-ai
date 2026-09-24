@@ -4958,6 +4958,12 @@ body.is-authenticated .replica-shell {
 .cfo-conversation [data-role=user] .cfo-chat-bubble { border-radius: 14px 3px 14px 14px; background: var(--appearance-bg-surface, #173120); border-color: var(--appearance-border, #2e6946); }
 .cfo-conversation .cfo-chat-bubble > strong { display: block; font-size: 11px; line-height: 1.4; font-weight: 600; color: var(--appearance-text-secondary, #91b99f); }
 .cfo-conversation .cfo-chat-state { display: block; margin-top: 6px; font-size: 11px; line-height: 1.5; color: var(--appearance-text-secondary, #91a899); }
+.cfo-conversation .cfo-message-research { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--appearance-border, #263a2d); color: var(--appearance-text-primary, #cbf3db); overflow-wrap: anywhere; }
+.cfo-conversation .cfo-message-research summary { cursor: pointer; padding: 6px 0; font-size: 13px; font-weight: 600; }
+.cfo-conversation .cfo-message-research > div { margin-top: 12px; }
+.cfo-conversation .cfo-message-research a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.cfo-conversation .cfo-message-research p { font-size: 12px; line-height: 1.6; color: var(--appearance-text-secondary, #91b99f); }
+.cfo-conversation .cfo-message-research :is(summary,a):focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 3px; }
 .cfo-conversation .cfo-turns p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0 0; font-size: 15px; font-weight: 400; line-height: 1.6; }
 .cfo-composer { padding: 15px 20px 18px; border-top: 1px solid var(--appearance-border, #1f3126); background: var(--appearance-bg-surface, #0c1510); }
 .cfo-composer-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--appearance-text-primary, #cbdcd0); font-size: 12px; font-weight: 650; }

@@ -2320,6 +2320,7 @@ export interface components {
             material: null | components["schemas"]["CfoConversationAnswer_MaterialSource"] | components["schemas"]["FinanceDocumentInspection_MaterialSource"];
             model: string;
             provider: string;
+            research?: components["schemas"]["CfoConversationAnswer_Research"];
             $defs: {
                 Input: {
                     /**
@@ -2344,6 +2345,26 @@ export interface components {
                     packageId: string;
                     period: string;
                 };
+                Research: {
+                    citationIds: string[];
+                    /** @constant */
+                    evidenceKind: "search_index_snippets";
+                    query: string;
+                    /** Format: date-time */
+                    retrievedAt: string;
+                    searchProvider: string;
+                    sources: {
+                        /** Format: date-time */
+                        fetchedAt: string;
+                        id: string;
+                        snippet: string;
+                        title: string;
+                        /** Format: uri */
+                        url: string;
+                    }[];
+                    /** @constant */
+                    status: "completed";
+                };
                 Turn: {
                     /** @enum {unknown} */
                     role: "user" | "assistant";
@@ -2363,6 +2384,7 @@ export interface components {
             title: string;
             turns: {
                 model?: string;
+                research?: components["schemas"]["CfoConversationAnswer_Research"];
                 /** @enum {unknown} */
                 role: "user" | "assistant";
                 sourceLabel?: string;
@@ -5136,6 +5158,26 @@ export interface components {
             currency: string;
             packageId: string;
             period: string;
+        };
+        CfoConversationAnswer_Research: {
+            citationIds: string[];
+            /** @constant */
+            evidenceKind: "search_index_snippets";
+            query: string;
+            /** Format: date-time */
+            retrievedAt: string;
+            searchProvider: string;
+            sources: {
+                /** Format: date-time */
+                fetchedAt: string;
+                id: string;
+                snippet: string;
+                title: string;
+                /** Format: uri */
+                url: string;
+            }[];
+            /** @constant */
+            status: "completed";
         };
         CfoConversationAnswer_Turn: {
             /** @enum {unknown} */

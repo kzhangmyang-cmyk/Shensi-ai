@@ -27,7 +27,7 @@ export interface ReadonlyFinanceDocumentMaterial {
 }
 export type FinanceDocumentReadModel = (input: { inspection: FinanceDocumentInspection; context: ActiveWorkspaceContext;
   consent: boolean; question: string; role?: CfoQuestion['role']; connectionId?: string; signal?: AbortSignal;
-  history?: CfoQuestion['history']; onProgress?: CfoConversationProgress;personalPreferences?:OperatingPreferences }) => Promise<{ inspection: FinanceDocumentInspection; provider: string | null; model: string | null }>;
+  history?: CfoQuestion['history']; onProgress?: CfoConversationProgress;personalPreferences?:OperatingPreferences;publicEvidence?:PublicResearchEvidence }) => Promise<{ inspection: FinanceDocumentInspection; provider: string | null; model: string | null;citationIds?:string[] }>;
 type Selection = { material: ReadonlyFinanceDocumentMaterial; inspection: FinanceDocumentInspection; bytes: number };
 
 /** Process-local explicit selections, not a knowledge base or verified accounting source. */
@@ -157,7 +157,7 @@ export class FinanceDocumentService {
     return { documentId, fileName: input.fileName, expiresAt,
       selectedForConversation: Boolean(input.attachmentScope) || (input.readWithModel && this.selections.get(key)?.material.documentId === documentId), ...inspection };
   }
-  async askSelected(context: ActiveWorkspaceContext, question: CfoQuestion, connectionId?: string, signal?: AbortSignal, onProgress?: CfoConversationProgress,personalPreferences?:OperatingPreferences) {
+  async askSelected(context: ActiveWorkspaceContext, question: CfoQuestion, connectionId?: string, signal?: AbortSignal, onProgress?: CfoConversationProgress,personalPreferences?:OperatingPreferences,publicEvidence?:PublicResearchEvidence) {
     requireGrowthCapabilities(context, ['finance.council.run']);
     if (!question.documentId) throw new GrowthHttpError(409, 'finance_document_not_selected');
     const selected = this.selected(context, question.documentId, question);
@@ -165,7 +165,7 @@ export class FinanceDocumentService {
     if (!this.options.model) throw new GrowthHttpError(503, 'finance_document_model_unavailable');
     signal?.throwIfAborted();
     const result = await this.options.model({ inspection: selected.inspection, context, consent: true,
-      question: question.question, role: question.role ?? 'cfo', history: question.history, connectionId, signal, onProgress,personalPreferences });
+      question: question.question, role: question.role ?? 'cfo', history: question.history, connectionId, signal, onProgress,personalPreferences,publicEvidence });
     signal?.throwIfAborted();
     this.selected(context, question.documentId, question);
     if (result.inspection.modelStatus !== 'completed') throw new GrowthHttpError(503,
@@ -174,8 +174,10 @@ export class FinanceDocumentService {
     const answer = result.inspection.observations.map(item => item.text).join('\n\n')
       || '当前资料不足以形成有来源的财务观察，请补充相关明细或说明需核对的项目。';
     if (answer.length > 4000) throw new GrowthHttpError(503, 'finance_document_model_output_invalid');
-    return { answer, provider: result.provider,
+    const research=completedResearch(publicEvidence,result.citationIds);
+    return { answer, provider: result.provider, ...(research?{research}:{}),
       model: result.model, material: selected.material, answeredAt: new Date(this.now()).toISOString() };
   }
 }
 import type {OperatingPreferences} from './agent-operating-memory.js';
+import { completedResearch, type PublicResearchEvidence } from './agent-conversation-research.js';

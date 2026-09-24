@@ -37,7 +37,7 @@ function releasedValidators(): {
   ): void;
 } {
   const release = loadGrowthContractRelease();
-  assert.equal(release.manifest.contractVersion, "1.0.33");
+  assert.equal(release.manifest.contractVersion, "1.0.34");
   const components = structuredClone(
     (release.document as Record<string, any>).components
   );

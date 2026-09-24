@@ -15,6 +15,7 @@ const css = (await Promise.all([...index.querySelectorAll('link[rel=stylesheet]'
 const bundle = await build({ stdin: { resolveDir: root, contents: `
 import {mountCfoConversation} from './src/growth/agents/cfo-conversation';
 const saved={sessionId:'12345678-1234-4234-8234-123456789012',revision:1,title:'需要逐项核对的合成经营问题'.repeat(8),documentId:null,createdAt:'2026-09-24T00:00:00Z',updatedAt:'2026-09-24T00:00:00Z',turns:[{role:'user',text:'请核对合成记录'},{role:'assistant',text:'这是一段仅供布局验收的合成回答。'.repeat(80),model:'fixture',sourceLabel:'合成来源'}]};
+saved.turns[1].research={status:'completed',query:'公开政策',searchProvider:'fixture',retrievedAt:'2026-09-25T00:00:00.000Z',evidenceKind:'search_index_snippets',citationIds:['S1'],sources:[{id:'S1',title:'公开政策与适用范围核对'.repeat(20),url:'https://example.org/policy',snippet:'这是公开搜索摘要，不能据此认定企业符合条件。'.repeat(10),fetchedAt:'2026-09-25T00:00:00.000Z'}]};
 const http={request:async(path,options)=>{
  if(path.endsWith('/cfo-sessions'))return {body:[{...saved,turnCount:2}]};
  if(path.endsWith('/cfo-sessions/'+saved.sessionId))return {body:saved};
@@ -57,6 +58,20 @@ try {
   await page.locator('[data-cfo-session]').click();
   await page.locator('[data-cfo-turns] article').nth(1).waitFor();
   assert.equal(await page.locator('[data-cfo-turns] article').count(),2);
+  const citation=page.locator('.cfo-message-research summary');
+  await citation.focus();await page.keyboard.press('Enter');
+  assert.equal(await citation.evaluate(el=>(el.parentElement as HTMLDetailsElement).open),true);
+  assert.equal(await page.locator('.cfo-message-research a').getAttribute('href'),'https://example.org/policy');
+  await page.locator('.cfo-message-research a').scrollIntoViewIfNeeded();
+  const contrast=await page.locator('.cfo-message-research a').evaluate(el=>{
+    const rgb=(s:string)=>s.match(/[\d.]+/g)!.slice(0,3).map(Number);
+    const luminance=(v:number[])=>v.map(n=>{const c=n/255;return c<=0.04045?c/12.92:Math.pow((c+0.055)/1.055,2.4);}).reduce((sum,c,i)=>sum+c*[0.2126,0.7152,0.0722][i],0);
+    let parent:Element|null=el;let background='rgb(255,255,255)';
+    while(parent){const value=getComputedStyle(parent).backgroundColor;if(value!=='rgba(0, 0, 0, 0)'&&value!=='transparent'){background=value;break;}parent=parent.parentElement;}
+    const a=luminance(rgb(getComputedStyle(el).color)),b=luminance(rgb(background));return (Math.max(a,b)+0.05)/(Math.min(a,b)+0.05);
+  });
+  assert.ok(contrast>=4.5,`${theme}/${width}: citation contrast ${contrast}`);
+  await page.screenshot({path:`${output}/${theme}-${width}-research.png`});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,`${theme}/${width}: long history or answer overflows`);
   assert.equal(await draft.inputValue(),'切换历史后仍需保留的未发送问题');
   await page.locator('[data-cfo-new-session]').click();
@@ -65,7 +80,7 @@ try {
   await draft.scrollIntoViewIfNeeded();
   const draftBox=await draft.boundingBox();
   assert.ok(draftBox&&draftBox.height>0&&draftBox.y>=0&&draftBox.y<768,`${theme}/${width}: composer cannot be reached after new conversation`);
-  for(const summary of ['[data-agent-operating-workbench] > summary','.cfo-web-research > summary']) {
+  for(const summary of ['[data-agent-operating-workbench] > summary']) {
    await page.locator(summary).click();
    assert.equal(await page.locator(summary).evaluate(el=>(el.parentElement as HTMLDetailsElement).open),true);
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,`${theme}/${width}: expanded panel overflows`);

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { researchCitationIds, type PublicResearchEvidence } from '../agent-conversation-research.js';
 import type { prepareSpecialistSkill } from './specialists.js';
 
 type Skill = ReturnType<typeof prepareSpecialistSkill>;
@@ -30,9 +31,10 @@ export function financialModelEvidence(skill: Skill) {
     facts: skill.context.facts.map(({ value: _value, unit: _unit, ...fact }) => fact) } };
 }
 
-export function financialAnswerSchema(context: Context) {
+export function financialAnswerSchema(context: Context, publicEvidence?:PublicResearchEvidence) {
   const ids = new Set(context.facts.map(f => f.id));
-  return z.object({ answer: z.string().trim().min(1).max(4000) }).strict().superRefine(({ answer }, ctx) => {
+  return z.object({ answer: z.string().trim().min(1).max(4000),
+    ...(publicEvidence?{citationIds:researchCitationIds(publicEvidence)}:{}) }).strict().superRefine(({ answer }, ctx) => {
     let invalid = false;
     let prose = answer.replace(reference, (_token, id: string) => { if (!ids.has(id)) invalid = true; return ''; });
     for (const allowed of [context.source?.companyName, context.source?.period]) if (allowed) prose = prose.replaceAll(allowed, '');

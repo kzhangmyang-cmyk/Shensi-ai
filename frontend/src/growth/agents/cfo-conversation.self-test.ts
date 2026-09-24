@@ -6,6 +6,21 @@ import { BUSINESS_AGENT_TEAM } from './agents';
 import { setFinanceDocumentSelection, resetFinanceDocumentSelection } from '../finance/document-selection';
 
 export async function runCfoConversationTests() {
+  {
+    const {document}=parseHTML('<html><body><main></main></body></html>');
+    const {mountCfoChatMessages}=await import('./cfo-chat-messages');
+    const host=document.querySelector('main')!;
+    const messages=mountCfoChatMessages({host,agent:BUSINESS_AGENT_TEAM[0],userName:'测试'});
+    messages.append({role:'assistant',text:'普通回答'});
+    assert.equal(host.querySelectorAll('.cfo-message-research').length,0);
+    messages.append({role:'assistant',text:'公开背景',research:{status:'completed',query:'公共政策',searchProvider:'fixture',
+      evidenceKind:'search_index_snippets',retrievedAt:'2026-09-25T00:00:00.000Z',citationIds:['S1'],
+      sources:[{id:'S1',title:'<img onerror=alert(1)>公开政策',url:'https://example.org/policy',snippet:'仅搜索摘要',fetchedAt:'2026-09-25T00:00:00.000Z'}]}});
+    assert.equal(host.querySelector('.cfo-message-research a')?.getAttribute('href'),'https://example.org/policy');
+    assert.match(host.querySelector('.cfo-message-research')?.textContent??'',/搜索摘要/);
+    assert.equal(host.querySelector('.cfo-message-research img'),null);
+    messages.clear();assert.equal(host.childElementCount,0);
+  }
   resetFinanceDocumentSelection();
   setFinanceDocumentSelection('ws-1:user-1', { kind: 'readonly_document', documentId: 'doc-1', fileName: '经营原表.csv', fileHash: `sha256:${'a'.repeat(64)}`, classification: 'ledger', missingStatements: [], expiresAt: '2026-09-11T00:00:00Z' });
   assert.equal(isAcquisitionWorkflowInstruction('帮我开始抖音获客，找 20 个工业除尘客户'), true);

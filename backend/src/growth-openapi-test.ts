@@ -10,7 +10,7 @@ import {
 test("released Growth OpenAPI loader verifies and exposes the immutable release", () => {
   const release = loadGrowthContractRelease();
   assert.equal(release.manifest.name, "growth-advisor-quote-roi");
-  assert.equal(release.manifest.contractVersion, "1.0.33");
+  assert.equal(release.manifest.contractVersion, "1.0.34");
   assert.equal(
     selectGrowthContractReleaseVersion([release.manifest.contractVersion]),
     release.manifest.contractVersion

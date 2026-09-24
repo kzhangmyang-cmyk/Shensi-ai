@@ -10,13 +10,13 @@
 
 聊天附件按账号、工作区、会话和角色隔离，使用短期资料引用；上传仅解析，文字提问才调用模型。新对话和清除解除引用，退出清空内存，过期不回退到其他财务来源。文件限制与接口见 `finance-document-reading.md`。
 
-六角色聊天的“联网查资料”使用显式公开关键词和所选搜索连接。打开面板只读取连接列表；点击“联网并回答”才搜索并调用当前角色模型，不传聊天记录、附件、公司资料或长期偏好。现有百度、腾讯、Tavily、Serper、Brave、SerpAPI 真实搜索适配器可用；模型模拟搜索不在列表中。连接按当前账号/工作区校验，凭据只在服务端解密，模型权限及角色路由沿用现有网关。
+六角色在正常文字问答中按需联网，不另设公开查询面板。角色模型只根据当前问题及同作用域公开主题判断是否检索，不读取附件、财务快照、个人偏好或完整历史。普通内部分析不搜索；混合敏感信息的公开查询要求单独提供公开主题。搜索供应商只接收校验后的主题、地区与时效词。现有百度、腾讯、Tavily、Serper、Brave、SerpAPI 搜索适配器沿用当前账号/工作区已启用连接，模型模拟搜索不在列表中。凭据只在服务端解密，模型权限及角色路由沿用现有网关。
 
-`AgentWebResearchService` 最多选取5条去重的公开来源，返回标题、URL、搜索摘要、获取时间和 S1–S5 引用编号。模型只能引用本次来源；没有来源、搜索失败或模型返回未知编号时不生成成功结果。证据属于搜索索引摘要，不声称已抓取或验证全文。结果是独立只读回答，不自动写入企业事实、聊天附件、CRM或知识库。
+`AgentWebResearchService.retrieve` 每题最多一次检索、五条去重来源。公开证据独立交给原问答模型；原财务数字和文档原文引用校验仍有效，公开摘要只作定性背景，不能用搜索结果填充公司数字。合法编号、标题、URL、摘要与时间放在回答的可选 `research` 中。无连接、无来源、搜索/规划失败或未知编号均明确报错，不伪造已查证回答，不自动重试。结果不写入企业事实、CRM或知识库。
 
-关键词与已完成结果在同一会话的跨页访问中保留，各角色独立；新对话/切换历史会话清空当前角色查询，退出或工作区变化清空全部。停止、离开页面或切角色中止请求，迟到响应不恢复已取消结果，不自动重试。
+来源与CFO助手回答同一次加密会话CAS保存，历史恢复不重新搜索；旧会话无需迁移。其他角色保留页面内回答，其公开主题按身份/工作区/角色/会话UUID短期隔离，最多一小时；新会话和切角色生成新UUID。迟到回答不能覆盖较新请求的主题。停止、离开页面或切角色中止请求，迟到响应不展示或保存。实时语音不增加自动搜索。
 
-入口文件：`backend/src/agent-web-research{,-runtime,-router}.ts`、`frontend/src/growth/agents/web-research.ts`。HTTP 契约见 `docs/API_INDEX.md`。后端服务/路由/受控模型网关测试和前端组件测试纳入根 `pnpm test`；双主题1440/390合成浏览器验证可用 `pnpm --dir frontend exec tsx scripts/test-chat-attachments.mts`。
+入口文件：`backend/src/agent-conversation-research.ts`、`agent-web-research{,-runtime}.ts`、`financial-council-agent-center.ts`及前端 `cfo-conversation.ts`/`cfo-chat-messages.ts`。旧显式 `public-research` API保留，共用同一检索实例。HTTP契约见 `docs/API_INDEX.md`。双主题宽窄合成浏览器：`pnpm --dir frontend exec tsx scripts/test-agent-chat-layout.mts`；后端服务、生产HTTP组合和模型网关测试纳入根 `pnpm test`。
 
 | 能力 | 智能体中心 | 星盘 | 共用情况与缺口 |
 | --- | --- | --- | --- |

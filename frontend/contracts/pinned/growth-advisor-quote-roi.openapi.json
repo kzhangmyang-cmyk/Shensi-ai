@@ -4192,6 +4192,93 @@
             ],
             "type": "object"
           },
+          "Research": {
+            "additionalProperties": false,
+            "properties": {
+              "citationIds": {
+                "items": {
+                  "pattern": "^S[1-5]$",
+                  "type": "string"
+                },
+                "maxItems": 5,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "evidenceKind": {
+                "const": "search_index_snippets"
+              },
+              "query": {
+                "maxLength": 500,
+                "minLength": 2,
+                "type": "string"
+              },
+              "retrievedAt": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "searchProvider": {
+                "maxLength": 191,
+                "minLength": 1,
+                "type": "string"
+              },
+              "sources": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fetchedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "pattern": "^S[1-5]$",
+                      "type": "string"
+                    },
+                    "snippet": {
+                      "maxLength": 3000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "title": {
+                      "maxLength": 300,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "url": {
+                      "format": "uri",
+                      "maxLength": 4000,
+                      "pattern": "^https?://",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "url",
+                    "snippet",
+                    "fetchedAt"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 5,
+                "minItems": 1,
+                "type": "array"
+              },
+              "status": {
+                "const": "completed"
+              }
+            },
+            "required": [
+              "status",
+              "query",
+              "searchProvider",
+              "retrievedAt",
+              "evidenceKind",
+              "citationIds",
+              "sources"
+            ],
+            "type": "object"
+          },
           "Turn": {
             "additionalProperties": false,
             "properties": {
@@ -4247,6 +4334,9 @@
           "provider": {
             "minLength": 1,
             "type": "string"
+          },
+          "research": {
+            "$ref": "#/components/schemas/CfoConversationAnswer/%24defs/Research"
           }
         },
         "required": [
@@ -4478,6 +4568,9 @@
                 "model": {
                   "maxLength": 191,
                   "type": "string"
+                },
+                "research": {
+                  "$ref": "#/components/schemas/CfoConversationAnswer/%24defs/Research"
                 },
                 "role": {
                   "enum": [
@@ -14379,7 +14472,7 @@
   },
   "info": {
     "title": "GoodJob Growth Advisor, Quote and ROI API",
-    "version": "1.0.33"
+    "version": "1.0.34"
   },
   "openapi": "3.1.0",
   "paths": {

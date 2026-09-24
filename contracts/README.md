@@ -14,14 +14,19 @@ This workspace is the normative, executable boundary for the AI acquisition
 agent. JSON Schemas use Draft 2020-12 and OpenAPI describes authenticated
 `/api/v1` operations.
 
-## Growth CRM Quote and Financial Council 1.0.33
+## Growth CRM Quote and Financial Council 1.0.34
+
+Text answers and saved assistant turns may contain `research`: completed public
+query, provider, bounded sources, validated citation IDs and retrieval time.
+Old turns remain valid without it. Sources are saved with the same conversation
+revision as the answer; restoring history never starts another search.
 
 Chat attachments use `attachmentScope` with a conversation UUID and role and require
 `readWithModel:false`. A matching `conversationKey` accompanies the explicit document
 ID on text questions. The authenticated attachment-clear endpoint removes exactly
 that actor/workspace/conversation/role source; finance selections remain separate.
 
-Growth `1.0.33` includes closed original CSV/XLSX/PDF/DOCX inspection and explicit short-lived read-only material selection for six-role questions. PDF sources use page/item references; DOCX uses paragraph/table-cell references without fabricated spreadsheet coordinates. `documentId` binds the exact actor/workspace source; missing or expired selections do not silently read a verified package. Null or omitted IDs retain the verified-package question path. Inspection returns bounded raw text/source references, not a verified BusinessReport. It preserves read-only council history and collaboration/report projections, independently persisted six-role states, cursor-based events, verified Douyin crawler attribution, human CRM quotation assessment and the Finance import JSON envelope. The closed council onboarding boundary includes routing
+Growth `1.0.34` includes closed original CSV/XLSX/PDF/DOCX inspection and explicit short-lived read-only material selection for six-role questions. PDF sources use page/item references; DOCX uses paragraph/table-cell references without fabricated spreadsheet coordinates. `documentId` binds the exact actor/workspace source; missing or expired selections do not silently read a verified package. Null or omitted IDs retain the verified-package question path. Inspection returns bounded raw text/source references, not a verified BusinessReport. It preserves read-only council history and collaboration/report projections, independently persisted six-role states, cursor-based events, verified Douyin crawler attribution, human CRM quotation assessment and the Finance import JSON envelope. The closed council onboarding boundary includes routing
 policy GET/PUT/POST-preview, statement package POST-preview/commit,
 run-from-statement-package, agent-center, and per-run agent reads. Reads and
 routing preview require `finance.council.run`; routing PUT requires
@@ -79,9 +84,9 @@ These read/selection operations require cookie CSRF but no ledger idempotency/ET
 
 `GET /api/v1/finance/public-research` lists owned real search connections; POST accepts only query/connectionId/role and returns a source-backed model answer with up to five source snippets, URLs, timestamps and validated citation IDs. Both require council-run permission and no query parameters. POST applies cookie CSRF and a six-per-minute actor/workspace limit; it accepts no private chat or file context. The response identifies evidence as search_index_snippets, not verified full-page content.
 
-The current immutable Growth release is `releases/growth-advisor-quote-roi/1.0.33`.
+The current immutable Growth release is `releases/growth-advisor-quote-roi/1.0.34`.
 After contract checks, publish with `pnpm build:growth-contract-release`, import
-it with `pnpm --filter ./frontend contract:import --release ../contracts/releases/growth-advisor-quote-roi/1.0.33`,
+it with `pnpm --filter ./frontend contract:import --release ../contracts/releases/growth-advisor-quote-roi/1.0.34`,
 then regenerate Growth types with `pnpm --filter ./frontend contract:generate`.
 Never overwrite an existing release directory with different bytes.
 
