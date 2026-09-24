@@ -15,7 +15,14 @@ Approval and claim use exact revisions. An issued command is not reissued;
 expiration is Unix milliseconds and must be converted to seconds at the Python
 adapter boundary. Public DTOs contain no platform credentials.
 HTTP synthetic composition and response-schema conformance pass; production
-account binding, startup composition and normal login remain unconnected.
+startup composition and normal login remain unconnected.
+GET `/api/v1/acquisition/xiaohongshu/accounts` reads scoped desktop-reported
+states; POST `/accounts/bind` requires both user and device credentials and
+per-account revision. The device reports only the public platform user ID,
+display name and session generation/state, never cookies. The server binds its
+verified device hash, prevents aliasing the same platform user under another
+account ID, and invalidates old approvals when generation changes. These
+reported states are not a server-side probe of actual platform permissions.
 
 ## Public brand website
 

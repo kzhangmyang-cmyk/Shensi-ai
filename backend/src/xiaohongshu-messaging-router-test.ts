@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import YAML from 'yaml';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
+import { XhsAccountService } from './xiaohongshu-accounts.js';
 
 test('XHS HTTP uses authenticated user scope plus registered device before issuing one exact command',async()=>{
   assert.ok(existsSync(new URL('./xiaohongshu-messaging-router.ts',import.meta.url)), 'independent HTTP boundary exists');
@@ -24,13 +25,15 @@ test('XHS HTTP uses authenticated user scope plus registered device before issui
   let wrongDeviceScope=false;
   const context={workspaceId:'workspace',actorId:'actor',teamId:'team',kind:'personal' as const,role:'admin' as const,
     capabilities:capabilitiesForHumanRole('admin'),capabilityRegistryVersion:'growth-capabilities.v1'};
-  const service=new XiaohongshuMessagingService(new MemoryXhsMessagingRepository(),{enabled:true,account:async()=>({accountId:'account',deviceId,generation:'generation',active:true})});
+  const repository=new MemoryXhsMessagingRepository();
+  const accounts=new XhsAccountService(repository);
+  const service=new XiaohongshuMessagingService(repository,{enabled:true,account:(scope,id,device)=>accounts.resolve(scope,id,device)});
   const app=express(); app.use(express.json());
   app.use((req,_res,next)=>{
     if(req.header('X-Test-User')==='yes') {req.user={id:'actor',teamId:'team'} as never;req.activeWorkspace=context;}
     next();
   });
-  app.use('/api/v1/acquisition/xiaohongshu',createXhsMessagingRouter({service,installationService:{authenticateDevice:async input=>
+  app.use('/api/v1/acquisition/xiaohongshu',createXhsMessagingRouter({service,accounts,installationService:{authenticateDevice:async input=>
     input.installationId===installationId && input.deviceToken===token
       ? {workspaceId:wrongDeviceScope?'other':'workspace',userId:'actor',teamId:'team',deviceIdHash:deviceId,protocolVersion:1} : null}}));
   const server=app.listen(0,'127.0.0.1'); await new Promise<void>(resolve=>server.once('listening',resolve));
@@ -39,14 +42,19 @@ test('XHS HTTP uses authenticated user scope plus registered device before issui
   const send=(path:string,body:unknown,extra:Record<string,string>={})=>fetch(base+path,{method:'POST',headers:{...headers,...extra},body:JSON.stringify(body)});
   try {
     assert.equal((await fetch(base+'/drafts')).status,401);
-    const draft={id:'00000000-0000-4000-8000-000000000001',accountId:'account',deviceId,recipientId:'recipient',body:'synthetic text'};
+    const device={'X-Shensi-Desktop-Installation-Id':installationId,'X-Shensi-Desktop-Device-Token':token};
+    const account={accountId:'00000000-0000-4000-8000-000000000003',platformUserId:'platform-user',displayName:'Synthetic account',generation:'00000000-0000-4000-8000-000000000002',state:'ready',revision:0};
+    assert.equal((await send('/accounts/bind',account)).status,401);
+    const bound=await send('/accounts/bind',account,device);assert.equal(bound.status,200);
+    conforms('XhsAccount',await bound.json());
+    const accountList=await fetch(base+'/accounts',{headers});conforms('XhsAccountList',await accountList.json());
+    const draft={id:'00000000-0000-4000-8000-000000000001',accountId:account.accountId,deviceId,recipientId:'recipient',body:'synthetic text'};
     assert.equal((await send('/drafts',{...draft,actorId:'forged'})).status,422);
     const create=await send('/drafts',draft); assert.equal(create.status,201); assert.equal(create.headers.get('cache-control'),'no-store');
     conforms('XhsDraft',await create.json());
     const approve=await send(`/drafts/${draft.id}/approve`,{revision:1});assert.equal(approve.status,200);
     const path=`/drafts/${draft.id}/claim`;
     assert.equal((await send(path,{revision:2})).status,401);
-    const device={'X-Shensi-Desktop-Installation-Id':installationId,'X-Shensi-Desktop-Device-Token':token};
     wrongDeviceScope=true;
     assert.equal((await send(path,{revision:2},device)).status,403);
     wrongDeviceScope=false;
@@ -57,7 +65,7 @@ test('XHS HTTP uses authenticated user scope plus registered device before issui
     conforms('XhsCommand',command);
     assert.equal(JSON.stringify(command).includes(token),false);
     assert.equal((await send(path,{revision:2},device)).status,409);
-    const done=await send(`/drafts/${draft.id}/receipt`,{clientMessageId:command.clientMessageId,generation:'generation',receipt:{status:'confirmed',serverMessageId:'server'}},device);
+    const done=await send(`/drafts/${draft.id}/receipt`,{clientMessageId:command.clientMessageId,generation:account.generation,receipt:{status:'confirmed',serverMessageId:'server'}},device);
     assert.equal(done.status,200);
     conforms('XhsDraft',await done.json());
     const list=await fetch(base+'/drafts',{headers});const items=await list.json();assert.equal(items.items[0].status,'confirmed');

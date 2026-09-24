@@ -17,6 +17,36 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/XhsError' }
   schemas:
+    XhsAccountBinding:
+      type: object
+      additionalProperties: false
+      required: [accountId, platformUserId, displayName, generation, state, revision]
+      properties:
+        accountId: { type: string, format: uuid }
+        platformUserId: { $ref: '#/components/schemas/XhsId' }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        generation: { type: string, format: uuid }
+        state: { enum: [ready, expired, verification_required, im_unavailable] }
+        revision: { type: integer, minimum: 0, maximum: 9007199254740991 }
+    XhsAccount:
+      type: object
+      additionalProperties: false
+      required: [accountId, platformUserId, displayName, generation, state, revision, deviceId, updatedAt]
+      properties:
+        accountId: { type: string, format: uuid }
+        platformUserId: { $ref: '#/components/schemas/XhsId' }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        generation: { type: string, format: uuid }
+        state: { enum: [ready, expired, verification_required, im_unavailable] }
+        revision: { type: integer, minimum: 1 }
+        deviceId: { $ref: '#/components/schemas/XhsDeviceId' }
+        updatedAt: { type: integer, minimum: 0 }
+    XhsAccountList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/XhsAccount' } }
     XhsId: { type: string, minLength: 1, maxLength: 160, pattern: '^[A-Za-z0-9_-]+$' }
     XhsDeviceId: { type: string, minLength: 1, maxLength: 160, pattern: '^([A-Za-z0-9_-]+|sha256:[a-f0-9]{64})$' }
     XhsCreate:
@@ -120,6 +150,20 @@ components:
         requestId: { type: string, format: uuid }
         retryable: { const: false }
 paths:
+  /api/v1/acquisition/xiaohongshu/accounts:
+    get:
+      operationId: listXhsAccounts
+      responses:
+        '200': { description: Account states reported by the authenticated desktop; not a server-side platform login probe, content: { application/json: { schema: { $ref: '#/components/schemas/XhsAccountList' } } } }
+        default: { $ref: '#/components/responses/error' }
+  /api/v1/acquisition/xiaohongshu/accounts/bind:
+    post:
+      operationId: bindXhsAccount
+      security: [{ bearerAuth: [], installation: [], deviceToken: [] }, { cookieAuth: [], installation: [], deviceToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/XhsAccountBinding' } } } }
+      responses:
+        '200': { description: Scoped versioned binding; no platform credentials are accepted, content: { application/json: { schema: { $ref: '#/components/schemas/XhsAccount' } } } }
+        default: { $ref: '#/components/responses/error' }
   /api/v1/acquisition/xiaohongshu/drafts:
     get:
       operationId: listXhsDrafts

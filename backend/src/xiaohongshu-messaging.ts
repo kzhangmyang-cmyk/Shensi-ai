@@ -4,6 +4,7 @@ import type { ActiveWorkspaceContext } from './growth-workspace-context.js';
 import { requireGrowthCapabilities } from './growth-capabilities.js';
 import { GrowthHttpError } from './growth-command-context.js';
 import { encryptAgentJobPayload, decryptAgentJobPayload } from './agent-job-security.js';
+import type { XhsAccount } from './xiaohongshu-accounts.js';
 
 const id = z.string().min(1).max(160).regex(/^[A-Za-z0-9_-]+$/u);
 const text = z.string().min(1).max(800).refine(value => Boolean(value.trim()));
@@ -20,7 +21,7 @@ export interface XhsDraft extends z.infer<typeof draftSchema> {
   generation?:string; clientMessageId?:string; expiresAt?:number; quotaDay?:string;
   receipt?:Receipt; updatedAt:number;
 }
-export interface XhsMessagingState { revision:number; drafts:XhsDraft[] }
+export interface XhsMessagingState { revision:number; drafts:XhsDraft[]; accounts?:XhsAccount[] }
 export interface XhsMessagingRepository {
   read(context:ActiveWorkspaceContext):Promise<XhsMessagingState>;
   save(context:ActiveWorkspaceContext, state:XhsMessagingState, expected:number):Promise<void>;

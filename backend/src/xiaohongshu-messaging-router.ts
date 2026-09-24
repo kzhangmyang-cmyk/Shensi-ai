@@ -6,9 +6,11 @@ import { GrowthAuthorizationError } from './growth-capabilities.js';
 import type { AcquisitionDesktopInstallationService } from './acquisition-desktop-installation-service.js';
 import { DESKTOP_INSTALLATION_HASH, DESKTOP_INSTALLATION_TOKEN } from './acquisition-desktop-installation.js';
 import type { XiaohongshuMessagingService } from './xiaohongshu-messaging.js';
+import type { XhsAccountService } from './xiaohongshu-accounts.js';
 
 interface Options {
   service:XiaohongshuMessagingService;
+  accounts:XhsAccountService;
   installationService:Pick<AcquisitionDesktopInstallationService,'authenticateDevice'>;
 }
 const revision=z.object({revision:z.number().int().min(1).max(Number.MAX_SAFE_INTEGER)}).strict();
@@ -44,6 +46,8 @@ export function createXhsMessagingRouter(options:Options) {
   });
   const run=(handler:(req:Request,res:Response)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>{void handler(req,res).catch(next);};
   const draftId=(req:Request)=>z.string().uuid().parse(req.params.id);
+  router.get('/accounts',run(async(req,res)=>res.json({items:await options.accounts.list(scope(req))})));
+  router.post('/accounts/bind',run(async(req,res)=>res.json(await options.accounts.bind(scope(req),await device(req,options),req.body))));
   router.get('/drafts',run(async(req,res)=>res.json({items:await options.service.list(scope(req))})));
   router.post('/drafts',run(async(req,res)=>res.status(201).json(await options.service.create(scope(req),req.body))));
   router.patch('/drafts/:id',run(async(req,res)=>{
