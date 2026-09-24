@@ -6,6 +6,8 @@ import { renderDecisionExport } from './export';
 import { mountDecisionReplay } from './replay-view';
 import { mountDecisionAnalysis } from './analysis-view';
 import { mountEventEditor } from './event-editor';
+import { mountParameterEditor } from './parameter-editor';
+import { mountDecisionAtmosphere } from './atmosphere';
 import {renderOperatingRecommendations} from './recommendations';
 import {mountDecisionPreferences,renderPreferenceAssessment} from './preferences';
 import {mountDecisionMemory,createOperatingMemoryApi,type DecisionMemoryApi} from '../agents/operating-memory';
@@ -24,7 +26,26 @@ const fieldDefinitions = [
   ['capacityUnits','每月交付产能（件）',false],['priceMinor','销售单价（元）',true],['unitCostMinor','单位直接成本（元）',true],
   ['fixedCostMinor','每月固定费用（元）',true],['collectionMonths','基础回款周期（月）',false],
 ] as const;
+type DecisionSession = { scope: string; panel: HTMLElement; controller: ReturnType<typeof createDecisionSimulation>; destroy(): void };
+const sessions = new WeakMap<Document, DecisionSession>();
+const currentScope = (document: Document) => JSON.stringify([document.body.dataset.sessionWorkspaceId, document.body.dataset.sessionUserId]);
 export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimulationApi): void {
+  const document=host.ownerDocument, scope=currentScope(document);
+  if(!document.body.dataset.sessionWorkspaceId||!document.body.dataset.sessionUserId){createDecisionSimulation(host,suppliedApi);return;}
+  let session=sessions.get(document);
+  if(session&&session.scope!==scope){session.destroy();session=undefined;}
+  if(!session){
+    const panel=document.createElement('div');host.replaceChildren(panel);
+    const controller=createDecisionSimulation(panel,suppliedApi,true);
+    const onAuth=(event:Event)=>{if((event as CustomEvent<{authenticated?:boolean}>).detail?.authenticated===false)entry.destroy();};
+    const observer=document.defaultView?.MutationObserver?new document.defaultView.MutationObserver(()=>{if(currentScope(document)!==scope)entry.destroy();}):undefined;
+    const entry:DecisionSession={scope,panel,controller,destroy(){controller.dispose();panel.replaceChildren();panel.remove();observer?.disconnect();document.removeEventListener('goodjob:auth-state-changed',onAuth);if(sessions.get(document)===entry)sessions.delete(document);}};
+    observer?.observe(document.body,{attributes:true,attributeFilter:['data-session-workspace-id','data-session-user-id']});
+    document.addEventListener('goodjob:auth-state-changed',onAuth);sessions.set(document,entry);session=entry;
+  }
+  host.replaceChildren(session.panel);session.controller.resume();
+}
+function createDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimulationApi, retainOnDetach=false) {
   const document=host.ownerDocument;
   const http=createGrowthHttpClient({workspaceId:()=>document.body.dataset.sessionWorkspaceId??null});
   const api:DecisionSimulationApi=suppliedApi??{
@@ -42,10 +63,11 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
   let savedRecord:SimulationRecord|undefined;
   let followProgress=true;
   let inputEdited=false;
+  let disposed=false;
   const scope=JSON.stringify([document.body.dataset.sessionWorkspaceId,document.body.dataset.sessionUserId]);
   host.innerHTML=`<section class="decision-simulation" aria-label="星盘决策模拟">
     <header class="decision-hero"><div><h2>星盘决策模拟</h2><p>相同经营起点 · 相同波动样本</p></div><div class="decision-view-switch"><button type="button" data-show-input aria-pressed="true">资料与校对</button><button type="button" data-show-report aria-pressed="false" disabled>结果与回放</button></div><span class="decision-mode">在营企业模式</span></header>
-    <ol class="decision-workflow" aria-label="决策流程">${[['source','资料'],['facts','校对'],['agents','五角色'],['worlds','100情景'],['report','报告']].map(([key,label],index)=>`<li data-stage="${key}"><button type="button" data-step="${key}">${index+1}　${label}</button></li>`).join('')}</ol>
+    <ol class="decision-workflow" aria-label="决策流程">${[['source','资料与校对'],['agents','五角色'],['worlds','100情景'],['report','报告']].map(([key,label],index)=>`<li data-stage="${key}"><button type="button" data-step="${key}">${index+1}　${label}</button></li>`).join('')}</ol>
     <p class="decision-step-status" data-step-status role="status"></p>
     <section class="decision-source-panel" aria-label="企业资料上传"><h3>从企业资料开始</h3><p>上传资料 → 校对经营起点 → 五角色分析 → 100条平行路径 → 报告与回放</p>
       <label>选择企业文件<input type="file" multiple accept=".csv,.xls,.xlsx,.pdf,.docx" data-source-files></label><p>支持CSV、Excel、文本PDF、Word（DOCX），最多10份、合计5MB。扫描PDF暂不支持OCR。</p>
@@ -64,6 +86,7 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
     <section data-report aria-live="polite"><div class="decision-empty"><h3>你的第一个方案对照</h3><p>生成后查看现金下行、利润区间、积压、敏感因素和每月回放。</p></div></section>
   </section>`;
   const root=host.querySelector<HTMLElement>('.decision-simulation')!;
+  const atmosphere=mountDecisionAtmosphere(root,retainOnDetach);
   let disposeReplay:(()=>void)|undefined;
   const workspace=root.querySelector<HTMLElement>('.decision-workspace')!;
   const sourcePanel=root.querySelector<HTMLElement>('.decision-source-panel')!;
@@ -71,6 +94,9 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
   const fileInput=root.querySelector<HTMLInputElement>('[data-source-files]')!;fileInput.closest('label')!.after(fileList);
   fileInput.onchange=()=>{clearPreparation(false);fileList.innerHTML=[...(fileInput.files??[])].map(file=>`<li><strong>${e(file.name)}</strong><small>${(file.size/1024).toFixed(1)} KB · 待读取</small></li>`).join('');};
   const clearFiles=document.createElement('button');clearFiles.type='button';clearFiles.textContent='清除资料选择';fileList.after(clearFiles);clearFiles.onclick=()=>{if(!busy)clearPreparation();};
+  const sourceActions=document.createElement('div');sourceActions.className='decision-source-actions';
+  root.querySelector('[data-source-inspect]')!.before(sourceActions);
+  sourceActions.append(root.querySelector('[data-source-inspect]')!,clearFiles,root.querySelector('[data-download-sample]')!);
   const inputForm=root.querySelector<HTMLFormElement>('form')!;
   const disabledControls=new Map<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement|HTMLButtonElement,boolean>();
   const lockInputs=(locked:boolean)=>{
@@ -82,7 +108,7 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
   const agentProgress=root.querySelector<HTMLElement>('[data-agent-progress]')!;agentProgress.classList.add('decision-agent-progress');root.querySelector('.decision-workflow')!.after(agentProgress);
   workspace.prepend(sourcePanel);
   sourcePanel.append(workspace.querySelector('aside')!);
-  const sourceInspector=document.createElement('aside');sourceInspector.className='decision-source-inspector';sourceInspector.innerHTML='<h3>来源核对</h3><p>读取文件后，选择经营字段查看原始位置与候选值。未识别不是零；请补充数据或注明假设。</p>';workspace.append(sourceInspector);
+  const sourceInspector=document.createElement('aside');sourceInspector.className='decision-source-inspector';sourceInspector.hidden=true;sourceInspector.innerHTML='<h3>来源核对</h3><p>读取文件后，选择经营字段查看原始位置与候选值。未识别不是零；请补充数据或注明假设。</p>';workspace.append(sourceInspector);
   const historyDisclosure=document.createElement('details');historyDisclosure.className='decision-history-disclosure';historyDisclosure.innerHTML='<summary>历史记录</summary>';historyDisclosure.append(sourcePanel.querySelector('aside')!);root.querySelector('.decision-hero')!.append(historyDisclosure);
   const sourceTitle=inputForm.querySelector('[name=title]')!.closest('label')!;sourcePanel.prepend(sourceTitle);
   const assumptions=inputForm.querySelector('[name=assumptionNote]')!.closest('label')!;
@@ -91,10 +117,10 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
   inputForm.querySelector('.decision-fields')!.before(factDisclosure);factDisclosure.append(inputForm.querySelector('.decision-fields')!);
   const rolePreview=document.createElement('section');rolePreview.className='decision-role-preview';rolePreview.innerHTML='<h3>五位智能体共同分析</h3><div><span>经营负责人</span><span>市场</span><span>运营</span><span>财务</span><span>综合复核</span></div><p>使用设置中心当前已启用模型；实际服务商与型号随分析结果保存。</p>';inputForm.querySelector('[data-model-consent]')!.closest('label')!.before(rolePreview);
   const analysisHost=document.createElement('div');analysisHost.className='decision-analysis-host';workspace.before(analysisHost);
-  const analysisView=mountDecisionAnalysis(analysisHost,()=>{if(!busy)inputForm.requestSubmit();});
-  const showView=(view:'input'|'report'|'analysis')=>{root.dataset.view=view;historyDisclosure.open=false;analysisView.setActive(view==='analysis');root.querySelector('[data-show-input]')!.setAttribute('aria-pressed',String(view==='input'));root.querySelector('[data-show-report]')!.setAttribute('aria-pressed',String(view==='report'));if(view!=='report')root.querySelector('.decision-replay')?.dispatchEvent(new Event('decision-replay-pause'));root.scrollIntoView?.({block:'start',behavior:'instant'});};
+  const analysisView=mountDecisionAnalysis(analysisHost,()=>{if(!busy)inputForm.requestSubmit();},retainOnDetach);
+  const showView=(view:'input'|'report'|'analysis')=>{root.dataset.view=view;atmosphere.setActive(view!=='analysis');historyDisclosure.open=false;analysisView.setActive(view==='analysis');root.querySelector('[data-show-input]')!.setAttribute('aria-pressed',String(view==='input'));root.querySelector('[data-show-report]')!.setAttribute('aria-pressed',String(view==='report'));if(view!=='report')root.querySelector('.decision-replay')?.dispatchEvent(new Event('decision-replay-pause'));root.scrollIntoView?.({block:'start',behavior:'instant'});};
   const stepStatus=root.querySelector<HTMLElement>('[data-step-status]')!;
-  const stage=(name:string)=>{root.dataset.currentStep=name;root.querySelectorAll<HTMLElement>('[data-stage]').forEach(item=>{for(const node of [item,item.querySelector('button')!]){if(item.dataset.stage===name)node.setAttribute('aria-current','step');else node.removeAttribute('aria-current');}});};
+  const stage=(requested:string)=>{const name=requested==='facts'?'source':requested;root.dataset.currentStep=name;root.querySelectorAll<HTMLElement>('[data-stage]').forEach(item=>{for(const node of [item,item.querySelector('button')!]){if(item.dataset.stage===name)node.setAttribute('aria-current','step');else node.removeAttribute('aria-current');}});};
   const navigate=(name:string)=>{
     followProgress=false;
     const savedNote=savedRecord?`保存版本：${savedRecord.input.title}。${inputEdited?'当前输入已修改，尚未重新生成；保存结果未改变。':'切换仅回看，不重新计算。'}`:'';
@@ -122,11 +148,22 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
   const markEdited=()=>{if(savedRecord){inputEdited=true;stepStatus.textContent=`当前输入已修改，尚未重新生成；保存版本「${savedRecord.input.title}」及其结果未改变。`;}};
   workspace.addEventListener('input',markEdited);workspace.addEventListener('change',markEdited);
   showView('input');stage('source');
-  const live=()=>root.isConnected&&scope===JSON.stringify([document.body.dataset.sessionWorkspaceId,document.body.dataset.sessionUserId]);
+  const live=()=>!disposed&&(retainOnDetach||root.isConnected)&&scope===JSON.stringify([document.body.dataset.sessionWorkspaceId,document.body.dataset.sessionUserId]);
   const control=(name:string)=>root.querySelector<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement>(`[name="${name}"]`)!;
   const eventHost=document.createElement('section');eventHost.className='decision-event-editor';
   control('options').closest('details')!.after(eventHost);
   const eventEditor=mountEventEditor(eventHost,()=>JSON.parse(control('options').value),options=>{control('options').value=JSON.stringify(options,null,2);});
+  const advanced = control('options').closest('details')!;
+  advanced.querySelector('summary')!.textContent='高级 JSON · 保留原始参数';
+  const parameterEditors = (['receivables','payables','alternatives','options'] as const).map(kind => {
+    const section=document.createElement('details'); section.className='decision-parameter-section';
+    section.dataset.parameterKind=kind;
+    const summary=document.createElement('summary'); summary.textContent=({receivables:'期初应收',payables:'期初应付',alternatives:'备选经营方案',options:'情景与波动假设'})[kind]; section.append(summary);
+    const note=document.createElement('p');note.textContent=kind==='alternatives'?'倍率1表示维持现状；例如1.1表示增加10%。最多3个备选方案。':kind==='options'?'倍率1表示无扰动；区间和权重是本次假设，不是企业历史估计。':'以元填写金额，到期月1表示第一个模拟月。';section.append(note);
+    const body=document.createElement('div');body.className='decision-parameter-fields';section.append(body);advanced.before(section);
+    const editor=mountParameterEditor(body,kind,()=>control(kind).value,raw=>{control(kind).value=raw;markEdited();if(kind==='options')eventEditor.sync();});
+    control(kind).addEventListener('change',()=>editor.sync());return editor;
+  });
   const preferencesHost=document.createElement('section');eventHost.after(preferencesHost);
   const preferenceEditor=mountDecisionPreferences(preferencesHost);
   const memoryApi:DecisionMemoryApi|undefined=suppliedApi?.memory??(suppliedApi?undefined:createOperatingMemoryApi(http));
@@ -138,14 +175,14 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
   const roleNames={founder:'经营负责人',market:'市场分析',operations:'运营分析',finance:'财务分析',judge:'综合复核'};
   const stateNames={queued:'待执行',running:'正在分析',completed:'已完成',insufficient:'资料不足',failed:'调用失败',cancelled:'已取消'};
   const inspectFact=(key:string)=>{
-    const fact=preparation?.facts.find(item=>item.field===key);if(!preparation||!fact)return;
+    const fact=preparation?.facts.find(item=>item.field===key);if(!preparation||!fact)return;sourceInspector.hidden=false;
     const isMoney=fieldDefinitions.find(item=>item[0]===key)?.[2];
     sourceInspector.innerHTML=`<h3>来源核对</h3><strong>${e(fact.label)}</strong><p>${fact.status==='missing'?'未识别：请在经营起点填写，并注明来源或假设。':fact.status==='conflict'?'发现不同候选值，请核对单位与期间后选择。':'已提取候选值，仍需确认是否适用于本次模拟。'}</p>${fact.candidates.map((candidate,index)=>`<section><h4>候选 ${index+1}：${e(String(candidate.value/(isMoney?100:1)))}</h4>${candidate.sourceRefs.map(ref=>`<p><code>${e(ref)}</code><br>${e(preparation!.sources.find(source=>source.sourceRef===ref)?.text??'原引用未包含在本次读取范围')}</p>`).join('')}<button type="button" data-use-fact="${index}">使用此值</button></section>`).join('')}`;
     sourceInspector.querySelectorAll<HTMLButtonElement>('[data-use-fact]').forEach(button=>button.onclick=()=>{control(key).value=String(fact.candidates[Number(button.dataset.useFact)].value/(isMoney?100:1));control(key).focus({preventScroll:true});sourceStatus.textContent=`已选用${fact.label}候选值。请继续校对其他数据与假设。`;});
   };
   for(const [key]of fieldDefinitions)control(key).addEventListener('focus',()=>inspectFact(key));
   let shownAgents='';
-  const clearPreparation=(clearFiles=true)=>{preparation=undefined;shownAgents='';agentProgress.innerHTML='';root.querySelector('[data-source-review]')!.innerHTML='';root.querySelector<HTMLInputElement>('[data-model-consent]')!.checked=false;fileList.innerHTML='';if(clearFiles)fileInput.value='';sourceInspector.innerHTML='<h3>来源核对</h3><p>读取文件后选择经营字段，查看对应原文与候选值。当前没有待确认资料会话。</p>';submit.textContent='生成并保存对比';sourceStatus.textContent=clearFiles?'当前为手填计算。需要五角色分析时，请重新选择并读取资料。':'文件已选择，尚未读取。请先读取资料，再启动五角色分析。';stage('source');};
+  const clearPreparation=(clearFiles=true)=>{preparation=undefined;sourceInspector.hidden=true;shownAgents='';agentProgress.innerHTML='';root.querySelector('[data-source-review]')!.innerHTML='';root.querySelector<HTMLInputElement>('[data-model-consent]')!.checked=false;fileList.innerHTML='';if(clearFiles)fileInput.value='';sourceInspector.innerHTML='<h3>来源核对</h3><p>读取文件后选择经营字段，查看对应原文与候选值。当前没有待确认资料会话。</p>';submit.textContent='生成并保存对比';sourceStatus.textContent=clearFiles?'当前为手填计算。需要五角色分析时，请重新选择并读取资料。':'文件已选择，尚未读取。请先读取资料，再启动五角色分析。';stage('source');};
   const showAgents=(current:Preparation)=>{
     preparation=current;analysisView.update(current);
     if(followProgress){if(root.dataset.view!=='analysis'&&current.state!=='completed')showView('analysis');stage(current.state==='completed'?'report':'agents');}
@@ -176,6 +213,7 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
       for(const[key,,isMoney]of fieldDefinitions){const fact=value.facts.find(item=>item.field===key);control(key).value=fact?.status==='candidate'?String(fact.candidates[0].value/(isMoney?100:1)):'';}
       inspectFact(value.facts.find(fact=>fact.status!=='candidate')?.field??'cashMinor');
       const options=JSON.parse(control('options').value);options.samples=100;control('options').value=JSON.stringify(options,null,2);
+      parameterEditors.forEach(editor=>editor.sync());eventEditor.sync();
       root.querySelector<HTMLElement>('[data-source-review]')!.innerHTML=`<h3>请校对来源与缺项</h3>${value.facts.map(fact=>`<p><strong>${e(fact.label)}</strong> · ${fact.status==='missing'?'未识别：请在下方补充并说明假设':fact.status==='conflict'?'存在冲突：请核对期间和取值':'已提取，待确认'}<small>${fact.candidates.map(item=>e(item.sourceRefs.join(' · '))).join('<br>')}</small></p>`).join('')}<details><summary>查看原文件引用（${value.sources.length}项）</summary>${value.sources.map(source=>`<p><code>${e(source.sourceRef)}</code> ${e(source.text)}</p>`).join('')}</details>`;
       sourceStatus.textContent=`已读取${value.files.length}份资料。校对经营起点后，勾选模型确认并启动模拟。`;stage('facts');
       root.querySelector<HTMLButtonElement>('button[type=submit]')!.textContent='确认基线，启动五角色与100条模拟';
@@ -187,6 +225,7 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
     for(const key of ['receivables','payables'] as const) control(key).value=JSON.stringify(draft.baseline[key],null,2);
     control('alternatives').value=JSON.stringify(draft.alternatives,null,2); control('options').value=JSON.stringify(draft.options,null,2);
     eventEditor.sync();
+    parameterEditors.forEach(editor=>editor.sync());
     preferenceEditor.set(draft.decisionPreferences);
   };
   const showError=(error:unknown)=>{status.textContent=`操作未完成：${error instanceof Error?error.message:'请求失败'}。输入和已有结果已保留，可重试。`;};
@@ -219,7 +258,7 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
       target.querySelector<HTMLSelectElement>('[data-replay-plan]')!.value=String(plan);
       target.querySelector<HTMLSelectElement>('[data-replay-sample]')!.value=String(sample);
       replay();
-    });
+    },retainOnDetach);
     const evidence=document.createElement('section');evidence.className='decision-agent-report';
     const roleEvidence=record.analysis?.agents.map(agent=>`<details><summary><strong>${e(roleNames[agent.role])} · ${e(stateNames[agent.state])}</strong><small>${e(agent.provider??'')} / ${e(agent.model??'')}</small></summary>${agent.observations.map(observation=>`<p>${e(observation.text)}</p><details class="decision-source-evidence"><summary>查看依据（${observation.sourceRefs.length}项）</summary>${observation.sourceRefs.map(ref=>`<p><code>${e(ref)}</code><br>${e(record.analysis!.sources.find(source=>source.sourceRef===ref)?.text??'此引用未保存在当前报告中')}</p>`).join('')}</details>`).join('')}</details>`).join('');
     evidence.innerHTML=`<button type="button" data-export-report>导出完整报告HTML</button><h3>五角色决策分析</h3>${record.analysis?`<p>file为原资料引用，confirmed为人工确认条件，calc为规则计算；模型负责解释，不生成计算数值。</p>${roleEvidence}`:'<p>这条记录是手填计算，未执行上传资料的五角色分析。</p>'}`;
@@ -240,7 +279,7 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
     target.querySelectorAll<HTMLSelectElement>('.decision-replay-controls select').forEach(select=>select.onchange=replay); replay();
     root.querySelector<HTMLButtonElement>('[data-show-report]')!.disabled=false;
     if(!busy||followProgress){stage('report');showView('report');}
-    stepStatus.textContent=`保存版本：${record.input.title}。可点击五步回看，不会重新计算。`;
+    stepStatus.textContent=`保存版本：${record.input.title}。可点击步骤回看，不会重新计算。`;
   }
   root.querySelectorAll<HTMLButtonElement>('[data-example]').forEach(button=>button.onclick=()=>{
     if(busy)return;clearPreparation(); draft=operatingExample(button.dataset.example as 'normal'|'cash'|'capacity');pending=undefined;populate();status.textContent='手填示例已填入，尚未计算或保存。此入口不执行五角色资料分析。';root.querySelector<HTMLButtonElement>('button[type=submit]')!.textContent='生成并保存对比';
@@ -248,6 +287,7 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
   root.querySelector<HTMLButtonElement>('[data-refresh-history]')!.onclick=()=>void history();
   root.querySelector('form')!.onsubmit=event=>{
     event.preventDefault(); if(busy)return;
+    if(!parameterEditors.every(editor=>editor.validate())){status.textContent='请修正中文表单中标记的参数或高级 JSON 后再生成。';return;}
     if(!preparation&&fileInput.files?.length){status.textContent='所选文件尚未读取。请先读取资料；或清除资料选择后使用手填计算。';return;}
     if(preparation&&!root.querySelector<HTMLInputElement>('[data-model-consent]')!.checked){status.textContent='请先校对数据与假设，再勾选资料模型分析确认。';return;}
     let input:SimulationInput;
@@ -277,4 +317,6 @@ export function mountDecisionSimulation(host: HTMLElement, suppliedApi?: Decisio
     void execute().then(record=>{if(!live())return;renderReport(record);status.textContent='已保存完整输入、假设、随机路径和结果，可从最近记录重新打开。';void history();}).catch(error=>{if(live()){showError(error);if(followProgress&&preparation?.state!=='failed')showView('input');}}).finally(()=>{busy=false;if(live()){lockInputs(false);button.disabled=false;root.removeAttribute('aria-busy');}});
   };
   populate(); void history();
+  return { resume(){atmosphere.setActive(root.dataset.view!=='analysis');analysisView.setActive(root.dataset.view==='analysis');},
+    dispose(){disposed=true;atmosphere.dispose();analysisView.dispose();disposeReplay?.();} };
 }

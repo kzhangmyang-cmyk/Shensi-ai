@@ -11,7 +11,7 @@ const pauseIcon='<i class="ph ph-pause" aria-hidden="true"></i>';
 
 /** Interactive playback is exclusively a view over the saved deterministic report. */
 export function mountDecisionReplay(host:HTMLElement, record:SimulationRecord,
-  onSelection:(plan:number,sample:number,month:number)=>void=()=>{}) {
+  onSelection:(plan:number,sample:number,month:number)=>void=()=>{},retainOnDetach=false) {
   const doc=host.ownerDocument, win=doc.defaultView;
   const plans=record.report.replays;
   if(!plans.length||!plans[0].samples.length||!plans[0].samples[0].months.length){host.textContent='此记录缺少月度路径，无法回放。请返回历史记录选择完整报告。';return ()=>{};}
@@ -103,7 +103,7 @@ export function mountDecisionReplay(host:HTMLElement, record:SimulationRecord,
   root.addEventListener('decision-replay-pause',pause);
   const media=win?.matchMedia?.('(prefers-reduced-motion: reduce)');
   const motionChange=()=>{root.classList.toggle('reduce-motion',Boolean(media?.matches));if(media?.matches)pause();};media?.addEventListener('change',motionChange);motionChange();
-  const observer=win?.MutationObserver?new win.MutationObserver(()=>{if(!root.isConnected)dispose();}):undefined;
+  const observer=win?.MutationObserver?new win.MutationObserver(()=>{if(!root.isConnected){if(retainOnDetach)pause();else dispose();}}):undefined;
   observer?.observe(doc.body,{childList:true,subtree:true});
   function dispose(){if(disposed)return;disposed=true;if(timer!==undefined)clearTimeout(timer);observer?.disconnect();root.removeEventListener('decision-replay-pause',pause);doc.removeEventListener('visibilitychange',visibility);media?.removeEventListener('change',motionChange);}
   draw(true);showReplayView('overview');return dispose;

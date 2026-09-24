@@ -120,3 +120,22 @@
 .decision-preferences{margin-block:16px}.decision-preferences p,.decision-preference-assessment p{font-size:12px;line-height:1.7;color:var(--decision-muted)}.decision-preferences fieldset{border:1px solid var(--decision-line);border-radius:6px;padding:12px;margin-block:12px}.decision-preferences button{margin:6px 8px 6px 0}.decision-preference-assessment{padding:16px;margin-block:16px;border:1px solid var(--decision-line);border-radius:8px;background:var(--decision-surface)}.decision-preference-assessment ol{font-size:13px;line-height:1.8}
 .decision-recommendations{margin-block:24px}.decision-recommendations>p{color:var(--decision-muted);font-size:13px}.decision-recommendations article{padding:18px;margin-block:14px;border:1px solid var(--decision-line);border-radius:8px;background:var(--decision-surface);font-size:13px;line-height:1.7}.decision-recommendations header{display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap}.decision-recommendations h4{margin:0;font-size:15px}.decision-recommendations header span{color:var(--decision-accent)}.decision-recommendations dl>div{display:grid;grid-template-columns:90px 1fr;gap:12px;margin-block:10px}.decision-recommendations dt{color:var(--decision-muted)}.decision-recommendations dd{margin:0}.decision-recommendations code{overflow-wrap:anywhere}.decision-recommendations summary{cursor:pointer;margin-top:10px}
 .decision-workflow button{width:100%;min-height:36px;padding:6px 10px;border:0;border-radius:5px;background:transparent;color:inherit;font:inherit;cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}.decision-workflow button:hover{background:var(--appearance-bg-surface, #173025)}.decision-workflow button:focus-visible{outline:2px solid var(--decision-accent);outline-offset:3px}.decision-workflow button[aria-current=step]{background:var(--appearance-bg-surface, #173025);font-weight:600}.decision-step-status{color:var(--decision-muted);font-size:12px;line-height:1.6;margin:0 0 14px}.decision-step-status:empty{display:none}.decision-simulation[aria-busy=true] .decision-workspace :disabled{opacity:.65;cursor:wait}
+
+/* One continuous source-and-review workspace; no reserved empty inspector column. */
+.decision-simulation .decision-workspace{grid-template-columns:minmax(0,1fr);gap:12px}
+.decision-simulation .decision-source-panel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 20px;padding:16px;align-items:start}
+.decision-source-panel>label,.decision-source-actions{grid-column:1/-1}
+.decision-source-actions{display:flex;flex-wrap:wrap;gap:8px}.decision-source-actions>button{min-height:36px;margin:0}
+.decision-source-files:empty{display:none}.decision-simulation .decision-source-panel>label{margin:0}
+.decision-source-panel>h3,.decision-source-panel>p,.decision-source-panel>[data-source-review],.decision-source-panel>.decision-source-files{grid-column:1/-1;margin:0}
+.decision-simulation .decision-source-panel input[type=file]{min-height:62px;padding:12px;margin:0}
+.decision-simulation .decision-workspace [name=assumptionNote]{min-height:76px}
+.decision-simulation .decision-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px}
+.decision-parameter-fields>div>section,.decision-parameter-section[data-parameter-kind=options] .decision-parameter-fields>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 20px}
+.decision-parameter-fields>div>section{padding-block:12px;border-bottom:1px solid var(--decision-line)}
+.decision-parameter-fields label{min-width:0;margin:0}
+.decision-parameter-fields [aria-invalid=true]{border-color:var(--appearance-danger-text,#ff9090);outline:1px solid var(--appearance-danger-text,#ff9090)}
+.decision-parameter-fields [role=status]:empty{display:none}
+.decision-parameter-section>p{font-size:12px;line-height:1.6;color:var(--decision-muted)}
+.decision-simulation .decision-source-inspector{position:static;grid-column:1/-1}
+@container(max-width:700px){.decision-simulation .decision-source-panel,.decision-simulation .decision-fields,.decision-parameter-fields>div>section,.decision-parameter-section[data-parameter-kind=options] .decision-parameter-fields>div{grid-template-columns:minmax(0,1fr)}.decision-workflow{gap:4px;padding-inline:6px!important}.decision-workflow li{min-width:0;white-space:normal}.decision-workflow button{padding:6px;font-size:12px}}

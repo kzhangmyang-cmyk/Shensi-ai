@@ -7,7 +7,7 @@ const roles=[['founder','经营负责人','经营目标','user'],['market','市�
 const states={queued:'等待中',running:'分析中',completed:'已完成',insufficient:'资料不足',failed:'调用失败',cancelled:'已取消'};
 
 /** Decoration never advances task state. Only server snapshots update the five nodes. */
-export function mountDecisionAnalysis(host:HTMLElement,retry:()=>void){
+export function mountDecisionAnalysis(host:HTMLElement,retry:()=>void,retainOnDetach=false){
   const doc=host.ownerDocument,win=doc.defaultView;
   const asset=new URL('./assets/galaxy-cyan-brand.png',import.meta.url).href;
   host.innerHTML=`<section class="decision-analysis" aria-label="五角色协同分析" data-motion="paused"><div class="decision-galaxy"><div class="decision-galaxy-art" aria-hidden="true"><img src="${e(asset)}" alt="" class="decision-galaxy-base"><canvas class="decision-galaxy-dust" aria-hidden="true"></canvas></div><header><p data-analysis-kind></p><h3>五位智能体，协同推演</h3><p data-analysis-headline>正在结合企业资料与经营模型分析</p></header><div class="decision-galaxy-nodes">${roles.map(([role,label,detail,icon],index)=>`<div class="decision-galaxy-node decision-galaxy-node-${index}" data-analysis-node="${role}" data-state="queued"><i class="ph ph-${icon}" aria-hidden="true"></i><strong>${label}</strong><small>${detail}</small><span data-node-state>等待中</span></div>`).join('')}</div></div><aside class="decision-analysis-sidebar"><h3>分析进度</h3><p>五位智能体从不同角度分析同一份资料</p><ol>${roles.map(([role,label,detail,icon])=>`<li data-analysis-role="${role}" data-state="queued"><i class="ph ph-${icon}" aria-hidden="true"></i><div><strong>${label}</strong><small>${detail}</small><small data-role-model></small></div><span data-role-state>等待中</span></li>`).join('')}</ol><h4>资料来源</h4><div class="decision-analysis-files" data-analysis-files></div><div class="decision-analysis-result" role="status"><strong data-analysis-progress>已完成 0 / 5</strong><p data-analysis-message></p></div><button type="button" data-analysis-retry hidden>重试本次分析</button><button type="button" data-reduce-motion aria-pressed="false">减少动态效果</button></aside></section>`;
@@ -29,7 +29,7 @@ export function mountDecisionAnalysis(host:HTMLElement,retry:()=>void){
   q<HTMLButtonElement>('[data-analysis-retry]').onclick=()=>{if(state==='failed')retry();};
   doc.addEventListener('visibilitychange',syncMotion);media?.addEventListener('change',syncMotion);
   function dispose(){if(disposed)return;disposed=true;active=false;syncMotion();dust.dispose();doc.removeEventListener('visibilitychange',syncMotion);media?.removeEventListener('change',syncMotion);observer?.disconnect();}
-  const observer=win?.MutationObserver?new win.MutationObserver(()=>{if(!root.isConnected)dispose();}):undefined;observer?.observe(doc.body,{childList:true,subtree:true});
+  const observer=win?.MutationObserver?new win.MutationObserver(()=>{if(!root.isConnected){if(retainOnDetach){active=false;syncMotion();}else dispose();}}):undefined;observer?.observe(doc.body,{childList:true,subtree:true});
   return {
     update(value:Preparation,displayMode:'live'|'history'|'empty'='live'){
       snapshot=value;mode=displayMode;root.dataset.displayMode=mode;
