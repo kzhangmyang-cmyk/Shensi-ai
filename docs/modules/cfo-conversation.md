@@ -361,8 +361,15 @@ separate top-level dialog, so the two native dialogs never compete. Opening
 either dialog performs no import, model call, routing save or business write;
 those remain explicit existing controls in the dialog.
 
-Conversation copy uses 15px body / 11px labels, compact bubbles and bounded
-history (400px / 45vh). User bubbles sit right with account initials when no
+At desktop widths (1000px and above), the main pane owns vertical scrolling;
+the unbounded message list lets wheel input reach that pane. The right inspector
+occupies its own grid column and never overlaps the conversation. At 901–999px,
+the inspector follows the chat instead of creating a cramped third column. Narrow layouts
+retain their bounded message scroller. Both layouts support wheel and PageDown
+navigation while keeping the composer reachable.
+
+Conversation copy uses 15px body / 11px labels and compact bubbles.
+User bubbles sit right with account initials when no
 photo is available; assistants sit left with the selected role's portrait.
 Switching role updates the header identity, cancels the old request and clears
 completed/partial history while retaining the unsent question. The real form
@@ -411,6 +418,8 @@ speaker echo, physical hearing, interrupted-sentence continuity and weak-network
 recovery. A fixture handshake or silent PCM playback cannot establish these.
 
 ## Validation
+
+- `pnpm --dir frontend exec tsx scripts/test-agent-chat-layout.mts` (production component/CSS, synthetic long reply; both themes at 1440/1024/980/873/390, wheel down/up, PageDown, inspector separation and composer reachability; no model/network calls)
 
 - `pnpm --dir desktop exec tsx --test tests/cfo-realtime-loopback.test.ts` (production service/provider over a real loopback WebSocket, synthetic PCM, disconnect and explicit reconnect; no microphone/provider access)
 - `pnpm --dir backend test:cfo-conversation` (includes skill arithmetic,

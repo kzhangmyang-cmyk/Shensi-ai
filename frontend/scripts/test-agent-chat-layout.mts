@@ -27,7 +27,7 @@ mountCfoConversation({host:document.querySelector('#demoModuleMain>div'),http,sc
 const browser = await chromium.launch({ headless: true });
 const output = '/tmp/shensi-agent-layout-qa'; await mkdir(output, { recursive: true });
 try {
- for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+ for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 980, 873, 390]) {
   const page = await browser.newPage({ viewport: { width, height: 768 } });
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', async route => {
@@ -59,6 +59,37 @@ try {
   await page.locator('[data-cfo-session]').click();
   await page.locator('[data-cfo-turns] article').nth(1).waitFor();
   assert.equal(await page.locator('[data-cfo-turns] article').count(),2);
+  // Real wheel input must bubble from an unbounded reply to the main scroll owner.
+  const main = page.locator(width >= 1000 ? '#demoModuleMain' : '[data-cfo-turns]');
+  if (width < 1000) await main.scrollIntoViewIfNeeded();
+  await main.evaluate(el => { el.scrollTop = 0; });
+  const replyBox = await page.locator('[data-cfo-turns]').boundingBox();
+  assert.ok(replyBox);
+  if (width >= 1000) await main.evaluate(el => { el.scrollTop = 350; });
+  const scrollStart = await main.evaluate(el => el.scrollTop);
+  const wheelBox = await page.locator('[data-cfo-turns]').boundingBox();
+  await page.mouse.move(wheelBox!.x + 30, Math.max(180, Math.min(500, wheelBox!.y + 80)));
+  await page.mouse.wheel(0, 240);
+  await page.waitForFunction(({selector,previous}) => document.querySelector(selector)!.scrollTop > previous + 80, {selector:width >= 1000 ? '#demoModuleMain' : '[data-cfo-turns]',previous:scrollStart}, {timeout:2000});
+  const afterDown = await main.evaluate(el => el.scrollTop);
+  await page.mouse.wheel(0, -120);
+  await page.waitForFunction(({selector,previous}) => document.querySelector(selector)!.scrollTop < previous - 40, {selector:width >= 1000 ? '#demoModuleMain' : '[data-cfo-turns]',previous:afterDown}, {timeout:2000});
+  await page.mouse.click(wheelBox!.x + 30, Math.max(180, Math.min(500, wheelBox!.y + 80)));
+  const beforeKey = await main.evaluate(el => el.scrollTop);
+  await page.keyboard.press('PageDown');
+  await page.waitForFunction(({selector,previous}) => document.querySelector(selector)!.scrollTop > previous + 40, {selector:width >= 1000 ? '#demoModuleMain' : '[data-cfo-turns]',previous:beforeKey}, {timeout:2000});
+  // Include the actual sibling inspector omitted by the original component fixture.
+  if (width >= 901) {
+    await page.evaluate(() => {
+      const inspector = document.createElement('aside');
+      inspector.className = 'replica-demo-inspector';
+      inspector.textContent = '本次对话与财务委员会准备';
+      document.querySelector('.replica-shell')!.append(inspector);
+    });
+    const area = await main.boundingBox();
+    const aside = await page.locator('.replica-demo-inspector').boundingBox();
+    assert.ok(area && aside && (width >= 1000 ? area.x + area.width <= aside.x : aside.y >= area.y + area.height), `${theme}/${width}: inspector crowds the chat`);
+  }
   const citation=page.locator('.cfo-message-research summary');
   await citation.focus();await page.keyboard.press('Enter');
   assert.equal(await citation.evaluate(el=>(el.parentElement as HTMLDetailsElement).open),true);

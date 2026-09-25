@@ -6965,6 +6965,21 @@ body.is-authenticated .replica-shell {
   }
 }
 
+/* Below the desktop split, retain preparation controls below the conversation. */
+@media (min-width: 901px) and (max-width: 999px) {
+  body.is-authenticated .replica-shell.is-agents-route {
+    grid-template-rows: auto auto auto;
+  }
+  .replica-shell.is-agents-route .replica-header,
+  .replica-shell.is-agents-route .replica-demo-main {
+    grid-column: 2;
+  }
+  .replica-shell.is-agents-route .replica-demo-inspector {
+    grid-column: 2;
+    grid-row: 3;
+  }
+}
+
 /* Desktop application shell: one viewport, one scroll owner per content surface. */
 @media (min-width: 1000px) {
   body.is-authenticated,
@@ -7282,7 +7297,7 @@ body.is-authenticated .replica-shell {
     box-shadow: none;
   }
   .replica-shell.is-agents-route .replica-demo-main {
-    grid-column: 2 / 4;
+    grid-column: 2;
     height: 100%;
     padding: 0;
     overflow: auto;
@@ -7381,6 +7396,8 @@ body.is-authenticated .replica-shell {
   .replica-shell.is-agents-route .cfo-conversation .cfo-turns {
     min-height: 0;
     max-height: none;
+    overflow: visible;
+    overscroll-behavior: auto;
   }
   .replica-shell.is-agents-route .cfo-composer {
     padding: 10px 14px 12px;
