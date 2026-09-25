@@ -296,7 +296,11 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
     panel.append(heading, description, identity, status, refresh, logout); documentRef.body.append(panel);
   };
 
+  let lastPublishedAuthority: string | undefined;
   const applyAuthenticatedUser = (user: AppUser, access?: CustomerAccess) => {
+    const { checkedAt: _checkedAt, ...authority } = access ?? {};
+    const signature = JSON.stringify({ user, access: authority });
+    const notify = signature !== lastPublishedAuthority || !documentRef.body.classList.contains('is-authenticated');
     clearLoginError();
     storage.setItem(STORAGE_KEY, JSON.stringify(user));
     updateSidebarUser(documentRef, user);
@@ -307,7 +311,8 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
     documentRef.body.dataset.sessionWorkspaceId = user.teamId;
     locationRef.hash = normalizeAppHash(locationRef.hash);
     renderAccess(user, access);
-    publishAuthenticationState(documentRef, businessAllowed);
+    lastPublishedAuthority = signature;
+    if (notify) publishAuthenticationState(documentRef, businessAllowed);
   };
 
   const request = async <T>(

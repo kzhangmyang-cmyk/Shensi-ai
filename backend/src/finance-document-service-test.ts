@@ -24,7 +24,10 @@ test('chat attachment parsing does not call models or replace finance selection 
   await assert.rejects(service.askSelected({ ...context, actorId: 'other' }, question), /finance_document_expired/);
   await assert.rejects(service.askSelected({ ...context, workspaceId: 'other' }, question), /finance_document_expired/);
   assert.equal(calls, 1);
-  assert.match((await service.askSelected(context, question)).answer, /100/);
+  const answer=(await service.askSelected(context, question)).answer;
+  assert.match(answer, /100/);
+  assert.match(answer, /cell:1:1:1/, 'chat must preserve validated source coordinates');
+  assert.match(answer, /部分资料.csv/, 'chat must identify the selected source file');
   assert.equal(calls, 2);
   now += 3_600_000;
   await assert.rejects(service.askSelected(context, question), /finance_document_expired/);

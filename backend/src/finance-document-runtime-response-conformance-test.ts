@@ -150,7 +150,7 @@ test('released document and six-role ask responses conform through production co
         assert.equal(textAnswer.response.status, 200);
         assert.equal(textAnswer.value.material.documentId, readText.value.documentId);
         assert.equal(textAnswer.value.material.fileName, source.fileName);
-        assert.equal(textAnswer.value.answer, `原文记载${source.expected}，尚待核对。`);
+        assert.equal(textAnswer.value.answer, `原文记载${source.expected}，尚待核对。\n依据：${source.ref}\n\n来源文件：${source.fileName}`);
       }
     }
     for (const scenario of [
@@ -168,7 +168,7 @@ test('released document and six-role ask responses conform through production co
       for (const role of ['cfo', 'finance', 'profit', 'cost', 'cashflow', 'tax']) {
         const answer = await post(askPath, { documentId: partial.value.documentId, role, question: '分析这份零散资料，缺失数据不要补造', history: [] });
         assert.equal(answer.response.status, 200, `${scenario.name}/${role} must not require three statements`);
-        assert.equal(answer.value.answer, `所选资料记载${scenario.expected}，不推断缺失数据。`);
+        assert.equal(answer.value.answer, `所选资料记载${scenario.expected}，不推断缺失数据。\n依据：${scenario.ref}\n\n来源文件：${scenario.name}.csv`);
         assert.equal(answer.value.material.documentId, partial.value.documentId);
         assert.equal(answer.value.material.kind, 'readonly_document');
         const outgoing = prompts.at(-1)!;

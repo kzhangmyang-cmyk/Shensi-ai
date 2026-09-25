@@ -171,8 +171,13 @@ export class FinanceDocumentService {
     if (result.inspection.modelStatus !== 'completed') throw new GrowthHttpError(503,
       result.inspection.modelStatus === 'invalid_output' ? 'finance_document_model_output_invalid' : 'finance_document_model_unavailable');
     if (!result.provider || !result.model) throw new GrowthHttpError(503, 'finance_document_model_output_invalid');
-    const answer = result.inspection.observations.map(item => item.text).join('\n\n')
+    const answerBody = result.inspection.observations.map(item => {
+      const refs=[...new Set(item.sourceRefs)].filter(ref=>selected.inspection.cells.some(cell=>cell.sourceRef===ref));
+      return item.text+(refs.length?`\n依据：${refs.join('、')}`:'');
+    }).join('\n\n')
       || '当前资料不足以形成有来源的财务观察，请补充相关明细或说明需核对的项目。';
+    const sources=selected.inspection.files?.map(file=>`${file.prefix} ${file.fileName}`).join('；')||selected.material.fileName;
+    const answer=`${answerBody}\n\n来源文件：${sources}`;
     if (answer.length > 4000) throw new GrowthHttpError(503, 'finance_document_model_output_invalid');
     const research=completedResearch(publicEvidence,result.citationIds);
     return { answer, provider: result.provider, ...(research?{research}:{}),

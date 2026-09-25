@@ -71,6 +71,20 @@ function createStorage(initial: Record<string, string> = {}): MemoryStorage {
   };
 }
 
+{
+  const document=createDocument(),storage=createStorage();
+  let access=accessFixture('active');let user=admin;let resets=0;
+  document.addEventListener('goodjob:auth-state-changed',()=>{resets++;});
+  const controller=createAppSessionController({document,storage,location:{hash:'#agents'},demoMode:false,
+    fetchImpl:async()=>new Response(JSON.stringify({user,access}))});
+  await controller.start();assert.equal(resets,1);
+  access={...access,checkedAt:'2026-09-25T06:00:00Z'};
+  await controller.refreshAccess();assert.equal(resets,1,'unchanged focus refresh must not tear down the selected chat role');
+  access={...access,canExecute:false};await controller.refreshAccess();assert.equal(resets,2,'execution permission changes must still invalidate consumers');
+  user={...admin,teamId:'other-workspace'};await controller.refreshAccess();assert.equal(resets,3,'identity changes must invalidate consumers');
+  controller.destroy();
+}
+
 function createDocument() {
   return parseHTML(`<!doctype html><html><body>
     <form id="loginForm" aria-busy="false">
