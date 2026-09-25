@@ -37,6 +37,9 @@ Six-role text questions use the current role model to decide whether public
 research is needed, after validating the selected document and role route.
 Planning receives only the question and a same-scope public topic; private
 attachments, history and preferences are never added to a search query.
+An explicit request to search or verify public sources takes precedence over
+the general-knowledge shortcut. The planner still extracts a public topic;
+privacy checks and clarification remain required before retrieval.
 Recognizable private internal-analysis questions skip research; mixed private
 search questions require a separate public topic. One bounded retrieval feeds
 the existing answer model. Financial values and document references retain their

@@ -106,6 +106,7 @@ test('configured model gateway receives only public sources and rejects invented
         if(planning){plannerPayloads.push(payload);assert.ok(Object.keys(payload).every(k=>['question','previousPublicTopic'].includes(k)));
           const rules=outgoing.messages.find((m:any)=>m.role==='system').content;
           for(const example of ['{"kind":"not_needed"}','{"kind":"clarify","question":"需要澄清的问题"}','{"kind":"search","topic":"公开主题","region":"","freshness":""}']) assert.ok(rules.includes(example),'planner receives the exact JSON alternatives');
+          assert.match(rules,/明确要求.{0,30}联网.{0,100}search/u,'explicit public search must take priority over the general-knowledge shortcut in the model request');
           value=payload.question==='解释现金流'?{kind:'not_needed'}:{kind:'search',topic:'公共政策',region:'中国',freshness:'最新'};
         }else{answerPayloads.push(payload);
           if(payload.publicEvidence && !payload.cells) {
