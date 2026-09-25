@@ -77,6 +77,6 @@ export function mountCfoVoiceSettings(options: { host: HTMLElement; workspace():
   };
   dialog.addEventListener('cancel', close); dialog.addEventListener('click', click); form.addEventListener('submit', submit); open.addEventListener('click', show);
   lock(false);
-  return { refresh: () => run('settings'), open: show, dispose() { disposed = true; key.value = ''; dialog.remove();
+  return { refresh: () => run('settings'), open: show, suspend() { key.value = ''; if (dialog.open) { if (typeof dialog.close === 'function') dialog.close(); else dialog.removeAttribute('open'); } }, dispose() { disposed = true; key.value = ''; dialog.remove();
     open.removeEventListener('click', show); form.removeEventListener('submit', submit); dialog.removeEventListener('click', click); dialog.removeEventListener('cancel', close); } };
 }

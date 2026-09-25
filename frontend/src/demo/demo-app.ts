@@ -25,7 +25,7 @@ import { parseGrowthHash } from "../growth/router";
 import { createGrowthHttpClient } from "../growth/http";
 import { createRealAgentCenterApi } from "../growth/agents/real-api";
 import { createRealAgentCenterController } from "../growth/agents/real-controller";
-import { mountCfoConversation } from '../growth/agents/cfo-conversation';
+import { mountRetainedCfoConversation, clearRetainedCfoConversation } from '../growth/agents/cfo-session-view';
 import {
   createRealConversationsController,
   shouldUseRealConversations
@@ -110,7 +110,7 @@ function renderModule(module: DemoModule, state: DemoState, host: HTMLElement, i
       ? createAgentsController({
           host,
           supportHost: inspector,
-          conversation: chatHost => mountCfoConversation({ host: chatHost,
+          conversation: chatHost => mountRetainedCfoConversation({ host: chatHost,
             scope: () => { const scope = currentDemoStorageScope(); return scope ? JSON.stringify(scope) : null; },
             http: createGrowthHttpClient({ workspaceId: () => document.body.dataset.sessionWorkspaceId ?? null }) }),
           real: createRealAgentCenterController({
@@ -230,6 +230,11 @@ export function startDemoApp(): void {
     if (currentRoute() !== "#agents") pendingAgentEntry = null;
     greetingSettings?.dispose();
     greetingSettings = null;
+    if (currentRoute() !== '#agents') {
+      agentsDemoController?.dispose();
+      agentsDemoController = null;
+      agentsAuthority = null;
+    }
     if (parseGrowthHash(window.location.hash)) {
       if (realDashboardActive) realDashboardController.deactivate();
       realDashboardActive = false;
@@ -773,6 +778,7 @@ export function startDemoApp(): void {
     router.navigate(router.current());
   });
   document.addEventListener("goodjob:auth-state-changed", (event) => {
+    clearRetainedCfoConversation(document);
     pendingAgentEntry = null;
     pendingTodos += 1;
     if (realDashboardActive) realDashboardController.deactivate();

@@ -16,7 +16,13 @@ The history list shows the latest fifty sessions; each retains up to one hundred
 completed turns. Model context stays bounded to ten recent turns, including
 confirmed in-page voice turns. Voice audio/transcripts are not persisted by this
 text pilot. History is unverified conversation, not company facts or a knowledge
-base. Other five roles keep their existing page-local history.
+base. All six roles retain their current view, completed messages, citations,
+draft and pending text request in this Renderer document's memory across module
+and role switches. A return reattaches the same view without resending a question.
+Each role has a separate current conversation; New conversation clears only that
+role's messages and attachments and preserves its unsent input. Logout, changed
+identity/authority and document close destroy these views and abort pending work.
+This is not database persistence or application-restart recovery for specialists.
 
 `/api/v1/finance/cfo-sessions` creates/lists sessions, `/{sessionId}` restores a
 session, and `/{sessionId}/turns` answers and saves with revision compare-and-swap.
@@ -115,8 +121,10 @@ not select question material. Clear the current read-only source to explicitly
 return to confirmed statements. The input lifecycle is in
 `finance-document-reading.md`; role methods are in `agent-specialist-skills.md`.
 
-Closing the panel or stopping a question aborts the request and rejects late UI
-updates. HTTP disconnect propagates abort into the provider fetch. Request rate
+Leaving the module or switching roles stops live voice and closes the voice-settings
+dialog without retaining a draft key, but does not abort a pending text question.
+Explicit Stop, New conversation, source replacement and identity cleanup abort
+the text request and reject late UI updates. HTTP disconnect propagates abort into the provider fetch. Request rate
 is bounded per authenticated workspace/actor; there is no automatic question
 retry. Gateway credentials and verified business reports stay server-side.
 
@@ -371,8 +379,8 @@ navigation while keeping the composer reachable.
 Conversation copy uses 15px body / 11px labels and compact bubbles.
 User bubbles sit right with account initials when no
 photo is available; assistants sit left with the selected role's portrait.
-Switching role updates the header identity, cancels the old request and clears
-completed/partial history while retaining the unsent question. The real form
+Switching role updates the header identity and restores that role's own current
+conversation and draft; pending text completes in its original role. The real form
 stops propagation into the legacy demo submit handler. Desktop and 390px layouts
 remain within the viewport without horizontal overflow.
 

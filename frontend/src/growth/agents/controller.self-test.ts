@@ -91,6 +91,13 @@ assert.doesNotMatch(
   "financial controls must not replace the active conversation workspace"
 );
 assert.match(supportHost.innerHTML, /data-agent-center-authority="real"/u);
+const retainedRole = parsed.document.createElement('button');
+retainedRole.dataset.cfoRoleChoice = 'finance';
+retainedRole.setAttribute('aria-pressed', 'true');
+conversationHost.append(retainedRole);
+realConversationView.render();
+assert.equal(supportHost.querySelector('[data-cfo-inspector-role]')?.textContent, '财务分析',
+  'support refresh must reflect the retained conversation role');
 assert.equal(
   supportHost.classList.contains("replica-demo-inspector"),
   true,

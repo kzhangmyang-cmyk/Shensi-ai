@@ -5,6 +5,7 @@ import { runCfoRealtimeSessionTests } from './growth/agents/cfo-realtime-session
 import { runCfoConversationTests } from './growth/agents/cfo-conversation.self-test';
 import './growth/agents/chat-attachments.self-test';
 import './growth/agents/cfo-attachments.self-test';
+import './growth/agents/cfo-session-view.self-test';
 import './growth/agents/web-research.self-test';
 import { runEnterpriseAnalysisTests } from './growth/finance/enterprise-analysis.self-test';
 import './growth/agents/cfo-conversation-layout.self-test';

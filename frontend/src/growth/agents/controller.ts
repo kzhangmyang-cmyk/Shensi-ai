@@ -1,4 +1,5 @@
 import type { GrowthHttpClient } from "../http";
+import { BUSINESS_AGENT_TEAM } from './agents';
 import { createFinanceApi } from '../finance/api';
 import { importErrorMessage } from '../finance/import-workflow';
 import { createGrowthHttpClient } from "../http";
@@ -296,6 +297,10 @@ function createRealAgentsController(
     reports.innerHTML = options.conversation
       ? renderRealAgentConversationSupport(options.real.getState())
       : renderRealAgentsOverview(options.real.getState());
+    const selectedRole = options.host.querySelector<HTMLElement>('[data-cfo-role-choice][aria-pressed="true"]')?.dataset.cfoRoleChoice;
+    const roleLabel = reports.querySelector<HTMLElement>('[data-cfo-inspector-role]');
+    const role = BUSINESS_AGENT_TEAM.find(agent => agent.id === selectedRole);
+    if (roleLabel && role) roleLabel.textContent = role.name.replace(/^AI\s*/u, '');
     for (const [kind, files] of candidates) {
       const field = reports.querySelector(`[data-statements-drop="${kind}"]`); if (!field) continue;
       const list = reports.ownerDocument.createElement('div');

@@ -21,7 +21,7 @@ export function isAcquisitionWorkflowInstruction(value: string): boolean {
     && /(执行|开始|创建|帮我|请|去|跑|发起)/u.test(text);
 }
 
-export function mountCfoConversation(options: { host: HTMLElement; http: GrowthHttpClient; scope(): string | null }) {
+export function mountCfoConversation(options: { host: HTMLElement; http: GrowthHttpClient; scope(): string | null; initialRole?: string; onRoleChange?(role: string): void }) {
   const { host } = options; const doc = host.ownerDocument;
   let agent = BUSINESS_AGENT_TEAM[0];
   let history: CfoConversationInput['history'] = [];
@@ -45,7 +45,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
         <div><span class="eyebrow">AI CFO</span><h2 data-cfo-agent-heading>和经营总管聊聊</h2>
         <p data-cfo-agent-title>${agent.title}</p></div>
       </div>
-      <div class="cfo-role-entry"><div class="cfo-voice-entry"><div data-cfo-voice-settings></div><button type="button" data-cfo-realtime disabled aria-describedby="cfoRealtimeStatus">开始语音对话</button></div></div>
+      <div class="cfo-role-entry"><button type="button" data-cfo-new-session>新对话</button><div class="cfo-voice-entry"><div data-cfo-voice-settings></div><button type="button" data-cfo-realtime disabled aria-describedby="cfoRealtimeStatus">开始语音对话</button></div></div>
     </header>
     <div class="cfo-session-strip"><span class="cfo-session-dot" aria-hidden="true"></span><strong data-cfo-role-mode>文字问答 · 连续语音</strong>
       <p id="cfoRealtimeStatus" class="cfo-caption" role="status">请先在语音服务设置中保存配置并检测连接。文字问答可正常使用。</p></div>
@@ -62,7 +62,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
     <div data-cfo-operating-memory></div>
     <div class="cfo-session-layout">
     <aside class="cfo-history" aria-label="经营总管历史对话" data-cfo-history>
-      <header><strong>历史对话</strong><button type="button" data-cfo-new-session>新对话</button></header>
+      <header><strong>历史对话</strong></header>
       <p data-cfo-history-status role="status">正在读取历史…</p><div data-cfo-history-list></div>
     </aside>
     <div class="cfo-chat-workspace">
@@ -252,7 +252,8 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
   function chooseRole(event: Event) {
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>('[data-cfo-role-choice]');
     if (!button || !roleStrip.contains(button)) return;
-    changeRole(button.dataset.cfoRoleChoice ?? '');
+    if (options.onRoleChange) options.onRoleChange(button.dataset.cfoRoleChoice ?? '');
+    else changeRole(button.dataset.cfoRoleChoice ?? '');
   }
   roleStrip.addEventListener('click', chooseRole);
   function workflowKey(kind: string, subject: string) {
@@ -576,7 +577,8 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
     scope: documentScope, role: agent.id, onChange() { cancel(); live?.stop(); sessionSequence++; savedSession = null; history = []; messages.clear(); renderDocumentSource(); } });
   renderDocumentSource();
   form.addEventListener('submit', send); stop.addEventListener('click', cancel);
-  return { dispose() { disposed = true; attachments.dispose(); operating.dispose(); unsubscribeDocument(); clearDocument.removeEventListener('click', onClearDocument); scopeObserver?.disconnect(); live?.stop(); voiceSettings.dispose(); pending?.abort(); pending = undefined;
+  if (options.initialRole) changeRole(options.initialRole);
+  return { suspend() { live?.stop(); voiceSettings.suspend(); }, dispose() { disposed = true; attachments.dispose(); operating.dispose(); unsubscribeDocument(); clearDocument.removeEventListener('click', onClearDocument); scopeObserver?.disconnect(); live?.stop(); voiceSettings.dispose(); pending?.abort(); pending = undefined;
     sessionSequence++; historyList.removeEventListener('click', chooseSession); newSessionButton.removeEventListener('click', newSession);
     voiceButton.removeEventListener('click', toggleVoice); doc.defaultView?.removeEventListener('pagehide', endVoice);
     form.removeEventListener('submit', send); stop.removeEventListener('click', cancel); roleStrip.removeEventListener('click', chooseRole);
