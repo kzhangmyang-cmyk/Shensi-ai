@@ -30,7 +30,7 @@
 .decision-analysis .decision-galaxy>header [data-analysis-kind]{text-align:center;font-size:11px}
 .decision-analysis .decision-galaxy>header [data-reduce-motion]{position:absolute;top:14px;left:14px;margin:0;background:#08234cdd;color:#f4f8ff;border-color:#7eacd7;font-size:11px;min-height:30px;padding:5px 10px}
 .decision-simulation[data-view=analysis] .decision-hero [data-atmosphere-toggle]{display:none}
-.decision-analysis .decision-galaxy-nodes{inset:100px 0 0}
+.decision-analysis .decision-galaxy-nodes{inset:130px 0 0}
 .decision-analysis .decision-galaxy-node{display:flex;flex-direction:column;text-align:center;align-items:center;min-width:0;width:126px;max-width:none;gap:3px;padding:7px;color:#f2f8ff;text-shadow:0 2px 5px #06182b}
 .decision-analysis .decision-galaxy-node>.ph{width:60px;height:60px;font-size:28px;border:1px solid #a8d9ff;background:#103974e8;color:#eaf7ff;box-shadow:0 0 22px #277ee775}
 .decision-analysis .decision-galaxy-node strong{font-size:16px}.decision-analysis .decision-galaxy-node :is(small,span){font-size:12px;color:#edf5ff;display:block}
@@ -56,10 +56,10 @@
 .decision-analysis-findings>div{display:flex;align-items:center;gap:14px;flex:1}.decision-analysis-findings>div>.ph{font-size:30px;color:var(--cosmos-accent,#92ecc5)}
 .decision-analysis-findings p{margin:6px 0 0;color:var(--cosmos-muted,#b6d1c8);font-size:12px}.decision-analysis-findings dl{display:flex;gap:24px;margin:0}.decision-analysis-findings dl>div{display:grid;gap:4px;min-width:80px}.decision-analysis-findings dd{font-size:22px;margin:0;font-weight:600}.decision-analysis-findings dt{font-size:12px;color:var(--cosmos-muted,#b6d1c8)}
 .decision-analysis-findings button{background:var(--cosmos-accent,#92ecc5);color:#062125;min-height:42px}
-.decision-analysis[data-display-mode=empty] :is(.decision-galaxy-nodes,.decision-analysis-sidebar,.decision-analysis-findings){display:none}
-.decision-analysis[data-display-mode=empty]{grid-template-columns:1fr;grid-template-rows:minmax(500px,1fr)}
-.decision-analysis[data-display-mode=empty] .decision-galaxy>header h3{display:none}
-.decision-analysis[data-display-mode=empty]+.decision-analysis-evidence{display:none}
+.decision-analysis :is(.decision-analysis-progress-header,.decision-analysis-findings)[hidden]{display:none}
+.decision-analysis .decision-galaxy-node{cursor:pointer;border-radius:14px;background:#071d3980}
+.decision-analysis .decision-galaxy-node:focus-visible{outline:2px solid #bcdeff;outline-offset:4px}
+.decision-analysis .decision-galaxy-node[aria-pressed=true]{background:#103c66db;box-shadow:0 0 0 1px #a8d9ff}
 html[data-theme=light] .decision-simulation:has(.decision-cosmos-background){--cosmos-panel:#f3f8fff2;--cosmos-line:#c9ddf2;--cosmos-text:#112f62;--cosmos-muted:#49678c;--cosmos-accent:#2369ed}
 html[data-theme=light] .decision-simulation:has(.decision-cosmos-background)>.decision-cosmos-background{filter:none}
 html[data-theme=light] .decision-analysis-findings button{color:white}

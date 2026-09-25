@@ -41,6 +41,17 @@ test('history galaxy exposes saved role content without showing running progress
   view.dispose();
 });
 
+test('empty analysis exposes five pending duties without starting a task',()=>{
+  const {document}=parseHTML('<html><body><main></main></body></html>');
+  let calls=0;const view=mountDecisionAnalysis(document.querySelector('main')!,()=>{calls++;});
+  view.update({id:'preview',expiresAt:'',dataKind:'synthetic',state:'completed',files:[],sources:[],facts:[],uncertain:[],runId:null,errorCode:null,agents:[]},'empty');
+  const nodes=document.querySelectorAll<HTMLElement>('[data-analysis-node]');assert.equal(nodes.length,5);
+  for(const node of nodes){assert.equal(node.querySelector('[data-node-state]')?.textContent,'待开始');node.click();assert.match(document.querySelector('[data-analysis-evidence]')!.textContent!,/职责/);assert.equal(node.getAttribute('aria-pressed'),'true');}
+  assert.equal(document.querySelector<HTMLElement>('.decision-analysis-progress-header')!.hidden,true);
+  assert.equal(document.querySelector<HTMLElement>('.decision-analysis-findings')!.hidden,true);
+  assert.equal(calls,0);view.dispose();
+});
+
 test('cosmos progress and result strip use saved observations and references, never concept numbers',()=>{
   const {document}=parseHTML('<html><body><main></main></body></html>');
   const view=mountDecisionAnalysis(document.querySelector('main')!,()=>{});

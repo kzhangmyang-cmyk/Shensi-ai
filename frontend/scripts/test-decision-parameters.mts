@@ -51,8 +51,14 @@ try {
     assert.equal(await page.evaluate(() => (window as any).submissions[0].baseline.receivables[0].amountMinor), 29);
     assert.equal(await amount.inputValue(), '0.29');
     await page.locator('[data-step=agents]').click();
-    assert.equal(await page.locator('.decision-galaxy-nodes').isVisible(),false,'empty preview must be pure galaxy without fake role activity');
-    assert.equal(await page.locator('.decision-analysis-sidebar').isVisible(),false);
+    assert.equal(await page.locator('.decision-galaxy-nodes').isVisible(),true);
+    assert.equal(await page.locator('.decision-analysis-sidebar').isVisible(),true);
+    assert.equal(await page.locator('[data-node-state]').allTextContents().then(items=>items.every(item=>item==='待开始')),true);
+    for(const role of ['founder','market','operations','finance','judge']){await page.locator(`[data-analysis-node=${role}]`).click();assert.match(await page.locator('[data-analysis-evidence]').innerText(),/职责说明/);}
+    assert.equal(await page.evaluate(()=>(window as any).submissions.length),1,'role clicks must not submit a model task');
+    assert.equal(await page.locator('.decision-analysis-progress-header').isVisible(),false);
+    assert.equal(await page.locator('.decision-analysis-findings').isVisible(),false);
+    await page.screenshot({path:`${output}/roles-${theme}-${width}.png`,fullPage:true});
     assert.equal(await page.locator('.decision-simulation > .decision-cosmos-background').isVisible(),true);
     await page.locator('[data-step=source]').click();
     assert.equal(await page.locator('.decision-analysis').isVisible(),false,'role layer must not leak into source step');

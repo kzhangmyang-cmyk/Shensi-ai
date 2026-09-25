@@ -5,6 +5,7 @@ import {mountGalaxyDust} from './galaxy-dust';
 type Preparation=components['schemas']['Preparation'];
 const roles=[['founder','经营负责人','经营目标','user'],['market','市场','需求与渠道','chart-bar'],['operations','运营','产能与交付','gear'],['finance','财务','现金与成本','coins'],['judge','综合复核','条件与结论','shield-check']] as const;
 const states={queued:'等待中',running:'分析中',completed:'已完成',insufficient:'资料不足',failed:'调用失败',cancelled:'已取消'};
+const duties:Record<string,string>={founder:'明确经营目标、约束与关键取舍，检查方案是否符合企业当前阶段。',market:'分析市场需求、客户与渠道，核对增长假设和公开依据。',operations:'评估产能、交付与执行资源，识别运营瓶颈。',finance:'核对现金、成本与收益假设，评估资金承受能力。',judge:'综合各角色意见，标明分歧、成立条件与仍需验证的问题。'};
 
 /** Decoration never advances task state. Only server snapshots update the five nodes. */
 export function mountDecisionAnalysis(host:HTMLElement,retry:()=>void,retainOnDetach=false){
@@ -27,7 +28,11 @@ export function mountDecisionAnalysis(host:HTMLElement,retry:()=>void,retainOnDe
   const q=<T extends HTMLElement=HTMLElement>(selector:string)=>root.querySelector<T>(selector)!;
   const evidence=doc.createElement('section');evidence.className='decision-analysis-evidence';evidence.dataset.analysisEvidence='';evidence.setAttribute('aria-live','polite');root.after(evidence);
   let snapshot:Preparation|undefined,mode:'live'|'history'|'empty'='live',selectedRole:string='founder';
-  const showRole=(role:string)=>{selectedRole=role;const agent=snapshot?.agents.find(item=>item.role===role);evidence.innerHTML=`<h3>${e(roles.find(item=>item[0]===role)?.[1]??role)} · ${mode==='history'?'保存结果':'角色详情'}</h3>${agent?`<p>${e(states[agent.state])} · ${e(agent.provider??'')} / ${e(agent.model??'')}</p>${agent.observations.map(item=>`<p>${e(item.text)}</p><details><summary>查看保存依据</summary>${item.sourceRefs.map(ref=>`<p><code>${e(ref)}</code> ${e(snapshot?.sources.find(source=>source.sourceRef===ref)?.text??'此引用未保存在当前记录')}</p>`).join('')}</details>`).join('')||'<p>当前没有可显示的角色正文。</p>'}`:'<p>此记录未保存该角色结果；没有重新调用模型。</p>'}`;};
+  const showRole=(role:string)=>{
+    selectedRole=role;const agent=snapshot?.agents.find(item=>item.role===role);
+    for(const [key]of roles)q(`[data-analysis-node="${key}"]`).setAttribute('aria-pressed',String(key===role));
+    evidence.innerHTML=`<h3>${e(roles.find(item=>item[0]===role)?.[1]??role)} · ${mode==='empty'?'职责说明':mode==='history'?'保存结果':'角色详情'}</h3><p>${e(duties[role]??'')}</p>${agent?`<p>${e(states[agent.state])} · ${e(agent.provider??'')} / ${e(agent.model??'')}</p>${agent.observations.map(item=>`<p>${e(item.text)}</p><details><summary>查看保存依据</summary>${item.sourceRefs.map(ref=>`<p><code>${e(ref)}</code> ${e(snapshot?.sources.find(source=>source.sourceRef===ref)?.text??'此引用未保存在当前记录')}</p>`).join('')}</details>`).join('')||'<p>当前没有可显示的角色正文。</p>'}`:mode==='empty'?'<p>待开始 · 尚无分析结果。查看职责不会启动模型。</p>':'<p>此记录未保存该角色结果；没有重新调用模型。</p>'}`;
+  };
   for(const [role,label]of roles){const node=q(`[data-analysis-node="${role}"]`);node.tabIndex=0;node.setAttribute('role','button');node.setAttribute('aria-label',`查看${label}结果`);node.onclick=()=>showRole(role);node.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();showRole(role);}};}
   q<HTMLButtonElement>('[data-analysis-open-results]').onclick=()=>{const role=snapshot?.agents.find(agent=>agent.observations.length)?.role;if(role){showRole(role);evidence.scrollIntoView?.({block:'nearest',behavior:'smooth'});}};
   const media=win?.matchMedia?.('(prefers-reduced-motion: reduce)');
@@ -41,6 +46,9 @@ export function mountDecisionAnalysis(host:HTMLElement,retry:()=>void,retainOnDe
   return {
     update(value:Preparation,displayMode:'live'|'history'|'empty'='live'){
       snapshot=value;mode=displayMode;root.dataset.displayMode=mode;
+      progressHeader.hidden=mode==='empty';findings.hidden=mode==='empty';
+      q('.decision-analysis-sidebar h3').textContent=mode==='empty'?'五角色职责':'分析进度';
+      for(const [role,label]of roles)q(`[data-analysis-node="${role}"]`).setAttribute('aria-label',`查看${label}${mode==='empty'?'职责':'结果'}`);
       state=value.state;root.dataset.state=state;
       const completed=value.agents.filter(agent=>agent.state==='completed').length;
       const observations=value.agents.flatMap(agent=>agent.observations);
@@ -61,7 +69,7 @@ export function mountDecisionAnalysis(host:HTMLElement,retry:()=>void,retainOnDe
         q('[data-analysis-headline]').textContent=mode==='history'?'历史查看 · 已保存的五角色分析':'星系预览 · 尚无五角色结果';
         q('[data-analysis-message]').textContent=mode==='history'?'仅查看保存内容，不重新调用模型。星尘为氛围动画，不是历史执行时序回放。':'当前没有角色分析，星尘仅为独立动效预览，不代表正在运行任务。';
         if(mode==='empty')q('[data-analysis-progress]').textContent='尚未开始角色分析';
-        for(const [role]of roles)if(!value.agents.some(agent=>agent.role===role)){q(`[data-analysis-node="${role}"] [data-node-state]`).textContent='未保存';q(`[data-analysis-role="${role}"] [data-role-state]`).textContent='未保存';}
+        for(const [role]of roles)if(!value.agents.some(agent=>agent.role===role)){q(`[data-analysis-node="${role}"] [data-node-state]`).textContent=mode==='empty'?'待开始':'未保存';q(`[data-analysis-role="${role}"] [data-role-state]`).textContent=mode==='empty'?'待开始':'未保存';}
       }
       q<HTMLButtonElement>('[data-analysis-retry]').hidden=mode!=='live'||state!=='failed';showRole(selectedRole);syncMotion();
     },

@@ -5,6 +5,7 @@ import {parseHTML} from 'linkedom';
 
 test('internal spiral dust is bounded, deterministic and differential; the image need not rotate',()=>{
   const dust=createGalaxyDust();assert.equal(dust.length,4400);assert.equal(createGalaxyDust(2200).length,2200);assert.deepEqual(dust,createGalaxyDust());
+  assert.deepEqual([...new Set(dust.map(item=>item.arm))].sort(),[0,1,2]);
   const sameLayer=dust.filter((_,index)=>index%3===0);
   const inner=sameLayer.reduce((a,b)=>a.radius<b.radius?a:b),outer=sameLayer.reduce((a,b)=>a.radius>b.radius?a:b);assert.ok(inner.speed>outer.speed);
   assert.notDeepEqual(galaxyDustPosition(outer,0,700,480),galaxyDustPosition(outer,3,700,480));
@@ -18,7 +19,7 @@ test('dust cancels frames on pause/disposal and does not accumulate background t
   window.requestAnimationFrame=(callback)=>{callbacks.set(++next,callback);return next;};
   window.cancelAnimationFrame=(id)=>{callbacks.delete(id);};
   Object.defineProperty(window,'ResizeObserver',{configurable:true,value:class{observe(){}disconnect(){disconnected=true;}}});
-  Object.defineProperty(canvas,'getContext',{value:()=>({clearRect(){},setTransform(){},beginPath(){},arc(){arcs++;},fill(){},save(){},restore(){},clip(){},drawImage(){lights++;},globalAlpha:1,fillStyle:''})});
+  Object.defineProperty(canvas,'getContext',{value:()=>({clearRect(){},setTransform(){},translate(){},beginPath(){},arc(){arcs++;},fill(){},save(){},restore(){},clip(){},drawImage(){lights++;},globalAlpha:1,fillStyle:''})});
   const asset=document.createElement('img');Object.defineProperties(asset,{complete:{value:true},naturalWidth:{value:1448},naturalHeight:{value:1086}});
   const control=mountGalaxyDust(canvas,asset);assert.equal(callbacks.size,0);assert.equal(lights,3);
   control.setRunning(true);assert.equal(callbacks.size,1);
