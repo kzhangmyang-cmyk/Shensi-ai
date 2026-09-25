@@ -107,7 +107,13 @@ test('configured model gateway receives only public sources and rejects invented
           const rules=outgoing.messages.find((m:any)=>m.role==='system').content;
           for(const example of ['{"kind":"not_needed"}','{"kind":"clarify","question":"需要澄清的问题"}','{"kind":"search","topic":"公开主题","region":"","freshness":""}']) assert.ok(rules.includes(example),'planner receives the exact JSON alternatives');
           value=payload.question==='解释现金流'?{kind:'not_needed'}:{kind:'search',topic:'公共政策',region:'中国',freshness:'最新'};
-        }else{answerPayloads.push(payload);value=payload.cells
+        }else{answerPayloads.push(payload);
+          if(payload.publicEvidence && !payload.cells) {
+            const rules=outgoing.messages.find((m:any)=>m.role==='system').content;
+            assert.doesNotMatch(rules,/只有 answer 字段|仅含answer/,'public evidence must not receive contradictory answer-only instructions');
+            assert.match(rules,/"answer".*"citationIds"/u,'model needs an exact example of the public-answer schema');
+          }
+          value=payload.cells
           ?{observations:[{template:'原文为{{cell:1:2:2}}，政策适用需另核对。',sourceRefs:['cell:1:2:2']}],...(payload.publicEvidence?{citationIds:['S1']}:{})}
           :{answer:'依据现有资料核对口径与适用范围。',...(payload.publicEvidence?{citationIds:['S1']}:{})};}
         return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(value)},finish_reason:'stop'}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}}),{status:200,headers:{'content-type':'application/json'}});

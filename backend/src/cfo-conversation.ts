@@ -32,14 +32,17 @@ const SYSTEM = `用简洁、自然的中文直接回答本次问题，并能结�
 只引用 material 中真实存在的公司数字，区分报表期间与今天；金额字段以字段标明的单位为准，Minor 表示最小货币单位。没有足够资料就明确缺哪张表、哪个期间或哪项明细，不猜营业额、余额、利润率、待办或完成进度。material 为 null 时可回答一般经营问题，但明确不能判断本公司的财务状况。
 material 仅标明已验证来源，具体可用指标在 analysis.facts，display是程序完成换算后的精确文本。不要自行声称三张表全部勾稽一致；cash_reconciliation_delta只证明现金勾稽。
 不声称已经读取完整知识库、拥有长期记忆或执行任何记账、发信、评论、私信、资金操作。用户对话不自动写成公司事实。
-输出 JSON，只有 answer 字段。`;
+输出严格 JSON，不加 Markdown 围栏或 JSON 之外的文字。`;
 
 export function createCfoChatModel(store: DurableModelRuntimeStore, options:{fetch?:typeof fetch}={}): CfoChatModel {
   return async (input) => {
     input.signal?.throwIfAborted();
     const skill = prepareSpecialistSkill(input.role ?? 'cfo', input);
     observeCfoStage(input.onProgress, 'skill_ready', input.signal);
-    const systemPrompt = `你是 Shensi 的${skill.name}。\n${SYSTEM}\n${FINANCIAL_ANSWER_RULES}\n${skill.instructions}${input.publicEvidence?PUBLIC_RESEARCH_RULES:''}`;
+    const outputShape=input.publicEvidence
+      ? '输出必须且只能包含answer和citationIds，例如：{"answer":"依据公开摘要，仍需核对适用范围。","citationIds":["S1"]}。citationIds只选择本次提供的来源，不在answer正文重复链接或来源编号。'
+      : '输出必须且只能包含answer，例如：{"answer":"请说明你想解决的问题。"}。';
+    const systemPrompt = `你是 Shensi 的${skill.name}。\n${SYSTEM}\n${FINANCIAL_ANSWER_RULES}\n${outputShape}\n${skill.instructions}${input.publicEvidence?PUBLIC_RESEARCH_RULES:''}`;
     const prompt = JSON.stringify({ question: input.question, history: input.history, publicEvidence:input.publicEvidence, personalTradeoffs:operatingPreferenceEvidence(input.personalPreferences), ...financialModelEvidence(skill) });
     const schemaHash = hashModelCallValue({ version: 'financial-answer-references.v1', facts: skill.context.facts.map(f => f.id), source: skill.context.source?.period,
       publicSourceIds:input.publicEvidence?.sources.map(source=>source.id) });

@@ -12,6 +12,9 @@ import { createAiHttpClient } from './ai-http-security.js';
 import { bindActiveModelSnapshotDurably, bindModelConnectionSnapshotDurably, createActiveModelGatewayForSnapshot, type DurableModelRuntimeStore } from './model-providers/runtime.js';
 import { hashModelCallValue } from './model-providers/call-ledger.js';
 import { AgentConversationResearch, researchPlanSchema } from './agent-conversation-research.js';
+import { searchPublicWeb } from './agent-free-search.js';
+
+const FREE_SEARCH_CONNECTION = {id:'builtin-public-web',provider:'duckduckgo',name:'内置公开搜索（免 Key）'};
 
 type SearchStore = Pick<CrmStore, 'providerConnections' | 'providerCatalog' | 'providerRequestLogs' | 'persist' | 'persistMutation'>;
 type Store = SearchStore & DurableModelRuntimeStore;
@@ -44,6 +47,7 @@ export function createAgentWebResearchRuntime(store: Store, options: {
   executeSearch?: typeof executeProviderSearch;
   modelFetch?: typeof fetch;
   answer?: AgentWebResearchDependencies['answer'];
+  freeSearch?: typeof searchPublicWeb;
   connectionFor?: (context: Parameters<AgentWebResearchDependencies['answer']>[0]['context'], role: Parameters<AgentWebResearchDependencies['answer']>[0]['role']) => Promise<string | undefined>;
 } = {}) {
   const answer: AgentWebResearchDependencies['answer'] = options.answer ?? (async input => {
@@ -67,13 +71,17 @@ export function createAgentWebResearchRuntime(store: Store, options: {
   });
   return new AgentWebResearchService({
     async connections(context) {
-      return store.providerConnections.filter(connection => connection.ownerId === context.actorId && connection.teamId === context.teamId
+      const configured = store.providerConnections.filter(connection => connection.ownerId === context.actorId && connection.teamId === context.teamId
         && context.workspaceId === context.teamId && connection.scope === 'personal' && connection.status === 'active' && providers.has(connection.providerId)
         && store.providerCatalog.some(item => item.code === connection.providerId && item.status === 'active' && item.accessMode === 'api'))
         .map(connection => ({ id: connection.id, provider: connection.providerId, name: providers.get(connection.providerId)!.name }));
+      return configured.length ? configured : [FREE_SEARCH_CONNECTION];
     },
     async search(input) {
       input.signal?.throwIfAborted();
+      if(input.connectionId===FREE_SEARCH_CONNECTION.id) {
+        return {provider:'duckduckgo',sources:await (options.freeSearch??searchPublicWeb)(input.query,input.signal)};
+      }
       const connection = store.providerConnections.find(item => item.id === input.connectionId && item.ownerId === input.context.actorId && item.teamId === input.context.teamId);
       if (!connection) throw new GrowthHttpError(409, 'agent_web_connection_unavailable');
       const provider = providers.get(connection.providerId)!;

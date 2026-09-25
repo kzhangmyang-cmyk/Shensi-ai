@@ -10,7 +10,8 @@
 
 启动桌面开发实例前设置 `SHENSI_XHS_UPSTREAM_PATH` 为固定提交的干净Git仓库绝对路径。主进程使用本目录 `.venv/bin/python`，运行器校验仓库根目录、精确提交和工作区干净状态后才导入上游。当前不支持打包分发，不产生新App/DMG。
 
-`XHS_DESKTOP_SENDING_ENABLED` 在桌面Main与后端分别默认false；需要后续真实验收时两端均明确启用，不能由Renderer设置。`XHS_DAILY_LIMIT` 后端默认20、范围1–100。发送开关不影响独立账号登录/绑定。现有抖音开关和历史队列不变。
+后端模块由`XHS_MODULE_ENABLED=true`显式启用；默认不注册业务处理、不建表，接口返回`xhs_module_unavailable`。启用模块前先完成独立MySQL验收和schema安排，聊天更新无需附带该迁移。
+`XHS_DESKTOP_SENDING_ENABLED` 在桌面Main与后端分别默认false；需要后续真实验收时两端均明确启用，不能由Renderer设置。`XHS_DAILY_LIMIT` 后端默认20、范围1–100。模块启用后的发送开关不影响独立账号登录/绑定。现有抖音开关和历史队列不变。
 
 ## 产品路径
 

@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 import { parseHTML } from 'linkedom';
 
-// Real component + production styles: a short desktop must never shrink the
-// empty-state avatar into the composer when attachments take vertical space.
+// Real component + production styles: every role has a clean empty workspace
+// and a reachable composer, while real history and citations remain intact.
 const root = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
 const { build } = createRequire(require.resolve('vite'))('esbuild');
@@ -40,16 +40,17 @@ try {
   await page.setContent(`<html data-theme="${theme}"><head><base href="http://127.0.0.1:45679/"><style>${css}</style></head><body class="is-authenticated" data-session-workspace-id="fixture" data-session-user-id="user"><div class="replica-shell is-agents-route"><aside class="replica-sidebar"></aside><main id="demoModuleMain" class="replica-demo-main"><div></div></main></div></body></html>`);
   await page.addScriptTag({ content: 'window.__name=(fn)=>fn;' });
   await page.addScriptTag({ type: 'module', content: bundle.outputFiles[0].text });
-  await page.locator('.cfo-chat-empty-avatar').waitFor();
+  await page.locator('.cfo-composer').waitFor();
   for (const role of ['cfo','finance','profit','cost','cashflow','tax']) {
    await page.locator(`[data-cfo-role-choice="${role}"]`).click();
    const geometry = await page.evaluate(() => {
     const rect=(s:string)=>{const r=document.querySelector(s)!.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,height:r.height};};
-    return {avatar:rect('.cfo-chat-empty-avatar'),empty:rect('.cfo-chat-empty'),composer:rect('.cfo-composer'),title:rect('.cfo-composer-heading'),overflow:document.documentElement.scrollWidth>innerWidth+1};
+    return {placeholderCount:document.querySelectorAll('[data-cfo-empty],.cfo-chat-empty-avatar').length,composer:rect('.cfo-composer'),title:rect('.cfo-composer-heading'),overflow:document.documentElement.scrollWidth>innerWidth+1};
    });
    await page.screenshot({path:`${output}/${theme}-${width}-${role}.png`});
-   assert.ok(geometry.avatar.top >= geometry.empty.top-1, `${theme}/${width}/${role}: avatar clipped above empty-state ${JSON.stringify(geometry)}`);
-   assert.ok(geometry.avatar.bottom <= geometry.composer.top+1, `${theme}/${width}/${role}: avatar overlaps composer ${JSON.stringify(geometry)}`);
+   assert.equal(geometry.placeholderCount,0,`${theme}/${width}/${role}: obsolete empty-state remains`);
+   await page.locator('.cfo-composer textarea').scrollIntoViewIfNeeded();
+   assert.equal(await page.locator('.cfo-composer textarea').isVisible(),true);
    assert.equal(geometry.overflow,false, `${theme}/${width}/${role}: horizontal overflow ${JSON.stringify(await page.evaluate(()=>[...document.querySelectorAll('*')].filter(el=>el.getBoundingClientRect().width>innerWidth).map(el=>({tag:el.tagName,cls:el.className,w:el.getBoundingClientRect().width})).slice(0,12)))}`);
   }
   await page.locator('[data-cfo-role-choice=cfo]').click();

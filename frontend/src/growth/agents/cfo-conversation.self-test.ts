@@ -38,8 +38,7 @@ export async function runCfoConversationTests() {
     }
   } });
   assert.equal(host.querySelectorAll('[data-cfo-turns] article').length, 0, 'opening a real conversation must not seed visual history');
-  assert.match(host.querySelector('[data-cfo-empty]')?.textContent ?? '', /还没有本次对话/);
-  assert.match(host.querySelector('[data-cfo-empty]')?.textContent ?? '', /财务经营台账与未选择的预览不会自动进入问答/);
+  assert.equal(Boolean(host.querySelector('[data-cfo-empty]')),false,'empty chat must not render an explanatory placeholder');
   assert.equal(calls.length, 0, 'opening a real conversation must not call the business model');
   assert.ok(host.querySelector('[data-agent-operating-workbench]'),'center must expose the shared operating memory workspace');
   const input = host.querySelector('textarea')!;

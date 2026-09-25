@@ -29,7 +29,7 @@ test('XHS HTTP uses authenticated user scope plus registered device before issui
     if(req.header('X-Test-User')==='yes') {req.user={id:'actor',teamId:'team'} as never;req.activeWorkspace=context;}
     next();
   });
-  app.use('/api/v1/acquisition/xiaohongshu',await createXhsApplication({pool:null,enabled:true,installationService:{authenticateDevice:async input=>
+  app.use('/api/v1/acquisition/xiaohongshu',await createXhsApplication({moduleEnabled:true,pool:null,enabled:true,installationService:{authenticateDevice:async input=>
     input.installationId===installationId && input.deviceToken===token
       ? {workspaceId:wrongDeviceScope?'other':'workspace',userId:'actor',teamId:'team',deviceIdHash:deviceId,protocolVersion:1} : null}}));
   const server=app.listen(0,'127.0.0.1'); await new Promise<void>(resolve=>server.once('listening',resolve));
@@ -67,4 +67,11 @@ test('XHS HTTP uses authenticated user scope plus registered device before issui
     const list=await fetch(base+'/drafts',{headers});const items=await list.json();assert.equal(items.items[0].status,'confirmed');
     conforms('XhsDraftList',items);
   } finally {await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
+});
+test('disabled XHS module does not initialize database schema',async()=>{
+  const {createXhsApplication}=await import('./xiaohongshu-application.js');
+  let calls=0;
+  await createXhsApplication({moduleEnabled:false,pool:{execute:async()=>{calls++;throw new Error('unexpected schema');}} as never,
+    installationService:{authenticateDevice:async()=>{throw new Error('unused');}}});
+  assert.equal(calls,0);
 });

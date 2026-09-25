@@ -7,6 +7,8 @@
     "node": ">=22.19.0"
   },
   "scripts": {
+    "test:free-search": "node --import tsx --test src/agent-free-search-test.ts",
+    "verify:public-search": "node --import tsx scripts/verify-public-search.ts",
     "dev": "tsx watch src/server.ts",
     "dev:mysql": "CRM_STORE=mysql tsx watch src/server.ts",
     "dev:worker": "CRM_STORE=mysql tsx watch src/prospect-worker-entry.ts",
@@ -16,7 +18,7 @@
     "start:mysql": "CRM_STORE=mysql node dist/server.js",
     "start:worker": "CRM_STORE=mysql node dist/prospect-worker-entry.js",
     "provision:beta-admins": "tsx src/provision-beta-admins.ts",
-    "test": "NODE_ENV=test tsx src/self-test.ts && npm run test:accounts && npm run test:provider:web-search && npm run test:desktop-login && npm run test:cfo-conversation && npm run test:growth-finance:imports && npm run test:financial-statements && npm run test:douyin-crm && npm run test:crm-todos && npm run test:enterprise-query && npm run test:decision-simulation && npm run test:xiaohongshu",
+    "test": "NODE_ENV=test tsx src/self-test.ts && npm run test:accounts && npm run test:free-search && npm run test:provider:web-search && npm run test:desktop-login && npm run test:cfo-conversation && npm run test:growth-finance:imports && npm run test:financial-statements && npm run test:douyin-crm && npm run test:crm-todos && npm run test:enterprise-query && npm run test:decision-simulation && npm run test:xiaohongshu",
     "test:accounts": "NODE_ENV=test tsx --test src/account-command-test.ts src/platform-admin-domain-test.ts src/platform-admin-service-test.ts src/platform-admin-router-test.ts src/platform-execution-access-test.ts",
     "platform:bootstrap-owner": "tsx src/platform-admin-bootstrap.ts",
     "test:decision-simulation": "tsx --test src/decision-memory-test.ts src/decision-memory-router-test.ts src/decision-simulation-engine-test.ts src/decision-simulation-analysis-test.ts src/decision-simulation-service-test.ts src/decision-simulation-router-test.ts src/decision-source-material-test.ts src/decision-source-facts-test.ts src/decision-five-agents-test.ts src/decision-preparation-test.ts src/decision-preparation-router-test.ts src/decision-calculation-material-test.ts",

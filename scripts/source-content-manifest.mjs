@@ -81,7 +81,7 @@ export async function createSourceContentManifest(repositoryRoot, scope) {
   const records = new Map();
   if (scope === "backend-runtime") {
     for (const file of ROOT_FILES) await addFile(root, resolve(root, file), records, scope);
-    for (const directory of ["backend", "contracts"]) await addTree(root, resolve(root, directory), records, scope);
+    for (const directory of ["backend", "contracts", "services/web-search"]) await addTree(root, resolve(root, directory), records, scope);
     for (const file of BACKEND_RUNTIME_FILES) await addFile(root, resolve(root, file), records, scope);
   } else if (scope === "desktop-app") {
     for (const file of ["desktop/scripts/dev.mjs", "desktop/scripts/prepare-dev-build-identity.mjs", "scripts/source-content-manifest.mjs"]) await addRequiredFile(root, resolve(root, file), records, scope);

@@ -18,7 +18,7 @@ const gapLabels: Record<string, string> = {
   receivable_due_dates_missing: '缺少应收款到期日', jurisdiction_taxpayer_tax_period_missing: '缺少税务辖区、主体与申报期间',
   effective_official_tax_source_missing: '缺少现行有效官方税务依据', tax_adjustments_and_filing_missing: '缺少纳税调整与申报明细'
 };
-export const FINANCIAL_ANSWER_RULES = `财务数值引用协议：输出仍是仅含answer的JSON。所有公司金额、比例和倍数都用 {{fact:指标id}} 引用 analysis.facts，服务器会替换成精确的display；不要抄写数字，不在引用旁添加元、万元、%、倍或“百分点”等新单位，不自行换算或计算新指标。未提供的指标明确缺资料。公司名称与报表期间可以照写；其余文字不要出现阿拉伯数字或中文金额/税率。display已含完整单位。百分比不是百分点变化，没有可比基期就不能声称变化。`;
+export const FINANCIAL_ANSWER_RULES = `财务数值引用协议：所有公司金额、比例和倍数都用 {{fact:指标id}} 引用 analysis.facts，服务器会替换成精确的display；不要抄写数字，不在引用旁添加元、万元、%、倍或“百分点”等新单位，不自行换算或计算新指标。未提供的指标明确缺资料。公司名称与报表期间可以照写；其余文字不要出现阿拉伯数字或中文金额/税率。display已含完整单位。百分比不是百分点变化，没有可比基期就不能声称变化。`;
 
 export function financialModelEvidence(skill: Skill) {
   const { source } = skill.context;

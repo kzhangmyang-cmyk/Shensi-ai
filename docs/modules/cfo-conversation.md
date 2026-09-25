@@ -29,6 +29,10 @@ the saved history to check whether a response was persisted before disconnect.
 If history cannot be loaded, the existing ephemeral text route remains available
 with an explicit history-unavailable message.
 
+Empty chats show no avatar/title/explanatory placeholder;
+the composer, attachments, voice controls and actual history remain available.
+The model receives one explicit output shape: answer for ordinary questions,
+answer plus validated citationIds for public-evidence questions.
 Six-role text questions use the current role model to decide whether public
 research is needed, after validating the selected document and role route.
 Planning receives only the question and a same-scope public topic; private
@@ -40,8 +44,11 @@ original validators; public snippets provide qualitative context, not company fa
 An optional `research` snapshot (Growth 1.0.34) contains validated source IDs,
 URLs, snippets and timestamps. It is saved in the same assistant-turn CAS and
 restored without another search. The UI displays expandable sources below the
-answer; search connections remain in settings. Missing connections, empty results
-and invalid citations are explicit failures. Voice research is not enabled.
+answer; search connections remain in settings. When no enabled connection exists,
+the Backend uses the built-in DDGS public search process without an API key;
+configured connections take precedence. Install the locked environment described
+in `services/web-search/README.md` before starting the Backend. Unavailable search,
+empty results and invalid citations are explicit failures. Voice research is not enabled.
 
 Text or confirmed voice turns that explicitly ask the software to execute a
 Douyin acquisition workflow are separated from financial Q&A before the CFO
