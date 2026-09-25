@@ -1,6 +1,6 @@
 # 小红书独立适配环境
 
-源码已连接后端独立路由、Electron Main/Preload、私有stdio进程与社媒对话入口；当前运行应用尚未更新，真实平台登录、消息发送和真实MySQL验收未完成。发送默认关闭。
+源码已连接后端独立路由、Electron Main/Preload、私有stdio进程与社媒对话入口；隔离原生整页和实际MySQL验收已通过。运行应用保持模块和发送关闭，真实平台登录及消息发送尚未验收。
 
 ## 环境与启动
 
@@ -38,10 +38,13 @@
 uv run --frozen --project services/xiaohongshu python -m unittest discover -s services/xiaohongshu -p 'test_*.py'
 uv run --frozen --project services/xiaohongshu python services/xiaohongshu/verify_upstream.py /path/to/Spider_XHS
 pnpm --dir backend test:xiaohongshu
+cd backend && node --import tsx scripts/verify-xhs-isolated-mysql.ts && cd ..
 pnpm --dir desktop exec tsx --test tests/xiaohongshu-*.test.ts
 pnpm --dir frontend test:xiaohongshu
 pnpm --dir frontend exec playwright test --config=playwright.xiaohongshu.config.ts
 pnpm test && pnpm build && ./scripts/context-check && git diff --check
 ```
 
-兼容检查使用真实上游编码/解码器与合成socket，无网络。隔离Electron验收已贯通生产整页、真实Preload/Main/worker及合成API，验证未登录拒绝、编辑/批准、发送关闭和进程回收；不打开平台浏览器或执行消息发送。MySQL SQL边界目前使用受控驱动；只有明确配置隔离测试库才能执行真实MySQL验收，不替换为用户数据库。当前进度见 `../../docs/PROJECT_STATUS.md`。
+兼容检查使用真实上游编码/解码器与合成socket，无网络。隔离Electron验收已贯通生产整页、真实Preload/Main/worker及合成API，验证未登录拒绝、编辑/批准、发送关闭和进程回收；不打开平台浏览器或执行消息发送。
+
+实际MySQL脚本只使用已缓存的官方MySQL8.0.33 arm64镜像ID `sha256:ea68e51ffe9b96fef6076f1218af11301aeaf13c6201e0ec9aaef5791d5ddc5d`，缺少镜像时失败，不自动拉取。要求Docker/Colima运行且home可挂载；不接受外部数据库URL。每次建立独占容器、随机loopback端口和新卷，使用合成数据验证schema、加密/AAD、并发CAS、unknown不重发、重启及备份恢复；重启后重新解析动态端口。密码和备份仅放在home私有临时目录，结束时核对所有权标签并清理本次容器、卷及临时目录，不触碰已有数据库。当前进度见 `../../docs/PROJECT_STATUS.md`。

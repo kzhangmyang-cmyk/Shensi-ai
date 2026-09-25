@@ -409,6 +409,7 @@ recovery. A fixture handshake or silent PCM playback cannot establish these.
 
 ## Validation
 
+- `pnpm --dir desktop exec tsx --test tests/cfo-realtime-loopback.test.ts` (production service/provider over a real loopback WebSocket, synthetic PCM, disconnect and explicit reconnect; no microphone/provider access)
 - `pnpm --dir backend test:cfo-conversation` (includes skill arithmetic,
   conflicts, missing data, follow-up and actual gateway-request integration)
 - `pnpm --dir backend build` (copies the runtime skill asset)
