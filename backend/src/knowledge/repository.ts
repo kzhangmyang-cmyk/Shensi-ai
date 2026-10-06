@@ -11,6 +11,9 @@ export interface KnowledgeRepository {
   getDocument(ctx: KnowledgeScope, id: string): Promise<KnowledgeDocumentRecord | null>;
   getVersion(ctx: KnowledgeScope, id: string, versionId: string): Promise<KnowledgeVersionRecord | null>;
   listChunks(ctx: KnowledgeScope, versionId: string): Promise<KnowledgeChunk[]>;
+  listChunkPage(ctx: KnowledgeScope, versionId: string, afterOrder: number, limit: number): Promise<KnowledgeChunk[]>;
+  /** Internal deletion compensation: ownership-checked, including an already deleted document. */
+  listVersionsForCleanup(ctx: KnowledgeScope, documentId: string): Promise<KnowledgeVersionRecord[]>;
   mutateDocument(ctx: KnowledgeScope, id: string, patch: KnowledgeDocumentPatch, revision: number, key: string): Promise<KnowledgeDocumentRecord>;
   completeUpload(ctx: KnowledgeScope, versionId: string, receipt: KnowledgeUploadReceipt, revision: number, key: string): Promise<KnowledgeVersionRecord>;
   retryJob(ctx: KnowledgeScope, versionId: string, revision: number, key: string): Promise<KnowledgeVersionRecord>;

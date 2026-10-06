@@ -95,7 +95,7 @@
 
 **Interfaces:** `createKnowledgeModule(options):GrowthCommercialModule` 初始化 SQL、注册 `KNOWLEDGE_SERVICE`，关闭时停止私有资源；缺 root/key 时返回 unavailable 能力而其他模块可启动。`KnowledgeService` 封装 Task 1 的资料读写，以及 `acceptOriginal(ctx,documentId,versionId,stream,revision,key,signal):Promise<KnowledgeVersion>`、`retry(ctx,documentId,versionId,revision,key)`、`cancel(ctx,jobId)`、`availability()`；成功接收原件后才持久化可领取任务。
 
-- [ ] **Step 1: 写失败测试。** `knowledge authenticated binary upload`：
+- [x] **Step 1: 写失败测试。** `knowledge authenticated binary upload`：
   ```ts
   assert.equal(unauthenticatedResponse.status,401);
   assert.equal(otherActorDownload.status,404);
@@ -103,10 +103,10 @@
   assert.equal(ordinaryOversizedPost.status,413);
   ```
   补 CSRF、错误 MIME/文件签名、无 Content-Length 的超限流、声明字节不一致、重复上传 key、客户端中止、redirect、provenance 和 Cookie 保护；不可自动再次上传不确定是否完成的文件。
-- [ ] **Step 2: 验证 RED。** `pnpm --dir backend exec node --import tsx --test src/knowledge/router-test.ts src/knowledge/module-test.ts` 及 `pnpm --dir desktop exec tsx --test tests/renderer-server.test.ts`，新路由断言失败。
-- [ ] **Step 3: 实现准确路由。** `/api/v1/knowledge/documents` GET/POST；`/{id}` GET/PATCH/DELETE；`/{id}/versions` POST；`/{id}/versions/{versionId}` GET；该版 `/content` PUT 原始字节和 GET 授权原件；`/chunks` GET；`/retry` POST；`/jobs/{jobId}/cancel` POST；`/availability` GET。普通 JSON 保持 1MiB，PUT content 与 GET content 专用计数限 50MiB、专用传输时限 120 秒，不 Base64、不放宽其他路径。桌面这两个准确 method/path 使用 streaming 分支，普通分支不重写。鉴权前缀加入 `/api/v1/knowledge`；模块在 Council 消费前安装，用真实工作区 resolver、幂等和 ETag，不在 server 另设匿名路由。
-- [ ] **Step 4: 验证 GREEN。** 原命令、新 HTTP 响应合同检查与 `pnpm --dir backend test:growth-openapi` 通过。文件收完与 worker/索引完成分离，上传/列表/预览没有模型调用。
-- [ ] **Step 5: 提交本任务可分离改动。** 消息 `feat: expose authenticated knowledge uploads`。
+- [x] **Step 2: 验证 RED。** `pnpm --dir backend exec node --import tsx --test src/knowledge/router-test.ts src/knowledge/module-test.ts` 及 `pnpm --dir desktop exec tsx --test tests/renderer-server.test.ts`，新路由断言失败。
+- [x] **Step 3: 实现准确路由。** `/api/v1/knowledge/documents` GET/POST；`/{id}` GET/PATCH/DELETE；`/{id}/versions` POST；`/{id}/versions/{versionId}` GET；该版 `/content` PUT 原始字节和 GET 授权原件；`/chunks` GET；`/retry` POST；`/jobs/{jobId}/cancel` POST；`/availability` GET。普通 JSON 保持 1MiB，PUT content 与 GET content 专用计数限 50MiB、专用传输时限 120 秒，不 Base64、不放宽其他路径。桌面这两个准确 method/path 使用 streaming 分支，普通分支不重写。鉴权前缀加入 `/api/v1/knowledge`；模块在 Council 消费前安装，用真实工作区 resolver、幂等和 ETag，不在 server 另设匿名路由。
+- [x] **Step 4: 验证 GREEN。** 原命令、新 HTTP 响应合同检查与 `pnpm --dir backend test:growth-openapi` 通过。文件收完与 worker/索引完成分离，上传/列表/预览没有模型调用。
+- [x] **Step 5: 提交本任务可分离改动。** 消息 `feat: expose authenticated knowledge uploads`。
 
 ### Task 4: 安全解析、OCR 与可恢复任务
 

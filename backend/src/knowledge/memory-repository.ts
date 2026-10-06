@@ -101,6 +101,15 @@ export class MemoryKnowledgeRepository implements KnowledgeRepository {
     if (!version || !await this.getVersion(ctx, version.documentId, versionId)) return [];
     return clone(this.chunks.get(versionId) ?? []);
   }
+  async listChunkPage(ctx: KnowledgeScope, versionId: string, afterOrder: number, limit: number) {
+    if (!Number.isInteger(afterOrder) || afterOrder < -1 || !Number.isInteger(limit) || limit < 1 || limit > 101) throw new GrowthHttpError(400, 'knowledge_limit_invalid');
+    return (await this.listChunks(ctx, versionId)).filter(chunk => chunk.order > afterOrder).slice(0, limit);
+  }
+  async listVersionsForCleanup(ctx: KnowledgeScope, id: string) {
+    assertKnowledgeScope(ctx, 'knowledge.manage_own'); const document = this.documents.get(id);
+    if (!document || !this.owns(ctx, document)) throw new GrowthHttpError(404, 'knowledge_not_found');
+    return clone([...this.versions.values()].filter(version => version.documentId === id && this.owns(ctx, version)));
+  }
   async listDocuments(ctx: KnowledgeScope, query: KnowledgeListQuery) {
     assertKnowledgeScope(ctx, 'knowledge.read');
     if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 100) throw new GrowthHttpError(400, 'knowledge_limit_invalid');

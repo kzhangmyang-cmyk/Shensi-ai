@@ -63,6 +63,7 @@ export function createKnowledgeFileStore(options: { root: string; secret: string
     return join(directory, `${version.storageKey}.enc`);
   }
   return Object.freeze({
+    async prepare() { await directories(); },
     async writeOriginal(ctx: KnowledgeScope, version: KnowledgeVersionRecord, source: Readable, signal?: AbortSignal) {
       ownVersion(ctx, version, 'knowledge.upload'); signal?.throwIfAborted();
       const { originals } = await directories(), storageKey = randomUUID();
@@ -72,7 +73,8 @@ export function createKnowledgeFileStore(options: { root: string; secret: string
       let bytes = 0, linked = false;
       const meter = new Transform({ transform(chunk: Buffer, _encoding, callback) {
         bytes += chunk.length;
-        if (bytes > version.bytes || bytes > KNOWLEDGE_MAX_BYTES) return callback(new Error('knowledge_upload_size_invalid'));
+        if (bytes > KNOWLEDGE_MAX_BYTES) return callback(new Error('knowledge_upload_too_large'));
+        if (bytes > version.bytes) return callback(new Error('knowledge_upload_size_invalid'));
         hash.update(chunk); callback(null, chunk);
       } });
       try {

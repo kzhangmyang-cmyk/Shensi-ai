@@ -170,6 +170,22 @@ export class MysqlKnowledgeRepository implements KnowledgeRepository {
       [id, ctx.workspaceId, ctx.actorId]);
     return rows.map(row => this.crypto.open<KnowledgeChunk>(this.aad(ctx, 'chunk', row.id, id), row.payload));
   }
+  async listChunkPage(ctx: KnowledgeScope, id: string, afterOrder: number, limit: number) {
+    assertKnowledgeScope(ctx, 'knowledge.read');
+    if (!Number.isInteger(afterOrder) || afterOrder < -1 || !Number.isInteger(limit) || limit < 1 || limit > 101) throw new GrowthHttpError(400, 'knowledge_limit_invalid');
+    let version: KnowledgeVersionRecord;
+    try { version = await this.version(this.pool, ctx, id); } catch (error) { if (error instanceof GrowthHttpError && error.status === 404) return []; throw error; }
+    if (!await this.getDocument(ctx, version.documentId)) return [];
+    const [rows] = await this.pool.execute<Row[]>(`SELECT * FROM knowledge_chunks WHERE version_id=? AND workspace_id=? AND actor_id=? AND chunk_order>? ORDER BY chunk_order LIMIT ${limit}`,
+      [id, ctx.workspaceId, ctx.actorId, afterOrder]);
+    return rows.map(row => this.crypto.open<KnowledgeChunk>(this.aad(ctx, 'chunk', row.id, id), row.payload));
+  }
+  async listVersionsForCleanup(ctx: KnowledgeScope, documentId: string) {
+    assertKnowledgeScope(ctx, 'knowledge.manage_own'); await this.document(this.pool, ctx, documentId, false, true);
+    const [rows] = await this.pool.execute<Row[]>(`SELECT * FROM knowledge_versions WHERE document_id=? AND workspace_id=? AND actor_id=?`,
+      [documentId, ctx.workspaceId, ctx.actorId]);
+    return rows.map(row => this.crypto.open<KnowledgeVersionRecord>(this.aad(ctx, 'version', row.id, documentId), row.payload));
+  }
   async listDocuments(ctx: KnowledgeScope, query: KnowledgeListQuery) {
     assertKnowledgeScope(ctx, 'knowledge.read');
     if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 100) throw new GrowthHttpError(400, 'knowledge_limit_invalid');
