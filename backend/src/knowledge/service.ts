@@ -30,7 +30,8 @@ async function checkSignature(path: string, format: KnowledgeVersionRecord['form
 export class KnowledgeService {
   private readonly controllers = new Set<AbortController>();
   private closed = false;
-  constructor(private readonly options: Resources | { reason: string }, private readonly cancelProcessing?: (id: string) => void) {}
+  constructor(private readonly options: Resources | { reason: string }, private readonly cancelProcessing?: (id: string) => void,
+    private readonly documentsChanged?: (ctx: KnowledgeScope, id: string) => void) {}
   availability() {
     return { available: !this.closed && 'repository' in this.options, reason: this.closed ? 'knowledge_service_closed' : 'reason' in this.options ? this.options.reason : null };
   }
@@ -57,16 +58,19 @@ export class KnowledgeService {
   async getVersion(ctx: KnowledgeScope, id: string, versionId: string) { return versionProjection(await this.getVersionRecord(ctx, id, versionId)); }
   async patch(ctx: KnowledgeScope, id: string, patch: KnowledgeDocumentPatch, revision: number, key: string) {
     assertKnowledgeScope(ctx, 'knowledge.manage_own');
-    return documentProjection(await this.resources().repository.mutateDocument(ctx, id, patch, revision, key));
+    const value = await this.resources().repository.mutateDocument(ctx, id, patch, revision, key);
+    this.documentsChanged?.(ctx, id); return documentProjection(value);
   }
   async replace(ctx: KnowledgeScope, id: string, input: KnowledgeUploadInput, revision: number, key: string) {
     assertKnowledgeScope(ctx, 'knowledge.manage_own');
-    return versionProjection(await this.resources().repository.addVersion(ctx, id, input, revision, key));
+    const value = await this.resources().repository.addVersion(ctx, id, input, revision, key);
+    this.documentsChanged?.(ctx, id); return versionProjection(value);
   }
   async delete(ctx: KnowledgeScope, id: string, revision: number, key: string) {
     assertKnowledgeScope(ctx, 'knowledge.manage_own'); const { repository, files } = this.resources();
     const versions = await repository.listVersionsForCleanup(ctx, id);
     await repository.mutateDocument(ctx, id, { deleted: true }, revision, key);
+    this.documentsChanged?.(ctx, id);
     // An exact manual retry can still enumerate the actor's tombstoned versions,
     // but no read/download/retrieval API can expose them again.
     for (const version of versions) await files.removeOriginal(ctx, version);
@@ -141,6 +145,6 @@ export class KnowledgeService {
   async retry(ctx: KnowledgeScope, id: string, versionId: string, revision: number, key: string) {
     await this.getVersionRecord(ctx, id, versionId); return versionProjection(await this.resources().repository.retryJob(ctx, versionId, revision, key));
   }
-  async cancel(ctx: KnowledgeScope, id: string) { await this.resources().repository.cancelJob(ctx, id); this.cancelProcessing?.(id); }
+  async cancel(ctx: KnowledgeScope, id: string) { await this.resources().repository.cancelJob(ctx, id); this.cancelProcessing?.(id); this.documentsChanged?.(ctx, id); }
   async close() { this.closed = true; for (const controller of this.controllers) controller.abort(); }
 }

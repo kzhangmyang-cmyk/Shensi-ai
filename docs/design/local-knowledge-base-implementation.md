@@ -133,7 +133,7 @@
 
 **Interfaces:** `KnowledgeRetriever.retrieve(ctx,{question,role},signal):Promise<KnowledgeEvidence>`；`indexVersion(ctx,versionId):Promise<void>`、`invalidate(ctx,documentId):void`。`KnowledgeEvidence` 是 `{status:'used'|'no_match'|'unavailable',sources:KnowledgeCitation[]}`；正文只在 server 已验证 sources 中，外层无路径。缓存从 scoped repository 重建，不能成为唯一持久来源。
 
-- [ ] **Step 1: 写失败测试。** `knowledge Chinese retrieval with scope and budget`：
+- [x] **Step 1: 写失败测试。** `knowledge Chinese retrieval with scope and budget`：
   ```ts
   assert.equal((await retriever.retrieve(otherActor,{question:'全面预算',role:'cfo'})).sources.length,0);
   assert.ok(result.sources.length<=6);
@@ -141,10 +141,10 @@
   assert.equal(deletedDocumentHit,false);
   ```
   增加无空格中文、现金流/回款近义问题、财务专业术语、企业名与连续编号、纯问候/无关题、角色过滤在 top-k 前、去重、索引重建不调用模型、异常返回 unavailable 而非 no_match。
-- [ ] **Step 2: 验证 RED。** `pnpm --dir backend exec node --import tsx --test src/knowledge/retrieval-test.ts`。
-- [ ] **Step 3: 实现检索。** 固定核验过的 MiniSearch 版本，使用一致中文分词、标题/章节权重和正常术语归一化；禁止无关匹配 fallback。两份 scoped 索引的 LRU 缓存，不持久化明文索引；总索引输入上限 64MiB，超限明确 unavailable，不隐藏截断。再次校验每条 hit 的当前权限/版本/启用状态；完成 indexing 后原子切换 activeVersion，旧版失效；停用/删除立刻失效缓存。
-- [ ] **Step 4: 验证 GREEN。** 检索测试与 Task 4 publication 测试通过；先对合成中文问答语料验证召回，再用私有首批资料抽查。若同义问题实测不满足此阶段标准，报告具体漏检例子，不无依据宣称语义检索已实现。
-- [ ] **Step 5: 提交本任务可分离改动。** 消息 `feat: retrieve scoped Chinese knowledge references`。
+- [x] **Step 2: 验证 RED。** `pnpm --dir backend exec node --import tsx --test src/knowledge/retrieval-test.ts`。
+- [x] **Step 3: 实现检索。** 固定核验过的 MiniSearch 版本，使用一致中文分词、标题/章节权重和正常术语归一化；禁止无关匹配 fallback。两份 scoped 索引的 LRU 缓存，不持久化明文索引；已建和构建中索引的原始UTF-8输入合计上限 64MiB（不是V8堆硬上限），超限明确 unavailable，不隐藏截断。再次校验每条 hit 的当前权限/版本/启用状态；完成 indexing 后原子切换 activeVersion，旧版失效；停用/删除立刻失效缓存。
+- [x] **Step 4: 验证 GREEN。** 检索测试与 Task 4 publication 测试通过；先对合成中文问答语料验证召回，再用私有首批资料抽查。若同义问题实测不满足此阶段标准，报告具体漏检例子，不无依据宣称语义检索已实现。
+- [x] **Step 5: 提交本任务可分离改动。** 消息 `feat: retrieve scoped Chinese knowledge references`。
 
 ### Task 6: 知识库真实页面与状态
 

@@ -7,6 +7,7 @@ import { Readable } from 'node:stream';
 import { MemoryKnowledgeRepository } from './memory-repository.js';
 import { createKnowledgeFileStore } from './file-store.js';
 import { KnowledgeIngestionWorker } from './ingestion-worker.js';
+import { KnowledgeRetriever } from './retrieval.js';
 import { knowledgeContext, validInput, parsedFixture } from '../../test/knowledge-fixture.js';
 
 async function fixture(t: test.TestContext) {
@@ -113,4 +114,17 @@ test('partial coverage and parse failures are not disguised as complete ready ve
   assert.equal(await failing.runOnce(), false);
   assert.equal((await g.repository.getVersion(g.ctx, g.document.id, g.version.id))?.status, 'failed');
   assert.equal((await g.repository.getVersion(g.ctx, g.document.id, g.version.id))?.failureCode, 'knowledge_password_required');
+});
+
+test('real local index validates parsed content before worker publication and rebuilds searchable references', async t => {
+  const f = await fixture(t), retriever = new KnowledgeRetriever(f.repository);
+  const worker = new KnowledgeIngestionWorker({ ...f, authorizeJob: async () => f.ctx,
+    reader: { read: async () => parsedFixture }, indexVersion: (ctx, id) => retriever.indexVersion(ctx, id) });
+  t.after(async () => { retriever.close(); await worker.close(); });
+  assert.equal((await retriever.retrieve(f.ctx, { question: '全面预算', role: 'cfo' })).status, 'no_match');
+  assert.equal(await worker.runOnce(), true);
+  assert.equal((await f.repository.getVersion(f.ctx, f.document.id, f.version.id))?.status, 'ready');
+  const result = await retriever.retrieve(f.ctx, { question: '全面预算', role: 'cfo' });
+  assert.equal(result.status, 'used'); assert.equal(result.sources[0].excerpt, '全面预算需要结合企业的现金回款和实际经营目标。');
+  assert.equal(result.sources[0].versionId, f.version.id);
 });

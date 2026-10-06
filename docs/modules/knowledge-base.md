@@ -1,8 +1,8 @@
 # 本地参考知识库
 
-当前阶段：合同、领域、加密原件、MySQL 仓储、认证 HTTP 上传/查询和本地解析已实现并专项验证；检索、页面和问答接入尚未交付。实施依据为 [设计](../design/local-knowledge-base.md) 和 [计划](../design/local-knowledge-base-implementation.md)，实际进度见 [PROJECT_STATUS](../PROJECT_STATUS.md)。
+当前阶段：合同、领域、加密原件、MySQL 仓储、认证 HTTP 上传/查询、本地解析、中文检索及真实索引发布已通过专项和回归验证。页面和问答接入尚未交付。实施依据为 [设计](../design/local-knowledge-base.md) 和 [计划](../design/local-knowledge-base-implementation.md)，实际进度见 [PROJECT_STATUS](../PROJECT_STATUS.md)。
 
-本地 reader 与持久任务 worker 通过40项知识库专项（另3项需专用MySQL配置，已在存储阶段单独验证），6项Python解析、55项原财务资料及45项Growth回归。实际 macOS 沙箱中的扫描页、正常可读加密标志、需口令拒绝、缺页、取消、撤权、旧租约、网络和无关私有文件读取限制均有合成fixture证据；锁定依赖与现有运行时版本一致。运行边界见 [reader README](../../services/knowledge-reader/README.md)。受控解释器的产品配置、知识库页面、检索与真实书籍导入仍未完成。
+检索与解析联合门禁通过49项知识库专项（另3项需专用MySQL配置，已在存储阶段单独验证）、6项Python解析、55项原财务资料及45项Growth回归，类型/context/diff检查通过。实际 macOS 沙箱中的扫描页、正常可读加密标志、需口令拒绝、缺页、取消、撤权、旧租约、网络和无关私有文件读取限制均有合成fixture证据；锁定依赖与现有运行时版本一致。运行边界见 [reader README](../../services/knowledge-reader/README.md)。受控解释器的产品配置、知识库页面、问答接入与真实书籍导入仍未完成。
 
 ## 已实现边界
 
@@ -40,7 +40,17 @@ Growth 1.0.38 为当前引用协议：CFO 文字输入及 session ask 可选 `kn
 
 书籍仅为不可信参考数据，不是系统指令、企业已核实事实或现行法规证明。最多六个命中片段，合计12000字符；详细正文最多12000字符，来源须带文档版本、hash、片段与物理页/章节/坐标。
 
-## 验证
+## 中文检索边界
+
+`KnowledgeRetriever` 使用固定 [MiniSearch7.2.0](https://github.com/lucaong/minisearch/tree/v7.2.0)（MIT、无运行时依赖）与 Node22 `Intl.Segmenter`。标题/章节加权；NFKC和大小写归一化，现金回款、回款、货款回收、资金回笼归一到现金流。索引与问题使用同一分词，不启用模糊编号或前缀匹配；包含连续编号的问题必须精确命中该编号。首版是词法检索及这组有限近义词，不是任意语义检索。
+
+资料先由workspace＋actor筛选，再以角色过滤排名结果；最多六条、总摘录12000字符，正文不截断以凑预算。空问候或无词法命中返回no_match；存储、索引或容量失败返回unavailable，不自动用无关资料凑答案。每条引用保留有效版本/hash、原文、页码/章节和不确定性。应用装配注入当前账户、成员关系与平台权限校验，取片段前后重新授权，不将旧HTTP权限快照当永久授权。
+
+索引只在本地进程内按需从加密仓储重建，最多两份具体归属的LRU缓存；已建和构建中的索引原始UTF-8输入合计上限64MiB，分页读取，超限明确失败。这是输入容量而非V8堆的硬上限；引擎对象和临时查询有额外开销。没有明文索引文件、模型建索引、向量服务或embedding凭据。新版本在indexing阶段先构建完整候选，成功且重新授权后才由持久任务原子发布ready；候选不会提前用于问答。修改、替换、停用、删除、取消会使归属缓存失效；查询仍复核当前revision/有效版，不只依赖缓存通知。
+
+合成中文检索、编号、权限撤销、角色排名、去重、容量和旧版本专项通过。现有首本私有书籍提取中的881个正文片段，仅在临时内存仓储抽查预算/编制/差异三个问题，引用均能定位物理页和精确原文；没有重复OCR、持久导入、模型调用或回显书籍全文。这不替代21本实际入库及智能体回答验收。引擎接口和许可证见[官方文档](https://lucaong.github.io/minisearch/)与[LICENSE](https://github.com/lucaong/minisearch/blob/v7.2.0/LICENSE.txt)，低频维护及无公告不等于已经证明无漏洞。
+
+## 验证命令
 
 ```bash
 pnpm --dir backend test:knowledge
