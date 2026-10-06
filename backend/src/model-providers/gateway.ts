@@ -177,6 +177,8 @@ export interface ModelHealthResult {
 }
 
 export interface StructuredGenerationRequest<T> {
+  /** Server-owned release boundaries can prohibit another provider invocation. */
+  repair?: boolean;
   /** Trusted, server-owned policy/schema context sent with system priority. */
   systemPrompt?: string;
   /** User-priority dynamic context; callers must mark untrusted data explicitly. */
@@ -582,7 +584,7 @@ export class ActiveModelGateway {
         providerRequestId: first.providerRequestId
       };
     } catch (error) {
-      if (!(error instanceof SchemaValidationFailure)) throw error;
+      if (!(error instanceof SchemaValidationFailure) || request.repair === false) throw error;
       const repairRules = [
         "STRUCTURED_OUTPUT_REPAIR_MODE",
         "Repair the output to match the trusted JSON schema.",

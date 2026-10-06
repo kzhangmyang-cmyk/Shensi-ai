@@ -22,6 +22,7 @@ function tokenize(text: string): string[] {
 type Entry = { document: KnowledgeDocumentRecord; version: KnowledgeVersionRecord; chunk: KnowledgeChunk };
 type IndexRow = { id: string; title: string; chapter: string; text: string };
 type Index = { engine: MiniSearch<IndexRow>; entries: Map<string, Entry>; bytes: number; signature: string };
+export type KnowledgeRetrievalPort = Pick<KnowledgeRetriever, 'retrieve' | 'assertCurrent'>;
 export interface KnowledgeRetrievalOptions { maxInputBytes?: number; authorizeScope?: (ctx: KnowledgeScope) => Promise<KnowledgeScope>; }
 
 /** Rebuildable local lexical references: no model, embeddings, network or plaintext index files. */
@@ -29,6 +30,7 @@ export class KnowledgeRetriever {
   private readonly caches = new Map<string, Index>();
   private readonly generations = new Map<string, number>();
   private readonly builds = new Set<Index>();
+  private readonly proofs = new WeakMap<KnowledgeEvidence, { key: string; role: KnowledgeRole; digest: string; entries: Entry[] }>();
   private readonly limit: number;
   private closed = false;
   constructor(private readonly repository: KnowledgeRepository, private readonly options: KnowledgeRetrievalOptions = {}) {
@@ -118,6 +120,32 @@ export class KnowledgeRetriever {
     try { await this.authorize(ctx); this.invalidate(ctx, document.id); }
     finally { this.builds.delete(candidate); }
   }
+  /** Model completion is a second release boundary, independent of the cache. */
+  async assertCurrent(ctx: KnowledgeScope, input: { role: KnowledgeRole; evidence: KnowledgeEvidence }, signal?: AbortSignal): Promise<void> {
+    try {
+      ctx = await this.authorize(ctx, signal);
+      if (input.evidence.status !== 'used') {
+        if (input.evidence.sources.length) throw new Error('invalid evidence');
+        return;
+      }
+      const proof = this.proofs.get(input.evidence), key = scopeKey(ctx), generation = this.generations.get(key) ?? 0;
+      if (!proof || proof.key !== key || proof.role !== input.role || proof.digest !== digest(input.evidence)) throw new Error('invalid evidence');
+      for (const entry of proof.entries) {
+        const version = await this.repository.getVersion(ctx, entry.document.id, entry.version.id);
+        if (!version || version.status !== 'ready' || version.sourceHash !== entry.version.sourceHash || version.revision !== entry.version.revision) throw new Error('stale version');
+      }
+      for (const entry of proof.entries) {
+        const document = await this.repository.getDocument(ctx, entry.document.id);
+        if (!document || !document.enabled || document.deleted || !document.roles.includes(input.role)
+          || document.activeVersionId !== entry.version.id || document.revision !== entry.document.revision) throw new Error('stale document');
+      }
+      await this.authorize(ctx, signal);
+      if ((this.generations.get(key) ?? 0) !== generation) throw new Error('stale release');
+    } catch {
+      signal?.throwIfAborted();
+      throw new Error('knowledge_reference_stale');
+    }
+  }
   async retrieve(ctx: KnowledgeScope, input: { question: string; role: KnowledgeRole }, signal?: AbortSignal): Promise<KnowledgeEvidence> {
     signal?.throwIfAborted(); assertKnowledgeScope(ctx, 'knowledge.read');
     if (typeof input.question !== 'string' || input.question.length > 8000 || !knowledgeRoleSchema.safeParse(input.role).success) throw new Error('knowledge_query_invalid');
@@ -146,7 +174,7 @@ export class KnowledgeRetriever {
         if (seen.has(duplicate) || used + entry.chunk.text.length > 12000) continue;
         seen.add(duplicate); used += entry.chunk.text.length; candidates.push(entry); if (candidates.length === 6) break;
       }
-      const sources: KnowledgeCitation[] = [];
+      const sources: KnowledgeCitation[] = [], released: Entry[] = [];
       // Check versions first, then every document in a final pass: a tombstone
       // arriving during a version read must not release the cached excerpt.
       const valid: Entry[] = [];
@@ -157,6 +185,7 @@ export class KnowledgeRetriever {
       for (const entry of valid) {
         const document = await this.repository.getDocument(ctx, entry.document.id);
         if (!document?.enabled || document.deleted || document.activeVersionId !== entry.version.id || document.revision !== entry.document.revision || !document.roles.includes(input.role)) continue;
+        released.push(entry);
         sources.push({ sourceId: `K${sources.length + 1}`, documentId: document.id, versionId: entry.version.id,
           sourceHash: entry.version.sourceHash!, chunkId: entry.chunk.id, sourceLabel: `${document.title} · ${entry.version.filename}`,
           locator: structuredClone(entry.chunk.locator), excerpt: entry.chunk.text,
@@ -166,7 +195,9 @@ export class KnowledgeRetriever {
       if ((this.generations.get(key) ?? 0) !== generation) return empty('unavailable');
       if (sources.length && signature(await this.documents(ctx, signal)) !== fingerprint) return empty('unavailable');
       await this.authorize(ctx, signal);
-      return { status: sources.length ? 'used' : 'no_match', sources };
+      const evidence: KnowledgeEvidence = { status: sources.length ? 'used' : 'no_match', sources };
+      if (sources.length) this.proofs.set(evidence, { key, role: input.role, digest: digest(evidence), entries: released });
+      return evidence;
     } catch (error) {
       signal?.throwIfAborted(); assertKnowledgeScope(ctx, 'knowledge.read');
       return empty('unavailable'); // never disclose database/file details or fake no-match

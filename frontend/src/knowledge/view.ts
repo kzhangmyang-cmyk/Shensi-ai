@@ -100,7 +100,20 @@ export function mountKnowledgeLibrary(host:HTMLElement,options:{api?:KnowledgeAp
   const scope=identity();const observer=new MutationObserver(()=>{if(identity()!==scope)dispose();});observer.observe(document.body,{attributes:true,attributeFilter:['data-session-mode','data-session-workspace-id','data-session-user-id']});
   const auth=()=>{if(identity()!==scope)dispose();};document.addEventListener('goodjob:auth-state-changed',auth);
   root.addEventListener('submit',onSubmit);root.addEventListener('click',onClick);root.addEventListener('change',onChange);
-  function dispose(){if(disposed)return;disposed=true;observer.disconnect();document.removeEventListener('goodjob:auth-state-changed',auth);root.removeEventListener('submit',onSubmit);root.removeEventListener('click',onClick);root.removeEventListener('change',onChange);controller.dispose();for(const url of urls)URL.revokeObjectURL(url);urls.clear();root.remove();}
-  void controller.load().then(()=>{if(disposed)return;const params=new URLSearchParams(window.location.hash.split('?')[1]??'');if(params.get('document'))void controller.select(params.get('document')!,params.get('version')??undefined);});
+  let routeSequence=0,referenceRoute='';
+  const openRoute=async()=>{
+    if(disposed||!window.location.hash.startsWith('#knowledge'))return;
+    const route=window.location.hash;if(route===referenceRoute)return;referenceRoute=route;const request=++routeSequence;
+    const params=new URLSearchParams(route.split('?')[1]??'');const documentId=params.get('document'),versionId=params.get('version'),chunkId=params.get('chunk'),sourceHash=params.get('hash');
+    if(!documentId)return;
+    if(!versionId||!chunkId||!sourceHash){await controller.select(documentId,versionId??undefined);return;}
+    const opened=await controller.openCitation({documentId,versionId,chunkId,sourceHash});
+    if(!opened||disposed||request!==routeSequence||window.location.hash!==route)return;
+    const chunk=Array.from(root.querySelectorAll<HTMLElement>('[data-chunk]')).find(node=>node.dataset.chunk===chunkId);
+    if(chunk){chunk.tabIndex=-1;chunk.focus({preventScroll:true});chunk.scrollIntoView({block:'nearest'});}
+  };
+  window.addEventListener('hashchange',openRoute);
+  function dispose(){if(disposed)return;disposed=true;routeSequence++;window.removeEventListener('hashchange',openRoute);observer.disconnect();document.removeEventListener('goodjob:auth-state-changed',auth);root.removeEventListener('submit',onSubmit);root.removeEventListener('click',onClick);root.removeEventListener('change',onChange);controller.dispose();for(const url of urls)URL.revokeObjectURL(url);urls.clear();root.remove();}
+  void controller.load().then(openRoute);
   return {dispose,openUpload(){find<HTMLDetailsElement>('[data-upload]').open=true;find<HTMLInputElement>('[data-knowledge-files]').focus({preventScroll:true});}};
 }

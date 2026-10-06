@@ -1,4 +1,4 @@
-import { KnowledgeApiError, type KnowledgeApi, type KnowledgeChunk, type KnowledgeDocument, type KnowledgeVersion, type KnowledgeQuery, type KnowledgeUploadInput, type KnowledgeRole } from './api';
+import { KnowledgeApiError, type KnowledgeApi, type KnowledgeChunk, type KnowledgeDocument, type KnowledgeVersion, type KnowledgeQuery, type KnowledgeUploadInput, type KnowledgeRole, type KnowledgeCitation } from './api';
 import type { components } from '../generated/knowledge';
 import { BUSINESS_AGENT_TEAM } from '../growth/agents/agents';
 type UploadMeta=Pick<KnowledgeUploadInput,'sourceKind'|'roles'>;
@@ -33,6 +33,8 @@ export function knowledgeErrorMessage(error:unknown):string {
   if(code.includes('too_large'))return '文件需非空且不超过 50 MiB。';
   if(code.includes('workspace'))return '请先登录并选择一个具体工作区。';
   if(code.includes('revision')||code.includes('conflict'))return '资料已更新，请刷新后再操作。';
+  if(code.includes('reference_changed'))return '引用版本与原文校验不一致，未自动切换到最新版本。';
+  if(code.includes('reference_not_found'))return '此版原文片段已不可读取，未打开其他片段。';
   if(code.includes('not_found'))return '资料已删除或当前账号无权读取。';
   if(error instanceof KnowledgeApiError&&[401,403].includes(error.status))return '当前账号没有权限，请重新登录或切换工作区。';
   return '操作未完成，请检查连接后重试。上传结果不确定时先核对版本，不会自动重复上传。';
@@ -87,6 +89,30 @@ export function createKnowledgeViewState(options:{api:KnowledgeApi;identity:()=>
     state.detailBusy=true;notify();try{const page=await api.chunks(doc.id,version.id,cursor,aborter.signal);if(!valid()||request!==selectionEpoch)return;
       state.chunks.push(...page.items.filter(item=>!state.chunks.some(previous=>previous.id===item.id)));state.nextChunks=page.nextCursor;
     }catch(error){fail(error);}finally{if(valid()&&request===selectionEpoch){state.detailBusy=false;notify();}}}
+  async function openCitation(source: Pick<KnowledgeCitation, 'documentId' | 'versionId' | 'chunkId' | 'sourceHash'>): Promise<boolean> {
+    if (!valid()) return false;
+    const request = selectionEpoch + 1;
+    await select(source.documentId, source.versionId);
+    if (!valid() || request !== selectionEpoch || !state.selectedVersion) return false;
+    state.detailBusy = true; notify();
+    try {
+      if (state.selectedVersion.id !== source.versionId || state.selectedVersion.sourceHash !== source.sourceHash || state.selectedVersion.status !== 'ready') throw new Error('knowledge_reference_changed');
+      let page = { items: state.chunks, nextCursor: state.nextChunks }; const cursors = new Set<string>();
+      // Scan bounded pages, retaining only the target page, not the whole book
+      // in the renderer. The parser allows at most50,000 chunks per version.
+      while (!page.items.some(chunk => chunk.id === source.chunkId)) {
+        if (!page.nextCursor || cursors.has(page.nextCursor) || cursors.size >= 2500) throw new Error('knowledge_reference_not_found');
+        cursors.add(page.nextCursor);
+        page = await api.chunks(source.documentId, source.versionId, page.nextCursor, aborter.signal);
+        if (!valid() || request !== selectionEpoch) return false;
+      }
+      if (!valid() || request !== selectionEpoch) return false;
+      state.chunks = page.items; state.nextChunks = page.nextCursor; return true;
+    } catch (error) {
+      if (valid() && request === selectionEpoch) { state.chunks = []; state.nextChunks = null; fail(error); }
+      return false;
+    } finally { if (valid() && request === selectionEpoch) { state.detailBusy = false; notify(); } }
+  }
   async function mutate(work:(doc:KnowledgeDocument,version:KnowledgeVersion|null)=>Promise<unknown>){
     const doc=state.selected,version=state.selectedVersion;if(!doc||!valid()||state.detailBusy)return;state.detailBusy=true;state.error='';notify();
     try{await work(doc,version);if(!valid())return;state.detailBusy=false;await load();}catch(error){fail(error);}finally{if(valid()){state.detailBusy=false;notify();}}
@@ -114,7 +140,7 @@ export function createKnowledgeViewState(options:{api:KnowledgeApi;identity:()=>
     }catch(error){fail(error);}
   }
   return {
-    snapshot,load,select,moreChunks,dispose,enqueue,
+    snapshot,load,select,moreChunks,openCitation,dispose,enqueue,
     async retryUpload(id:string){const item=queue.find(row=>row.row.id===id);if(!item||!valid()||queueBusy)return;queueBusy=true;try{await attempt(item,true);}finally{queueBusy=false;if(valid())await load();}},
     cancelUploads(){for(const item of queue){if(item.row.state==='waiting'){item.row.state='cancelled';item.file=undefined;}item.abort?.abort();}notify();},
     async setQuery(next:typeof query){query=next;cursors=[undefined];await load();},

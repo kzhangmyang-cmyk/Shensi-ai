@@ -105,3 +105,21 @@ test('a source removed while opening does not leave the detail controls permanen
   await controller.load();await controller.select(id);
   assert.equal(controller.snapshot().selected,null);assert.equal(controller.snapshot().detailBusy,false);controller.dispose();
 });
+test('exact citation opens its old version and a later chunk page without falling back to latest',async()=>{
+  const chunkId='44444444-4444-4444-8444-444444444444',hash='a'.repeat(64);const reads:string[]=[];
+  const controller=createKnowledgeViewState({api:api({version:async(_id,requested)=>{reads.push(requested);return{...version,sourceHash:hash,uploadComplete:true,status:'ready'};},
+    chunks:async(_id,_vid,cursor)=>({items:cursor?[{id:chunkId,versionId:vid,order:20,text:'同版原文',locator:{page:17},warnings:[]}]:[],nextCursor:cursor?null:'second-page'})}),identity:()=> 'actor-a',onChange:()=>{},pollMs:0});
+  assert.equal(await controller.openCitation({documentId:id,versionId:vid,chunkId,sourceHash:hash}),true);
+  assert.deepEqual(reads,[vid]);assert.equal(controller.snapshot().chunks[0].id,chunkId);
+  assert.equal(await controller.openCitation({documentId:id,versionId:vid,chunkId,sourceHash:'b'.repeat(64)}),false);
+  assert.deepEqual(controller.snapshot().chunks,[]);assert.match(controller.snapshot().error,/版本|原文/);
+  controller.dispose();
+});
+test('missing citation and identity changes never open a different source',async()=>{
+  const chunkId='44444444-4444-4444-8444-444444444444';let identity='actor-a';
+  const controller=createKnowledgeViewState({api:api({version:async()=>({...version,sourceHash:'a'.repeat(64),uploadComplete:true,status:'ready'})}),identity:()=>identity,onChange:()=>{},pollMs:0});
+  assert.equal(await controller.openCitation({documentId:id,versionId:vid,chunkId,sourceHash:'a'.repeat(64)}),false);
+  assert.match(controller.snapshot().error,/片段|原文/);identity='actor-b';
+  assert.equal(await controller.openCitation({documentId:id,versionId:vid,chunkId,sourceHash:'a'.repeat(64)}),false);
+  assert.equal(controller.snapshot().selected,null);controller.dispose();
+});

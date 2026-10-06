@@ -9,11 +9,11 @@ import { KnowledgeService } from './service.js';
 import { createKnowledgeRouter } from './router.js';
 import { KnowledgeIngestionWorker, type KnowledgeIngestionOptions } from './ingestion-worker.js';
 import { createKnowledgeReader, type KnowledgeReader } from './reader-gateway.js';
-import { KnowledgeRetriever, type KnowledgeRetrievalOptions } from './retrieval.js';
+import { KnowledgeRetriever, type KnowledgeRetrievalOptions, type KnowledgeRetrievalPort } from './retrieval.js';
 import { assertKnowledgeScope } from './domain.js';
 
 export const KNOWLEDGE_SERVICE = defineGrowthPrivateServiceKey<KnowledgeService>('knowledge-service');
-export const KNOWLEDGE_RETRIEVER = defineGrowthPrivateServiceKey<Pick<KnowledgeRetriever, 'retrieve'>>('knowledge-retriever');
+export const KNOWLEDGE_RETRIEVER = defineGrowthPrivateServiceKey<KnowledgeRetrievalPort>('knowledge-retriever');
 export function createKnowledgeModule(options: { mode: 'disabled' } | { mode: 'mysql'; pool: Pool; root?: string; secret?: string;
   reader?: KnowledgeReader; authorizeJob?: KnowledgeIngestionOptions['authorizeJob']; authorizeScope?: KnowledgeRetrievalOptions['authorizeScope']; indexVersion?: KnowledgeIngestionOptions['indexVersion'] }): GrowthCommercialModule {
   let installed = false;
@@ -42,6 +42,9 @@ export function createKnowledgeModule(options: { mode: 'disabled' } | { mode: 'm
     input.privateServices.provide(KNOWLEDGE_SERVICE, service);
     input.privateServices.provide(KNOWLEDGE_RETRIEVER, retriever ?? { async retrieve(ctx, _input, signal) {
       signal?.throwIfAborted(); assertKnowledgeScope(ctx, 'knowledge.read'); return { status: 'unavailable', sources: [] };
+    }, async assertCurrent(ctx, input, signal) {
+      signal?.throwIfAborted(); assertKnowledgeScope(ctx, 'knowledge.read');
+      if (input.evidence.status === 'used' || input.evidence.sources.length) throw new Error('knowledge_reference_stale');
     } });
     input.router.use('/api/v1/knowledge', createKnowledgeRouter({ service, workspaceContext: input.privateServices.require(GROWTH_FOUNDATION_SERVICES).workspaceContext }));
     return { async close() { retriever?.close(); await Promise.all([service.close(), worker?.close()]); } };

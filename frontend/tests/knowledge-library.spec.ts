@@ -4,7 +4,7 @@ function contrast(a:string,b:string){
   const luminance=(color:string)=>{const channels=color.match(/[\d.]+/gu)!.slice(0,3).map(Number).map(value=>{const channel=value/255;return channel<=.04045?channel/12.92:((channel+.055)/1.055)**2.4;});return .2126*channels[0]+.7152*channels[1]+.0722*channels[2];};
   const levels=[luminance(a),luminance(b)].sort((x,y)=>y-x);return(levels[0]+.05)/(levels[1]+.05);
 }
-async function boundary(page:Page,options:{longPreview?:boolean}={}){
+async function boundary(page:Page,options:{longPreview?:boolean;citationPages?:boolean}={}){
   let enabled=true,ready=false,failed=false,removed=false,uploaded=false,title='全面预算参考';let revision=1,latestId=vid;let activeId:string|null=null,roles=['cfo','finance'];
   const oldVersions=new Map<string,ReturnType<typeof version>>();
   const writes:{method:string;path:string;body:string|null}[]=[];let reads=0;
@@ -23,7 +23,10 @@ async function boundary(page:Page,options:{longPreview?:boolean}={}){
       return route.fulfill({status:201,json:version()});
     }
     if(method==='PUT'&&path.endsWith('/content')){expect(request.headers()['content-type']).toBe('application/octet-stream');uploaded=true;return route.fulfill({json:version()});}
-    if(path.endsWith('/chunks'))return route.fulfill({json:{items:[{id:'44444444-4444-4444-8444-444444444444',versionId:vid,order:0,text:'预算差异需要结合实际经营情况判断，不构成企业已核实财务事实。'.repeat(options.longPreview?75:1),locator:{page:1,chapter:'预算编制'},warnings:['ocr_unverified']}],nextCursor:null}});
+    if(path.endsWith('/chunks')){
+      if(options.citationPages&&url.searchParams.get('cursor'))return route.fulfill({json:{items:[{id:'66666666-6666-4666-8666-666666666666',versionId:vid,order:20,text:'第二页精确引用',locator:{page:17,chapter:'预算方法'},warnings:[]}],nextCursor:null}});
+      return route.fulfill({json:{items:[{id:'44444444-4444-4444-8444-444444444444',versionId:vid,order:0,text:'预算差异需要结合实际经营情况判断，不构成企业已核实财务事实。'.repeat(options.longPreview?75:1),locator:{page:1,chapter:'预算编制'},warnings:['ocr_unverified']}],nextCursor:options.citationPages?'second-page':null}});
+    }
     const exactVersion=/\/versions\/([a-f0-9-]+)$/u.exec(path);if(exactVersion)return route.fulfill({json:oldVersions.get(exactVersion[1])??version()});
     if(path.endsWith('/retry')){failed=false;return route.fulfill({json:version()});}
     if(path.endsWith(`/documents/${id}`)){
@@ -88,6 +91,19 @@ test('latest application shell keeps the same-route instance and disposes on lea
   await page.evaluate(()=>{location.hash='#enterprise-query';});await expect(page.locator('.knowledge-library')).toHaveCount(0);
   await page.evaluate(()=>{location.hash='#knowledge';});await expect(page.locator('.knowledge-library')).toHaveCount(1);
   await page.evaluate(()=>document.dispatchEvent(new CustomEvent('goodjob:auth-state-changed',{detail:{authenticated:false}})));await expect(page.locator('.knowledge-library')).toHaveCount(0);
+});
+test('same knowledge route opens exact version/hash/chunk once, preserving unsent edits',async({page})=>{
+  const api=await boundary(page,{citationPages:true});api.publish();await page.goto('/tests/knowledge-shell.html#knowledge');
+  await expect(page.locator('.knowledge-library')).toHaveCount(1);
+  const open=(chunk:string,hash='a'.repeat(64))=>page.evaluate(({chunk,hash,id,vid})=>{location.hash=`#knowledge?document=${id}&version=${vid}&chunk=${chunk}&hash=${hash}`;},{chunk,hash,id,vid});
+  await open('44444444-4444-4444-8444-444444444444');
+  await expect(page.locator('[data-chunk="44444444-4444-4444-8444-444444444444"]')).toBeFocused();
+  await page.getByLabel('资料标题').fill('尚未保存的资料标题');
+  await open('66666666-6666-4666-8666-666666666666');
+  await expect(page.locator('[data-chunk="66666666-6666-4666-8666-666666666666"]')).toBeFocused();
+  await expect(page.getByLabel('资料标题')).toHaveValue('尚未保存的资料标题');await expect(page.locator('.knowledge-library')).toHaveCount(1);
+  await open('66666666-6666-4666-8666-666666666666','b'.repeat(64));
+  await expect(page.locator('[data-error]')).toContainText('未自动切换到最新版本');await expect(page.locator('[data-preview]')).not.toContainText('第二页精确引用');
 });
 test('role edits and replacement keep the prior effective version until the new file is ready',async({page})=>{
   const api=await boundary(page);api.publish();await page.goto('/tests/knowledge-library.html');await page.getByRole('button',{name:'查看 全面预算参考'}).click();
