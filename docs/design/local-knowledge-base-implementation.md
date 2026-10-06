@@ -59,17 +59,17 @@
 
 任务接口同属该 repository：`completeUpload(ctx,versionId,receipt,revision,key):Promise<KnowledgeVersionRecord>`，receipt 为 `{storageKey,sourceHash,bytes}`；`retryJob(ctx,versionId,revision,key):Promise<KnowledgeVersionRecord>`；`cancelJob(ctx,jobId):Promise<void>`；`claimJob(workerId:string,now:number,leaseMs:number):Promise<KnowledgeJobClaim|null>`；`renewClaim(claim,now,leaseMs):Promise<boolean>`；`commitParsed(ctx,claim,parsed:ParsedKnowledge):Promise<KnowledgeVersionRecord>`；`failJob(ctx,claim,code:string):Promise<void>`；`publishReady(ctx,claim,revision):Promise<KnowledgeVersionRecord>`。只领取 uploadComplete 版本；提交解析保持 indexing 和当前 fence，发布 ready 才结束任务并切换有效版。
 
-- [ ] **Step 1: 写失败测试。** 测试名 `knowledge scope and limits`，断言：
+- [x] **Step 1: 写失败测试。** 测试名 `knowledge scope and limits`，断言：
   ```ts
   assert.equal(knowledgeUploadInputSchema.safeParse({...validInput, bytes:50*1024*1024+1}).success,false);
   assert.equal(await repo.getDocument(ctxSameTeamOtherActor,document.id),null);
   assert.equal(capabilitiesForHumanRole('sales').includes('finance.council.run'),false);
   ```
   本任务在 fixture 中定义 `validInput`、不同 actor/workspace 的 context；补聚合工作区拒绝、角色标签非法、重复 command 同 ID 与旧 revision 冲突。
-- [ ] **Step 2: 验证 RED。** `pnpm --dir backend exec node --import tsx --test src/knowledge/domain-test.ts`，应在缺失领域实现/断言处失败，不是测试运行器缺失。
-- [ ] **Step 3: 实现领域与合同。** 新权限加入各人类角色的本人资料能力，不授予财务权限；新知识库类型用现有 `generate-frontend-contract-types.mjs --input --output` 生成 `frontend/src/generated/knowledge.ts`。Growth 预定义可选 `knowledgeMode: auto|off`（默认 off，文本 UI 后续发送 auto）与 `KnowledgeAnswer` 投影，保持旧 answer/historical payload 合法。当前 1.0.36 的下一新版本为 1.0.37；先核对该版本未占用，一次生成所有本计划新增字段，禁止覆盖已发布字节。新增 `generate:knowledge-types/check:knowledge-types` 并纳入 `check:types`，执行既有 release→import→generate 链。Backend 新增 `test:knowledge`（`NODE_ENV=test node --import tsx --test src/knowledge/*-test.ts`），加入现有根 backend test 链，不让新测试游离于总门禁。
-- [ ] **Step 4: 验证 GREEN。** 运行领域测试、`pnpm --filter ./contracts check:knowledge-types`、`pnpm check:growth-contracts`、`pnpm --dir frontend contract:check`；schema、旧调用兼容、权限与生成结果通过。
-- [ ] **Step 5: 仅提交本任务可分离改动。** 消息 `feat: define scoped knowledge contracts`；不得一并提交其他已存在合同/权限修改。
+- [x] **Step 2: 验证 RED。** `pnpm --dir backend exec node --import tsx --test src/knowledge/domain-test.ts`，应在缺失领域实现/断言处失败，不是测试运行器缺失。
+- [x] **Step 3: 实现领域与合同。** 新权限加入各人类角色的本人资料能力，不授予财务权限；新知识库类型用现有 `generate-frontend-contract-types.mjs --input --output` 生成 `frontend/src/generated/knowledge.ts`。Growth 预定义可选 `knowledgeMode: auto|off`（默认 off，文本 UI 后续发送 auto）与 `KnowledgeAnswer` 投影，保持旧 answer/historical payload 合法。当前有效引用协议为1.0.38；既有1.0.37及其他发布字节不可覆盖。新增 `generate:knowledge-types/check:knowledge-types` 并纳入 `check:types`，执行既有 release→import→generate 链。Backend 新增 `test:knowledge`（`NODE_ENV=test node --import tsx --test src/knowledge/*-test.ts`），加入现有根 backend test 链，不让新测试游离于总门禁。
+- [x] **Step 4: 验证 GREEN。** 运行领域测试、`pnpm --filter ./contracts check:knowledge-types`、`pnpm check:growth-contracts`、`pnpm --dir frontend contract:check`；schema、旧调用兼容、权限与生成结果通过。
+- [x] **Step 5: 仅提交本任务可分离改动。** 消息 `feat: define scoped knowledge contracts`；不得一并提交其他已存在合同/权限修改。
 
 ### Task 2: 真实 MySQL 与私有原件生命周期
 
@@ -77,17 +77,17 @@
 
 **Interfaces:** 消费 Task 1 repository。产出 `ensureKnowledgeMysqlSchema(pool):Promise<void>`、`MysqlKnowledgeRepository(pool,crypto)`；`createKnowledgeFileStore({root,secret})` 的 `writeOriginal(ctx,version,source:Readable,signal):Promise<{storageKey,sourceHash,bytes}>`、`withOriginal(ctx,version,consume,signal)`、`removeOriginal(ctx,version)`。后者先验证密文再向有权限消费者提供私有临时路径，finally 清理，不向 Renderer 返回路径。
 
-- [ ] **Step 1: 写失败测试。** `knowledge persisted and isolated`：
+- [x] **Step 1: 写失败测试。** `knowledge persisted and isolated`：
   ```ts
   assert.equal(reloadedVersion.sourceHash,uploadedHash);
   assert.equal(await restartedRepo.getDocument(otherActor,document.id),null);
   await assert.rejects(()=>fileStore.withOriginal(ctx,tamperedVersion,consume),/authentication|invalid/);
   ```
-  用 `createFinancialCouncilMysqlTestDatabase({initializeSchemas:false})` 建自身表，关 pool 后另开 pool；补 AAD 换 actor/version、缺密钥、symlink、旧 worker fence、删除原件不删用户原路径，以及数据库提交失败后的私有临时文件清理。
-- [ ] **Step 2: 验证 RED。** `pnpm --dir backend exec node --import tsx --test src/knowledge/storage-test.ts src/knowledge/mysql-integration-test.ts`；无显式 `MYSQL_TEST_ADMIN_URL` 时区分跳过，不能称原生 SQL 通过。
-- [ ] **Step 3: 实现存储。** MySQL 新表只幂等创建；事务控制 command/revision/claim 发布。加密使用明确稳定配置和独立知识文件 AAD；不继承随机 development fallback。Main 新增 `paths.knowledge`，通过可信 runtime environment 注入 root；源开发传自身持久私有目录。测试替身用独立临时 root，正常运行不读业务测试 URL。新增 `test:knowledge:mysql` 精确运行 `NODE_ENV=test TZ=UTC node --import tsx --test --test-concurrency=1 src/knowledge/mysql-integration-test.ts`；原生验收要求实际配置后零跳过。
-- [ ] **Step 4: 验证 GREEN。** 原生数据库重启与文件测试真实通过，再运行 `pnpm --dir desktop exec tsx --test tests/app-paths.test.ts tests/local-application-runtime.test.ts tests/prepare-local-application.test.ts`、`node --test scripts/desktop-local-runtime.test.mjs`。仅清理测试自行创建的库/目录。
-- [ ] **Step 5: 提交本任务可分离改动。** 消息 `feat: persist private knowledge versions`。
+  用 `createFinancialCouncilMysqlTestDatabase({initializeSchemas:false})` 建自身表，关 pool 后另开 pool；补 AAD 换 actor/version、缺密钥、symlink、旧 worker fence、删除原件不删用户原路径及失败流/临时明文清理。原件写入后数据库提交失败的补偿由 Task 3 service 拥有并测试，file-store 不猜测数据库事务结果。
+- [x] **Step 2: 验证 RED。** `pnpm --dir backend exec node --import tsx --test src/knowledge/storage-test.ts src/knowledge/mysql-integration-test.ts`；无显式 `MYSQL_TEST_ADMIN_URL` 时区分跳过，不能称原生 SQL 通过。
+- [x] **Step 3: 实现存储。** MySQL 新表只幂等创建；事务控制 command/revision/claim 发布。加密使用明确稳定配置和独立知识文件 AAD；不继承随机 development fallback。Main 新增 `paths.knowledge`，通过可信 runtime environment 注入 root；源开发传自身持久私有目录。测试替身用独立临时 root，正常运行不读业务测试 URL。新增 `test:knowledge:mysql` 精确运行 `NODE_ENV=test TZ=UTC node --import tsx --test --test-concurrency=1 src/knowledge/mysql-integration-test.ts`；原生验收要求实际配置后零跳过。
+- [x] **Step 4: 验证 GREEN。** MySQL关闭/重建pool读回与文件测试真实通过，再运行 `pnpm --dir desktop exec tsx --test tests/app-paths.test.ts tests/local-application-runtime.test.ts tests/prepare-local-application.test.ts`、`node --test scripts/desktop-local-runtime.test.mjs`。仅清理测试自行创建的库/目录；完整daemon/Electron退出重启仍属于Task8，未配置的已有原生启动测试明确跳过。
+- [x] **Step 5: 提交本任务可分离改动。** 消息 `feat: persist private knowledge versions`。
 
 ### Task 3: 认证上传、查询和桌面有界传输
 
