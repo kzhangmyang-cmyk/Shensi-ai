@@ -30,7 +30,7 @@ async function checkSignature(path: string, format: KnowledgeVersionRecord['form
 export class KnowledgeService {
   private readonly controllers = new Set<AbortController>();
   private closed = false;
-  constructor(private readonly options: Resources | { reason: string }) {}
+  constructor(private readonly options: Resources | { reason: string }, private readonly cancelProcessing?: (id: string) => void) {}
   availability() {
     return { available: !this.closed && 'repository' in this.options, reason: this.closed ? 'knowledge_service_closed' : 'reason' in this.options ? this.options.reason : null };
   }
@@ -141,6 +141,6 @@ export class KnowledgeService {
   async retry(ctx: KnowledgeScope, id: string, versionId: string, revision: number, key: string) {
     await this.getVersionRecord(ctx, id, versionId); return versionProjection(await this.resources().repository.retryJob(ctx, versionId, revision, key));
   }
-  async cancel(ctx: KnowledgeScope, id: string) { await this.resources().repository.cancelJob(ctx, id); }
+  async cancel(ctx: KnowledgeScope, id: string) { await this.resources().repository.cancelJob(ctx, id); this.cancelProcessing?.(id); }
   async close() { this.closed = true; for (const controller of this.controllers) controller.abort(); }
 }

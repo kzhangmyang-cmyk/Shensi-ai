@@ -114,7 +114,7 @@
 
 **Interfaces:** `KnowledgeReader.read({inputPath,format,bytes},signal):Promise<ParsedKnowledge>`；`KnowledgeIngestionWorker({repository,files,reader,authorizeJob,indexVersion,now}).runOnce(signal):Promise<boolean>`，`authorizeJob(claim):Promise<ActiveWorkspaceContext>` 从当前账号/工作区授权重新解析，不复用上传时权限快照。解析用 `commitParsed` 进入 indexing，worker 在检索回调成功且重新授权后调用 `publishReady`；Task 5 之前不提供可发布的索引回调，不显示 ready。
 
-- [ ] **Step 1: 写失败测试。** `knowledge reader coverage and fenced publication`：
+- [x] **Step 1: 写失败测试。** `knowledge reader coverage and fenced publication`：
   ```ts
   assert.equal(parsed.coverage.totalPages,3);
   assert.deepEqual(parsed.chunks.map(c=>c.locator.page),[1,2,3]);
@@ -122,10 +122,10 @@
   assert.equal((await repo.getDocument(ctx,id))?.activeVersionId,newVersionId);
   ```
   fixture 含文本 PDF、扫描页、正常可读加密标志 PDF、需口令 PDF、DOCX 表格、XLSX 缓存公式、CSV/TXT/MD、异常 ZIP/XML。补删除/撤权后晚到结果、取消杀进程、重启租约、partial coverage 与错误不伪装 ready。
-- [ ] **Step 2: 验证 RED。** `pnpm --dir backend exec node --import tsx --test src/knowledge/reader-test.ts src/knowledge/worker-test.ts`；`uv run --frozen --project services/knowledge-reader pytest -q services/knowledge-reader/tests`（锁文件在本任务建立）应在实现缺失处失败，不重复启动原书籍任务。
-- [ ] **Step 3: 实现隔离 reader。** 有文本 PDF 使用本地安全读取，扫描页使用本地 Docling/macOS OCR；复用现有 PDF/DOCX/表格解析依赖和安全约束，单独长书预算，不改临时财务 reader。单 worker、租约 60 秒/每 20 秒续约、总解析时限 60 分钟；PDF 以最多 25 页分批，保持原物理页坐标。进程不持有密钥或模型凭据，禁远程解析/外部插件，启动器选择受控解释器；复用已安装工具，不硬编码旧临时 venv，不复制大依赖目录。OCR/表格/公式继承不确定性，无文本不是成功。正常可读的加密 PDF 走普通解码，不解密口令保护。
-- [ ] **Step 4: 验证 GREEN。** reader/worker/真实多格式 fixture 通过；`pnpm --dir backend test:finance-documents` 验证旧限制不变。记录所用依赖锁、模型资源来源和许可证，不将本地模型缓存打入本次产品包。
-- [ ] **Step 5: 提交本任务可分离代码/fixture。** 消息 `feat: parse knowledge with recoverable local jobs`；仅合成测试资料可进源码。
+- [x] **Step 2: 验证 RED。** `pnpm --dir backend exec node --import tsx --test src/knowledge/reader-test.ts src/knowledge/worker-test.ts`；已有运行时用 `uv run --frozen --no-sync --active --project services/knowledge-reader python -B -m unittest discover -s services/knowledge-reader/tests -v`（锁文件在本任务建立，无需安装pytest）在实现缺失处失败，不重复启动原书籍任务。
+- [x] **Step 3: 实现隔离 reader。** 有文本 PDF 使用本地安全读取，扫描页使用本地 Docling/macOS OCR；复用现有 PDF/DOCX/表格解析依赖和安全约束，单独长书预算，不改临时财务 reader。单 worker、租约 60 秒/每 20 秒续约、总解析时限 60 分钟；PDF 以最多 25 页分批，保持原物理页坐标。进程不持有密钥或模型凭据，禁远程解析/外部插件，启动器选择受控解释器；复用已安装工具，不硬编码旧临时 venv，不复制大依赖目录。OCR/表格/公式继承不确定性，无文本不是成功。正常可读的加密 PDF 走普通解码，不解密口令保护。
+- [x] **Step 4: 验证 GREEN。** reader/worker/真实多格式 fixture 通过；`pnpm --dir backend test:finance-documents` 验证旧限制不变。记录所用依赖锁、模型资源来源和许可证，不将本地模型缓存打入本次产品包。
+- [x] **Step 5: 提交本任务可分离代码/fixture。** 消息 `feat: parse knowledge with recoverable local jobs`；仅合成测试资料可进源码。
 
 ### Task 5: 可重建中文检索
 

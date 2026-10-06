@@ -1,6 +1,8 @@
 # 本地参考知识库
 
-当前阶段：合同、领域、加密原件、MySQL 仓储及认证 HTTP 上传/查询已实现并专项验证；解析索引、页面和问答接入尚未交付。实施依据为 [设计](../design/local-knowledge-base.md) 和 [计划](../design/local-knowledge-base-implementation.md)，实际进度见 [PROJECT_STATUS](../PROJECT_STATUS.md)。
+当前阶段：合同、领域、加密原件、MySQL 仓储、认证 HTTP 上传/查询和本地解析已实现并专项验证；检索、页面和问答接入尚未交付。实施依据为 [设计](../design/local-knowledge-base.md) 和 [计划](../design/local-knowledge-base-implementation.md)，实际进度见 [PROJECT_STATUS](../PROJECT_STATUS.md)。
+
+本地 reader 与持久任务 worker 通过40项知识库专项（另3项需专用MySQL配置，已在存储阶段单独验证），6项Python解析、55项原财务资料及45项Growth回归。实际 macOS 沙箱中的扫描页、正常可读加密标志、需口令拒绝、缺页、取消、撤权、旧租约、网络和无关私有文件读取限制均有合成fixture证据；锁定依赖与现有运行时版本一致。运行边界见 [reader README](../../services/knowledge-reader/README.md)。受控解释器的产品配置、知识库页面、检索与真实书籍导入仍未完成。
 
 ## 已实现边界
 
