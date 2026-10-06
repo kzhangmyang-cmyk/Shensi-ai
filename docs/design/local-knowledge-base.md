@@ -1,6 +1,6 @@
 # 本地参考知识库与六角色问答设计
 
-日期：2026-10-06。阶段：初版范围已确认，书面设计待用户审核；尚未实现。
+日期：2026-10-06。阶段：初版范围及书面设计已获用户确认，[实施计划](local-knowledge-base-implementation.md) 待审核及执行方式选择；尚未实现。
 本文件描述待实现功能，不替代 `docs/PROJECT_STATUS.md` 的实际进度。
 
 ## 1. 目标与范围
@@ -60,7 +60,7 @@ Backend 当前没有通用原件 root。新增 `SHENSI_KNOWLEDGE_STORAGE_ROOT`�
 
 ## 5. 解析任务与检索
 
-独立上传路由使用有界流式文件接收，不提高整个 Backend 或 Electron 网关的请求上限。单文件上限 50MiB、PDF 上限 1,000 个物理页，能容纳本批书籍；超限、加密/不可读取、伪造格式、ZIP 膨胀或异常 XML 明确失败，不执行宏、字段、外部关系或文档内指令。
+独立上传路由使用有界流式文件接收，不提高整个 Backend 或 Electron 网关的请求上限。单文件上限 50MiB、PDF 上限 1,000 个物理页，能容纳本批书籍；超限、需要口令且无法正常读取、伪造格式、ZIP 膨胀或异常 XML 明确失败，不执行宏、字段、外部关系或文档内指令。带加密标志但可直接正常读取的 PDF 使用普通解码，不因解析依赖缺失误判为口令限制，也不绕过口令保护。
 
 状态为 `queued → parsing → indexing → ready`，另有 `failed/cancelled`。持久任务一次一个解析 worker，使用隔离进程、分页处理和可取消总时限，原件解密仅发生于私有临时目录。重启按任务租约恢复；取消、停用、删除与新版本 fencing 防止晚到结果复活资料。只有完整版本发布后才能进入问答；部分提取必须记录覆盖缺口。
 
@@ -90,7 +90,7 @@ MySQL 是资料事实源，MiniSearch 索引是可重建缓存。索引按 works
 
 | 范围 | 准确接入位置 / 新模块 |
 | --- | --- |
-| 数据、任务、文件及检索 | 新增 `backend/src/knowledge/`；在 `backend/src/server.ts` 的真实 MySQL 初始化与路由装配中接入，不改 legacy 资产语义。 |
+| 数据、任务、文件及检索 | 新增 `backend/src/knowledge/`；经 `server.ts` 调用的 `growth-commercial-composition.ts` 和 `growth-commercial-application.ts` 接入，SQL 初始化在新模块 `install()`，知识服务先于 Council 装配；新前缀纳入统一鉴权，不改 legacy 资产语义。 |
 | 本地解析 | 新增 `services/knowledge-reader/`，与浏览器/MediaCrawler 生命周期分离，不改抖音执行器。 |
 | 问答 | `backend/src/financial-council-agent-center.ts`、`cfo-conversation.ts`、`finance-document-model.ts` 及 `cfo-conversation-session-repository.ts`。 |
 | 合同 | 新增 `contracts/openapi/knowledge.v1.yaml` 及对应生成目标；问答可选投影走 Growth 新版本发布，不修改已发布版本字节。 |
