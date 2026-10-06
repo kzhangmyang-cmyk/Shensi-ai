@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript/Node 22、Express、MySQL、现有 DOM/Electron 壳、MiniSearch、Docling/macOS 本地 OCR；复用现有 OpenAPI 生成和 Growth 模块装配。
 
-**Spec:** [已确认设计](local-knowledge-base.md)。本计划待用户审核及执行方式选择，所有复选框初始未完成。
+**Spec:** [已确认设计](local-knowledge-base.md)。计划和 Native 顺序实施方式已获用户批准；按实际验证更新复选框，未勾选步骤尚未完成。
 
 ## Global Constraints
 
@@ -206,4 +206,4 @@
 
 ## 执行建议
 
-建议 **Native**：由主代理在本聊天顺序实现八个相互依赖的任务，最后独立审查；不会每个阶段再打开新聊天或打包应用。若选择 **Subagent-driven**，则每任务由新实现代理和独立审查代理完成后才接下一任务，成本更高但逐段审查更充分。用户确认本计划与执行方式之前，仅允许只读调查和计划修订，不开始生产实现。
+采用已批准的 **Native**：由主代理在本聊天顺序实现八个相互依赖的任务，最后独立审查；不会每个阶段再打开新聊天或打包应用。只读上下文调查可以并行，生产实现由主代理完成。

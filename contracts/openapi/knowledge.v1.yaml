@@ -1,0 +1,161 @@
+openapi: 3.1.0
+info:
+  title: Shensi Private Reference Knowledge
+  version: 1.0.0
+  description: Actor-private local reference data within an authorized concrete workspace.
+servers: [{ url: / }]
+security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+    cookieAuth: { type: apiKey, in: cookie, name: gj_session }
+  parameters:
+    workspace: { name: X-Workspace-Id, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 191 } }
+    csrf: { name: X-CSRF-Token, in: header, schema: { type: string }, description: Required for cookie-authenticated writes. }
+    key: { name: Idempotency-Key, in: header, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_.:-]{1,191}$' } }
+    revision: { name: If-Match, in: header, required: true, schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, description: Document revision for metadata/replacement; version revision for content/retry. }
+    id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    versionId: { name: versionId, in: path, required: true, schema: { type: string, format: uuid } }
+    jobId: { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    cursor: { name: cursor, in: query, schema: { type: string, maxLength: 2000 } }
+    limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+  responses:
+    error:
+      description: Bounded code/message without plaintext, private paths or ownership.
+      content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeError' } } }
+    document:
+      description: Current document metadata.
+      headers: { ETag: { schema: { type: string } } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeDocument' } } }
+    version:
+      description: Version state; uploaded does not mean ready.
+      headers: { ETag: { schema: { type: string } } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeVersion' } } }
+  schemas:
+    KnowledgeUploadInput: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/UploadInput' }
+    KnowledgePatch: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/Patch' }
+    KnowledgeRole: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/Role' }
+    KnowledgeStatus: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/Status' }
+    KnowledgeDocument: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/Document' }
+    KnowledgeVersion: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/Version' }
+    KnowledgeChunk: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/Chunk' }
+    KnowledgeCitation: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/Citation' }
+    KnowledgeAnswer: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/Answer' }
+    KnowledgeError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties: { code: { type: string, maxLength: 80 }, message: { type: string, maxLength: 300 } }
+    KnowledgeCreated:
+      type: object
+      additionalProperties: false
+      required: [document, version]
+      properties:
+        document: { $ref: '#/components/schemas/KnowledgeDocument' }
+        version: { $ref: '#/components/schemas/KnowledgeVersion' }
+    KnowledgeDocumentList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/KnowledgeDocument' } }
+        nextCursor: { type: [string, 'null'], maxLength: 2000 }
+    KnowledgeChunkList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/KnowledgeChunk' } }
+        nextCursor: { type: [string, 'null'], maxLength: 2000 }
+    KnowledgeAvailability:
+      type: object
+      additionalProperties: false
+      required: [available, reason]
+      properties: { available: { type: boolean }, reason: { type: [string, 'null'], maxLength: 80 } }
+paths:
+  /api/v1/knowledge/availability:
+    get:
+      operationId: knowledgeAvailability
+      parameters: [{ $ref: '#/components/parameters/workspace' }]
+      responses:
+        '200': { description: Configuration availability, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeAvailability' } } } }
+        default: { $ref: '#/components/responses/error' }
+  /api/v1/knowledge/documents:
+    get:
+      operationId: listKnowledgeDocuments
+      parameters:
+        - { $ref: '#/components/parameters/workspace' }
+        - { $ref: '#/components/parameters/cursor' }
+        - { $ref: '#/components/parameters/limit' }
+        - { name: q, in: query, schema: { type: string, maxLength: 300 } }
+        - { name: role, in: query, schema: { $ref: '#/components/schemas/KnowledgeRole' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/KnowledgeStatus' } }
+      responses:
+        '200': { description: Actor-private page, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeDocumentList' } } } }
+        default: { $ref: '#/components/responses/error' }
+    post:
+      operationId: createKnowledgeDocument
+      parameters: [{ $ref: '#/components/parameters/workspace' }, { $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/key' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeUploadInput' } } } }
+      responses:
+        '201': { description: Metadata only; separate original upload, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeCreated' } } } }
+        default: { $ref: '#/components/responses/error' }
+  /api/v1/knowledge/documents/{id}:
+    parameters: [{ $ref: '#/components/parameters/workspace' }, { $ref: '#/components/parameters/id' }]
+    get:
+      operationId: getKnowledgeDocument
+      responses: { '200': { $ref: '#/components/responses/document' }, default: { $ref: '#/components/responses/error' } }
+    patch:
+      operationId: updateKnowledgeDocument
+      parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/key' }, { $ref: '#/components/parameters/revision' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgePatch' } } } }
+      responses: { '200': { $ref: '#/components/responses/document' }, default: { $ref: '#/components/responses/error' } }
+    delete:
+      operationId: deleteKnowledgeDocument
+      parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/key' }, { $ref: '#/components/parameters/revision' }]
+      responses: { '204': { description: Access revoked; owned cleanup scheduled }, default: { $ref: '#/components/responses/error' } }
+  /api/v1/knowledge/documents/{id}/versions:
+    post:
+      operationId: replaceKnowledgeDocument
+      parameters: [{ $ref: '#/components/parameters/workspace' }, { $ref: '#/components/parameters/id' }, { $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/key' }, { $ref: '#/components/parameters/revision' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeUploadInput' } } } }
+      responses: { '201': { $ref: '#/components/responses/version' }, default: { $ref: '#/components/responses/error' } }
+  /api/v1/knowledge/documents/{id}/versions/{versionId}:
+    get:
+      operationId: getKnowledgeVersion
+      parameters: [{ $ref: '#/components/parameters/workspace' }, { $ref: '#/components/parameters/id' }, { $ref: '#/components/parameters/versionId' }]
+      responses: { '200': { $ref: '#/components/responses/version' }, default: { $ref: '#/components/responses/error' } }
+  /api/v1/knowledge/documents/{id}/versions/{versionId}/content:
+    parameters: [{ $ref: '#/components/parameters/workspace' }, { $ref: '#/components/parameters/id' }, { $ref: '#/components/parameters/versionId' }]
+    put:
+      operationId: uploadKnowledgeOriginal
+      parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/key' }, { $ref: '#/components/parameters/revision' }]
+      requestBody: { required: true, content: { application/octet-stream: { schema: { type: string, format: binary, maxLength: 52428800 } } } }
+      responses: { '200': { $ref: '#/components/responses/version' }, default: { $ref: '#/components/responses/error' } }
+    get:
+      operationId: downloadKnowledgeOriginal
+      responses:
+        '200': { description: Authorized original, content: { application/octet-stream: { schema: { type: string, format: binary, maxLength: 52428800 } } } }
+        default: { $ref: '#/components/responses/error' }
+  /api/v1/knowledge/documents/{id}/versions/{versionId}/chunks:
+    get:
+      operationId: previewKnowledgeChunks
+      parameters: [{ $ref: '#/components/parameters/workspace' }, { $ref: '#/components/parameters/id' }, { $ref: '#/components/parameters/versionId' }, { $ref: '#/components/parameters/cursor' }, { $ref: '#/components/parameters/limit' }]
+      responses:
+        '200': { description: Authorized bounded preview, content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeChunkList' } } } }
+        default: { $ref: '#/components/responses/error' }
+  /api/v1/knowledge/documents/{id}/versions/{versionId}/retry:
+    post:
+      operationId: retryKnowledgeIngestion
+      parameters: [{ $ref: '#/components/parameters/workspace' }, { $ref: '#/components/parameters/id' }, { $ref: '#/components/parameters/versionId' }, { $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/key' }, { $ref: '#/components/parameters/revision' }]
+      responses: { '200': { $ref: '#/components/responses/version' }, default: { $ref: '#/components/responses/error' } }
+  /api/v1/knowledge/jobs/{jobId}/cancel:
+    post:
+      operationId: cancelKnowledgeIngestion
+      parameters: [{ $ref: '#/components/parameters/workspace' }, { $ref: '#/components/parameters/jobId' }, { $ref: '#/components/parameters/csrf' }]
+      responses: { '204': { description: Cancel exact owned job }, default: { $ref: '#/components/responses/error' } }

@@ -1,6 +1,6 @@
 # 本地参考知识库与六角色问答设计
 
-日期：2026-10-06。阶段：初版范围及书面设计已获用户确认，[实施计划](local-knowledge-base-implementation.md) 待审核及执行方式选择；尚未实现。
+日期：2026-10-06。阶段：初版范围、书面设计及[实施计划](local-knowledge-base-implementation.md)已获用户确认，按 Native 顺序实施；实际完成项以进度文档为准。
 本文件描述待实现功能，不替代 `docs/PROJECT_STATUS.md` 的实际进度。
 
 ## 1. 目标与范围
