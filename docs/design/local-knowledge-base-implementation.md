@@ -152,7 +152,7 @@
 
 **Interfaces:** `createKnowledgeApi({http,fetchImpl,csrf,workspaceId}):KnowledgeApi` 复用 JSON helper，新增 `uploadContent({documentId,versionId,file,etag,key,signal})` 的 binary helper。`mountKnowledgeLibrary(host,{api,onOpenCitation}):{dispose():void}`；统一使用生成 DTO、limit/cursor 服务端分页，不发全库到 Renderer。
 
-- [ ] **Step 1: 写失败测试。** `knowledge route lifecycle and upload states`：
+- [x] **Step 1: 写失败测试。** `knowledge route lifecycle and upload states`：
   ```ts
   assert.equal(normalizeAppHash('#knowledge'),'#knowledge');
   assert.equal(await page.getByText('知识库',{exact:true}).count()>0,true);
@@ -160,10 +160,10 @@
   assert.equal(staleIdentityResultVisible,false);
   ```
   补同路由更新不重复 mount、离页/登出取消请求、工作区变化清除、失败可重试、原件已上传但索引未完不可用于问答、十份限制、角色/版本编辑、停用/删除，以及 inspector 不残留。
-- [ ] **Step 2: 验证 RED。** `pnpm --dir frontend exec tsx --test src/knowledge/view-state.test.ts`；`pnpm --dir frontend exec playwright test --config=playwright.knowledge.config.ts`，新页面断言失败。
-- [ ] **Step 3: 实现页面。** 沿真实模块壳挂载 `#knowledge`，复用 `mountEnterpriseQuery` 的 DOM 生命周期与现有上传 generation/cancel 思路。列表和详情独立，真实服务状态轮询仅更新变化部分，不抢焦点/滚动；显示书籍/公司资料/其他参考分类、六角色、来源位置和缺失提示。用现有 CSRF、workspace、幂等键及错误 envelope；不把 File 交给 JSON.stringify helper。
-- [ ] **Step 4: 验证 GREEN。** 两项新测试、`pnpm --dir frontend test:theme`、`pnpm --dir desktop exec tsx --test tests/renderer-server.test.ts` 通过；黑绿/蓝白在 1440、1024、390 宽度分别验证正常/选中/禁用/失败/成功状态。
-- [ ] **Step 5: 提交本任务可分离改动。** 消息 `feat: add persistent knowledge library workspace`。
+- [x] **Step 2: 验证 RED。** `pnpm --dir frontend exec tsx --test src/knowledge/view-state.test.ts`；`pnpm --dir frontend exec playwright test --config=playwright.knowledge.config.ts`，新页面断言失败。
+- [x] **Step 3: 实现页面。** 沿真实模块壳挂载 `#knowledge`，复用 `mountEnterpriseQuery` 的 DOM 生命周期与现有上传 generation/cancel 思路。列表和详情独立，真实服务状态轮询仅更新变化部分，不抢焦点/滚动；显示书籍/公司资料/其他参考分类、六角色、来源位置和缺失提示。用现有 CSRF、workspace、幂等键及错误 envelope；不把 File 交给 JSON.stringify helper。
+- [x] **Step 4: 验证 GREEN。** 两项新测试、`pnpm --dir frontend test:theme`、`pnpm --dir desktop exec tsx --test tests/renderer-server.test.ts` 通过；黑绿/蓝白在 1440、1024、390 宽度分别验证正常/选中/禁用/失败/成功状态。
+- [x] **Step 5: 提交本任务可分离改动。** 消息 `feat: add persistent knowledge library workspace`。
 
 ### Task 7: 六角色详细回答、数值边界与引用历史
 

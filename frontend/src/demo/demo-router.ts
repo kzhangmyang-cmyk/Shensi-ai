@@ -16,6 +16,7 @@ interface ModuleMeta {
 }
 
 export const demoModuleMeta: Record<DemoModule, ModuleMeta> = {
+  knowledge: {title:'知识库',subtitle:'本地私有资料 · 按需参考 · 来源可追溯',searchPlaceholder:'搜索资料标题',primaryAction:'上传资料'},
   dashboard: {
     title: "自动营销总览",
     subtitle: "本地演示数据概览与今日待办",
@@ -75,7 +76,7 @@ export const demoModuleMeta: Record<DemoModule, ModuleMeta> = {
 const modules = new Set<DemoModule>(Object.keys(demoModuleMeta) as DemoModule[]);
 
 export function demoModuleFromHash(hash: string, fallback: DemoModule): DemoModule {
-  const module = hash.replace(/^#/, "");
+  const module = hash.replace(/^#/, "").split("?", 1)[0];
   return modules.has(module as DemoModule) ? module as DemoModule : fallback;
 }
 

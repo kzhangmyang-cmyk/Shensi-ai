@@ -7,6 +7,8 @@
     "dev": "vite --host 127.0.0.1 --port 5188",
     "build": "tsc -b && vite build",
     "test": "tsx src/self-test.ts",
+    "test:knowledge": "node --import tsx --test src/knowledge/*.test.ts && node --test scripts/knowledge-contract-generation.test.mjs",
+    "test:e2e:knowledge": "playwright test --config=playwright.knowledge.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:shensi-cutover": "playwright test --config=playwright.shensi-cutover.config.ts --project=chromium",
     "test:e2e:douyin-mediacrawler:real": "playwright test --config=playwright.douyin-mediacrawler-real.config.ts --project=chromium",

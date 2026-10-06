@@ -5,6 +5,7 @@ export type DemoModule =
   | "private-domain"
   | "conversion"
   | "agents"
+  | "knowledge"
   | "scripts"
   | "trade-marketing"
   | "settings";

@@ -1,0 +1,6 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>知识库 · 隔离交互验收</title><link rel="stylesheet" href="/src/theme.css"><link rel="stylesheet" href="/src/knowledge/knowledge.css"><style>body{margin:0;background:var(--theme-page);color:var(--theme-text);font-family:system-ui,"PingFang SC",sans-serif}main{max-width:1500px;margin:auto;padding:24px;box-sizing:border-box}@media(max-width:700px){main{padding:12px}}</style></head><body data-session-mode="real" data-session-workspace-id="personal-fixture" data-session-user-id="fixture-user"><main id="knowledge-fixture"></main><script type="module">
+  document.cookie='gj_csrf=fixture-csrf; Path=/';
+  import {mountKnowledgeLibrary} from '/src/knowledge/view.ts';
+  const host=document.querySelector('#knowledge-fixture');
+  window.knowledgeFixture=mountKnowledgeLibrary(host,{pollMs:150});
+</script></body></html>

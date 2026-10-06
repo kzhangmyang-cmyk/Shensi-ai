@@ -3,6 +3,7 @@ import { parseGrowthHash } from "./growth/router";
 const standalone = new Set([
   "dashboard",
   "agents",
+  "knowledge",
   "acquisition",
   "conversations",
   "private-domain",
@@ -18,6 +19,7 @@ export function isStandaloneModuleHash(hash: string): boolean {
 
 export function normalizeAppHash(hash: string): string {
   const pathname = hash.replace(/^#/, "").split("?", 1)[0];
+  if (pathname === "knowledge") return hash.startsWith("#") ? hash : `#${hash}`;
   if (pathname === "growth/agents" || pathname.startsWith("growth/agents/")) {
     return "#agents";
   }

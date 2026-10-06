@@ -1,8 +1,8 @@
 # 本地参考知识库
 
-当前阶段：合同、领域、加密原件、MySQL 仓储、认证 HTTP 上传/查询、本地解析、中文检索及真实索引发布已通过专项和回归验证。页面和问答接入尚未交付。实施依据为 [设计](../design/local-knowledge-base.md) 和 [计划](../design/local-knowledge-base-implementation.md)，实际进度见 [PROJECT_STATUS](../PROJECT_STATUS.md)。
+当前阶段：合同、领域、加密原件、MySQL 仓储、认证 HTTP 上传/查询、本地解析、中文检索及真实索引发布已通过专项和回归验证。最新 DOM 业务壳的独立知识库页面、完整前端与桌面代理回归通过；智能体问答接入尚未完成。实施依据为 [设计](../design/local-knowledge-base.md) 和 [计划](../design/local-knowledge-base-implementation.md)，实际进度见 [PROJECT_STATUS](../PROJECT_STATUS.md)。
 
-检索与解析联合门禁通过49项知识库专项（另3项需专用MySQL配置，已在存储阶段单独验证）、6项Python解析、55项原财务资料及45项Growth回归，类型/context/diff检查通过。实际 macOS 沙箱中的扫描页、正常可读加密标志、需口令拒绝、缺页、取消、撤权、旧租约、网络和无关私有文件读取限制均有合成fixture证据；锁定依赖与现有运行时版本一致。运行边界见 [reader README](../../services/knowledge-reader/README.md)。受控解释器的产品配置、知识库页面、问答接入与真实书籍导入仍未完成。
+检索与解析联合门禁通过49项知识库专项（另3项需专用MySQL配置，已在存储阶段单独验证）、6项Python解析、55项原财务资料及45项Growth回归，类型/context/diff检查通过。实际 macOS 沙箱中的扫描页、正常可读加密标志、需口令拒绝、缺页、取消、撤权、旧租约、网络和无关私有文件读取限制均有合成fixture证据；锁定依赖与现有运行时版本一致。运行边界见 [reader README](../../services/knowledge-reader/README.md)。受控解释器的产品配置、问答接入与真实书籍导入仍未完成。
 
 ## 已实现边界
 
@@ -50,6 +50,16 @@ Growth 1.0.38 为当前引用协议：CFO 文字输入及 session ask 可选 `kn
 
 合成中文检索、编号、权限撤销、角色排名、去重、容量和旧版本专项通过。现有首本私有书籍提取中的881个正文片段，仅在临时内存仓储抽查预算/编制/差异三个问题，引用均能定位物理页和精确原文；没有重复OCR、持久导入、模型调用或回显书籍全文。这不替代21本实际入库及智能体回答验收。引擎接口和许可证见[官方文档](https://lucaong.github.io/minisearch/)与[LICENSE](https://github.com/lucaong/minisearch/blob/v7.2.0/LICENSE.txt)，低频维护及无公告不等于已经证明无漏洞。
 
+## 知识库页面
+
+最新源码业务壳的侧栏入口为 `#knowledge`，页面自行承载列表和详情，不使用共享 inspector。登录并选择具体工作区后读取可用性；未配置本地服务时明确显示不可用，不伪造资料或进度。列表按服务端 cursor 每页20份，正文预览每次20片段，按需继续加载。支持分类、角色与状态筛选、资料标题/分类/适用角色编辑、文件替换、启停、删除、解析重试/取消及当前版本原件下载；角色名称复用现有六智能体。
+
+每批最多10份非空文件，逐份发送原始字节。上传完成仅表示原件已接收，解析和索引状态另由版本显示；新版处理期间保留上一有效版本。网络结果不确定时保留待核对状态，不自动重传；人工核对发现已接收则不重复 PUT。取消上传会终止当前请求和等待队列，不等同于取消已经持久化的解析任务。
+
+同一知识库路由复用页面实例；状态轮询只更新变化区域，不覆盖正在编辑的标题，不重建未变化预览。离页、登出或账号/工作区改变会取消请求并清除正文；迟到结果不能恢复旧资料。引用深链保留明确 document/version 标识；问答引用按钮的接入仍待下一阶段。物理页、章节、坐标、hash、版本、缺页及 OCR/表格/公式待核对标记按实际数据展示，不捏造版本序号或提取百分比。
+
+13项页面状态/API单元测试通过。完整前端测试、主题切换/浏览器重启、三套类型检查、协议生成一致性、5项隔离浏览器和37项桌面代理测试均通过。浏览器覆盖上传/就绪与长预览轮询保留滚动、失败重试、身份变化、最新业务壳生命周期、角色和替换版本；黑绿/蓝白在1440、1024、390三宽度检查正常、选中、禁用、失败和可检索状态，关键文字对比度至少4.5:1。浏览器使用合成 HTTP 响应，不替代真实 Electron 上传、完整退出重启或21本入库验收。
+
 ## 验证命令
 
 ```bash
@@ -59,6 +69,9 @@ pnpm --dir backend test:knowledge:mysql
 pnpm --filter ./contracts check:knowledge-types
 pnpm check:growth-contracts
 pnpm --dir frontend contract:check
+pnpm --dir frontend test:knowledge
+pnpm --dir frontend test:e2e:knowledge
+pnpm --dir frontend test:theme
 ```
 
 MySQL 专项会随机创建/删除自己的测试库，关连接后另开 pool 验证读回；该证据不等于整个 MySQL daemon 或 Electron 已完整退出重启。2026-10-06 已验证 MySQL 8.4.11 三项真实专项、零跳过；桌面路径/启动准备专项通过，原生应用完整重启测试未配置资源时明确跳过。

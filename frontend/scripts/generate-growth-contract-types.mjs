@@ -61,6 +61,24 @@ export async function generateGrowthContractTypes({ check }) {
 export function normalizeOpenApiDefs(document) {
   const schemas = document.components?.schemas;
   if (!schemas || typeof schemas !== "object") return document;
+  // A default is server behavior, not a requirement for old text/voice callers.
+  // Bundle can reuse a primitive array through an optional property path;
+  // TypeScript cannot safely index that optional path (and may emit a cycle).
+  const normalizeKnowledgeProperties = value => {
+    if (!value || typeof value !== 'object') return;
+    if (value.properties?.knowledgeMode && !value.required?.includes('knowledgeMode')) {
+      delete value.properties.knowledgeMode.default;
+    }
+    if (typeof value.$ref === 'string' && value.$ref.startsWith('#/components/schemas/') && value.$ref.includes('/properties/')) {
+      const target = value.$ref.slice(2).split('/').reduce((current, key) => current?.[key.replace(/~1/gu, '/').replace(/~0/gu, '~')], document);
+      if (target?.type === 'array' && ['string', 'number', 'integer', 'boolean'].includes(target.items?.type)) {
+        delete value.$ref;
+        Object.assign(value, structuredClone(target));
+      }
+    }
+    for (const child of Object.values(value)) normalizeKnowledgeProperties(child);
+  };
+  normalizeKnowledgeProperties(document);
   const fileToComponent = new Map();
   for (const [name, schema] of Object.entries(schemas)) {
     if (!schema || typeof schema !== "object") continue;
