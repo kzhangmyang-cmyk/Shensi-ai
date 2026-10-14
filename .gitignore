@@ -18,9 +18,22 @@ services/media-crawler/.shensi-crawl-output/
 .worktrees/
 .env.local
 .runtime/
+.local-data/
+desktop/.build/
+desktop/resources/staging/
+desktop/resources/generated/
+desktop/release/
+# Apple signing/notarization credentials must stay outside the repository.
+*.p12
+*.p8
+*.pem
+*.key
+AuthKey_*.p8
+!**/fixtures/**/*.pem
 .env.production.local
 backups/
 *.sql
+!contracts/fixtures/desktop-outreach-legacy-schema.v1.sql
 *.sql.gz
 *.dump
 *.backup

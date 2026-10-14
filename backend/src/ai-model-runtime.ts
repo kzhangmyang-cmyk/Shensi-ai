@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { createPlatformExecutionAccess } from "./platform-execution-access.js";
+import { emptyPlatformState, type PlatformFeature } from "./platform-admin-domain.js";
+import { isPlatformMutationPending } from "./account-mutation-state.js";
 import { z } from "zod";
 import { createAiHttpClient } from "./ai-http-security.js";
 import { getStore } from "./store.js";
@@ -23,6 +26,7 @@ export const LEGACY_JSON_OBJECT_SCHEMA_HASH = hashModelCallValue({
 });
 
 export interface AiModelRuntimeIdentity {
+  platformFeature?: PlatformFeature;
   jobId: string;
   promptVersion: string;
   schemaVersion: string;
@@ -65,6 +69,7 @@ export async function callAiModelWithRuntime(
     || ((url: string, init?: RequestInit) =>
       secureClient!.fetch(url, init));
   const gateway = createActiveModelGatewayForSnapshot(store, {
+    platformFeature: identity.platformFeature ?? "agents",
     storedSnapshot: snapshot,
     fetch: request as typeof fetch,
     requestTimeoutMs: AI_MODEL_TIMEOUT_MS
@@ -84,7 +89,8 @@ export async function callAiModel(
   fetcher?: (
     url: string,
     init?: RequestInit
-  ) => Promise<globalThis.Response>
+  ) => Promise<globalThis.Response>,
+  platformFeature: PlatformFeature = "agents"
 ) {
   if (MODEL_PROVIDER_IDS.includes(
     config.provider as (typeof MODEL_PROVIDER_IDS)[number]
@@ -94,15 +100,25 @@ export async function callAiModel(
       config,
       prompt,
       maxInputChars,
-      fetcher
+      fetcher,
+      { jobId: `ai_sync_${randomUUID()}`, promptVersion: "legacy-json.v1", schemaVersion: "legacy-json-object.v1", platformFeature }
     );
   }
   const protocol = config.protocol || "openai-compatible";
+  const store = getStore();
+  const access = createPlatformExecutionAccess({ feature: platformFeature,
+    isMutationPending: () => isPlatformMutationPending(store),
+    readState: () => store.readPlatformAdminState ? store.readPlatformAdminState()
+      : Promise.resolve(store.platformAdminStates?.[0] ?? emptyPlatformState()) });
   const endpointBase = config.baseUrl.replace(/\/+$/, "");
   const secureClient = fetcher ? null : createAiHttpClient(endpointBase);
-  const request = fetcher
+  const transport = fetcher
     || ((url: string, init?: RequestInit) =>
       secureClient!.fetch(url, init));
+  const request = async (url: string, init?: RequestInit) => {
+    if (!await access(config.teamId, new Date().toISOString())) throw new Error("platform_execution_forbidden");
+    return transport(url, init);
+  };
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
@@ -293,7 +309,7 @@ export async function aiGenerateLeads(
     `获客目标：${query.goal || "未指定"}`,
     `排除：${query.excludeKeywords || "无"}`
   ].join("\n");
-  const content = await callAiModel(config, prompt, 4_000, fetcher);
+  const content = await callAiModel(config, prompt, 4_000, fetcher, "acquisition");
   const parsed = extractJsonObject(content) as { companies?: unknown };
   const companies = Array.isArray(parsed.companies)
     ? parsed.companies

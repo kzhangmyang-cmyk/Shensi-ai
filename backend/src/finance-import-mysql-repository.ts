@@ -8,6 +8,7 @@ import {
   type FinanceImportPreviewRecord,
   type FinanceImportPreviewRecordInput,
   type FinanceImportRowErrorCode,
+  type FinanceImportRowErrorDetail,
   type FinanceImportRowResult,
   type FinanceImportStoredNormalizedRow,
   type FinanceImportStoredRow,
@@ -189,6 +190,15 @@ function storedRow(row: MysqlRow): FinanceImportStoredRow {
   const errors = jsonValue(
     row.errors_json, "invalid_finance_import_row"
   ) as unknown[];
+  const details = errors.map((value): FinanceImportRowErrorDetail => {
+    if (typeof value === "string") return { code: textValue(value, "invalid_finance_import_row") as FinanceImportRowErrorCode,
+      field: null, message: value };
+    if (!value || typeof value !== "object" || Array.isArray(value)
+      || Object.keys(value).sort().join(",") !== "code,field,message") throw new Error("invalid_finance_import_row");
+    const detail = value as Record<string, unknown>;
+    return { code: textValue(detail.code, "invalid_finance_import_row") as FinanceImportRowErrorCode,
+      field: nullableText(detail.field, "invalid_finance_import_row"), message: textValue(detail.message, "invalid_finance_import_row") };
+  });
   return Object.freeze({
     id: textValue(row.id, "invalid_finance_import_row"),
     previewId: textValue(row.preview_id, "invalid_finance_import_row"),
@@ -200,9 +210,8 @@ function storedRow(row: MysqlRow): FinanceImportStoredRow {
       row.source_identity_root, "invalid_finance_import_row"
     ),
     normalized: normalized === null ? null : Object.freeze(normalized),
-    errors: Object.freeze(errors.map((value) =>
-      textValue(value, "invalid_finance_import_row") as
-        FinanceImportRowErrorCode)),
+    errors: Object.freeze(details.map(detail => detail.code)),
+    ...(errors.some(value => typeof value !== "string") ? { errorDetails: Object.freeze(details.map(detail => Object.freeze(detail))) } : {}),
     recordedAt: growthMysqlInstant(row.recorded_at),
     temporalSequence: safeInteger(
       row.temporal_sequence, "invalid_finance_import_row", 1
@@ -425,7 +434,7 @@ function buildTransaction(
       sets.push("updated_at = ?", "temporal_sequence = ?");
       values.push(growthMysqlDate(input.updatedAt), input.temporalSequence);
       values.push(input.operationId);
-      const result = await connection.query(
+      const [result] = await connection.query(
         `UPDATE finance_import_operations
          SET ${sets.join(", ")}
          WHERE id = ?`,
@@ -539,7 +548,7 @@ implements FinanceImportExecutionRepository {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [row.id, row.previewId, row.rowNumber, row.sheetName, row.status,
             row.sourceIdentityRoot, jsonForMysql(row.normalized),
-            jsonForMysql([...row.errors]),
+            jsonForMysql(row.errors.map((code, index) => row.errorDetails?.[index]?.code === code ? row.errorDetails[index] : code)),
             growthMysqlDate(rowStamp.recordedAt), rowStamp.temporalSequence]
         );
       }
@@ -709,15 +718,17 @@ implements FinanceImportExecutionRepository {
         recordedAt: eventStamp.recordedAt,
         temporalSequence: eventStamp.temporalSequence
       });
-      const verified = await one(
-        this.query(),
-        `SELECT * FROM finance_import_operations
-         WHERE id = ? AND workspace_id = ? AND lease_owner = ?
-           AND fencing_token = ? AND lease_expires_at > ?`,
-        [operationId, workspaceId, workerId, nextFence,
-          growthMysqlDate(now)]
-      );
-      if (!verified) return null;
+      const verified = await tx.getOperationForUpdate(operationId);
+      if (!verified
+        || String(verified.workspace_id) !== workspaceId
+        || verified.lease_owner !== workerId
+        || safeInteger(
+          verified.fencing_token, "invalid_finance_import_operation"
+        ) !== nextFence
+        || verified.lease_expires_at === null
+        || growthMysqlInstant(verified.lease_expires_at) <= now) {
+        return null;
+      }
       return Object.freeze({
         workspaceId,
         operationId,

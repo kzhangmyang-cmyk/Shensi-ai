@@ -1,4 +1,5 @@
 import type mysql from "mysql2/promise";
+import { validateCollaborationEvent, type FinancialCouncilCollaborationEvent } from "./financial-council-collaboration-record.js";
 import type { CommandContext } from "./growth-command-context.js";
 import type { ActiveWorkspaceContext } from "./growth-workspace-context.js";
 import {
@@ -95,6 +96,16 @@ import type { FinancialCouncilRebutInput } from
 type MysqlRow = Record<string, unknown>;
 
 export const FINANCIAL_COUNCIL_MYSQL_SCHEMA_STATEMENTS = Object.freeze([
+  `CREATE TABLE IF NOT EXISTS financial_council_collaboration_events (
+    sequence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    workspace_id VARCHAR(191) NOT NULL,
+    run_id VARCHAR(191) NOT NULL,
+    event_id VARCHAR(255) NOT NULL,
+    event_json JSON NOT NULL,
+    occurred_at DATETIME(3) NOT NULL,
+    PRIMARY KEY (sequence_id),
+    UNIQUE KEY collaboration_event_identity (workspace_id, run_id, event_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin`,
   `CREATE TABLE IF NOT EXISTS financial_council_runs (
     run_id VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
     workspace_id VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
@@ -1136,6 +1147,51 @@ function runBeforePortfolioEditOverlay(
 export class MysqlFinancialCouncilRepository
 implements FinancialCouncilRepository {
   constructor(private readonly pool: mysql.Pool) {}
+
+  async appendCollaborationEvent(lease: FinancialCouncilAnalysisLease, raw: FinancialCouncilCollaborationEvent): Promise<void> {
+    const event = validateCollaborationEvent(lease, raw);
+    await this.transaction(async connection => {
+      await this.assertLiveAnalysisLease(connection, lease, event.occurredAt);
+      await connection.query(`INSERT INTO financial_council_collaboration_events
+        (workspace_id, run_id, event_id, event_json, occurred_at) VALUES (?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE event_id = event_id`,
+      [event.workspaceId, event.runId, event.eventId, canonical(event), sqlDate(event.occurredAt)]);
+    });
+  }
+
+  async listCollaborationEvents(context: ActiveWorkspaceContext, runId: string): Promise<readonly FinancialCouncilCollaborationEvent[]> {
+    return this.transaction(async connection => {
+      const [rows] = await connection.query(`SELECT event_json FROM financial_council_collaboration_events
+        WHERE workspace_id = ? AND run_id = ? ORDER BY sequence_id ASC`, [context.workspaceId, runId]);
+      return Object.freeze((rows as MysqlRow[]).map(row => {
+        try {
+          return immutableFinancialCouncilValue(validateCollaborationEvent({ workspaceId: context.workspaceId, runId },
+            jsonObject(row.event_json) as unknown as FinancialCouncilCollaborationEvent));
+        } catch { return integrity(); }
+      }));
+    }, true);
+  }
+
+  async listRunHistory(context: ActiveWorkspaceContext, input: { readonly limit: number; readonly after?: string }) {
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw financialCouncilError("financial_council_input_invalid");
+    return this.transaction(async connection => {
+      let after: FinancialCouncilRun | undefined;
+      if (input.after !== undefined) {
+        const [rows] = await connection.query(`SELECT * FROM financial_council_runs WHERE workspace_id = ? AND run_id = ?`, [context.workspaceId, input.after]);
+        const row = (rows as MysqlRow[])[0];
+        if (!row) throw financialCouncilError("financial_council_input_invalid");
+        after = parseRun(row);
+      }
+      const [rows] = await connection.query(`SELECT * FROM financial_council_runs WHERE workspace_id = ?
+        ${after ? "AND (JSON_UNQUOTE(JSON_EXTRACT(run_json, '$.createdAt')) < ? OR (JSON_UNQUOTE(JSON_EXTRACT(run_json, '$.createdAt')) = ? AND BINARY run_id < BINARY ?))" : ""}
+        ORDER BY JSON_UNQUOTE(JSON_EXTRACT(run_json, '$.createdAt')) DESC, BINARY run_id DESC LIMIT ?`,
+      [context.workspaceId, ...(after ? [after.createdAt, after.createdAt, after.runId] : []), input.limit + 1]);
+      const candidates = (rows as MysqlRow[]).map(parseRun);
+      const items = candidates.slice(0, input.limit);
+      for (const run of items) await this.verifyStoredRun(connection, run);
+      return { items: Object.freeze(items), nextCursor: candidates.length > input.limit ? items.at(-1)!.runId : null };
+    }, true);
+  }
 
   async createAndFreezeRun(
     command: CommandContext,

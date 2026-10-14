@@ -8,18 +8,23 @@ import type {
   FinancialCouncilControllerState
 } from "./controller";
 import { renderFinancialCouncilWorkbench } from "./view";
+import { renderReportHtml } from "./report";
+import type { CreateCouncilRunFromPackageInput } from "../contracts";
 
 type PortfolioKind = NonNullable<FinancialCouncilControllerState["selectedPortfolioKind"]>;
 type EntryController = Pick<FinancialCouncilController,
   "getState" | "subscribe" | "create" | "open" | "selectPortfolio"
-  | "setEditDraft" | "revise" | "approve" | "reject" | "destroy">;
+  | "setEditDraft" | "revise" | "approve" | "reject" | "destroy"
+  | "openLatest" | "loadMoreHistory" | "retry" | "createFromStatementPackage">;
 
 export interface FinancialCouncilWorkbenchEntryOptions {
   readonly host: HTMLElement;
   readonly controller: EntryController;
   readonly capabilities: readonly string[];
   readonly canCreate?: boolean;
-  readonly createInput: (dataAsOf: string) => Promise<FinancialCouncilCreateInput | null>;
+  readonly createBlockedReason?: string;
+  readonly createInput?: (dataAsOf: string) => Promise<FinancialCouncilCreateInput | null>;
+  readonly packageInput?: CreateCouncilRunFromPackageInput | null;
   readonly replaceHash?: (hash: string) => void;
 }
 
@@ -71,6 +76,21 @@ export function createFinancialCouncilWorkbenchEntry(
 ): FinancialCouncilWorkbenchEntry {
   let disposed = false;
   let unsubscribe: (() => void) | null = null;
+  let renderedRunId: string | null = null;
+
+  function identity(node: HTMLElement): string | null {
+    if (node.id) return `id:${node.id}`;
+    const data = node.dataset;
+    if (data.councilDetail) return `detail:${data.councilDetail}`;
+    if (data.eventId) return `event:${data.eventId}`;
+    if (data.councilScroll) return `scroll:${data.councilScroll}`;
+    if (node.classList.contains("council-report-reader")) return "report-reader";
+    if (data.councilAction) return JSON.stringify([node.tagName, data.councilAction, data.actionId, data.field, data.runId, node.getAttribute("name"), node.getAttribute("type") === "radio" ? node.getAttribute("value") : null]);
+    if (node.tagName === "A") return `link:${node.getAttribute("href")}`;
+    if (node.tagName === "DETAILS") return `details:${node.querySelector("summary")?.textContent ?? ""}`;
+    if (node.tagName === "SUMMARY" && node.parentElement) return `summary:${identity(node.parentElement)}`;
+    return null;
+  }
 
   const replaceHash = options.replaceHash ?? ((hash: string) => {
     window.history.replaceState(null, "", hash);
@@ -78,11 +98,54 @@ export function createFinancialCouncilWorkbenchEntry(
 
   function render(state = options.controller.getState()): void {
     if (disposed) return;
+    const sameRun = renderedRunId === (state.run?.runId ?? null);
+    const doc = options.host.ownerDocument;
+    const controls = [...options.host.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input,textarea,select")];
+    const active = doc.activeElement && options.host.contains(doc.activeElement) ? doc.activeElement as HTMLElement : null;
+    const focused = active ? identity(active) : null;
+    const selection = active as HTMLInputElement | null;
+    const range = selection && "selectionStart" in selection ? [selection.selectionStart, selection.selectionEnd] : null;
+    const drafts = new Map(controls.flatMap(node => {
+      const key = identity(node);
+      return key ? [[key, { value: node.value, checked: "checked" in node ? node.checked : null }] as const] : [];
+    }));
+    const details = new Map([...options.host.querySelectorAll<HTMLDetailsElement>("details")].map(node => [identity(node), node.open]));
+    const innerScroll = new Map([...options.host.querySelectorAll<HTMLElement>("[id],[data-council-scroll],.council-report-reader")].map(node => [identity(node), { top: node.scrollTop, left: node.scrollLeft }]));
+    const scroll: { node: HTMLElement; top: number; left: number }[] = [];
+    for (let node: HTMLElement | null = options.host; node; node = node.parentElement) scroll.push({ node, top: node.scrollTop, left: node.scrollLeft });
     options.host.innerHTML = renderFinancialCouncilWorkbench(state, {
       capabilities: options.capabilities,
       canCreate: options.canCreate
-        ?? options.capabilities.includes("finance.council.run")
+        ?? options.capabilities.includes("finance.council.run"),
+      packageReady: !!options.packageInput,
+      createBlockedReason: options.createBlockedReason,
+      canExportPdf: !!doc.defaultView?.shensiCouncilReport
     });
+    renderedRunId = state.run?.runId ?? null;
+    if (sameRun) {
+      const nextControls = [...options.host.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input,textarea,select")];
+      nextControls.forEach((node) => {
+        const key = identity(node);
+        const prior = key ? drafts.get(key) : null;
+        if (!prior) return;
+        node.value = prior.value;
+        if (prior.checked !== null && "checked" in node) node.checked = prior.checked;
+      });
+      options.host.querySelectorAll<HTMLDetailsElement>("details").forEach((node) => {
+        const open = details.get(identity(node));
+        if (open !== undefined) node.open = open;
+      });
+      const nextFocus = focused ? [...options.host.querySelectorAll<HTMLElement>("input,textarea,select,button,a,summary")].find(node => identity(node) === focused) : null;
+      nextFocus?.focus({ preventScroll: true });
+      if (range && nextFocus && "setSelectionRange" in nextFocus && range[0] !== null && range[1] !== null) {
+        try { (nextFocus as HTMLInputElement).setSelectionRange(range[0]!, range[1]!); } catch { /* non-text input */ }
+      }
+      options.host.querySelectorAll<HTMLElement>("[id],[data-council-scroll],.council-report-reader").forEach(node => {
+        const prior = innerScroll.get(identity(node));
+        if (prior) { node.scrollTop = prior.top; node.scrollLeft = prior.left; }
+      });
+      scroll.forEach(({ node, top, left }) => { node.scrollTop = top; node.scrollLeft = left; });
+    }
   }
 
   function feedback(message: string): void {
@@ -91,13 +154,19 @@ export function createFinancialCouncilWorkbenchEntry(
   }
 
   async function create(): Promise<void> {
+    if (options.packageInput) {
+      await options.controller.createFromStatementPackage(options.packageInput);
+      const run = options.controller.getState().run;
+      if (run && !disposed) replaceHash(growthHash({ name: "financial-council", runId: run.runId }));
+      return;
+    }
     const field = options.host.querySelector<HTMLInputElement>("[data-council-data-as-of]");
     const dataAsOf = normalizedDataAsOf(field?.value ?? "");
     if (!dataAsOf) {
       feedback("请选择有效的数据截至时间。");
       return;
     }
-    const input = await options.createInput(dataAsOf);
+    const input = await options.createInput?.(dataAsOf);
     if (disposed) return;
     if (!input) {
       feedback("请先在经营顾问中完成当前有效 Business report。");
@@ -110,9 +179,55 @@ export function createFinancialCouncilWorkbenchEntry(
     }
   }
 
-  function onChange(event: Event): void {
+  function onAuxiliaryAction(event: Event): void {
     const target = (event.target as HTMLElement | null)
       ?.closest<HTMLElement>("[data-council-action]");
+    if (!target || !options.host.contains(target) || disposed) return;
+    const action = target.dataset.councilAction;
+    if (action === "retry") { void options.controller.retry(); return; }
+    if (action === "more-history") { void options.controller.loadMoreHistory(); return; }
+    if (action === "open-history" && target.dataset.runId) {
+      const runId = target.dataset.runId;
+      void options.controller.open(runId);
+      replaceHash(growthHash({ name: "financial-council", runId }));
+      return;
+    }
+    if (action === "download-html" || action === "download-pdf") {
+      const collaboration = options.controller.getState().collaboration;
+      if (!collaboration) {
+        const node = options.host.querySelector('[data-council-export-feedback]');
+        if (node) node.textContent = '尚无可导出报告，请先分析或打开已有报告。';
+        return;
+      }
+      const { runId, report } = collaboration;
+      const { reportId } = report;
+      const html = renderReportHtml(report);
+      const filename = `financial-council-${reportId.slice(0, 100)}`;
+      const feedback = (message: string) => {
+        if (disposed) return;
+        const current = options.controller.getState();
+        if (current.run?.runId !== runId || current.collaboration?.runId !== runId
+          || current.collaboration.report.reportId !== reportId) return;
+        const node = options.host.querySelector("[data-council-export-feedback]");
+        if (node) node.textContent = message;
+      };
+      if (action === "download-pdf") {
+        const bridge = options.host.ownerDocument.defaultView?.shensiCouncilReport;
+        if (bridge) void bridge.exportPdf({ html, filename: `${filename}.pdf` }).then(result => feedback(result.status === "saved" ? "PDF 已保存" : "已取消保存")).catch(() => feedback("PDF 导出失败，请重试。"));
+        else feedback('PDF 导出需在桌面应用中使用。');
+      } else {
+        const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+        const link = options.host.ownerDocument.createElement("a");
+        link.href = url; link.download = `${filename}.html`; link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1_000);
+        feedback("HTML 报告已下载");
+      }
+      return;
+    }
+  }
+
+  function onChange(event: Event): void {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-council-action]");
     if (!target || !options.host.contains(target) || disposed) return;
     const state = options.controller.getState();
     const action = target.dataset.councilAction;
@@ -147,6 +262,16 @@ export function createFinancialCouncilWorkbenchEntry(
   }
 
   function onClick(event: MouseEvent): void {
+    const anchor = (event.target as HTMLElement | null)?.closest<HTMLAnchorElement>('.council-detailed-report nav a');
+    if (anchor && options.host.contains(anchor)) {
+      const id = anchor.getAttribute("href")?.slice(1) ?? "";
+      if (/^council-report-section-\d+$/u.test(id)) {
+        event.preventDefault();
+        options.host.querySelector(`#${id}`)?.scrollIntoView({ block: "start" });
+        return;
+      }
+    }
+    onAuxiliaryAction(event);
     const target = (event.target as HTMLElement | null)
       ?.closest<HTMLElement>("[data-council-action]");
     if (!target || !options.host.contains(target) || disposed) return;
@@ -196,6 +321,7 @@ export function createFinancialCouncilWorkbenchEntry(
       unsubscribe ??= options.controller.subscribe(render);
       render();
       if (runId) await options.controller.open(runId);
+      else await options.controller.openLatest();
     },
     dispose() {
       if (disposed) return;

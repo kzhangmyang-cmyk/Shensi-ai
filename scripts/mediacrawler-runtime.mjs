@@ -48,8 +48,8 @@ export function validateMediaCrawlerComposeConfig(configuration) {
   if (!serviceNetworks(services.backend).includes("shensi_mediacrawler")) {
     throw new Error("BACKEND_MEDIACRAWLER_NETWORK_REQUIRED");
   }
-  if (serviceNetworks(services.gateway).includes("shensi_mediacrawler")) {
-    throw new Error("GATEWAY_MUST_NOT_ROUTE_MEDIACRAWLER");
+  if (!serviceNetworks(services.gateway).includes("shensi_mediacrawler")) {
+    throw new Error("GATEWAY_MEDIACRAWLER_NETWORK_REQUIRED");
   }
   const secrets = Array.isArray(media.secrets) ? media.secrets : [];
   const hasSecret = secrets.some((value) => {

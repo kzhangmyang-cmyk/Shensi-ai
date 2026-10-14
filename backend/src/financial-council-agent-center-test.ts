@@ -1,11 +1,66 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { FinanceDocumentService } from './finance-document-service.js';
 import { FinancialCouncilAgentCenter } from
   "./financial-council-agent-center.js";
 import { workspace } from "./financial-council-repository-contract-test.js";
+import {AgentOperatingMemoryService} from './agent-operating-memory.js';
+import {MemoryDecisionMemoryRepository} from './decision-memory-repository.js';
+import {DecisionSimulationService,MemoryDecisionSimulationRepository} from './decision-simulation-service.js';
+
+test('all center roles consume only explicitly selected current operating preferences',async()=>{
+ const memory=new AgentOperatingMemoryService(new MemoryDecisionMemoryRepository(),new DecisionSimulationService(new MemoryDecisionSimulationRepository()));
+ const preferences={priority:'cash',pilotFirst:true,reviewCadence:'weekly',learningEnabled:false,confirmedFrom:'self_report'};
+ await memory.saveProfile(context(),{expectedRevision:0,enabled:true,preferences});
+ const seen:unknown[]=[];
+ const center=new FinancialCouncilAgentCenter({operatingMemory:memory,latestPackage:{getLatestVerified:async()=>null},latestRun:{} as never,routing:{getCurrent:async()=>null},runtimeState:()=>({connections:[],recentCalls:[]}),chatModel:async input=>{seen.push(input.personalPreferences);return {answer:'只读建议',provider:'test',model:'synthetic'};}});
+ assert.equal(typeof center.askWithOperatingMemory,'function');
+ await center.ask(context(),{question:'建议',history:[]});assert.equal(seen[0],undefined);
+ for(const role of ['cfo','finance','profit','cost','cashflow','tax']){
+  await center.askWithOperatingMemory(context(),{selection:{domain:'operating',revision:1},input:{role,question:'建议',history:[]}});
+  assert.deepEqual(seen.at(-1),preferences);
+ }
+ const before=seen.length;
+ await assert.rejects(center.askWithOperatingMemory({...context(),actorId:'other'},{selection:{domain:'operating',revision:1},input:{question:'建议',history:[]}}),/revision_conflict/);
+ await memory.deleteProfile(context(),{expectedRevision:1});
+ await assert.rejects(center.askWithOperatingMemory(context(),{selection:{domain:'operating',revision:1},input:{question:'建议',history:[]}}),/revision_conflict/);
+ assert.equal(seen.length,before);
+});
 
 const T1 = "2026-08-23T08:00:00.000Z";
 const T2 = "2026-08-23T08:00:01.000Z";
+
+test('selected document unavailability and expiry never read or answer from an older verified package', async () => {
+  let now = Date.parse(T1); let oldReads = 0; let oldAnswers = 0;
+  const documents = new FinanceDocumentService({ now: () => now, model: async input => ({
+    inspection: { ...input.inspection, observations: [], modelStatus: 'unavailable' }, provider: null, model: null
+  }) });
+  const center = new FinancialCouncilAgentCenter({ documents,
+    chatModel: async () => { oldAnswers++; return { answer: 'old', provider: 'old', model: 'old' }; },
+    latestPackage: { async getLatestVerified() { oldReads++; return { workspaceId: context().workspaceId,
+      packageId: 'verified-old', companyName: '已确认企业', period: '2026-08', currency: 'CNY',
+      businessReport: {}, createdAt: T1, warnings: [], sourceFiles: [], parserVersion: 'v1', packageHash: 'hash' } as never; } },
+    latestRun: {} as never, routing: { async getCurrent() { return null; } }, runtimeState: () => ({ connections: [], recentCalls: [] }) });
+  const inspected = await documents.inspect(context(), { fileName: 'unknown.csv', mediaType: 'text/csv',
+    contentBase64: Buffer.from('说明\n部分资料').toString('base64'), readWithModel: true });
+  await assert.rejects(center.ask(context(), { documentId: inspected.documentId, role: 'tax', question: '怎么看', history: [] }), /finance_document_model_unavailable/);
+  await assert.rejects(center.ask({ ...context(), actorId: 'other' }, { documentId: inspected.documentId, question: '怎么看', history: [] }), /finance_document_expired/);
+  await assert.rejects(center.ask(context(), { documentId: 'missing', question: '怎么看', history: [] }), /finance_document_expired/);
+  assert.equal(oldReads, 0); assert.equal(oldAnswers, 0);
+  for (const documentId of [undefined, null]) {
+    const legacy = await center.ask(context(), { documentId, question: '读取已确认资料', history: [] });
+    assert.equal(legacy.material && 'packageId' in legacy.material ? legacy.material.packageId : null, 'verified-old');
+  }
+  assert.equal(oldReads, 2); assert.equal(oldAnswers, 2);
+  oldReads = 0; oldAnswers = 0;
+  now += 3_600_000;
+  await assert.rejects(center.ask(context(), { documentId: inspected.documentId, question: '怎么看', history: [] }), /finance_document_expired/);
+  assert.equal(oldReads, 0); assert.equal(oldAnswers, 0);
+  documents.clearSelection(context());
+  const restored = await center.ask(context(), { question: '请读取已确认资料', history: [] });
+  assert.equal(restored.material && 'packageId' in restored.material ? restored.material.packageId : null, 'verified-old');
+  assert.equal(oldReads, 1); assert.equal(oldAnswers, 1);
+});
 
 function context() {
   return Object.freeze({ ...workspace("ws-1"), role: "admin" as const,
@@ -89,4 +144,21 @@ test("agent center nulls unsafe derived completion time and hides cross-workspac
   assert.equal(overview.latestRun, null);
   await assert.rejects(center.getRunAgents(context(), "run-1"),
     { code: "financial_council_run_not_found" });
+});
+
+test("agent center hides statement metadata returned outside the active workspace", async () => {
+  const center = new FinancialCouncilAgentCenter({
+    latestPackage: { async getLatestVerified() { return {
+      workspaceId: 'ws-other', status: 'verified', packageId: 'package-private',
+      companyName: 'Other workspace company', period: '2026-07', createdAt: T1, warnings: []
+    }; } },
+    latestRun: { async findLatestRun() { return null; } },
+    routing: { async getCurrent() { return null; } },
+    runtimeState: () => ({ connections: [], recentCalls: [] })
+  } as never);
+  const overview = await center.get(context());
+  assert.equal(overview.data.status, 'not_connected');
+  assert.equal(overview.data.packageId, null);
+  assert.equal(overview.data.companyName, null);
+  assert.equal(JSON.stringify(overview).includes('Other workspace company'), false);
 });

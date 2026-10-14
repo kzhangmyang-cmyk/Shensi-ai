@@ -8,7 +8,7 @@ export interface FlowCardSpacing {
 export function getFlowCardSpacing(stageWidth: number): FlowCardSpacing {
   if (stageWidth < 390) return { firstStep: 74, nextStep: 52 };
   if (stageWidth < 620) return { firstStep: 108, nextStep: 78 };
-  return { firstStep: 136, nextStep: 96 };
+  return { firstStep: 170, nextStep: 112 };
 }
 
 export function isSelectableFlowCard(card: FlowCardState): boolean {

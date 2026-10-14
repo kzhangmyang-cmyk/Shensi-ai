@@ -57,3 +57,54 @@ test("run candidates route rejects an automation intent id that is not an author
     assert.equal(response.status, 404);
   } finally { server.close(); }
 });
+
+test("run candidates route exposes only safe optional public media hints", async () => {
+  const app = express();
+  app.use((req, _res, next) => {
+    req.user = { id: "owner", teamId: "team" };
+    req.activeWorkspace = {
+      workspaceId: "workspace", actorId: "owner", teamId: "team"
+    };
+    next();
+  });
+  app.use(createAcquisitionRunCandidatesRouter({
+    repository: {
+      async list() {
+        return [{
+          id: "candidate-media-safe", status: "needs_research", displayName: "公开媒体候选",
+          avatarUrl: "https://cdn.example.test/avatar.webp",
+          coverUrl: "HTTPS://cdn.example.test/cover.webp",
+          evidence: {
+            sourceUrl: "https://www.douyin.com/video/4", excerpt: "公开需求"
+          }
+        }, {
+          id: "candidate-media-unsafe", status: "needs_research", displayName: "候选二",
+          avatarUrl: "http://cdn.example.test/avatar.webp",
+          coverUrl: "https://public:secret@cdn.example.test/cover.webp",
+          evidence: {
+            sourceUrl: "https://www.douyin.com/video/5", excerpt: "公开需求二"
+          }
+        }];
+      }
+    },
+    cursorSecret: "run-candidates-router-test-secret-at-least-32-bytes"
+  }));
+  const server = app.listen(0);
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/v1/acquisition/runs/run-media/candidates`
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json() as {
+      items: Array<Record<string, unknown>>;
+      nextCursor: string | null;
+    };
+    assert.equal(body.items[0]?.avatarUrl, "https://cdn.example.test/avatar.webp");
+    assert.equal(body.items[0]?.coverUrl, "HTTPS://cdn.example.test/cover.webp");
+    assert.equal(body.items[1]?.avatarUrl, undefined);
+    assert.equal(body.items[1]?.coverUrl, undefined);
+    assert.equal(JSON.stringify(body).includes("secret"), false);
+  } finally { server.close(); }
+});

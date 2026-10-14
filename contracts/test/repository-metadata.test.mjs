@@ -41,7 +41,7 @@ test("public Node selection surfaces stay pinned and synchronized", () => {
   assert.equal(packageJson.packageManager, "pnpm@11.18.0");
   assert.deepEqual(
     Object.keys(pnpmLock.importers).sort(),
-    [".", "backend", "contracts", "frontend"],
+    [".", "backend", "contracts", "desktop", "frontend"],
     "pnpm lock must cover every workspace importer"
   );
   assert.equal(setupNodeSteps.length, 1, "workflow must have one setup-node step");

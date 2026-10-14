@@ -59,6 +59,470 @@
     "expiresAt": { "$ref": "#/$defs/dateTime" }
   },
   "$defs": {
+    "FinancialCouncilCollaborationEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eventId",
+        "role",
+        "phase",
+        "state",
+        "occurredAt",
+        "message",
+        "reasonCode",
+        "findingIds"
+      ],
+      "properties": {
+        "eventId": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "role": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/FinancialCouncilModelRole"
+            }
+          ]
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "analysis",
+            "review",
+            "synthesis",
+            "run"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "running",
+            "completed",
+            "missing_data",
+            "failed",
+            "degraded"
+          ]
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/dateTime"
+        },
+        "message": {
+          "type": "string"
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "findingIds": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "FinancialCouncilCollaborationRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "state",
+        "phase",
+        "updatedAt",
+        "message",
+        "reasonCode",
+        "findings",
+        "actions"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/FinancialCouncilModelRole"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "running",
+            "completed",
+            "missing_data",
+            "failed",
+            "degraded"
+          ]
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "analysis",
+            "review",
+            "synthesis",
+            "run"
+          ]
+        },
+        "updatedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "findings": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/FinancialFinding"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/CandidateAction"
+          }
+        }
+      }
+    },
+    "FinancialCouncilCollaborationReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "round",
+        "findingId",
+        "peerFindingId",
+        "state",
+        "summary",
+        "occurredAt"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/FinancialCouncilModelRole"
+        },
+        "round": {
+          "const": 1,
+          "type": "integer"
+        },
+        "findingId": {
+          "type": "string"
+        },
+        "peerFindingId": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "upheld",
+            "revised",
+            "withdrawn"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/dateTime"
+        }
+      }
+    },
+    "FinancialCouncilNarrative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "overallDiagnosis",
+        "priorityFindingIds",
+        "minorityFindingIds",
+        "riskNotes",
+        "narrativeStatus"
+      ],
+      "properties": {
+        "overallDiagnosis": {
+          "type": "string"
+        },
+        "priorityFindingIds": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "string"
+          }
+        },
+        "minorityFindingIds": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "string"
+          }
+        },
+        "riskNotes": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "string"
+          }
+        },
+        "narrativeStatus": {
+          "type": "string",
+          "enum": [
+            "model_valid",
+            "model_invalid",
+            "model_unavailable"
+          ]
+        }
+      }
+    },
+    "FinancialCouncilReportSection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "paragraphs",
+        "items"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "title": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "paragraphs": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "string"
+          }
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "label",
+              "value",
+              "evidenceRefs"
+            ],
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "FinancialCouncilDetailedReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reportId",
+        "version",
+        "title",
+        "complete",
+        "generatedAt",
+        "sections"
+      ],
+      "properties": {
+        "reportId": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "version": {
+          "type": "string",
+          "const": "financial-council-report.v1"
+        },
+        "title": {
+          "type": "string"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "generatedAt": {
+          "$ref": "#/$defs/dateTime"
+        },
+        "sections": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "$ref": "#/$defs/FinancialCouncilReportSection"
+          }
+        }
+      }
+    },
+    "FinancialCouncilCollaboration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "workspaceId",
+        "revision",
+        "dataAsOf",
+        "currency",
+        "statementPackageId",
+        "snapshotId",
+        "snapshotHash",
+        "policyVersionId",
+        "executionMode",
+        "reviewRoundLimit",
+        "roles",
+        "events",
+        "reviews",
+        "narrative",
+        "report"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspace"
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "dataAsOf": {
+          "$ref": "#/$defs/dateTime"
+        },
+        "currency": {
+          "$ref": "#/$defs/currency"
+        },
+        "statementPackageId": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "snapshotId": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "snapshotHash": {
+          "$ref": "#/$defs/hash"
+        },
+        "policyVersionId": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "executionMode": {
+          "type": "string",
+          "const": "sequential"
+        },
+        "reviewRoundLimit": {
+          "type": "integer",
+          "const": 1
+        },
+        "roles": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/FinancialCouncilCollaborationRole"
+          },
+          "minItems": 6
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "$ref": "#/$defs/FinancialCouncilCollaborationEvent"
+          }
+        },
+        "reviews": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/FinancialCouncilCollaborationReview"
+          }
+        },
+        "narrative": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/FinancialCouncilNarrative"
+            }
+          ]
+        },
+        "report": {
+          "$ref": "#/$defs/FinancialCouncilDetailedReport"
+        }
+      }
+    },
+    "FinancialCouncilRunHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items",
+        "nextAfter",
+        "hasMore"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "runId",
+              "status",
+              "currency",
+              "dataAsOf",
+              "createdAt",
+              "updatedAt"
+            ],
+            "properties": {
+              "runId": {
+                "$ref": "#/$defs/nonempty"
+              },
+              "status": {
+                "$ref": "#/$defs/publicRunStatus"
+              },
+              "currency": {
+                "$ref": "#/$defs/currency"
+              },
+              "dataAsOf": {
+                "$ref": "#/$defs/dateTime"
+              },
+              "createdAt": {
+                "$ref": "#/$defs/dateTime"
+              },
+              "updatedAt": {
+                "$ref": "#/$defs/dateTime"
+              }
+            }
+          }
+        },
+        "nextAfter": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasMore": {
+          "type": "boolean"
+        }
+      }
+    },
     "nonempty": { "type": "string", "minLength": 1, "maxLength": 10000 },
     "workspace": {
       "type": "string",

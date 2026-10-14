@@ -5,6 +5,8 @@ import { promisify } from "node:util";
 import type { ActiveWorkspaceContext } from "./growth-workspace-context.js";
 import { getStore } from "./store.js";
 import type { SessionUser } from "./types.js";
+import { isAccountMutationPending, isPlatformMutationPending } from './account-mutation-state.js';
+import { evaluatePlatformAccess, type PlatformFeature } from './platform-admin-domain.js';
 
 const scrypt = promisify(scryptCallback);
 const TOKEN_ISSUER = "goodjob-crm";
@@ -110,6 +112,21 @@ function requestToken(req: Request) {
   return { token, source: "cookie" as const };
 }
 
+/** Optional old session for connection fencing after a new login is verified.
+ * Invalid/expired cookies must not prevent a fresh normal login. No token leaves auth. */
+export function referenceSessionToFence(req: Request): { actorId: string; csrfValid: boolean } | null {
+  const { token, source } = requestToken(req);
+  if (!token) return null;
+  try {
+    const claims = jwt.verify(token, jwtSecret(), { issuer: TOKEN_ISSUER, audience: TOKEN_AUDIENCE, algorithms: ['HS256'] }) as TokenClaims;
+    const user = getStore().users.find(item => item.id === claims.sub);
+    if (!user || isAccountMutationPending(user.id) || user.status !== 'active' || Number(user.authVersion || 1) !== Number(claims.ver || 1)) return null;
+    if (source === 'bearer') return { actorId: user.id, csrfValid: true };
+    const cookie = parseCookies(req.headers.cookie)[CSRF_COOKIE_NAME] || '', header = String(req.headers['x-csrf-token'] || '');
+    return { actorId: user.id, csrfValid: !!cookie && !!header && Buffer.byteLength(cookie) === Buffer.byteLength(header) && timingSafeEqual(Buffer.from(cookie), Buffer.from(header)) };
+  } catch { return null; }
+}
+
 function usesAcquisitionTaskOverviewErrorEnvelope(req: Request) {
   const pathname = new URL(
     req.originalUrl || req.url,
@@ -132,6 +149,14 @@ function sendAuthError(
   res.setHeader("X-Request-Id", requestId);
   res.setHeader("Cache-Control", "no-store");
   const error = { code, message, details: null, requestId };
+  const pathname = new URL(req.originalUrl || req.url, 'http://localhost').pathname;
+  if (pathname === '/api/v1/knowledge' || pathname.startsWith('/api/v1/knowledge/')
+    || pathname === '/api/v1/reference-connection' || pathname.startsWith('/api/v1/reference-connection/')
+    || pathname === '/api/v1/system-reference' || pathname.startsWith('/api/v1/system-reference/')
+    || pathname.startsWith('/api/platform/v1/system-reference/')) {
+    res.status(status).json({ error: { code, message } });
+    return;
+  }
   if (usesAcquisitionTaskOverviewErrorEnvelope(req)) {
     res.status(status).json({ error });
     return;
@@ -155,7 +180,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
       algorithms: ["HS256"]
     }) as TokenClaims;
     const user = getStore().users.find((item) => item.id === claims.sub);
-    if (!user || user.status !== "active" || Number(user.authVersion || 1) !== Number(claims.ver || 1)) {
+    if (!user || isAccountMutationPending(user.id) || user.status !== "active" || Number(user.authVersion || 1) !== Number(claims.ver || 1)) {
       sendAuthError(
         req,
         res,
@@ -166,6 +191,19 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
       return;
     }
     req.user = publicUser(user);
+    const platform = getStore().platformAdminStates?.[0];
+    const pathname = new URL(req.originalUrl || req.url, 'http://localhost').pathname.toLowerCase();
+    const crawlerResult = (req.method === 'PUT' && /^\/api\/v1\/acquisition\/desktop-crawler-jobs\/[^/]+\/pages\/?$/.test(pathname))
+      || (req.method === 'POST' && /^\/api\/v1\/acquisition\/desktop-crawler-jobs\/[^/]+\/(complete|cancel)\/?$/.test(pathname));
+    if (platform && !crawlerResult && !pathname.startsWith('/api/auth/') && !pathname.startsWith('/api/platform/')) {
+      const feature: PlatformFeature | null = pathname === '/api/profile' ? null : pathname.includes('decision-simulation') ? 'decision'
+        : pathname.includes('acquisition') || pathname.includes('prospect') ? 'acquisition'
+        : /^\/api\/v1\/(system-reference|reference-connection)(\/|$)/.test(pathname) || pathname.includes('agent') || pathname.includes('financial-council') || /^\/api\/v1\/finance\/(cfo-sessions|cfo-conversation|council-runs|operating-memory-question)(\/|$)/.test(pathname) ? 'agents'
+        : pathname.includes('/growth') || pathname.includes('/finance') || pathname.includes('/quote') || pathname.includes('/catalog') ? 'growth' : 'crm';
+      const access = evaluatePlatformAccess(platform, user.teamId, feature, ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ? 'read' : 'execute', Date.now());
+      if (access.managed && isPlatformMutationPending(getStore())) { sendAuthError(req, res, 403, 'authorization_updating', '授权正在更新，请稍后重试'); return; }
+      if (!access.allowed) { sendAuthError(req, res, 403, access.code, '企业状态或套餐权限不允许此操作'); return; }
+    }
     if (source === "cookie" && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
       const cookies = parseCookies(req.headers.cookie);
       const csrfCookie = cookies[CSRF_COOKIE_NAME] || "";

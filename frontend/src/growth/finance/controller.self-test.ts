@@ -7,6 +7,9 @@ import type { FinanceApi } from "./api";
 
 function apiFixture(overrides: Partial<FinanceApi> = {}): FinanceApi {
   return {
+    async clearChatAttachment() { throw new Error('unused'); },
+    async inspectDocument() { throw new Error("unused"); },
+    async clearDocumentSelection() { throw new Error("unused"); },
     async listCostEntries() {
       return {
         status: 200,
@@ -54,7 +57,15 @@ function apiFixture(overrides: Partial<FinanceApi> = {}): FinanceApi {
 }
 
 const controller = createFinanceController({
-  api: apiFixture(),
+  api: apiFixture({
+    async listCostEntries() {
+      return {
+        status: 200,
+        etag: null,
+        body: { items: [{ id: "cost-kept" }] }
+      } as never;
+    }
+  }),
   hasFeature: () => true,
   hasCapability: () => true
 });
@@ -87,7 +98,19 @@ assert.deepEqual(conflicting, {
 const withImport = controller.setImportState({ kind: "idle" });
 assert.equal(withImport.kind, "ready");
 assert.equal(withImport.importState.kind, "idle");
+assert.equal(withImport.costEntries[0]?.id, "cost-kept");
 assert.match(
   controller.nextIdempotencyKey("finance-correct"),
   /^finance-correct:/u
 );
+
+let readonlyLedgerReads = 0;
+const readonlyController = createFinanceController({
+  api: apiFixture({ async listCostEntries() { readonlyLedgerReads++; throw new Error('must not read ledger'); } }),
+  hasFeature: feature => feature === 'finance',
+  hasCapability: capability => capability === 'finance.council.run'
+});
+const readonlyPage = await readonlyController.load();
+assert.equal(readonlyPage.kind, 'ready', 'council-only users may inspect readonly documents');
+assert.equal(readonlyLedgerReads, 0);
+assert.equal(readonlyPage.kind === 'ready' && readonlyPage.canImport, false);

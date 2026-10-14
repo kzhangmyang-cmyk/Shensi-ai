@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { getFinanceDocumentSelection, setFinanceDocumentSelection, resetFinanceDocumentSelection, subscribeFinanceDocumentSelection } from './document-selection';
+const source = { kind: 'readonly_document' as const, documentId: 'doc-1', fileName: '原表.csv', fileHash: `sha256:${'a'.repeat(64)}`, classification: 'ledger' as const, missingStatements: [], expiresAt: '2020-01-01T00:00:00Z' };
+let changes = 0; const unsubscribe = subscribeFinanceDocumentSelection(() => { changes++; });
+setFinanceDocumentSelection('ws:user', source);
+assert.equal(getFinanceDocumentSelection('ws:user')?.documentId, 'doc-1', 'expired source must remain explicit so backend rejects it instead of falling back');
+assert.equal(getFinanceDocumentSelection('other:user'), null);
+assert.equal(getFinanceDocumentSelection('ws:other'), null);
+resetFinanceDocumentSelection();
+assert.equal(getFinanceDocumentSelection('ws:user'), null);
+assert.equal(changes, 2);
+unsubscribe();

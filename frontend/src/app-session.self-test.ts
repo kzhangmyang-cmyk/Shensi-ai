@@ -1,7 +1,9 @@
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
+import type { components } from "./generated/platform-admin";
 import {
+  clearAppSession,
   createAppSessionController,
   resolveLoginIdentity,
   type AppUser
@@ -18,6 +20,48 @@ const admin: AppUser = {
   avatar: "AD"
 };
 
+const accessFixture = (status: components["schemas"]["CustomerAccess"]["status"]): components["schemas"]["CustomerAccess"] => ({
+  status, workspaceId: admin.teamId, workspaceName: "合成注册企业", planCode: status === "pending" ? null : "trial",
+  startsAt: "2026-09-01T00:00:00.000Z", expiresAt: "2026-10-01T00:00:00.000Z", checkedAt: "2026-09-21T00:00:00.000Z", features: ["crm"],
+  canRead: ["active", "expired", "unmanaged"].includes(status), canExecute: ["active", "unmanaged"].includes(status)
+});
+
+for (const status of ["pending", "suspended", "unconfigured", "scheduled", "expired", "active", "unmanaged"] as const) {
+  const document = createDocument(), storage = createStorage();
+  let failure = 0;
+  const controller = createAppSessionController({ document, storage, location: { hash: "#agents" }, demoMode: false,
+    fetchImpl: async () => new Response(JSON.stringify(failure ? { message: "失效" } : { user: admin, access: accessFixture(status) }), { status: failure || 200 }) });
+  await controller.start();
+  assert.equal(document.body.classList.contains("is-authenticated"), accessFixture(status).canRead, status);
+  if (["active", "unmanaged"].includes(status)) assert.equal(document.querySelector("[data-account-access-panel]"), null);
+  else {
+    assert.match(document.querySelector("[data-account-access-panel]")!.textContent!, /合成注册企业/);
+    failure = 503; await controller.refreshAccess();
+    assert.match(document.querySelector("[data-account-access-feedback]")!.textContent!, /刷新失败/);
+    assert.notEqual(storage.getItem("gj_user"), null);
+  }
+  failure = 401; await controller.refreshAccess();
+  assert.equal(storage.getItem("gj_user"), null);
+  assert.equal(document.querySelector("[data-account-access-panel]"), null);
+  assert.equal(document.body.classList.contains("is-authenticated"), false);
+  assert.match(document.querySelector("#loginError")!.textContent!, /请重新登录/);
+  controller.destroy();
+}
+
+for (const ending of ["destroy", "external-clear"] as const) {
+  const document = createDocument(), storage = createStorage();
+  const response = createDeferred<Response>(); let calls = 0;
+  const controller = createAppSessionController({ document, storage, location: { hash: "#agents" }, demoMode: false,
+    fetchImpl: async () => ++calls === 1 ? new Response(JSON.stringify({ user: admin, access: accessFixture("pending") })) : response.promise });
+  await controller.start(); const refresh = controller.refreshAccess();
+  await controller.refreshAccess(); assert.equal(calls, 2, "refreshes are single flight");
+  if (ending === "destroy") controller.destroy(); else clearAppSession({ document, storage });
+  response.resolve(new Response(JSON.stringify({ user: admin, access: accessFixture("active") }))); await refresh;
+  assert.equal(document.body.classList.contains("is-authenticated"), false, ending);
+  assert.equal(document.querySelector("[data-account-access-panel]"), null, ending);
+  controller.destroy();
+}
+
 function createStorage(initial: Record<string, string> = {}): MemoryStorage {
   const values = new Map(Object.entries(initial));
   return {
@@ -27,22 +71,147 @@ function createStorage(initial: Record<string, string> = {}): MemoryStorage {
   };
 }
 
+{
+  const document=createDocument(),storage=createStorage();
+  let access=accessFixture('active');let user=admin;let resets=0;
+  document.addEventListener('goodjob:auth-state-changed',()=>{resets++;});
+  const controller=createAppSessionController({document,storage,location:{hash:'#agents'},demoMode:false,
+    fetchImpl:async()=>new Response(JSON.stringify({user,access}))});
+  await controller.start();assert.equal(resets,1);
+  access={...access,checkedAt:'2026-09-25T06:00:00Z'};
+  await controller.refreshAccess();assert.equal(resets,1,'unchanged focus refresh must not tear down the selected chat role');
+  access={...access,canExecute:false};await controller.refreshAccess();assert.equal(resets,2,'execution permission changes must still invalidate consumers');
+  user={...admin,teamId:'other-workspace'};await controller.refreshAccess();assert.equal(resets,3,'identity changes must invalidate consumers');
+  controller.destroy();
+}
+
 function createDocument() {
   return parseHTML(`<!doctype html><html><body>
     <form id="loginForm" aria-busy="false">
-      <p id="loginEyebrow">SECURE WORKSPACE</p>
-      <h2 id="loginTitle">登录 Shensi</h2>
-      <p id="loginDescription">使用管理员分配的企业账号进入工作区。</p>
+      <p id="loginEyebrow">欢迎回来</p>
+      <h2 id="loginTitle">登录燊锶</h2>
+      <p id="loginDescription">进入你的经营工作台</p>
       <input id="loginEmail" autocomplete="username" />
       <input id="loginPassword" autocomplete="current-password" />
       <button id="loginButton">登录工作台</button>
       <p id="loginError" role="alert" aria-live="polite"></p>
-      <button id="loginModeToggle" type="button">注册账号</button>
+      <button id="loginModeToggle" type="button">还没有账号？注册账号</button>
     </form>
     <button class="replica-user" id="replicaLogoutButton"></button>
     <strong data-session-user-name></strong>
     <small data-session-user-role></small>
   </body></html>`).document;
+}
+
+{
+  const document = createDocument();
+  const storage = createStorage();
+  const requests: Array<{ path: string; credentials: RequestCredentials | undefined }> = [];
+  const response = createDeferred<Response>();
+  const controller = createAppSessionController({
+    document, storage, location: { hash: "#agents" } as Location, demoMode: false,
+    fetchImpl: async (path, init) => {
+      requests.push({ path: String(path), credentials: init?.credentials });
+      return response.promise;
+    }
+  });
+  const restoring = controller.start();
+  await controller.start();
+  assert.deepEqual(requests, [{ path: "/api/auth/me", credentials: "same-origin" }],
+    "real startup must check the server session even when this origin has no cached user");
+  assert.equal(document.body.classList.contains("is-authenticated"), false);
+  response.resolve(new Response(JSON.stringify({ user: admin }), { status: 200 }));
+  await restoring;
+  assert.equal(document.body.classList.contains("is-authenticated"), true);
+  assert.equal(document.body.dataset.sessionUserId, admin.id);
+  assert.equal(document.body.dataset.sessionWorkspaceId, admin.teamId);
+  assert.deepEqual(JSON.parse(storage.getItem("gj_user")!), admin);
+  controller.destroy();
+}
+
+for (const outcome of ["unauthorized", "network-failure"] as const) {
+  const document = createDocument();
+  const storage = createStorage();
+  let requests = 0;
+  const controller = createAppSessionController({
+    document, storage, location: { hash: "#agents" } as Location, demoMode: false,
+    fetchImpl: async () => {
+      requests++;
+      if (outcome === "network-failure") throw new TypeError("isolated network failure");
+      return new Response(JSON.stringify({ message: "未登录" }), { status: 401 });
+    }
+  });
+  await controller.start();
+  assert.equal(requests, 1);
+  assert.equal(document.body.classList.contains("is-authenticated"), false, outcome);
+  assert.equal(storage.getItem("gj_user"), null, outcome);
+  controller.destroy();
+}
+
+for (const ending of ["logout", "destroy"] as const) {
+  const document = createDocument();
+  const storage = createStorage();
+  const response = createDeferred<Response>();
+  let meRequests = 0;
+  const controller = createAppSessionController({
+    document, storage, location: { hash: "#agents" } as Location, demoMode: false,
+    fetchImpl: async path => {
+      if (String(path) === "/api/auth/me") { meRequests++; return response.promise; }
+      assert.equal(String(path), "/api/auth/logout");
+      return new Response(JSON.stringify({}), { status: 200 });
+    }
+  });
+  const restoring = controller.start();
+  assert.equal(meRequests, 1);
+  if (ending === "logout") await controller.logout();
+  else controller.destroy();
+  response.resolve(new Response(JSON.stringify({ user: admin }), { status: 200 }));
+  await restoring;
+  assert.equal(document.body.classList.contains("is-authenticated"), false,
+    `a late cacheless startup must not restore authentication after ${ending}`);
+  assert.equal(storage.getItem("gj_user"), null);
+  controller.destroy();
+}
+
+for (const cached of [false, true]) {
+  const document = createDocument();
+  let requests = 0;
+  const controller = createAppSessionController({
+    document, storage: createStorage(cached ? { gj_user: JSON.stringify(admin) } : {}),
+    location: { hash: "#agents" } as Location, demoMode: true,
+    fetchImpl: async () => { requests++; throw new Error("demo must not check server sessions"); }
+  });
+  await controller.start();
+  assert.equal(requests, 0);
+  assert.equal(document.body.classList.contains("is-authenticated"), cached);
+  controller.destroy();
+}
+
+{
+  const document = createDocument();
+  const storage = createStorage({ gj_user: JSON.stringify(admin) });
+  const events: boolean[] = [];
+  document.body.classList.add("is-authenticated");
+  document.body.dataset.sessionMode = "real";
+  document.body.dataset.sessionUserId = admin.id;
+  document.body.dataset.sessionWorkspaceId = admin.teamId;
+  document.querySelector<HTMLElement>("[data-session-user-name]")!.textContent = admin.name;
+  document.querySelector<HTMLElement>("[data-session-user-role]")!.textContent = "管理员";
+  document.addEventListener("goodjob:auth-state-changed", (event) => {
+    events.push((event as CustomEvent<{ authenticated: boolean }>).detail.authenticated);
+  });
+
+  assert.equal(clearAppSession({ document, storage }), true);
+  assert.equal(storage.getItem("gj_user"), null);
+  assert.equal(document.body.classList.contains("is-authenticated"), false);
+  assert.equal(document.body.dataset.sessionMode, undefined);
+  assert.equal(document.body.dataset.sessionUserId, undefined);
+  assert.equal(document.body.dataset.sessionWorkspaceId, undefined);
+  assert.equal(document.querySelector("[data-session-user-name]")?.textContent, "");
+  assert.equal(document.querySelector("[data-session-user-role]")?.textContent, "");
+  assert.deepEqual(events, [false]);
+  assert.equal(clearAppSession({ document, storage }), false);
+  assert.deepEqual(events, [false]);
 }
 
 {
@@ -159,7 +328,7 @@ function createDocument() {
   await assert.rejects(controller.login(admin.email, "wrong"));
   assert.equal(
     document.querySelector("#loginError")?.textContent,
-    "账号或密码错误，请重试"
+    "账号或密码错误，或账号已停用，请联系运营确认。"
   );
   const retry = controller.login(admin.email, "goodjob123");
   assert.equal(document.querySelector("#loginError")?.textContent, "");
@@ -220,6 +389,9 @@ function submit(document: Document, selector: string) {
     storage,
     demoMode: false,
     fetchImpl: async (path, init = {}) => {
+      if (String(path) === "/api/auth/me") {
+        return new Response(JSON.stringify({ message: "未登录" }), { status: 401 });
+      }
       requests.push({ path: String(path), body: JSON.parse(String(init.body)) });
       return new Response(JSON.stringify({ user: admin }), { status: 201 });
     }
@@ -227,9 +399,9 @@ function submit(document: Document, selector: string) {
 
   await controller.start();
   click(document, "#loginModeToggle");
-  assert.equal(document.querySelector("#loginTitle")?.textContent, "注册 Shensi");
+  assert.equal(document.querySelector("#loginTitle")?.textContent, "注册燊锶");
   assert.match(document.querySelector("#loginDescription")?.textContent ?? "", /独立工作区/u);
-  assert.equal(document.querySelector("#loginButton")?.textContent, "注册并进入工作台");
+  assert.equal(document.querySelector("#loginButton")?.textContent, "注册账号");
   assert.equal(document.querySelector("#loginModeToggle")?.textContent, "已有账号？返回登录");
   assert.equal(
     document.querySelector<HTMLInputElement>("#loginEmail")?.getAttribute("pattern"),
@@ -342,7 +514,9 @@ for (const credentials of [
     location: { hash: "#agents" } as Location,
     storage: createStorage(),
     demoMode: false,
-    fetchImpl: async () => pending.promise
+    fetchImpl: async path => String(path) === "/api/auth/me"
+      ? new Response(JSON.stringify({ message: "未登录" }), { status: 401 })
+      : pending.promise
   });
 
   await controller.start();
@@ -662,5 +836,22 @@ for (const credentials of [
   assert.equal(storage.getItem("gj_user"), null);
   assert.equal(document.body.classList.contains("is-authenticated"), false);
   assert.deepEqual(events, [false]);
+  controller.destroy();
+}
+
+
+{
+  const document = createDocument();
+  const storage = createStorage();
+  const bootstrap = { ...admin, id: "u_initial_super_admin", teamId: "all", role: "super_admin" as const, email: "bootstrap@shensi.local", name: "Local Bootstrap" };
+  const response = createDeferred<Response>();
+  const controller = createAppSessionController({
+    document, storage, location: { hash: "#decision-simulation" } as Location, demoMode: false,
+    fetchImpl: async () => response.promise,
+  });
+  const restoring = controller.start();
+  response.resolve(new Response(JSON.stringify({ user: bootstrap, access: { status: "unmanaged", workspaceId: "all", canRead: true, canExecute: true, features: ["decision"] } }), { status: 200 }));
+  await restoring;
+  assert.equal(document.body.dataset.sessionWorkspaceId, `personal:${bootstrap.id}`);
   controller.destroy();
 }

@@ -958,6 +958,38 @@
           },
           "AcquisitionCohortMember": {
             "additionalProperties": false,
+            "oneOf": [
+              {
+                "properties": {
+                  "attributionSnapshot": {
+                    "properties": {
+                      "attributionVersion": {
+                        "const": "douyin-crawler.v1"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "firstShardId": {
+                    "type": "null"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "attributionSnapshot": {
+                    "properties": {
+                      "attributionVersion": {
+                        "const": "acquisition-run.v1"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "firstShardId": {
+                    "$ref": "#/components/schemas/AcquisitionCohort/%24defs/nonempty"
+                  }
+                }
+              }
+            ],
             "properties": {
               "attributionSnapshot": {
                 "$ref": "#/components/schemas/CommercialBindingSnapshot/properties/attributionSnapshot"
@@ -981,7 +1013,11 @@
                 "$ref": "#/components/schemas/AcquisitionCohort/%24defs/nonempty"
               },
               "firstShardId": {
-                "$ref": "#/components/schemas/AcquisitionCohort/%24defs/nonempty"
+                "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "id": {
                 "$ref": "#/components/schemas/AcquisitionCohort/%24defs/nonempty"
@@ -3024,6 +3060,184 @@
         "title": "AdvisorTodayResponse",
         "type": "object"
       },
+      "AgentWebResearch": {
+        "$defs": {
+          "Connections": {
+            "additionalProperties": false,
+            "properties": {
+              "connections": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "provider": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "provider",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "connections"
+            ],
+            "type": "object"
+          },
+          "Input": {
+            "additionalProperties": false,
+            "properties": {
+              "connectionId": {
+                "maxLength": 191,
+                "minLength": 1,
+                "type": "string"
+              },
+              "query": {
+                "description": "Explicit public keywords only; never automatically append attachments, history or company records.",
+                "maxLength": 500,
+                "minLength": 2,
+                "type": "string"
+              },
+              "role": {
+                "enum": [
+                  "cfo",
+                  "finance",
+                  "profit",
+                  "cost",
+                  "cashflow",
+                  "tax"
+                ]
+              }
+            },
+            "required": [
+              "query",
+              "connectionId",
+              "role"
+            ],
+            "type": "object"
+          },
+          "Source": {
+            "additionalProperties": false,
+            "properties": {
+              "fetchedAt": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^S[1-5]$",
+                "type": "string"
+              },
+              "snippet": {
+                "maxLength": 3000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              "url": {
+                "format": "uri",
+                "pattern": "^https?://",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "url",
+              "snippet",
+              "fetchedAt"
+            ],
+            "type": "object"
+          }
+        },
+        "$id": "https://schemas.goodjob.ai/agent-web-research.v1.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "citationIds": {
+            "items": {
+              "pattern": "^S[1-5]$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "evidenceKind": {
+            "const": "search_index_snippets"
+          },
+          "model": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "query": {
+            "maxLength": 500,
+            "minLength": 2,
+            "type": "string"
+          },
+          "retrievedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "searchProvider": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/AgentWebResearch/%24defs/Source"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "answer",
+          "citationIds",
+          "model",
+          "provider",
+          "query",
+          "searchProvider",
+          "sources",
+          "retrievedAt",
+          "evidenceKind"
+        ],
+        "title": "AgentWebResearch",
+        "type": "object"
+      },
+      "AgentWebResearchConnections": {
+        "$ref": "#/components/schemas/AgentWebResearch/%24defs/Connections"
+      },
+      "AgentWebResearchInput": {
+        "$ref": "#/components/schemas/AgentWebResearch/%24defs/Input"
+      },
       "ApiError": {
         "$id": "https://goodjob.example/contracts/json-schema/api-error.v1.schema.json",
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3404,6 +3618,9 @@
               "dealId": {
                 "$ref": "#/components/schemas/AttributionAllocationSet/%24defs/nonempty"
               },
+              "id": {
+                "$ref": "#/components/schemas/AttributionAllocationSet/%24defs/nonempty"
+              },
               "originalPaymentAllocationItemId": {
                 "$ref": "#/components/schemas/AttributionAllocationSet/%24defs/nullableId"
               },
@@ -3421,6 +3638,7 @@
               }
             },
             "required": [
+              "id",
               "allocationSetId",
               "targetRevenueFactId",
               "dealId",
@@ -3903,6 +4121,867 @@
           "hasMore"
         ],
         "type": "object"
+      },
+      "CfoConversationAnswer": {
+        "$defs": {
+          "Input": {
+            "additionalProperties": false,
+            "dependentRequired": {
+              "referenceTopicIds": [
+                "referenceProtocol"
+              ]
+            },
+            "properties": {
+              "conversationKey": {
+                "description": "Required for a chat attachment: must match the conversation used when parsing it, together with the selected role.",
+                "format": "uuid",
+                "type": "string"
+              },
+              "documentId": {
+                "description": "Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics.",
+                "maxLength": 255,
+                "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "history": {
+                "items": {
+                  "$ref": "#/components/schemas/CfoConversationAnswer/%24defs/Turn"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              "knowledgeMode": {
+                "default": "off",
+                "description": "Bounded private reference retrieval for text; omitted preserves legacy and voice behavior.",
+                "enum": [
+                  "auto",
+                  "off"
+                ]
+              },
+              "question": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "referenceProtocol": {
+                "const": "system-v1",
+                "description": "Explicit negotiated text protocol. Omitted is private-only; knowledgeMode off or omitted closes both libraries."
+              },
+              "referenceTopicIds": {
+                "$ref": "#/components/schemas/CfoSessionAsk/properties/referenceTopicIds"
+              },
+              "role": {
+                "default": "cfo",
+                "description": "Selected specialist; omitted means CFO. One role/model per question.",
+                "enum": [
+                  "cfo",
+                  "finance",
+                  "profit",
+                  "cost",
+                  "cashflow",
+                  "tax"
+                ]
+              },
+              "webSearchMode": {
+                "description": "Explicit text search preference: off skips planning and public search; on requires safe public retrieval or an explicit error. Omitted preserves legacy automatic planning. Independent from knowledgeMode.",
+                "enum": [
+                  "on",
+                  "off"
+                ]
+              }
+            },
+            "required": [
+              "question",
+              "history"
+            ],
+            "type": "object"
+          },
+          "MaterialSource": {
+            "additionalProperties": false,
+            "properties": {
+              "companyName": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "packageId": {
+                "type": "string"
+              },
+              "period": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "packageId",
+              "companyName",
+              "period",
+              "currency"
+            ],
+            "type": "object"
+          },
+          "Research": {
+            "additionalProperties": false,
+            "properties": {
+              "citationIds": {
+                "items": {
+                  "pattern": "^S[1-5]$",
+                  "type": "string"
+                },
+                "maxItems": 5,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "evidenceKind": {
+                "const": "search_index_snippets"
+              },
+              "query": {
+                "maxLength": 500,
+                "minLength": 2,
+                "type": "string"
+              },
+              "retrievedAt": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "searchProvider": {
+                "maxLength": 191,
+                "minLength": 1,
+                "type": "string"
+              },
+              "sources": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fetchedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "pattern": "^S[1-5]$",
+                      "type": "string"
+                    },
+                    "snippet": {
+                      "maxLength": 3000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "title": {
+                      "maxLength": 300,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "url": {
+                      "format": "uri",
+                      "maxLength": 4000,
+                      "pattern": "^https?://",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "url",
+                    "snippet",
+                    "fetchedAt"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 5,
+                "minItems": 1,
+                "type": "array"
+              },
+              "status": {
+                "const": "completed"
+              }
+            },
+            "required": [
+              "status",
+              "query",
+              "searchProvider",
+              "retrievedAt",
+              "evidenceKind",
+              "citationIds",
+              "sources"
+            ],
+            "type": "object"
+          },
+          "Turn": {
+            "additionalProperties": false,
+            "properties": {
+              "role": {
+                "enum": [
+                  "user",
+                  "assistant"
+                ]
+              },
+              "text": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "text"
+            ],
+            "type": "object"
+          }
+        },
+        "$id": "https://schemas.goodjob.ai/cfo-conversation.v1.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "answeredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "knowledge": {
+            "additionalProperties": false,
+            "properties": {
+              "detailedText": {
+                "maxLength": 12000,
+                "type": "string"
+              },
+              "sources": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "chunkId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "documentId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "excerpt": {
+                          "maxLength": 4000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "locator": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "chapter": {
+                              "maxLength": 300,
+                              "type": "string"
+                            },
+                            "column": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "endLine": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "endOffset": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "page": {
+                              "maximum": 1000,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "paragraph": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "row": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "sheet": {
+                              "maxLength": 200,
+                              "type": "string"
+                            },
+                            "startLine": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "startOffset": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "table": {
+                              "minimum": 1,
+                              "type": "integer"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "sourceHash": {
+                          "pattern": "^[a-f0-9]{64}$",
+                          "type": "string"
+                        },
+                        "sourceId": {
+                          "pattern": "^K[1-6]$",
+                          "type": "string"
+                        },
+                        "sourceLabel": {
+                          "maxLength": 1000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "sourceType": {
+                          "const": "private",
+                          "description": "Omitted is legacy private; never infer system ownership from UUID or K alias."
+                        },
+                        "versionId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "warnings": {
+                          "$ref": "#/components/schemas/CfoConversationAnswer/properties/knowledge/properties/warnings"
+                        }
+                      },
+                      "required": [
+                        "sourceId",
+                        "documentId",
+                        "versionId",
+                        "sourceHash",
+                        "chunkId",
+                        "sourceLabel",
+                        "locator",
+                        "excerpt",
+                        "warnings"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "chunkHash": {
+                          "pattern": "^[a-f0-9]{64}$",
+                          "type": "string"
+                        },
+                        "corpusId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "excerpt": {
+                          "maxLength": 4000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "excerptRange": {
+                          "additionalProperties": false,
+                          "description": "Server-selected UTF-16 half-open offsets in the immutable chunk. Runtime also checks exact length/source equality and intact surrogate pairs.",
+                          "properties": {
+                            "end": {
+                              "maximum": 4000,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "start": {
+                              "maximum": 4000,
+                              "minimum": 0,
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "locator": {
+                          "$ref": "#/components/schemas/CfoConversationAnswer/properties/knowledge/properties/sources/items/oneOf/0/properties/locator"
+                        },
+                        "queryGrantId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "referenceId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "referenceKey": {
+                          "maxLength": 80,
+                          "pattern": "^system:[a-fA-F0-9-]{36}:[a-fA-F0-9-]{36}$",
+                          "type": "string"
+                        },
+                        "releaseId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "sourceHash": {
+                          "pattern": "^[a-f0-9]{64}$",
+                          "type": "string"
+                        },
+                        "sourceId": {
+                          "pattern": "^K[1-6]$",
+                          "type": "string"
+                        },
+                        "sourceLabel": {
+                          "maxLength": 1000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "sourceType": {
+                          "const": "system"
+                        },
+                        "warnings": {
+                          "$ref": "#/components/schemas/CfoConversationAnswer/properties/knowledge/properties/warnings"
+                        }
+                      },
+                      "required": [
+                        "sourceType",
+                        "sourceId",
+                        "referenceKey",
+                        "queryGrantId",
+                        "referenceId",
+                        "corpusId",
+                        "releaseId",
+                        "sourceHash",
+                        "chunkHash",
+                        "excerptRange",
+                        "sourceLabel",
+                        "locator",
+                        "excerpt",
+                        "warnings"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "maxItems": 6,
+                "type": "array"
+              },
+              "status": {
+                "enum": [
+                  "used",
+                  "no_match",
+                  "unavailable"
+                ]
+              },
+              "warnings": {
+                "items": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              }
+            },
+            "required": [
+              "status",
+              "detailedText",
+              "sources",
+              "warnings"
+            ],
+            "type": "object"
+          },
+          "libraryStatus": {
+            "additionalProperties": false,
+            "properties": {
+              "private": {
+                "enum": [
+                  "off",
+                  "used",
+                  "no_match",
+                  "unavailable"
+                ]
+              },
+              "system": {
+                "enum": [
+                  "off",
+                  "unconfigured",
+                  "unbound",
+                  "ready",
+                  "no_match",
+                  "unavailable",
+                  "auth_required",
+                  "forbidden",
+                  "rate_limited",
+                  "vocabulary_mismatch"
+                ]
+              }
+            },
+            "required": [
+              "private",
+              "system"
+            ],
+            "type": "object"
+          },
+          "material": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CfoConversationAnswer/%24defs/MaterialSource"
+              },
+              {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/MaterialSource"
+              }
+            ]
+          },
+          "model": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "research": {
+            "$ref": "#/components/schemas/CfoConversationAnswer/%24defs/Research"
+          }
+        },
+        "required": [
+          "answer",
+          "provider",
+          "model",
+          "material",
+          "answeredAt"
+        ],
+        "title": "CfoConversationAnswer",
+        "type": "object"
+      },
+      "CfoConversationInput": {
+        "$ref": "#/components/schemas/CfoConversationAnswer/%24defs/Input"
+      },
+      "CfoSession": {
+        "$defs": {
+          "Ask": {
+            "additionalProperties": false,
+            "dependentRequired": {
+              "referenceTopicIds": [
+                "referenceProtocol"
+              ]
+            },
+            "properties": {
+              "documentId": {
+                "maxLength": 191,
+                "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "history": {
+                "items": {
+                  "$ref": "#/components/schemas/CfoConversationAnswer/%24defs/Turn"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              "knowledgeMode": {
+                "default": "off",
+                "enum": [
+                  "auto",
+                  "off"
+                ]
+              },
+              "question": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "referenceProtocol": {
+                "const": "system-v1",
+                "description": "Explicit negotiated protocol; knowledgeMode off or omitted closes both libraries."
+              },
+              "referenceTopicIds": {
+                "items": {
+                  "enum": [
+                    "budget_variance",
+                    "budget_planning",
+                    "cost_driver",
+                    "cost_structure",
+                    "cashflow_forecast",
+                    "working_capital",
+                    "profitability_analysis",
+                    "break_even",
+                    "statement_analysis",
+                    "ratio_analysis",
+                    "tax_document_review",
+                    "tax_risk_review"
+                  ]
+                },
+                "maxItems": 3,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "webSearchMode": {
+                "description": "Explicit public search preference for this turn; omitted retains legacy automatic planning.",
+                "enum": [
+                  "on",
+                  "off"
+                ]
+              }
+            },
+            "required": [
+              "question",
+              "revision",
+              "documentId"
+            ],
+            "type": "object"
+          },
+          "Create": {
+            "additionalProperties": false,
+            "properties": {
+              "documentId": {
+                "maxLength": 191,
+                "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "documentId"
+            ],
+            "type": "object"
+          },
+          "Event": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "stage": {
+                    "enum": [
+                      "material_ready",
+                      "skill_ready",
+                      "model_started",
+                      "answer_validated"
+                    ]
+                  },
+                  "type": {
+                    "const": "stage"
+                  }
+                },
+                "required": [
+                  "type",
+                  "stage"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "result": {
+                    "$ref": "#/components/schemas/CfoSession/%24defs/Reply"
+                  },
+                  "type": {
+                    "const": "result"
+                  }
+                },
+                "required": [
+                  "type",
+                  "result"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "maximum": 599,
+                    "minimum": 400,
+                    "type": "integer"
+                  },
+                  "type": {
+                    "const": "error"
+                  }
+                },
+                "required": [
+                  "type",
+                  "status",
+                  "code"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "Reply": {
+            "additionalProperties": false,
+            "properties": {
+              "answer": {
+                "$ref": "#/components/schemas/CfoConversationAnswer"
+              },
+              "session": {
+                "$ref": "#/components/schemas/CfoSession"
+              }
+            },
+            "required": [
+              "session",
+              "answer"
+            ],
+            "type": "object"
+          },
+          "Summary": {
+            "additionalProperties": false,
+            "properties": {
+              "createdAt": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "documentId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "sessionId": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "title": {
+                "maxLength": 120,
+                "type": "string"
+              },
+              "turnCount": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "updatedAt": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId",
+              "revision",
+              "title",
+              "documentId",
+              "createdAt",
+              "updatedAt",
+              "turnCount"
+            ],
+            "type": "object"
+          }
+        },
+        "$id": "https://schemas.goodjob.ai/cfo-session.v1.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "documentId": {
+            "maxLength": 191,
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "sessionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "turns": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "knowledge": {
+                  "$ref": "#/components/schemas/CfoConversationAnswer/properties/knowledge"
+                },
+                "libraryStatus": {
+                  "$ref": "#/components/schemas/CfoConversationAnswer/properties/libraryStatus"
+                },
+                "model": {
+                  "maxLength": 191,
+                  "type": "string"
+                },
+                "research": {
+                  "$ref": "#/components/schemas/CfoConversationAnswer/%24defs/Research"
+                },
+                "role": {
+                  "enum": [
+                    "user",
+                    "assistant"
+                  ]
+                },
+                "sourceLabel": {
+                  "maxLength": 1000,
+                  "type": "string"
+                },
+                "text": {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "text"
+              ],
+              "type": "object"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "revision",
+          "title",
+          "documentId",
+          "createdAt",
+          "updatedAt",
+          "turns"
+        ],
+        "title": "CfoSession",
+        "type": "object"
+      },
+      "CfoSessionAsk": {
+        "$ref": "#/components/schemas/CfoSession/%24defs/Ask"
+      },
+      "CfoSessionCreate": {
+        "$ref": "#/components/schemas/CfoSession/%24defs/Create"
+      },
+      "CfoSessionEvent": {
+        "$ref": "#/components/schemas/CfoSession/%24defs/Event"
+      },
+      "CfoSessionReply": {
+        "$ref": "#/components/schemas/CfoSession/%24defs/Reply"
+      },
+      "CfoSessionSummary": {
+        "$ref": "#/components/schemas/CfoSession/%24defs/Summary"
       },
       "ClosureAttestation": {
         "$ref": "#/components/schemas/AcquisitionCohort/%24defs/ClosureAttestation"
@@ -4566,6 +5645,774 @@
       "ExpectedRoiCurrencyView": {
         "$ref": "#/components/schemas/GrowthPerformanceResponse/%24defs/ExpectedRoiCurrencyView"
       },
+      "FinanceDocumentAttachmentClear": {
+        "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/AttachmentClear"
+      },
+      "FinanceDocumentInspection": {
+        "$defs": {
+          "AttachmentClear": {
+            "additionalProperties": false,
+            "properties": {
+              "conversationKey": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "documentId": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "role": {
+                "enum": [
+                  "cfo",
+                  "finance",
+                  "profit",
+                  "cost",
+                  "cashflow",
+                  "tax"
+                ]
+              }
+            },
+            "required": [
+              "documentId",
+              "conversationKey",
+              "role"
+            ],
+            "type": "object"
+          },
+          "BatchFile": {
+            "additionalProperties": false,
+            "properties": {
+              "contentBase64": {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Input/properties/contentBase64"
+              },
+              "fileName": {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Input/properties/fileName"
+              },
+              "mediaType": {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Input/properties/mediaType"
+              }
+            },
+            "required": [
+              "fileName",
+              "mediaType",
+              "contentBase64"
+            ],
+            "type": "object"
+          },
+          "Cell": {
+            "description": "An original spreadsheet cell, PDF text item, Word paragraph or Word table cell. Non-spreadsheet sources never contain fabricated sheet coordinates.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/SpreadsheetCell"
+              },
+              {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/PdfText"
+              },
+              {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/WordParagraph"
+              },
+              {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/WordTableCell"
+              }
+            ]
+          },
+          "Classification": {
+            "enum": [
+              "financial_statements",
+              "ledger",
+              "unknown"
+            ]
+          },
+          "DetailedReport": {
+            "additionalProperties": false,
+            "properties": {
+              "publicResearchStatus": {
+                "enum": [
+                  "completed",
+                  "unavailable",
+                  "not_requested"
+                ]
+              },
+              "research": {
+                "$ref": "#/components/schemas/CfoConversationAnswer/%24defs/Research"
+              },
+              "sections": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "action": {
+                      "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/ReportBlock"
+                    },
+                    "coverage": {
+                      "enum": [
+                        "supported",
+                        "partial",
+                        "insufficient"
+                      ]
+                    },
+                    "evidence": {
+                      "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/ReportBlock"
+                    },
+                    "id": {
+                      "enum": [
+                        "overview",
+                        "income",
+                        "cost",
+                        "profit",
+                        "cashflow",
+                        "comparison",
+                        "actions"
+                      ]
+                    },
+                    "interpretation": {
+                      "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/ReportBlock"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "coverage",
+                    "evidence",
+                    "interpretation",
+                    "action"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 7,
+                "minItems": 7,
+                "type": "array"
+              },
+              "version": {
+                "const": "finance-detailed.v1"
+              }
+            },
+            "required": [
+              "version",
+              "sections"
+            ],
+            "type": "object"
+          },
+          "FileHash": {
+            "pattern": "^sha256:[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "Input": {
+            "additionalProperties": false,
+            "if": {
+              "properties": {
+                "attachmentScope": {}
+              },
+              "required": [
+                "attachmentScope"
+              ]
+            },
+            "properties": {
+              "additionalFiles": {
+                "description": "Other selected successful files; decoded batch at most 5 MiB. Original references receive unique file prefixes.",
+                "items": {
+                  "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/BatchFile"
+                },
+                "maxItems": 9,
+                "type": "array"
+              },
+              "analysisPurpose": {
+                "description": "Optional read-only question purpose. None requires three statements or creates ledger facts. Missing ROI inputs cannot be invented.",
+                "enum": [
+                  "finance",
+                  "roi",
+                  "management"
+                ]
+              },
+              "attachmentScope": {
+                "additionalProperties": false,
+                "description": "Parse and retain a temporary chat attachment without model calls. Requires readWithModel=false; isolated by actor/workspace/conversation/role; expires after one hour.",
+                "properties": {
+                  "conversationKey": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "role": {
+                    "enum": [
+                      "cfo",
+                      "finance",
+                      "profit",
+                      "cost",
+                      "cashflow",
+                      "tax"
+                    ]
+                  }
+                },
+                "required": [
+                  "conversationKey",
+                  "role"
+                ],
+                "type": "object"
+              },
+              "contentBase64": {
+                "description": "Canonical Base64-encoded original file; decoded content is bounded to 5 MiB by the server.",
+                "maxLength": 6990508,
+                "minLength": 4,
+                "type": "string"
+              },
+              "fileName": {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              "mediaType": {
+                "enum": [
+                  "text/csv",
+                  "application/vnd.ms-excel",
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  "application/pdf",
+                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                ]
+              },
+              "publicIndustry": {
+                "description": "Controlled public industry label for report context search; no file text is sent to search.",
+                "enum": [
+                  "general",
+                  "manufacturing",
+                  "retail",
+                  "services",
+                  "technology"
+                ]
+              },
+              "readWithModel": {
+                "description": "True is the informed read action: use the configured model and select this read-only source for the current workspace/actor conversation. False only inspects locally.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "fileName",
+              "mediaType",
+              "contentBase64",
+              "readWithModel"
+            ],
+            "then": {
+              "properties": {
+                "readWithModel": {
+                  "const": false
+                }
+              }
+            },
+            "type": "object"
+          },
+          "MaterialSource": {
+            "additionalProperties": false,
+            "properties": {
+              "classification": {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Classification"
+              },
+              "documentId": {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              "expiresAt": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "fileHash": {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/FileHash"
+              },
+              "fileName": {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              "kind": {
+                "const": "readonly_document"
+              },
+              "missingStatements": {
+                "items": {
+                  "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/StatementKind"
+                },
+                "maxItems": 3,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "kind",
+              "documentId",
+              "fileName",
+              "fileHash",
+              "classification",
+              "missingStatements",
+              "expiresAt"
+            ],
+            "type": "object"
+          },
+          "Observation": {
+            "additionalProperties": false,
+            "properties": {
+              "sourceRefs": {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Refs"
+              },
+              "text": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "text",
+              "sourceRefs"
+            ],
+            "type": "object"
+          },
+          "PdfText": {
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/SegmentMetadata"
+              }
+            ],
+            "properties": {
+              "endOffset": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "item": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "page": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "segment": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "sourceRef": {
+                "pattern": "^(?:file:[1-9][0-9]*:)?pdf:[1-9][0-9]*:[1-9][0-9]*(?::s:[1-9][0-9]*)?$",
+                "type": "string"
+              },
+              "startOffset": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "text": {
+                "maxLength": 500,
+                "type": "string"
+              }
+            },
+            "required": [
+              "sourceRef",
+              "page",
+              "item",
+              "text"
+            ],
+            "type": "object"
+          },
+          "Refs": {
+            "items": {
+              "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/SourceRef"
+            },
+            "maxItems": 2000,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "Region": {
+            "additionalProperties": false,
+            "properties": {
+              "endRow": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "headerRow": {
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "kind": {
+                "enum": [
+                  "balance_sheet",
+                  "income_statement",
+                  "cash_flow_statement",
+                  "ledger",
+                  "unknown"
+                ]
+              },
+              "regionId": {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              "sheetName": {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              "sourceRefs": {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Refs"
+              },
+              "startRow": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "uncertain": {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Uncertain"
+              }
+            },
+            "required": [
+              "regionId",
+              "sheetName",
+              "kind",
+              "startRow",
+              "endRow",
+              "headerRow",
+              "sourceRefs",
+              "uncertain"
+            ],
+            "type": "object"
+          },
+          "ReportBlock": {
+            "items": {
+              "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Observation"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array"
+          },
+          "SegmentMetadata": {
+            "description": "Long PDF/Word text is preserved as segments. Offsets are zero-based UTF-16 indexes into the complete original text; endOffset is exclusive.",
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "startOffset": {}
+                    },
+                    "required": [
+                      "startOffset"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "endOffset": {}
+                    },
+                    "required": [
+                      "endOffset"
+                    ]
+                  }
+                ]
+              },
+              "properties": {
+                "sourceRef": {
+                  "not": {
+                    "pattern": ":s:",
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "if": {
+              "properties": {
+                "segment": {}
+              },
+              "required": [
+                "segment"
+              ]
+            },
+            "properties": {
+              "endOffset": {},
+              "segment": {},
+              "sourceRef": {},
+              "startOffset": {}
+            },
+            "then": {
+              "properties": {
+                "endOffset": {},
+                "sourceRef": {
+                  "pattern": ":s:[1-9][0-9]*$",
+                  "type": "string"
+                },
+                "startOffset": {}
+              },
+              "required": [
+                "startOffset",
+                "endOffset"
+              ]
+            },
+            "type": "object"
+          },
+          "SourceRef": {
+            "pattern": "^(?:file:[1-9][0-9]*:)?(?:cell:[1-9][0-9]*:[1-9][0-9]*:[1-9][0-9]*|(?:pdf:[1-9][0-9]*:[1-9][0-9]*|docx:p:[1-9][0-9]*|docx:t:[1-9][0-9]*:[1-9][0-9]*:[1-9][0-9]*)(?::s:[1-9][0-9]*)?)$",
+            "type": "string"
+          },
+          "SpreadsheetCell": {
+            "additionalProperties": false,
+            "properties": {
+              "column": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "row": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "sheetName": {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              "sourceRef": {
+                "pattern": "^(?:file:[1-9][0-9]*:)?cell:[1-9][0-9]*:[1-9][0-9]*:[1-9][0-9]*$",
+                "type": "string"
+              },
+              "text": {
+                "maxLength": 500,
+                "type": "string"
+              },
+              "valueStatus": {
+                "description": "Cached formulas are workbook display evidence only; never recalculated or verified.",
+                "enum": [
+                  "original",
+                  "cached_formula"
+                ]
+              }
+            },
+            "required": [
+              "sourceRef",
+              "sheetName",
+              "row",
+              "column",
+              "text"
+            ],
+            "type": "object"
+          },
+          "StatementKind": {
+            "enum": [
+              "balance_sheet",
+              "income_statement",
+              "cash_flow_statement"
+            ]
+          },
+          "Uncertain": {
+            "items": {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "WordParagraph": {
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/SegmentMetadata"
+              }
+            ],
+            "properties": {
+              "endOffset": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "paragraph": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "segment": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "sourceRef": {
+                "pattern": "^(?:file:[1-9][0-9]*:)?docx:p:[1-9][0-9]*(?::s:[1-9][0-9]*)?$",
+                "type": "string"
+              },
+              "startOffset": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "text": {
+                "maxLength": 500,
+                "type": "string"
+              }
+            },
+            "required": [
+              "sourceRef",
+              "paragraph",
+              "text"
+            ],
+            "type": "object"
+          },
+          "WordTableCell": {
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/SegmentMetadata"
+              }
+            ],
+            "properties": {
+              "column": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "endOffset": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "row": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "segment": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "sourceRef": {
+                "pattern": "^(?:file:[1-9][0-9]*:)?docx:t:[1-9][0-9]*:[1-9][0-9]*:[1-9][0-9]*(?::s:[1-9][0-9]*)?$",
+                "type": "string"
+              },
+              "startOffset": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "table": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "text": {
+                "maxLength": 500,
+                "type": "string"
+              }
+            },
+            "required": [
+              "sourceRef",
+              "table",
+              "row",
+              "column",
+              "text"
+            ],
+            "type": "object"
+          }
+        },
+        "$id": "https://schemas.goodjob.ai/finance-document.v1.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Cell"
+            },
+            "maxItems": 2000,
+            "type": "array"
+          },
+          "classification": {
+            "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Classification"
+          },
+          "detailedReport": {
+            "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/DetailedReport"
+          },
+          "documentId": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "fileHash": {
+            "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/FileHash"
+          },
+          "fileName": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "fileHash": {
+                  "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/FileHash"
+                },
+                "fileName": {
+                  "maxLength": 255,
+                  "type": "string"
+                },
+                "prefix": {
+                  "pattern": "^file:[1-9][0-9]*:$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fileName",
+                "fileHash",
+                "prefix"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
+          "missingStatements": {
+            "items": {
+              "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/StatementKind"
+            },
+            "maxItems": 3,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "modelStatus": {
+            "enum": [
+              "not_requested",
+              "consent_required",
+              "completed",
+              "unavailable",
+              "invalid_output"
+            ]
+          },
+          "observations": {
+            "items": {
+              "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Observation"
+            },
+            "maxItems": 12,
+            "type": "array"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Region"
+            },
+            "maxItems": 200,
+            "type": "array"
+          },
+          "selectedForConversation": {
+            "type": "boolean"
+          },
+          "uncertain": {
+            "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Uncertain"
+          }
+        },
+        "required": [
+          "documentId",
+          "fileName",
+          "expiresAt",
+          "selectedForConversation",
+          "fileHash",
+          "classification",
+          "regions",
+          "cells",
+          "missingStatements",
+          "uncertain",
+          "observations",
+          "modelStatus"
+        ],
+        "title": "FinanceDocumentInspection",
+        "type": "object"
+      },
+      "FinanceDocumentInspectionInput": {
+        "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Input"
+      },
+      "FinanceDocumentMaterialSource": {
+        "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/MaterialSource"
+      },
       "FinanceImportOperation": {
         "$defs": {
           "FinanceImportPreview": {
@@ -4612,6 +6459,48 @@
               "rejectedRows",
               "errors",
               "expiresAt"
+            ],
+            "type": "object"
+          },
+          "FinanceImportPreviewInput": {
+            "additionalProperties": false,
+            "properties": {
+              "contentBase64": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "fileName": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "acquisition_cost",
+                  "financial_fact"
+                ]
+              },
+              "mapping": {
+                "additionalProperties": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "mediaType": {
+                "enum": [
+                  "text/csv",
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "fileName",
+              "mediaType",
+              "contentBase64",
+              "mapping"
             ],
             "type": "object"
           },
@@ -5197,6 +7086,9 @@
       "FinanceImportPreview": {
         "$ref": "#/components/schemas/FinanceImportOperation/%24defs/FinanceImportPreview"
       },
+      "FinanceImportPreviewInput": {
+        "$ref": "#/components/schemas/FinanceImportOperation/%24defs/FinanceImportPreviewInput"
+      },
       "FinanceImportRowError": {
         "$ref": "#/components/schemas/FinanceImportOperation/%24defs/FinanceImportRowError"
       },
@@ -5240,6 +7132,12 @@
       },
       "FinancialCouncilApproval": {
         "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilApproval"
+      },
+      "FinancialCouncilCollaboration": {
+        "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilCollaboration"
+      },
+      "FinancialCouncilDetailedReport": {
+        "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilDetailedReport"
       },
       "FinancialCouncilDispatchPagedResult": {
         "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilDispatchPagedResult"
@@ -6179,6 +8077,279 @@
               "model_error"
             ]
           },
+          "FinancialCouncilCollaboration": {
+            "additionalProperties": false,
+            "properties": {
+              "currency": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/currency"
+              },
+              "dataAsOf": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/dateTime"
+              },
+              "events": {
+                "items": {
+                  "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilCollaborationEvent"
+                },
+                "maxItems": 2000,
+                "type": "array"
+              },
+              "executionMode": {
+                "const": "sequential",
+                "type": "string"
+              },
+              "narrative": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilNarrative"
+                  }
+                ]
+              },
+              "policyVersionId": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/nonempty"
+              },
+              "report": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilDetailedReport"
+              },
+              "reviewRoundLimit": {
+                "const": 1,
+                "type": "integer"
+              },
+              "reviews": {
+                "items": {
+                  "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilCollaborationReview"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              "revision": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/revision"
+              },
+              "roles": {
+                "items": {
+                  "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilCollaborationRole"
+                },
+                "maxItems": 6,
+                "minItems": 6,
+                "type": "array"
+              },
+              "runId": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/nonempty"
+              },
+              "snapshotHash": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/hash"
+              },
+              "snapshotId": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/nonempty"
+              },
+              "statementPackageId": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/nonempty"
+              },
+              "workspaceId": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/workspace"
+              }
+            },
+            "required": [
+              "runId",
+              "workspaceId",
+              "revision",
+              "dataAsOf",
+              "currency",
+              "statementPackageId",
+              "snapshotId",
+              "snapshotHash",
+              "policyVersionId",
+              "executionMode",
+              "reviewRoundLimit",
+              "roles",
+              "events",
+              "reviews",
+              "narrative",
+              "report"
+            ],
+            "type": "object"
+          },
+          "FinancialCouncilCollaborationEvent": {
+            "additionalProperties": false,
+            "properties": {
+              "eventId": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/nonempty"
+              },
+              "findingIds": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              "message": {
+                "type": "string"
+              },
+              "occurredAt": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/dateTime"
+              },
+              "phase": {
+                "enum": [
+                  "analysis",
+                  "review",
+                  "synthesis",
+                  "run"
+                ],
+                "type": "string"
+              },
+              "reasonCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "role": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilModelRole"
+                  }
+                ]
+              },
+              "state": {
+                "enum": [
+                  "waiting",
+                  "running",
+                  "completed",
+                  "missing_data",
+                  "failed",
+                  "degraded"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "eventId",
+              "role",
+              "phase",
+              "state",
+              "occurredAt",
+              "message",
+              "reasonCode",
+              "findingIds"
+            ],
+            "type": "object"
+          },
+          "FinancialCouncilCollaborationReview": {
+            "additionalProperties": false,
+            "properties": {
+              "findingId": {
+                "type": "string"
+              },
+              "occurredAt": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/dateTime"
+              },
+              "peerFindingId": {
+                "type": "string"
+              },
+              "role": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilModelRole"
+              },
+              "round": {
+                "const": 1,
+                "type": "integer"
+              },
+              "state": {
+                "enum": [
+                  "pending",
+                  "upheld",
+                  "revised",
+                  "withdrawn"
+                ],
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "round",
+              "findingId",
+              "peerFindingId",
+              "state",
+              "summary",
+              "occurredAt"
+            ],
+            "type": "object"
+          },
+          "FinancialCouncilCollaborationRole": {
+            "additionalProperties": false,
+            "properties": {
+              "actions": {
+                "items": {
+                  "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/CandidateAction"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              "findings": {
+                "items": {
+                  "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialFinding"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              "message": {
+                "type": "string"
+              },
+              "phase": {
+                "enum": [
+                  "analysis",
+                  "review",
+                  "synthesis",
+                  "run"
+                ],
+                "type": "string"
+              },
+              "reasonCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "role": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilModelRole"
+              },
+              "state": {
+                "enum": [
+                  "waiting",
+                  "running",
+                  "completed",
+                  "missing_data",
+                  "failed",
+                  "degraded"
+                ],
+                "type": "string"
+              },
+              "updatedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "role",
+              "state",
+              "phase",
+              "updatedAt",
+              "message",
+              "reasonCode",
+              "findings",
+              "actions"
+            ],
+            "type": "object"
+          },
           "FinancialCouncilCreateInput": {
             "additionalProperties": false,
             "properties": {
@@ -6200,6 +8371,43 @@
               "dataAsOf",
               "businessReport",
               "policyVersionId"
+            ],
+            "type": "object"
+          },
+          "FinancialCouncilDetailedReport": {
+            "additionalProperties": false,
+            "properties": {
+              "complete": {
+                "type": "boolean"
+              },
+              "generatedAt": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/dateTime"
+              },
+              "reportId": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/nonempty"
+              },
+              "sections": {
+                "items": {
+                  "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilReportSection"
+                },
+                "maxItems": 30,
+                "type": "array"
+              },
+              "title": {
+                "type": "string"
+              },
+              "version": {
+                "const": "financial-council-report.v1",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reportId",
+              "version",
+              "title",
+              "complete",
+              "generatedAt",
+              "sections"
             ],
             "type": "object"
           },
@@ -6629,6 +8837,51 @@
             ],
             "type": "object"
           },
+          "FinancialCouncilNarrative": {
+            "additionalProperties": false,
+            "properties": {
+              "minorityFindingIds": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              "narrativeStatus": {
+                "enum": [
+                  "model_valid",
+                  "model_invalid",
+                  "model_unavailable"
+                ],
+                "type": "string"
+              },
+              "overallDiagnosis": {
+                "type": "string"
+              },
+              "priorityFindingIds": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              "riskNotes": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              }
+            },
+            "required": [
+              "overallDiagnosis",
+              "priorityFindingIds",
+              "minorityFindingIds",
+              "riskNotes",
+              "narrativeStatus"
+            ],
+            "type": "object"
+          },
           "FinancialCouncilPolicyInput": {
             "additionalProperties": false,
             "properties": {
@@ -6859,6 +9112,59 @@
             ],
             "type": "object"
           },
+          "FinancialCouncilReportSection": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/nonempty"
+              },
+              "items": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "evidenceRefs": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "maxItems": 500,
+                      "type": "array"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "value",
+                    "evidenceRefs"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 2000,
+                "type": "array"
+              },
+              "paragraphs": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              "title": {
+                "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/nonempty"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "paragraphs",
+              "items"
+            ],
+            "type": "object"
+          },
           "FinancialCouncilRunAgentView": {
             "additionalProperties": false,
             "properties": {
@@ -6985,6 +9291,62 @@
               },
               "nextAfter": {
                 "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "nextAfter",
+              "hasMore"
+            ],
+            "type": "object"
+          },
+          "FinancialCouncilRunHistory": {
+            "additionalProperties": false,
+            "properties": {
+              "hasMore": {
+                "type": "boolean"
+              },
+              "items": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "createdAt": {
+                      "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/dateTime"
+                    },
+                    "currency": {
+                      "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/currency"
+                    },
+                    "dataAsOf": {
+                      "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/dateTime"
+                    },
+                    "runId": {
+                      "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/nonempty"
+                    },
+                    "status": {
+                      "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/publicRunStatus"
+                    },
+                    "updatedAt": {
+                      "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/dateTime"
+                    }
+                  },
+                  "required": [
+                    "runId",
+                    "status",
+                    "currency",
+                    "dataAsOf",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              "nextAfter": {
                 "type": [
                   "string",
                   "null"
@@ -7753,6 +10115,9 @@
       "FinancialCouncilRunEventPagedResult": {
         "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilRunEventPagedResult"
       },
+      "FinancialCouncilRunHistory": {
+        "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilRunHistory"
+      },
       "FinancialDataGapView": {
         "$ref": "#/components/schemas/AdvisorTodayResponse/%24defs/FinancialDataGapView"
       },
@@ -8301,7 +10666,11 @@
               "finance.council.policy.manage",
               "roi.close",
               "growth.performance.team.read",
-              "growth.performance.workspace.read"
+              "growth.performance.workspace.read",
+              "knowledge.read",
+              "knowledge.upload",
+              "knowledge.manage_own",
+              "acquisition.outreach.approve"
             ]
           },
           "contractFields": {
@@ -10108,139 +12477,566 @@
             "additionalProperties": false,
             "properties": {
               "attributionSnapshot": {
-                "additionalProperties": false,
-                "properties": {
-                  "attributionVersion": {
-                    "const": "acquisition-run.v1"
-                  },
-                  "connectionId": {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "decisionEngine": {
-                    "enum": [
-                      "model",
-                      "rules"
+                "anyOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "attributionVersion": {
+                            "const": "acquisition-run.v1"
+                          },
+                          "connectionId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "decisionSnapshotHash": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "decisionVersion": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "discoveredAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "discoveredEventId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "evidenceIds": {
+                            "items": {
+                              "minLength": 1,
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "operationId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "planId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "planSnapshotHash": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "planVersion": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "planVersionId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "providerId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "providerIds": {
+                            "items": {
+                              "minLength": 1,
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "qualificationDecisionId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "queryIds": {
+                            "items": {
+                              "minLength": 1,
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "runId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "shardId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "strategyVersion": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "attributionVersion",
+                          "runId",
+                          "planId",
+                          "planVersionId",
+                          "planVersion",
+                          "planSnapshotHash",
+                          "discoveredEventId",
+                          "discoveredAt",
+                          "evidenceIds",
+                          "providerIds",
+                          "queryIds",
+                          "strategyVersion",
+                          "qualificationDecisionId",
+                          "decisionVersion",
+                          "decisionSnapshotHash",
+                          "shardId",
+                          "operationId",
+                          "connectionId",
+                          "providerId"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "attributionVersion": {
+                            "const": "douyin-crawler.v1"
+                          },
+                          "connectionId": {
+                            "type": "null"
+                          },
+                          "decisionSnapshotHash": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "decisionVersion": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "discoveredAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "discoveredEventId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "evidenceIds": {
+                            "items": {
+                              "minLength": 1,
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          "jobId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "operationId": {
+                            "type": "null"
+                          },
+                          "planId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "planSnapshotHash": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "planVersion": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "planVersionId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "providerId": {
+                            "type": "null"
+                          },
+                          "providerIds": {
+                            "items": {
+                              "minLength": 1,
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "maxItems": 0,
+                            "type": "array"
+                          },
+                          "qualificationDecisionId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "queryIds": {
+                            "items": {
+                              "minLength": 1,
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "maxItems": 0,
+                            "type": "array"
+                          },
+                          "runId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "shardId": {
+                            "type": "null"
+                          },
+                          "strategyVersion": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "attributionVersion",
+                          "runId",
+                          "planId",
+                          "planVersionId",
+                          "planVersion",
+                          "planSnapshotHash",
+                          "discoveredEventId",
+                          "discoveredAt",
+                          "evidenceIds",
+                          "providerIds",
+                          "queryIds",
+                          "strategyVersion",
+                          "qualificationDecisionId",
+                          "decisionVersion",
+                          "decisionSnapshotHash",
+                          "jobId",
+                          "shardId",
+                          "operationId",
+                          "connectionId",
+                          "providerId"
+                        ],
+                        "type": "object"
+                      }
                     ]
                   },
-                  "decisionSnapshotHash": {
-                    "type": "string"
-                  },
-                  "decisionVersion": {
-                    "type": "string"
-                  },
-                  "discoveredAt": {
-                    "format": "date-time",
-                    "type": "string"
-                  },
-                  "discoveredEventId": {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "evidenceIds": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  "model": {
-                    "type": [
-                      "string",
-                      "null"
+                  {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "attributionVersion": {
+                            "const": "acquisition-run.v1"
+                          },
+                          "connectionId": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "decisionEngine": {
+                            "enum": [
+                              "model",
+                              "rules"
+                            ]
+                          },
+                          "decisionSnapshotHash": {
+                            "type": "string"
+                          },
+                          "decisionVersion": {
+                            "type": "string"
+                          },
+                          "discoveredAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "discoveredEventId": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "evidenceIds": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "model": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "modelProvider": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "operationId": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "planId": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "planSnapshotHash": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "planVersion": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "planVersionId": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "promptVersion": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "providerId": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "providerIds": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "qualificationDecisionId": {
+                            "type": "string"
+                          },
+                          "queryIds": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "ruleVersion": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "shardId": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "strategyVersion": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "attributionVersion",
+                          "runId",
+                          "planId",
+                          "planVersionId",
+                          "planVersion",
+                          "planSnapshotHash",
+                          "discoveredEventId",
+                          "discoveredAt",
+                          "shardId",
+                          "operationId",
+                          "connectionId",
+                          "providerId",
+                          "evidenceIds",
+                          "providerIds",
+                          "queryIds",
+                          "strategyVersion",
+                          "qualificationDecisionId",
+                          "decisionVersion",
+                          "decisionSnapshotHash",
+                          "decisionEngine",
+                          "ruleVersion",
+                          "modelProvider",
+                          "model",
+                          "promptVersion"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "attributionVersion": {
+                            "const": "douyin-crawler.v1"
+                          },
+                          "connectionId": {
+                            "type": "null"
+                          },
+                          "decisionEngine": {
+                            "enum": [
+                              "model",
+                              "rules"
+                            ]
+                          },
+                          "decisionSnapshotHash": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "decisionVersion": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "discoveredAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "discoveredEventId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "evidenceIds": {
+                            "items": {
+                              "minLength": 1,
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          "jobId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "modelProvider": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "operationId": {
+                            "type": "null"
+                          },
+                          "planId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "planSnapshotHash": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "planVersion": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "planVersionId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "promptVersion": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "providerId": {
+                            "type": "null"
+                          },
+                          "providerIds": {
+                            "items": {
+                              "minLength": 1,
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "maxItems": 0,
+                            "type": "array"
+                          },
+                          "qualificationDecisionId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "queryIds": {
+                            "items": {
+                              "minLength": 1,
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "maxItems": 0,
+                            "type": "array"
+                          },
+                          "ruleVersion": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "shardId": {
+                            "type": "null"
+                          },
+                          "strategyVersion": {
+                            "minLength": 1,
+                            "pattern": "\\S",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "attributionVersion",
+                          "runId",
+                          "planId",
+                          "planVersionId",
+                          "planVersion",
+                          "planSnapshotHash",
+                          "discoveredEventId",
+                          "discoveredAt",
+                          "evidenceIds",
+                          "providerIds",
+                          "queryIds",
+                          "strategyVersion",
+                          "qualificationDecisionId",
+                          "decisionVersion",
+                          "decisionSnapshotHash",
+                          "jobId",
+                          "shardId",
+                          "operationId",
+                          "connectionId",
+                          "providerId",
+                          "decisionEngine",
+                          "ruleVersion",
+                          "modelProvider",
+                          "model",
+                          "promptVersion"
+                        ],
+                        "type": "object"
+                      }
                     ]
-                  },
-                  "modelProvider": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "operationId": {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "planId": {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "planSnapshotHash": {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "planVersion": {
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "planVersionId": {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "promptVersion": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "providerId": {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "providerIds": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  "qualificationDecisionId": {
-                    "type": "string"
-                  },
-                  "queryIds": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  "ruleVersion": {
-                    "type": "string"
-                  },
-                  "runId": {
-                    "type": "string"
-                  },
-                  "shardId": {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "strategyVersion": {
-                    "type": "string"
                   }
-                },
-                "required": [
-                  "attributionVersion",
-                  "runId",
-                  "planId",
-                  "planVersionId",
-                  "planVersion",
-                  "planSnapshotHash",
-                  "discoveredEventId",
-                  "discoveredAt",
-                  "shardId",
-                  "operationId",
-                  "connectionId",
-                  "providerId",
-                  "evidenceIds",
-                  "providerIds",
-                  "queryIds",
-                  "strategyVersion",
-                  "qualificationDecisionId",
-                  "decisionVersion",
-                  "decisionSnapshotHash",
-                  "decisionEngine",
-                  "ruleVersion",
-                  "modelProvider",
-                  "model",
-                  "promptVersion"
-                ],
-                "type": "object"
+                ]
               },
               "bindingHash": {
                 "$ref": "#/components/schemas/QuoteCase/%24defs/hash"
@@ -10293,6 +13089,146 @@
             ],
             "type": "object"
           },
+          "CrmQuoteAssessmentInput": {
+            "additionalProperties": false,
+            "properties": {
+              "budgetConfirmed": {
+                "type": "boolean"
+              },
+              "closeProbabilityBps": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/bps"
+              },
+              "decisionMakerConfirmed": {
+                "type": "boolean"
+              },
+              "demandConfirmed": {
+                "type": "boolean"
+              },
+              "evidenceSummary": {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "demandConfirmed",
+              "budgetConfirmed",
+              "decisionMakerConfirmed",
+              "closeProbabilityBps",
+              "evidenceSummary"
+            ],
+            "type": "object"
+          },
+          "CrmQuoteAssessmentSnapshot": {
+            "additionalProperties": false,
+            "properties": {
+              "assessedAt": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/dateTime"
+              },
+              "assessedBy": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/nonempty"
+              },
+              "assessmentVersion": {
+                "const": "crm-quote-assessment.v1"
+              },
+              "budgetConfirmed": {
+                "type": "boolean"
+              },
+              "closeProbabilityBps": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/bps"
+              },
+              "customerId": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/nonempty"
+              },
+              "dealId": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/nonempty"
+              },
+              "decisionMakerConfirmed": {
+                "type": "boolean"
+              },
+              "demandConfirmed": {
+                "type": "boolean"
+              },
+              "evidenceSummary": {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "inputSnapshotHash": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/hash"
+              },
+              "precision": {
+                "const": "bps"
+              },
+              "sourceKind": {
+                "const": "crm"
+              },
+              "workspaceId": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/workspaceId"
+              }
+            },
+            "required": [
+              "sourceKind",
+              "assessmentVersion",
+              "workspaceId",
+              "customerId",
+              "dealId",
+              "assessedBy",
+              "assessedAt",
+              "inputSnapshotHash",
+              "precision",
+              "demandConfirmed",
+              "budgetConfirmed",
+              "decisionMakerConfirmed",
+              "closeProbabilityBps",
+              "evidenceSummary"
+            ],
+            "type": "object"
+          },
+          "CrmQuoteAuthoritySnapshot": {
+            "additionalProperties": false,
+            "properties": {
+              "assessment": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/CrmQuoteAssessmentSnapshot"
+              },
+              "bindingHash": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/hash"
+              },
+              "bindingHashSchemaVersion": {
+                "const": "crm-quote-authority.v1"
+              },
+              "customerId": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/nonempty"
+              },
+              "dealContentHash": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/hash"
+              },
+              "dealId": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/nonempty"
+              },
+              "sourceKind": {
+                "const": "crm"
+              },
+              "verifiedAt": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/dateTime"
+              },
+              "workspaceId": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/workspaceId"
+              }
+            },
+            "required": [
+              "sourceKind",
+              "workspaceId",
+              "customerId",
+              "dealId",
+              "dealContentHash",
+              "bindingHashSchemaVersion",
+              "bindingHash",
+              "assessment",
+              "verifiedAt"
+            ],
+            "type": "object"
+          },
           "QuoteCaseCreateInput": {
             "additionalProperties": false,
             "anyOf": [
@@ -10337,6 +13273,9 @@
               "candidateId": {
                 "$ref": "#/components/schemas/QuoteCase/%24defs/nullableId"
               },
+              "crmAssessment": {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/CrmQuoteAssessmentInput"
+              },
               "customerId": {
                 "$ref": "#/components/schemas/QuoteCase/%24defs/nullableId"
               },
@@ -10348,6 +13287,16 @@
               "assignedTo"
             ],
             "type": "object"
+          },
+          "QuoteCommercialAuthoritySnapshot": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/CommercialBindingSnapshot"
+              },
+              {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/CrmQuoteAuthoritySnapshot"
+              }
+            ]
           },
           "QuoteDecisionInput": {
             "additionalProperties": false,
@@ -10897,7 +13846,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/QuoteCase/%24defs/CommercialBindingSnapshot"
+                "$ref": "#/components/schemas/QuoteCase/%24defs/QuoteCommercialAuthoritySnapshot"
               }
             ]
           },
@@ -11118,7 +14067,7 @@
                 "else": {
                   "properties": {
                     "probabilityAssessmentSnapshot": {
-                      "$ref": "#/components/schemas/QuoteVersion/%24defs/ProbabilityAssessmentSnapshot"
+                      "$ref": "#/components/schemas/QuoteVersion/%24defs/QuoteAssessmentSnapshot"
                     }
                   }
                 },
@@ -11243,7 +14192,7 @@
                     "type": "null"
                   },
                   {
-                    "$ref": "#/components/schemas/QuoteVersion/%24defs/ProbabilityAssessmentSnapshot"
+                    "$ref": "#/components/schemas/QuoteVersion/%24defs/QuoteAssessmentSnapshot"
                   }
                 ]
               },
@@ -11438,6 +14387,16 @@
             ],
             "type": "object"
           },
+          "QuoteAssessmentSnapshot": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/QuoteVersion/%24defs/ProbabilityAssessmentSnapshot"
+              },
+              {
+                "$ref": "#/components/schemas/QuoteCase/%24defs/CrmQuoteAssessmentSnapshot"
+              }
+            ]
+          },
           "RedactedGiftItem": {
             "additionalProperties": false,
             "properties": {
@@ -11463,7 +14422,7 @@
                 "else": {
                   "properties": {
                     "probabilityAssessmentSnapshot": {
-                      "$ref": "#/components/schemas/QuoteVersion/%24defs/ProbabilityAssessmentSnapshot"
+                      "$ref": "#/components/schemas/QuoteVersion/%24defs/QuoteAssessmentSnapshot"
                     }
                   }
                 },
@@ -11567,7 +14526,7 @@
                     "type": "null"
                   },
                   {
-                    "$ref": "#/components/schemas/QuoteVersion/%24defs/ProbabilityAssessmentSnapshot"
+                    "$ref": "#/components/schemas/QuoteVersion/%24defs/QuoteAssessmentSnapshot"
                   }
                 ]
               },
@@ -11960,7 +14919,7 @@
   },
   "info": {
     "title": "GoodJob Growth Advisor, Quote and ROI API",
-    "version": "1.0.12"
+    "version": "1.0.41"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -15961,6 +18920,555 @@
         ]
       }
     },
+    "/api/v1/finance/cfo-conversation": {
+      "post": {
+        "description": "Read-only specialist question with at most ten recent turns. Optional role selects cfo, finance, profit, cost, cashflow or tax; omission preserves CFO behavior. Server resolves verified company material and the selected role model in the authenticated workspace. No fan-out or business actions.",
+        "operationId": "askCfoConversation",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/optionalWorkspaceHeader"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CfoConversationAnswer/%24defs/Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CfoConversationAnswer"
+                }
+              }
+            },
+            "description": "CFO answer with verified material provenance or null when no report is available"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/finance/cfo-sessions": {
+      "get": {
+        "description": "Recent fifty conversations belonging to the authenticated actor and workspace. History is not verified company material.",
+        "operationId": "listCfoSessions",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/optionalWorkspaceHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CfoSession/%24defs/Summary"
+                  },
+                  "maxItems": 50,
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Recent conversations"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ]
+      },
+      "post": {
+        "description": "Create an empty CFO conversation. No model or business action is executed; clients do not retry automatically.",
+        "operationId": "createCfoSession",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/optionalWorkspaceHeader"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CfoSession/%24defs/Create"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CfoSession"
+                }
+              }
+            },
+            "description": "Empty conversation"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/finance/cfo-sessions/{sessionId}": {
+      "get": {
+        "description": "Read saved turns without regenerating answers. Clients supporting system references send X-Shensi-Reference-Protocol system-v1. If system reference snapshots exist and this header is omitted, return 409 reference_client_upgrade_required without returning or dropping those snapshots. This header is a compatibility signal, not authorization; private legacy history remains readable without it.",
+        "operationId": "getCfoSession",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/optionalWorkspaceHeader"
+          },
+          {
+            "in": "header",
+            "name": "X-Shensi-Reference-Protocol",
+            "required": false,
+            "schema": {
+              "enum": [
+                "system-v1"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CfoSession"
+                }
+              }
+            },
+            "description": "Completed conversation turns"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "sessionId",
+          "required": true,
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "/api/v1/finance/cfo-sessions/{sessionId}/turns": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "sessionId",
+          "required": true,
+          "schema": {
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "description": "Answer using ten saved recent turns and persist the completed pair with revision compare-and-swap. A stale revision returns 409. Interrupted requests are never automatically replayed.",
+        "operationId": "askCfoSession",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/optionalWorkspaceHeader"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CfoSession/%24defs/Ask"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CfoSession/%24defs/Reply"
+                }
+              },
+              "application/x-ndjson": {
+                "schema": {
+                  "description": "Newline-delimited CfoSessionEvent objects. Exactly one terminal result or error; disconnect is incomplete, never automatically replayed.",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Saved completed answer"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ]
+      }
+    },
     "/api/v1/finance/council-agent-center": {
       "get": {
         "operationId": "getFinancialCouncilAgentCenter",
@@ -16395,6 +19903,78 @@
       }
     },
     "/api/v1/finance/council-runs": {
+      "get": {
+        "operationId": "listFinancialCouncilRunHistory",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilRunHistory"
+                }
+              }
+            },
+            "description": "Workspace-scoped most recent frozen council runs."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ]
+      },
       "post": {
         "operationId": "createFinancialCouncilRun",
         "parameters": [
@@ -16680,6 +20260,68 @@
         }
       ]
     },
+    "/api/v1/finance/council-runs/{runId}/collaboration": {
+      "get": {
+        "description": "Read-only projection of persisted role events, public evidence, bounded review and the same-version detailed report. Never exposes raw prompts or private reasoning.",
+        "operationId": "getFinancialCouncilCollaboration",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinancialCouncilRun/%24defs/FinancialCouncilCollaboration"
+                }
+              }
+            },
+            "description": "Recoverable collaboration and detailed report for the frozen run."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/runId"
+        }
+      ]
+    },
     "/api/v1/finance/council-runs/{runId}/dispatches": {
       "get": {
         "operationId": "listFinancialCouncilDispatches",
@@ -16737,7 +20379,25 @@
     "/api/v1/finance/council-runs/{runId}/events": {
       "get": {
         "operationId": "listFinancialCouncilRunEvents",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "$ref": "#/components/responses/FinancialCouncilRunEvents"
@@ -17136,6 +20796,267 @@
             "description": "API error"
           },
           "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/finance/documents/attachments/clear": {
+      "post": {
+        "description": "Remove only the authenticated actor and workspace's exact conversation and role attachment. Does not alter the finance page selection.",
+        "operationId": "clearFinanceChatAttachment",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspaceHeader"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/AttachmentClear"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Attachment removed"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/finance/documents/inspect": {
+      "post": {
+        "description": "Read CSV/XLSX sources or extract text from PDF/DOCX. PDF sources use page/item references and DOCX sources use paragraph/table-cell references. Image-only or encrypted documents require conversion; this operation never commits a ledger or runs OCR.",
+        "operationId": "inspectFinanceDocument",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspaceHeader"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinanceDocumentInspection"
+                }
+              }
+            },
+            "description": "Bounded original-source inspection and optional read-only model understanding; never a ledger commit"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/finance/documents/selection": {
+      "delete": {
+        "operationId": "clearFinanceDocumentSelection",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspaceHeader"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Cleared this actor and workspace's read-only source; subsequent questions explicitly use documentId null for verified material"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
             "content": {
               "application/json": {
                 "schema": {
@@ -17788,16 +21709,9 @@
         ],
         "requestBody": {
           "content": {
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+            "application/json": {
               "schema": {
-                "format": "binary",
-                "type": "string"
-              }
-            },
-            "text/csv": {
-              "schema": {
-                "format": "binary",
-                "type": "string"
+                "$ref": "#/components/schemas/FinanceImportOperation/%24defs/FinanceImportPreviewInput"
               }
             }
           },
@@ -18099,6 +22013,195 @@
             "description": "API error"
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/finance/public-research": {
+      "get": {
+        "operationId": "listAgentWebResearchConnections",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspaceHeader"
+          },
+          {
+            "$ref": "#/components/parameters/cursor"
+          },
+          {
+            "$ref": "#/components/parameters/limit"
+          },
+          {
+            "$ref": "#/components/parameters/sort"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentWebResearch/%24defs/Connections"
+                }
+              }
+            },
+            "description": "Current actor's enabled real public-search connections, without credentials"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ]
+      },
+      "post": {
+        "description": "Search explicitly supplied public keywords and answer using indexed snippets. Does not accept files, conversation history or private company records. Missing sources or provider failures do not become fabricated answers.",
+        "operationId": "runAgentWebResearch",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspaceHeader"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentWebResearch/%24defs/Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentWebResearch"
+                }
+              }
+            },
+            "description": "Answer with provider-sourced URLs, retrieval times and validated citation IDs; not a full-page verification"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {

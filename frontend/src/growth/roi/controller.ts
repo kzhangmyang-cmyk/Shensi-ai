@@ -16,6 +16,8 @@ export type RoiPageState =
       cohorts: readonly AcquisitionCohort[];
       filters: RoiQueryFilters | null;
       performance: GrowthPerformanceResponse | null;
+      queryPending?: boolean;
+      queryError?: string | null;
     };
 
 export interface RoiControllerOptions {
@@ -36,6 +38,7 @@ export function createRoiController(
   options: RoiControllerOptions
 ): RoiController {
   let querySequence = 0;
+  let cohorts: readonly AcquisitionCohort[] = Object.freeze([]);
   const controller: RoiController = {
     async loadCohorts(signal) {
       if (!options.hasFeature("roi")
@@ -47,9 +50,10 @@ export function createRoiController(
           limit: 100,
           signal
         });
+        cohorts = Object.freeze(response.body.items ?? []);
         return {
           kind: "ready",
-          cohorts: Object.freeze(response.body.items ?? []),
+          cohorts,
           filters: null,
           performance: null
         };
@@ -78,7 +82,7 @@ export function createRoiController(
         }
         return {
           kind: "ready",
-          cohorts: Object.freeze([]),
+          cohorts,
           filters: Object.freeze({ ...filters }),
           performance: response.body
         };

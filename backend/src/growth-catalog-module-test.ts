@@ -267,7 +267,7 @@ void [strictMemoryOptions, invalidWorkspaceOptions, invalidTemporalOptions];
 
 test("Catalog module options reject request-context and temporal lookalikes", () => {
   execFileSync(fileURLToPath(new URL(
-    "../../node_modules/.bin/tsc",
+    "../node_modules/.bin/tsc",
     import.meta.url
   )), [
     "--noEmit",

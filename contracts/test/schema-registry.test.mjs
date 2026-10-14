@@ -1892,10 +1892,20 @@ test("acquisition plan and copilot task schemas expose the optional target platf
 
 test("live outcome attribution publishes the complete persisted acquisition run chain", async () => {
   const registry = await loadSchemaRegistry();
-  const attribution = registry.schemaDocuments.get("outcome-feedback")
-    .$defs.liveAttribution;
-  for (const field of [
+  const definitions = registry.schemaDocuments.get("outcome-feedback").$defs;
+  const variants = definitions.liveAttribution.oneOf.map(({ $ref }) => {
+    assert.match($ref, /^#\/\$defs\/[^/]+$/u);
+    const variant = definitions[$ref.slice("#/$defs/".length)];
+    assert.ok(variant, `${$ref} resolves to an attribution branch`);
+    return variant;
+  });
+  assert.deepEqual(variants.map((variant) =>
+    variant.properties.attributionVersion.const), [
+    "acquisition-run.v1", "douyin-crawler.v1"
+  ]);
+  const requiredFields = [
     "attributionVersion",
+    "runId",
     "planId",
     "planVersionId",
     "planVersion",
@@ -1905,9 +1915,45 @@ test("live outcome attribution publishes the complete persisted acquisition run 
     "shardId",
     "operationId",
     "connectionId",
-    "providerId"
-  ]) {
-    assert.ok(attribution.required.includes(field), `${field} is required`);
-    assert.ok(attribution.properties[field], `${field} is published`);
+    "providerId",
+    "evidenceIds",
+    "providerIds",
+    "queryIds",
+    "strategyVersion",
+    "qualificationDecisionId",
+    "decisionVersion",
+    "decisionSnapshotHash",
+    "decisionEngine",
+    "ruleVersion",
+    "modelProvider",
+    "model",
+    "promptVersion"
+  ];
+  for (const attribution of variants) {
+    const version = attribution.properties.attributionVersion.const;
+    assert.equal(attribution.type, "object");
+    assert.equal(attribution.additionalProperties, false);
+    for (const field of requiredFields) {
+      assert.ok(attribution.required.includes(field), `${version}: ${field} is required`);
+      assert.ok(attribution.properties[field], `${version}: ${field} is published`);
+    }
+    assert.deepEqual(attribution.properties.planVersion, { type: "integer", minimum: 1 });
+    assert.equal(attribution.properties.discoveredAt.format, "date-time");
+  }
+  const [generic, crawler] = variants;
+  for (const field of ["shardId", "operationId", "connectionId", "providerId"]) {
+    assert.equal(generic.properties[field].type, "string", `generic ${field} is a real ID`);
+    assert.equal(generic.properties[field].minLength, 1);
+    assert.deepEqual(crawler.properties[field], { type: "null" }, `crawler ${field} is explicitly null`);
+  }
+  assert.equal(generic.required.includes("jobId"), false);
+  assert.equal(generic.properties.jobId, undefined);
+  assert.ok(crawler.required.includes("jobId"));
+  assert.equal(crawler.properties.jobId.type, "string");
+  assert.equal(crawler.properties.jobId.minLength, 1);
+  assert.equal(crawler.properties.evidenceIds.minItems, 1);
+  for (const field of ["providerIds", "queryIds"]) {
+    assert.equal(crawler.properties[field].type, "array");
+    assert.equal(crawler.properties[field].maxItems, 0);
   }
 });

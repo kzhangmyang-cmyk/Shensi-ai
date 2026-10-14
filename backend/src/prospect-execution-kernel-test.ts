@@ -394,7 +394,9 @@ try {
       && error.code === "EXECUTION_PROVIDER_RESPONSE_ENVELOPE_SECRET_WEAK"
   );
 
+  let executionAllowed = false;
   const kernel = new ProspectExecutionKernel({
+    executionAccess: async (teamId) => { assert.equal(teamId, run.teamId); return executionAllowed; },
     store,
     workerId: "worker-1",
     allowedRunIds: [run.id],
@@ -404,8 +406,18 @@ try {
   });
   const state = await kernel.start("2026-07-14T00:00:01.000Z");
   assert.equal(state.kernelEpoch, 1);
+  const queueBeforeDenial = structuredClone(store.agentJobs);
+  assert.equal(await kernel.claimNext("2026-07-14T00:00:02.000Z"), null);
+  assert.deepEqual(store.agentJobs, queueBeforeDenial, "revocation must leave queued jobs unchanged");
+  executionAllowed = true;
   const first = await kernel.claimNext("2026-07-14T00:00:02.000Z");
   assert.ok(first);
+  executionAllowed = false;
+  await assert.rejects(kernel.startPreparedProviderDispatch({ leaseId: first.lease.id,
+    claimToken: first.claimToken, ledgerId: "not-dispatched", now: "2026-07-14T00:00:02.000Z" }),
+    (error: unknown) => error instanceof ProspectExecutionKernelError && error.code === "EXECUTION_PLATFORM_FORBIDDEN");
+  assert.equal(store.prospectProviderRequestDispatches.length, 0);
+  executionAllowed = true;
   assert.equal(first.shard.providerCode, "fake.alpha");
   assert.equal(first.job.status, "running");
   assert.equal(store.prospectSearchRuns[0]?.status, "running");

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { collaborationEvent } from "./financial-council-collaboration-record.js";
 import {
   financialCouncilCanonicalHash,
   financialCouncilError,
@@ -172,10 +173,30 @@ implements FinancialCouncilAnalysisPipeline {
       const baseInput = await this.options.specialists.rebuttalBaseInput(
         input.context, input.runId, target.role, target.findingId
       );
-      await this.options.rebuttals.run({
+      const completedAttempt = (await this.options.repository.listRebuttalAttempts(input.context, input.runId))
+        .some(attempt => attempt.role === target.role && attempt.status === "completed"
+          && attempt.input.targetFindingId === target.findingId);
+      if (!completedAttempt) await this.options.repository.appendCollaborationEvent(input.lease, collaborationEvent(input.lease, {
+        role: target.role, phase: "review", state: "running", occurredAt: this.options.now(),
+        key: `${target.findingId}:running`, findingIds: [target.findingId, target.peerFindingId], message: "正在回应交叉审计意见"
+      }));
+      try {
+        await this.options.rebuttals.run({
         context: input.context, graph, target, originalFinding, peerFinding,
         baseInput
-      }, { lease: input.lease, completedAt: this.options.now() });
+        }, { lease: input.lease, completedAt: this.options.now() });
+      } catch (error) {
+        await this.options.repository.appendCollaborationEvent(input.lease, collaborationEvent(input.lease, {
+          role: target.role, phase: "review", state: "failed", occurredAt: this.options.now(),
+          key: `${target.findingId}:failed:${input.lease.attempt}`, findingIds: [target.findingId, target.peerFindingId],
+          reasonCode: "rebuttal_unavailable", message: "交叉审计回应暂未完成"
+        }));
+        throw error;
+      }
+      await this.options.repository.appendCollaborationEvent(input.lease, collaborationEvent(input.lease, {
+        role: target.role, phase: "review", state: "completed", occurredAt: this.options.now(),
+        key: `${target.findingId}:completed`, findingIds: [target.findingId, target.peerFindingId], message: "交叉审计回应已记录"
+      }));
     }
   }
 }
@@ -284,13 +305,27 @@ implements FinancialCouncilAnalysisWorkerLike {
         })).value;
       }
       if (run.status === "auditing") {
+        await this.options.repository.appendCollaborationEvent(lease, collaborationEvent(lease, {
+          role: null, phase: "review", state: "running", occurredAt: this.#now(), message: "正在进行确定性交叉审计"
+        }));
         await this.options.pipeline.audit({
           context: workerContext, runId: run.runId, lease
         });
+        if (await this.options.repository.getAuditGraph(workerContext, run.runId)) {
+          await this.options.repository.appendCollaborationEvent(lease, collaborationEvent(lease, {
+            role: null, phase: "review", state: "completed", occurredAt: this.#now(), message: "交叉审计与有限回应已记录"
+          }));
+        }
         await this.options.repository.transitionRunWithLease(lease, {
           kind: "synthesizing", occurredAt: this.#now(), reasonCode: null
         });
       }
+    } catch (error) {
+      await this.options.repository.appendCollaborationEvent(lease, collaborationEvent(lease, {
+        role: null, phase: "review", state: "failed", occurredAt: this.#now(),
+        key: `failed:${lease.attempt}`, reasonCode: "analysis_pipeline_failed", message: "协作阶段未完成，等待恢复"
+      })).catch(() => undefined);
+      throw error;
     } finally {
       await this.options.repository.releaseAnalysisLease(
         lease, this.#now()
@@ -305,12 +340,25 @@ implements FinancialCouncilAnalysisWorkerLike {
     const gaps = await this.options.repository.listAnalysisGaps(
       workerContext, lease.runId
     );
+    const results = await this.options.repository.listSpecialistResults(workerContext, lease.runId);
     for (const role of FINANCIAL_COUNCIL_SPECIALIST_ROLES) {
+      const stored = results.find(result => result.role === role && result.phase === "analyze");
+      if (stored) {
+        await this.options.repository.appendCollaborationEvent(lease, collaborationEvent(lease, {
+          role, phase: "analysis", state: "completed", occurredAt: this.#now(),
+          findingIds: stored.findings.map(finding => finding.findingId), message: "专业分析结果已保存"
+        }));
+        continue;
+      }
       if (gaps.some((gap) => gap.role === role)) continue;
       const inspection = await this.options.pipeline.inspectRole(
         workerContext, lease.runId, role
       );
       if (!inspection.available) {
+        await this.options.repository.appendCollaborationEvent(lease, collaborationEvent(lease, {
+          role, phase: "analysis", state: "missing_data", occurredAt: this.#now(),
+          reasonCode: inspection.gapCode ?? "specialist_unavailable", message: "该专业所需材料不足"
+        }));
         if (CRITICAL_ROLES.has(role)
           || inspection.hardConstraintDependency !== false
           || inspection.actionDependency !== false) {
@@ -323,8 +371,21 @@ implements FinancialCouncilAnalysisWorkerLike {
         continue;
       }
       try {
+        await this.options.repository.appendCollaborationEvent(lease, collaborationEvent(lease, {
+          role, phase: "analysis", state: "running", occurredAt: this.#now(), message: "正在分析已确认财务材料"
+        }));
         await this.#callRole(workerContext, lease, role);
+        const result = (await this.options.repository.listSpecialistResults(workerContext, lease.runId))
+          .find(result => result.role === role && result.phase === "analyze");
+        if (result) await this.options.repository.appendCollaborationEvent(lease, collaborationEvent(lease, {
+          role, phase: "analysis", state: "completed", occurredAt: this.#now(),
+          findingIds: result.findings.map(finding => finding.findingId), message: "专业分析结果已保存"
+        }));
       } catch (error) {
+        await this.options.repository.appendCollaborationEvent(lease, collaborationEvent(lease, {
+          role, phase: "analysis", state: "failed", occurredAt: this.#now(),
+          key: `failed:${lease.attempt}`, reasonCode: "specialist_unavailable", message: "专业分析暂未完成"
+        }));
         if (CRITICAL_ROLES.has(role)
           || inspection.hardConstraintDependency !== false
           || inspection.actionDependency !== false) {

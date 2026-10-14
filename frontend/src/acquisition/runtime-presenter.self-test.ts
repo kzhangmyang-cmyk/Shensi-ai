@@ -1,15 +1,23 @@
 import { strict as assert } from "node:assert";
 import {
   renderPublicDouyinImportPanel,
+  renderRecentRunRows,
   renderRealTaskRows
 } from "./runtime-presenter";
 
-assert.match(renderRealTaskRows([]), /暂无真实抖音获客任务/);
+const emptyTaskRows = renderRealTaskRows([]);
+assert.match(emptyTaskRows, /replica-real-task-empty/);
+assert.match(emptyTaskRows, /尚未创建真实抖音获客任务/);
+assert.match(emptyTaskRows, /人工确认/);
+assert.match(emptyTaskRows, /data-acquisition-open-settings/,
+  "the honest empty task state must retain an explicit, keyboard-reachable plan-settings entry");
+assert.match(emptyTaskRows, /任务设置/);
 
 const html = renderRealTaskRows([{
   id: "task-1",
   planId: "plan-1",
   latestRunId: "run-1",
+  candidateRunId: "historical-candidates",
   name: "<img src=x onerror=alert(1)>",
   objective: "寻找公开需求",
   platformLabel: "抖音",
@@ -30,6 +38,29 @@ assert.match(html, /12 条公开证据/);
 assert.match(html, /正在运行/);
 assert.doesNotMatch(html, /<img/);
 assert.match(html, /&lt;img/);
+
+const recentRuns = renderRecentRunRows([{
+  id: "task-1",
+  planId: "plan-1",
+  latestRunId: "run-1",
+  name: "<script>unsafe</script>",
+  objective: "寻找公开需求",
+  platformLabel: "抖音",
+  status: "running",
+  statusLabel: "正在运行",
+  statusTone: "active",
+  evidenceCount: 12,
+  requests: 4,
+  results: 18,
+  durationSeconds: 31,
+  updatedAt: "2026-08-07T05:00:00.000Z",
+  tags: ["公开搜索"]
+}]);
+assert.match(recentRuns, /最近运行/);
+assert.match(recentRuns, /抖音/);
+assert.match(recentRuns, /正在运行/);
+assert.match(recentRuns, /12/);
+assert.doesNotMatch(recentRuns, /<script>/);
 
 const importPanel = renderPublicDouyinImportPanel({
   visible: true,

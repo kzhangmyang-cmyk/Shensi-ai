@@ -1,10 +1,15 @@
+import asyncio
 import os
+import re
 import stat
+import sys
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, WebSocket
+from starlette.websockets import WebSocketDisconnect
 
 from .accounts import AccountManager
 from .action_jobs import ActionJobManager, ActionReplayConflict
@@ -13,14 +18,83 @@ from .browser_state import (
     configured_action_manual_verification_seconds,
 )
 from .crawl_jobs import CrawlJobManager, CursorConflict, MediaCrawlerRunner
+from .local_browser_session_manager import LocalBrowserSessionManager
+from .runtime_config import (
+    RuntimeConfig,
+    load_runtime_config,
+    repository_root_for_module,
+)
 from .schemas import (
     ActionReceipt, ActionRequest, CrawlJobAcknowledgement, CrawlJobPage,
-    CrawlJobRequest, CrawlJobView, HealthView, LoginSessionView,
+    DesktopActionRequest, DesktopActionReconciliationRequest, DesktopActionReceipt, DesktopAccountIdentity,
+    DesktopAccountIdentityRequest, ActionAcknowledgementRequest, ActionAcknowledgement,
+    CrawlJobRequest, CrawlJobView, HealthView, LoginInteractionRequest,
+    LiveLoginSessionView, LoginSessionCreateRequest, LoginSessionView,
 )
 from .security import authorize_bearer, require_service_secret
 
 
 UPSTREAM_COMMIT = "d6f7c5bb906b6dac40ddf343ef9e26438a3de092"
+REPOSITORY_ROOT = repository_root_for_module(__file__)
+
+
+async def _proxy_live_login_websocket(
+    websocket: WebSocket,
+    manager: AccountManager,
+    token: str,
+) -> None:
+    try:
+        port = manager.claim_live_login_session(token)
+    except KeyError:
+        await websocket.close(code=1008)
+        return
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    except (OSError, TimeoutError):
+        await websocket.close(code=1011)
+        return
+
+    accepted = False
+    try:
+        await websocket.accept()
+        accepted = True
+
+        async def websocket_to_vnc() -> None:
+            while True:
+                message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
+                    return
+                payload = message.get("bytes")
+                if payload is None:
+                    await websocket.close(code=1003)
+                    return
+                writer.write(payload)
+                await writer.drain()
+
+        async def vnc_to_websocket() -> None:
+            while payload := await reader.read(65_536):
+                await websocket.send_bytes(payload)
+
+        tasks = {
+            asyncio.create_task(websocket_to_vnc()),
+            asyncio.create_task(vnc_to_websocket()),
+        }
+        _done, pending = await asyncio.wait(
+            tasks,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        writer.close()
+        with suppress(Exception):
+            await writer.wait_closed()
+        if accepted:
+            with suppress(Exception):
+                await websocket.close()
 
 
 def deployment_browser_headless() -> bool:
@@ -29,8 +103,67 @@ def deployment_browser_headless() -> bool:
     ).strip().lower() != "false"
 
 
+def deployment_browser_display() -> str:
+    mode = os.environ.get(
+        "MEDIACRAWLER_BROWSER_DISPLAY", "operator"
+    ).strip().lower()
+    if mode not in {"operator", "virtual"}:
+        raise RuntimeError(
+            "MEDIACRAWLER_BROWSER_DISPLAY must be operator or virtual"
+        )
+    display = os.environ.get("DISPLAY", "").strip()
+    if mode == "virtual" and (
+        not sys.platform.startswith("linux")
+        or re.fullmatch(r":[0-9]+(?:\.[0-9]+)?", display) is None
+    ):
+        raise RuntimeError(
+            "MEDIACRAWLER_BROWSER_DISPLAY=virtual requires Linux DISPLAY"
+        )
+    return mode
+
+
+def deployment_runtime_config() -> RuntimeConfig:
+    try:
+        return load_runtime_config(
+            os.environ,
+            repository_root=REPOSITORY_ROOT,
+        )
+    except ValueError as error:
+        raise RuntimeError(str(error)) from error
+
+
+def deployment_browser_proxy() -> str | None:
+    value = os.environ.get("MEDIACRAWLER_BROWSER_PROXY", "").strip()
+    if not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as error:
+        raise RuntimeError(
+            "MEDIACRAWLER_BROWSER_PROXY must be a proxy origin"
+        ) from error
+    if (
+        parsed.scheme.lower() not in {"http", "https", "socks5"}
+        or not parsed.hostname
+        or port is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RuntimeError(
+            "MEDIACRAWLER_BROWSER_PROXY must be a credential-free proxy origin"
+        )
+    hostname = parsed.hostname
+    if ":" in hostname:
+        hostname = f"[{hostname}]"
+    return f"{parsed.scheme.lower()}://{hostname}:{port}"
+
+
 def deployment_outreach_actions_enabled() -> bool:
-    return os.environ.get("DOUYIN_OUTREACH_ACTIONS_ENABLED", "").lower() == "true"
+    return deployment_runtime_config().outreach_actions_enabled
 
 
 def deployment_action_manual_verification_seconds() -> int:
@@ -116,7 +249,11 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
                deployment_crawl_factory: Callable[[AccountManager], CrawlJobManager] | None = None,
                action_job_manager: ActionJobManager | None = None,
                deployment_action_factory: Callable[[AccountManager], ActionJobManager] | None = None,
-               outreach_actions_enabled: bool = True) -> FastAPI:
+               outreach_actions_enabled: bool = True,
+               runtime_mode: str = "web") -> FastAPI:
+    request_model = DesktopActionRequest if runtime_mode == "desktop" else ActionRequest
+    reconciliation_request_model = DesktopActionReconciliationRequest if runtime_mode == "desktop" else ActionRequest
+    receipt_model = DesktopActionReceipt if runtime_mode == "desktop" else ActionReceipt
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         if application.state.account_manager is None and deployment_manager_factory is not None:
@@ -130,18 +267,38 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
         try:
             yield
         finally:
+            cleanup_failures: list[BaseException] = []
             jobs = application.state.crawl_job_manager
             if jobs is not None:
-                jobs.close()
-                application.state.crawl_job_manager = None
+                try:
+                    jobs.close()
+                except BaseException as error:
+                    cleanup_failures.append(error)
+                finally:
+                    application.state.crawl_job_manager = None
             action_jobs = application.state.action_job_manager
             if action_jobs is not None:
-                action_jobs.close()
-                application.state.action_job_manager = None
+                try:
+                    action_jobs.close()
+                except BaseException as error:
+                    cleanup_failures.append(error)
+                finally:
+                    application.state.action_job_manager = None
             manager = application.state.account_manager
             if manager is not None:
-                manager.close()
-                application.state.account_manager = None
+                try:
+                    manager.close()
+                except BaseException as error:
+                    cleanup_failures.append(error)
+                finally:
+                    application.state.account_manager = None
+            if len(cleanup_failures) == 1:
+                raise cleanup_failures[0]
+            if cleanup_failures:
+                raise BaseExceptionGroup(
+                    "shensi_sidecar_shutdown_failed",
+                    cleanup_failures,
+                )
 
     application = FastAPI(docs_url=None, openapi_url=None, redoc_url=None, lifespan=lifespan)
     application.state.account_manager = account_manager
@@ -159,12 +316,20 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
         )
 
     @application.post("/internal/v1/douyin/login-sessions", response_model=LoginSessionView)
-    def create_login_session(authorization: str | None = Header(default=None)) -> LoginSessionView:
+    def create_login_session(
+        request: LoginSessionCreateRequest | None = None,
+        authorization: str | None = Header(default=None),
+    ) -> LoginSessionView:
         authorize_bearer(authorization, require_service_secret(secret_provider()))
         manager = application.state.account_manager
         if manager is None:
             raise HTTPException(status_code=503, detail="account_manager_unconfigured")
-        return manager.create_login_session()
+        try:
+            return manager.create_login_session(
+                request.account_key if request is not None else None
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @application.get("/internal/v1/douyin/login-sessions/{session_id}", response_model=LoginSessionView)
     def get_login_session(session_id: str, authorization: str | None = Header(default=None)) -> LoginSessionView:
@@ -177,6 +342,63 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
         except KeyError as error:
             raise HTTPException(status_code=404, detail="login_session_not_found") from error
 
+    @application.post(
+        "/internal/v1/douyin/login-sessions/{session_id}/interactions",
+        response_model=LoginSessionView,
+    )
+    def interact_login_session(
+        session_id: str,
+        request: LoginInteractionRequest,
+        authorization: str | None = Header(default=None),
+    ) -> LoginSessionView:
+        authorize_bearer(
+            authorization,
+            require_service_secret(secret_provider()),
+        )
+        manager = application.state.account_manager
+        if manager is None:
+            raise HTTPException(
+                status_code=503,
+                detail="account_manager_unconfigured",
+            )
+        try:
+            return manager.interact_login_session(session_id, request)
+        except KeyError as error:
+            raise HTTPException(
+                status_code=404,
+                detail="login_session_not_found",
+            ) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @application.post(
+        "/internal/v1/douyin/login-sessions/{session_id}/live-sessions",
+        response_model=LiveLoginSessionView,
+    )
+    def create_live_login_session(
+        session_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> LiveLoginSessionView:
+        authorize_bearer(
+            authorization,
+            require_service_secret(secret_provider()),
+        )
+        manager = application.state.account_manager
+        if manager is None:
+            raise HTTPException(
+                status_code=503,
+                detail="account_manager_unconfigured",
+            )
+        try:
+            return manager.create_live_login_session(session_id)
+        except KeyError as error:
+            raise HTTPException(
+                status_code=404,
+                detail="login_session_not_found",
+            ) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
     @application.delete("/internal/v1/douyin/login-sessions/{session_id}", status_code=204)
     def disconnect_login_session(session_id: str, authorization: str | None = Header(default=None)) -> None:
         authorize_bearer(authorization, require_service_secret(secret_provider()))
@@ -187,6 +409,17 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
             manager.disconnect(session_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="login_session_not_found") from error
+
+    @application.websocket("/internal/v1/douyin/live/{token}")
+    async def live_login_websocket(
+        websocket: WebSocket,
+        token: str,
+    ) -> None:
+        manager = application.state.account_manager
+        if manager is None:
+            await websocket.close(code=1013)
+            return
+        await _proxy_live_login_websocket(websocket, manager, token)
 
     def jobs() -> CrawlJobManager:
         manager = application.state.crawl_job_manager
@@ -243,6 +476,18 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
+    @application.post("/internal/v1/douyin/crawl-jobs/{job_id}/control/{action}")
+    def control_crawl_job(job_id: str, action: str, authorization: str | None = Header(default=None)):
+        authorize_bearer(authorization, require_service_secret(secret_provider()))
+        if action not in {"pause", "resume", "stop"}:
+            raise HTTPException(status_code=422, detail="invalid_crawl_control")
+        try:
+            return jobs().control(job_id, action)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="crawl_job_not_found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
     @application.delete("/internal/v1/douyin/crawl-jobs/{job_id}", status_code=204)
     def cancel_crawl_job(job_id: str, authorization: str | None = Header(default=None)) -> None:
         authorize_bearer(authorization, require_service_secret(secret_provider()))
@@ -251,8 +496,8 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
         except KeyError as error:
             raise HTTPException(status_code=404, detail="crawl_job_not_found") from error
 
-    @application.post("/internal/v1/douyin/actions/{action_id}", response_model=ActionReceipt)
-    def execute_action(action_id: str, request: ActionRequest,
+    @application.post("/internal/v1/douyin/actions/{action_id}", response_model=receipt_model)
+    def execute_action(action_id: str, request: request_model,
                        authorization: str | None = Header(default=None)) -> ActionReceipt:
         authorize_bearer(authorization, require_service_secret(secret_provider()))
         if not application.state.outreach_actions_enabled:
@@ -263,15 +508,16 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
         if action_id != request.action_id:
             raise HTTPException(status_code=409, detail="action_id_mismatch")
         try:
-            return manager.execute(request)
+            receipt = manager.execute(request)
+            return receipt_model.model_validate(receipt.model_dump())
         except ActionReplayConflict as error:
             raise HTTPException(status_code=409, detail="action_replay_conflict") from error
 
     @application.post(
         "/internal/v1/douyin/actions/{action_id}/reconcile",
-        response_model=ActionReceipt,
+        response_model=receipt_model,
     )
-    def reconcile_action(action_id: str, request: ActionRequest,
+    def reconcile_action(action_id: str, request: reconciliation_request_model,
                          authorization: str | None = Header(default=None)) -> ActionReceipt:
         authorize_bearer(authorization, require_service_secret(secret_provider()))
         if not application.state.outreach_actions_enabled:
@@ -282,57 +528,125 @@ def _build_app(secret_provider: Callable[[], str], account_manager: AccountManag
         if action_id != request.action_id:
             raise HTTPException(status_code=409, detail="action_id_mismatch")
         try:
-            return manager.reconcile(request)
+            receipt = manager.reconcile(request)
+            return receipt_model.model_validate(receipt.model_dump())
         except ActionReplayConflict as error:
             raise HTTPException(
                 status_code=409,
                 detail="action_reconciliation_unavailable",
             ) from error
 
+    if runtime_mode == "desktop":
+        @application.post("/internal/v1/douyin/account-identities/resolve", response_model=DesktopAccountIdentity)
+        def resolve_identity(request: DesktopAccountIdentityRequest,
+                             authorization: str | None = Header(default=None)):
+            authorize_bearer(authorization, require_service_secret(secret_provider()))
+            manager = application.state.account_manager
+            if manager is None:
+                raise HTTPException(status_code=503, detail="account_manager_unconfigured")
+            try:
+                return manager.resolve_account_identity(request.account_key)
+            except KeyError as error:
+                raise HTTPException(status_code=404, detail="active_account_not_found") from error
+
+        @application.post("/internal/v1/douyin/actions/{action_id}/acknowledgement", response_model=ActionAcknowledgement)
+        def acknowledge_action(action_id: str, request: ActionAcknowledgementRequest,
+                               authorization: str | None = Header(default=None)):
+            authorize_bearer(authorization, require_service_secret(secret_provider()))
+            if not application.state.outreach_actions_enabled:
+                raise HTTPException(status_code=503, detail="outreach_actions_disabled")
+            manager = application.state.action_job_manager
+            if manager is None:
+                raise HTTPException(status_code=503, detail="action_job_manager_unconfigured")
+            try:
+                return manager.acknowledge(action_id, request.request_hash, request.receipt_hash)
+            except ActionReplayConflict as error:
+                raise HTTPException(status_code=409, detail="action_acknowledgement_conflict") from error
+
     return application
 
 
 def create_app(service_secret: str, account_manager: AccountManager | None = None,
                crawl_job_manager: CrawlJobManager | None = None,
-               action_job_manager: ActionJobManager | None = None) -> FastAPI:
+               action_job_manager: ActionJobManager | None = None,
+               runtime_mode: str = "web", outreach_actions_enabled: bool = True) -> FastAPI:
     normalized_secret = require_service_secret(service_secret)
     return _build_app(lambda: normalized_secret, account_manager,
                       crawl_job_manager=crawl_job_manager,
-                      action_job_manager=action_job_manager)
+                      action_job_manager=action_job_manager,
+                      runtime_mode=runtime_mode, outreach_actions_enabled=outreach_actions_enabled)
 
 
 def create_deployment_account_manager() -> AccountManager:
-    volume = os.environ.get("MEDIACRAWLER_ENCRYPTED_VOLUME", "").strip()
-    root = os.environ.get("MEDIACRAWLER_PROFILE_ROOT", "").strip()
-    if not volume or not root:
-        raise RuntimeError("MEDIACRAWLER_ENCRYPTED_VOLUME and MEDIACRAWLER_PROFILE_ROOT are required")
-    root_path = validate_encrypted_profile_root(Path(volume), Path(root))
-    # Validate containment before the Playwright owner thread is even created.
+    config = deployment_runtime_config()
     deployment_action_manual_verification_seconds()
-    headless = deployment_browser_headless()
-    if deployment_outreach_actions_enabled() and headless:
+    if (deployment_outreach_actions_enabled()
+            and config.browser_headless):
         raise RuntimeError(
             "DOUYIN_OUTREACH_ACTIONS_ENABLED=true requires "
             "MEDIACRAWLER_BROWSER_HEADLESS=false"
         )
-    browser_channel = (
-        os.environ.get("MEDIACRAWLER_BROWSER_CHANNEL", "").strip() or None
-    )
+    browser_proxy = deployment_browser_proxy()
+    browser_options: dict[str, object] = {
+        "headless": config.browser_headless,
+        "browser_channel": config.browser_channel,
+        "interaction_surface": config.interaction_surface,
+    }
+    if browser_proxy is not None:
+        browser_options["browser_proxy"] = browser_proxy
+
+    if config.mode == "desktop":
+        for directory in (
+            config.state_root,
+            config.profile_root,
+            config.crawl_output_root,
+        ):
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(directory, 0o700)
+        browser = LocalBrowserSessionManager(
+            config.profile_root,
+            lease_root=config.state_root,
+            browser_factory=lambda: MediaCrawlerDouyinBrowserState(
+                **browser_options
+            ),
+        )
+        return AccountManager(
+            config.state_root,
+            browser,
+            profiles_root=config.profile_root,
+            interaction_surface=config.interaction_surface,
+        )
+
+    volume = os.environ.get("MEDIACRAWLER_ENCRYPTED_VOLUME", "").strip()
+    root = os.environ.get("MEDIACRAWLER_PROFILE_ROOT", "").strip()
+    if not volume or not root:
+        raise RuntimeError(
+            "MEDIACRAWLER_ENCRYPTED_VOLUME and "
+            "MEDIACRAWLER_PROFILE_ROOT are required"
+        )
+    deployment_browser_display()
+    root_path = validate_encrypted_profile_root(Path(volume), Path(root))
     return AccountManager(
         root_path,
-        MediaCrawlerDouyinBrowserState(
-            headless=headless, browser_channel=browser_channel
-        ),
+        MediaCrawlerDouyinBrowserState(**browser_options),
+        interaction_surface=config.interaction_surface,
     )
 
 
 def create_deployment_crawl_job_manager(manager: AccountManager) -> CrawlJobManager:
+    config = deployment_runtime_config()
+    output_root = config.crawl_output_root
+    if config.mode == "desktop":
+        output_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(output_root, 0o700)
+    else:
+        output_root = deployment_crawl_output_root()
     return CrawlJobManager(
         manager._root,
         account_resolver=manager.resolve_crawl_profile,
         runner=MediaCrawlerRunner(
-            headless=deployment_browser_headless(),
-            output_root=deployment_crawl_output_root(),
+            headless=config.browser_headless,
+            output_root=output_root,
         ),
     )
 
@@ -347,12 +661,22 @@ def create_deployment_action_job_manager(manager: AccountManager) -> ActionJobMa
 
 
 def _create_preflighted_deployment_account_manager() -> AccountManager:
-    deployment_crawl_output_root()
+    config = deployment_runtime_config()
+    if config.mode == "web":
+        deployment_crawl_output_root()
+    else:
+        config.crawl_output_root.mkdir(
+            mode=0o700,
+            parents=True,
+            exist_ok=True,
+        )
+        os.chmod(config.crawl_output_root, 0o700)
     return create_deployment_account_manager()
 
 
 def create_deployment_app() -> FastAPI:
-    outreach_actions_enabled = deployment_outreach_actions_enabled()
+    config = deployment_runtime_config()
+    outreach_actions_enabled = config.outreach_actions_enabled
     return _build_app(
         deployment_service_secret,
         deployment_manager_factory=_create_preflighted_deployment_account_manager,
@@ -362,6 +686,7 @@ def create_deployment_app() -> FastAPI:
             if outreach_actions_enabled else None
         ),
         outreach_actions_enabled=outreach_actions_enabled,
+        runtime_mode=config.mode,
     )
 
 

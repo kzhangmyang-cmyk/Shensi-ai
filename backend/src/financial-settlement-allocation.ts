@@ -63,6 +63,14 @@ export interface CashSettlementAllocationLifecycleEvent {
   temporalSequence: number;
 }
 
+/** Preserve repository-issued item identity in the public response. */
+export function publicCashSettlementAllocationSet(set: CashSettlementAllocationSet) {
+  return {
+    ...set,
+    items: set.items.map(item => ({ ...item, allocationSetId: set.id }))
+  };
+}
+
 export interface CashReconciliationResult {
   status: "complete" | "incomplete";
   allocatedPaymentMinor: number;

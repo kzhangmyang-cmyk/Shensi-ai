@@ -502,4 +502,139 @@ export class AcquisitionDouyinAutomationService {
     await this.onRunIntent?.(result.value, policy);
     return { value: result.value, replayed: result.kind === "replay" };
   }
+
+  private async policyForRun(run: DouyinAutomationRunIntent) {
+    const policy = (await this.repository.listVersions(
+      run.workspaceId, run.planId
+    )).find((candidate) => candidate.id === run.policyVersionId);
+    if (!policy
+      || policy.workspaceId !== run.workspaceId
+      || policy.planId !== run.planId
+      || policy.planVersionId !== run.planVersionId
+      || policy.planSnapshotHash !== run.planSnapshotHash
+      || policy.policyHash !== run.policyHash
+      || policy.accountId !== run.accountId
+      || policy.accountLoginStateVersion !== run.accountLoginStateVersion) {
+      fail(409, "automation_run_binding_conflict");
+    }
+    return policy;
+  }
+
+  async runNowDesktop(
+    scope: AcquisitionDouyinAutomationScope,
+    planId: string,
+    idempotencyKey: string,
+    input: DouyinAutomationRunNowInput
+  ) {
+    const key = normalizedIdempotencyKey(idempotencyKey);
+    const reason = normalizedReason(input);
+    const { plan, version: planVersion } = await this.visiblePlan(scope, planId);
+    const requestHash = douyinAutomationHash({
+      planId: plan.id,
+      reason,
+      executionTarget: "desktop"
+    });
+    const replay = this.replayResult(
+      await this.repository.findCommandReplay(
+        scope.workspaceId, plan.id, "run_now", key, requestHash
+      ),
+      "run"
+    );
+    if (replay) {
+      return {
+        value: replay,
+        policy: await this.policyForRun(replay),
+        replayed: true
+      };
+    }
+    if (plan.status !== "approved"
+      || plan.approvedVersionId !== planVersion.id
+      || plan.approvedSnapshotHash !== planVersion.payloadHash) {
+      fail(409, "approved_automation_plan_required");
+    }
+    const policy = await this.repository.getCurrent(scope.workspaceId, plan.id);
+    if (!policy) fail(409, "automation_policy_required");
+    if (policy.planVersionId !== planVersion.id
+      || policy.planSnapshotHash !== planVersion.payloadHash) {
+      fail(409, "automation_policy_plan_version_mismatch");
+    }
+    const account = assertAccount(
+      scope,
+      await this.accounts.findByWorkspaceAndPlatform(
+        scope.workspaceId, "douyin"
+      )
+    );
+    if (policy.accountId !== account.id
+      || policy.accountLoginStateVersion !== account.loginStateVersion) {
+      fail(409, "automation_account_login_state_changed");
+    }
+    const createdAt = this.now();
+    const localDate = localDateInTimeZone(createdAt, policy.schedule.timeZone);
+    const automationIntentId = this.idFactory("douyin-run");
+    const acquisitionRunId = this.idFactory("ar");
+    const value: DouyinAutomationRunIntent = Object.freeze({
+      id: automationIntentId,
+      acquisitionRunId,
+      workspaceId: scope.workspaceId,
+      planId: plan.id,
+      planVersionId: planVersion.id,
+      planVersion: planVersion.version,
+      planSnapshotHash: planVersion.payloadHash,
+      policyVersionId: policy.id,
+      policyHash: policy.policyHash,
+      accountId: account.id,
+      accountLoginStateVersion: account.loginStateVersion,
+      dailyBudgetId: douyinAutomationHash({
+        workspaceId: scope.workspaceId,
+        planId: plan.id,
+        policyVersionId: policy.id,
+        localDate
+      }),
+      localDate,
+      trigger: "run_now",
+      collectCreators: policy.collectCreators,
+      collectDemandComments: policy.collectDemandComments,
+      status: "queued",
+      reason,
+      createdBy: scope.actorId,
+      createdAt
+    });
+    const runBinding = createDouyinCollectionAcquisitionRun({
+      id: acquisitionRunId,
+      automationIntentId,
+      plan,
+      version: planVersion,
+      dailyBudgetId: value.dailyBudgetId,
+      reason,
+      actorId: scope.actorId,
+      createdAt
+    });
+    const result = await this.repository.createRunIntent({
+      workspaceId: scope.workspaceId,
+      ownerId: scope.ownerId,
+      teamId: scope.teamId,
+      planId: plan.id,
+      planVersionId: planVersion.id,
+      policyVersionId: policy.id,
+      accountId: account.id,
+      accountLoginStateVersion: account.loginStateVersion,
+      idempotencyKey: key,
+      requestHash,
+      value,
+      runBinding
+    });
+    if (result.kind === "conflict") {
+      fail(409, "automation_idempotency_conflict");
+    }
+    if (result.kind === "binding_mismatch") {
+      fail(409, "automation_run_binding_conflict");
+    }
+    return {
+      value: result.value,
+      policy: result.kind === "replay"
+        ? await this.policyForRun(result.value)
+        : policy,
+      replayed: result.kind === "replay"
+    };
+  }
 }

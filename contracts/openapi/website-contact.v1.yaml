@@ -1,0 +1,48 @@
+openapi: 3.1.0
+info:
+  title: Shensi Public Website Inquiry
+  version: 1.0.0
+  description: Standalone website server only. No customer workspace authority or CRM write.
+paths:
+  /api/website-contact:
+    post:
+      operationId: submitWebsiteInquiry
+      summary: Send a consented inquiry through configured SMTP
+      description: Exact Origin allowlist, JSON only, 16 KiB body, five attempts per connection IP per ten minutes. No automatic sending retry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, company, email, industry, need, message, consent, locale, website]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                company: { type: string, minLength: 1, maxLength: 160 }
+                email: { type: string, format: email, maxLength: 254 }
+                industry: { type: string, minLength: 1, maxLength: 100 }
+                need: { type: string, enum: [ai, decision, team, advice, global, demo, other] }
+                message: { type: string, minLength: 10, maxLength: 3000 }
+                consent: { const: true }
+                locale: { type: string, enum: [zh, en] }
+                website: { type: string, maxLength: 0 }
+      responses:
+        '200':
+          description: Configured mail transport accepted the recipient; no guarantee of inbox placement.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, reference]
+                properties:
+                  status: { const: sent }
+                  reference: { type: string, format: uuid }
+        '400': { description: Malformed JSON or request }
+        '403': { description: Origin rejected }
+        '405': { description: Method not allowed }
+        '413': { description: Body exceeds 16 KiB }
+        '415': { description: Content-Type must be application/json }
+        '422': { description: Field validation or honeypot failed }
+        '429': { description: Rate limited; Retry-After 600 seconds }
+        '502': { description: Mail transport did not return a valid receipt; delivery may be uncertain }
+        '503': { description: Mail delivery not configured; no email sent }

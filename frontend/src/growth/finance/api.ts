@@ -26,8 +26,31 @@ export type FinanceImportOperation = Omit<
 >;
 export type FinanceImportRowError =
   components["schemas"]["FinanceImportOperation_FinanceImportRowError"];
+export type FinanceImportMapping = components["schemas"]["FinanceImportPreviewInput"]["mapping"];
+export type FinanceDocumentInspection = Omit<components["schemas"]["FinanceDocumentInspection"], "$defs">;
+export type ChatAttachmentScope = NonNullable<components['schemas']['FinanceDocumentInspectionInput']['attachmentScope']>;
+export type ReportIndustry = NonNullable<components['schemas']['FinanceDocumentInspectionInput']['publicIndustry']>;
+export type ChatAttachmentClear = components['schemas']['FinanceDocumentAttachmentClear'];
+
+export function financeImportFileIssue(file: Blob, filename: string): string | null {
+  if (!/\.(csv|xlsx)$/iu.test(filename)) return "请选择 CSV 或 XLSX 文件，其他格式请先转换。";
+  if (file.size === 0) return "文件为空，请选择包含数据的 CSV 或 XLSX 文件。";
+  if (file.size > 5 * 1024 * 1024) return "文件超过 5 MB，请拆分后重新选择。";
+  return null;
+}
+export function financeDocumentFileIssue(file: Blob, filename: string): string | null {
+  if (/\.doc$/iu.test(filename)) return "旧版 DOC 暂不支持，请另存为 DOCX 后上传。";
+  if (!/\.(csv|xls|xlsx|pdf|docx)$/iu.test(filename)) return "请选择 CSV、XLS、XLSX、含文字的 PDF 或 DOCX 文件。";
+  if (file.size === 0) return "文件为空，请选择包含文字或数据的文件。";
+  if (file.size > 5 * 1024 * 1024) return "文件超过 5 MB，请拆分后重新选择。";
+  return null;
+}
 
 export interface FinanceApi {
+  clearChatAttachment(input: ChatAttachmentClear, signal?: AbortSignal): Promise<GrowthHttpResponse<void>>;
+  clearDocumentSelection(signal?: AbortSignal): Promise<GrowthHttpResponse<void>>;
+  inspectDocument(file: Blob, filename: string, readWithModel: boolean, signal?: AbortSignal,
+    purpose?: 'finance' | 'roi' | 'management', additionalFiles?: readonly File[], attachmentScope?: ChatAttachmentScope, publicIndustry?: ReportIndustry): Promise<GrowthHttpResponse<FinanceDocumentInspection>>;
   listCostEntries(query: {
     limit: number;
     cursor?: string;
@@ -69,11 +92,13 @@ export interface FinanceApi {
     file: Blob,
     filename: string,
     idempotencyKey: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    mapping?: FinanceImportMapping
   ): Promise<GrowthHttpResponse<FinanceImportPreview>>;
   commitImport(
     previewId: string,
-    idempotencyKey: string
+    idempotencyKey: string,
+    signal?: AbortSignal
   ): Promise<GrowthHttpResponse<FinanceImportOperation>>;
   getImport(
     operationId: string,
@@ -81,8 +106,57 @@ export interface FinanceApi {
   ): Promise<GrowthHttpResponse<FinanceImportOperation>>;
 }
 
+function importMediaType(filename: string):
+  "text/csv"
+  | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" {
+  if (filename.toLowerCase().endsWith(".csv")) {
+    return "text/csv";
+  }
+  return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+}
+
+async function blobToBase64(file: Blob): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
 export function createFinanceApi(http: GrowthHttpClient): FinanceApi {
   const api: FinanceApi = {
+    clearChatAttachment(input, signal) {
+      return http.request<void>('/api/v1/finance/documents/attachments/clear', { method: 'POST', body: input, signal });
+    },
+    clearDocumentSelection(signal) {
+      return http.request<void>("/api/v1/finance/documents/selection", { method: "DELETE", signal });
+    },
+    async inspectDocument(file, filename, readWithModel, signal, analysisPurpose, additionalFiles = [], attachmentScope, publicIndustry) {
+      if (attachmentScope && readWithModel) throw new Error('聊天附件上传只解析；发送问题时才使用模型。');
+      if (additionalFiles.length > 9 || file.size + additionalFiles.reduce((sum, item) => sum + item.size, 0) > 5 * 1024 * 1024) throw new Error('每批最多10份文件，合计不超过5MB。');
+      const issue = financeDocumentFileIssue(file, filename);
+      if (issue) throw new Error(issue);
+      signal?.throwIfAborted();
+      let contentBase64: string;
+      try { contentBase64 = await blobToBase64(file); }
+      catch { throw new Error("无法读取文件，请确认文件仍在本机且可访问，然后重新选择。"); }
+      signal?.throwIfAborted();
+      const body: components["schemas"]["FinanceDocumentInspectionInput"] = {
+        fileName: filename,
+        mediaType: /\.xls$/iu.test(filename) ? "application/vnd.ms-excel" : /\.pdf$/iu.test(filename) ? "application/pdf"
+          : /\.docx$/iu.test(filename) ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : importMediaType(filename),
+        contentBase64, readWithModel, ...(analysisPurpose ? { analysisPurpose } : {}), ...(attachmentScope ? { attachmentScope } : {}), ...(publicIndustry ? { publicIndustry } : {}),
+        ...(additionalFiles.length ? { additionalFiles: await Promise.all(additionalFiles.map(async item => {
+          const issue = financeDocumentFileIssue(item, item.name); if (issue) throw new Error(issue);
+          return { fileName: item.name, mediaType: /\.xls$/iu.test(item.name) ? 'application/vnd.ms-excel' as const
+            : /\.pdf$/iu.test(item.name) ? 'application/pdf' as const : /\.docx$/iu.test(item.name) ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' as const : importMediaType(item.name),
+            contentBase64: await blobToBase64(item) };
+        })) } : {})
+      };
+      return http.request<FinanceDocumentInspection>("/api/v1/finance/documents/inspect", { method: "POST", body, signal });
+    },
     async listCostEntries(query) {
       const params = new URLSearchParams({ limit: String(query.limit) });
       if (query.cursor) params.set("cursor", query.cursor);
@@ -131,21 +205,37 @@ export function createFinanceApi(http: GrowthHttpClient): FinanceApi {
         { method: "POST", body: input, ifMatch: etag, idempotencyKey }
       );
     },
-    async previewImport(kind, file, filename, idempotencyKey, signal) {
+    async previewImport(kind, file, filename, idempotencyKey, signal, mapping = {}) {
+      const issue = financeImportFileIssue(file, filename);
+      if (issue) throw new Error(issue);
+      signal?.throwIfAborted();
+      let contentBase64: string;
+      try {
+        contentBase64 = await blobToBase64(file);
+      } catch {
+        throw new Error("无法读取文件，请确认文件仍在本机且可访问，然后重新选择。");
+      }
+      signal?.throwIfAborted();
       return http.request<FinanceImportPreview>(
         `/api/v1/finance/imports/preview`,
         {
           method: "POST",
-          body: { kind, filename, contentLength: file.size },
+          body: {
+            kind,
+            fileName: filename,
+            mediaType: importMediaType(filename),
+            contentBase64,
+            mapping
+          },
           idempotencyKey,
           signal
         }
       );
     },
-    async commitImport(previewId, idempotencyKey) {
+    async commitImport(previewId, idempotencyKey, signal) {
       return http.request<FinanceImportOperation>(
         `/api/v1/finance/imports/${encodeURIComponent(previewId)}/commit`,
-        { method: "POST", idempotencyKey }
+        { method: "POST", idempotencyKey, signal }
       );
     },
     async getImport(operationId, signal) {

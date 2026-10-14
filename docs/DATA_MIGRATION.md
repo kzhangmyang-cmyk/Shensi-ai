@@ -1,6 +1,124 @@
 # Data Migration
 
-## Current state
+## System-reference binding storage
+
+`system-reference/mysql-bindings.ts` defines the additive central-only
+`system_reference_bindings` table: a request UUID, unique nullable token hash,
+retention timestamp and closed binding-state JSON. Initialization is an explicit
+trusted startup operation, not an import side effect, and is not wired into the
+current source instance. No existing account, private knowledge or book table is
+rewritten. The new adapter has driver-double tests; actual dedicated MySQL
+acceptance remains pending for this binding adapter; D4's publication-only SQL
+checks do not verify binding storage or constitute a current-runtime migration.
+
+Pending/approved/consumed/cancelled/expired states and token tombstones persist
+under a row lock. Only the S256 challenge and opaque token hash are stored, never
+the verifier or raw reader token. `retain_until` is at least seven days beyond the
+latest request/token expiry; no automatic cleanup is implemented. Preserve these
+rows on rollback so consumed or cancelled credentials cannot revive. Failed or
+uncertain commits fail closed and are not automatically replayed. Publication
+and reader/query authorization integration remain separate from this binding adapter.
+
+## System-reference publication storage (staged D4)
+
+The explicit `initializeReferenceSchema` initializer adds independent
+`system_reference_releases`, `system_reference_sources`, `system_reference_chunks`,
+`system_reference_commands`, `system_reference_grants`, `system_reference_budgets`
+and `system_reference_audits` tables. Each has corpus/opaque-record keys and an
+encrypted payload; release lookup metadata contains IDs only. No private ownership
+columns are changed and no books are migrated by this initializer. Grant/budget
+tables provide the same-transaction storage seam. D5's internal primitives now store
+sliding-minute/UTC-day rate counters, account/source-hash disclosure counters and
+30-day exact grants. No new table or migration is needed for these payloads.
+Reader HTTP is registered but default-unconfigured; it performs no initialization.
+The
+binding proof adapter borrows the caller's transaction connection for FOR SHARE;
+it adds no table, changes no binding row and never starts a nested transaction.
+Its three dedicated actual-SQL access checks pass with the19-gate aggregate.
+
+Source usage is independent of binding, account authVersion and release ID. Each
+UTC day admits at most 12 newly disclosed chunks and 24,000 new excerpt characters;
+rolling 30-day characters cannot exceed the smaller of 5% of indexed source text
+(rounded down) and 120,000. Repeated identical text does not charge characters
+again within the retained window. Full chunks are never truncated to fit. Grant
+records retain reader/workspace/authVersion, release, exact references and expiry;
+expired records cannot authorize new reads, and rows are not deleted by this work.
+Rates, usage, grants and content-free audits use the same transaction. Four actual-SQL
+primitive checks and the five publication checks pass together (9/9, zero skips),
+covering pool reopen, audit rollback, concurrent final allowance and the thirty-day
+boundary. The 19-gate budget checkpoint passes, but does not verify the pending
+reader API. The access checkpoint adds three real SQL cases (12/12 total). Internal
+retrieval now reuses the immutable source loader and rechecks current pointer,
+complete source counts, indexed characters and grant expiry. It adds no table or
+persisted plaintext index. Its two SQL service cases pass with the 20-gate retrieval
+checkpoint and subsequent HTTP21-gate aggregate (actual isolated SQL14/14, zero skips).
+The latter root suite has1072 tests/1063 passed/zero failed/nine conditional skips.
+The dedicated owned-database stop/start gate also passes: a new daemon over the same
+datadir/key and fresh application process preserve all encrypted table digests,
+exact references, revocation and cumulative disclosure limits. This normal stop/start
+is not hard-crash recovery or a migration of the current business database.
+HTTP cancellation checks before commit
+but cannot preempt an already-started SQL COMMIT; an uncertain result never retries
+or compensates by deleting a possibly committed grant.
+
+HKDF purpose `shensi.system-reference.storage.v1` plus per-kind keys separates
+these records from private documents, binding credentials and MFA. AES-GCM AAD
+includes corpus, record kind and complete release/source/chunk key. Preserve the
+explicitly supplied stable master key and all seven tables together; changing keys
+cannot silently re-encrypt or import private corpus records. Candidate page sets
+are immutable after readiness; only complete canonical-hash/coverage/index checks
+allow publication. Fresh owner authority is checked within the same transaction
+before state writes and commit. The corpus pointer, revision, command and audit
+commit together. Unknown commit/rollback results fail closed without replay.
+
+The dedicated `pnpm --dir backend test:system-reference:mysql` requires explicit
+`MYSQL_TEST_ADMIN_URL`, creates only a fresh random owned test database and closes/
+drops only that database. It has no DATABASE_URL fallback or automatic skip.
+The storage checkpoint executed five actual MySQL tests without skips, including
+reopen, concurrency, audit rollback, owner fence and lost commit acknowledgement.
+The subsequent five-test actual-MySQL run also covers bounded metadata/cursors and
+command-status readback after reopening the pool. The complete 18-step D4 gate
+passes with five actual SQL checks and no SQL skips; no current business database
+was initialized. Rollback must retain the old release, command history, revocations
+and future grant/budget records; restoring an older snapshot that resurrects
+withdrawn access requires an explicit controlled recovery, not ordinary startup.
+
+## System-reference connection storage
+
+`system-reference/mysql-connections.ts` defines the separate additive business
+backend table `system_reference_connections`, keyed by an installation/actor hash.
+Its closed JSON holds monotonic generations, up to 100 workspace connections and
+1000 retained attempt/tombstone records; encrypted credentials carry full-scope
+AAD. Exchange consumption is durable before network issuance. Unbinding removes
+active tokens before explicit remote cancellation; an unknown cancellation keeps
+a proof-only encrypted tombstone, not an active token. Tombstones remain at least
+seven days beyond their recorded expiry, with pruning only after retention.
+No real database initializer was invoked in D3. Driver tests verify actor-row
+locking and commit-uncertainty handling; dedicated MySQL evidence is still due.
+
+Douyin discovery quota removal uses an additive nullable field in crawler job
+JSON: `candidateBudgetLimit: null` means unlimited. No SQL column migration or
+historical rewrite is needed. Missing fields on completed legacy jobs retain
+their historical limit in status responses. Legacy `dailyCandidateLimit` remains
+part of approval snapshots and hashes; it no longer truncates discovery records.
+
+## Desktop binding generation retention
+
+The social-account schema adds `executor_binding_generation_high_water` as an
+unsigned integer with default zero. Runtime schema preparation raises it to at
+least the currently persisted generation. Disconnect, login persistence and
+desktop binding retain this maximum; a new binding allocates above it. The
+public binding DTO and the unbound generation-zero constraint do not change.
+Retain this column on rollback. Historical unbound rows whose generation was
+already lost need evidence-based recovery; zero is not proof of no prior binding.
+
+## Historical local migration evidence
+
+The counts and target identities below describe the 2026-08-24 local migration,
+not a current inventory of the daily desktop or overseas cloud database.
+Cloud migration must establish a fresh source/target manifest and adapt the
+local-only tool boundaries before execution; see the
+[overseas-to-Alibaba migration plan](operations/account-admin-launch-readiness.md).
 
 This repository contains fail-closed tooling for an encrypted, source-to-new-
 target MySQL migration. The authorized lock-free retry completed its
@@ -11,7 +129,7 @@ target-backend start then added one deterministic, idempotent
 `system_migration` model-activation audit event. A second backend restart added
 no row. The final bounded credential-health gate added one immutable model job
 snapshot and one model-call ledger row, so the current target has 237 tables
-and 173 rows.
+and 173 rows at that historical acceptance checkpoint.
 
 Task 7 is complete. An operator-authorized target-only identity binding kept
 the restored connection's original owner/team and credential AAD intact while
@@ -29,6 +147,33 @@ database is a distinct database named `shensi`. The tools accept `mysql:` URLs
 only, never drop a database, never write a plaintext dump to disk, and never
 print full database URLs, passwords, passphrases, customer rows, or provider
 keys.
+
+## Desktop outreach target upgrade
+
+The desktop action bridge has a separate, target-only upgrade under
+`scripts/desktop-outreach-schema-upgrade.mjs`. Its versioned steps cover
+installation, account execution binding, action fencing, and replay storage.
+Crawler/session schema changes are outside this manifest.
+
+The SQL transport accepts only the supervisor-selected restored migration
+target (`127.0.0.1:3311`, database `shensi`, user `shensi_app`) with stopped
+writers and a matching active migration owner. It uses one connection-scoped
+lock and rechecks owner, server identity, and lock ownership before each write.
+No environment-discovered database or implicit Backend-startup upgrade is
+available through this transport.
+
+`scripts/lib/desktop-outreach-preservation.mjs` compares every legacy field in
+the six identity/account/batch/action/serialization/attempt tables using
+ordered, paginated aggregate digests. Reports contain counts and digests, not
+row values. Upgrade retries must use the persisted pre-upgrade baseline;
+recapturing a baseline after a partially applied upgrade would hide damage.
+
+The manifest runner, SQL transport, preservation checker, and composition are
+under implementation and injected-test verification. Supervisor wiring,
+fresh-schema parity, and zero-DDL retained Backend startup are not yet an
+operational acceptance result. The existing source and installed application
+are unchanged by these source modules. Current execution progress is recorded
+in `docs/PROJECT_STATUS.md`.
 
 ## Prerequisites
 
@@ -294,6 +439,22 @@ does not reverse-sync writes from `shensi` to `shensi_sales`.
 No command here authorizes deleting either database. A target created for a
 failed attempt must be quarantined or removed only by an operator using a
 separate, reviewed procedure.
+
+## Platform administration migration
+
+Include `users`, `platform_administration_state` and
+`account_administration_audit` in the same consistent database snapshot.
+Preserve revisions, immutable plan versions, workspace dates/status,
+authVersion, operator sessionVersion and consumed OTP counters. Preserve
+`AGENT_JOB_ENCRYPTION_KEY` separately from the encrypted backup; a replacement
+key cannot recover MFA secrets.
+
+On a new empty target verify actual schema inventory, record counts, operator
+MFA, tenant isolation, expiry/seats and task ledgers. The synthetic Docker runner
+demonstrates restart persistence, transaction rollback and encrypted restore;
+it does not verify managed-cloud permissions/TLS. Keep the source unchanged and
+follow the cutover/rollback controls. Never bootstrap another owner on restored
+data.
 
 ## Retention
 

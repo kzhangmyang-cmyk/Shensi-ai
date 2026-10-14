@@ -1,4 +1,5 @@
 import cors from "cors";
+import { enterpriseQueryInput, searchGleif } from "./enterprise-query-gleif.js";
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
@@ -7,6 +8,11 @@ import { lstatSync, readFileSync } from "node:fs";
 import nodemailer from "nodemailer";
 import { z } from "zod";
 import { AUTH_COOKIE_NAME, CSRF_COOKIE_NAME, canManageAccount, canManageAccounts, canManageRole, canSeeOwner, canSeePersonalData, canSeeTeam, createCsrfToken, csrfCookieOptions, hashPassword, publicUser, requireAuth, sessionCookieOptions, signToken, validateAuthSecurity, verifyPassword } from "./auth.js";
+import { installKnowledgeIngress } from './knowledge/router.js';
+import { installReferenceBindingIngress } from './system-reference/binding-router.js';
+import { installReferenceConnectionIngress } from './system-reference/connection-router.js';
+import { installReferenceAdminIngress } from './system-reference/admin-router.js';
+import { installSystemReferenceIngress, isSystemReferenceReaderRequest } from './system-reference/router.js';
 import { assertAiBaseUrlAllowed } from "./ai-http-security.js";
 import {
   acquisitionApiErrorMiddleware,
@@ -32,6 +38,7 @@ import {
   activateModelConnection,
   createAiModelConfigId,
   createModelCredentialVersion,
+  deactivateModelConnection,
   deleteModelConnection,
   EMPTY_MODEL_CAPABILITY_SNAPSHOT,
   modelConnectionFromAiConfig
@@ -91,13 +98,21 @@ import {
 } from "./provider-runtime.js";
 import { ProspectScheduler } from "./prospect-scheduler.js";
 import { ProspectWorkerService } from "./prospect-worker-service.js";
-import { loadLocalEnv } from "./runtime-env.js";
+import { loadLocalEnv,readReferenceRuntime } from "./runtime-env.js";
 import { registerSwagger } from "./swagger.js";
+import { AccountCommandError, createAccount, updateAccountAccess, persistAccountMutation } from './account-command.js';
+import { isAccountMutationPending, beginAccountMutation, beginPlatformMutation } from './account-mutation-state.js';
+import { customerAccess, platformState } from './platform-admin-service.js';
+import { createPlatformAdminRouter, createPlatformPasswordResetRouter } from './platform-admin-router.js';
 import { resolveBackendHost, resolveTrustedProxy } from "./server-network.js";
 import {
   createAcquisitionApplication
 } from "./acquisition-application.js";
-import { createDouyinMediaCrawlerGateway } from "./acquisition-mediacrawler-gateway.js";
+import { resolveDouyinOutreachFeatureFlags,
+  type DouyinOutreachFeatureFlags } from
+  "./acquisition-outreach-action-authority.js";
+import { createDouyinMediaCrawlerGateway,
+  type DouyinMediaCrawlerGateway } from "./acquisition-mediacrawler-gateway.js";
 import {
   resolveAcquisitionMasterSecret
 } from "./acquisition-master-secret.js";
@@ -272,6 +287,18 @@ import {
 } from "./prospect-verification.js";
 import type { AiModelConfig, CommissionCalculation, CommissionItem, CommissionProduct, CommissionRule, Customer, CustomerIntelligenceFieldKey, Deal, DealEvent, Exam, ExamAttempt, ExamQuestion, Lead, LeadSourceEvent, LeadSourceType, MonthlySalesRecord, OcrJob, PlanTask, PlanTemplate, ProspectOutreachChannel, ProviderCatalogItem, ProviderConnection, ProviderEvidenceSnapshot, SalesRecordAudit, SessionUser, Todo, TradeDocument, TradeDocumentAudit, TradeDocumentSendRecord, WebsiteOpportunity } from "./types.js";
 import type { CompanyProfile } from "./types.js";
+import {
+  createDesktopClientAdmissionMiddleware,
+  type DesktopClientAdmissionConfiguration,
+  resolveDesktopClientAdmissionConfiguration
+} from "./desktop-client-admission.js";
+export { resolveDesktopClientAdmissionConfiguration } from "./desktop-client-admission.js";
+
+export interface InstallAcquisitionHttpRuntimeInput {
+  workspaceMiddleware: RequestHandler;
+  runtime: AcquisitionHttpRuntime;
+  admissionConfiguration?: DesktopClientAdmissionConfiguration;
+}
 
 loadLocalEnv();
 
@@ -280,11 +307,20 @@ let acquisitionWorkspaceMiddleware: RequestHandler | null = null;
 let activeProspectWorkerService: ProspectWorkerService | null = null;
 const acquisitionRuntimeBridge = new AcquisitionRuntimeBridge();
 const growthRuntimeBridge = new GrowthCommercialRuntimeBridge();
+let acquisitionAdmissionMiddleware = createDesktopClientAdmissionMiddleware(
+  { mode: "migration_locked" }
+);
 
-function installAcquisitionHttpRuntime(input: {
-  workspaceMiddleware: RequestHandler;
-  runtime: AcquisitionHttpRuntime;
-}) {
+function installAcquisitionAdmissionConfiguration(
+  configuration: DesktopClientAdmissionConfiguration
+) {
+  acquisitionAdmissionMiddleware = createDesktopClientAdmissionMiddleware(configuration);
+}
+
+function installAcquisitionHttpRuntime(input: InstallAcquisitionHttpRuntimeInput) {
+  installAcquisitionAdmissionConfiguration(input.admissionConfiguration ?? {
+    mode: "migration_locked"
+  });
   acquisitionWorkspaceMiddleware = input.workspaceMiddleware;
   acquisitionRuntimeBridge.install(input.runtime);
   let installed = true;
@@ -297,14 +333,14 @@ function installAcquisitionHttpRuntime(input: {
       if (acquisitionWorkspaceMiddleware === input.workspaceMiddleware) {
         acquisitionWorkspaceMiddleware = null;
       }
+      installAcquisitionAdmissionConfiguration({ mode: "migration_locked" });
     }
   };
 }
 
-export function installTestAcquisitionHttpRuntime(input: {
-  workspaceMiddleware: RequestHandler;
-  runtime: AcquisitionHttpRuntime;
-}) {
+export function installTestAcquisitionHttpRuntime(
+  input: InstallAcquisitionHttpRuntimeInput
+) {
   if (process.env.NODE_ENV !== "test") {
     throw new Error("TEST_ACQUISITION_RUNTIME_INSTALL_FORBIDDEN");
   }
@@ -538,7 +574,10 @@ async function synchronizeProspectQueue() {
 
 app.disable("x-powered-by");
 app.set("trust proxy", resolveTrustedProxy());
-const allowedOrigins = new Set((process.env.CORS_ORIGINS || "")
+const allowedOrigins = new Set([
+  process.env.CORS_ORIGINS || "",
+  process.env.RENDER_EXTERNAL_URL || ""
+].join(",")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean));
@@ -552,6 +591,11 @@ app.use(helmet({
 }));
 app.use((req, res, next) => {
   if (!originAllowed(req.headers.origin)) {
+    if (isSystemReferenceReaderRequest(req.originalUrl)) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(403).json({ error: { code: 'reference_forbidden', message: '不允许的请求来源' } });
+      return;
+    }
     res.status(403).json({ message: "不允许的请求来源" });
     return;
   }
@@ -563,6 +607,12 @@ app.use(cors({
     callback(null, originAllowed(origin));
   }
 }));
+installKnowledgeIngress(app, requireAuth);
+export const configureReferenceBindingRuntime = installReferenceBindingIngress(app);
+const referenceConnectionIngress = installReferenceConnectionIngress(app);
+export const configureReferenceConnectionRuntime = referenceConnectionIngress.configure;
+export const configureReferenceAdminRuntime = installReferenceAdminIngress(app);
+export const configureSystemReferenceRuntime = installSystemReferenceIngress(app);
 function isAcquisitionVisualReaderWriteRequest(req: Request) {
   return req.method === "POST" && (
     req.path === "/api/v1/acquisition/visual-reader-sessions"
@@ -572,6 +622,8 @@ function isAcquisitionVisualReaderWriteRequest(req: Request) {
       .test(req.path)
   );
 }
+app.use("/api/v1/acquisition", (req, res, next) =>
+  acquisitionAdmissionMiddleware(req, res, next));
 const acquisitionVisualReaderJsonParser = express.json({ limit: "2mb" });
 app.use((req, res, next) => {
   if (!isAcquisitionVisualReaderWriteRequest(req)) {
@@ -579,6 +631,29 @@ app.use((req, res, next) => {
     return;
   }
   acquisitionVisualReaderJsonParser(req, res, next);
+});
+// Match the desktop gateway's bounded Base64 transport allowance. The import
+// services still validate decoded files at 5 MiB each (three statement files).
+const financeFileBase64Bytes = Math.ceil((5 * 1024 * 1024) / 3) * 4;
+const financeJsonEnvelopeBytes = 64 * 1024;
+const financeUploadJsonParsers = new Map([
+  ["/api/v1/finance/documents/inspect", express.json({
+    limit: financeFileBase64Bytes + financeJsonEnvelopeBytes
+  })],
+  ["/api/v1/decision-simulations/preparations", express.json({
+    limit: financeFileBase64Bytes + financeJsonEnvelopeBytes
+  })],
+  ["/api/v1/finance/imports/preview", express.json({
+    limit: financeFileBase64Bytes + financeJsonEnvelopeBytes
+  })],
+  ["/api/v1/finance/statement-packages/preview", express.json({
+    limit: 3 * financeFileBase64Bytes + financeJsonEnvelopeBytes
+  })]
+]);
+app.use((req, res, next) => {
+  const parser = req.method === "POST" ? financeUploadJsonParsers.get(req.path) : undefined;
+  if (parser) parser(req, res, next);
+  else next();
 });
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "2mb" }));
 app.use(express.urlencoded({ extended: false, limit: "256kb" }));
@@ -609,6 +684,8 @@ const apiLimiter = rateLimit({
   handler: acquisitionApiRateLimitHandler
 });
 app.use("/api", apiLimiter);
+app.use('/api/platform/v1', createPlatformAdminRouter());
+app.use('/api/auth/reset-password', createPlatformPasswordResetRouter());
 
 function asyncRoute(handler: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -1215,13 +1292,18 @@ function sendAuthenticatedSession(
   res.cookie(AUTH_COOKIE_NAME, token, sessionCookieOptions());
   res.cookie(CSRF_COOKIE_NAME, csrfToken, csrfCookieOptions());
   res.setHeader("Cache-Control", "no-store");
-  res.status(status).json({ token, csrfToken, user: sessionUser });
+  res.status(status).json({ token, csrfToken, user: sessionUser, access: customerAccess(getStore(), user.teamId) });
 }
 
 class RegistrationConflictError extends Error {}
 
 app.post("/api/auth/register", registrationLimiter, asyncRoute(async (req, res) => {
+  const store = getStore();
+  const ownerRequired = process.env.SHENSI_REQUIRE_PLATFORM_OWNER === 'true';
+  const hasOwner = () => platformState(store).memberships.some(member => member.role === 'owner' && member.status === 'active' && store.users.some(user => user.id === member.userId && user.status === 'active'));
+  if (ownerRequired && !hasOwner()) { res.status(503).json({ message: '平台尚未开放注册，请联系运营人员' }); return; }
   const body = registrationSchema.parse(req.body);
+  if (!await referenceConnectionIngress.beforeSessionChange(req, res)) return;
   const email = `${body.account}@shensi.local`;
   const user = {
     id: `u_${randomUUID()}`,
@@ -1234,39 +1316,42 @@ app.post("/api/auth/register", registrationLimiter, asyncRoute(async (req, res) 
     status: "active" as const,
     authVersion: 1
   };
-  const store = getStore();
+  const finishes: (() => void)[] = [];
   const mutation = () => {
+    if (ownerRequired && !hasOwner()) throw new AccountCommandError(503, '平台尚未开放注册，请联系运营人员');
     if (store.users.some((item) => item.email.toLowerCase() === email)) {
       throw new RegistrationConflictError();
     }
+    finishes.push(beginAccountMutation(user.id));
     store.users.unshift(user);
+    const previousPlatform = store.platformAdminStates;
+    if (previousPlatform?.[0]?.memberships.length) {
+      finishes.push(beginPlatformMutation(store));
+      const platform = structuredClone(previousPlatform[0]);
+      platform.revision++;
+      platform.workspaces.push({ id: user.teamId, name: body.account, contact: '', status: 'pending', planVersionId: null, startsAt: null, expiresAt: null, revision: 1 });
+      platform.audits.push({ id: randomUUID(), actorId: user.id, targetId: user.teamId, action: 'register_enterprise', reason: '客户公开注册，等待运营开通', occurredAt: new Date().toISOString(), revision: platform.revision });
+      store.platformAdminStates = [platform];
+    }
     return {
       value: user,
       rollback() {
         const index = store.users.indexOf(user);
         if (index >= 0) store.users.splice(index, 1);
+        store.platformAdminStates = previousPlatform;
       }
     };
   };
   try {
-    if (store.persistMutation) {
-      await store.persistMutation(mutation);
-    } else {
-      const applied = mutation();
-      try {
-        await store.persist();
-      } catch (error) {
-        applied.rollback();
-        throw error;
-      }
-    }
+    await persistAccountMutation(store, mutation);
   } catch (error) {
     if (error instanceof RegistrationConflictError) {
       res.status(409).json({ message: "账号已存在" });
       return;
     }
+    if (error instanceof AccountCommandError) { res.status(error.status).json({ message: error.message }); return; }
     throw error;
-  }
+  } finally { finishes.forEach(finish => finish()); }
   sendAuthenticatedSession(res, user, 201);
 }));
 
@@ -1275,20 +1360,42 @@ app.post("/api/auth/login", loginLimiter, asyncRoute(async (req, res) => {
   const store = getStore();
   const email = canonicalLoginEmail(body.email);
   const user = store.users.find((item) => item.email.toLowerCase() === email && item.status === "active");
+  const passwordAtStart = user?.password;
+  const versionAtStart = user?.authVersion || 1;
   const passwordCheck = user ? await verifyPassword(user.password, body.password) : { valid: false, needsUpgrade: false };
-  if (!user || !passwordCheck.valid) {
+  if (!user || !passwordCheck.valid || user.status !== 'active' || user.password !== passwordAtStart || (user.authVersion || 1) !== versionAtStart || isAccountMutationPending(user.id)) {
     res.status(401).json({ message: "账号或密码错误" });
     return;
   }
+  let authenticatedHash = passwordAtStart;
   if (passwordCheck.needsUpgrade) {
-    user.password = await hashPassword(body.password);
-    user.authVersion = user.authVersion || 1;
-    await store.persist();
+    const upgradedHash = await hashPassword(body.password);
+    try {
+      await persistAccountMutation(store, () => {
+        if (!store.users.includes(user) || user.status !== 'active' || user.password !== passwordAtStart || (user.authVersion || 1) !== versionAtStart || isAccountMutationPending(user.id)) throw new AccountCommandError(401, '登录状态已失效');
+        const previousPassword = user.password;
+        user.password = upgradedHash;
+        return { value: undefined, rollback() { user.password = previousPassword; } };
+      });
+      authenticatedHash = upgradedHash;
+    } catch (error) {
+      if (error instanceof AccountCommandError) { res.status(error.status).json({ message: error.message }); return; }
+      throw error;
+    }
+  }
+  if (!store.users.includes(user) || user.status !== 'active' || user.password !== authenticatedHash || (user.authVersion || 1) !== versionAtStart || isAccountMutationPending(user.id)) {
+    res.status(409).json({ message: '账号正在更新，请稍后重试' });
+    return;
+  }
+  if (!await referenceConnectionIngress.beforeSessionChange(req, res)) return;
+  if (!store.users.includes(user) || user.status !== 'active' || user.password !== authenticatedHash || (user.authVersion || 1) !== versionAtStart || isAccountMutationPending(user.id)) {
+    res.status(409).json({ message: '账号正在更新，请稍后重试' });
+    return;
   }
   sendAuthenticatedSession(res, user);
 }));
 
-app.post("/api/auth/logout", (req, res) => {
+app.post("/api/auth/logout", referenceConnectionIngress.logout, (req, res) => {
   res.clearCookie(AUTH_COOKIE_NAME, { ...sessionCookieOptions(), maxAge: undefined });
   res.clearCookie(CSRF_COOKIE_NAME, { ...csrfCookieOptions(), maxAge: undefined });
   res.setHeader("Cache-Control", "no-store");
@@ -1297,7 +1404,7 @@ app.post("/api/auth/logout", (req, res) => {
 
 app.get("/api/auth/me", requireAuth, (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json({ user: req.user });
+  res.json({ user: req.user, access: customerAccess(getStore(), req.user!.teamId) });
 });
 
 app.get("/api/profile", requireAuth, (req, res) => {
@@ -2063,6 +2170,23 @@ app.post("/api/internal-messages/:id/read", requireAuth, asyncRoute(async (req, 
   res.json({ message: publicInternalMessage(message) });
 }));
 
+app.use('/api/accounts', requireAuth, (req, res, next) => {
+  const store = getStore(), platform = store.platformAdminStates?.[0];
+  if (platform && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    let id: string;
+    try { id = decodeURIComponent(req.path.split('/')[1] ?? ''); }
+    catch { res.status(400).json({ message: '账号编号无效' }); return; }
+    const target = store.users.find(user => user.id === id);
+    if ((platform.memberships.length > 0 && req.user!.role === 'super_admin')
+      || platform.workspaces.some(row => row.id === req.user!.teamId || row.id === target?.teamId || row.id === String(req.body?.teamId ?? '').trim())
+      || platform.memberships.some(row => row.userId === target?.id)) {
+      res.status(403).json({ message: '纳管账号或平台身份必须通过运营管理流程修改' });
+      return;
+    }
+  }
+  next();
+});
+
 app.get("/api/accounts", requireAuth, (req, res) => {
   if (!canManageAccounts(req.user)) {
     res.status(403).json({ message: "无账号管理权限" });
@@ -2084,7 +2208,7 @@ app.post("/api/accounts", requireAuth, asyncRoute(async (req, res) => {
   }
   const schema = z.object({
     name: z.string().min(1),
-    email: z.string().email(),
+    email: z.string().trim().toLowerCase().email(),
     password: z.string().min(8).max(128),
     role: z.enum(["sales", "manager", "admin", "super_admin"]).default("sales"),
     teamId: z.string().min(1).optional()
@@ -2094,35 +2218,13 @@ app.post("/api/accounts", requireAuth, asyncRoute(async (req, res) => {
     res.status(403).json({ message: "无权创建该角色账号" });
     return;
   }
-  const store = getStore();
-  if (store.users.some((user) => user.email === body.email)) {
-    res.status(409).json({ message: "账号邮箱已存在" });
-    return;
+  try {
+    const user = await createAccount(getStore(), req.user!, body);
+    res.json({ account: accountUser(user) });
+  } catch (error) {
+    if (error instanceof AccountCommandError) { res.status(error.status).json({ message: error.message }); return; }
+    throw error;
   }
-  const teamId = req.user!.role === "super_admin"
-    ? (body.role === "super_admin" ? "all" : body.teamId || "")
-    : req.user!.teamId;
-  if (!teamId) {
-    res.status(400).json({ message: "超级管理员创建账号时必须指定团队编号" });
-    return;
-  }
-  if (body.role === "admin" && store.users.some((user) => user.role === "admin" && user.teamId === teamId)) {
-    res.status(409).json({ message: "该团队已存在管理员，每个公测团队只允许一名管理员" });
-    return;
-  }
-  const user = {
-    id: `u_${Date.now()}`,
-    name: body.name,
-    email: body.email,
-    password: await hashPassword(body.password),
-    role: body.role,
-    teamId,
-    avatar: body.name.slice(0, 2).toUpperCase(),
-    status: "active" as const
-  };
-  store.users.unshift(user);
-  await store.persist();
-  res.json({ account: accountUser(user) });
 }));
 
 app.patch("/api/accounts/:id/password", requireAuth, asyncRoute(async (req, res) => {
@@ -2142,10 +2244,13 @@ app.patch("/api/accounts/:id/password", requireAuth, asyncRoute(async (req, res)
     res.status(404).json({ message: "账号不存在" });
     return;
   }
-  user.password = await hashPassword(body.password);
-  user.authVersion = (user.authVersion || 1) + 1;
-  await store.persist();
-  res.json({ account: accountUser(user) });
+  try {
+    const updated = await updateAccountAccess(store, req.user!, user.id, 'password', body.password);
+    res.json({ account: accountUser(updated) });
+  } catch (error) {
+    if (error instanceof AccountCommandError) { res.status(error.status).json({ message: error.message }); return; }
+    throw error;
+  }
 }));
 
 app.patch("/api/accounts/:id/disable", requireAuth, asyncRoute(async (req, res) => {
@@ -2167,11 +2272,26 @@ app.patch("/api/accounts/:id/disable", requireAuth, asyncRoute(async (req, res) 
     res.status(404).json({ message: "账号不存在" });
     return;
   }
-  user.status = "disabled";
-  user.authVersion = (user.authVersion || 1) + 1;
-  await store.persist();
-  res.json({ account: accountUser(user) });
+  try {
+    const updated = await updateAccountAccess(store, req.user!, user.id, 'disable');
+    res.json({ account: accountUser(updated) });
+  } catch (error) {
+    if (error instanceof AccountCommandError) { res.status(error.status).json({ message: error.message }); return; }
+    throw error;
+  }
 }));
+
+for (const action of ['enable', 'revoke'] as const) {
+  app.patch(`/api/accounts/:id/${action}`, requireAuth, asyncRoute(async (req, res) => {
+    try {
+      const user = await updateAccountAccess(getStore(), req.user!, String(req.params.id), action);
+      res.json({ account: accountUser(user) });
+    } catch (error) {
+      if (error instanceof AccountCommandError) { res.status(error.status).json({ message: error.message }); return; }
+      throw error;
+    }
+  }));
+}
 
 app.delete("/api/accounts/:id", requireAuth, asyncRoute(async (req, res) => {
   if (!canManageAccounts(req.user)) {
@@ -2596,9 +2716,35 @@ function customerWithPipeline(customer: Customer) {
   const activities = store.customerActivities
     .filter((activity) => activity.customerId === customer.id)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  const pipelineStage = activeDeals.reduce((best, deal) =>
-    (pipelineStageRank[deal.stage] || 0) > (pipelineStageRank[best] || 0) ? deal.stage : best, ""
-  );
+  const primaryActiveDeal = activeDeals.reduce<Deal | undefined>((best, deal) => {
+    if (!best) return deal;
+    const stageDifference = (pipelineStageRank[deal.stage] || 0)
+      - (pipelineStageRank[best.stage] || 0);
+    if (stageDifference !== 0) return stageDifference > 0 ? deal : best;
+    return deal.stageChangedAt.localeCompare(best.stageChangedAt) > 0 ? deal : best;
+  }, undefined);
+  const quoteEligibleDeals = activeDeals.flatMap((deal) => {
+    const binding = resolveTrustedAcquisitionDealBinding(store, {
+      dealId: deal.id
+    });
+    return binding
+      && binding.handoff.customerId === customer.id
+      && binding.handoff.teamId === customer.teamId
+      && binding.handoff.ownerId === customer.ownerId
+      ? [{ deal, binding }]
+      : [];
+  });
+  const primaryQuoteEligibleDeal = quoteEligibleDeals.reduce<
+    (typeof quoteEligibleDeals)[number] | undefined
+  >((best, item) => {
+    if (!best) return item;
+    const stageDifference = (pipelineStageRank[item.deal.stage] || 0)
+      - (pipelineStageRank[best.deal.stage] || 0);
+    if (stageDifference !== 0) return stageDifference > 0 ? item : best;
+    return item.deal.stageChangedAt.localeCompare(best.deal.stageChangedAt) > 0
+      ? item
+      : best;
+  }, undefined);
   const pendingIntelligence = store.customerIntelligenceSuggestions
     .filter((item) =>
       item.teamId === customer.teamId
@@ -2645,7 +2791,11 @@ function customerWithPipeline(customer: Customer) {
       .map((deal) => deal.closedAt || deal.stageChangedAt || "")
       .filter(Boolean)
       .sort((left, right) => right.localeCompare(left))[0] || "",
-    pipelineStage: pipelineStage || "暂无活跃商机",
+    pipelineStage: primaryActiveDeal?.stage || "暂无活跃商机",
+    activeDealId: primaryActiveDeal?.id || "",
+    quoteEligibleDealId: primaryQuoteEligibleDeal?.deal.id || "",
+    quoteEligibleCandidateId:
+      primaryQuoteEligibleDeal?.binding.handoff.candidateId || "",
     pipelineAmount: activeDeals.reduce((sum, deal) => sum + deal.amount, 0),
     activeDealCount: activeDeals.length,
     acquisitionBindings,
@@ -2815,7 +2965,7 @@ app.post("/api/ai-background-research", requireAuth, asyncRoute(async (req, res)
       JSON.stringify({ entityType, company, country, facts, contacts: usefulContacts, sources, activities: activities.slice(0, 6), deals: deals.slice(0, 5) })
     ].join("\n");
     try {
-      const parsed = extractJsonObject(await callAiModel(config, prompt, 10000)) as Record<string, unknown>;
+      const parsed = extractJsonObject(await callAiModel(config, prompt, 10000, undefined, 'crm')) as Record<string, unknown>;
       if (typeof parsed.summary === "string" && parsed.summary.trim()) summary = parsed.summary.trim().slice(0, 600);
       if (typeof parsed.verdict === "string" && parsed.verdict.trim()) verdict = parsed.verdict.trim().slice(0, 80);
       if (Array.isArray(parsed.opportunities)) opportunities = parsed.opportunities.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).slice(0, 4);
@@ -3041,7 +3191,7 @@ app.post("/api/development-email/draft", requireAuth, asyncRoute(async (req, res
       })
     ].join("\n");
     try {
-      const parsed = extractJsonObject(await callAiModel(config, prompt, 10000)) as Record<string, unknown>;
+      const parsed = extractJsonObject(await callAiModel(config, prompt, 10000, undefined, 'crm')) as Record<string, unknown>;
       if (typeof parsed.subject === "string" && parsed.subject.trim()) subject = parsed.subject.trim().slice(0, 160);
       if (typeof parsed.body === "string" && parsed.body.trim()) content = parsed.body.trim().slice(0, 6000);
       engine = config.name || config.model;
@@ -3738,7 +3888,7 @@ async function translateToChinese(user: SessionUser, text: string): Promise<stri
   }
   const prompt = `你是专业外贸翻译。请把下面这段客户消息翻译成简体中文，只返回译文本身，不要解释、不要引号：\n\n${trimmed}`;
   try {
-    const result = await callAiModel(config, prompt, 4000);
+    const result = await callAiModel(config, prompt, 4000, undefined, 'crm');
     return result.trim().replace(/^["']|["']$/g, "");
   } catch {
     return "";
@@ -4191,10 +4341,12 @@ app.post("/api/todos", requireAuth, asyncRoute(async (req, res) => {
     type: z.enum(["customer", "knowledge", "exam", "ocr", "other"]).default("other"),
     priority: z.enum(["high", "medium", "normal"]).default("normal"),
     dueAt: z.string().default(""),
-    related: z.string().default("")
+    related: z.string().default(""),
+    customerId: z.string().trim().min(1).optional()
   });
   const body = schema.parse(req.body);
   const store = getStore();
+  if (body.customerId && !findWritableCustomer(req.user!, body.customerId, res)) return;
   const todo = {
     id: `t_${Date.now()}`,
     ownerId: req.user!.id,
@@ -6115,6 +6267,11 @@ app.post("/api/todos/:id/complete", requireAuth, asyncRoute(async (req, res) => 
     res.status(404).json({ message: "待办不存在" });
     return;
   }
+  if (todo.cancelledAt) {
+    res.status(409).json({ message: todo.cancellationReason
+      ? `该待办已取消：${todo.cancellationReason}` : "该待办已取消，不能完成" });
+    return;
+  }
   if (todo.reminderRuleId && !body.completionResult) {
     res.status(400).json({ message: "请填写本次跟进处理结果" });
     return;
@@ -6184,12 +6341,17 @@ app.patch("/api/todos/:id", requireAuth, asyncRoute(async (req, res) => {
     return;
   }
   if (todo.cancelledAt
-    && (body.done === false || body.historyAt === "")) {
+    && (typeof body.done === "boolean" || body.historyAt === "")) {
     res.status(409).json({
       message: todo.cancellationReason
         ? `该待办已取消：${todo.cancellationReason}`
         : "该待办已取消，不能重新启用"
     });
+    return;
+  }
+  if (todo.reminderRuleId && body.dueAt !== undefined
+    && body.dueAt !== todo.dueAt && !body.snoozeReason) {
+    res.status(400).json({ message: "延期提醒请填写原因" });
     return;
   }
   if (typeof body.done === "boolean") {
@@ -6217,10 +6379,6 @@ app.patch("/api/todos/:id", requireAuth, asyncRoute(async (req, res) => {
   if (body.priority) todo.priority = body.priority;
   if (body.dueAt !== undefined) {
     if (todo.reminderRuleId && body.dueAt !== todo.dueAt) {
-      if (!body.snoozeReason) {
-        res.status(400).json({ message: "延期提醒请填写原因" });
-        return;
-      }
       todo.snoozedFrom = todo.dueAt;
       todo.snoozeReason = body.snoozeReason;
       todo.snoozeCount = (todo.snoozeCount || 0) + 1;
@@ -7951,6 +8109,16 @@ app.post("/api/organization-relations", requireAuth, asyncRoute(async (req, res)
   }
 }));
 
+app.get("/api/enterprise-query/gleif", requireAuth, rateLimit({ windowMs: 60_000, limit: 20 }), asyncRoute(async (req, res) => {
+  const query = enterpriseQueryInput.safeParse(req.query);
+  if (!query.success) { res.status(400).json({ message: "请输入2–100字的企业名称，页码范围1–1000。" }); return; }
+  try { res.json(await searchGleif(query.data)); }
+  catch (error) {
+    const limited = error instanceof Error && error.message === "GLEIF_RATE_LIMIT";
+    res.status(limited ? 429 : 502).json({ message: limited ? "公开数据源请求频繁，请稍后再试。" : "公开企业数据源暂时不可用，请稍后重试。" });
+  }
+}));
+
 app.get("/api/tools/website-opportunities", requireAuth, asyncRoute(async (req, res) => {
   const store = getStore();
   await store.reloadProspectCandidates?.();
@@ -8543,6 +8711,70 @@ app.post("/api/v1/ai/connections/:id/activate", requireAuth, asyncRoute(async (r
         };
         try {
           const connection = await activateModelConnection(
+            modelConnectionStore(store, { deferPersistence: true }),
+            { ownerId: req.user!.id, teamId: req.user!.teamId },
+            req.params.id,
+            req.user!.id,
+            body.reason
+          );
+          return { status: 200, body: connection, rollback };
+        } catch (error) {
+          rollback();
+          throw error;
+        }
+      }
+    );
+    if (result.replayed) res.setHeader("Idempotency-Replayed", "true");
+    res.status(result.status).json(result.body);
+  } catch (error) {
+    if (sendModelConnectionError(res, error)) return;
+    throw error;
+  }
+}));
+
+app.post("/api/v1/ai/connections/:id/deactivate", requireAuth, asyncRoute(async (req, res) => {
+  const idempotencyKey = String(req.header("Idempotency-Key") || "");
+  if (!idempotencyKey.trim()) {
+    res.status(400).json({
+      code: "idempotency_key_required",
+      message: "必须提供 Idempotency-Key 请求头",
+      details: null,
+      requestId: `req_${randomUUID()}`,
+      retryable: false
+    });
+    return;
+  }
+  const body = z.object({
+    reason: z.string().min(1).max(500)
+  }).parse(req.body ?? {});
+  const store = getStore();
+  try {
+    const result = await executeModelConnectionWriteIdempotently(
+      store,
+      {
+        ownerId: req.user!.id,
+        teamId: req.user!.teamId,
+        idempotencyKey,
+        method: req.method,
+        path: req.path,
+        body
+      },
+      async () => {
+        const configStates = store.aiModelConfigs.map((item) => ({
+          item,
+          enabled: item.enabled,
+          isDefault: item.isDefault,
+          updatedAt: item.updatedAt
+        }));
+        const rollback = () => {
+          for (const state of configStates) {
+            state.item.enabled = state.enabled;
+            state.item.isDefault = state.isDefault;
+            state.item.updatedAt = state.updatedAt;
+          }
+        };
+        try {
+          const connection = await deactivateModelConnection(
             modelConnectionStore(store, { deferPersistence: true }),
             { ownerId: req.user!.id, teamId: req.user!.teamId },
             req.params.id,
@@ -11362,6 +11594,20 @@ app.get("/api/dashboard/summary", requireAuth, (req, res) => {
     const date = new Date(Date.UTC(year, month - 1, day + days));
     return date.toISOString().slice(0, 10);
   };
+  const shiftDateKeyMonths = (dateKey: string, months: number) => {
+    const [year, month, day] = dateKey.split("-").map(Number);
+    const targetMonth = new Date(Date.UTC(year, month - 1 + months, 1));
+    const lastDay = new Date(Date.UTC(
+      targetMonth.getUTCFullYear(),
+      targetMonth.getUTCMonth() + 1,
+      0
+    )).getUTCDate();
+    return new Date(Date.UTC(
+      targetMonth.getUTCFullYear(),
+      targetMonth.getUTCMonth(),
+      Math.min(day, lastDay)
+    )).toISOString().slice(0, 10);
+  };
   const [todayYear, todayMonth] = todayKey.split("-").map(Number);
   const todayWeekday = new Date(`${todayKey}T12:00:00+08:00`).getUTCDay();
   const weekStartKey = addDateKeyDays(todayKey, -(todayWeekday === 0 ? 6 : todayWeekday - 1));
@@ -11459,6 +11705,55 @@ app.get("/api/dashboard/summary", requireAuth, (req, res) => {
     week: buildPeriodSummary("本周", weekStartKey, weekEndKey),
     month: buildPeriodSummary("本月", monthStartKey, monthEndKey)
   };
+  const requestedDashboardPeriod = req.query.period === "month" ? "month" : "3m";
+  const dashboardRangeStart = requestedDashboardPeriod === "month"
+    ? monthStartKey
+    : shiftDateKeyMonths(todayKey, -3);
+  const dashboardBucketStarts = requestedDashboardPeriod === "month"
+    ? [dashboardRangeStart]
+    : [
+        dashboardRangeStart,
+        shiftDateKeyMonths(dashboardRangeStart, 1),
+        shiftDateKeyMonths(dashboardRangeStart, 2)
+      ];
+  const dashboardHistoryBuckets = dashboardBucketStarts.map((start, index) => {
+    const nextStart = dashboardBucketStarts[index + 1];
+    const end = nextStart ? addDateKeyDays(nextStart, -1) : todayKey;
+    const leadsInBucket = activeLeads.filter((lead) => {
+      const createdDateKey = chinaDateKey(lead.createdAt);
+      return createdDateKey >= start && createdDateKey <= end;
+    });
+    const expectedDealsInBucket = scopedDeals.filter((deal) => {
+      if (!deal.expectedCloseAt) return false;
+      const expectedDateKey = chinaDateKey(deal.expectedCloseAt);
+      return expectedDateKey >= start && expectedDateKey <= end;
+    });
+    return {
+      key: `${start}:${end}`,
+      label: `${start.slice(5)}—${end.slice(5)}`,
+      start,
+      end,
+      newLeads: leadsInBucket.length,
+      expectedDeals: expectedDealsInBucket.length,
+      expectedAmounts: reportMoneyRows(expectedDealsInBucket)
+    };
+  });
+  const rangeLeads = activeLeads.filter((lead) => {
+    const createdDateKey = chinaDateKey(lead.createdAt);
+    return createdDateKey >= dashboardRangeStart && createdDateKey <= todayKey;
+  });
+  const leadSourceCounts = new Map<string, number>();
+  rangeLeads.forEach((lead) => {
+    const source = lead.sourceChannel?.trim() || lead.source?.trim() || "未知来源";
+    leadSourceCounts.set(source, (leadSourceCounts.get(source) || 0) + 1);
+  });
+  const leadSources = [...leadSourceCounts.entries()]
+    .map(([source, count]) => ({
+      source,
+      count,
+      share: rangeLeads.length ? Math.round((count / rangeLeads.length) * 1000) / 10 : 0
+    }))
+    .sort((left, right) => right.count - left.count || left.source.localeCompare(right.source));
   const typeRows = ["customer", "knowledge", "exam", "ocr", "other"].map((type) => {
     const items = pendingTodos.filter((todo) => todo.type === type);
     return {
@@ -11482,6 +11777,14 @@ app.get("/api/dashboard/summary", requireAuth, (req, res) => {
     },
     updatedAt: new Date().toISOString(),
     periods,
+    history: {
+      period: requestedDashboardPeriod,
+      label: requestedDashboardPeriod === "month" ? "本月" : "近三个月",
+      start: dashboardRangeStart,
+      end: todayKey,
+      buckets: dashboardHistoryBuckets,
+      leadSources
+    },
     briefing: {
       title: pendingTodos.length
         ? `今天最该处理的是 ${pendingTodos.length} 个待办，其中 ${overdueTodos.length} 个属于高优先级。`
@@ -11500,6 +11803,7 @@ app.get("/api/dashboard/summary", requireAuth, (req, res) => {
       riskLabel: req.user?.role === "sales" ? "本人名下风险" : req.user?.role === "super_admin" ? "全局风险金额" : "团队风险金额",
       closableDeals: readyDeals.length,
       closableAmount: readyDeals.reduce((sum, deal) => sum + deal.amount, 0),
+      closableAmounts: reportMoneyRows(readyDeals),
       unreadWecom: pendingMessages.length
     },
     metrics: {
@@ -11508,6 +11812,7 @@ app.get("/api/dashboard/summary", requireAuth, (req, res) => {
       todos: pendingTodos.length,
       overdueTodos: overdueTodos.length,
       forecastAmount,
+      forecastAmounts: reportMoneyRows(scopedDeals),
       wecomBoundRate: scopedCustomers.length ? Math.round((wecomBound / scopedCustomers.length) * 100) : 0,
       pendingKnowledge: pendingKnowledge.length,
       examPassRate: averagePassRate,
@@ -11706,6 +12011,7 @@ function buildPipelineHealth(deals: Deal[], customers: Customer[]) {
       stage,
       count: stageDeals.length,
       amount,
+      amounts: reportMoneyRows(stageDeals),
       riskCount,
       width: stageDeals.length ? Math.max(8, Math.round((stageDeals.length / maxCount) * 100)) : 0,
       tone: riskCount ? "amber" : "aqua"
@@ -11925,6 +12231,10 @@ function modelConnectionStore(
     activateModelConnectionTransaction:
       !options.deferPersistence && store.activateModelConnection
       ? store.activateModelConnection.bind(store)
+      : undefined,
+    deactivateModelConnectionTransaction:
+      !options.deferPersistence && store.deactivateModelConnection
+      ? store.deactivateModelConnection.bind(store)
       : undefined
   };
 }
@@ -12306,8 +12616,27 @@ app.patch("/api/reports/executive/note", requireAuth, asyncRoute(async (req, res
 }));
 
 app.use(growthRuntimeBridge.middleware());
-app.use("/api/v1/acquisition", requireAuth);
+function isDesktopDeviceOnlyAcquisitionPath(req: Request) {
+  if (req.method !== "POST") return false;
+  const path = req.originalUrl.split("?", 1)[0];
+  if (/%/u.test(path)) return false;
+  return path === "/api/v1/acquisition/desktop-installations/register"
+    || path === "/api/v1/acquisition/desktop-outreach-actions/claim"
+    || /^\/api\/v1\/acquisition\/desktop-outreach-actions\/[^/]+\/(?:complete|reconcile)$/u
+      .test(path);
+}
 app.use("/api/v1/acquisition", (req, res, next) => {
+  if (isDesktopDeviceOnlyAcquisitionPath(req)) {
+    next();
+    return;
+  }
+  requireAuth(req, res, next);
+});
+app.use("/api/v1/acquisition", (req, res, next) => {
+  if (isDesktopDeviceOnlyAcquisitionPath(req)) {
+    next();
+    return;
+  }
   const middleware = acquisitionWorkspaceMiddleware;
   if (!middleware) {
     res.status(503).json({ code: "acquisition_workspace_runtime_unavailable" });
@@ -12403,6 +12732,24 @@ export function readMediaCrawlerGatewayConfiguration(environment: NodeJS.Process
   const secretFile = environment.MEDIACRAWLER_SERVICE_SECRET_FILE?.trim();
   if (!baseUrl && !secretFile) return null;
   if (!baseUrl || !secretFile) throw new Error("MEDIACRAWLER_GATEWAY_CONFIGURATION_INCOMPLETE");
+  const explicitRuntimeMode = environment.SHENSI_RUNTIME_MODE?.trim().toLowerCase();
+  if (explicitRuntimeMode
+    && explicitRuntimeMode !== "desktop"
+    && explicitRuntimeMode !== "web") {
+    throw new Error("SHENSI_RUNTIME_MODE must be desktop or web");
+  }
+  const configuredDisplay = environment.MEDIACRAWLER_BROWSER_DISPLAY?.trim().toLowerCase();
+  const browserDisplay = configuredDisplay
+    || (explicitRuntimeMode === "web" ? "virtual" : "operator");
+  if (browserDisplay !== "operator" && browserDisplay !== "virtual") {
+    throw new Error("MEDIACRAWLER_BROWSER_DISPLAY must be operator or virtual");
+  }
+  const inferredRuntimeMode = browserDisplay === "operator" ? "desktop" : "web";
+  const runtimeMode = explicitRuntimeMode || inferredRuntimeMode;
+  if ((runtimeMode === "desktop" && browserDisplay !== "operator")
+    || (runtimeMode === "web" && browserDisplay !== "virtual")) {
+    throw new Error("SHENSI_RUNTIME_MODE conflicts with MEDIACRAWLER_BROWSER_DISPLAY");
+  }
   const info = lstatSync(secretFile);
   if (info.isSymbolicLink() || !info.isFile() || (info.mode & 0o077) !== 0
     || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
@@ -12412,7 +12759,7 @@ export function readMediaCrawlerGatewayConfiguration(environment: NodeJS.Process
   if (/\s/u.test(serviceSecret) || Buffer.byteLength(serviceSecret, "utf8") < 32) {
     throw new Error("MEDIACRAWLER_SERVICE_SECRET_FILE_INVALID");
   }
-  return Object.freeze({ baseUrl, serviceSecret });
+  return Object.freeze({ baseUrl, serviceSecret, runtimeMode });
 }
 
 export function readDouyinOutreachActionsEnabled(
@@ -12421,11 +12768,34 @@ export function readDouyinOutreachActionsEnabled(
   return environment.DOUYIN_OUTREACH_ACTIONS_ENABLED?.toLowerCase() === "true";
 }
 
+export function readDouyinOutreachFeatureFlags(
+  environment: NodeJS.ProcessEnv = process.env,
+  gateway: Pick<DouyinMediaCrawlerGateway, "executeAction"> | null = null
+): DouyinOutreachFeatureFlags {
+  const canonicalValues = [
+    environment.DOUYIN_OUTREACH_APPROVALS_ENABLED,
+    environment.DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED,
+    environment.DOUYIN_OUTREACH_DESKTOP_EXECUTION_ENABLED
+  ];
+  if (canonicalValues.some((value) => value !== undefined)) {
+    return resolveDouyinOutreachFeatureFlags(environment, gateway);
+  }
+  const legacyEnabled = readDouyinOutreachActionsEnabled(environment);
+  return Object.freeze({
+    approvalsEnabled: legacyEnabled,
+    serverExecutionEnabled: legacyEnabled,
+    desktopExecutionEnabled: false
+  });
+}
+
 async function startServer() {
   const mysqlRequested = process.env.CRM_STORE === "mysql"
     || (process.env.CRM_STORE !== "memory" && Boolean(process.env.DATABASE_URL || process.env.MYSQL_URL));
   let host = "127.0.0.1";
+  let referenceSettings:ReturnType<typeof readReferenceRuntime>;
   try {
+    referenceSettings=readReferenceRuntime();
+    if(referenceSettings.mode!=='disabled'&&(!mysqlRequested||!process.env.AGENT_JOB_ENCRYPTION_KEY||process.env.AGENT_JOB_ENCRYPTION_KEY.length<32))throw Error('reference_configuration_invalid');
     validateAuthSecurity();
     validateProviderCredentialSecurity();
     validateAgentJobSecurity();
@@ -12456,7 +12826,8 @@ async function startServer() {
   try {
     const foundation = createGrowthCommercialCompositionForStore({
       store,
-      databaseUrl: process.env.DATABASE_URL || process.env.MYSQL_URL
+      databaseUrl: process.env.DATABASE_URL || process.env.MYSQL_URL,
+      reference:{settings:referenceSettings,secret:process.env.AGENT_JOB_ENCRYPTION_KEY}
     });
     const growthRuntime = await createGrowthCommercialApplication({
       manifest: loadGrowthContractRelease().manifest,
@@ -12466,6 +12837,8 @@ async function startServer() {
       composition: foundation.composition
     });
     growthRuntimeBridge.install(growthRuntime);
+    growthRuntime.integrations.systemReference?.attach({binding:configureReferenceBindingRuntime,connection:configureReferenceConnectionRuntime,
+      admin:configureReferenceAdminRuntime,reader:configureSystemReferenceRuntime},foundation.workspaceMiddleware);
     const uninstallCommercialAuthority = installLegacyCommercialAuthorityProjection(
       growthRuntime.integrations.quoteProjectedDocumentAuthority
     );
@@ -12485,6 +12858,19 @@ async function startServer() {
       throw error;
     }
     const mediaCrawlerConfiguration = readMediaCrawlerGatewayConfiguration();
+    const douyinMediaCrawlerGateway = mediaCrawlerConfiguration
+      ? createDouyinMediaCrawlerGateway({
+          baseUrl: mediaCrawlerConfiguration.baseUrl,
+          serviceSecret: mediaCrawlerConfiguration.serviceSecret,
+          runtimeMode: mediaCrawlerConfiguration.runtimeMode
+        })
+      : undefined;
+    const douyinOutreachFeatureFlags = readDouyinOutreachFeatureFlags(
+      process.env,
+      douyinMediaCrawlerGateway ?? null
+    );
+    const desktopClientAdmissionConfiguration =
+      resolveDesktopClientAdmissionConfiguration(process.env);
     const acquisitionRuntime = await createAcquisitionApplication({
       store,
       masterSecret: resolveAcquisitionMasterSecret({
@@ -12503,18 +12889,13 @@ async function startServer() {
         growthRuntime.integrations.probabilityAssessments,
       quoteProjectedDocumentAuthority:
         growthRuntime.integrations.quoteProjectedDocumentAuthority,
-      douyinOutreachActionsEnabled:
-        readDouyinOutreachActionsEnabled(),
-      ...(mediaCrawlerConfiguration
-        ? { douyinMediaCrawlerGateway: createDouyinMediaCrawlerGateway({
-            baseUrl: mediaCrawlerConfiguration.baseUrl,
-            serviceSecret: mediaCrawlerConfiguration.serviceSecret
-          }) }
-        : {})
+      douyinOutreachFeatureFlags,
+      ...(douyinMediaCrawlerGateway ? { douyinMediaCrawlerGateway } : {})
     });
     installAcquisitionHttpRuntime({
       workspaceMiddleware: foundation.workspaceMiddleware,
-      runtime: acquisitionRuntime
+      runtime: acquisitionRuntime,
+      admissionConfiguration: desktopClientAdmissionConfiguration
     });
   } catch (error) {
     console.error(

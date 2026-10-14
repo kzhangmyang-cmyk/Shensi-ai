@@ -20,8 +20,45 @@ import { InMemoryFinancialCouncilRepository } from
   "./financial-council-repository.js";
 import type { GrowthHttpIdempotencyRepository } from
   "./growth-http-idempotency-repository.js";
+import { createFinancialCouncilIntegrationFixture, advanceFinancialCouncilToApproval,
+  financialCouncilIntegrationWorkspace } from "./financial-council-integration-fixtures.js";
 
 const NOW = "2026-08-16T08:01:00.000Z";
+
+test("collaboration and history HTTP reads restore real persisted runs; event cursor is scoped and bounded", async () => {
+  const fixture = await createFinancialCouncilIntegrationFixture();
+  let server: Awaited<ReturnType<typeof listen>> | undefined;
+  try {
+    const run = await advanceFinancialCouncilToApproval(fixture);
+    const context = financialCouncilIntegrationWorkspace();
+    server = await listen({
+      getCollaboration: fixture.service.getCollaboration.bind(fixture.service),
+      listRunHistory: fixture.service.listRunHistory.bind(fixture.service),
+      listEvents: fixture.service.listEvents.bind(fixture.service)
+    }, undefined, context.capabilities, context.workspaceId);
+    const prefix = "/api/v1/finance/council-runs";
+    const history = await server.request(`${prefix}?limit=1`);
+    assert.equal(history.response.status, 200);
+    assert.equal(history.body.items[0].runId, run.runId);
+    const detail = await server.request(`${prefix}/${run.runId}/collaboration`);
+    assert.equal(detail.response.status, 200);
+    assert.equal(detail.body.roles.length, 6);
+    assert.equal(detail.body.report.complete, true);
+    const first = await server.request(`${prefix}/${run.runId}/events?limit=2`);
+    assert.equal(first.response.status, 200);
+    assert.equal(first.body.items.length, 2);
+    assert.equal(first.body.hasMore, true);
+    const next = await server.request(`${prefix}/${run.runId}/events?limit=2&after=${encodeURIComponent(first.body.nextAfter)}`);
+    assert.equal(next.response.status, 200);
+    assert.ok(next.body.items.every((row: { eventId: string }) =>
+      !first.body.items.some((old: { eventId: string }) => old.eventId === row.eventId)));
+    for (const query of ["limit=101", "after=foreign-event", "limit=1.5", "workspaceId=other"]) {
+      assert.equal((await server.request(`${prefix}/${run.runId}/events?${query}`)).response.status, 422);
+    }
+    assert.equal((await server.request(`${prefix}/not-found/collaboration`)).response.status, 404);
+    assert.equal((await server.request(`${prefix}/${run.runId}/collaboration?workspaceId=other`)).response.status, 422);
+  } finally { await server?.close(); await fixture.close(); }
+});
 
 test("financial council router exposes the workspace policy capability", () => {
   assert.equal(
@@ -477,9 +514,9 @@ test("P4 route payloads conform to the closed financial council runtime schemas"
   }), true, JSON.stringify(dispatches.errors));
 });
 
-test("real mounted P4 responses conform to the immutable 1.0.12 release", async () => {
+test("real mounted P4 responses conform to the current immutable release", async () => {
   const release = loadGrowthContractRelease();
-  assert.equal(release.manifest.contractVersion, "1.0.12");
+  assert.equal(release.manifest.contractVersion, "1.0.41");
   const components = structuredClone((release.document as {
     components: { schemas: Record<string, Record<string, unknown>> };
   }).components);

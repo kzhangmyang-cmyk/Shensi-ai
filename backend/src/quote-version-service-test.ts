@@ -16,6 +16,11 @@ import {
   workspaceContextFixture
 } from "./growth-quote-test-fixtures.js";
 import { createCommercialBindingSnapshot } from "./commercial-binding-snapshot.js";
+import {
+  CrmQuoteAuthorityVerifier,
+  createCrmQuoteAuthoritySnapshot
+} from "./crm-quote-assessment.js";
+import type { Customer } from "./types.js";
 import { InMemoryQuoteRepository, type QuoteCase, type QuoteVersion } from "./quote-repository.js";
 import {
   QuoteVersionService,
@@ -29,12 +34,31 @@ function transportInput(): QuotePreviewInput {
   return input;
 }
 
-function fixture(options: { assessment?: "current" | "legacy" | "stale" | "missing" } = {}) {
+function fixture(options: {
+  assessment?: "current" | "legacy" | "stale" | "missing";
+  ordinaryDeal?: boolean;
+} = {}) {
   const transactions = new InMemoryGrowthTemporalTransactionRunner(NOW);
   const temporalBarrier = new DefaultGrowthTemporalBarrier(transactions);
-  const binding = createCommercialBindingSnapshot(bindingInputFixture());
+  const authoritySource = bindingInputFixture();
+  const binding = options.ordinaryDeal
+    ? createCrmQuoteAuthoritySnapshot({
+        context: { workspaceId: "team-a", actorId: "sales-a" },
+        customer: authoritySource.customer,
+        deal: authoritySource.deal,
+        assessment: {
+          demandConfirmed: true,
+          budgetConfirmed: true,
+          decisionMakerConfirmed: true,
+          closeProbabilityBps: 6500,
+          evidenceSummary: "客户需求、预算和决策人均已人工确认。"
+        },
+        verifiedAt: NOW
+      })
+    : createCommercialBindingSnapshot(authoritySource);
   const quoteCase: QuoteCase = {
-    id: "case-1", workspaceId: "team-a", candidateId: "candidate-1",
+    id: "case-1", workspaceId: "team-a",
+    candidateId: options.ordinaryDeal ? null : "candidate-1",
     customerId: "customer-1", dealId: "deal-1", assignedTo: "sales-a",
     status: "open", currentDraftVersionId: null, revision: 1,
     commercialBindingSnapshot: binding, createdAt: NOW, updatedAt: NOW
@@ -67,8 +91,19 @@ function fixture(options: { assessment?: "current" | "legacy" | "stale" | "missi
       async findCurrent() { return assessment; }
     } as never,
     bindingVerifier: {
-      async verify() { return binding; }
+      async verify() {
+        if (options.ordinaryDeal) {
+          throw new Error("unexpected_acquisition_verification");
+        }
+        return binding;
+      }
     } as never,
+    crmAuthorityVerifier: options.ordinaryDeal
+      ? new CrmQuoteAuthorityVerifier({
+          customers: [authoritySource.customer as Customer],
+          deals: [authoritySource.deal]
+        }, () => NOW)
+      : undefined,
     catalog: {
       quoteCatalog: {
         async resolveAt(_context: unknown, input: { effectiveAt: string }) {
@@ -173,6 +208,24 @@ test("submission appends a distinct formal version and leaves the draft immutabl
     ?.closeProbabilityBps, 4_321);
   assert.equal(submitted.value.approval.quoteVersionId,
     submitted.value.submittedVersion.id);
+});
+
+test("ordinary CRM assessment submits a formal quote without acquisition evidence", async () => {
+  const state = fixture({ ordinaryDeal: true });
+  const draft = await createDraft(state);
+  const submitted = await state.service.submit(
+    state.command("submit", draft.id, draft.lifecycleRevision), draft.id
+  );
+
+  assert.equal(submitted.value.submittedVersion.versionKind, "formal");
+  assert.equal(submitted.value.submittedVersion.subjectEvidence?.candidateId, null);
+  assert.equal(submitted.value.submittedVersion.commercialBindingSnapshot
+    ?.sourceKind, "crm");
+  assert.equal(submitted.value.submittedVersion.probabilityAssessmentSnapshot
+    ?.sourceKind, "crm");
+  assert.equal(submitted.value.submittedVersion.probabilityAssessmentSnapshot
+    ?.closeProbabilityBps, 6500);
+  assert.equal(submitted.value.approval.status, "pending");
 });
 
 test("submission fails closed for missing legacy or stale v2 probability", async () => {

@@ -8,6 +8,9 @@ import {
   timingSafeEqual
 } from "node:crypto";
 import { performance } from "node:perf_hooks";
+import { createPlatformExecutionAccess, type PlatformExecutionAccess } from "./platform-execution-access.js";
+import { emptyPlatformState } from "./platform-admin-domain.js";
+import { isPlatformMutationPending } from "./account-mutation-state.js";
 import { isDeepStrictEqual } from "node:util";
 import {
   PROSPECT_RUN_PROVIDER_FETCH_JOB_TYPE
@@ -97,6 +100,7 @@ export interface ProspectExecutionClaim {
 }
 
 export interface ProspectExecutionKernelOptions {
+  executionAccess?: PlatformExecutionAccess;
   store: CrmStore;
   workerId: string;
   allowedRunIds?: Iterable<string>;
@@ -627,6 +631,7 @@ function appendExecutionEvent(
 }
 
 export class ProspectExecutionKernel {
+  private readonly executionAccess: PlatformExecutionAccess;
   private readonly store: CrmStore;
   private readonly workerId: string;
   private readonly allowedRunIds: ReadonlySet<string>;
@@ -647,6 +652,13 @@ export class ProspectExecutionKernel {
   private kernelEpoch = 0;
 
   constructor(options: ProspectExecutionKernelOptions) {
+    this.executionAccess = options.executionAccess ?? createPlatformExecutionAccess({
+      feature: "acquisition",
+      isMutationPending: () => isPlatformMutationPending(options.store),
+      readState: () => options.store.readPlatformAdminState
+        ? options.store.readPlatformAdminState()
+        : Promise.resolve(options.store.platformAdminStates?.[0] ?? emptyPlatformState())
+    });
     const allowedRunIds = new Set(
       [...(options.allowedRunIds || [])]
         .map((item) => item.trim())
@@ -2484,6 +2496,12 @@ export class ProspectExecutionKernel {
   async claimNext(now = new Date().toISOString()) {
     this.assertStarted();
     validIso(now);
+    const eligibleTeams = new Set<string>();
+    for (const teamId of new Set(this.store.prospectSearchRuns
+      .filter(run => this.isRunAllowed(run.id) && ["queued", "running"].includes(run.status))
+      .map(run => run.teamId))) {
+      if (await this.executionAccess(teamId, now).catch(() => false)) eligibleTeams.add(teamId);
+    }
     return persistMutation(this.store, () => {
       const before = snapshot(this.store);
       const candidates = this.store.prospectRunQueueChildBindings
@@ -2508,7 +2526,7 @@ export class ProspectExecutionKernel {
         })
         .filter((item): item is NonNullable<typeof item> => Boolean(item))
         .filter(({ run, shard, job }) =>
-          this.isRunAllowed(run.id)
+          this.isRunAllowed(run.id) && eligibleTeams.has(run.teamId)
           && (run.status === "queued" || run.status === "running")
           && (shard.status === "queued"
             || shard.status === "retry_scheduled")
@@ -3049,6 +3067,10 @@ export class ProspectExecutionKernel {
     this.assertStarted();
     const now = input.now || new Date().toISOString();
     validIso(now);
+    const authorizationScope = this.activeLease({ leaseId: input.leaseId, claimToken: input.claimToken, now });
+    if (!await this.executionAccess(authorizationScope.run.teamId, now).catch(() => false)) {
+      throw new ProspectExecutionKernelError("EXECUTION_PLATFORM_FORBIDDEN", "企业当前不可执行获客任务");
+    }
     return persistMutation<StartPreparedProviderDispatchResult>(
       this.store,
       () => {

@@ -103,6 +103,59 @@ class AuthorityChallengeConnection:
         return next(self.responses)
 
 
+class LoginOpenErrorConnection:
+    def __init__(self):
+        self.command = None
+
+    def send(self, command):
+        self.command = command
+
+    def poll(self, _timeout):
+        return True
+
+    def recv(self):
+        assert self.command is not None
+        return {
+            "id": self.command["id"],
+            "kind": "login_open_error",
+            "stage": "live_display_start",
+            "error_code": "douyin_live_display_unavailable",
+        }
+
+
+def test_login_open_failure_closes_unknown_stage_and_code():
+    sensitive_stage = "secret_stage_/private/profile"
+    sensitive_code = "cookie=session-must-not-leak"
+
+    failure = browser_state_module.DouyinLoginOpenFailure(
+        sensitive_stage,
+        sensitive_code,
+    )
+
+    assert failure.stage == "browser_context_open"
+    assert failure.error_code == "douyin_login_open_failed"
+    assert str(failure) == "douyin_login_open_failed"
+    assert sensitive_stage not in str(failure)
+    assert sensitive_code not in str(failure)
+
+
+def test_open_ipc_preserves_only_closed_login_diagnostic_fields():
+    browser = object.__new__(MediaCrawlerDouyinBrowserState)
+    browser._connection = LoginOpenErrorConnection()
+    browser._timeout = 5
+    browser._lock = threading.Lock()
+    browser._closed = False
+    browser._next_command_id = 1
+    browser._hard_stop = lambda: None
+
+    with pytest.raises(RuntimeError) as failure:
+        browser.open_douyin_login(Path("/fixture/profile"))
+
+    assert str(failure.value) == "douyin_live_display_unavailable"
+    assert failure.value.stage == "live_display_start"
+    assert failure.value.error_code == "douyin_live_display_unavailable"
+
+
 def test_action_ipc_answers_each_login_version_authority_checkpoint():
     browser = object.__new__(MediaCrawlerDouyinBrowserState)
     browser._headless = False
@@ -508,10 +561,20 @@ def test_browser_action_passes_verified_bound_identity_to_executor(
                 failure_code=None,
             )
 
+    class MustNotUsePrivateMessageExecutor:
+        def __init__(self, **_kwargs):
+            raise AssertionError("comment must keep the browser executor")
+
     monkeypatch.setattr(
         browser_state_module,
         "DouyinActionExecutor",
         RecordingExecutor,
+    )
+    monkeypatch.setattr(
+        browser_state_module,
+        "DouyinSpiderPrivateMessageExecutor",
+        MustNotUsePrivateMessageExecutor,
+        raising=False,
     )
     playwright = IdentityPlaywright(raw_sec_uid)
 
@@ -538,6 +601,76 @@ def test_browser_action_passes_verified_bound_identity_to_executor(
         ("wait_for_timeout", 10_000),
         "context_close",
     ]
+
+
+def test_browser_direct_message_uses_spider_without_browser_controls_and_revalidates(
+    monkeypatch,
+):
+    raw_sec_uid = "MS4wLjABExpectedAccount"
+    account_handle = account_handle_for_raw_sec_uid(raw_sec_uid)
+    authority_checks = []
+    observed = []
+
+    class MustNotUseBrowserMessageControls:
+        def __init__(self, **_kwargs):
+            raise AssertionError(
+                "direct message must not instantiate browser action controls"
+            )
+
+    class RecordingPrivateMessageExecutor:
+        def execute(
+            self,
+            context,
+            page,
+            request,
+            *,
+            account_authority_revalidator,
+        ):
+            observed.append((context, page, request.kind))
+            account_authority_revalidator()
+            return ActionReceipt(
+                action_id=request.action_id,
+                state="succeeded",
+                platform_receipt_reference="douyin-im:sanitized-receipt",
+                occurred_at=NOW,
+                failure_code=None,
+            )
+
+    monkeypatch.setattr(
+        browser_state_module,
+        "DouyinActionExecutor",
+        MustNotUseBrowserMessageControls,
+    )
+    monkeypatch.setattr(
+        browser_state_module,
+        "DouyinSpiderPrivateMessageExecutor",
+        RecordingPrivateMessageExecutor,
+        raising=False,
+    )
+    playwright = IdentityPlaywright(raw_sec_uid)
+
+    receipt = _execute_action(
+        playwright,
+        "/fixture/profile",
+        action_request(
+            account_handle=account_handle,
+            kind="direct_message",
+        ).model_dump(mode="json"),
+        headless=False,
+        browser_channel=None,
+        manual_verification_seconds=30,
+        account_authority_revalidator=lambda: authority_checks.append(
+            "checked"
+        ),
+    )
+
+    context = playwright.chromium.context
+    assert receipt["platform_receipt_reference"] == (
+        "douyin-im:sanitized-receipt"
+    )
+    assert observed == [(context, context.pages[0], "direct_message")]
+    assert authority_checks == ["checked"]
+    assert context.events == ["context_close"]
 
 
 def test_browser_action_keeps_ambiguous_comment_visible_for_manual_review(
@@ -633,7 +766,6 @@ def test_browser_action_result_review_is_best_effort_after_confirmed_success(
     ("kind", "failure_code"),
     [
         ("comment", "douyin_action_control_missing"),
-        ("direct_message", None),
     ],
 )
 def test_browser_action_does_not_delay_non_reviewable_outcomes(
@@ -819,6 +951,114 @@ def test_browser_worker_fails_closed_before_playwright_when_ocr_is_unavailable(
         "kind": "startup_error",
         "message": "douyin_visual_locator_unavailable",
     }]
+    assert connection.closed is True
+
+
+def test_browser_worker_redacts_live_display_open_failure_diagnostics(
+    monkeypatch,
+):
+    api_key = "sk-worker-diagnostic-must-not-leak"
+    private_url = (
+        "https://www.douyin.com/login/?ticket=must-not-leak"
+    )
+    profile_path = "/private/profiles/must-not-leak"
+    connection = WorkerConnection([
+        {
+            "id": 1,
+            "operation": "open",
+            "profile_path": profile_path,
+        },
+        {"id": 2, "operation": "shutdown"},
+    ])
+    playwright = SimpleNamespace(stop=lambda: None)
+    monkeypatch.setattr(browser_state_module, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        browser_state_module,
+        "_start_playwright",
+        lambda _factory: playwright,
+    )
+
+    def fail_live_display():
+        raise RuntimeError(
+            f"api_key={api_key} url={private_url} profile={profile_path}"
+        )
+
+    _browser_worker(
+        connection,
+        None,
+        False,
+        None,
+        30,
+        live_display_factory=fail_live_display,
+    )
+
+    assert connection.sent[0] == {"kind": "ready"}
+    assert connection.sent[1] == {
+        "id": 1,
+        "kind": "login_open_error",
+        "stage": "live_display_start",
+        "error_code": "douyin_live_display_unavailable",
+    }
+    serialized = json.dumps(connection.sent, ensure_ascii=False)
+    assert api_key not in serialized
+    assert private_url not in serialized
+    assert profile_path not in serialized
+    assert connection.sent[2] == {"kind": "shutdown_ok"}
+    assert connection.closed is True
+
+
+def test_browser_worker_preserves_closed_open_substage_without_raw_detail(
+    monkeypatch,
+):
+    api_key = "sk-worker-open-substage-must-not-leak"
+    private_url = "https://www.douyin.com/login/?ticket=must-not-leak"
+    profile_path = "/private/profiles/open-substage-must-not-leak"
+    connection = WorkerConnection([
+        {
+            "id": 1,
+            "operation": "open",
+            "profile_path": profile_path,
+        },
+        {"id": 2, "operation": "shutdown"},
+    ])
+    playwright = SimpleNamespace(stop=lambda: None)
+    monkeypatch.setattr(browser_state_module, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        browser_state_module,
+        "_start_playwright",
+        lambda _factory: playwright,
+    )
+
+    def fail_open_context(*_args, **_kwargs):
+        failure = browser_state_module.DouyinLoginOpenFailure(
+            "browser_launch",
+            "douyin_login_open_failed",
+        )
+        failure.raw_detail = (
+            f"api_key={api_key} url={private_url} profile={profile_path}"
+        )
+        raise failure
+
+    monkeypatch.setattr(
+        browser_state_module,
+        "_open_context",
+        fail_open_context,
+    )
+
+    _browser_worker(connection, None, False, None, 30)
+
+    assert connection.sent[0] == {"kind": "ready"}
+    assert connection.sent[1] == {
+        "id": 1,
+        "kind": "login_open_error",
+        "stage": "browser_launch",
+        "error_code": "douyin_login_open_failed",
+    }
+    serialized = json.dumps(connection.sent, ensure_ascii=False)
+    assert api_key not in serialized
+    assert private_url not in serialized
+    assert profile_path not in serialized
+    assert connection.sent[2] == {"kind": "shutdown_ok"}
     assert connection.closed is True
 
 

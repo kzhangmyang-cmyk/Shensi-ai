@@ -49,10 +49,15 @@ function statusClass(tone: AcquisitionTaskRowModel["statusTone"]): string {
 export function renderRealTaskRows(tasks: AcquisitionTaskRowModel[]): string {
   if (tasks.length === 0) {
     return `
-      <div class="replica-real-empty" role="status">
+      <div class="replica-real-empty replica-real-task-empty" role="status">
         <i class="ph ph-radar" aria-hidden="true"></i>
-        <strong>暂无真实抖音获客任务</strong>
-        <span>创建并批准任务后，真实运行状态会显示在这里。</span>
+        <div class="replica-real-empty-copy">
+          <strong>尚未创建真实抖音获客任务</strong>
+          <span>任务创建并经人工确认后，候选与运行状态会显示在这里。</span>
+        </div>
+        <button type="button" class="replica-real-empty-action" data-acquisition-open-settings>
+          <i class="ph ph-gear-six" aria-hidden="true"></i>任务设置
+        </button>
       </div>
     `;
   }
@@ -62,7 +67,7 @@ export function renderRealTaskRows(tasks: AcquisitionTaskRowModel[]): string {
     timeStyle: "short"
   });
 
-  return tasks.map((task, index) => {
+  const rows = tasks.map((task, index) => {
     const tags = task.tags.length > 0 ? task.tags.join(",") : "待配置来源";
     const publicLabel = `采集任务 ${String(index + 1).padStart(2, "0")}`;
     const updatedAt = Number.isNaN(Date.parse(task.updatedAt))
@@ -74,7 +79,7 @@ export function renderRealTaskRows(tasks: AcquisitionTaskRowModel[]): string {
         class="replica-task-row"
         data-acquisition-real-task="true"
         data-acquisition-plan-id="${escapeHtml(task.planId)}"
-        data-acquisition-latest-run-id="${escapeHtml(task.candidateRunId ?? task.latestRunId ?? "")}"
+        data-acquisition-latest-run-id="${escapeHtml(task.latestRunId ?? "")}"
         data-task-id="${escapeHtml(publicLabel)}"
         data-task-name="${escapeHtml(task.name)}"
         data-task-summary="${escapeHtml(task.objective)}"
@@ -89,12 +94,46 @@ export function renderRealTaskRows(tasks: AcquisitionTaskRowModel[]): string {
         data-result-count="${task.results}"
         data-duration-seconds="${task.durationSeconds}"
       >
-        <span>${escapeHtml(publicLabel)}</span>
-        <b>${escapeHtml(task.name)}</b>
-        <span><span class="priority${statusClass(task.statusTone)}">${escapeHtml(task.statusLabel)}</span> ${task.evidenceCount} 条公开证据</span>
+        <span class="replica-task-cell replica-task-cell-name"><small>${escapeHtml(publicLabel)}</small><b>${escapeHtml(task.name)}</b></span>
+        <span class="replica-task-cell">${escapeHtml(tags)}</span>
+        <span class="replica-task-cell">${escapeHtml(task.platformLabel)}</span>
+        <span class="replica-task-cell">${task.evidenceCount} 条公开证据</span>
+        <span class="replica-task-cell"><span class="priority${statusClass(task.statusTone)}">${escapeHtml(task.statusLabel)}</span></span>
+        <time class="replica-task-cell" datetime="${escapeHtml(task.updatedAt)}">${escapeHtml(updatedAt)}</time>
       </button>
     `;
   }).join("");
+  return `<div class="replica-task-table-head" aria-hidden="true">
+    <span>任务</span><span>关键词</span><span>平台</span><span>候选/证据</span><span>状态</span><span>最近更新</span>
+  </div>${rows}`;
+}
+
+export function renderRecentRunRows(tasks: AcquisitionTaskRowModel[]): string {
+  const localDateTime = new Intl.DateTimeFormat("zh-CN", {
+    dateStyle: "short",
+    timeStyle: "short"
+  });
+  const rows = tasks.length === 0
+    ? `<div class="replica-recent-run-empty" role="status">暂无运行记录</div>`
+    : tasks.map((task) => {
+      const updatedAt = Number.isNaN(Date.parse(task.updatedAt))
+        ? "时间待同步"
+        : localDateTime.format(new Date(task.updatedAt));
+      return `<div class="replica-recent-run-row">
+        <strong>${escapeHtml(task.name)}</strong>
+        <span>${escapeHtml(task.statusLabel)}</span>
+        <span>${escapeHtml(task.platformLabel)}</span>
+        <span>${task.evidenceCount}</span>
+        <time datetime="${escapeHtml(task.updatedAt)}">${escapeHtml(updatedAt)}</time>
+      </div>`;
+    }).join("");
+  return `<section class="replica-recent-runs" aria-label="最近运行">
+    <header><h3>最近运行</h3><span>真实任务记录</span></header>
+    <div class="replica-recent-run-head" aria-hidden="true">
+      <span>任务</span><span>运行状态</span><span>平台</span><span>公开证据</span><span>更新时间</span>
+    </div>
+    ${rows}
+  </section>`;
 }
 
 const IMPORT_STATUS_LABELS: Readonly<Record<

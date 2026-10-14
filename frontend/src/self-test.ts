@@ -1,9 +1,51 @@
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { runCfoRealtimeSessionTests } from './growth/agents/cfo-realtime-session.self-test';
+import { runCfoConversationTests } from './growth/agents/cfo-conversation.self-test';
+import './growth/agents/knowledge-reference.self-test';
+import './growth/agents/chat-attachments.self-test';
+import './growth/agents/cfo-attachments.self-test';
+import './growth/agents/cfo-session-view.self-test';
+import './growth/agents/web-research.self-test';
+import { runEnterpriseAnalysisTests } from './growth/finance/enterprise-analysis.self-test';
+import './growth/agents/cfo-conversation-layout.self-test';
+import './growth/agents/cfo-acquisition-progress.self-test';
+import './growth/agents/cfo-acquisition-workflow-api.self-test';
+import { runCfoVoiceSettingsTests } from './growth/agents/cfo-voice-settings.self-test';
+import { runCfoRealtimeAudioTests } from './growth/agents/cfo-realtime-audio.self-test';
+import { runCfoRealtimeClientTests } from './growth/agents/cfo-realtime-client.self-test';
+await runCfoRealtimeClientTests();
+await runCfoRealtimeAudioTests();
+await runCfoVoiceSettingsTests();
+await runCfoRealtimeSessionTests();
+await runCfoConversationTests();
+await runEnterpriseAnalysisTests();
+// Static imports with top-level await overlap. These suites intentionally
+// install a process-wide desktop runtime, so give each its own process instead
+// of letting their fixture redirect concurrent Web controller tests to IPC.
+for (const suite of [
+  "./desktop/desktop-runtime.self-test.ts",
+  "./acquisition/acquisition-browser-runtime.self-test.ts"
+]) {
+  execFileSync(process.execPath, ["--import", "tsx", fileURLToPath(new URL(suite, import.meta.url))], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    stdio: "inherit"
+  });
+}
 import { strict as assert } from "node:assert";
 import { parseHTML } from "linkedom";
 import "./app-route.self-test";
 import "./app-session.self-test";
+import "./desktop/desktop-bridge.self-test";
+import "./desktop/startup-splash.self-test";
 import "./demo/demo-store.self-test";
+import "./demo/demo-dashboard-view.self-test";
+import "./demo/demo-router.self-test";
+import "./dashboard/real-api.self-test";
+import "./dashboard/real-view.self-test";
+import "./dashboard/real-controller.self-test";
+import "./dashboard/real-entry.self-test";
 import "./replica-flow-selection.self-test";
 import "./conversations/real-api.self-test";
 import "./conversations/real-view.self-test";
@@ -20,6 +62,7 @@ import "./acquisition/plan-draft-workflow.self-test";
 import "./acquisition/plan-draft-view.self-test";
 import "./acquisition/detail-center-api.self-test";
 import "./acquisition/detail-center-controller.self-test";
+import "./acquisition/detail-center-candidate-focus.self-test";
 import "./acquisition/detail-center-entry.self-test";
 import "./acquisition/detail-center-view.self-test";
 import "./acquisition/visual-reader-api.self-test";
@@ -29,7 +72,11 @@ import "./acquisition/performance-api.self-test";
 import "./acquisition/performance-controller.self-test";
 import "./acquisition/performance-view.self-test";
 import "./acquisition/douyin-automation-api.self-test";
+import "./acquisition/douyin-live-login.self-test";
+import "./acquisition/douyin-live-login-entry.self-test";
+import "./desktop/dev-api-proxy.self-test";
 import "./acquisition/douyin-automation-controller.self-test";
+import "./acquisition/douyin-plan-name.self-test";
 import "./acquisition/douyin-automation-view.self-test";
 import "./acquisition/outreach-batch-api.self-test";
 import "./acquisition/outreach-batch-controller.self-test";
@@ -55,12 +102,16 @@ import "./growth/quotes/entry.self-test";
 import "./growth/quotes/controller.self-test";
 import "./growth/quotes/view.self-test";
 import "./growth/finance/api.self-test";
+import "./growth/finance/document-selection.self-test";
 import "./growth/finance/import-workflow.self-test";
 import "./growth/finance/controller.self-test";
 import "./growth/finance/view.self-test";
 import "./growth/roi/api.self-test";
 import "./growth/roi/controller.self-test";
 import "./growth/roi/view.self-test";
+import "./growth/roi/tabs.self-test";
+import "./growth/roi/runtime-binding.self-test";
+import "./growth/roi/rendering-regression.self-test";
 import "./growth/advisor/api.self-test";
 import "./growth/advisor/copilot-workflow.self-test";
 import "./growth/advisor/controller.self-test";
@@ -73,6 +124,7 @@ import "./growth/council/api.self-test";
 import "./growth/council/controller.self-test";
 import "./growth/council/view.self-test";
 import "./growth/council/entry.self-test";
+import "./growth/council/report.self-test";
 import "./connections/connection-view.self-test";
 import "./growth/entry.self-test";
 
@@ -134,6 +186,21 @@ assert.match(
   /\.replica-shell\[data-acquisition-mode="real"\] \.replica-board\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s,
   "real acquisition mode must give the platform selector a full-width decision row"
 );
+assert.match(
+  replicaStyles,
+  /\/\* Desktop application shell:[\s\S]*body\.is-authenticated[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;/u,
+  "desktop shell must keep viewport scrolling out of the body"
+);
+assert.match(
+  replicaStyles,
+  /\/\* Desktop application shell:[\s\S]*\.replica-main,[\s\S]*\.replica-demo-main\s*\{[\s\S]*min-height:\s*0;[\s\S]*overflow-y:\s*auto;/u,
+  "desktop content surfaces must own their vertical scrolling"
+);
+assert.ok(
+  replicaStyles.lastIndexOf("/* Desktop application shell:")
+    > replicaStyles.lastIndexOf("@media (max-width: 1599px)"),
+  "desktop shell overrides must follow legacy fixed-height desktop rules"
+);
 
 for (const customerFacingSource of [
   prototype,
@@ -166,7 +233,6 @@ const required = [
   "data-replica-tool=\"filter\"",
   "replicaCompleteTask",
   "Shensi · 多智能体增长与经营系统",
-  "data-replica-view=\"trade-marketing\"",
   "ACQ-DOUYIN-01",
   "ACQ-XHS-01",
   "ACQ-KUAISHOU-01",
@@ -178,7 +244,6 @@ const required = [
   "id=\"demoModuleInspector\"",
   "data-replica-module-panel=\"acquisition\"",
   "data-acquisition-mode=\"real\"",
-  "data-acquisition-mode=\"demo\"",
   "id=\"replicaRealTaskGroup\"",
   "id=\"replicaRunMetrics\"",
   "id=\"replicaRealTaskModal\"",
@@ -200,12 +265,23 @@ const required = [
   "src/demo/demo.css"
 ];
 
+assert.doesNotMatch(
+  prototype,
+  /data-acquisition-mode="demo"/u,
+  "desktop acquisition must not expose the retired demo-mode switch"
+);
+
 assert.doesNotMatch(prototype, /class="shell"/u);
 assert.doesNotMatch(prototype, /id="dashboard"/u);
 assert.doesNotMatch(prototype, /prototype-api\.ts/u);
 assert.match(prototype, /data-replica-view="agents"/u);
 assert.match(prototype, /id="demoModuleMain"/u);
-assert.match(prototype, /type="text" autocomplete="username" required maxlength="320"/u);
+const loginIdentityInput = prototypeDocument.querySelector<HTMLInputElement>("#loginEmail");
+assert.ok(loginIdentityInput, "login must expose the account input");
+assert.equal(loginIdentityInput.getAttribute("type"), "text");
+assert.equal(loginIdentityInput.getAttribute("autocomplete"), "username");
+assert.equal(loginIdentityInput.hasAttribute("required"), true);
+assert.equal(loginIdentityInput.getAttribute("maxlength"), "320");
 
 for (const growthLink of [
   "#growth/advisor",

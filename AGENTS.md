@@ -14,6 +14,9 @@
 - Work only from this repository.
 - `docs/PROJECT_STATUS.md` is the sole current progress ledger.
 - `docs/archive/` and `docs/superpowers/` are historical context, not execution authority.
+- Daily desktop work uses `pnpm desktop:local`: independent persistent MySQL,
+  latest host Backend and source Electron. Do not copy old Trial data/keys or
+  package another App/DMG/ZIP for ordinary fixes. See `docs/DEPLOYMENT.md`.
 - The customer-visible local trial has one entry point:
   `http://127.0.0.1:5608`. The current public trial origin is only the value
   reported by `pnpm trial:status` while it reports `running: true`.
@@ -39,5 +42,20 @@
 - Relevant deployment or migration verification when those surfaces change.
 
 ## Documentation synchronization
+Every product UI change must support and separately validate both black/green
+and blue/white themes, at wide and narrow widths. Check text contrast and
+selected, disabled, error and success states; a single-theme pass is not acceptance.
+
 Behavior, contracts, data structures, interactions, deployment, and module
 responsibilities must update their current documentation in the same change.
+
+## Private GitHub source backup
+- After each verified product change, synchronize the latest rebuildable source to
+  the existing private `kzhangmyang-cmyk/Shensi-ai` repository on `main`.
+- Use its curated source snapshot as the publishing workspace. Do not push this
+  development checkout wholesale: it has local runtime data and a separate Git
+  history. Review changed paths and run secret/data exclusion checks first.
+- Never include environment secrets, account notes, customer files, databases,
+  browser profiles, logs, screenshots of real data, build outputs or installers.
+- Report the pushed revision only after GitHub confirms it; a local copy or
+  unpushed commit is not a completed backup.

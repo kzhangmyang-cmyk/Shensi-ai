@@ -51,13 +51,20 @@ const batch = {
   updatedBy: "operator-1",
   updatedAt: "2026-08-27T00:00:00.000Z"
 } satisfies OutreachBatch;
+const executionGate = {
+  accountId: "account-1",
+  accountLoginStateVersion: 1,
+  riskPaused: false,
+  pendingActionIds: [],
+  unresolvedActions: []
+};
 const calls: Array<{ url: string; init?: RequestInit }> = [];
 const api = createOutreachBatchApi(async (input, init) => {
   calls.push({ url: String(input), init });
   const url = String(input);
   const body = url.startsWith("/api/v1/acquisition/outreach-batches?")
     ? { items: [batch], nextCursor: null }
-    : url.endsWith("/actions") ? { items: [] } : batch;
+    : url.endsWith("/actions") ? { items: [], executionGate } : batch;
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }, { cookieSource: () => "gj_csrf=csrf-value" });
 const signal = new AbortController().signal;
@@ -171,16 +178,111 @@ const validAction = {
   failureCode: null
 };
 await createOutreachBatchApi(async () => new Response(JSON.stringify({
-  items: [validAction]
+  items: [validAction], executionGate
 }), { status: 200 })).listActions("batch-1");
+for (const status of ["claimed", "reconciliation_required"] as const) {
+  const desktopActions = await createOutreachBatchApi(async () => new Response(JSON.stringify({
+    items: [{ ...validAction, status, executionTarget: "desktop" }], executionGate
+  }), { status: 200 })).listActions("batch-1");
+  assert.equal(desktopActions.items[0]?.status, status,
+    "persisted desktop phases must remain visible instead of failing public action validation");
+}
+const uncertainDesktop = await createOutreachBatchApi(async () => new Response(JSON.stringify({
+  items: [{ ...validAction, status: "reconciliation_required", executionTarget: "desktop", attemptCount: 1,
+    failureCode: "douyin_action_receipt_ambiguous", occurredAt: "2026-08-27T00:01:00.000Z" }], executionGate
+}), { status: 200 })).listActions("batch-1");
+assert.equal(uncertainDesktop.items[0]?.failureCode, "douyin_action_receipt_ambiguous",
+  "post-start expiry must preserve the central read-only reconciliation diagnostic");
 await createOutreachBatchApi(async () => new Response(JSON.stringify({
   items: [{
     ...validAction,
     status: "risk_paused",
     failureCode: "account_risk_paused",
     occurredAt: "2026-08-27T00:01:00.000Z"
-  }]
+  }],
+  executionGate: {
+    ...executionGate,
+    riskPaused: true,
+    pendingActionIds: [validAction.id],
+    unresolvedActions: [{
+      actionId: "action-uncertain-1",
+      failureCode: "douyin_action_receipt_ambiguous"
+    }]
+  }
 }), { status: 200 })).listActions("batch-1");
+
+const recoveryCalls: Array<{ url: string; init?: RequestInit }> = [];
+const recoveryResponse = {
+  accountId: "account-1",
+  accountLoginStateVersion: 1,
+  riskPaused: false,
+  pendingActionIds: [validAction.id],
+  unresolvedActions: [{
+    actionId: "action-uncertain-1",
+    failureCode: "douyin_action_receipt_ambiguous"
+  }],
+  enabledActionIds: [validAction.id],
+  acknowledgedUncertainActionIds: ["action-uncertain-1"],
+  recoveredBy: "operator-1",
+  recoveredAt: "2026-08-27T00:03:00.000Z"
+};
+const recoveryApi = createOutreachBatchApi(async (input, init) => {
+  recoveryCalls.push({ url: String(input), init });
+  return new Response(JSON.stringify(recoveryResponse), { status: 200 });
+}, { cookieSource: () => "gj_csrf=csrf-value" });
+const recovery = await recoveryApi.recoverAccountActions!(
+  "batch/1",
+  {
+    batchRevision: 2,
+    accountLoginStateVersion: 1,
+    pendingActionIds: [validAction.id],
+    acknowledgedUncertainActionIds: ["action-uncertain-1"],
+    reason: "人工已核对账号与历史回执，仅恢复当前批次安全评论",
+    confirm: true
+  },
+  batch.etag,
+  "recover-account-key",
+  signal
+);
+assert.deepEqual(recovery, recoveryResponse);
+assert.equal(
+  recoveryCalls[0]?.url,
+  "/api/v1/acquisition/outreach-batches/batch%2F1/actions/recover-account"
+);
+assert.equal(recoveryCalls[0]?.init?.method, "POST");
+const recoveryHeaders = new Headers(recoveryCalls[0]?.init?.headers);
+assert.equal(recoveryHeaders.get("x-csrf-token"), "csrf-value");
+assert.equal(recoveryHeaders.get("idempotency-key"), "recover-account-key");
+assert.equal(recoveryHeaders.get("if-match"), batch.etag);
+assert.deepEqual(JSON.parse(String(recoveryCalls[0]?.init?.body)), {
+  batchRevision: 2,
+  accountLoginStateVersion: 1,
+  pendingActionIds: [validAction.id],
+  acknowledgedUncertainActionIds: ["action-uncertain-1"],
+  reason: "人工已核对账号与历史回执，仅恢复当前批次安全评论",
+  confirm: true
+});
+const emptyRecoveryResponse = {
+  ...recoveryResponse,
+  pendingActionIds: [],
+  enabledActionIds: []
+};
+const emptyRecovery = await createOutreachBatchApi(async () =>
+  new Response(JSON.stringify(emptyRecoveryResponse), { status: 200 }),
+{ cookieSource: () => "gj_csrf=csrf-value" }).recoverAccountActions!(
+  "batch-1",
+  {
+    batchRevision: 2,
+    accountLoginStateVersion: 1,
+    pendingActionIds: [],
+    acknowledgedUncertainActionIds: ["action-uncertain-1"],
+    reason: "人工已核对账号与历史回执，当前队列为空且仅恢复账号",
+    confirm: true
+  },
+  batch.etag,
+  "recover-empty-queue"
+);
+assert.deepEqual(emptyRecovery, emptyRecoveryResponse);
 const reconciliationCalls: Array<{ url: string; init?: RequestInit }> = [];
 const reconciledAction = {
   ...validAction,
@@ -231,8 +333,21 @@ for (const malformed of [
 ]) {
   await assert.rejects(
     createOutreachBatchApi(async () => new Response(JSON.stringify({
-      items: [malformed]
+      items: [malformed], executionGate
     }), { status: 200 })).listActions("batch-1"),
+    (error: unknown) => error instanceof AcquisitionHttpError
+      && error.code === "malformed_response"
+  );
+}
+for (const malformed of [
+  { items: [validAction] },
+  { items: [validAction], executionGate: { ...executionGate, unexpected: true } },
+  { items: [validAction], executionGate: { ...executionGate, pendingActionIds: ["duplicate", "duplicate"] } },
+  { items: [validAction], executionGate: { ...executionGate, unresolvedActions: [{ actionId: "action-x", failureCode: "raw_platform_text" }] } }
+]) {
+  await assert.rejects(
+    createOutreachBatchApi(async () => new Response(JSON.stringify(malformed), { status: 200 }))
+      .listActions("batch-1"),
     (error: unknown) => error instanceof AcquisitionHttpError
       && error.code === "malformed_response"
   );
@@ -310,7 +425,7 @@ await directMessageApprovalApi.approveDirectMessages!(
   {
     batchRevision: 2,
     batchHash: batch.batchHash,
-    commentApprovalHash: `sha256:${"a".repeat(64)}`,
+    accountLoginStateVersion: 8,
     dailyLimit: 20,
     candidates: [{
       candidateId: "candidate-1",
@@ -341,7 +456,7 @@ assert.deepEqual(
   {
     batchRevision: 2,
     batchHash: batch.batchHash,
-    commentApprovalHash: `sha256:${"a".repeat(64)}`,
+    accountLoginStateVersion: 8,
     dailyLimit: 20,
     candidates: [{
       candidateId: "candidate-1",
@@ -369,7 +484,17 @@ const versionTwoDirectMessage = {
   directMessageDailyOrdinal: 1
 };
 await createOutreachBatchApi(async () => new Response(JSON.stringify({
-  items: [versionTwoDirectMessage]
+  items: [versionTwoDirectMessage], executionGate
+}), { status: 200 })).listActions("batch-1");
+
+const versionThreeDirectMessage = {
+  ...versionTwoDirectMessage,
+  id: "action-dm-v3",
+  predecessorActionId: null,
+  authorizationVersion: 3
+};
+await createOutreachBatchApi(async () => new Response(JSON.stringify({
+  items: [versionThreeDirectMessage], executionGate
 }), { status: 200 })).listActions("batch-1");
 
 const historicalDirectMessage = {
@@ -381,7 +506,7 @@ delete historicalDirectMessage.approvedAt;
 delete historicalDirectMessage.directMessageDailyLimit;
 delete historicalDirectMessage.directMessageDailyOrdinal;
 await createOutreachBatchApi(async () => new Response(JSON.stringify({
-  items: [historicalDirectMessage]
+  items: [historicalDirectMessage], executionGate
 }), { status: 200 })).listActions("batch-1");
 
 for (const malformed of [
@@ -393,6 +518,8 @@ for (const malformed of [
   },
   { ...versionTwoDirectMessage, directMessageDailyLimit: 0 },
   { ...versionTwoDirectMessage, directMessageDailyOrdinal: 21 },
+  { ...versionThreeDirectMessage, predecessorActionId: "action-comment" },
+  { ...versionThreeDirectMessage, sequence: 1 },
   {
     ...validAction,
     authorizationVersion: 2,
@@ -404,7 +531,7 @@ for (const malformed of [
 ]) {
   await assert.rejects(
     createOutreachBatchApi(async () => new Response(JSON.stringify({
-      items: [malformed]
+      items: [malformed], executionGate
     }), { status: 200 })).listActions("batch-1"),
     (error: unknown) => error instanceof AcquisitionHttpError
       && error.code === "malformed_response"

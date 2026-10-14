@@ -12,6 +12,9 @@ import {
   ensureAcquisitionCrawlerJobMysqlSchema
 } from "./acquisition-crawler-job-mysql-repository.js";
 import { InMemoryAcquisitionDomainRepository } from "./acquisition-domain-repository.js";
+import { AcquisitionCandidateRunAttributionResolver } from "./acquisition-crm-outcome-reconciliation.js";
+import { createDouyinAttributionTestFixture } from "./acquisition-douyin-attribution-test-fixture.js";
+import { createGrowthAcquisitionWorkspaceResolver } from "./growth-workspace-context.js";
 import { ingestDouyinCrawlerPage } from "./acquisition-douyin-crawler-ingestion.js";
 import {
   ensureAcquisitionDouyinAutomationMysqlSchema
@@ -341,6 +344,198 @@ test("authoritative ingestion links every real run alias and keeps cross-job DNC
   assert.equal((await domain.findCandidate(SCOPE, candidate.id))?.status, "do_not_contact");
   assert.equal((await domain.listAuditEvents(SCOPE, null))
     .some((event) => event.eventType === "douyin_do_not_contact_retained"), true);
+});
+
+test("resolves run attribution from real Douyin ingestion without a provider shard", async () => {
+  const f = await createDouyinAttributionTestFixture();
+  const { discovered, candidate } = f.first;
+  assert.equal(discovered.data.source, "douyin_crawler");
+  assert.equal(discovered.data.jobId, "job-handoff-attribution");
+  assert.equal(discovered.shardId, null);
+  assert.deepEqual(await f.planRuns.listRunShards("run-1"), []);
+  const result = await new AcquisitionCandidateRunAttributionResolver({
+    planRuns: f.planRuns, crawler: f.crawler
+  }).resolve(f.scope, f.first.input);
+
+  assert.ok(result, "a persisted Douyin discovery must retain run attribution for CRM handoff");
+  assert.equal(result.attributionVersion, "douyin-crawler.v1");
+  assert.equal(result.jobId, "job-handoff-attribution");
+  assert.equal(result.runId, "run-1");
+  assert.equal(result.planId, "plan-1");
+  assert.equal(result.planVersionId, "plan-version-1");
+  assert.equal(result.planVersion, 1);
+  assert.equal(result.planSnapshotHash, f.version.payloadHash);
+  assert.equal(result.discoveredEventId, discovered.id);
+  assert.equal(result.discoveredAt, f.now);
+  assert.equal(result.shardId, null);
+  assert.equal(result.operationId, null);
+  assert.equal(result.connectionId, null);
+  assert.equal(result.providerId, null);
+  assert.deepEqual(result.providerIds, []);
+  assert.deepEqual(result.queryIds, []);
+  assert.deepEqual(result.evidenceIds, candidate.evidenceIds);
+  assert.equal(result.qualificationDecisionId, "decision-handoff");
+  assert.equal(result.decisionVersion, "qualification.v1");
+  assert.equal(result.decisionSnapshotHash, `sha256:${"c".repeat(64)}`);
+});
+
+test("Douyin run attribution supports persisted legacy runs without executionMode", async () => {
+  const f = await createDouyinAttributionTestFixture({ legacyExecutionMode: true });
+  assert.equal((await f.planRuns.getRun("run-1"))?.executionMode, undefined);
+  const result = await new AcquisitionCandidateRunAttributionResolver({
+    planRuns: f.planRuns, crawler: f.crawler
+  }).resolve(f.scope, f.first.input);
+  assert.ok(result);
+  assert.equal(result.attributionVersion, "douyin-crawler.v1");
+  assert.equal(result.jobId, "job-handoff-attribution");
+});
+
+test("Douyin run attribution requires explicit crawler authority", async () => {
+  const f = await createDouyinAttributionTestFixture();
+  const resolver = new AcquisitionCandidateRunAttributionResolver({ planRuns: f.planRuns });
+  assert.equal(await resolver.resolve(f.scope, f.first.input), null);
+});
+
+for (const wrongScope of [
+  { ownerId: "other-owner", teamId: "team-1" },
+  { ownerId: "owner-1", teamId: "other-team" }
+]) {
+  test(`Douyin run attribution rejects unauthorized scope ${wrongScope.ownerId}/${wrongScope.teamId}`, async () => {
+    const f = await createDouyinAttributionTestFixture();
+    const resolver = new AcquisitionCandidateRunAttributionResolver({ planRuns: f.planRuns, crawler: f.crawler });
+    assert.equal(await resolver.resolve(wrongScope, f.first.input), null);
+  });
+}
+
+for (const binding of [null, {
+  workspaceId: "other-workspace", kind: "team" as const, bindingRevision: "other-binding-v1"
+}]) {
+  test(`Douyin run attribution rejects ${binding ? "another workspace binding" : "a missing workspace binding"}`, async () => {
+    const f = await createDouyinAttributionTestFixture();
+    const workspace = createGrowthAcquisitionWorkspaceResolver({ async resolve() { return binding; } });
+    const resolver = new AcquisitionCandidateRunAttributionResolver({
+      planRuns: f.planRuns, crawler: { ...f.crawler, workspace }
+    });
+    assert.equal(await resolver.resolve(f.scope, f.first.input), null);
+  });
+}
+
+const invalidCrawlerJobSnapshots: Array<[string, Partial<AcquisitionCrawlerJob>]> = [
+  ["workspace", { workspaceId: "other-workspace" }],
+  ["event job identity", { id: "other-job" }],
+  ["run alias", { runId: "other-run", runIds: ["other-run"] }],
+  ["frozen plan", { planId: "other-plan" }],
+  ["frozen plan version", { planVersionId: "other-plan-version" }],
+  ["frozen plan hash", { planSnapshotHash: `sha256:${"d".repeat(64)}` }]
+];
+for (const [name, override] of invalidCrawlerJobSnapshots) {
+  test(`Douyin run attribution rejects a mismatched ${name}`, async () => {
+    const f = await createDouyinAttributionTestFixture();
+    const resolver = new AcquisitionCandidateRunAttributionResolver({
+      planRuns: f.planRuns,
+      crawler: {
+        ...f.crawler,
+        jobs: {
+          async findByRun(workspaceId, runId) {
+            const stored = await f.jobs.findByRun(workspaceId, runId);
+            return stored ? { ...stored, ...override } : null;
+          },
+          listRecords: f.jobs.listRecords.bind(f.jobs)
+        }
+      }
+    });
+    assert.equal(await resolver.resolve(f.scope, f.first.input), null);
+  });
+}
+
+test("Douyin run attribution rejects a candidate not named by the persisted discovery", async () => {
+  const f = await createDouyinAttributionTestFixture();
+  const resolver = new AcquisitionCandidateRunAttributionResolver({ planRuns: f.planRuns, crawler: f.crawler });
+  assert.equal(await resolver.resolve(f.scope, { ...f.first.input, candidateId: "another-candidate" }), null);
+});
+
+test("Douyin run attribution requires the candidate to retain its evidence link", async () => {
+  const f = await createDouyinAttributionTestFixture();
+  await f.domain.saveCandidate({ ...f.first.candidate, evidenceIds: [] });
+  const resolver = new AcquisitionCandidateRunAttributionResolver({ planRuns: f.planRuns, crawler: f.crawler });
+  assert.equal(await resolver.resolve(f.scope, f.first.input), null);
+});
+
+test("Douyin run attribution rejects evidence belonging to another ingested candidate", async () => {
+  const f = await createDouyinAttributionTestFixture();
+  const other = await f.ingestRun({
+    runId: "run-2", jobId: "other-candidate-job", localDate: "2026-08-26",
+    recordOverrides: {
+      recordId: "comment-other-buyer", publicDisplayName: "Other public buyer",
+      publicProfileUrl: "https://www.douyin.com/user/other-buyer"
+    }
+  });
+  assert.notEqual(other.candidate.id, f.first.candidate.id);
+  const resolver = new AcquisitionCandidateRunAttributionResolver({ planRuns: f.planRuns, crawler: f.crawler });
+  assert.equal(await resolver.resolve(f.scope, {
+    ...f.first.input, evidenceIds: [other.evidence.id]
+  }), null);
+});
+
+test("Douyin run attribution requires evidence content to occur in the bound job's persisted records", async () => {
+  const f = await createDouyinAttributionTestFixture();
+  const resolver = new AcquisitionCandidateRunAttributionResolver({
+    planRuns: f.planRuns,
+    crawler: {
+      ...f.crawler,
+      jobs: {
+        findByRun: f.jobs.findByRun.bind(f.jobs),
+        async listRecords() { return []; }
+      }
+    }
+  });
+  assert.equal(await resolver.resolve(f.scope, f.first.input), null);
+});
+
+const invalidCrawlerRecordSnapshots: Array<[string, Partial<PersistedNormalizedDouyinRecord>]> = [
+  ["record identity", { recordId: "unrelated-record" }],
+  ["content hash", { contentHash: `sha256:${"e".repeat(64)}` }],
+  ["source URL", { canonicalUrl: "https://www.douyin.com/video/7350000000000000002" }],
+  ["actor kind", { actorKind: "creator" }],
+  ["candidate profile", { publicProfileUrl: "https://www.douyin.com/user/unrelated-buyer" }]
+];
+for (const [name, override] of invalidCrawlerRecordSnapshots) {
+  test(`Douyin run attribution rejects evidence with a mismatched ${name}`, async () => {
+    const f = await createDouyinAttributionTestFixture();
+    const resolver = new AcquisitionCandidateRunAttributionResolver({
+      planRuns: f.planRuns,
+      crawler: {
+        ...f.crawler,
+        jobs: {
+          findByRun: f.jobs.findByRun.bind(f.jobs),
+          async listRecords(jobId) {
+            return (await f.jobs.listRecords(jobId)).map((record) => ({ ...record, ...override }));
+          }
+        }
+      }
+    });
+    assert.equal(await resolver.resolve(f.scope, f.first.input), null);
+  });
+}
+
+test("Douyin run attribution allows a new job to reuse the same candidate's content-hash evidence", async () => {
+  const f = await createDouyinAttributionTestFixture();
+  const replay = await f.ingestRun({ runId: "run-2", jobId: "job-reused-evidence", localDate: "2026-08-26" });
+  assert.equal(replay.candidate.id, f.first.candidate.id);
+  assert.equal(replay.evidence.id, f.first.evidence.id);
+  assert.equal(replay.evidence.contentHash, f.first.evidence.contentHash);
+  assert.equal(replay.evidence.provenance.kind, "mediacrawler_public_record");
+  if (replay.evidence.provenance.kind === "mediacrawler_public_record") {
+    assert.equal(replay.evidence.provenance.jobId, "job-handoff-attribution");
+  }
+  const result = await new AcquisitionCandidateRunAttributionResolver({
+    planRuns: f.planRuns, crawler: f.crawler
+  }).resolve(f.scope, replay.input);
+  assert.ok(result, "evidence is deduplicated by workspace/contentHash, not by jobId");
+  assert.equal(result.jobId, "job-reused-evidence");
+  assert.equal(result.runId, "run-2");
+  assert.equal(result.discoveredEventId, replay.discovered.id);
+  assert.deepEqual(result.evidenceIds, [f.first.evidence.id]);
 });
 
 test("running ingestion exposes candidates without completing the run and terminal replay stays idempotent", async () => {

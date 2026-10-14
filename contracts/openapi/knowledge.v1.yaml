@@ -40,6 +40,8 @@ components:
     KnowledgeVersion: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/Version' }
     KnowledgeChunk: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/Chunk' }
     KnowledgeCitation: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/Citation' }
+    ReferenceCitation: { $ref: '../json-schema/system-reference.v1.schema.json#/$defs/ReferenceCitation' }
+    LibraryStatus: { $ref: '../json-schema/system-reference.v1.schema.json#/$defs/LibraryStatus' }
     KnowledgeAnswer: { $ref: '../json-schema/knowledge.v1.schema.json#/$defs/Answer' }
     KnowledgeError:
       type: object

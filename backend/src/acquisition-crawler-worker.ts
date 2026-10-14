@@ -2,6 +2,7 @@ import type { AcquisitionCrawlerJobRepository } from "./acquisition-crawler-job-
 import type { AcquisitionCrawlerJob } from "./acquisition-crawler-job.js";
 import type { DouyinMediaCrawlerGateway } from "./acquisition-mediacrawler-gateway.js";
 import type { AcquisitionSocialAccountPrivateRecord } from "./acquisition-social-account-repository.js";
+import type { PlatformExecutionAccess } from "./platform-execution-access.js";
 
 export interface AcquisitionCrawlerWorkerOptions {
   repository: AcquisitionCrawlerJobRepository;
@@ -16,6 +17,7 @@ export interface AcquisitionCrawlerWorkerOptions {
   ingestAvailableJob?: (job: AcquisitionCrawlerJob) => Promise<void>;
   ingestTerminalJob?: (job: AcquisitionCrawlerJob) => Promise<void>;
   projectTerminalJob?: (job: AcquisitionCrawlerJob) => Promise<void>;
+  executionAccess?: PlatformExecutionAccess;
 }
 
 function delay(durationMs: number, signal: AbortSignal) {
@@ -39,12 +41,14 @@ export class AcquisitionCrawlerWorker {
   private readonly ingestTerminalJob: AcquisitionCrawlerWorkerOptions["ingestTerminalJob"];
   private readonly projectTerminalJob: AcquisitionCrawlerWorkerOptions["projectTerminalJob"];
   private readonly controller = new AbortController();
+  private readonly executionAccess: PlatformExecutionAccess;
   private active: Promise<boolean> | null = null;
   private timer: NodeJS.Timeout | null = null;
   private nextLane: "crawl" | "ingestion" = "crawl";
   private lastWorkspaceId: string | undefined;
 
   constructor(options: AcquisitionCrawlerWorkerOptions) {
+    this.executionAccess = options.executionAccess ?? (async () => true);
     this.repository = options.repository; this.gateway = options.gateway;
     this.accounts = options.accounts; this.workerId = options.workerId;
     this.now = options.now ?? (() => new Date().toISOString());
@@ -106,12 +110,20 @@ export class AcquisitionCrawlerWorker {
         job.id,
         this.controller.signal
       );
+      // Read-only recovery of an existing crawl remains available after revocation.
+      // Only a new browser execution needs a fresh subscription grant.
+      if (!existing && !await this.executionAccess(job.workspaceId, this.now()).catch(() => false)) {
+        const paused = await this.repository.pause(fence, "crawler_execution_forbidden", this.now());
+        await this.projectTerminalJob?.(paused);
+        return true;
+      }
       const started = existing ?? await this.gateway.startCrawlJob({
           jobId: job.id, accountHandle: account.accountHandle,
           loginStateVersion: job.accountLoginStateVersion,
           keywords: [...job.keywords],
           maxVideos: job.limits.maxVideos,
           maxCommentsPerVideo: job.limits.maxCommentsPerVideo,
+          ...(job.limits.maxComments === undefined ? {} : { maxComments: job.limits.maxComments }),
           maxPagesPerVideo: job.limits.maxPagesPerVideo,
           deadlineAt,
           collectCreators: job.collectCreators,

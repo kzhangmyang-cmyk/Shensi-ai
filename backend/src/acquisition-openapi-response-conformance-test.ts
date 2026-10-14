@@ -33,6 +33,7 @@ import { createAcquisitionRunCandidatesRouter } from "./acquisition-run-candidat
 const OWNER = "response-contract-owner";
 const TEAM = "response-contract-team";
 const NOW = "2026-08-05T00:00:00.000Z";
+const LOGIN_EXPIRES_AT = "2026-08-05T00:05:00.000Z";
 const openApiPaths = createAcquisitionOpenApiPaths();
 
 test("outreach batch and ordered action responses conform without private evidence or account handles", () => {
@@ -58,6 +59,10 @@ test("outreach batch and ordered action responses conform without private eviden
   assertResponseConforms("/api/v1/acquisition/outreach-batches", "get", 200, {
     items: [batch], nextCursor: "signed-cursor"
   });
+  const executionGate = { accountId: "account-1", accountLoginStateVersion: 2,
+    riskPaused: true, pendingActionIds: ["action-1", "action-2"],
+    unresolvedActions: [{ actionId: "old-ambiguous",
+      failureCode: "douyin_action_receipt_ambiguous" }] };
   const actions = { items: [{ id: "action-1", workspaceId: TEAM, batchId: "batch-1",
     batchRevision: 1, candidateId: "candidate-1", accountId: "account-1",
     accountLoginStateVersion: 2, policyVersionId: "policy-1", localDate: "2026-08-05",
@@ -81,8 +86,18 @@ test("outreach batch and ordered action responses conform without private eviden
     contentHash: hash, approvalHash: hash, authorizationVersion: 2,
     approvedBy: OWNER, approvedAt: NOW, directMessageDailyLimit: 20,
     directMessageDailyOrdinal: 1, attemptCount: 0,
-    platformReceiptReference: null, occurredAt: null, failureCode: null, createdAt: NOW }] };
+    platformReceiptReference: null, occurredAt: null, failureCode: null, createdAt: NOW }],
+  executionGate };
   assertResponseConforms("/api/v1/acquisition/outreach-batches/{batchId}/actions", "get", 200, actions);
+  assertResponseConforms(
+    "/api/v1/acquisition/outreach-batches/{batchId}/actions/recover-account",
+    "post",
+    200,
+    { ...executionGate, riskPaused: false,
+      enabledActionIds: ["action-1", "action-2"],
+      acknowledgedUncertainActionIds: ["old-ambiguous"],
+      recoveredBy: OWNER, recoveredAt: NOW }
+  );
   assert.equal(JSON.stringify(batch).includes("evidenceText"), false);
   assert.equal(JSON.stringify(batch).includes("accountHandle"), false);
 });
@@ -106,12 +121,40 @@ test("run candidate page conforms and omits private crawler state", async () => 
   } finally { await http.close(); }
 });
 
+test("run candidate page accepts optional display-only public media hints", async () => {
+  const http = await mount(createAcquisitionRunCandidatesRouter({
+    repository: {
+      async list() {
+        return [{
+          id: "candidate-public-media-1", status: "needs_research", displayName: "公开用户媒体",
+          avatarUrl: "https://cdn.example.test/avatar.webp",
+          coverUrl: "HTTPS://cdn.example.test/cover.webp",
+          evidence: {
+            sourceUrl: "https://www.douyin.com/video/7350000000000000002",
+            excerpt: "公开媒体提示只用于显示"
+          }
+        }];
+      }
+    },
+    cursorSecret: "response-contract-run-candidate-secret-at-least-32-bytes"
+  }));
+  try {
+    const result = await http.request("/api/v1/acquisition/runs/run-response-media/candidates");
+    assert.equal(result.response.status, 200);
+    assertResponseConforms("/api/v1/acquisition/runs/{runId}/candidates", "get", 200, result.body);
+    assert.equal(result.body.items[0]?.avatarUrl, "https://cdn.example.test/avatar.webp");
+    assert.equal(result.body.items[0]?.coverUrl, "HTTPS://cdn.example.test/cover.webp");
+  } finally { await http.close(); }
+});
+
 test("actual social-account HTTP replays and 404/412 errors conform without private browser state", async () => {
   const service = new AcquisitionSocialAccountService({
     repository: new InMemoryAcquisitionSocialAccountRepository(),
     gateway: {
-      async createLoginSession() { return { sessionId: "upstream-session", state: "awaiting_scan", qrImageDataUrl: "data:image/png;base64,cXI=", expiresAt: NOW, accountHandle: null, accountDisplayName: null, loginStateVersion: null }; },
-      async getLoginSession() { return { sessionId: "upstream-session", state: "active", qrImageDataUrl: null, expiresAt: NOW, accountHandle: `dyacct_${"a".repeat(64)}`, accountDisplayName: "真实抖音账号", loginStateVersion: 1 }; },
+      async createLoginSession() { return { sessionId: "upstream-session", state: "awaiting_scan", qrImageDataUrl: "data:image/png;base64,cXI=", qrStatus: "ready", loginPage: null, expiresAt: LOGIN_EXPIRES_AT, accountHandle: null, accountDisplayName: null, loginStateVersion: null }; },
+      async getLoginSession() { return { sessionId: "upstream-session", state: "active", qrImageDataUrl: null, qrStatus: null, loginPage: null, expiresAt: LOGIN_EXPIRES_AT, accountHandle: `dyacct_${"a".repeat(64)}`, accountDisplayName: "真实抖音账号", loginStateVersion: 1 }; },
+      async interactLoginSession(sessionId) { return { sessionId, state: "awaiting_scan", qrImageDataUrl: null, qrStatus: "opening", loginPage: null, expiresAt: LOGIN_EXPIRES_AT, accountHandle: null, accountDisplayName: null, loginStateVersion: null }; },
+      async createLiveLoginSession() { return { token: "c".repeat(64), expiresAt: LOGIN_EXPIRES_AT }; },
       async disconnectLoginSession() {}
     }, idFactory: () => "social-account-response", now: () => NOW
   });
@@ -130,6 +173,24 @@ test("actual social-account HTTP replays and 404/412 errors conform without priv
     assert.equal("accountHandle" in (first.body as object), false);
     assertResponseConforms(path, "post", 201, first.body);
     assertResponseConforms(path, "post", 200, replay.body);
+
+    const interactionPath = `/api/v1/acquisition/social-accounts/douyin/login-sessions/${(first.body as { id: string }).id}/interactions`;
+    const interaction = await http.request(interactionPath, {
+      method: "POST", body: JSON.stringify({ type: "key", key: "Enter" })
+    });
+    assert.equal(interaction.response.status, 200);
+    assertResponseConforms(
+      "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/interactions",
+      "post", 200, interaction.body
+    );
+
+    const livePath = `/api/v1/acquisition/social-accounts/douyin/login-sessions/${(first.body as { id: string }).id}/live`;
+    const live = await http.request(livePath, { method: "POST" });
+    assert.equal(live.response.status, 200);
+    assertResponseConforms(
+      "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/live",
+      "post", 200, live.body
+    );
 
     const account = await service.bindActiveSession({ workspaceId: TEAM }, (first.body as { id: string }).id);
     const missing = await http.request("/api/v1/acquisition/social-accounts/missing", { method: "DELETE", headers: { "Idempotency-Key": "social-missing", "If-Match": account.etag } });

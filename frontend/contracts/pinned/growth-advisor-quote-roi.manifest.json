@@ -1,6 +1,6 @@
 {
   "name": "growth-advisor-quote-roi",
-  "contractVersion": "1.0.12",
-  "contractHash": "sha256:b661f88ed519e1991a071d45f8edd2d4892a78bc417a6b5bb7bb7df85915498b",
+  "contractVersion": "1.0.41",
+  "contractHash": "sha256:2ed0f9b45b32285ac0bbf9ed7afde51eb716b4f821cdcda119d9fb1ca35fd342",
   "openapiVersion": "3.1.0"
 }

@@ -11,4 +11,13 @@ playwright-report
 test-results
 .worktrees
 .superpowers
+desktop/.build
+desktop/resources/staging
+desktop/resources/generated
+desktop/release
 deploy/secrets/
+.runtime/
+**/.runtime/
+**/.venv/
+**/.pytest_cache/
+**/__pycache__/

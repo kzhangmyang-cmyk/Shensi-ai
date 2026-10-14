@@ -346,10 +346,10 @@ const convertBodySchema = z.object({
 }).strict();
 
 const privateDomainHandoffBodySchema = z.object({
-  operationCode: z.literal("handoff_acquisition_candidate_v1"),
+  operationCode: z.enum(["handoff_acquisition_candidate_v1", "handoff_acquisition_candidate_v2"]),
   runId: idSchema,
   discoveredEventId: idSchema,
-  decisionVersion: requiredText(100),
+  decisionVersion: z.string().trim().max(100),
   mode: z.enum(["create_new", "link_existing"]),
   existingCustomerId: z.string().trim().max(255),
   followUp: z.object({
@@ -374,6 +374,46 @@ const privateDomainHandoffBodySchema = z.object({
   }
 });
 
+const outcomeAttributionCommonShape = {
+  runId: requiredText(255),
+  planId: requiredText(255),
+  planVersionId: requiredText(255),
+  planVersion: z.number().int().min(1),
+  planSnapshotHash: requiredText(255),
+  discoveredEventId: requiredText(255),
+  discoveredAt: z.string().datetime({ offset: true }),
+  evidenceIds: z.array(idSchema).max(500),
+  strategyVersion: requiredText(100),
+  qualificationDecisionId: idSchema,
+  decisionVersion: requiredText(100),
+  decisionSnapshotHash: requiredText(200)
+};
+
+const outcomeAttributionSchema = z.discriminatedUnion("attributionVersion", [
+  z.object({
+    ...outcomeAttributionCommonShape,
+    attributionVersion: z.literal("acquisition-run.v1"),
+    shardId: requiredText(255),
+    operationId: requiredText(255),
+    connectionId: requiredText(255),
+    providerId: requiredText(255),
+    providerIds: z.array(idSchema).max(100),
+    queryIds: z.array(idSchema).max(500)
+  }).strict(),
+  z.object({
+    ...outcomeAttributionCommonShape,
+    attributionVersion: z.literal("douyin-crawler.v1"),
+    jobId: requiredText(255),
+    shardId: z.null(),
+    operationId: z.null(),
+    connectionId: z.null(),
+    providerId: z.null(),
+    evidenceIds: z.array(idSchema).min(1).max(500),
+    providerIds: z.array(idSchema).max(0),
+    queryIds: z.array(idSchema).max(0)
+  }).strict()
+]);
+
 const outcomeBodySchema = z.object({
   leadId: idSchema.nullable(),
   customerId: idSchema.nullable(),
@@ -395,27 +435,7 @@ const outcomeBodySchema = z.object({
   reasonCode: nullableText(100),
   reasonText: nullableText(2_000),
   candidateId: idSchema,
-  attribution: z.object({
-    attributionVersion: z.literal("acquisition-run.v1"),
-    runId: requiredText(255),
-    planId: requiredText(255),
-    planVersionId: requiredText(255),
-    planVersion: z.number().int().min(1),
-    planSnapshotHash: requiredText(255),
-    discoveredEventId: requiredText(255),
-    discoveredAt: z.string().datetime({ offset: true }),
-    shardId: requiredText(255),
-    operationId: requiredText(255),
-    connectionId: requiredText(255),
-    providerId: requiredText(255),
-    evidenceIds: z.array(idSchema).max(500),
-    providerIds: z.array(idSchema).max(100),
-    queryIds: z.array(idSchema).max(500),
-    strategyVersion: requiredText(100),
-    qualificationDecisionId: idSchema,
-    decisionVersion: requiredText(100),
-    decisionSnapshotHash: requiredText(200)
-  }).strict()
+  attribution: outcomeAttributionSchema
 }).strict();
 
 const modelSnapshotSchema = z.object({
@@ -870,9 +890,9 @@ function publicPrivateDomainHandoff(
       leadId: result.handoff.leadId,
       customerId: result.handoff.customerId,
       todoId: result.handoff.todoId,
-      runId: result.handoff.acquisitionAttribution?.runId ?? null,
+      runId: result.handoff.acquisitionAttribution?.runId ?? result.source?.runId ?? null,
       discoveredEventId:
-        result.handoff.acquisitionAttribution?.discoveredEventId ?? null,
+        result.handoff.acquisitionAttribution?.discoveredEventId ?? result.source?.discoveredEventId ?? null,
       decisionVersion: result.handoff.decisionVersion,
       createdAt: result.handoff.createdAt
     },

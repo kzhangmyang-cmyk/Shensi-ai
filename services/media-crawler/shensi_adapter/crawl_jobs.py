@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import re
 import secrets
@@ -15,11 +16,13 @@ import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Callable, Iterable, Mapping
 from urllib.parse import quote, unquote
 
 from .douyin_normalizer import normalize_douyin_records
+from .process_group import owned_process_group_alive
 from .profile_lease import ProfileLease, ProfileLeaseBusy, acquire_profile_lease
 from .schemas import (
     CrawlActivity, CrawlJobPage, CrawlJobRequest, CrawlJobView,
@@ -37,6 +40,18 @@ Runner = Callable[
         tuple[str, Mapping[str, object]] | NormalizedDouyinRecord | CrawlActivity,
     ],
 ]
+
+LOGGER = logging.getLogger(__name__)
+_SAFE_FAILURE_CODES = frozenset({
+    "invalid_douyin_actor", "invalid_douyin_record",
+    "invalid_crawl_activity_keyword", "invalid_crawl_activity",
+    "crawl_deadline_exceeded", "mediacrawler_job_failed",
+})
+
+
+def _failure_code(error: Exception) -> str:
+    code = str(error)
+    return code if code in _SAFE_FAILURE_CODES else "crawl_processing_failed"
 
 
 def _atomic_json(path: Path, value: object) -> None:
@@ -70,7 +85,13 @@ def _read_output_rows(
     for kind, pattern in (("video", "*contents*.jsonl"),
                           ("creator", "*creators*.jsonl"),
                           ("comment", "*comments*.jsonl")):
-        for path in sorted(output.glob(f"douyin/jsonl/{pattern}")):
+        paths = sorted(output.glob(f"douyin/jsonl/{pattern}"))
+        public_capture = output / "douyin" / "jsonl" / f"000-shensi-{kind}s.jsonl"
+        if kind in {"creator", "comment"} and public_capture.is_file():
+            # The upstream anonymized file can advance after the capture snapshot
+            # was read. It is not another source of public actor authority.
+            paths = [public_capture]
+        for path in paths:
             payload = path.read_bytes()
             if ignore_incomplete_tail and not payload.endswith(b"\n"):
                 boundary = payload.rfind(b"\n")
@@ -353,7 +374,7 @@ class MediaCrawlerRunner:
             "collect_demand_comments": request.collect_demand_comments,
             "headless": self._headless,
         })
-        command = [sys.executable, "-m", "shensi_adapter.crawl_jobs", "--execute", str(spec)]
+        command = _crawl_worker_command(spec)
         process = subprocess.Popen(command, cwd=self._service_root, start_new_session=True,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = request.deadline_at.timestamp()
@@ -384,35 +405,116 @@ class MediaCrawlerRunner:
             previous_activity = encoded
             yield _read_activity_snapshot(encoded)
 
-        termination_error: Exception | None = None
-        while process.poll() is None:
-            if cancelled.is_set() or time.time() >= deadline:
+        group_stopped = False
+
+        def group_exists():
+            process.poll()  # Reap the direct worker; it may otherwise be a zombie.
+            return owned_process_group_alive(process.pid)
+
+        def stop_owned_process():
+            nonlocal group_stopped
+            if group_stopped:
+                return
+            try:
                 os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                group_stopped = True
+                process.poll()
+                return
+            grace = time.monotonic() + 3
+            while group_exists() and time.monotonic() < grace:
+                time.sleep(0.01)
+            if group_exists():
                 try:
-                    process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
                     os.killpg(process.pid, signal.SIGKILL)
-                    process.wait(timeout=3)
-                if cancelled.is_set():
+                except ProcessLookupError:
+                    pass
+            cleanup_warning_at = time.monotonic() + 3
+            while group_exists():
+                # SIGKILL delivery is asynchronous. Keep this job's Profile
+                # until descendants are gone, even if the worker was reaped.
+                if cleanup_warning_at is not None and time.monotonic() >= cleanup_warning_at:
+                    LOGGER.warning("crawl_failure stage=cleanup code=crawl_worker_shutdown_pending")
+                    cleanup_warning_at = None
+                time.sleep(0.01)
+            group_stopped = True
+
+        termination_error: Exception | None = None
+        try:
+            while process.poll() is None:
+                if isinstance(cancelled, CrawlControl):
+                    cancelled.checkpoint(
+                        lambda: os.killpg(process.pid, signal.SIGSTOP),
+                        lambda: os.killpg(process.pid, signal.SIGCONT),
+                    )
+                stopped = isinstance(cancelled, CrawlControl) and cancelled.stop_requested.is_set()
+                effective_deadline = deadline + (cancelled.paused_seconds if isinstance(cancelled, CrawlControl) else 0)
+                if cancelled.is_set() or stopped or time.time() >= effective_deadline:
+                    stop_owned_process()
+                    if not cancelled.is_set() and not stopped:
+                        termination_error = TimeoutError("crawl_deadline_exceeded")
                     break
-                termination_error = TimeoutError("crawl_deadline_exceeded")
-                break
+                yield from newly_published_activity()
+                yield from newly_completed_rows(live=True)
+                time.sleep(0.05)
             yield from newly_published_activity()
-            yield from newly_completed_rows(live=True)
-            time.sleep(0.05)
-        yield from newly_published_activity()
-        yield from newly_completed_rows(live=False)
-        if cancelled.is_set():
-            return
-        if termination_error:
-            raise termination_error
-        if process.returncode != 0:
-            raise RuntimeError("mediacrawler_job_failed")
+            yield from newly_completed_rows(live=False)
+            if cancelled.is_set():
+                return
+            if isinstance(cancelled, CrawlControl) and cancelled.stop_requested.is_set():
+                return
+            if termination_error:
+                raise termination_error
+            if process.returncode != 0:
+                LOGGER.warning("crawl_failure stage=upstream_exit exit_code=%d", process.returncode)
+                raise RuntimeError("mediacrawler_job_failed")
+        finally:
+            # The consumer can fail while this generator is suspended at yield.
+            # Reap this exact start_new_session worker before releasing its Profile.
+            stop_owned_process()
 
     def cleanup(self, job_id: str) -> None:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,254}", job_id):
             raise ValueError("invalid_crawl_job_id")
         shutil.rmtree(self._output_root / job_id, ignore_errors=True)
+
+
+def _crawl_worker_command(
+    spec: Path,
+    *,
+    executable: str | None = None,
+    frozen: bool | None = None,
+) -> list[str]:
+    """Return the fixed worker argv for source and PyInstaller runtimes."""
+    program = executable or sys.executable
+    is_frozen = bool(getattr(sys, "frozen", False)) if frozen is None else frozen
+    if is_frozen:
+        return [program, "--execute-crawl", str(spec)]
+    return [program, "-m", "shensi_adapter.crawl_jobs", "--execute", str(spec)]
+
+
+class CrawlControl(threading.Event):
+    """Cancellation is separate from resumable suspension and successful stop."""
+    def __init__(self):
+        super().__init__()
+        self.pause_requested = threading.Event()
+        self.stop_requested = threading.Event()
+        self.paused_seconds = 0.0
+        self.on_state = lambda state: None
+
+    def checkpoint(self, suspend=lambda: None, resume=lambda: None):
+        if not self.pause_requested.is_set() or self.is_set() or self.stop_requested.is_set():
+            return
+        suspend()
+        started = time.monotonic()
+        try:
+            self.on_state("paused")
+            while self.pause_requested.is_set() and not self.is_set() and not self.stop_requested.is_set():
+                self.wait(0.05)
+        finally:
+            resume()
+            self.paused_seconds += time.monotonic() - started
+            self.on_state("stopping" if self.stop_requested.is_set() else "running")
 
 
 class CrawlJobManager:
@@ -487,6 +589,9 @@ class CrawlJobManager:
                             completed_at=job.get("completed_at"),
                             acknowledged_at=job.get("acknowledged_at"),
                             record_count=job["record_count"],
+                            comment_count=job.get("comment_count"),
+                            comment_target=job["request"].get("max_comments"),
+                            control_state=job.get("control_state", "running"),
                             page_count=len(job["pages"]),
                             failure_code=job.get("failure_code"),
                             activity=CrawlActivity.model_validate(
@@ -528,7 +633,7 @@ class CrawlJobManager:
             if self._closed.is_set():
                 raise RuntimeError("crawl_job_manager_closed")
             existing = self._jobs.get(request.job_id)
-            if existing and existing["request"] != request.model_dump(mode="json"):
+            if existing and CrawlJobRequest.model_validate(existing["request"]).model_dump(mode="json") != request.model_dump(mode="json"):
                 raise ValueError("crawl_job_binding_conflict")
             if existing and existing["state"] not in {"paused", "failed"}:
                 return self._view(existing)
@@ -548,15 +653,16 @@ class CrawlJobManager:
                 os.chmod(directory, 0o700)
                 instant = self._now().isoformat()
                 job = existing or {"request": request.model_dump(mode="json"), "created_at": instant,
-                                   "record_count": 0, "pages": [],
+                                   "record_count": 0, "comment_count": 0, "pages": [],
                                    "activity": self._initial_activity()}
                 job.setdefault("activity", self._initial_activity())
                 job.update({"state": "queued", "updated_at": instant, "completed_at": None,
+                            "control_state": "running",
                             "acknowledged_at": None,
                             "failure_code": None})
                 self._jobs[request.job_id] = job
                 self._persist(job)
-                cancelled = threading.Event()
+                cancelled = CrawlControl()
                 self._cancel[request.job_id] = cancelled
                 thread = threading.Thread(
                     target=self._execute,
@@ -614,18 +720,21 @@ class CrawlJobManager:
             "cursor": cursor, "next_cursor": next_cursor, "file": page_name,
         })
         job["record_count"] += len(records)
+        if "comment_count" in job:
+            job["comment_count"] += sum(record.kind == "comment" for record in records)
         job["updated_at"] = self._now().isoformat()
         if persist:
             self._persist(job)
 
-    def _persisted_record_ids(self, job: dict) -> set[str]:
+    def _persisted_record_ids(self, job: dict, kind: str | None = None) -> set[str]:
         record_ids: set[str] = set()
         directory = self._directory(job["request"]["job_id"])
         for descriptor in job["pages"]:
             page = CrawlJobPage.model_validate_json(
                 (directory / descriptor["file"]).read_text(encoding="utf-8")
             )
-            record_ids.update(record.record_id for record in page.records)
+            record_ids.update(record.record_id for record in page.records
+                              if kind is None or record.kind == kind)
         return record_ids
 
     def _execute(self, request: CrawlJobRequest, profile: Path,
@@ -633,10 +742,24 @@ class CrawlJobManager:
                  profile_lease: ProfileLease) -> None:
         pending: list[NormalizedDouyinRecord] = []
         seen: set[str] = set()
+        stage = "runner"
+        def control_state(state):
+            nonlocal pending
+            with self._lock:
+                job = self._jobs[request.job_id]
+                if state == "paused" and pending:
+                    self._append_page(job, pending, done=False)
+                    pending = []
+                job["control_state"] = state
+                self._persist(job)
+        if isinstance(cancelled, CrawlControl):
+            cancelled.on_state = control_state
         try:
             with self._lock:
                 job = self._jobs[request.job_id]
                 seen = self._persisted_record_ids(job)
+                comment_count = len(self._persisted_record_ids(job, "comment"))
+                job["comment_count"] = comment_count
                 job["state"], job["updated_at"] = "running", self._now().isoformat()
                 previous = CrawlActivity.model_validate(job["activity"])
                 self._publish_activity(
@@ -649,28 +772,48 @@ class CrawlJobManager:
                     persist=False,
                 )
                 self._persist(job)
-            for value in self._runner(request, profile, cancelled):
-                if cancelled.is_set():
-                    break
-                if isinstance(value, CrawlActivity):
-                    with self._lock:
-                        self._publish_activity(
-                            self._jobs[request.job_id], request, value,
-                        )
-                    continue
-                normalized = (
-                    [value] if isinstance(value, NormalizedDouyinRecord)
-                    else normalize_douyin_records([value], observed_at=self._now())
-                )
-                for record in normalized:
-                    if record.record_id in seen or not self._record_enabled(record, request):
-                        continue
-                    seen.add(record.record_id)
-                    pending.append(record)
-                    if len(pending) == self._page_size:
+            with ExitStack() as resources:
+                target_reached = (request.max_comments is not None
+                                  and comment_count >= request.max_comments)
+                iterator = iter(()) if target_reached else iter(self._runner(request, profile, cancelled))
+                close_iterator = getattr(iterator, "close", None)
+                if callable(close_iterator):
+                    resources.callback(close_iterator)
+                for value in iterator:
+                    if cancelled.is_set():
+                        break
+                    if isinstance(value, CrawlActivity):
+                        stage = "activity"
                         with self._lock:
-                            self._append_page(self._jobs[request.job_id], pending, done=False)
-                        pending = []
+                            self._publish_activity(
+                                self._jobs[request.job_id], request, value,
+                            )
+                        stage = "runner"
+                        continue
+                    stage = "normalize"
+                    normalized = (
+                        [value] if isinstance(value, NormalizedDouyinRecord)
+                        else normalize_douyin_records([value], observed_at=self._now())
+                    )
+                    stage = "persist"
+                    for record in normalized:
+                        if record.record_id in seen or not self._record_enabled(record, request):
+                            continue
+                        seen.add(record.record_id)
+                        pending.append(record)
+                        if record.kind == "comment":
+                            comment_count += 1
+                        target_reached = (request.max_comments is not None
+                                          and comment_count >= request.max_comments)
+                        if len(pending) == self._page_size:
+                            with self._lock:
+                                self._append_page(self._jobs[request.job_id], pending, done=False)
+                            pending = []
+                        if target_reached:
+                            break
+                    stage = "runner"
+                    if target_reached:
+                        break
             with self._lock:
                 job = self._jobs[request.job_id]
                 if cancelled.is_set():
@@ -678,7 +821,9 @@ class CrawlJobManager:
                     return
                 self._append_page(job, pending, done=True, persist=False)
                 self._finish(job, "succeeded")
-        except Exception:
+        except Exception as error:
+            LOGGER.warning("crawl_failure stage=%s code=%s retained_records=%d",
+                           stage, _failure_code(error), len(seen))
             with self._lock:
                 job = self._jobs.get(request.job_id)
                 if job:
@@ -740,6 +885,32 @@ class CrawlJobManager:
                 event.set()
             if job["state"] in {"queued", "paused"}:
                 self._finish(job, "cancelled")
+
+    def control(self, job_id: str, action: str) -> CrawlJobView:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                raise KeyError(job_id)
+            control = self._cancel.get(job_id)
+            if job["state"] not in {"queued", "running"} or not isinstance(control, CrawlControl):
+                raise ValueError("crawl_not_running")
+            if action == "stop":
+                control.stop_requested.set()
+                control.pause_requested.clear()
+                job["control_state"] = "stopping"
+            elif control.stop_requested.is_set():
+                raise ValueError("crawl_stopping")
+            elif action == "pause":
+                control.pause_requested.set()
+                if job.get("control_state") != "paused":
+                    job["control_state"] = "pausing"
+            elif action == "resume":
+                control.pause_requested.clear()
+                job["control_state"] = "running"
+            else:
+                raise ValueError("invalid_crawl_control")
+            self._persist(job)
+            return self._view(job)
 
     def acknowledge(self, job_id: str) -> datetime:
         """Durably starts the 24-hour cleanup clock after backend ingestion."""

@@ -12,6 +12,8 @@
 
 ## Global Constraints
 
+- 已批准的有界交互补充：知识库采用全宽响应式多列资料卡片、选择后详情和可返回焦点；六角色文本输入增加默认关闭的公开联网按钮，知识库检索独立保留。可选`webSearchMode:on|off`沿正式Growth发布、旧省略保持自动规划、语音不变。复用原隐私检查/规划/搜索连接，不以改写用户问题模拟开关；新修改必须通过新的完整回归与原生加载验证。
+
 - 单文件上限 50MiB、PDF 上限 1,000 个物理页；最多同时选十份、逐文件排队。
 - 格式为 PDF、DOCX、XLSX、CSV、TXT、MD；不增加 EPUB、图片集、宏或旧二进制 XLS。
 - 状态为 `queued → parsing → indexing → ready`，另有 `failed/cancelled`；上传完成不等于可检索。
@@ -171,7 +173,7 @@
 
 **Interfaces:** Council 注入 Task 5 `KnowledgeRetriever`。`buildKnowledgeModelEvidence(evidence:KnowledgeEvidence):BoundedKnowledgeEvidence` 返回只含本次合法片段的源 ID/text/locator/warnings；`renderKnowledgeAnswer(raw:unknown,{evidence,renderCompanyText:(template:string)=>string}):KnowledgeAnswer`，raw schema 为 `{template:string,citationIds:string[]}`。后者产出 `{status,detailedText,sources,warnings}`，detailedText 最多 12,000 字符，sources 最多六条。`{{knowledge:sourceId}}` 只替换本次服务端精确摘录；其他模板段委托既有 `renderFinancialAnswer` 或原件 observation validator，分别保留 `{{fact:id}}` 和 `{{cell/pdf/docx:...}}` 规则，不将上传资料升格为企业事实。替换后的总字数再次校验，不静默截断。CFO turn 可选保存同版 `knowledge` 快照，旧 text 限制和旧历史仍有效。
 
-- [ ] **Step 1: 写失败测试。** `six roles retrieve before model and preserve financial authority`：
+- [x] **Step 1: 写失败测试。** `six roles retrieve before model and preserve financial authority`：
   ```ts
   assert.deepEqual(order,['retrieve','model']);
   assert.equal(result.knowledge?.sources[0]?.versionId,expectedVersionId);
@@ -180,10 +182,10 @@
   assert.throws(()=>renderKnowledgeAnswer({template:'{{knowledge:missing}}',citationIds:['missing']},renderContext),/source|reference/);
   ```
   参数化六角色、显式附件和已核实报表两条模型路径；补书籍年份/税率/金额精确引用、模型编造金额拒绝、文档提示注入、冲突资料、不将私有片段送 public search、角色切换取消、CFO 重启恢复与删除来源提示，语音/旧 payload 不启用新详细模式。模型返回前资料被停用/删除或权限撤销时，复核拒绝该参考回答与历史写入，不自动重放模型。
-- [ ] **Step 2: 验证 RED。** `pnpm --dir backend exec node --import tsx --test src/knowledge/answer-test.ts src/knowledge/agent-integration-test.ts`；对应 frontend 引用/历史 self-test。
-- [ ] **Step 3: 实现接入。** 文本 UI 默认发送 Task 1 `knowledgeMode:'auto'`，其问答和 CFO session turn 都在模型前执行检索；旧 caller/语音默认 off。参考数据独立于 system/verified financial facts，保留角色和企业来源优先级。模型一次结构化回答同时生成简短 answer 与可选详细投影，不额外扇出六模型。`no_match` 可显示明确无命中再一般回答，unavailable 明确降级；引用来源由 server 生成，不接收模型文件路径/链接。前端可打开知识库同版片段，历史带 snapshot；不能将内部引用塞进仅接受公开 http 来源的 research 面板。
-- [ ] **Step 4: 验证 GREEN。** 新专项、`pnpm --dir backend test:cfo-conversation`、`pnpm --dir backend test:finance-documents`、`pnpm --dir frontend exec tsx scripts/test-agent-chat-layout.mts`、`pnpm check:growth-contracts` 通过；双主题长回答/引用/输入可达，不滚动跳回，不改变正式委员会三表要求。
-- [ ] **Step 5: 提交本任务可分离改动。** 消息 `feat: ground specialist answers in private references`。
+- [x] **Step 2: 验证 RED。** `pnpm --dir backend exec node --import tsx --test src/knowledge/answer-test.ts src/knowledge/agent-integration-test.ts`；对应 frontend 引用/历史 self-test。
+- [x] **Step 3: 实现接入。** 文本 UI 默认发送 Task 1 `knowledgeMode:'auto'`，其问答和 CFO session turn 都在模型前执行检索；旧 caller/语音默认 off。参考数据独立于 system/verified financial facts，保留角色和企业来源优先级。模型一次结构化回答同时生成简短 answer 与可选详细投影，不额外扇出六模型。`no_match` 可显示明确无命中再一般回答，unavailable 明确降级；引用来源由 server 生成，不接收模型文件路径/链接。前端可打开知识库同版片段，历史带 snapshot；不能将内部引用塞进仅接受公开 http 来源的 research 面板。
+- [x] **Step 4: 验证 GREEN。** 新专项、`pnpm --dir backend test:cfo-conversation`、`pnpm --dir backend test:finance-documents`、`pnpm --dir frontend exec tsx scripts/test-agent-chat-layout.mts`、`pnpm check:growth-contracts` 通过；双主题长回答/引用/输入可达，不滚动跳回，不改变正式委员会三表要求。
+- [x] **Step 5: 提交本任务可分离改动。** 消息 `feat: ground specialist answers in private references`。
 
 ### Task 8: 私有书籍导入、实机验收与当前文档
 

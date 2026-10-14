@@ -1,5 +1,12 @@
 import { strict as assert } from "node:assert";
-import { growthRouteMeta, renderQuoteCaseSelectionRequired } from "./entry";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import {
+  clearGrowthDemoRouteClasses,
+  growthRouteMeta,
+  growthToolbarMeta,
+  resetGrowthSurfaceScroll
+} from "./entry";
 
 assert.deepEqual(growthRouteMeta({ name: "advisor" }), {
   title: "增长顾问",
@@ -25,6 +32,123 @@ assert.deepEqual(growthRouteMeta({ name: "financial-council" }), {
   title: "财务委员会",
   subtitle: "真实三表 · 六角色审计 · 人工审批"
 });
-assert.match(renderQuoteCaseSelectionRequired(), /请选择报价案例/u);
-assert.match(renderQuoteCaseSelectionRequired(), /#growth\/catalog/u);
-assert.doesNotMatch(renderQuoteCaseSelectionRequired(), /quote_case_required/u);
+assert.deepEqual(growthToolbarMeta({ name: "advisor" }), {
+  showToolbar: true,
+  searchPlaceholder: "搜索客户、商机或任务...",
+  primaryAction: "查看今日待办"
+});
+assert.deepEqual(growthToolbarMeta({ name: "financial-council" }), {
+  showToolbar: true,
+  searchPlaceholder: "搜索客户、商机或任务...",
+  primaryAction: "查看今日待办"
+});
+assert.deepEqual(growthToolbarMeta({ name: "finance" }), {
+  showToolbar: false,
+  searchPlaceholder: "",
+  primaryAction: ""
+});
+const shellA = { scrollTop: 540 } as HTMLElement;
+const shellB = { scrollTop: 180 } as HTMLElement;
+const host = { scrollTop: 96 } as HTMLElement;
+resetGrowthSurfaceScroll([shellA, shellB], host);
+assert.deepEqual(
+  [shellA.scrollTop, shellB.scrollTop, host.scrollTop],
+  [0, 0, 0],
+  "growth route changes must open each module at its top"
+);
+const inheritedDemoRouteClasses = new Set([
+  "is-dashboard-route",
+  "is-agents-route",
+  "is-acquisition-route",
+  "is-conversations-route",
+  "is-private-domain-route",
+  "is-settings-route",
+  "is-single-pane-module"
+]);
+const shellWithInheritedDemoRoute = {
+  classList: {
+    remove: (...classes: string[]) => classes.forEach((name) => inheritedDemoRouteClasses.delete(name))
+  }
+} as unknown as HTMLElement;
+clearGrowthDemoRouteClasses(shellWithInheritedDemoRoute);
+assert.deepEqual(
+  [...inheritedDemoRouteClasses],
+  ["is-single-pane-module"],
+  "Growth routes must clear every conflicting demo route hook, including settings, while retaining the shared single-pane shell mode"
+);
+const entrySource = readFileSync(fileURLToPath(new URL("./entry.ts", import.meta.url)), "utf8");
+assert.doesNotMatch(
+  entrySource,
+  /route\.name === "quote" && !route\.quoteCaseId/u,
+  "quote selection belongs to the real quote runtime, not an entry-layer placeholder"
+);
+assert.match(
+  entrySource,
+  /querySelectorAll<HTMLElement>\("\[data-replica-view\]"\)/u,
+  "growth routes must clear the unrelated top-level navigation selection"
+);
+assert.match(
+  entrySource,
+  /classList\.toggle\("is-growth-route"/u,
+  "growth routes must expand into the unused inspector column"
+);
+assert.match(
+  entrySource,
+  /if \(route\) clearGrowthDemoRouteClasses\(shell\)/u,
+  "Growth routes must clear the demo router's mutually exclusive layout hooks"
+);
+assert.match(
+  entrySource,
+  /function currentGrowthShells\(\): HTMLElement\[\]/u,
+  "growth routes must re-query the current shell nodes when synchronizing"
+);
+assert.match(
+  entrySource,
+  /const shells = currentGrowthShells\(\)/u,
+  "growth routes must apply route classes to the current shell nodes"
+);
+assert.doesNotMatch(
+  entrySource,
+  /const shells = document\.querySelectorAll<HTMLElement>\("\.replica-shell"\)/u,
+  "growth routes must not cache a stale shell node list at startup"
+);
+assert.doesNotMatch(
+  entrySource,
+  /searchRegion\.hidden = Boolean\(route\)/u,
+  "growth routes must not hide the shared top search for every route"
+);
+assert.doesNotMatch(
+  entrySource,
+  /primaryAction\.hidden = Boolean\(route\)/u,
+  "growth routes must not hide the shared today-task button for every route"
+);
+assert.match(
+  entrySource,
+  /growthToolbarMeta\(route\)/u,
+  "growth routes must control toolbar visibility through a route-aware helper"
+);
+assert.match(
+  entrySource,
+  /searchRegion\.style\.display = toolbar\.showToolbar \? "" : "none"/u,
+  "finance route must be able to suppress the shared toolbar with author-level display control"
+);
+assert.match(
+  entrySource,
+  /searchRegion\.style\.display = ""/u,
+  "leaving growth must restore the shared search visibility"
+);
+assert.match(
+  entrySource,
+  /primaryAction\.style\.display = toolbar\.showToolbar \? "" : "none"/u,
+  "finance route must be able to suppress the shared CTA with author-level display control"
+);
+assert.match(
+  entrySource,
+  /primaryAction\.style\.display = ""/u,
+  "leaving growth must restore the shared CTA visibility"
+);
+assert.match(
+  entrySource,
+  /primaryActionLabel\.textContent = toolbar\.primaryAction/u,
+  "growth routes must write the shared toolbar CTA label explicitly"
+);

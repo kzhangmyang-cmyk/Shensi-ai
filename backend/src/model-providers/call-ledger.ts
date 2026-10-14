@@ -44,6 +44,7 @@ export function parseFinancialCouncilModelCallJobId(
 }
 
 export interface ModelCallErrorRecord {
+  validationReasons?: string[];
   code: string;
   status: number | null;
   retryable: boolean;

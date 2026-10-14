@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import stat
+import threading
 
 import pytest
 
@@ -75,6 +76,8 @@ class FakeLocator:
             self.page.focused_selector = self.selector
         if self.selector.endswith('-submit"]'):
             self.page.after_submit = True
+            if self.page.on_submit is not None:
+                self.page.on_submit(self.page)
 
     def get_attribute(self, name: str, **_kwargs):
         if name == "data-e2e-receipt-id" and self.page.receipt_visible:
@@ -113,7 +116,7 @@ class FakePage:
     def __init__(self, *, visible=(), receipt=False, late_receipt=False,
                  clock=None, after_wait=None, after_control_lookup=None,
                  after_readback=None, after_baseline=None,
-                 comment_submit_requires_content=False):
+                 comment_submit_requires_content=False, on_submit=None):
         self.visible = set(visible)
         self.receipt = receipt
         self.late_receipt = late_receipt
@@ -124,6 +127,7 @@ class FakePage:
         self.after_baseline = after_baseline
         self.comment_submit_requires_content = comment_submit_requires_content
         self.after_submit = False
+        self.on_submit = on_submit
         self.url = "about:blank"
         self.urls: list[str] = []
         self.fills: list[tuple[str, str]] = []
@@ -286,6 +290,104 @@ def test_visible_verification_handoff_rechecks_and_completes_the_same_action_onc
     ]
     assert receipt.action_id == "action-comment"
     assert receipt.state == "succeeded"
+
+
+@pytest.mark.parametrize("verification", [
+    '[data-e2e="verification"]', 'text="接收短信验证码"',
+])
+@pytest.mark.parametrize("delayed", [False, True])
+def test_post_submit_verification_waits_for_human_then_only_reads_receipt(
+    verification, delayed,
+):
+    clock = FakeClock()
+
+    def human_finishes(value):
+        if delayed and value.waits == 1:
+            value.visible.add(verification)
+        if clock.now() >= NOW + timedelta(seconds=15):
+            value.visible.discard(verification)
+            value.receipt = True
+
+    page = FakePage(
+        visible={'[data-e2e="comment-input"]', '[data-e2e="comment-submit"]',
+                 '[data-e2e-receipt-id]'},
+        clock=clock,
+        on_submit=None if delayed else lambda value: value.visible.add(verification),
+        after_wait=human_finishes,
+    )
+
+    receipt = DouyinActionExecutor(
+        now=clock.now, receipt_attempts=3, receipt_poll_ms=250,
+    ).execute(page, request())
+
+    assert clock.now() >= NOW + timedelta(seconds=15)
+    assert page.brought_to_front == 1
+    assert page.verification_bypass_calls == []
+    assert page.clicks == ['[data-e2e="comment-input"]', '[data-e2e="comment-submit"]']
+    assert page.native_types == [('[data-e2e="comment-input"]', "冻结的批准文本")]
+    assert receipt.state == "succeeded"
+    assert receipt.platform_receipt_reference == "safe-receipt-123"
+
+
+@pytest.mark.parametrize(("deadline_seconds", "wait_seconds"), [(5, 5), (60, 30)])
+def test_post_submit_verification_timeout_is_uncertain_and_never_resubmitted(
+    deadline_seconds, wait_seconds,
+):
+    clock = FakeClock()
+    page = FakePage(
+        visible={'[data-e2e="comment-input"]', '[data-e2e="comment-submit"]'},
+        clock=clock,
+        on_submit=lambda value: value.visible.add('text="接收短信验证码"'),
+    )
+
+    with pytest.raises(DouyinActionFailure, match="^douyin_action_receipt_ambiguous$"):
+        DouyinActionExecutor(
+            now=clock.now, manual_verification_seconds=30,
+        ).execute(page, request(deadline_at=NOW + timedelta(seconds=deadline_seconds)))
+
+    assert clock.now() == NOW + timedelta(seconds=wait_seconds)
+    assert page.brought_to_front == 1
+    assert page.verification_bypass_calls == []
+    assert page.clicks == ['[data-e2e="comment-input"]', '[data-e2e="comment-submit"]']
+
+
+def test_post_submit_verification_clear_without_receipt_is_not_success():
+    clock = FakeClock()
+    page = FakePage(
+        visible={'[data-e2e="comment-input"]', '[data-e2e="comment-submit"]'},
+        clock=clock,
+        on_submit=lambda value: value.visible.add('text="接收短信验证码"'),
+        after_wait=lambda value: value.visible.discard('text="接收短信验证码"'),
+    )
+
+    with pytest.raises(DouyinActionFailure, match="^douyin_action_timeout$"):
+        DouyinActionExecutor(now=clock.now, receipt_attempts=2).execute(page, request())
+
+    assert page.brought_to_front == 1
+    assert page.clicks == ['[data-e2e="comment-input"]', '[data-e2e="comment-submit"]']
+
+
+def test_post_submit_verification_revalidates_account_before_accepting_receipt():
+    clock = FakeClock()
+    page = FakePage(
+        visible={'[data-e2e="comment-input"]', '[data-e2e="comment-submit"]',
+                 '[data-e2e-receipt-id]'},
+        receipt=True, clock=clock,
+        on_submit=lambda value: value.visible.add('text="接收短信验证码"'),
+        after_wait=lambda value: value.visible.discard('text="接收短信验证码"'),
+    )
+
+    def revalidate():
+        if page.waits:
+            raise DouyinActionFailure("douyin_account_identity_changed")
+
+    with pytest.raises(DouyinActionFailure, match="^douyin_action_receipt_ambiguous$"):
+        DouyinActionExecutor(
+            now=clock.now, account_identity_revalidator=revalidate,
+        ).execute(page, request())
+
+    assert page.brought_to_front == 1
+    assert page.clicks == ['[data-e2e="comment-input"]', '[data-e2e="comment-submit"]']
 
 
 def test_manual_verification_revalidates_sender_before_any_input():
@@ -605,6 +707,248 @@ def test_action_job_exact_replay_is_durable_and_never_persists_raw_content(tmp_p
     changed = value.model_copy(update={"content": "changed"})
     with pytest.raises(ActionReplayConflict):
         manager.execute(changed)
+
+
+def test_action_job_does_not_block_another_accounts_browser_action(tmp_path):
+    profiles = {
+        "account-a": tmp_path / "profiles" / "account-a",
+        "account-b": tmp_path / "profiles" / "account-b",
+    }
+    for profile in profiles.values():
+        profile.mkdir(parents=True)
+
+    first_started = threading.Event()
+    release_first = threading.Event()
+    second_completed = threading.Event()
+    receipts: dict[str, ActionReceipt] = {}
+    failures: list[BaseException] = []
+
+    def execute(profile, action):
+        assert profile == profiles[action.account_handle]
+        if action.account_handle == "account-a":
+            first_started.set()
+            if not release_first.wait(5):
+                raise RuntimeError("first_action_release_timed_out")
+        return {
+            "action_id": action.action_id,
+            "state": "succeeded",
+            "platform_receipt_reference": f"douyin-comment:{action.action_id}",
+            "occurred_at": NOW.isoformat(),
+            "failure_code": None,
+        }
+
+    manager = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda handle, _version: profiles[handle],
+        executor=execute,
+        now=lambda: NOW,
+    )
+    first = request().model_copy(update={
+        "action_id": "action-account-a",
+        "account_handle": "account-a",
+    })
+    second = request().model_copy(update={
+        "action_id": "action-account-b",
+        "account_handle": "account-b",
+    })
+
+    def run(label, value, completed=None):
+        try:
+            receipts[label] = manager.execute(value)
+        except BaseException as error:
+            failures.append(error)
+        finally:
+            if completed is not None:
+                completed.set()
+
+    first_thread = threading.Thread(
+        target=run,
+        args=("first", first),
+        daemon=True,
+    )
+    second_thread = threading.Thread(
+        target=run,
+        args=("second", second, second_completed),
+        daemon=True,
+    )
+    first_thread.start()
+    assert first_started.wait(1)
+    second_thread.start()
+    try:
+        assert second_completed.wait(1), (
+            "an unrelated account was blocked by the first browser action"
+        )
+        assert receipts["second"].state == "succeeded"
+        assert first_thread.is_alive()
+    finally:
+        release_first.set()
+        first_thread.join(2)
+        second_thread.join(2)
+
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert failures == []
+    assert receipts["first"].state == "succeeded"
+
+
+def test_action_job_serializes_the_same_action_id_across_accounts(tmp_path):
+    profiles = {
+        "account-a": tmp_path / "profiles" / "account-a",
+        "account-b": tmp_path / "profiles" / "account-b",
+    }
+    for profile in profiles.values():
+        profile.mkdir(parents=True)
+
+    first_resolved = threading.Event()
+    release_first = threading.Event()
+    second_executor_started = threading.Event()
+    receipts: dict[str, ActionReceipt] = {}
+    failures: dict[str, BaseException] = {}
+    executor_calls: list[str] = []
+
+    def resolve(handle, _version):
+        if handle == "account-a":
+            first_resolved.set()
+            if not release_first.wait(5):
+                raise RuntimeError("first_resolution_release_timed_out")
+        return profiles[handle]
+
+    def execute(_profile, action):
+        executor_calls.append(action.account_handle)
+        if action.account_handle == "account-b":
+            second_executor_started.set()
+        return {
+            "action_id": action.action_id,
+            "state": "succeeded",
+            "platform_receipt_reference": f"douyin-comment:{action.action_id}",
+            "occurred_at": NOW.isoformat(),
+            "failure_code": None,
+        }
+
+    manager = ActionJobManager(
+        tmp_path,
+        account_resolver=resolve,
+        executor=execute,
+        now=lambda: NOW,
+    )
+    first = request().model_copy(update={
+        "action_id": "shared-action-id",
+        "account_handle": "account-a",
+    })
+    conflicting = request().model_copy(update={
+        "action_id": "shared-action-id",
+        "account_handle": "account-b",
+    })
+
+    def run(label, value):
+        try:
+            receipts[label] = manager.execute(value)
+        except BaseException as error:
+            failures[label] = error
+
+    first_thread = threading.Thread(
+        target=run,
+        args=("first", first),
+        daemon=True,
+    )
+    conflicting_thread = threading.Thread(
+        target=run,
+        args=("conflicting", conflicting),
+        daemon=True,
+    )
+    first_thread.start()
+    assert first_resolved.wait(1)
+    conflicting_thread.start()
+    try:
+        assert not second_executor_started.wait(1), (
+            "the same action ID bypassed its journal serialization boundary"
+        )
+    finally:
+        release_first.set()
+        first_thread.join(2)
+        conflicting_thread.join(2)
+
+    assert not first_thread.is_alive()
+    assert not conflicting_thread.is_alive()
+    assert receipts["first"].state == "succeeded"
+    assert isinstance(failures.get("conflicting"), ActionReplayConflict)
+    assert executor_calls == ["account-a"]
+
+
+def test_action_job_serializes_different_actions_for_the_same_account(tmp_path):
+    profile = tmp_path / "profiles" / "account-a"
+    profile.mkdir(parents=True)
+    first_executor_started = threading.Event()
+    release_first = threading.Event()
+    second_call_started = threading.Event()
+    second_completed = threading.Event()
+    receipts: dict[str, ActionReceipt] = {}
+    failures: list[BaseException] = []
+    executor_calls: list[str] = []
+
+    def execute(_profile, action):
+        executor_calls.append(action.action_id)
+        if action.action_id == "same-account-first":
+            first_executor_started.set()
+            if not release_first.wait(5):
+                raise RuntimeError("first_action_release_timed_out")
+        return {
+            "action_id": action.action_id,
+            "state": "succeeded",
+            "platform_receipt_reference": f"douyin-comment:{action.action_id}",
+            "occurred_at": NOW.isoformat(),
+            "failure_code": None,
+        }
+
+    manager = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda _handle, _version: profile,
+        executor=execute,
+        now=lambda: NOW,
+    )
+    first = request().model_copy(update={"action_id": "same-account-first"})
+    second = request().model_copy(update={"action_id": "same-account-second"})
+
+    def run(label, value, started=None, completed=None):
+        if started is not None:
+            started.set()
+        try:
+            receipts[label] = manager.execute(value)
+        except BaseException as error:
+            failures.append(error)
+        finally:
+            if completed is not None:
+                completed.set()
+
+    first_thread = threading.Thread(
+        target=run,
+        args=("first", first),
+        daemon=True,
+    )
+    second_thread = threading.Thread(
+        target=run,
+        args=("second", second, second_call_started, second_completed),
+        daemon=True,
+    )
+    first_thread.start()
+    assert first_executor_started.wait(1)
+    second_thread.start()
+    assert second_call_started.wait(1)
+    try:
+        assert not second_completed.wait(1), (
+            "two actions for one account must remain serialized"
+        )
+    finally:
+        release_first.set()
+        first_thread.join(2)
+        second_thread.join(2)
+
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert failures == []
+    assert receipts["first"].state == "succeeded"
+    assert receipts["second"].state == "succeeded"
+    assert executor_calls == ["same-account-first", "same-account-second"]
 
 
 def test_action_job_executes_direct_message_under_profile_lease_and_started_journal(

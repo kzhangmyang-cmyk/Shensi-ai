@@ -167,6 +167,9 @@ function assertUniqueModuleNames(modules: readonly GrowthCommercialModule[]) {
 }
 
 const authenticatedPrefixes = [
+  "/api/v1/knowledge",
+  "/api/v1/agent-memory/operating",
+  "/api/v1/decision-simulations",
   "/api/v1/growth",
   "/api/v1/catalog",
   "/api/v1/quotes",

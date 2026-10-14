@@ -164,6 +164,13 @@ export interface components {
         KnowledgeVersion: components["schemas"]["Version"];
         KnowledgeChunk: components["schemas"]["Chunk"];
         KnowledgeCitation: components["schemas"]["Citation"];
+        ReferenceCitation: components["schemas"]["Citation"] | components["schemas"]["SystemReference"];
+        LibraryStatus: {
+            /** @enum {unknown} */
+            private: "off" | "used" | "no_match" | "unavailable";
+            /** @enum {unknown} */
+            system: "off" | "unconfigured" | "unbound" | "ready" | "no_match" | "unavailable" | "auth_required" | "forbidden" | "rate_limited" | "vocabulary_mismatch";
+        };
         KnowledgeAnswer: components["schemas"]["Answer"];
         KnowledgeError: {
             error: {
@@ -274,6 +281,11 @@ export interface components {
             warnings: components["schemas"]["Warnings"];
         };
         Citation: {
+            /**
+             * @description Omitted is legacy private; never infer system ownership from UUID or K alias.
+             * @constant
+             */
+            sourceType?: "private";
             sourceId: string;
             /** Format: uuid */
             documentId: string;
@@ -287,11 +299,37 @@ export interface components {
             excerpt: string;
             warnings: components["schemas"]["Warnings"];
         };
+        /** @description Server-selected UTF-16 half-open offsets in the immutable chunk. Runtime also checks exact length/source equality and intact surrogate pairs. */
+        ExcerptRange: {
+            start: number;
+            end: number;
+        };
+        SystemReference: {
+            /** @constant */
+            sourceType: "system";
+            sourceId: string;
+            referenceKey: string;
+            /** Format: uuid */
+            queryGrantId: string;
+            /** Format: uuid */
+            referenceId: string;
+            /** Format: uuid */
+            corpusId: string;
+            /** Format: uuid */
+            releaseId: string;
+            sourceHash: string;
+            chunkHash: string;
+            excerptRange: components["schemas"]["ExcerptRange"];
+            sourceLabel: string;
+            locator: components["schemas"]["Locator"];
+            excerpt: string;
+            warnings: components["schemas"]["Warnings"];
+        };
         Answer: {
             /** @enum {unknown} */
             status: "used" | "no_match" | "unavailable";
             detailedText: string;
-            sources: components["schemas"]["Citation"][];
+            sources: components["schemas"]["ReferenceCitation"][];
             warnings: components["schemas"]["Warnings"];
         };
     };

@@ -35,11 +35,12 @@ def _mapping(value: object) -> Mapping[str, object]:
 
 def _actor_id(raw: Mapping[str, object], nested_key: str) -> str:
     nested = _mapping(raw.get(nested_key))
+    # Nested actors belong to this record; flattened fields are supported only
+    # for the adapter/store format that has no nested actor.
+    actor = nested if nested else raw
     value = _text(
-        raw.get("sec_uid") or raw.get("sec_user_id")
-        or raw.get("user_id") or raw.get("uid")
-        or nested.get("sec_uid") or nested.get("sec_user_id")
-        or nested.get("user_id") or nested.get("uid"),
+        actor.get("sec_uid") or actor.get("sec_user_id")
+        or actor.get("user_id") or actor.get("uid"),
         300,
     )
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,300}", value):
@@ -51,8 +52,8 @@ def _record(kind: str, raw: Mapping[str, object], observed_at: datetime):
     keyword = _text(raw.get("source_keyword"), 100)
     nested_actor = _mapping(raw.get("user") if kind == "comment" else raw.get("author"))
     display_name = _text(
-        raw.get("nickname") or raw.get("display_name")
-        or nested_actor.get("nickname") or "Douyin", 200,
+        (nested_actor.get("nickname") if nested_actor else
+         raw.get("nickname") or raw.get("display_name")) or "Douyin", 200,
     )
     profile_url = None
     actor_kind = None

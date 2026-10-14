@@ -14,8 +14,8 @@ assert.deepEqual(parseGrowthHash("#financial-council/run/run%20%2F%201"), {
   runId: "run / 1"
 });
 assert.deepEqual(
-  parseGrowthHash("#growth/quotes?case=case-1&deal=deal-1"),
-  { name: "quote", quoteCaseId: "case-1", dealId: "deal-1" }
+  parseGrowthHash("#growth/quotes?case=case-1&customer=customer-1&deal=deal-1&assignee=sales-1"),
+  { name: "quote", quoteCaseId: "case-1", customerId: "customer-1", dealId: "deal-1", assignedTo: "sales-1" }
 );
 assert.deepEqual(
   parseGrowthHash("#growth/roi?cohort=cohort-1&currency=CNY&closure=closure-2"),
@@ -37,9 +37,11 @@ assert.equal(
   growthHash({
     name: "quote",
     quoteCaseId: "case-1",
-    candidateId: "candidate-1"
+    candidateId: "candidate-1",
+    customerId: "customer-1",
+    assignedTo: "sales-1"
   }),
-  "#growth/quotes?case=case-1&candidate=candidate-1"
+  "#growth/quotes?case=case-1&candidate=candidate-1&customer=customer-1&assignee=sales-1"
 );
 assert.equal(
   growthHash({ name: "roi", currency: "USD" }),

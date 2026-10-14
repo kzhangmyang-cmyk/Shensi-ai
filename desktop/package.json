@@ -1,0 +1,40 @@
+{
+  "name": "shensi-desktop",
+  "version": "0.1.0",
+  "description": "Shensi secure macOS desktop client",
+  "author": "Shensi",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "pnpm build:main && pnpm --dir ../frontend build:desktop && node --import tsx scripts/dev.mjs",
+    "test": "pnpm test:enterprise-bridge && tsx --test scripts/prepare-dev-build-identity.test.mjs && cd tests && tsx --test && uv run --frozen --project ../../services/media-crawler pytest -q test_frozen_sidecar_entrypoint.py",
+    "test:enterprise-bridge": "node enterprise-bridge/build.mjs && node --test enterprise-bridge/test.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:preload": "node scripts/build-preload.mjs",
+    "build:main": "tsc -p tsconfig.build.json && pnpm build:preload",
+    "build:sidecar": "bash scripts/build-sidecar.sh",
+    "build": "pnpm build:main",
+    "package:mac": "bash scripts/package-macos.sh development",
+    "package:mac:release": "bash scripts/package-macos.sh release",
+    "stage:standalone": "node scripts/stage-standalone-resources.mjs",
+    "verify:package": "node scripts/verify-package.mjs",
+    "verify:mac": "bash scripts/verify-macos-artifacts.sh development",
+    "verify:mac:release": "bash scripts/verify-macos-artifacts.sh release"
+  },
+  "devDependencies": {
+    "@electron/asar": "3.4.1",
+    "@electron/osx-sign": "1.3.3",
+    "@playwright/test": "1.62.0",
+    "@types/node": "22.10.2",
+    "@types/ws": "8.18.1",
+    "electron": "44.1.1",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.25.12",
+    "tsx": "4.19.2",
+    "typescript": "5.7.2"
+  },
+  "dependencies": {
+    "ws": "8.21.3"
+  }
+}

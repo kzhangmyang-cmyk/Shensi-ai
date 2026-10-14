@@ -88,7 +88,8 @@ const outreachBatchOperations = {
   "/api/v1/acquisition/outreach-batches/{batchId}/reject": ["post"],
   "/api/v1/acquisition/outreach-batches/{batchId}/pause": ["post"],
   "/api/v1/acquisition/outreach-batches/{batchId}/resume": ["post"],
-  "/api/v1/acquisition/outreach-batches/{batchId}/actions": ["get"]
+  "/api/v1/acquisition/outreach-batches/{batchId}/actions": ["get"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/actions/recover-account": ["post"]
 } as const;
 
 const blockedDirectWrites = [

@@ -59,6 +59,22 @@ function uploads() {
   ] as const;
 }
 
+function statementAtByteSize<T extends ReturnType<typeof upload>>(file: T, byteSize: number): T {
+  const workbook = XLSX.read(Buffer.from(file.contentBase64, "base64"));
+  // Uncompressed workbook metadata pads the ZIP without adding business rows,
+  // changing any statement values, or exceeding per-cell safety limits.
+  workbook.Custprops = { transportBoundary: "x" };
+  const write = () => XLSX.write(workbook, {
+    type: "buffer", bookType: "xlsx", compression: false,
+  }) as Buffer;
+  const baseline = write().length;
+  assert.ok(byteSize >= baseline);
+  workbook.Custprops.transportBoundary = "x".repeat(byteSize - baseline + 1);
+  const content = write();
+  assert.equal(content.length, byteSize);
+  return { ...file, contentBase64: content.toString("base64") };
+}
+
 const command = { workspaceId: "workspace-a", actorId: "actor-a",
   idempotencyKey: "key-1", requestHash: `sha256:${"1".repeat(64)}` as const };
 
@@ -75,6 +91,54 @@ const cashForecast = {
   attestation: { accepted: true as const,
     noticeVersion: "financial-cash-forecast.v1" as const }
 };
+
+test("statement preview accepts an exact 5 MiB canonical workbook without Base64 stack overflow", async () => {
+  const files = uploads();
+  const boundary = statementAtByteSize(files[0], 5 * 1024 * 1024);
+  const repository = new InMemoryFinancialStatementPackageRepository();
+  const service = new FinancialStatementPackageService({ repository });
+  const preview = await service.preview(command, { uploads: [boundary, files[1], files[2]] });
+  assert.equal(preview.status, "preview");
+  assert.equal(preview.companyName, "示例公司");
+  assert.equal(preview.sourceFiles.length, 3);
+  assert.equal(await repository.getVerified(command.workspaceId, preview.previewId), null);
+});
+
+test("statement preview retains the decoded 5 MiB per-file ceiling", async () => {
+  const files = uploads();
+  const oversized = statementAtByteSize(files[0], 5 * 1024 * 1024 + 1);
+  const service = new FinancialStatementPackageService({
+    repository: new InMemoryFinancialStatementPackageRepository() });
+  await assert.rejects(service.preview(command, { uploads: [oversized, files[1], files[2]] }),
+    (error: unknown) => (error as { code?: string }).code === "financial_statement_limit_exceeded");
+});
+
+test("statement preview rejects malformed and noncanonical Base64 before business parsing", async (t) => {
+  const files = uploads();
+  const padded = statementAtByteSize(files[0], 64 * 1024).contentBase64;
+  assert.ok(padded.endsWith("=="));
+  const cases = [
+    ["empty", ""],
+    ["invalid alphabet", `!${padded.slice(1)}`],
+    ["leading whitespace", ` ${padded}`],
+    ["embedded newline", `${padded.slice(0, 8)}\n${padded.slice(8)}`],
+    ["missing padding", padded.slice(0, -2)],
+    ["excessive padding", `${padded}=`],
+    ["embedded padding", `${padded.slice(0, 8)}=${padded.slice(8)}`],
+    ["nonzero pad bits", `${padded.slice(0, -3)}B==`],
+    ["URL-safe alphabet", `_${padded.slice(1)}`],
+  ] as const;
+  for (const [name, contentBase64] of cases) {
+    await t.test(name, async () => {
+      const service = new FinancialStatementPackageService({
+        repository: new InMemoryFinancialStatementPackageRepository() });
+      await assert.rejects(service.preview(command, {
+        uploads: [{ ...files[0], contentBase64 }, files[1], files[2]],
+      }), (error: unknown) => (error as { code?: string }).code ===
+        "financial_statement_artifact_invalid");
+    });
+  }
+});
 
 test("preview is non-authoritative and commit requires consent", async () => {
   const repository = new InMemoryFinancialStatementPackageRepository();

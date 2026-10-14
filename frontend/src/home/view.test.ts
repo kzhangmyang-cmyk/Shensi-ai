@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {parseHTML} from 'linkedom';
+import {mountHome} from './view';
+import {normalizeAppHash} from '../app-route';
+import type {AcquisitionTaskOverview} from '../acquisition/runtime-model';
+test('home keeps ordered primary routes and every existing secondary module accessible',()=>{
+ const {document}=parseHTML('<html><body><main></main></body></html>');const host=document.querySelector<HTMLElement>('main')!;
+ mountHome(host,undefined,()=>true);
+ assert.deepEqual([...host.querySelectorAll('.shensi-home-primary a')].map(a=>a.getAttribute('href')),['#acquisition','#agents','#decision-simulation']);
+ for(const a of host.querySelectorAll('a'))assert.equal(normalizeAppHash(a.getAttribute('href')!),a.getAttribute('href'));
+ assert.equal(host.querySelectorAll('.shensi-home-more a').length,11);
+ assert.equal(host.querySelectorAll('.shensi-home-primary a h3').length,3);
+ assert.deepEqual([...host.querySelectorAll('[data-home-entry]')].map(a=>a.getAttribute('data-home-entry')),['acquisition','agents','decision-simulation']);
+ assert.equal(host.querySelectorAll('.home-entry-art[aria-hidden="true"]').length,3);
+ assert.equal(host.querySelectorAll('.home-entry-action').length,3);
+ assert.match(host.querySelector('[data-home-entry="acquisition"] img')!.getAttribute('src')!,/acquisition-radar/);
+ assert.match(host.querySelector('[data-home-entry="agents"] img')!.getAttribute('src')!,/agents-collaboration/);
+ const motion=host.querySelector<HTMLButtonElement>('[data-home-motion-toggle]')!;
+ assert.equal(motion.getAttribute('aria-pressed'),'false');motion.click();
+ assert.equal(motion.getAttribute('aria-pressed'),'true');
+ assert.equal(host.querySelectorAll('shensi-home-art[data-paused="true"]').length,3);
+ motion.click();assert.equal(host.querySelectorAll('shensi-home-art[data-paused="true"]').length,0);
+ assert.equal(host.querySelector('.shensi-home-more')!.hasAttribute('open'),false);
+});
+test('home reads active task state without executing and drops late cross-account updates',async()=>{
+ const {document}=parseHTML('<html><body><main></main></body></html>');const host=document.querySelector<HTMLElement>('main')!;
+ let finish!:(value:AcquisitionTaskOverview)=>void;let live=true;
+ mountHome(host,{getOverview:()=>new Promise(r=>{finish=r;})},()=>live);
+ const result:AcquisitionTaskOverview={generatedAt:new Date().toISOString(),platform:'douyin',totals:{tasks:1},statusCounts:{running:1},discoveryMethodCounts:{},tasks:[{id:'task',planId:'plan',name:'合成运行任务',objective:'只读状态',platform:'douyin',discoveryMethods:['public_search'],planStatus:'approved',updatedAt:new Date().toISOString(),latestRun:{id:'run',status:'running',updatedAt:new Date().toISOString(),completedAt:null,evidenceCount:2,consumedBudget:{requests:1,results:2,durationSeconds:3}}}]};
+ finish(result);await new Promise(r=>setTimeout(r,0));assert.match(host.textContent!,/合成运行任务/);assert.match(host.textContent!,/正在运行/);
+ host.querySelector<HTMLButtonElement>('[data-home-refresh]')!.click();live=false;
+ finish(result);await new Promise(r=>setTimeout(r,0));assert.match(host.textContent!,/正在读取/);
+ assert.equal(host.querySelector('.shensi-home-tasks>a')!.getAttribute('href'),'#acquisition');
+});

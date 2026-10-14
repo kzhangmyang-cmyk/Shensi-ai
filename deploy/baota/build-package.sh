@@ -35,9 +35,12 @@ cp "$PROJECT_ROOT/package.json" \
   "$PROJECT_ROOT/pnpm-workspace.yaml" \
   "$STAGING_DIR/"
 cp "$PROJECT_ROOT/backend/package.json" "$PROJECT_ROOT/backend/tsconfig.json" "$STAGING_DIR/backend/"
+mkdir -p "$STAGING_DIR/backend/scripts"
+cp "$PROJECT_ROOT/backend/scripts/copy-cfo-skill.mjs" "$STAGING_DIR/backend/scripts/"
 cp "$PROJECT_ROOT/contracts/package.json" "$STAGING_DIR/contracts/"
 cp "$PROJECT_ROOT/frontend/package.json" \
   "$PROJECT_ROOT/frontend/index.html" \
+  "$PROJECT_ROOT/frontend/admin.html" \
   "$PROJECT_ROOT/frontend/tsconfig.json" \
   "$PROJECT_ROOT/frontend/tsconfig.node.json" \
   "$PROJECT_ROOT/frontend/vite.config.ts" \
@@ -126,9 +129,10 @@ if grep -ERqi \
 fi
 grep -Fq 'aria-label="Shensi 登录"' "$STAGING_DIR/frontend/index.html" \
   || { printf '登录界面缺少 Shensi 标识\n' >&2; exit 1; }
-grep -Fq '<input id="loginEmail" name="email" type="text" autocomplete="username" required maxlength="320">' "$STAGING_DIR/frontend/index.html" \
+# Optional hints do not prefill credentials; keep the remaining input shape closed.
+grep -Eq '<input id="loginEmail" name="email" type="text" autocomplete="username"( placeholder="[^"<>]*")? required maxlength="320">' "$STAGING_DIR/frontend/index.html" \
   || { printf '登录界面缺少空白账号输入\n' >&2; exit 1; }
-grep -Fq '<input id="loginPassword" name="password" type="password" autocomplete="current-password" required>' "$STAGING_DIR/frontend/index.html" \
+grep -Eq '<input id="loginPassword" name="password" type="password" autocomplete="current-password"( placeholder="[^"<>]*")? required>' "$STAGING_DIR/frontend/index.html" \
   || { printf '登录界面缺少空白密码输入\n' >&2; exit 1; }
 if grep -Fq 'value="admin@goodjob.com"' "$STAGING_DIR/frontend/index.html" \
   || grep -Fq 'value="goodjob123"' "$STAGING_DIR/frontend/index.html"; then

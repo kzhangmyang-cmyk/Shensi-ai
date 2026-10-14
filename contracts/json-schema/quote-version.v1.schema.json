@@ -83,6 +83,12 @@
         "assessedAt": { "type": "string", "format": "date-time" }
       }
     },
+    "QuoteAssessmentSnapshot": {
+      "oneOf": [
+        { "$ref": "#/$defs/ProbabilityAssessmentSnapshot" },
+        { "$ref": "quote-case.v1.schema.json#/$defs/CrmQuoteAssessmentSnapshot" }
+      ]
+    },
     "FullProjection": {
       "type": "object",
       "additionalProperties": false,
@@ -96,7 +102,7 @@
             "properties": { "probabilityAssessmentSnapshot": { "type": "null" } }
           },
           "else": {
-            "properties": { "probabilityAssessmentSnapshot": { "$ref": "#/$defs/ProbabilityAssessmentSnapshot" } }
+            "properties": { "probabilityAssessmentSnapshot": { "$ref": "#/$defs/QuoteAssessmentSnapshot" } }
           }
         }
       ],
@@ -128,7 +134,7 @@
         "grossMarginBps": { "$ref": "#/$defs/signed" },
         "approvalReasons": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "pricingPolicySnapshot": { "$ref": "pricing-policy-version.v1.schema.json#/$defs/FullProjection" },
-        "probabilityAssessmentSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ProbabilityAssessmentSnapshot" }] },
+        "probabilityAssessmentSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/QuoteAssessmentSnapshot" }] },
         "previewIdentity": { "$ref": "quote-case.v1.schema.json#/$defs/QuotePreviewIdentity" },
         "commercialAmountHash": { "$ref": "#/$defs/hash" },
         "status": { "enum": ["draft", "submitted", "approved", "rejected", "superseded", "expired"] },
@@ -149,7 +155,7 @@
             "properties": { "probabilityAssessmentSnapshot": { "type": "null" } }
           },
           "else": {
-            "properties": { "probabilityAssessmentSnapshot": { "$ref": "#/$defs/ProbabilityAssessmentSnapshot" } }
+            "properties": { "probabilityAssessmentSnapshot": { "$ref": "#/$defs/QuoteAssessmentSnapshot" } }
           }
         }
       ],
@@ -174,7 +180,7 @@
         "quotedAmountMinor": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "discountBps": { "$ref": "#/$defs/bps" },
         "approvalReasons": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-        "probabilityAssessmentSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ProbabilityAssessmentSnapshot" }] },
+        "probabilityAssessmentSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/QuoteAssessmentSnapshot" }] },
         "previewIdentity": { "$ref": "quote-case.v1.schema.json#/$defs/QuotePreviewIdentity" },
         "commercialAmountHash": { "$ref": "#/$defs/hash" },
         "status": { "enum": ["draft", "submitted", "approved", "rejected", "superseded", "expired"] },

@@ -44,9 +44,10 @@ function command(value: FinancialStatementPackageCommandContext) {
 
 function decode(contentBase64: string): Buffer {
   if (typeof contentBase64 !== "string" || contentBase64.length === 0
-    || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u
-      .test(contentBase64)) fail("financial_statement_content_invalid");
+    || contentBase64.length % 4 !== 0) fail("financial_statement_content_invalid");
   const content = Buffer.from(contentBase64, "base64");
+  // Exact round-trip enforces alphabet, padding and unused bits without a
+  // repeated-group regex that exhausts the stack on valid multi-MiB uploads.
   if (content.toString("base64") !== contentBase64) {
     fail("financial_statement_content_invalid");
   }

@@ -359,8 +359,12 @@ function initialise(): void {
     if (cancel) cancel.textContent = "关闭";
   }
 
-  function openDialog(): void {
+  function openDialog(event?: Event): void {
     resetDialog();
+    const detail = (event as CustomEvent<{ prompt?: unknown }> | undefined)?.detail;
+    const requestedPrompt = typeof detail?.prompt === "string"
+      ? detail.prompt.trim().slice(0, 20_000) : "";
+    if (requestedPrompt && aiPrompt) aiPrompt.value = requestedPrompt;
     if (!taskDialog.open) taskDialog.showModal();
     void loadConnections();
   }
@@ -485,7 +489,14 @@ function initialise(): void {
         const run = result.run;
         const runId = typeof run.id === "string" ? run.id : "--";
         const runStatus = typeof run.status === "string" ? run.status : "queued";
+        const planId = typeof result.plan.data.id === "string"
+          ? result.plan.data.id
+          : "";
         setSubmitStatus(`任务已开始 · Run ${runId} · ${runStatus}`, "success");
+        document.dispatchEvent(new CustomEvent(
+          "goodjob:cfo-acquisition-workflow-started",
+          { detail: { planId, runId, runStatus } }
+        ));
         document.dispatchEvent(new CustomEvent("goodjob:acquisition-notify", {
           detail: { message: "真实抖音获客任务已批准并开始运行" }
         }));

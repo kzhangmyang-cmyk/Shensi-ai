@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { canonicalJsonStringify } from "./canonical-json.js";
+import { canonicalizeDouyinOutreachTargetUrl } from
+  "./acquisition-outreach-target-url.js";
 
 export type AcquisitionOutreachBatchState =
   | "awaiting_approval" | "approved" | "rejected" | "paused";
@@ -60,8 +62,10 @@ export interface AcquisitionOutreachBatch {
 }
 
 export type AcquisitionOutreachActionKind = "comment" | "direct_message";
+export type AcquisitionOutreachActionExecutionTarget = "server" | "desktop";
 export type AcquisitionOutreachActionStatus = "queued" | "blocked_by_predecessor"
-  | "executing" | "succeeded" | "failed" | "risk_paused";
+  | "claimed" | "executing" | "succeeded" | "failed" | "risk_paused"
+  | "reconciliation_required";
 
 export interface AcquisitionOutreachAction {
   id: string;
@@ -74,6 +78,7 @@ export interface AcquisitionOutreachAction {
   policyVersionId: string;
   localDate: string;
   kind: AcquisitionOutreachActionKind;
+  executionTarget: AcquisitionOutreachActionExecutionTarget;
   sequence: 1 | 2;
   status: AcquisitionOutreachActionStatus;
   predecessorActionId: string | null;
@@ -81,8 +86,8 @@ export interface AcquisitionOutreachAction {
   content: string;
   contentHash: string;
   approvalHash: string;
-  /** Versioned second-stage authorization; absent on historical actions. */
-  authorizationVersion?: 2;
+  /** v2 follows a confirmed comment; v3 is independently confirmed. */
+  authorizationVersion?: 2 | 3;
   approvedBy?: string;
   approvedAt?: string;
   directMessageDailyLimit?: number;
@@ -104,9 +109,30 @@ export function validOutreachTarget(
   kind: AcquisitionOutreachActionKind,
   value: string
 ) {
-  return kind === "comment"
-    ? /^https:\/\/www\.douyin\.com\/video\/[A-Za-z0-9_-]{1,300}$/u.test(value)
-    : /^https:\/\/www\.douyin\.com\/user\/[A-Za-z0-9_-]{1,300}$/u.test(value);
+  try { return canonicalizeDouyinOutreachTargetUrl(kind, value) === value; }
+  catch { return false; }
+}
+
+const ACTION_STATUSES = new Set<AcquisitionOutreachActionStatus>([
+  "queued", "blocked_by_predecessor", "claimed", "executing", "succeeded",
+  "failed", "risk_paused", "reconciliation_required"
+]);
+
+export function parseAcquisitionOutreachAction(value: unknown): AcquisitionOutreachAction {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("outreach_action_invalid");
+  }
+  const action = value as Record<string, unknown>;
+  const executionTarget = action.executionTarget ?? "server";
+  if ((executionTarget !== "server" && executionTarget !== "desktop")
+    || (action.kind !== "comment" && action.kind !== "direct_message")
+    || !ACTION_STATUSES.has(action.status as AcquisitionOutreachActionStatus)
+    || typeof action.id !== "string" || !action.id
+    || typeof action.workspaceId !== "string" || !action.workspaceId
+    || typeof action.batchId !== "string" || !action.batchId) {
+    throw new TypeError("outreach_action_invalid");
+  }
+  return { ...action, executionTarget } as unknown as AcquisitionOutreachAction;
 }
 
 export function outreachBatchEtag(batchId: string, revision: number) {
@@ -159,6 +185,16 @@ export function outreachDirectMessageApprovalHash(input: {
   candidateId: string; accountId: string; accountLoginStateVersion: number;
   targetPublicUrl: string; directMessage: string; directMessageHash: string;
   predecessorActionId: string; predecessorReceiptReference: string;
+  dailyLimit: number; dailyOrdinal: number; approvedBy: string; approvedAt: string;
+}) {
+  return hash(input);
+}
+
+export function outreachIndependentDirectMessageApprovalHash(input: {
+  authorizationVersion: 3;
+  batchId: string; batchRevision: number; batchHash: string;
+  candidateId: string; accountId: string; accountLoginStateVersion: number;
+  targetPublicUrl: string; directMessage: string; directMessageHash: string;
   dailyLimit: number; dailyOrdinal: number; approvedBy: string; approvedAt: string;
 }) {
   return hash(input);

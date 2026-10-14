@@ -308,6 +308,20 @@ export function createConnectionSettingsApi(
       );
     },
 
+    deactivateModelConnection(
+      id: string,
+      reason: string,
+      stableKey?: string
+    ): Promise<ModelConnection> {
+      return jsonRequest(
+        `/api/v1/ai/connections/${pathSegment(id)}/deactivate`,
+        "POST",
+        { reason },
+        true,
+        stableKey
+      );
+    },
+
     testModelConnection(id: string): Promise<ConnectionHealth> {
       return jsonRequest(
         "/api/tools/ai-config/test",

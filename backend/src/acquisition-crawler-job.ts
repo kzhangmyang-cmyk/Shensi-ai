@@ -8,6 +8,7 @@ export type AcquisitionCrawlerJobState =
 export interface AcquisitionCrawlerLimits {
   maxVideos: number;
   maxCommentsPerVideo: number;
+  maxComments?: number;
   maxPagesPerVideo: number;
   maxDurationSeconds: number;
 }
@@ -27,6 +28,7 @@ export const acquisitionCrawlerStoredErrorCodes = [
   "crawler_lease_expired",
   "crawler_ingestion_lease_expired",
   "crawler_worker_failed",
+  "crawler_execution_forbidden",
   "crawler_ingestion_failed",
   "mediacrawler_job_paused",
   "mediacrawler_job_failed",
@@ -104,6 +106,8 @@ export interface AcquisitionCrawlerJobInput {
   limits: AcquisitionCrawlerLimits;
   createdAt: string;
   maxAttempts?: number;
+  executionTarget?: "server" | "desktop";
+  desktopTaskTokenHash?: string | null;
 }
 
 export interface NormalizedDouyinRecord {
@@ -125,6 +129,8 @@ extends NormalizedDouyinRecord {
 }
 
 export interface AcquisitionCrawlerJob extends AcquisitionCrawlerJobInput {
+  executionTarget: "server" | "desktop";
+  desktopTaskTokenHash: string | null;
   state: AcquisitionCrawlerJobState;
   runIds: string[];
   automationIntentIds: string[];
@@ -134,6 +140,8 @@ export interface AcquisitionCrawlerJob extends AcquisitionCrawlerJobInput {
   cursorHistory: string[];
   recordCount: number;
   candidateBudgetUsed: number;
+  /** Null means unlimited discovery; absent only on historical jobs. */
+  candidateBudgetLimit?: null;
   cancelRequestedAt: string | null;
   lastErrorCode: string | null;
   leaseWorkerId: string | null;
@@ -188,7 +196,7 @@ export interface AcquisitionCrawlerStatus {
   cursorPersisted: boolean;
   recordCount: number;
   candidateBudgetUsed: number;
-  candidateBudgetLimit: number;
+  candidateBudgetLimit: number | null;
   lastErrorCode: string | null;
   createdAt: string;
   updatedAt: string;
@@ -231,6 +239,7 @@ function boundedId(value: unknown, maximum = 255) {
 }
 
 export function assertCrawlerJobInput(input: AcquisitionCrawlerJobInput) {
+  const executionTarget = input.executionTarget ?? "server";
   if (!boundedId(input.id) || !boundedId(input.workspaceId)
     || !boundedId(input.runId, 160) || !boundedId(input.automationIntentId)
     || !boundedId(input.planId, 160) || !boundedId(input.planVersionId, 160)
@@ -252,13 +261,47 @@ export function assertCrawlerJobInput(input: AcquisitionCrawlerJobInput) {
     || (!input.collectCreators && !input.collectDemandComments)
     || !integerBetween(input.limits?.maxVideos, 1, 200)
     || !integerBetween(input.limits?.maxCommentsPerVideo, 1, 200)
+    || (input.limits?.maxComments !== undefined && !integerBetween(input.limits.maxComments, 1, 10000))
     || !integerBetween(input.limits?.maxPagesPerVideo, 1, 20)
     || !integerBetween(input.limits?.maxDurationSeconds, 60, 14_400)
     || (input.maxAttempts !== undefined
       && !integerBetween(input.maxAttempts, 1, 10))
+    || !["server", "desktop"].includes(executionTarget)
+    || (executionTarget === "desktop"
+      ? (input.maxAttempts !== 1
+        || !/^sha256:[0-9a-f]{64}$/u.test(input.desktopTaskTokenHash ?? ""))
+      : input.desktopTaskTokenHash !== undefined
+        && input.desktopTaskTokenHash !== null)
     || !validInstant(input.createdAt)) {
     throw new TypeError("invalid_crawler_job_input");
   }
+}
+
+export function hashDesktopCrawlerCapability(value: string) {
+  if (typeof value !== "string" || value.length < 1 || value.length > 512) {
+    throw new TypeError("invalid_desktop_crawler_capability");
+  }
+  return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
+}
+
+export function desktopCrawlerRequestHash(input: {
+  expectedCursor: string | null;
+  nextCursor: string | null;
+  records: readonly NormalizedDouyinRecord[];
+  done: boolean;
+  terminalState?: "succeeded" | "partial";
+  terminalErrorCode?: string | null;
+  terminalActivity?: AcquisitionCrawlerActivity;
+}) {
+  return `sha256:${createHash("sha256").update(canonicalJsonStringify({
+    done: input.done,
+    expectedCursor: input.expectedCursor,
+    nextCursor: input.nextCursor,
+    records: input.records,
+    terminalActivity: input.terminalActivity ?? null,
+    terminalErrorCode: input.terminalErrorCode ?? null,
+    terminalState: input.terminalState ?? null
+  }), "utf8").digest("hex")}`;
 }
 
 export function assertAcquisitionCrawlerActivity(
@@ -389,7 +432,7 @@ export function crawlerStatus(job: AcquisitionCrawlerJob, runId: string): Acquis
     runId, state: job.state, attempt: job.attempt,
     cursorPersisted: job.cursor !== null, recordCount: job.recordCount,
     candidateBudgetUsed: job.candidateBudgetUsed,
-    candidateBudgetLimit: job.dailyCandidateLimit,
+    candidateBudgetLimit: job.candidateBudgetLimit === null ? null : job.dailyCandidateLimit,
     lastErrorCode: publicAcquisitionCrawlerErrorCode(job.lastErrorCode),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt, completedAt: job.completedAt,

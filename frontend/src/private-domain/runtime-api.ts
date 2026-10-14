@@ -34,6 +34,9 @@ export interface PrivateDomainCustomer {
   pipelineStage?: string;
   pipelineAmount?: number;
   activeDealCount?: number;
+  activeDealId?: string;
+  quoteEligibleDealId?: string;
+  quoteEligibleCandidateId?: string;
   acquisitionBindings?: PrivateDomainAcquisitionBinding[];
 }
 
@@ -65,9 +68,18 @@ export interface PrivateDomainTodo {
   done: boolean;
   customerId?: string;
   leadId?: string;
+  cancelledAt?: string;
+  historyAt?: string;
 }
 
-export interface PrivateDomainRuntimeApi {
+export interface PrivateDomainWriteApi {
+  createCustomer(input: Pick<PrivateDomainCustomer, "company" | "country" | "contact" | "stage" | "grade">): Promise<PrivateDomainCustomer>;
+  recordActivity(customerId: string, input: Pick<PrivateDomainCustomerActivity, "type" | "content" | "nextReminder">): Promise<PrivateDomainCustomer>;
+  createTodo(input: Pick<PrivateDomainTodo, "title" | "type" | "priority" | "dueAt" | "related" | "customerId">): Promise<PrivateDomainTodo>;
+  completeTodo(todoId: string, completionResult: string): Promise<PrivateDomainTodo>;
+}
+
+export interface PrivateDomainRuntimeApi extends Partial<PrivateDomainWriteApi> {
   getCustomers(): Promise<PrivateDomainCustomer[]>;
   getTodos(): Promise<PrivateDomainTodo[]>;
 }
@@ -88,13 +100,18 @@ function errorMessage(value: ErrorEnvelope, status: number) {
 }
 
 export function createPrivateDomainRuntimeApi(
-  fetchImpl: typeof fetch = fetch
-): PrivateDomainRuntimeApi {
-  async function get<T>(path: string): Promise<T> {
+  fetchImpl: typeof fetch = fetch,
+  cookieSource: () => string = () => typeof document === "undefined" ? "" : document.cookie
+): PrivateDomainRuntimeApi & PrivateDomainWriteApi {
+  async function request<T>(path: string, payload?: unknown): Promise<T> {
+    const csrf = payload === undefined ? "" : csrfFromCookie(cookieSource());
     const response = await fetchImpl(path, {
-      method: "GET",
+      method: payload === undefined ? "GET" : "POST",
       credentials: "same-origin",
-      headers: { accept: "application/json" }
+      headers: { accept: "application/json", ...(payload === undefined ? {} : {
+        "content-type": "application/json", "x-csrf-token": csrf
+      }) },
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) })
     });
     const body = await response.json().catch(() => ({})) as T & ErrorEnvelope;
     if (!response.ok) throw new Error(errorMessage(body, response.status));
@@ -102,14 +119,27 @@ export function createPrivateDomainRuntimeApi(
   }
   return {
     async getCustomers() {
-      const body = await get<{ customers: PrivateDomainCustomer[] }>(
+      const body = await request<{ customers: PrivateDomainCustomer[] }>(
         "/api/customers?scope=mine"
       );
       return body.customers;
     },
     async getTodos() {
-      const body = await get<{ todos: PrivateDomainTodo[] }>("/api/todos");
+      const body = await request<{ todos: PrivateDomainTodo[] }>("/api/todos");
       return body.todos;
+    },
+    async createCustomer(input) {
+      return (await request<{ customer: PrivateDomainCustomer }>("/api/customers", input)).customer;
+    },
+    async recordActivity(customerId, input) {
+      return (await request<{ customer: PrivateDomainCustomer }>(`/api/customers/${encodeURIComponent(customerId)}/activities`, input)).customer;
+    },
+    async createTodo(input) {
+      return (await request<{ todo: PrivateDomainTodo }>("/api/todos", input)).todo;
+    },
+    async completeTodo(todoId, completionResult) {
+      return (await request<{ todo: PrivateDomainTodo }>(`/api/todos/${encodeURIComponent(todoId)}/complete`, { completionResult })).todo;
     }
   };
 }
+import { csrfFromCookie } from "../acquisition/csrf";

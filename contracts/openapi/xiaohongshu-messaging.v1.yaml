@@ -1,0 +1,212 @@
+openapi: 3.1.0
+info: { title: Independent Xiaohongshu Messaging, version: 1.0.0 }
+servers: [{ url: / }]
+security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+    cookieAuth: { type: apiKey, in: cookie, name: gj_session }
+    installation: { type: apiKey, in: header, name: X-Shensi-Desktop-Installation-Id }
+    deviceToken: { type: apiKey, in: header, name: X-Shensi-Desktop-Device-Token }
+  parameters:
+    draftId: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+  responses:
+    error:
+      description: Rejected request. No device credentials or provider response content is returned.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/XhsError' }
+  schemas:
+    XhsAccountBinding:
+      type: object
+      additionalProperties: false
+      required: [accountId, platformUserId, displayName, generation, state, revision]
+      properties:
+        accountId: { type: string, format: uuid }
+        platformUserId: { $ref: '#/components/schemas/XhsId' }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        generation: { type: string, format: uuid }
+        state: { enum: [ready, expired, verification_required, im_unavailable] }
+        revision: { type: integer, minimum: 0, maximum: 9007199254740991 }
+    XhsAccount:
+      type: object
+      additionalProperties: false
+      required: [accountId, platformUserId, displayName, generation, state, revision, deviceId, updatedAt]
+      properties:
+        accountId: { type: string, format: uuid }
+        platformUserId: { $ref: '#/components/schemas/XhsId' }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        generation: { type: string, format: uuid }
+        state: { enum: [ready, expired, verification_required, im_unavailable] }
+        revision: { type: integer, minimum: 1 }
+        deviceId: { $ref: '#/components/schemas/XhsDeviceId' }
+        updatedAt: { type: integer, minimum: 0 }
+    XhsAccountList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/XhsAccount' } }
+    XhsId: { type: string, minLength: 1, maxLength: 160, pattern: '^[A-Za-z0-9_-]+$' }
+    XhsDeviceId: { type: string, minLength: 1, maxLength: 160, pattern: '^([A-Za-z0-9_-]+|sha256:[a-f0-9]{64})$' }
+    XhsCreate:
+      type: object
+      additionalProperties: false
+      required: [id, accountId, deviceId, recipientId, body]
+      properties:
+        id: { type: string, format: uuid }
+        accountId: { $ref: '#/components/schemas/XhsId' }
+        deviceId: { $ref: '#/components/schemas/XhsDeviceId' }
+        recipientId: { $ref: '#/components/schemas/XhsId' }
+        body: { type: string, minLength: 1, maxLength: 800, pattern: '\S' }
+    XhsRevision:
+      type: object
+      additionalProperties: false
+      required: [revision]
+      properties:
+        revision: { type: integer, minimum: 1, maximum: 9007199254740991 }
+    XhsEdit:
+      type: object
+      additionalProperties: false
+      required: [revision, recipientId, body]
+      properties:
+        revision: { type: integer, minimum: 1, maximum: 9007199254740991 }
+        recipientId: { $ref: '#/components/schemas/XhsId' }
+        body: { type: string, minLength: 1, maxLength: 800, pattern: '\S' }
+    XhsReceipt:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [status]
+          properties: { status: { const: unknown } }
+        - type: object
+          additionalProperties: false
+          required: [status, serverMessageId]
+          properties:
+            status: { const: confirmed }
+            serverMessageId: { $ref: '#/components/schemas/XhsId' }
+        - type: object
+          additionalProperties: false
+          required: [status, platformCode]
+          properties:
+            status: { const: rejected }
+            platformCode: { type: integer, minimum: 1, maximum: 4294967295 }
+    XhsReceiptReport:
+      type: object
+      additionalProperties: false
+      required: [clientMessageId, generation, receipt]
+      properties:
+        clientMessageId: { type: string, format: uuid }
+        generation: { $ref: '#/components/schemas/XhsId' }
+        receipt: { $ref: '#/components/schemas/XhsReceipt' }
+    XhsDraft:
+      type: object
+      additionalProperties: false
+      required: [id, accountId, deviceId, recipientId, body, revision, status, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        accountId: { $ref: '#/components/schemas/XhsId' }
+        deviceId: { $ref: '#/components/schemas/XhsDeviceId' }
+        recipientId: { $ref: '#/components/schemas/XhsId' }
+        body: { type: string, minLength: 1, maxLength: 800 }
+        revision: { type: integer, minimum: 1 }
+        status: { enum: [draft, approved, executing, unknown, confirmed, rejected] }
+        updatedAt: { type: integer, minimum: 0, description: UTC Unix milliseconds }
+        expiresAt: { type: integer, minimum: 0, description: Approval expires at UTC Unix milliseconds }
+        quotaDay: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        generation: { $ref: '#/components/schemas/XhsId' }
+        clientMessageId: { type: string, format: uuid }
+        receipt: { $ref: '#/components/schemas/XhsReceipt' }
+    XhsCommand:
+      type: object
+      additionalProperties: false
+      required: [commandId, workspaceId, actorId, deviceId, accountId, recipientId, body, revision, clientMessageId, generation, expiresAt]
+      properties:
+        commandId: { type: string, format: uuid }
+        workspaceId: { $ref: '#/components/schemas/XhsId' }
+        actorId: { $ref: '#/components/schemas/XhsId' }
+        deviceId: { $ref: '#/components/schemas/XhsDeviceId' }
+        accountId: { $ref: '#/components/schemas/XhsId' }
+        recipientId: { $ref: '#/components/schemas/XhsId' }
+        body: { type: string, minLength: 1, maxLength: 800 }
+        revision: { type: integer, minimum: 1 }
+        clientMessageId: { type: string, format: uuid }
+        generation: { $ref: '#/components/schemas/XhsId' }
+        expiresAt: { type: integer, minimum: 0, description: UTC Unix milliseconds; local Python adapter converts to seconds }
+    XhsDraftList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 2000, items: { $ref: '#/components/schemas/XhsDraft' } }
+    XhsError:
+      type: object
+      additionalProperties: false
+      required: [code, message, details, requestId, retryable]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details: { type: 'null' }
+        requestId: { type: string, format: uuid }
+        retryable: { const: false }
+paths:
+  /api/v1/acquisition/xiaohongshu/accounts:
+    get:
+      operationId: listXhsAccounts
+      responses:
+        '200': { description: Account states reported by the authenticated desktop; not a server-side platform login probe, content: { application/json: { schema: { $ref: '#/components/schemas/XhsAccountList' } } } }
+        default: { $ref: '#/components/responses/error' }
+  /api/v1/acquisition/xiaohongshu/accounts/bind:
+    post:
+      operationId: bindXhsAccount
+      security: [{ bearerAuth: [], installation: [], deviceToken: [] }, { cookieAuth: [], installation: [], deviceToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/XhsAccountBinding' } } } }
+      responses:
+        '200': { description: Scoped versioned binding; no platform credentials are accepted, content: { application/json: { schema: { $ref: '#/components/schemas/XhsAccount' } } } }
+        default: { $ref: '#/components/responses/error' }
+  /api/v1/acquisition/xiaohongshu/drafts:
+    get:
+      operationId: listXhsDrafts
+      responses:
+        '200': { description: Owned drafts only, content: { application/json: { schema: { $ref: '#/components/schemas/XhsDraftList' } } } }
+        default: { $ref: '#/components/responses/error' }
+    post:
+      operationId: createXhsDraft
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/XhsCreate' } } } }
+      responses:
+        '201': { description: Draft, content: { application/json: { schema: { $ref: '#/components/schemas/XhsDraft' } } } }
+        default: { $ref: '#/components/responses/error' }
+  /api/v1/acquisition/xiaohongshu/drafts/{id}:
+    parameters: [{ $ref: '#/components/parameters/draftId' }]
+    patch:
+      operationId: editXhsDraft
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/XhsEdit' } } } }
+      responses:
+        '200': { description: Updated draft; invalidates old approval, content: { application/json: { schema: { $ref: '#/components/schemas/XhsDraft' } } } }
+        default: { $ref: '#/components/responses/error' }
+  /api/v1/acquisition/xiaohongshu/drafts/{id}/approve:
+    parameters: [{ $ref: '#/components/parameters/draftId' }]
+    post:
+      operationId: approveXhsDraft
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/XhsRevision' } } } }
+      responses:
+        '200': { description: Exact version approved for five minutes, content: { application/json: { schema: { $ref: '#/components/schemas/XhsDraft' } } } }
+        default: { $ref: '#/components/responses/error' }
+  /api/v1/acquisition/xiaohongshu/drafts/{id}/claim:
+    parameters: [{ $ref: '#/components/parameters/draftId' }]
+    post:
+      operationId: claimXhsDraft
+      security: [{ bearerAuth: [], installation: [], deviceToken: [] }, { cookieAuth: [], installation: [], deviceToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/XhsRevision' } } } }
+      responses:
+        '200': { description: One-time command issued only to bound device; lost responses must not resend, content: { application/json: { schema: { $ref: '#/components/schemas/XhsCommand' } } } }
+        default: { $ref: '#/components/responses/error' }
+  /api/v1/acquisition/xiaohongshu/drafts/{id}/receipt:
+    parameters: [{ $ref: '#/components/parameters/draftId' }]
+    post:
+      operationId: reportXhsReceipt
+      security: [{ bearerAuth: [], installation: [], deviceToken: [] }, { cookieAuth: [], installation: [], deviceToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/XhsReceiptReport' } } } }
+      responses:
+        '200': { description: Correlated receipt, content: { application/json: { schema: { $ref: '#/components/schemas/XhsDraft' } } } }
+        default: { $ref: '#/components/responses/error' }

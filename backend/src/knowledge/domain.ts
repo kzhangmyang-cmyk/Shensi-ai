@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ActiveWorkspaceContext } from '../growth-workspace-context.js';
 import { GrowthHttpError } from '../growth-command-context.js';
 import type { GrowthCapability } from '../growth-capabilities.js';
+import type { ReferenceEvidence } from '../system-reference/domain.js';
 
 export const KNOWLEDGE_MAX_BYTES = 50 * 1024 * 1024;
 export const knowledgeRoleSchema = z.enum(['cfo', 'finance', 'profit', 'cost', 'cashflow', 'tax']);
@@ -31,6 +32,10 @@ export const knowledgeLocatorSchema = z.object({
   endOffset: z.number().int().min(0).optional()
 }).strict();
 export type KnowledgeLocator = z.infer<typeof knowledgeLocatorSchema>;
+export const knowledgeCitationSchema = z.object({ sourceId: z.string().regex(/^K[1-6]$/u),
+  documentId: z.string().uuid(), versionId: z.string().uuid(), sourceHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  chunkId: z.string().uuid(), sourceLabel: z.string().min(1).max(1000), locator: knowledgeLocatorSchema,
+  excerpt: z.string().min(1).max(4000), warnings }).strict();
 export const knowledgeCoverageSchema = z.object({
   totalPages: z.number().int().min(1).max(1000).nullable(),
   extractedPages: z.number().int().min(0).max(1000).nullable(),
@@ -72,7 +77,7 @@ export interface KnowledgeCitation {
   sourceLabel: string; locator: KnowledgeLocator; excerpt: string; warnings: string[];
 }
 export interface KnowledgeEvidence { status: 'used' | 'no_match' | 'unavailable'; sources: KnowledgeCitation[]; }
-export interface KnowledgeAnswer extends KnowledgeEvidence { detailedText: string; warnings: string[]; }
+export interface KnowledgeAnswer extends ReferenceEvidence { detailedText: string; warnings: string[]; }
 export interface KnowledgeJobClaim {
   jobId: string; documentId: string; versionId: string; workspaceId: string; actorId: string;
   fence: number; leaseUntil: number;

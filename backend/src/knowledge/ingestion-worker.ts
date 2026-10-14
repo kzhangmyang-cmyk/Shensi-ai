@@ -61,7 +61,8 @@ export class KnowledgeIngestionWorker {
       const version = await this.options.repository.getVersion(ctx, claim.documentId, claim.versionId);
       if (!version) throw new Error('knowledge_authorization_revoked');
       const parsed = await this.options.files.withOriginal(ctx, version,
-        inputPath => this.options.reader.read({ inputPath, format: version.format, bytes: version.bytes }, bounded), bounded);
+        inputPath => this.options.reader.read({ inputPath, format: version.format, bytes: version.bytes }, bounded,
+          {workspaceId:ctx.workspaceId,actorId:ctx.actorId}), bounded);
       bounded.throwIfAborted(); ctx = await this.authorize(claim);
       const indexed = await this.options.repository.commitParsed(ctx, claim, parsed);
       if (!this.options.indexVersion) return true; // explicit test/manual staging only

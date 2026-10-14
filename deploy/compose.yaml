@@ -26,6 +26,7 @@ services:
       MEDIACRAWLER_ENCRYPTED_VOLUME: /var/lib/shensi-mediacrawler
       MEDIACRAWLER_PROFILE_ROOT: /var/lib/shensi-mediacrawler/profiles
       MEDIACRAWLER_CRAWL_OUTPUT_ROOT: /var/lib/shensi-mediacrawler/crawl-output
+      MEDIACRAWLER_BROWSER_DISPLAY: virtual
       DOUYIN_OUTREACH_ACTIONS_ENABLED: ${DOUYIN_OUTREACH_ACTIONS_ENABLED:-false}
       DOUYIN_ACTION_VISUAL_LOCATOR: ${DOUYIN_ACTION_VISUAL_LOCATOR-disabled}
       MEDIACRAWLER_BROWSER_HEADLESS: ${MEDIACRAWLER_BROWSER_HEADLESS:-true}
@@ -44,13 +45,14 @@ services:
           create_host_path: false
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=128m
+    shm_size: 1gb
     read_only: true
     security_opt: [no-new-privileges:true]
     cap_drop:
       - ALL
     pids_limit: 256
-    cpus: "1.0"
-    mem_limit: 1536M
+    cpus: "1.5"
+    mem_limit: 2048M
     stop_grace_period: 25s
     networks: [shensi_mediacrawler, shensi_egress]
     healthcheck:
@@ -62,8 +64,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 1536M
+          cpus: "1.5"
+          memory: 2048M
   backend:
     build:
       context: ..
@@ -106,9 +108,11 @@ services:
     depends_on:
       backend: { condition: service_healthy }
       frontend: { condition: service_started }
+      media-crawler: { condition: service_healthy }
     networks:
       shensi_internal:
         ipv4_address: 172.30.0.4
+      shensi_mediacrawler:
 secrets:
   mysql_app_password: { file: ./secrets/mysql_app_password }
   mysql_root_password: { file: ./secrets/mysql_root_password }

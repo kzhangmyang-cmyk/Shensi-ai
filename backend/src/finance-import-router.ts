@@ -156,12 +156,7 @@ export function projectFinanceImportPreview(
 ): PublicFinanceImportPreview {
   const errors = result.rows
     .filter((row) => row.status === "invalid")
-    .flatMap((row) => row.errors.map((code) => ({
-      rowNumber: row.rowNumber,
-      code,
-      field: null,
-      message: code
-    })));
+    .flatMap(projectFinanceImportRowErrors);
   return Object.freeze({
     previewId: result.previewId,
     kind: result.kind,
@@ -170,6 +165,15 @@ export function projectFinanceImportPreview(
     rejectedRows: result.invalidRows,
     errors,
     expiresAt: "1970-01-01T00:00:00.000Z"
+  });
+}
+
+function projectFinanceImportRowErrors(row: FinanceImportPreviewRow) {
+  return row.errors.map((code, index) => {
+    const detail = row.errorDetails?.[index];
+    return { rowNumber: row.rowNumber, code,
+      field: detail?.code === code ? detail.field : null,
+      message: detail?.code === code ? detail.message : code };
   });
 }
 
@@ -288,13 +292,7 @@ export function createFinanceImportRouter(
     if (!projection) throw new GrowthHttpError(404, "finance_import_not_found");
     const errors = projection.rows
       .filter((row) => row.status === "invalid")
-      .flatMap((row: FinanceImportPreviewRow) =>
-        row.errors.map((code) => ({
-          rowNumber: row.rowNumber,
-          code,
-          field: null,
-          message: code
-        })));
+      .flatMap(projectFinanceImportRowErrors);
     jsonWithoutEtag(res, 200, {
       items: errors,
       nextAfter: null,

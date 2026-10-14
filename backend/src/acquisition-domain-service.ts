@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { canonicalJsonStringify } from "./canonical-json.js";
+import type { AcquisitionCandidateRunAttributionResolver } from "./acquisition-crm-outcome-reconciliation.js";
+import { isOutcomeAttributionShape } from "./acquisition-outcome-attribution.js";
 import type {
   AcquisitionAuditEvent,
   AcquisitionCandidate,
@@ -113,6 +115,7 @@ export interface AcquisitionDomainServiceOptions {
   leadConversionPort: LeadConversionPort;
   growthAcquisitionWorkspace: GrowthAcquisitionWorkspaceResolver;
   growthTemporalBarrier: GrowthTemporalBarrier;
+  outcomeAttributionResolver?: Pick<AcquisitionCandidateRunAttributionResolver, "resolve">;
   idFactory?: (prefix: string) => string;
   now?: () => string;
 }
@@ -226,7 +229,10 @@ function validIso(value: string, label: string) {
 function validateOutcomeAttribution(
   attribution: OutcomeInput["attribution"]
 ) {
-  if (attribution?.attributionVersion !== "acquisition-run.v1") {
+  if (attribution?.attributionVersion === "acquisition-run.v1"
+    ? "jobId" in attribution
+    : attribution?.attributionVersion !== "douyin-crawler.v1"
+      || !isOutcomeAttributionShape(attribution)) {
     fail("invalid_request", "结果反馈归因版本无效", 400);
   }
   for (const [field, value] of Object.entries({
@@ -235,10 +241,14 @@ function validateOutcomeAttribution(
     planVersionId: attribution.planVersionId,
     planSnapshotHash: attribution.planSnapshotHash,
     discoveredEventId: attribution.discoveredEventId,
-    shardId: attribution.shardId,
-    operationId: attribution.operationId,
-    connectionId: attribution.connectionId,
-    providerId: attribution.providerId
+    ...(attribution.attributionVersion === "douyin-crawler.v1"
+      ? { jobId: attribution.jobId }
+      : {
+          shardId: attribution.shardId,
+          operationId: attribution.operationId,
+          connectionId: attribution.connectionId,
+          providerId: attribution.providerId
+        })
   })) {
     requiredText(value, `结果反馈归因 ${field}`, 255);
   }
@@ -371,6 +381,8 @@ export class AcquisitionDomainService {
   private readonly growthAcquisitionWorkspace:
     GrowthAcquisitionWorkspaceResolver;
   private readonly growthTemporalBarrier: GrowthTemporalBarrier;
+  private readonly outcomeAttributionResolver:
+    AcquisitionDomainServiceOptions["outcomeAttributionResolver"];
   private readonly idFactory: (prefix: string) => string;
   private readonly clock: () => string;
   private readonly inFlightIdempotency = new Map<string, {
@@ -385,6 +397,7 @@ export class AcquisitionDomainService {
   constructor(options: AcquisitionDomainServiceOptions) {
     this.repository = options.repository;
     this.leadConversionPort = options.leadConversionPort;
+    this.outcomeAttributionResolver = options.outcomeAttributionResolver;
     this.growthAcquisitionWorkspace =
       assertGrowthAcquisitionWorkspaceResolver(
         options.growthAcquisitionWorkspace
@@ -2288,6 +2301,21 @@ export class AcquisitionDomainService {
       );
     }
     validateOutcomeAttribution(raw.attribution);
+    if (raw.attribution.attributionVersion === "douyin-crawler.v1") {
+      const authoritative = await this.outcomeAttributionResolver?.resolve(scope, {
+        runId: raw.attribution.runId,
+        discoveredEventId: raw.attribution.discoveredEventId,
+        candidateId: raw.candidateId,
+        evidenceIds: raw.attribution.evidenceIds,
+        qualificationDecisionId: raw.attribution.qualificationDecisionId,
+        decisionVersion: raw.attribution.decisionVersion,
+        decisionSnapshotHash: raw.attribution.decisionSnapshotHash
+      });
+      if (!authoritative || canonicalJsonStringify(authoritative)
+        !== canonicalJsonStringify(raw.attribution)) {
+        fail("invalid_request", "结果反馈归因与已验证采集来源不一致", 400);
+      }
+    }
     return this.idempotent(
       scope,
       "record_outcome",

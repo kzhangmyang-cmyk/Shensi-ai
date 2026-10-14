@@ -1,0 +1,93 @@
+/* Shared appearance roles. Existing replica tokens remain the component API. */
+:root {
+  --theme-page: #020303;
+  --theme-surface: #101413;
+  --theme-raised: #18201c;
+  --theme-sunken: #080c0a;
+  --theme-text: #f1f3f0;
+  --theme-muted: #a5b3ab;
+  --theme-line: #35483d;
+  --theme-accent: #18ed78;
+  --theme-on-accent: #061008;
+}
+:root[data-theme="light"] {
+  --appearance-bg-surface: #ffffff;
+  --appearance-bg-raised: #f8faff;
+  --appearance-bg-subtle: #edf3fc;
+  --appearance-text-primary: #162b49;
+  --appearance-text-secondary: #52657e;
+  --appearance-on-accent: #ffffff;
+  --appearance-border: #c8d5e6;
+  --appearance-accent-solid: #175cd3;
+  --appearance-accent-text: #1753b0;
+  --appearance-accent-border: #83a8e9;
+  --appearance-danger-text: #b42318;
+  --appearance-danger-bg: #fff0ee;
+  --appearance-danger-border: #e8a19a;
+  --appearance-warning-text: #854500;
+  --appearance-warning-bg: #fff5df;
+  --appearance-warning-border: #dbbb75;
+  --appearance-shadow: #20395c14;
+  --theme-page: #f2f6fc;
+  --theme-surface: #ffffff;
+  --theme-raised: #f8faff;
+  --theme-sunken: #edf2f9;
+  --theme-text: #162b49;
+  --theme-muted: #52657e;
+  --theme-line: #c8d5e6;
+  --theme-accent: #175cd3;
+  --theme-on-accent: #ffffff;
+  --replica-bg: var(--theme-page);
+  --replica-surface: var(--theme-surface);
+  --replica-surface-strong: var(--theme-raised);
+  --replica-surface-soft: #edf3fc;
+  --replica-line: var(--theme-line);
+  --replica-line-soft: #dce5f0;
+  --replica-text: var(--theme-text);
+  --replica-muted: var(--theme-muted);
+  --replica-accent: var(--theme-accent);
+  --replica-accent-soft: #e7efff;
+  --replica-on-accent: var(--theme-on-accent);
+  --replica-control-disabled: #e4eaf3;
+  --replica-danger: #b42318;
+  --replica-amber: #8a4900;
+  --replica-shadow: 0 8px 28px #17375e0d;
+}
+.product-theme-toggle,.product-theme-choices button {
+  padding: 9px 12px; min-height: 38px; border-radius: 8px;
+  border: 1px solid var(--theme-line); background: var(--theme-surface);
+  color: var(--theme-text); font: inherit; cursor: pointer;
+}
+.product-theme-toggle { width: 100%; text-align: left; }
+.product-theme-choices { display:flex; flex-wrap:wrap; gap:10px; }
+.product-theme-settings { padding:20px; }
+.product-theme-settings h3 { margin:0 0 8px; }
+.product-theme-settings p { color:var(--theme-muted); font-size:13px; margin:0 0 16px; }
+.product-theme-choices button[aria-pressed="true"] { border-color:var(--theme-accent); background:var(--theme-accent); color:var(--theme-on-accent); }
+[data-theme-toggle]:focus-visible,[data-theme-choice]:focus-visible { outline:2px solid var(--theme-accent); outline-offset:3px; }
+html[data-theme="light"],html[data-theme="light"] body { background:var(--theme-page); color:var(--theme-text); }
+html[data-theme="light"] .replica-shell { background:var(--theme-page); }
+html[data-theme="light"] .replica-glass { background:var(--theme-surface); box-shadow:0 4px 18px #17375e08; }
+html[data-theme="light"] .replica-brand svg { background:#0b1919; border-radius:8px; padding:4px; }
+html[data-theme="light"] .enterprise-query-filters button,
+html[data-theme="light"] .enterprise-query-join { color:var(--theme-on-accent); }
+html[data-theme="light"] :is(.decision-simulation,[data-agent-operating-workbench]) {
+  --decision-bg: var(--theme-page);
+  --decision-surface: var(--theme-surface);
+  --decision-line: var(--theme-line);
+  --decision-muted: var(--theme-muted);
+  --decision-text: var(--theme-text);
+  --decision-accent: var(--theme-accent);
+}
+/* Intentional dark artwork islands, not an inverted image filter. */
+html[data-theme="light"] .shensi-home { border-radius:16px; margin:12px; box-shadow:0 12px 32px #20395c18; }
+html[data-theme="light"] .decision-galaxy {
+  --decision-muted:#b2c2ca;
+  --decision-art-heading:#d4fff0;
+  background:#050b08;
+  color:#edf3ed;
+}
+html[data-theme="light"] .decision-galaxy>header h3 { color:var(--decision-art-heading); }
+html[data-theme="light"] .account-access-panel { background:var(--theme-surface); color:var(--theme-text); }
+html[data-theme="light"] .account-access-panel button { background:var(--theme-accent); color:var(--theme-on-accent); }
+html[data-theme="light"] .account-access-panel button:focus-visible { outline-color:var(--theme-accent); }

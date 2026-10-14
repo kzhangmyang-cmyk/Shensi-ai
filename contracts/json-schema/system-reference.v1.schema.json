@@ -1,0 +1,909 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.goodjob.ai/system-reference.v1.schema.json",
+  "title": "SystemReferenceProtocol",
+  "$defs": {
+    "ReferenceTopicId": {
+      "enum": [
+        "budget_variance",
+        "budget_planning",
+        "cost_driver",
+        "cost_structure",
+        "cashflow_forecast",
+        "working_capital",
+        "profitability_analysis",
+        "break_even",
+        "statement_analysis",
+        "ratio_analysis",
+        "tax_document_review",
+        "tax_risk_review"
+      ]
+    },
+    "ReferenceTopicSelection": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/ReferenceTopicId"
+      }
+    },
+    "ReferenceQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vocabularyVersion",
+        "topicIds",
+        "role",
+        "requestId"
+      ],
+      "properties": {
+        "vocabularyVersion": {
+          "const": "finance-topics.v1"
+        },
+        "topicIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/ReferenceTopicId"
+          }
+        },
+        "role": {
+          "$ref": "knowledge.v1.schema.json#/$defs/Role"
+        },
+        "requestId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "ExcerptRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4000
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4000
+        }
+      },
+      "description": "Server-selected UTF-16 half-open offsets in the immutable chunk. Runtime also checks exact length/source equality and intact surrogate pairs."
+    },
+    "SystemReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceType",
+        "sourceId",
+        "referenceKey",
+        "queryGrantId",
+        "referenceId",
+        "corpusId",
+        "releaseId",
+        "sourceHash",
+        "chunkHash",
+        "excerptRange",
+        "sourceLabel",
+        "locator",
+        "excerpt",
+        "warnings"
+      ],
+      "properties": {
+        "sourceType": {
+          "const": "system"
+        },
+        "sourceId": {
+          "type": "string",
+          "pattern": "^K[1-6]$"
+        },
+        "referenceKey": {
+          "type": "string",
+          "pattern": "^system:[a-fA-F0-9-]{36}:[a-fA-F0-9-]{36}$",
+          "maxLength": 80
+        },
+        "queryGrantId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "referenceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "corpusId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "releaseId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sourceHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "chunkHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "excerptRange": {
+          "$ref": "#/$defs/ExcerptRange"
+        },
+        "sourceLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "locator": {
+          "$ref": "knowledge.v1.schema.json#/$defs/Locator"
+        },
+        "excerpt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "warnings": {
+          "$ref": "knowledge.v1.schema.json#/$defs/Warnings"
+        }
+      }
+    },
+    "ReferenceCitation": {
+      "oneOf": [
+        {
+          "$ref": "knowledge.v1.schema.json#/$defs/Citation"
+        },
+        {
+          "$ref": "#/$defs/SystemReference"
+        }
+      ]
+    },
+    "LibraryStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "private",
+        "system"
+      ],
+      "properties": {
+        "private": {
+          "enum": [
+            "off",
+            "used",
+            "no_match",
+            "unavailable"
+          ]
+        },
+        "system": {
+          "enum": [
+            "off",
+            "unconfigured",
+            "unbound",
+            "ready",
+            "no_match",
+            "unavailable",
+            "auth_required",
+            "forbidden",
+            "rate_limited",
+            "vocabulary_mismatch"
+          ]
+        }
+      }
+    },
+    "CentralReader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subjectId",
+        "workspaceId",
+        "authVersion",
+        "authorityRevision"
+      ],
+      "properties": {
+        "subjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 191
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 191
+        },
+        "authVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "authorityRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "description": "Trusted identity projection only. IDs use the existing central identity store's opaque string format, not client-generated UUIDs."
+    },
+    "CentralOwner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "userId",
+        "authVersion",
+        "platformRevision",
+        "sessionVersion"
+      ],
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 191
+        },
+        "authVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "platformRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sessionVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "ConnectionStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "generation"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "unconfigured",
+            "unbound",
+            "pending",
+            "ready",
+            "session_ready",
+            "embedded_ready",
+            "unconfirmed",
+            "auth_required",
+            "forbidden",
+            "unavailable"
+          ]
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "centralAccountLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 191
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "ReleaseDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "corpusId",
+        "revision",
+        "status",
+        "manifestHash"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "corpusId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "enum": [
+            "staging",
+            "ready",
+            "published",
+            "revoked",
+            "failed"
+          ]
+        },
+        "manifestHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "PublicationManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "corpusId",
+        "sources"
+      ],
+      "properties": {
+        "corpusId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sourceHash",
+              "artifactHash",
+              "parsedHash",
+              "parserVersion",
+              "title",
+              "roles",
+              "coverage",
+              "warnings"
+            ],
+            "properties": {
+              "sourceHash": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "artifactHash": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "parsedHash": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "parserVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "roles": {
+                "$ref": "knowledge.v1.schema.json#/$defs/Roles"
+              },
+              "coverage": {
+                "$ref": "knowledge.v1.schema.json#/$defs/Coverage"
+              },
+              "warnings": {
+                "$ref": "knowledge.v1.schema.json#/$defs/Warnings"
+              }
+            }
+          }
+        }
+      }
+    },
+    "SourcePage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceHash",
+        "pageIndex",
+        "totalChunks",
+        "chunks"
+      ],
+      "properties": {
+        "sourceHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "pageIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 499
+        },
+        "totalChunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50000
+        },
+        "chunks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "order",
+              "text",
+              "locator",
+              "warnings"
+            ],
+            "properties": {
+              "order": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 49999
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              },
+              "locator": {
+                "$ref": "knowledge.v1.schema.json#/$defs/Locator"
+              },
+              "warnings": {
+                "$ref": "knowledge.v1.schema.json#/$defs/Warnings"
+              }
+            }
+          }
+        }
+      }
+    },
+    "QueryResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "grantId",
+            "releaseId",
+            "sources"
+          ],
+          "properties": {
+            "status": {
+              "const": "used"
+            },
+            "grantId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "releaseId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "sources": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 6,
+              "items": {
+                "$ref": "#/$defs/SystemReference"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "sources"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "no_match",
+                "rate_limited"
+              ]
+            },
+            "releaseId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "sources": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 0,
+              "items": {
+                "$ref": "#/$defs/SystemReference"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "BindingCreate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "challenge"
+      ],
+      "properties": {
+        "challenge": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    },
+    "BindingPending": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "displayCode",
+        "expiresAt"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "displayCode": {
+          "type": "string",
+          "pattern": "^[0-9]{8}$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "BindingApprove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "displayCode"
+      ],
+      "properties": {
+        "displayCode": {
+          "type": "string",
+          "pattern": "^[0-9]{8}$"
+        }
+      }
+    },
+    "BindingProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verifier"
+      ],
+      "properties": {
+        "verifier": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    },
+    "BindingExchange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "readerToken",
+        "reader",
+        "expiresAt"
+      ],
+      "properties": {
+        "readerToken": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "reader": {
+          "$ref": "#/$defs/CentralReader"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Trusted business-backend response only. Must never be proxied to a renderer, written to logs or returned by local connection routes."
+    },
+    "ConnectionBegin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "approvalUrl",
+        "displayCode",
+        "expiresAt"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "approvalUrl": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048
+        },
+        "displayCode": {
+          "type": "string",
+          "pattern": "^[0-9]{8}$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "ConnectionComplete": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "Empty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {}
+    },
+    "GrantCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valid",
+        "grantId",
+        "releaseId"
+      ],
+      "properties": {
+        "valid": {
+          "const": true
+        },
+        "grantId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "releaseId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "ReleaseTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "Error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "authentication_required",
+                "reference_forbidden",
+                "reference_not_found",
+                "reference_invalid",
+                "reference_unavailable",
+                "reference_rate_limited",
+                "reference_vocabulary_mismatch",
+                "reference_client_upgrade_required",
+                "reference_conflict",
+                "reference_unconfirmed"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          }
+        }
+      }
+    },
+    "ReleaseList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items",
+        "activeReleaseId",
+        "nextCursor"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/ReleaseDraft"
+          }
+        },
+        "activeReleaseId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ReleaseDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release",
+        "manifest",
+        "activeReleaseId",
+        "sources"
+      ],
+      "properties": {
+        "release": {
+          "$ref": "#/$defs/ReleaseDraft"
+        },
+        "manifest": {
+          "$ref": "#/$defs/PublicationManifest"
+        },
+        "activeReleaseId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sourceHash",
+              "totalChunks",
+              "receivedChunks",
+              "complete"
+            ],
+            "properties": {
+              "sourceHash": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "totalChunks": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "receivedChunks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 50000
+              },
+              "complete": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "PublicationCommandStatus": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "outcome"
+          ],
+          "properties": {
+            "operation": {
+              "type": "string",
+              "enum": [
+                "stage",
+                "source",
+                "publish",
+                "revoke"
+              ]
+            },
+            "outcome": {
+              "const": "not_observed",
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "outcome",
+            "requestHash",
+            "release"
+          ],
+          "properties": {
+            "operation": {
+              "type": "string",
+              "enum": [
+                "stage",
+                "source",
+                "publish",
+                "revoke"
+              ]
+            },
+            "outcome": {
+              "const": "committed",
+              "type": "string"
+            },
+            "requestHash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "release": {
+              "$ref": "#/$defs/ReleaseDraft"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

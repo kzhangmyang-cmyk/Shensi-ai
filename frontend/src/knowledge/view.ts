@@ -51,7 +51,9 @@ export function mountKnowledgeLibrary(host:HTMLElement,options:{api?:KnowledgeAp
         row.setAttribute('aria-label',`查看 ${doc.title}`);row.setAttribute('aria-pressed',String(state.selected?.id===doc.id));
         const version=state.versions[doc.latestVersionId];row.dataset.knowledgeState=version?.status??'queued';
         const status=doc.enabled?knowledgeStates[version?.status??'queued']:'已停用';
-        setHtml(row,`<span class="knowledge-document-title">${e(doc.title)}</span><span class="knowledge-status">${status}</span><small>${kindNames[doc.sourceKind]} · ${e(version?.filename??'读取版本…')}</small><small>${doc.roles.map(role=>knowledgeRoles[role]).join(' / ')}</small><small>版本 ${e(doc.latestVersionId.slice(0,8))} · ${e(doc.updatedAt.replace('T',' ').slice(0,16))}</small>`);
+        const roleNames=doc.roles.map(role=>knowledgeRoles[role]);
+        const roleSummary=roleNames.length===Object.keys(knowledgeRoles).length?'全部 6 位智能体':roleNames.length>2?`${roleNames.slice(0,2).join(' / ')} 等 ${roleNames.length} 位`:roleNames.join(' / ');
+        setHtml(row,`<span class="knowledge-document-kind">${kindNames[doc.sourceKind]} · ${e(version?.format.toUpperCase()??'待解析')}</span><span class="knowledge-status">${status}</span><span class="knowledge-document-title" title="${e(doc.title)}">${e(doc.title)}</span><small title="${e(roleNames.join(' / '))}">${e(roleSummary)}</small><small>更新 ${e(doc.updatedAt.slice(0,10))} · 版本 ${e(doc.latestVersionId.slice(0,8))}</small><span class="knowledge-document-open">查看资料 <span aria-hidden="true">↗</span></span>`);
         if(list.children[index]!==row)list.insertBefore(row,list.children[index]??null);rows.delete(doc.id);
       });for(const row of rows.values())row.remove();
     }
@@ -73,6 +75,7 @@ export function mountKnowledgeLibrary(host:HTMLElement,options:{api?:KnowledgeAp
     const preview=find('[data-preview]');setHtml(preview,state.chunks.length?state.chunks.map(chunk=>`<article data-chunk="${e(chunk.id)}"><h3>${e(formatKnowledgeLocator(chunk.locator))}</h3><p>${e(chunk.text)}</p>${chunk.warnings.length?`<small>${e(warnings(chunk.warnings))}</small>`:''}</article>`).join(''):`<p>${version.status==='ready'?'此版没有可预览正文。':'正文暂不可预览，等待解析和索引完成。'}</p>`);
     setText('[data-toggle-enabled]',doc.enabled?'停用资料':'启用资料');
     for(const selector of ['[data-toggle-enabled]','[data-replace]','[data-delete]','[data-edit-document] button','[data-version-select]'])find<HTMLButtonElement>(selector).disabled=state.detailBusy;
+    find<HTMLInputElement>('[data-replacement]').disabled=state.detailBusy;
     find<HTMLButtonElement>('[data-retry]').disabled=state.detailBusy||!['failed','cancelled'].includes(version.status)||!version.uploadComplete;
     find<HTMLButtonElement>('[data-cancel-job]').disabled=state.detailBusy||!version.jobId||!['queued','parsing','indexing'].includes(version.status)||!version.uploadComplete;
     find<HTMLButtonElement>('[data-download]').disabled=state.detailBusy||!version.uploadComplete;find<HTMLButtonElement>('[data-more-chunks]').disabled=state.detailBusy||!state.nextChunks;
@@ -82,9 +85,9 @@ export function mountKnowledgeLibrary(host:HTMLElement,options:{api?:KnowledgeAp
     if(form.matches('.knowledge-filters')){const values=new FormData(form);void controller.setQuery({q:String(values.get('q')??''),role:String(values.get('role')??'') as KnowledgeRole||undefined,status:String(values.get('status')??'') as keyof typeof knowledgeStates||undefined});}
     if(form.matches('[data-edit-document]')){void controller.patch({title:(form.elements.namedItem('title') as HTMLInputElement).value,sourceKind:(form.elements.namedItem('sourceKind') as HTMLSelectElement).value as 'book'|'company'|'reference',roles:selectedRoles('edit-role')});}};
   const onClick=(event:Event)=>{const target=(event.target as HTMLElement).closest<HTMLElement>('button');if(!target||!root.contains(target))return;
-    if(target.dataset.document)void controller.select(target.dataset.document);
+    if(target.dataset.document){const id=target.dataset.document;void controller.select(id).then(()=>{if(!disposed&&snapshot.selected?.id===id&&snapshot.selectedVersion)find<HTMLButtonElement>('[data-close-detail]').focus();});}
     if(target.matches('[data-refresh]'))void controller.load();if(target.matches('[data-prev]'))void controller.previousPage();if(target.matches('[data-next]'))void controller.nextPage();
-    if(target.matches('[data-close-detail]'))controller.clearSelection();if(target.matches('[data-more-chunks]'))void controller.moreChunks();
+    if(target.matches('[data-close-detail]')){const id=snapshot.selected?.id;controller.clearSelection();const card=Array.from(root.querySelectorAll<HTMLButtonElement>('[data-document]')).find(node=>node.dataset.document===id);card?.focus({preventScroll:true});card?.scrollIntoView({block:'nearest'});}if(target.matches('[data-more-chunks]'))void controller.moreChunks();
     if(target.matches('[data-toggle-enabled]')&&snapshot.selected)void controller.patch({enabled:!snapshot.selected.enabled});
     if(target.matches('[data-retry]'))void controller.retry();if(target.matches('[data-cancel-job]'))void controller.cancel();if(target.matches('[data-cancel-uploads]'))controller.cancelUploads();
     if(target.dataset.retryUpload)void controller.retryUpload(target.dataset.retryUpload);

@@ -144,9 +144,13 @@ const ready: Extract<AdvisorHomeState, { kind: "ready" }> = {
 };
 
 const html = renderAdvisorHome(ready);
-assert.equal(html.includes("增长参谋"), true);
+assert.equal(html.includes("增长顾问"), true);
 assert.equal(html.includes("优先处理已提交且即将过期的报价"), true);
-assert.equal(html.includes("8700 bps"), true);
+assert.equal(html.includes("高风险"), true);
+assert.equal(html.includes("87% 可信程度"), true);
+assert.equal(html.includes("报价测算、报价版本"), true);
+assert.equal(html.includes("8700 bps"), false);
+assert.equal(html.includes("quote_preview"), false);
 assert.equal(html.includes("quote-v3"), true);
 assert.equal(html.includes("创建报价审批任务"), true);
 assert.equal(html.includes("data-action=\"accept\""), true);
@@ -156,6 +160,13 @@ assert.equal(html.includes("data-action=\"send\""), false);
 assert.equal(html.includes("data-action=\"outreach\""), false);
 assert.equal(html.includes("示例企业"), true);
 assert.equal(html.includes("unverified_cost"), true);
+assert.equal(html.includes("advisor-data-rail"), true);
+assert.equal(html.includes("advisor-priority-table"), true);
+assert.equal(html.includes("advisor-business-summary"), true);
+assert.equal(html.includes("建议依据"), true);
+assert.equal(html.includes("数据截至"), true);
+assert.equal(html.includes("2026-08-09T08:00:00.000Z"), false);
+assert.equal(html.includes("待决策"), true);
 assert.equal(html.includes("<script>"), false);
 
 const aiFailure: AdvisorHomeState = {
@@ -164,6 +175,29 @@ const aiFailure: AdvisorHomeState = {
   aiUnavailable: true
 };
 const failureHtml = renderAdvisorHome(aiFailure);
-assert.equal(failureHtml.includes("ai_explanation_unavailable"), true);
+assert.equal(failureHtml.includes("暂时无法生成解读"), true);
+assert.equal(failureHtml.includes("ai_explanation_unavailable"), false);
 assert.equal(failureHtml.includes("示例企业"), true);
 assert.equal(failureHtml.includes("quote-v3"), true);
+
+const empty: AdvisorHomeState = {
+  ...ready,
+  today: {
+    ...ready.today,
+    priorityCustomers: [],
+    pendingQuoteApprovals: [],
+    expectedRoi: [],
+    actualRoi: [],
+    financialDataGaps: [],
+    recommendations: []
+  }
+};
+const emptyHtml = renderAdvisorHome(empty);
+assert.match(emptyHtml, /data-advisor-data-gap-status>待准备</u);
+assert.match(emptyHtml, /advisor-data-gap-status--needs-data/u);
+assert.match(emptyHtml, /data-action="advisor-refresh"/u);
+assert.match(emptyHtml, /class="advisor-step-index">01</u);
+assert.match(emptyHtml, /advisor-priority-grid/u);
+assert.match(emptyHtml, /advisor-empty-mark/u);
+assert.doesNotMatch(emptyHtml, /data-recommendation-id=/u);
+assert.doesNotMatch(emptyHtml, /data-action="(?:accept|ignore|complete)"/u);

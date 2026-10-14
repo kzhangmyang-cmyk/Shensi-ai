@@ -80,23 +80,50 @@ function renderTradeMarketing(): string {
     </section>`;
 }
 
-function renderSettings(state: DemoState): string {
-  const localData = [
-    ["社媒会话", state.conversations.length],
-    ["私域客户", state.customers.length],
-    ["成交商机", state.opportunities.length],
-    ["本地活动", state.activities.length]
-  ];
+function renderSettings(): string {
   return `
-    <section class="demo-capabilities" aria-label="设置中心">
-      <header class="demo-capabilities-header"><div><span class="demo-status">连接与系统</span><h2>设置中心</h2><p>接入客户自己的官方搜索与 AI 模型 API；演示数据仍只保存在当前浏览器。</p></div></header>
-      <section class="demo-panel demo-settings-connections"><div class="demo-section-heading"><div><span class="demo-chip">客户自带密钥</span><h3>官方搜索与 AI 模型连接</h3></div><small>保存 · 测试 · 人工启用</small></div><p>API Key 只提交给后端加密保存，保存后不再回显。连接通过测试并人工确认启用后，才会用于真实获客任务。</p><div class="demo-settings-connection-grid">
-        <article class="demo-settings-connection-card"><span class="demo-capability-icon">搜</span><div><b>官方搜索 API</b><span>配置真实搜索数据源，用于发现公开商机与补充证据。</span></div><button type="button" class="demo-primary" data-demo-action="open-connection-center" data-connection-mode="search">配置搜索 API</button></article>
-        <article class="demo-settings-connection-card"><span class="demo-capability-icon">AI</span><div><b>官方 AI 模型</b><span>支持 OpenAI、Kimi、MiniMax、GLM、DeepSeek、通义等官方端点。</span></div><button type="button" class="demo-primary" data-demo-action="open-connection-center" data-connection-mode="model">配置 AI 模型</button></article>
-      </div></section>
-      <section class="demo-panel demo-settings-data"><div class="demo-section-heading"><div><span class="demo-chip">本地数据</span><h3>演示数据概览</h3></div><small>保存在当前浏览器</small></div><div class="demo-settings-counts">${localData.map(([label, value]) => `<div><small>${label}</small><b>${value}</b></div>`).join("")}</div><div class="demo-settings-reset"><div><b>重置演示数据</b><span>恢复初始客户、会话、商机和模拟开关；此操作不可撤销。</span></div><button type="button" class="demo-danger-button" data-demo-action="open-reset-dialog">重置演示数据</button></div></section>
-      <section class="demo-panel demo-settings-unavailable"><div><span class="demo-chip">预览 · 待接入</span><h3>外观、通知与权限</h3></div><div><article><b>外观偏好</b><span>主题和工作台布局</span></article><article><b>通知提醒</b><span>站内、邮件与平台通知</span></article><article><b>访问权限</b><span>成员角色与渠道授权</span></article></div></section>
-      <dialog id="demoResetDialog" class="demo-reset-dialog" aria-labelledby="demoResetDialogTitle"><form method="dialog"><span class="demo-status">确认操作</span><h3 id="demoResetDialogTitle">重置本地演示数据？</h3><p>会恢复初始演示数据，并移除当前浏览器中所有本次操作。</p><div><button type="button" data-demo-action="cancel-reset">取消</button><button type="button" class="demo-danger-button" data-demo-action="confirm-reset">确认重置</button></div></form></dialog>
+    <section class="demo-capabilities real-settings-workspace" aria-label="设置中心">
+      <header class="real-settings-page-heading">
+        <h2>设置中心</h2>
+        <p>管理自动营销系统的偏好与权限</p>
+      </header>
+      <div class="real-settings-layout">
+      <aside class="demo-panel real-settings-nav" aria-label="设置分类">
+        <strong>设置分类</strong>
+        <button type="button" data-settings-target="settings-appearance" aria-controls="settings-appearance"><i class="ph ph-palette" aria-hidden="true"></i>外观主题</button>
+        <button type="button" class="active" data-settings-target="settings-model" aria-controls="settings-model" aria-current="true"><i class="ph ph-cube" aria-hidden="true"></i>模型与搜索</button>
+        <button type="button" data-settings-target="settings-voice" aria-controls="settings-voice"><i class="ph ph-microphone" aria-hidden="true"></i>语音服务</button>
+        <button type="button" data-settings-target="settings-greeting" aria-controls="settings-greeting"><i class="ph ph-chat-circle-dots" aria-hidden="true"></i>启动问候</button>
+        <button type="button" data-settings-target="settings-account" aria-controls="settings-account"><i class="ph ph-desktop-tower" aria-hidden="true"></i>账号与工作区</button>
+      </aside>
+      <div class="real-settings-content">
+        <section id="settings-appearance" class="demo-panel real-settings-section product-theme-settings" aria-label="外观主题" tabindex="-1">
+          <h3>外观主题</h3><p>仅调整本机显示，不改变账号或业务数据。</p>
+          <div class="product-theme-choices" role="group" aria-label="外观主题">
+            <button type="button" data-theme-choice="dark" aria-pressed="true">黑绿深色</button>
+            <button type="button" data-theme-choice="light" aria-pressed="false">蓝白浅色</button>
+          </div>
+        </section>
+        <section id="settings-model" class="demo-panel real-settings-section" aria-label="模型与搜索" tabindex="-1">
+          <header><h3>模型与搜索</h3><span>客户自带密钥 · 保存后不回显</span></header>
+          <article class="real-settings-row"><i class="ph ph-cube" aria-hidden="true"></i><div><b>AI 模型</b><span>经营问答使用的模型</span></div><em data-settings-status="model">正在读取…</em><button type="button" data-demo-action="open-connection-center" data-connection-mode="model">管理模型</button></article>
+          <article class="real-settings-row"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><div><b>搜索服务</b><span>用于公开信息检索</span></div><em data-settings-status="search">正在读取…</em><button type="button" data-demo-action="open-connection-center" data-connection-mode="search">配置搜索</button></article>
+        </section>
+        <section id="settings-voice" class="demo-panel real-settings-section" aria-label="语音与启动" tabindex="-1">
+          <header><h3>语音与启动</h3><span>偏好仅影响当前设备</span></header>
+          <article class="real-settings-row real-settings-voice-row"><i class="ph ph-microphone" aria-hidden="true"></i><div><b>实时语音服务</b><span>连续对话、插话打断与经营总管语音回复</span></div><dl class="real-settings-voice-meta"><div><dt>提供商</dt><dd>百炼</dd></div><div><dt>状态</dt><dd data-settings-status="voice">正在读取…</dd></div></dl><button type="button" data-settings-voice-check aria-label="检测实时语音连接">连接检测</button><button type="button" data-settings-voice-configure>配置</button></article>
+          <article id="settings-greeting" class="real-settings-row real-settings-greeting-row" aria-label="启动问候" tabindex="-1"><i class="ph ph-chat-circle-dots" aria-hidden="true"></i><div><b>启动问候</b><span>进入应用后播放一句自然问候，可随时停止</span></div><em data-greeting-preference-status>正在读取本机偏好</em><label class="real-settings-switch"><input type="checkbox" data-greeting-enabled><span data-greeting-enabled-label>启动问候</span></label></article>
+          <article class="real-settings-row real-settings-voice-choice-row"><i class="ph ph-waveform" aria-hidden="true"></i><div><b>音色选择</b><span>Ethan 男声 / Tina 女声，由百炼实时语音生成并缓存在本机</span></div><div class="real-settings-segmented" role="group" aria-label="启动问候音色"><button type="button" data-greeting-voice="male" aria-pressed="false">男声</button><button type="button" data-greeting-voice="female" aria-pressed="false">女声</button></div><button type="button" data-greeting-preview>试听</button></article>
+          <article class="real-settings-row real-settings-random-row"><i class="ph ph-shuffle" aria-hidden="true"></i><div><b>问候方式</b><span>随机问候会从已审核的三句文案中选择</span></div><em>当前 Mac</em><label class="real-settings-switch"><input type="checkbox" data-greeting-random><span>随机问候</span></label></article>
+          <article class="real-settings-row real-settings-example"><i class="ph ph-quotes" aria-hidden="true"></i><div><b>示例</b><span>老板，你来啦。今天咱们先忙点什么？</span></div></article>
+        </section>
+        <section id="settings-account" class="demo-panel real-settings-section" aria-label="账号与工作区" tabindex="-1">
+          <header><h3>账号与工作区</h3><span>当前登录会话隔离</span></header>
+          <article class="real-settings-row real-settings-account-row"><i class="ph ph-desktop-tower" aria-hidden="true"></i><div><b>当前设备</b><span>业务数据与当前登录账号、工作区保持隔离</span></div><em>本机设置</em><span class="demo-settings-location">设备级</span></article>
+        </section>
+      </div>
+      </div>
+      <footer class="demo-panel real-settings-footer"><button type="button" class="demo-primary" data-greeting-save>保存启动问候</button><span><i class="ph ph-shield-check" aria-hidden="true"></i>仅保存本机启动问候；模型、搜索与语音连接在各自入口保存</span></footer>
     </section>`;
 }
 
@@ -121,6 +148,6 @@ export function renderCapabilityDemoView(
     inspector.innerHTML = `<section class="demo-panel demo-capability-inspector"><span class="demo-chip">外贸模块</span><h3>仅展示流程</h3><p>市场定向、内容本地化、邮件序列和线索交接均为演示版说明，暂不执行真实动作。</p></section>`;
     return;
   }
-  main.innerHTML = renderSettings(state);
-  inspector.innerHTML = `<section class="demo-panel demo-capability-inspector"><span class="demo-chip">客户自带密钥</span><h3>真实连接，可控启用</h3><p>官方 API Key 只在创建或轮换时提交；连接需先测试，再人工确认启用。演示数据仍存储在当前浏览器。</p></section>`;
+  main.innerHTML = renderSettings();
+  inspector.innerHTML = "";
 }

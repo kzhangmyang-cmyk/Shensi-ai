@@ -51,6 +51,13 @@ assert.deepEqual(conflicting, {
 
 const queryController = createRoiController({
   api: apiFixture({
+    async listCohorts() {
+      return {
+        status: 200,
+        etag: null,
+        body: { items: [{ id: "cohort-1", name: "工业除尘获客" }] }
+      } as never;
+    },
     async getGrowthPerformance() {
       return {
         status: 200,
@@ -82,6 +89,7 @@ const queryController = createRoiController({
   hasFeature: () => true,
   hasCapability: () => true
 });
+await queryController.loadCohorts();
 const queried = await queryController.query({
   cohortId: "cohort-1",
   currency: "CNY",
@@ -91,4 +99,9 @@ assert.equal(queried.kind, "ready");
 assert.equal(
   (queried.performance as unknown as { cohortId?: string }).cohortId,
   "cohort-1"
+);
+assert.equal(
+  queried.kind === "ready" ? queried.cohorts.length : 0,
+  1,
+  "query results must keep the cohort selector populated"
 );

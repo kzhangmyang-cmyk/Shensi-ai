@@ -21,16 +21,18 @@ does not mean live: real API/MySQL surfaces remain real, while browser-local or
 pending integrations remain visible and carry the exact label
 `预览 · 待接入`. They never present fixture values as live customer results.
 
-All nine primary navigation entries are present:
+The source shell provides a home with acquisition, agent center and decision
+simulation as primary entries. Its sidebar retains the following modules;
+customer trial publication must be verified separately from source development:
 
+- 首页
 - 自动营销总览
 - 获客中心
 - 社媒对话
 - 私域客户池
-- 成交工作台
+- 企业查询
 - 智能体中心
-- 自动工作流
-- 外贸营销
+- 星盘决策模拟
 - 设置中心
 
 The same sidebar exposes the six connected Growth/finance entries:
@@ -45,7 +47,7 @@ The same sidebar exposes the six connected Growth/finance entries:
 Real connected scope includes authenticated session/workspace authority, CRM and
 private-domain records, Growth catalog/quote/finance/ROI flows supported by the
 current backend, provider connections the operator has actually configured, and
-the `#acquisition` MediaCrawler path for QR login, plan approval, manual
+the `#acquisition` MediaCrawler path for interactive login, plan approval, manual
 keywords, controlled collection, persisted status/candidates/evidence, draft
 review, and CRM conversion. In an authenticated real session, `#conversations`
 is the public-evidence controlled outreach workspace for those same tasks. It
@@ -55,9 +57,9 @@ two-party message thread, and never substitutes local seeded conversations.
 customer-readable empty state; it does not invent a quote or expose
 `quote_case_required`.
 
-The browser-local dashboard, conversion, automation, and overseas-marketing
-presentations stay visible as `预览 · 待接入`; demo sessions also retain the
-deterministic local conversations preview. AI-only
+The browser-local conversion, automation, and overseas-marketing previews are
+not product navigation destinations. Their historical hashes redirect to the
+real quote workbench or agent center. AI-only
 controls remain visible but explain that a healthy model connection is required.
 Generic public-web acquisition remains an optional separate path; a missing
 search or model provider never blocks manual-keyword MediaCrawler collection.
@@ -106,13 +108,76 @@ The first pilot uses only these fixed loopback addresses:
 | Public gateway | `127.0.0.1:5608` | the only Quick Tunnel target |
 | Frontend | `127.0.0.1:5610` | gateway upstream only |
 | Backend | `127.0.0.1:5611` | production mode, MySQL store, gateway upstream only |
-| MediaCrawler sidecar | `127.0.0.1:5612` | private backend integration only |
+| MediaCrawler sidecar | `127.0.0.1:5612` | Docker-to-host loopback, private backend integration only |
 
 The `shensi_trial_app@127.0.0.1` database account has privileges only on
 `shensi_trial`. The gateway owns `/healthz` and sends only `/api` and `/api/*`
-to the backend; all other allowed application paths go to the frontend. It
+to the backend, upgrades `/douyin-live/{token}` to MediaCrawler over the
+private sidecar network, and sends all other allowed application paths to the frontend. It
 preserves cookies, CSRF headers, HTTP methods, and the HTTPS forwarded scheme.
 MySQL, backend, and MediaCrawler are never direct tunnel targets.
+MediaCrawler runs in Docker inside the dedicated Colima profile
+`shensi-trial`. Its port publish includes literal host `127.0.0.1`; do not use a
+wildcard or LAN address. Headed bundled Chromium runs on a per-login-session
+Xvfb display with x11vnc bound to a random sidecar-loopback port. The public
+page mounts noVNC/RFB inside the acquisition login dialog and mints a
+short-lived, single-use token through
+`POST /api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/live`
+before connecting to the same-origin `/douyin-live/{token}` WebSocket. If the
+live context is still starting, the public endpoint returns retryable HTTP
+`409` `douyin_login_session_not_ready` and the embedded client automatically
+remints for the same session/profile. The separate live-login tab is a backup.
+The gateway exposes only that opaque upgrade;
+VNC TCP, CDP, X11, browser-debug ports, cookies, browser security material, and
+profiles never cross the sidecar boundary. A bounded JPEG plus normalized
+click, bounded text, allowlisted key, and bounded scroll commands remain the
+fallback. The sidecar opens the official login panel and activates QR login in
+the background. A captured current QR is returned only with `qrStatus: ready`
+and is rendered directly in the acquisition dialog; expired, network-error, or
+verification states clear it. The customer can complete login from that QR or
+use embedded noVNC/RFB, the backup tab, or JPEG interaction for supported
+manual verification. “刷新二维码” sends one semantic `refresh_qr` command to
+reload the same profile. If the official page reports an expired QR and exposes
+exactly one visible “点击刷新” control, the sidecar clicks it once and waits in
+the bounded QR window for the replacement image. It does not guess coordinates,
+reconnect noVNC, or create a replacement login session.
+An empty poll never replaces an already observed `expired`, `network_error`, or
+`verification_required` with `opening`. For refresh troubleshooting, inspect
+`douyin_login_refresh_network` only as a bounded aggregate of phase, hostname,
+resource type, HTTP status or normalized network error. Those records never
+contain URL paths, queries, headers, bodies, cookies, QR data or session IDs;
+non-`douyin.com` hostnames are collapsed to `other`.
+Login navigation and QR refresh wait for the bounded DOM-content-loaded
+milestone before probing the official login controls.
+If the official login UI is still unrecognized after refresh but no concrete
+network failure is visible, expect HTTP 200 with `qrStatus: opening`; an
+explicit page-level network failure may return `qrStatus: network_error`.
+Verify that explicit session deletion still returns HTTP 204. HTTP 500/503 is
+not an acceptable QR recovery state.
+After an allowlisted official page is reached, the sidecar establishes the
+display/context and worker VNC handle, and `AccountManager` registers that
+context/generation before screenshot, DOM, QR, or panel preparation. If initial
+preparation or a later poll/semantic refresh cannot produce the fallback JPEG,
+expect the same nonterminal session with `loginPage: null`; `qrStatus` may
+remain `opening`, and the noVNC context stays interactive. Null or an
+unrecognized official login DOM is not `login_expired`. Only a fatal
+browser/display/VNC failure or an unsafe page closes the attempt.
+The browser worker keeps a 65-second deadline for the complete login-open
+command. If initial navigation fails, it makes at most three attempts in the
+same persistent context. Every attempt has a 10-second navigation timeout;
+after a failure, the failed page is closed, a fresh page is created, and the
+next attempt starts 500 milliseconds later. After
+the third failure, the sidecar closes the failed page and reports only
+`douyin_login_page_unavailable`. This retry does not restart the worker and
+does not replay any comment or private-message command. The login-session
+`GET` gateway timeout remains 70 seconds, so it can cover the bounded worker
+poll without changing other MediaCrawler request timeouts.
+The launcher passes the Colima VM's uppercase/lowercase `HTTP(S)_PROXY` and
+`NO_PROXY` variables into the container for build tooling and ordinary HTTP
+clients. Chromium connects directly by default; those generic variables do not
+configure Playwright. Only an explicit `MEDIACRAWLER_BROWSER_PROXY` value is
+eligible for Chromium, and the sidecar rejects malformed, credentialed, or
+portless values before browser startup.
 
 The existing services on `3307`, `5488`, `5492`, `5588`, and `5590` are
 protected. Preparation, start, verification, and stop must not modify, signal,
@@ -128,6 +193,9 @@ The ignored default runtime root is `.runtime/real-trial/`:
 .runtime/real-trial/
   trial.env
   secrets/
+    mediacrawler/
+      service_secret
+    ... other owner-only application secret files
   logs/
   pids/
   tools/
@@ -135,8 +203,9 @@ The ignored default runtime root is `.runtime/real-trial/`:
     frontend/
   state/
     mysql/
-    mediacrawler-profile/
-    mediacrawler-output/
+    mediacrawler/
+      profile/
+      output/
 ```
 
 Runtime, state, secret, log, PID, and tool directories are `0700`; generated
@@ -150,10 +219,16 @@ other frontend behavior.
 
 Preparation generates independent JWT, encryption, cursor, claim, database,
 gateway, and sidecar values. It preserves existing generated secrets on an
-exact repeat. The configured fixed cloudflared binary is copied into `tools/`
-only after its SHA-256 matches. Logs and status may expose bounded component
-names, paths, PIDs, health, and the current temporary origin; they must never
-expose environment values or secrets.
+exact repeat. The container receives only the dedicated
+`state/mediacrawler/` and `secrets/mediacrawler/` bind parents; MySQL state and
+the other application secrets are outside its mount boundary. The configured
+cloudflared source is selected in this order: an explicit supervisor option,
+the absolute `SHENSI_TRIAL_CLOUDFLARED` path, then the retained
+`tools/cloudflared` copy. Its pinned SHA-256 is verified before an atomic install
+into the runtime tools directory, and the tunnel always executes that
+runtime-owned copy. No temporary-directory source path is a runtime dependency.
+Logs and status may expose bounded component names, paths, PIDs, health, and the
+current temporary origin; they must never expose environment values or secrets.
 
 ## Identities and login alias
 
@@ -170,8 +245,9 @@ expose environment values or secrets.
   is submitted byte-for-byte unchanged, and the password is never normalized or
   rewritten.
 - Enabled but empty or unequal-length alias configuration fails before a login
-  request. The backend `/api/auth/login` remains email-only; it does not
-  natively accept a username.
+  request. The backend `/api/auth/login` accepts either a public account name or
+  an email address in its historical `email` request field; account names are
+  normalized to the matching `@shensi.local` identity before lookup.
 
 ## Independent showcase data
 
@@ -215,30 +291,61 @@ rotating the customer credential.
 
 ## MediaCrawler filesystem and action boundaries
 
-The generated runtime uses visible standard Playwright Chrome:
+The generated runtime uses headed bundled Playwright Chromium inside the
+dedicated `shensi-trial` Colima profile's Linux Xvfb display:
 
 ```dotenv
 MEDIACRAWLER_BROWSER_HEADLESS=false
-MEDIACRAWLER_BROWSER_CHANNEL=chrome
+MEDIACRAWLER_BROWSER_CHANNEL=
+MEDIACRAWLER_BROWSER_DISPLAY=virtual
 DOUYIN_OUTREACH_ACTIONS_ENABLED=false
+DOUYIN_OUTREACH_APPROVALS_ENABLED=false
+DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED=false
+DOUYIN_OUTREACH_DESKTOP_EXECUTION_ENABLED=false
+SHENSI_DESKTOP_CLIENT_ADMISSION_MODE=migration_locked
+SHENSI_DESKTOP_ADMITTED_BUILD_MANIFEST_SHA256=
 DOUYIN_ACTION_VISUAL_LOCATOR=disabled
 ```
 
 The sidecar consumes `MEDIACRAWLER_SERVICE_SECRET_FILE`; raw secret environment
-values are not a deployment interface.
+values are not a deployment interface. Its exact host path is
+`.runtime/real-trial/secrets/mediacrawler/service_secret`.
 The MediaCrawler encrypted volume, profile root, and crawl-output root point to
-the dedicated trial state. `MEDIACRAWLER_CRAWL_OUTPUT_ROOT` must be absolute,
-already exist, be a non-symlinked current-user-owned directory with exact mode
-`0700`, and resolve strictly inside but not equal to
+`state/mediacrawler/`, `state/mediacrawler/profile/`, and
+`state/mediacrawler/output/` respectively.
+`MEDIACRAWLER_CRAWL_OUTPUT_ROOT` must be absolute, already exist, be a
+non-symlinked current-user-owned directory with exact mode `0700`, and resolve
+strictly inside but not equal to
 `MEDIACRAWLER_ENCRYPTED_VOLUME`. Profile and output roots are distinct. The
 runner resolves one output root and uses it for both creation and cleanup, so
 trial artifacts never fall back to a source-owned directory.
 
-Outside the trial supervisor, both backend and sidecar enable outreach only
-when `DOUYIN_OUTREACH_ACTIONS_ENABLED` is case-insensitively exactly `true`.
-Whitespace, `1`, `yes`, an empty value, and omission remain false. The trial
-supervisor does not treat an ambient or retained true value as authorization.
-While false:
+The container publishes only its private HTTP API to host
+`127.0.0.1:5612`. Each login session starts its own Xvfb/x11vnc pair. x11vnc
+listens only on sidecar loopback; the gateway's private sidecar connection
+proxies only the opaque token-bound WebSocket path. The normal page uses noVNC/RFB
+embedded in the acquisition dialog, while the separate live-login tab, bounded
+login frame, and four login commands remain backup controls for the same
+browser context. It exposes no cookie,
+browser security material, generic browser-control endpoint, VNC TCP, CDP,
+X11, or debug port. The `virtual` display
+mode validates Linux plus a local X display
+before browser startup, and the same configuration fails closed in a native Mac
+process instead of opening a host window.
+
+The Backend has separate, exact lowercase approval/server/desktop flags; when
+one is supplied, all three are required. The Sidecar still consumes the legacy
+`DOUYIN_OUTREACH_ACTIONS_ENABLED` switch. A Backend configuration with no split
+flags uses the bounded legacy server-only adapter.
+
+The Trial supervisor emits all split flags explicitly and does not inherit
+ambient desktop/admission settings. After the existing explicit authorization
+and empty-queue audit, it maps the legacy setting to approval/server roles,
+fixes desktop execution false, and fixes admission to `migration_locked` with
+an empty digest. Bootstrap always runs with all roles false. Locked admission
+blocks new gated HTTP mutations before approval handlers; it does not grant
+desktop execution or cancel an existing server worker.
+With the default action roles false:
 
 - the backend rejects final approval before approval/action persistence;
 - the backend creates neither the action claim worker nor recovery sweeper;
@@ -260,7 +367,17 @@ historical non-v2 rows stay readable, are not backfilled, and never reach the
 browser. Account work is serialized, with at least 60 seconds reserved between
 comments and ten minutes between private messages. MediaCrawler upstream is the
 collection/browser foundation; comment and private-message execution are
-Shensi extensions, not official Douyin APIs or upstream-native features.
+Shensi extensions, not official Douyin APIs or upstream-native features. The
+private-message executor uses only the focused vendored
+`cv-cat/DouYin_Spider` modules. It authenticates from the already-bound sidecar
+context without exporting cookies or security material, resolves the frozen
+canonical `/user/{sec_uid}` target, requires the API-returned recipient
+`sec_uid` to match exactly, revalidates account authority before conversation
+creation and before send, and sends the approved text once. The immutable
+action ID yields a deterministic UUIDv5 client message ID. Its sanitized
+`douyin-im:<sha256>` receipt exposes no text, conversation/ticket ID, cookie,
+security material, or raw `sec_uid`; a post-send exception is ambiguous and is
+never retried.
 For a comment, the visible action browser first looks for one unique editor. If
 the editor is not mounted yet, it waits for one unique visible comment-input
 container and one exact `留下你的精彩评论吧` entry, rechecks page risk, frozen URL,
@@ -268,68 +385,103 @@ sender, and deadline, and clicks that pinned entry once. This reversible
 activation neither enters text nor publishes; a missing, unusable, or ambiguous
 entry fails closed. The browser then waits for and pins the mounted editor,
 enters the exact approved text, and verifies the readback. Only then does it
-wait for and pin one unique usable send control before the synchronous URL,
-sender, content, and control guard and the single click. The send control may
+wait for and pin one unique usable send control. When the comment UI has no
+semantic send control, it binds the exact editor for one unmodified Enter
+keypress, which is the current first-party publish gesture. The synchronous
+URL, sender, content, and control guard runs immediately before either dispatch.
+The send control may
 legitimately be disabled or not yet mounted before editor input; that state
 alone is not a missing-control failure.
 The batch freezes the policy time zone. DM approval uses the approval local day;
 claim-time quota counts actual attempts on the claim local day, retries consume
 that day, and reset occurs only on the next day. A second DM for the same batch
 revision/candidate is permanently rejected even across dates.
-Visible verification is manual-only: when a verification page is detected
-immediately after initial target navigation, Shensi waits up to 120 seconds and
-revalidates the same action after the user completes it. A challenge that
-appears later fails closed immediately. The enclosing defaults are a
+Verification has no solver, token injection, third-party bypass, or alternate
+write route. An ordinary operator-controlled local display may use the bounded
+manual handoff when a verification page is detected immediately after initial
+target navigation. The noVNC route is login-session-only and has already been
+invalidated before an outreach action. The isolated trial has no remote control
+for an action Xvfb display, so CAPTCHA, slider, login verification, and platform-warning states
+require stopping the affected attempt and later starting a documented supported
+flow; they never open Mac Chrome. A challenge that appears later fails closed
+immediately. The enclosing defaults are a
 150-second Node action deadline, 175-second gateway HTTP timeout, 170-second
 browser-action IPC timeout, and 180-second minimum claim lease. Timeout pauses
-risk; no solver, token injection, third-party bypass, or alternate write route
-is allowed. A deterministic comment failure may still close a predecessor-linked
+risk. A deterministic comment failure may still close a predecessor-linked
 historical direct-message row as `predecessor_failed`. An expired claim, malformed success receipt,
 post-submit exception, or other uncertain external write is treated as
 ambiguous, risk-pauses related account work, and is never automatically
 retried. No deterministic or ambiguous failed action is automatically
 resubmitted. The operator may use the page checkbox to request a strictly read-only
 check for a unique post-start platform receipt of that same frozen comment or
-version-2 private message;
-failure keeps it and related work paused, and success does not resume the
-account or successor. DOM/ARIA controls are primary. The generated trial keeps
+version-2 private message; failure keeps it and related work paused, and success
+does not resume the execution gate or successor. The login-backed social account
+state and the outreach execution gate are read independently. Gate recovery
+requires a second explicit confirmation with the current batch ETag/revision,
+current login-state version,
+the exact displayed pending action IDs, the full account-wide unresolved action
+IDs, an idempotency key, and a reason of at least eight characters. Only approved
+comments from that batch with `attempt_count=0` are eligible, and only an
+`account_risk_paused` row can return to `queued`. An action carrying its own
+`action_unavailable`, `douyin_action_timeout`, or
+`douyin_action_receipt_ambiguous` result remains paused and is never resent.
+For the exact same bound identity and login-state version, that transaction also
+restores an `acquisition_social_accounts.state='risk_paused'` row to `active`;
+disconnected, malformed, or stale-version account authority remains rejected.
+Recovery fails closed if an action is executing, another batch has queued work,
+the login version or batch authority changed, or either confirmed action list is
+stale. The enabled action IDs, acknowledged uncertain IDs, actor, reason, request
+hash, and recovery time are committed to the recovery ledger with the gate
+change. If the exact current pending set is empty, recovery is allowed only after
+the same full audit; it restores the account gate while recording an empty
+`enabledActionIds` list and cannot requeue any terminal action. DOM/ARIA controls
+are primary for comments. The generated trial keeps
 `DOUYIN_ACTION_VISUAL_LOCATOR=disabled`; an explicit `rapidocr` runtime may use
-the pinned local OCR dependencies only to suggest a missing entry/send control
-before exact DOM rebind. It cannot choose identity, recipient, editor, content,
-or receipt, and screenshots/recognized text are never persisted or logged.
-The action-enabled trial must use a visible browser. Submit controls are pinned
-and guarded synchronously at click time against the exact URL, sender, and DM
-recipient; DM receipt proof is one atomic snapshot of the same outgoing node.
+the pinned local OCR dependencies only to suggest a missing comment entry/send
+control before exact DOM rebind. It cannot choose identity, target, editor,
+content, or receipt, and screenshots/recognized text are never persisted or
+logged.
+The action-enabled trial must use a visible browser. Comment submit controls are
+pinned and guarded synchronously at click time against the exact URL and sender;
+direct messages use the separate API-resolved exact-recipient binding above.
 Visual MCP remains development-only diagnostics and the action path is model-
-provider neutral. QR display is not account authority; account connection does not
+provider neutral. A login frame is not account authority; account connection does not
 authorize collection; collection does not authorize external sending.
 After the single comment submit, a verified success receipt or an ambiguous
-post-submit receipt keeps the Douyin target page in front for ten seconds. Use
-that interval only to inspect the platform page: no second click is made, the
-profile lease remains held, and the Shensi durable receipt remains the success
-authority. An ambiguous action appears as `结果待确认` and is never resent
-automatically.
-During an enabled action, the sidecar repeatedly revalidates the frozen sender
-from the current page without navigating away. Private-message input, submit,
-and receipt controls must also remain bound to one exact visible recipient panel
-matching the frozen profile URL. An account switch, recipient switch, missing
-marker, or ambiguous panel is a closed failure and is not an instruction to
-retry or choose another conversation.
+post-submit receipt keeps the Douyin target page in front for ten seconds. In
+the isolated trial the page remains private inside Xvfb and cannot be inspected
+through the public application. No second click is made, the profile lease
+remains held, and the Shensi durable receipt remains the success authority. An
+ambiguous action appears as `结果待确认` and is never resent automatically.
+An official comment response proves success only when the exact frozen request
+text/video, first-party success status, and a stable returned comment ID all
+bind. Returned text/video/author values must match when present. If Douyin
+omits those optional echo fields, the frozen sender is revalidated after the
+response instead. The browser waits for the official response body to finish
+before parsing it. If that body is still unreadable, the same submission is not
+repeated; success may be recovered only from a unique new self-owned stable-ID
+comment visible in the bound target page.
+During comment execution, the sidecar repeatedly revalidates the frozen sender
+from the current page without navigating away. During private-message execution,
+the focused transport instead repeats account-authority checks around exact
+recipient resolution, conversation creation, and the single send; recipient or
+account mismatch is a closed failure and never selects another conversation.
 
 The only trial CLI entry points for this optional runtime are
 `pnpm trial:start --action-visual-locator=rapidocr` and
-`pnpm trial:publish --action-visual-locator=rapidocr`. They select the pinned
-`uv run --frozen --extra visual-locator` sidecar command and do not enable
-external actions. `prepare`, `status`, and `stop` reject the option. When real
+`pnpm trial:publish --action-visual-locator=rapidocr`. They build the sidecar
+image with the pinned frozen `visual-locator` dependency group and do not enable
+external actions. Both image variants run the same Xvfb/uvicorn entry point.
+`prepare`, `status`, and `stop` reject the option. When real
 outreach is separately authorized, the operator may combine the locator option
 with `--enable-outreach-after-empty-audit`; neither option implies the other.
 
 The connected account shown at final review must have a nonempty nickname and
-the same account ID and login-state version frozen in the batch. QR binding
+the same account ID and login-state version frozen in the batch. Login binding
 derives a one-way `dyacct_<sha256>` handle from the authenticated own-profile
 identity and never returns raw `sec_uid`. Login versions are globally monotonic,
 and the backend retains their private high-water after disconnect or risk
-pause, so polling an older QR session cannot restore authority. If any identity
+pause, so polling an older login session cannot restore authority. If any identity
 check changes before execution or the official publish receipt names a
 different author, the comment fails closed and related work is risk-paused.
 
@@ -346,36 +498,112 @@ pnpm trial:verify
 pnpm trial:stop
 ```
 
+On the first preparation for a clean runtime, set
+`SHENSI_TRIAL_CLOUDFLARED` to the absolute path of the approved binary. Once it
+has passed the pinned SHA-256 check, later commands reuse the retained
+`.runtime/real-trial/tools/cloudflared` copy without requiring the original
+source path.
+
 ### Prepare
 
 `trial:prepare` refuses an occupied fixed port, unsafe runtime path/file state,
 missing password input, mismatched repeated password, or cloudflared checksum
-failure. It creates the protected runtime and canonical encoded MySQL URL
-without printing a credential.
+failure. A clean runtime with neither an approved source nor a retained copy
+fails with `TRIAL_CLOUDFLARED_REQUIRED`. It creates the protected runtime and
+canonical encoded MySQL URL without printing a credential.
 
 ### Start
 
-`trial:start` starts a newly initialized MySQL data directory first, provisions
-the least-privilege database/user, obtains the Quick Tunnel HTTPS origin before
+Before starting MySQL or creating a public tunnel, `trial:start` creates or
+starts only the dedicated Colima profile `shensi-trial` and builds the requested
+MediaCrawler image from the current worktree. It never falls back to native Mac
+Chrome. It then initializes the dedicated MySQL data directory, provisions the
+least-privilege database/user, obtains the Quick Tunnel HTTPS origin before
 backend startup, injects that origin and `http://127.0.0.1:5608` into
 `CORS_ORIGINS`, provisions the tenant admin through the real API, and starts
-only loopback listeners. Startup aborts on an unhealthy dependency or an
-occupied port.
+only loopback listeners. Startup aborts on an unavailable Colima/Docker
+dependency, failed image build, unhealthy dependency, or occupied port.
 
 ### Publish verified changes
 
 After the acceptance gates pass, `trial:publish` is the single refresh path for
-an already prepared trial. It validates and stops only the recorded process
-groups, keeps `.runtime/real-trial/state/` intact, rebuilds frontend and backend
+an already prepared trial. Before stopping anything, it verifies or installs
+the runtime-owned cloudflared copy. Missing or unverified tooling leaves the
+existing process groups and status untouched. It then validates and stops only
+the recorded process groups, keeps `.runtime/real-trial/state/` intact, rebuilds frontend and backend
 from the current worktree, writes the frontend into the isolated
 `.runtime/real-trial/release/frontend/` snapshot, restarts the complete loopback
 stack, and runs the bounded gateway verification. A new Quick Tunnel origin may
 be issued and must be read from `trial:status`.
 
-Local development and the trial use the same repository source. They are not a
-live two-way synchronization channel: editing source changes neither a running
-trial nor its tunnel until the operator explicitly runs and verifies
-`trial:publish`.
+The customer-facing local URL and public origin use the same published frontend
+build, backend runtime, sidecar image, and MySQL database. Development source is
+not a live two-way synchronization channel: editing the worktree changes neither
+view until the operator explicitly runs and verifies `trial:publish`.
+
+Account reconnect must be triggered once. The UI disables the reconnect control
+during the short create request and while the current unfinished session remains
+in `qrStatus: opening` without a terminal failure. `POST` immediately returns
+`awaiting_scan` with
+`loginPage: null`; the sidecar opens the official page in the background outside
+the global state lock. During that opening phase the UI says the secure
+environment is starting, not that the page has opened. `GET` polling later shows
+a bounded JPEG fallback when capture succeeds. If a later poll or semantic
+refresh cannot capture only that frame, the response keeps the same session,
+QR state, and noVNC context with `loginPage: null`; null alone does not map the
+attempt to `login_expired`. Only a genuinely terminal attempt may return
+`login_expired` with an optional safe `failureCode`. The primary control mounts
+noVNC/RFB inside the dialog; its
+authenticated `POST .../{sessionId}/live` obtains a new single-use socket token.
+A retryable `409` `douyin_login_session_not_ready` waits and remints against
+the same session/profile. RFB reconnect may also request another token after a
+disconnect; it never reuses the consumed WebSocket URL. The new-tab route is a
+backup for that same context.
+Closing the dialog sends the workspace-scoped login-session `DELETE`; an
+account-level reconnect cancels an unfinished predecessor before creating its
+replacement, while RFB reconnect stays on the current session/profile. Poll and
+interaction may still own the serialized browser worker when cancel arrives.
+The UI therefore unmounts RFB first, and the sidecar then commits logical
+revocation (session/generation/unused-token removal) before assigning eventual
+context close and profile deletion to one tracked bootstrap or cleanup thread.
+Do not diagnose a fast `204` as proof that browser close was synchronous; use
+the cleanup logs or shutdown result when validating reclamation. A previously
+claimed socket from a non-cooperating client closes when deferred context
+teardown reaches it. Poll and interaction I/O otherwise use a per-session lease
+with generation/CAS authority. Terminal
+completion closes and flushes the browser context before the matching CAS
+persists account authority. Open failure,
+disconnect, expiry, explicit close, shutdown, a fresh start, and persistence
+failure clear unfinished work, leases, and browser resources without replay.
+Bootstrap generation/stale checks isolate old results. A replacement waits for
+the preceding bootstrap thread to exit, and disconnect invalidates its pending
+preparation so that it cannot overwrite or close the next context. The sidecar
+does not reuse an opening session globally across tenants. The public backend
+scopes replay to workspace plus `Idempotency-Key` and uses a repository-backed
+workspace opening lease/fence to reuse one unexpired upstream `awaiting_scan`
+session across different keys or backend instances. Cancellation and terminal,
+expired, or missing upstream state release the slot before a replacement.
+Cancellation fences the old opening before the sidecar call; if that call
+fails, retry cancellation with the same old session ID while a new create stays
+isolated from it. The embedded
+client keeps one connect in flight, retries a live-mint `409` only for the same
+session, and clears requests, retry timers, and RFB state on unmount. The server
+returns retryable HTTP `409` `douyin_login_session_not_ready` while
+a valid live context is still starting; other private-browser gateway failures
+remain retryable HTTP `503` `mediacrawler_unavailable`. A later fresh login attempt may restart a failed
+browser, but it never replays a previously sent browser, comment, private-message,
+or reconciliation command. Each browser command remains bounded. If the page
+shows an error, inspect the stable public code and sidecar log before another
+manual attempt rather than repeatedly clicking reconnect.
+The normal public-trial login embeds a Shensi noVNC/RFB client for the
+server-owned Xvfb/Playwright context; its backup tab controls that same context.
+Neither is a separate customer-side Douyin session:
+opening the public Douyin site directly in another tab would retain its cookie
+on the customer's device and cannot authorize the sidecar profile. The original
+acquisition page keeps polling the login session after QR scan and binds the
+account only after the sidecar reports `active` authenticated identity. This
+login-session `GET` and interaction `POST` use a dedicated 70-second gateway
+transport timeout; other MediaCrawler requests keep their shorter defaults.
 
 Use `http://127.0.0.1:5608` for the customer-facing local view. That local URL
 and the reported HTTPS origin both traverse the same gateway to frontend `5610`
@@ -384,25 +612,38 @@ hot-reload surface and is never evidence that the published trial was updated.
 
 ### Status and verify
 
-`trial:status` validates recorded PID/command/nonce authority before reporting a
-component as running and is the authority for the current temporary origin.
-The supervisor starts the backend and frontend preview from their built/runtime
-executables. With visual locating disabled, MediaCrawler also starts from the
-absolute `.venv/bin/uvicorn`; the explicit RapidOCR mode instead starts one
-owned `uv run --frozen --extra visual-locator` child. In both modes the recorded
-nonce-bearing wrapper owns the complete descendant process group. The wrapper
-is the process-group leader:
+`trial:status` validates recorded PID/command/nonce and owned-container authority
+before reporting a component as running and is the authority for the current
+temporary origin. `processesRunning` requires all six owned service records and
+the owned MediaCrawler sidecar to be running. `publicReachable` requires the
+temporary origin to answer `/api/health`; aggregate `running` is true only when
+both checks pass. The supervisor starts the backend and frontend preview from
+their built/runtime executables. MediaCrawler starts through one nonce-bearing
+host wrapper which launches the selected image in `shensi-trial`, follows its
+logs, and waits for that exact container. Disabled and RapidOCR images use the
+same Xvfb/uvicorn runtime; only the frozen optional dependency group differs.
+The recorded wrapper is the process-group leader:
 normal stop, bootstrap replacement, verification failure, and partial-start
-cleanup signal the complete group with `SIGTERM`, then use `SIGKILL` after the
-bounded wait if needed, so killing a wrapper cannot leave its service behind.
-Start removes only records whose PID no longer exists;
+cleanup signal the complete group with `SIGTERM`, then use `SIGKILL` only after
+the container's graceful stop budget if needed. The sidecar wrapper stops by
+exact container ID after verifying the runtime-derived ownership label; failure
+cleanup applies the same check so an SSH/log follower exit cannot leave an owned
+container behind or remove an unrelated one.
+For PID metadata, start removes only records whose PID no longer exists;
 any live PID with a different command or nonce remains recorded and blocks the
 start rather than being replaced or signalled.
 `trial:verify` reads that owner-only runtime status by default; an explicit
 operator-supplied origin is only an override, and neither value belongs in a
 tracked document.
-`trial:verify` is a bounded runtime check, not a substitute for the complete
-Task 5 acceptance checklist.
+`trial:verify` is a bounded runtime check. It makes at most six attempts, gives
+each fetch a five-second timeout, and retries only transport failures or
+non-healthy gateway/backend responses on the fixed `250ms`, `500ms`, `1s`,
+`2s`, `4s` schedule. Exhaustion returns
+`TRIAL_PUBLIC_VERIFICATION_UNAVAILABLE` for transport failures or
+`TRIAL_GATEWAY_OR_BACKEND_UNHEALTHY` for health responses without printing the
+origin. After both health routes pass, protected-route authentication and
+internal-route isolation mismatches fail closed immediately without retry. The
+check is not a substitute for the complete Task 5 acceptance checklist.
 
 The Quick Tunnel origin may change after a tunnel restart. The trial is
 unavailable while the Mac sleeps or is offline; the URL is not a permanent
@@ -410,11 +651,14 @@ domain or an acceptance record.
 
 ### Stop
 
-`trial:stop` operates only on recorded trial process groups. Before TERM and
-again before any bounded KILL escalation, it verifies the recorded PID,
-expected command, and runtime nonce against the live process. A mismatch or PID
-reuse fails closed instead of signalling an unrelated process. Stop removes
-live status but retains the protected runtime data.
+`trial:stop` operates only on recorded trial process groups and the exact
+runtime-owned MediaCrawler container. Before TERM and again before any bounded
+KILL escalation, it verifies the recorded PID, expected command, and runtime
+nonce against the live process. Container stop/removal also requires its
+runtime-derived name and ownership label. A mismatch or PID reuse fails closed
+instead of signalling an unrelated process or container. Stop removes live
+status but retains the protected profile, login metadata, crawl output, MySQL,
+logs, and secrets; it does not stop the `shensi-trial` profile itself.
 
 ## Customer-data retention and retirement
 
@@ -449,13 +693,53 @@ tree proves all of the following:
    disabled.
 5. Public traffic cannot reach MediaCrawler/internal routes, backend API docs,
    source files, runtime files, or secret files. MySQL/backend/sidecar remain
-   loopback-only.
+   loopback-only. Container inspection shows MediaCrawler bound only to host
+   `127.0.0.1:5612`, with no VNC TCP/CDP/X/debug publish, and login-session
+   creation causes no native Mac browser process or window. A plain HTTP request,
+   malformed token, reused token, or expired token cannot open `/douyin-live/*`.
 6. Every developed primary and Growth module is reachable. Real surfaces use
    persisted authority; every preview/pending surface visibly says
    `预览 · 待接入`; normal body scrolling and navigation work.
-7. Douyin QR creation and polling work. If the customer is absent, stop at the
-   visible QR-ready state. After an authorized scan, one manual-keyword
-   collection produces candidates that persist after refresh.
+7. Douyin login creation first returns `awaiting_scan`, `qrStatus: opening`,
+   `loginPage: null`, and `qrImageDataUrl: null`. Confirm that this state says
+   the secure login environment is starting and does not claim that the page
+   opened. Poll until the same session returns either `ready` with a directly
+   rendered QR image, or the exact `expired`, `network_error`, or
+   `verification_required` state without an old QR image. Confirm that
+   an empty follow-up poll does not regress one of those explicit states to
+   `opening`, and that `ready` is never returned without a QR image. Confirm that
+   `refresh_qr` makes one bounded refresh against the same profile. Use the same
+   session to force or simulate a later poll/refresh fallback-frame capture
+   failure: it must return `loginPage: null` without a terminal `failureCode` or
+   `login_expired`, retain the last explicit QR state and live noVNC context, and
+   allow a subsequent poll to restore the JPEG. Repeat the same check during
+   initial best-effort preparation: the already registered context must remain
+   available to live-token minting and noVNC. Separately inject a fatal
+   browser/display/VNC failure or unsafe page and verify that it closes the
+   attempt. Use the embedded Shensi live-login surface and
+   confirm its authenticated
+   live-mint response returns only the same-origin socket path/expiry, and confirm noVNC can click,
+   type, scan, and refresh the official login page. The original acquisition
+   page must continue polling the same session through QR scan and bind the
+   account only after `active`. A not-ready live mint must surface retryable
+   HTTP `409` and recover automatically without replacing the session/profile.
+   Rapid reconnect clicks during create/opening must yield one current session;
+   unmounting the login view must cancel its timer/request/RFB activity. Two
+   workspaces with different idempotency authority must never share a sidecar
+   login context.
+   The new-tab and collapsed JPEG backups must still target that same context without
+   starting another open. A connected
+   terminal result is authoritative only after the context has been closed and
+   flushed and the matching generation CAS has persisted the account.
+   If the customer is absent, stop before entering credentials or completing
+   platform verification. After the customer completes the login in that
+   live or fallback surface, one manual-keyword collection produces candidates that
+   persist after refresh. CAPTCHA, slider, verification, or warning requires the
+   human to complete the supported flow; it never authorizes a solver, bypass,
+   VNC TCP/CDP exposure, unrelated browser login, or Mac Chrome fallback.
+   Closing an unfinished dialog must return `204` from the login-session
+   `DELETE`, remove that attempt from the UI, and prevent its later poll result
+   from restoring the dialog.
 8. In the default disabled mode, final outreach approval and the private sidecar
    action endpoint remain `outreach_actions_disabled`. In an explicitly
    authorized enabled trial, verify the empty action queue before startup and
@@ -497,7 +781,7 @@ MediaCrawler, frontend, gateway, and tunnel. The current temporary origin must
 still be read from `trial:status`.
 
 Customer-interactive acceptance requires the authenticated full-page
-walk-through and an authorized Douyin QR scan followed by one manual-keyword
+walk-through and an authorized interactive Douyin login followed by one manual-keyword
 collection. External comments require a separately recorded user authorization
 plus the page's comment-specific confirmation. A private message additionally
 requires that comment's durable success receipt and its own separately recorded
@@ -509,7 +793,9 @@ protected link until those customer-interactive checks are complete.
 
 ## Retirement checklist
 
-1. Run `trial:stop` and confirm only validated trial process groups stopped.
+1. Run `trial:stop` and confirm only validated trial process groups and the
+   matching labeled MediaCrawler container stopped; the retained profile and
+   login state remain present.
 2. Keep the older protected services untouched until the new link has passed
    acceptance.
 3. Export/verify the trial database and complete the approved profile-retention

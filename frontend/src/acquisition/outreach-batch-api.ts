@@ -4,9 +4,15 @@ import { AcquisitionHttpError } from "./douyin-automation-api";
 
 export type OutreachBatch = components["schemas"]["AcquisitionOutreachBatch"];
 export type OutreachBatchList = components["schemas"]["AcquisitionOutreachBatchList"];
-export type OutreachActionList = components["schemas"]["AcquisitionOutreachActionList"];
 export type OutreachAction = components["schemas"]["AcquisitionOutreachAction"];
+export type OutreachExecutionGate = components["schemas"]["AcquisitionOutreachExecutionGate"];
+export type OutreachAccountRecovery = components["schemas"]["AcquisitionOutreachAccountRecovery"];
+type GeneratedOutreachActionList = components["schemas"]["AcquisitionOutreachActionList"];
+export type OutreachActionList = Omit<GeneratedOutreachActionList, "executionGate"> & {
+  executionGate?: OutreachExecutionGate;
+};
 export type DirectMessageApprovalCommand = operations["approveAcquisitionOutreachBatchDirectMessages"]["requestBody"]["content"]["application/json"];
+export type RecoverAccountActionsCommand = operations["recoverAcquisitionOutreachActionAccount"]["requestBody"]["content"]["application/json"];
 
 export interface OutreachBatchApi {
   listBatches(runId: string, candidateId: string, limit?: number, cursor?: string | null, signal?: AbortSignal): Promise<OutreachBatchList>;
@@ -19,6 +25,9 @@ export interface OutreachBatchApi {
   pauseBatch(batchId: string, reason: string, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<OutreachBatch>;
   resumeBatch(batchId: string, etag: string, idempotencyKey: string, signal?: AbortSignal): Promise<OutreachBatch>;
   listActions(batchId: string, signal?: AbortSignal): Promise<OutreachActionList>;
+  recoverAccountActions?(batchId: string, command: RecoverAccountActionsCommand,
+    etag: string, idempotencyKey: string,
+    signal?: AbortSignal): Promise<OutreachAccountRecovery>;
   reconcileAction?(batchId: string, action: Pick<OutreachAction,
     "id" | "batchRevision" | "approvalHash" | "contentHash">,
     idempotencyKey: string, signal?: AbortSignal): Promise<OutreachAction>;
@@ -148,7 +157,7 @@ const actionValidators = {
   sequence: (value) => value === 1 || value === 2,
   status: (value) => typeof value === "string" && [
     "queued", "blocked_by_predecessor", "executing", "succeeded", "failed",
-    "risk_paused"
+    "risk_paused", "claimed", "reconciliation_required"
   ].includes(value),
   predecessorActionId: nullable(boundedString(1, 255)),
   targetPublicUrl: boundedString(1, 2_000),
@@ -163,9 +172,9 @@ const actionValidators = {
     && actionFailureCodes.has(value))
 } satisfies Record<Exclude<keyof OutreachActionItem,
   "authorizationVersion" | "approvedBy" | "approvedAt"
-  | "directMessageDailyLimit" | "directMessageDailyOrdinal">, Validator>;
+  | "directMessageDailyLimit" | "directMessageDailyOrdinal" | "executionTarget">, Validator>;
 const directMessageAuthorizationValidators = {
-  authorizationVersion: (value) => value === 2,
+  authorizationVersion: (value) => value === 2 || value === 3,
   approvedBy: boundedString(1, 255),
   approvedAt: dateTime,
   directMessageDailyLimit: boundedInteger(1, 100),
@@ -185,7 +194,12 @@ const actionShape = (value: unknown): boolean => {
   const hasAuthorizationMetadata = authorizationKeys.some((key) => key in value);
   const expectedKeys = hasAuthorizationMetadata
     ? [...baseKeys, ...authorizationKeys]
-    : baseKeys;
+    : [...baseKeys];
+  if ("executionTarget" in value) {
+    if (value.executionTarget !== "desktop" && value.executionTarget !== "server") return false;
+    expectedKeys.push("executionTarget");
+  }
+  if (["claimed", "reconciliation_required"].includes(String(value.status)) && value.executionTarget !== "desktop") return false;
   if (Object.keys(value).length !== expectedKeys.length
     || !expectedKeys.every((key) => key in value)
     || !baseKeys.every((key) => actionValidatorMap[key]!(value[key]))) return false;
@@ -201,6 +215,9 @@ const actionShape = (value: unknown): boolean => {
   const receiptValid = status === "succeeded"
     ? typeof action.platformReceiptReference === "string"
       && typeof action.occurredAt === "string" && action.failureCode === null
+    : status === "reconciliation_required"
+      ? action.platformReceiptReference === null && ((action.occurredAt === null && action.failureCode === null)
+        || (typeof action.occurredAt === "string" && typeof action.failureCode === "string"))
     : status === "failed" || status === "risk_paused"
       ? action.platformReceiptReference === null
         && typeof action.occurredAt === "string"
@@ -213,13 +230,47 @@ const actionShape = (value: unknown): boolean => {
         directMessageAuthorizationValidatorMap[key]!(action[key]))
       && (action.directMessageDailyOrdinal as number)
         <= (action.directMessageDailyLimit as number);
-  return targetValid && receiptValid && authorizationValid && (kind === "comment"
+  const orderingValid = kind === "comment"
     ? action.sequence === 1 && action.predecessorActionId === null
-    : action.sequence === 2 && typeof action.predecessorActionId === "string");
+    : action.authorizationVersion === 3
+      ? action.sequence === 2 && action.predecessorActionId === null
+      : action.sequence === 2 && typeof action.predecessorActionId === "string";
+  return targetValid && receiptValid && authorizationValid && orderingValid;
 };
 const actionListShape = (body: Record<string, unknown>) => closedShape(body, {
   items: (value) => Array.isArray(value) && value.length <= 400
-    && value.every(actionShape)
+    && value.every(actionShape),
+  executionGate: (value) => closedShape(value, {
+    accountId: boundedString(1, 255),
+    accountLoginStateVersion: boundedInteger(1),
+    riskPaused: (candidate) => typeof candidate === "boolean",
+    pendingActionIds: uniqueArray(0, 200, boundedString(1, 255)),
+    unresolvedActions: (candidate) => Array.isArray(candidate)
+      && candidate.length <= 200
+      && candidate.every((action) => closedShape(action, {
+        actionId: boundedString(1, 255),
+        failureCode: (failure) => typeof failure === "string"
+          && ["action_unavailable", "douyin_action_timeout",
+            "douyin_action_receipt_ambiguous"].includes(failure)
+      }))
+  })
+});
+const accountRecoveryShape = (body: Record<string, unknown>) => closedShape(body, {
+  accountId: boundedString(1, 255),
+  accountLoginStateVersion: boundedInteger(1),
+  riskPaused: (value) => typeof value === "boolean",
+  pendingActionIds: uniqueArray(0, 200, boundedString(1, 255)),
+  unresolvedActions: (value) => Array.isArray(value) && value.length <= 200
+    && value.every((action) => closedShape(action, {
+      actionId: boundedString(1, 255),
+      failureCode: (failure) => typeof failure === "string"
+        && ["action_unavailable", "douyin_action_timeout",
+          "douyin_action_receipt_ambiguous"].includes(failure)
+    })),
+  enabledActionIds: uniqueArray(0, 200, boundedString(1, 255)),
+  acknowledgedUncertainActionIds: uniqueArray(0, 200, boundedString(1, 255)),
+  recoveredBy: boundedString(1, 255),
+  recoveredAt: dateTime
 });
 
 export function createOutreachBatchApi(fetchImpl: typeof fetch = fetch, options: { cookie?: string; cookieSource?: () => string } = {}): OutreachBatchApi {
@@ -280,7 +331,7 @@ export function createOutreachBatchApi(fetchImpl: typeof fetch = fetch, options:
       const closed: DirectMessageApprovalCommand = {
         batchRevision: command.batchRevision,
         batchHash: command.batchHash,
-        commentApprovalHash: command.commentApprovalHash,
+        accountLoginStateVersion: command.accountLoginStateVersion,
         dailyLimit: command.dailyLimit,
         candidates: command.candidates.map(({ candidateId, directMessage }) => ({
           candidateId,
@@ -301,6 +352,24 @@ export function createOutreachBatchApi(fetchImpl: typeof fetch = fetch, options:
     listActions(batchId, signal) {
       return request(`/api/v1/acquisition/outreach-batches/${segment(batchId)}/actions`, { method: "GET", signal },
         actionListShape);
+    },
+    recoverAccountActions(batchId, command, etag, key, signal) {
+      const closed: RecoverAccountActionsCommand = {
+        batchRevision: command.batchRevision,
+        accountLoginStateVersion: command.accountLoginStateVersion,
+        pendingActionIds: [...command.pendingActionIds],
+        acknowledgedUncertainActionIds: [
+          ...command.acknowledgedUncertainActionIds
+        ],
+        reason: command.reason,
+        confirm: true
+      };
+      return request(`/api/v1/acquisition/outreach-batches/${segment(batchId)}/actions/recover-account`, {
+        method: "POST",
+        signal,
+        headers: headers(key, etag),
+        body: JSON.stringify(closed)
+      }, accountRecoveryShape);
     },
     reconcileAction(batchId, action, key, signal) {
       return request(`/api/v1/acquisition/outreach-batches/${segment(batchId)}/actions/${segment(action.id)}/reconcile`, {

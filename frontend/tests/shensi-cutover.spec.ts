@@ -42,8 +42,8 @@ test("restored Shensi runtime reaches the current acquisition application", asyn
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(origin);
   await expect(page).toHaveTitle(/Shensi/u);
-  await expect(page.getByRole("heading", { name: "登录 Shensi" })).toBeVisible();
-  await expect(page.locator(".shensi-login")).toHaveCSS("background-color", "rgb(5, 8, 6)");
+  await expect(page.getByRole("heading", { name: "登录燊锶" })).toBeVisible();
+  await expect(page.locator(".shensi-login")).toHaveCSS("background-color", "rgb(2, 3, 3)");
 
   for (const viewport of [
     { width: 1440, height: 900 },

@@ -1906,10 +1906,10 @@ function automaticIntelligenceOperation(
     }
   });
   assert.deepEqual(submitted[0], {
-    operationCode: "handoff_acquisition_candidate_v1",
+    operationCode: "handoff_acquisition_candidate_v2",
     runId: "run-pinned",
     discoveredEventId: "event-reviewed-a",
-    decisionVersion: "qualification-v2",
+    decisionVersion: "",
     mode: "create_new",
     existingCustomerId: "",
     followUp: {
@@ -2847,6 +2847,27 @@ for (const scenario of [{
   assert.equal(operationKeys[0], operationKeys[1]);
   await controller.startIntelligence();
   assert.notEqual(operationKeys[1], operationKeys[2]);
+
+  let retryAttempts = 0;
+  const retryKeys: string[] = [];
+  Object.assign(api, {
+    async getLatestIntelligenceOperation() {
+      return { id: "failed-operation", status: "failed" };
+    },
+    async retryIntelligenceOperation(id: string, key: string) {
+      assert.equal(id, "failed-operation");
+      retryKeys.push(key);
+      retryAttempts += 1;
+      if (retryAttempts === 1) throw new Error("retry network failure");
+      return { id, status: "queued" };
+    }
+  });
+  await controller.selectCandidate("candidate-ai");
+  await assert.rejects(() => controller.startIntelligence(), /retry network failure/);
+  await controller.startIntelligence();
+  assert.equal(retryAttempts, 2);
+  assert.equal(retryKeys[0], retryKeys[1]);
+  assert.equal(operationAttempts, 3, "failed operation uses retry, not a new intelligence operation");
 
   controller.destroy();
 }
@@ -4949,6 +4970,80 @@ for (const scenario of [{
   assert.deepEqual(candidateLoads, ["candidate-import-1"]);
   assert.equal(controller.getState().selectedCandidateId, "candidate-import-1");
   controller.destroy();
+}
+
+// A detail-open event continues with an exact candidate selection after its
+// plan read. That continuation must be owned by the still-open request.
+{
+  const staleOpenResults: Array<{
+    scenario: string;
+    planId: string | null;
+    candidateId: string | null;
+    candidateLoads: string[];
+  }> = [];
+  for (const scenario of ["newer_open", "close"] as const) {
+    const eventTarget = new EventTarget();
+    const delayedTask = deferred<ReturnType<typeof taskDetailWithCandidateSource>>();
+    const candidateLoads: string[] = [];
+    const taskFor = (planId: string, candidateId: string) => ({
+      ...taskDetailWithCandidateSource(candidateId),
+      task: { ...taskDetail.task, planId },
+      plan: { ...taskDetail.plan, id: planId }
+    });
+    const api = {
+      async getTask(planId: string) {
+        return planId === "plan-race-a" ? delayedTask.promise
+          : taskFor("plan-race-b", "candidate-race-b");
+      },
+      async getCandidate(candidateId: string) {
+        candidateLoads.push(candidateId);
+        return {
+          candidate: { id: candidateId, displayName: candidateId, identityResolved: false },
+          evidence: [], reviews: [], research: null, qualification: null,
+          financialValue: null, battleCard: null, intelligenceOperation: null,
+          privateDomainHandoff: null, etag: '"candidate-race-v1"'
+        };
+      },
+      async getCandidateEvidence() { return { items: [], nextCursor: null }; },
+      async getCandidateReviews() { return { items: [], nextCursor: null }; },
+      async getCandidateQualification() { return null; },
+      async getCandidateFinancialValue() { return null; },
+      async getCandidateBattleCard() { return null; },
+      async getLatestIntelligenceOperation() { return null; }
+    } as unknown as AcquisitionDetailApi;
+    const controller = createAcquisitionDetailCenterController({ api, eventTarget });
+    try {
+      eventTarget.dispatchEvent(detailEvent("goodjob:acquisition-detail-open-requested", {
+        mode: "candidates", planId: "plan-race-a", candidateId: "candidate-race-a"
+      }));
+      const delayedOpen = controller.whenIdle();
+      assert.deepEqual(candidateLoads, [], "candidate reads must wait for their own plan request");
+      if (scenario === "newer_open") {
+        eventTarget.dispatchEvent(detailEvent("goodjob:acquisition-detail-open-requested", {
+          mode: "candidates", planId: "plan-race-b", candidateId: "candidate-race-b"
+        }));
+        await controller.whenIdle();
+        assert.equal(controller.getState().selectedCandidateId, "candidate-race-b");
+      } else {
+        controller.close();
+      }
+      delayedTask.resolve(taskFor("plan-race-a", "candidate-race-a"));
+      await delayedOpen;
+      await controller.whenIdle();
+      staleOpenResults.push({
+        scenario,
+        planId: controller.getState().detail?.plan.id ?? null,
+        candidateId: controller.getState().selectedCandidateId,
+        candidateLoads: [...candidateLoads]
+      });
+    } finally { controller.destroy(); }
+  }
+  assert.deepEqual(staleOpenResults, [{
+    scenario: "newer_open", planId: "plan-race-b", candidateId: "candidate-race-b",
+    candidateLoads: ["candidate-race-b"]
+  }, {
+    scenario: "close", planId: null, candidateId: null, candidateLoads: []
+  }], "late detail-open continuations must neither replace a newer candidate nor read candidates after close");
 }
 
 // Catches a page request from the previous run leaving the candidate pane

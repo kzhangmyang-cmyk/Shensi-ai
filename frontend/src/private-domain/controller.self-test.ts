@@ -1,6 +1,8 @@
 import { strict as assert } from "node:assert";
+import { parseHTML } from "linkedom";
 import type { PrivateDomainRuntimeApi } from "./runtime-api";
 import { createPrivateDomainController } from "./controller";
+import "./workflow.self-test";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -52,6 +54,52 @@ const todo = {
 };
 
 {
+  const events: Array<{ detail: unknown }> = [];
+  const eventTarget = new EventTarget();
+  eventTarget.addEventListener("goodjob:quote-workbench-requested", (event) => {
+    events.push({ detail: (event as CustomEvent<unknown>).detail });
+  });
+  const listeners = new Map<string, (event: Event) => void>();
+  const main = {
+    innerHTML: "",
+    addEventListener(type: string, fn: (event: Event) => void) {
+      listeners.set(type, fn);
+    },
+    removeEventListener(type: string) { listeners.delete(type); },
+    contains() { return true; },
+    dispatch(type: string, event: Event) { listeners.get(type)?.(event); }
+  };
+  const api = {
+    async getCustomers() {
+      return [{ ...customer, activeDealCount: 1, activeDealId: "manual-deal" }];
+    },
+    async getTodos() { return [todo]; }
+  } satisfies PrivateDomainRuntimeApi;
+  const controller = createPrivateDomainController({
+    api,
+    main: main as unknown as HTMLElement,
+    inspector: fakeElement() as unknown as HTMLElement,
+    eventTarget
+  });
+  await controller.open("customer-1");
+  const button = {
+    dataset: {
+      privateDomainAction: "open-quote-workbench",
+      customerId: "customer-1"
+    },
+    closest: () => button
+  };
+  main.dispatch("click", { target: button } as unknown as Event);
+  assert.deepEqual(events[0]?.detail, {
+    customerId: "customer-1",
+    candidateId: undefined,
+    dealId: "manual-deal",
+    assignedTo: "owner-1"
+  });
+  controller.destroy();
+}
+
+{
   const main = fakeElement();
   const inspector = fakeElement();
   const api = {
@@ -67,13 +115,71 @@ const todo = {
     main: main as unknown as HTMLElement,
     inspector: inspector as unknown as HTMLElement
   });
-  await controller.open("customer-2");
+  await controller.open();
   assert.equal(controller.getState().status, "ready");
+  assert.equal(
+    controller.getState().selectedCustomerId,
+    null,
+    "opening the customer pool without a customer link must not select the first record"
+  );
+  assert.equal((inspector as unknown as HTMLElement).hidden, true);
+
+  await controller.open("customer-2");
   assert.equal(controller.getState().selectedCustomerId, "customer-2");
+  assert.equal((inspector as unknown as HTMLElement).hidden, false);
   assert.match(main.innerHTML, /第二客户/);
   controller.selectCustomer("customer-1");
   assert.equal(controller.getState().selectedCustomerId, "customer-1");
   assert.match(inspector.innerHTML, /todo-1/);
+  await controller.open("customer-does-not-exist");
+  assert.equal(
+    controller.getState().selectedCustomerId,
+    null,
+    "an invalid customer deep link must not leave an unrelated inspector open"
+  );
+  assert.equal((inspector as unknown as HTMLElement).hidden, true);
+  controller.destroy();
+}
+
+{
+  const { document, window } = parseHTML(
+    "<main id='main'></main><aside id='inspector'></aside>"
+  );
+  const main = document.querySelector<HTMLElement>("#main")!;
+  const inspector = document.querySelector<HTMLElement>("#inspector")!;
+  const controller = createPrivateDomainController({
+    api: {
+      async getCustomers() { return [customer]; },
+      async getTodos() {
+        return [{ ...todo, dueAt: new Date().toISOString() }];
+      }
+    },
+    main,
+    inspector
+  });
+  await controller.open();
+  assert.equal(controller.getState().selectedCustomerId, null);
+  const todayFilter = main.querySelector<HTMLButtonElement>(
+    "[data-private-domain-action=filter][data-filter=today]"
+  );
+  assert.equal(todayFilter?.tagName, "BUTTON");
+  todayFilter?.dispatchEvent(new window.Event("click", { bubbles: true }));
+  assert.equal(controller.getState().customerFilter, "today");
+  assert.equal(
+    main.querySelector("[data-filter=today]")?.getAttribute("aria-pressed"),
+    "true"
+  );
+  const customerButton = main.querySelector<HTMLButtonElement>(
+    ".real-private-followups [data-private-domain-action=select-customer]"
+  );
+  assert.equal(customerButton?.tagName, "BUTTON");
+  customerButton?.dispatchEvent(new window.Event("click", { bubbles: true }));
+  assert.equal(
+    controller.getState().selectedCustomerId,
+    customer.id,
+    "the native follow-up customer button must retain the same selection behavior for mouse and keyboard-triggered clicks"
+  );
+  assert.equal(inspector.hidden, false);
   controller.destroy();
 }
 
@@ -104,12 +210,9 @@ const todo = {
   const boundCustomer = {
     ...customer,
     activeDealCount: 1,
-    acquisitionBindings: [{
-      handoffId: "handoff-1",
-      leadId: "lead-1",
-      candidateId: "candidate-1",
-      createdAt: "2026-08-09T08:00:00.000Z"
-    }]
+    quoteEligibleDealId: "deal-1",
+    quoteEligibleCandidateId: "candidate-1",
+    acquisitionBindings: []
   };
   const api = {
     async getCustomers() {
@@ -138,7 +241,9 @@ const todo = {
   assert.equal(events.length, 1);
   assert.deepEqual(events[0]?.detail, {
     customerId: "customer-1",
-    candidateId: "candidate-1"
+    candidateId: "candidate-1",
+    dealId: "deal-1",
+    assignedTo: "owner-1"
   });
   controller.destroy();
 }

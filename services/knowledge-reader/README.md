@@ -11,8 +11,10 @@ Use an explicitly configured, trusted Python 3.12 runtime with the exact package
 pins in `pyproject.toml`. `SHENSI_KNOWLEDGE_READER_PYTHON` and
 `SHENSI_KNOWLEDGE_READER_SCRIPT` are Main/local-launcher configuration, not
 Renderer inputs. No temporary preflight path is hardcoded in product code. The
-backend verifies installed versions before use. Runtime packaging/configuration
-and client installer distribution have not been completed by this stage.
+backend verifies installed versions before use. Source development uses the
+private `.runtime/desktop-local/knowledge-reader.json` selection described in the
+[knowledge module](../../docs/modules/knowledge-base.md). No interpreter or
+book data is bundled into a new installer by this task.
 
 macOS production calls use `sandbox-exec`: no network or child processes; private
 content reads are limited to the one canonical input, reader script and trusted
@@ -52,9 +54,9 @@ Automatic polling stays off before that callback exists, avoiding repeated OCR.
 ## Dependencies and licensing
 
 Reuse the installed runtime, without copying its large environment or installing
-a second one. `uv.lock` is to be resolved and checked in this stage; until it is
-present and validated, dependency locking is not complete. `uv lock` resolves
-public package metadata, not private documents; it does not install packages.
+a second one. `uv.lock` is resolved and the existing runtime's exact installed
+versions have been checked against it. Resolving public package metadata does
+not extract documents or install a second environment.
 
 Exact runtime pins: PDFium wrapper pypdfium2 5.14.0 (BSD/Apache dual; PDFium and
 bundled dependencies carry additional notices), Pillow12.3.0 (MIT-CMU),

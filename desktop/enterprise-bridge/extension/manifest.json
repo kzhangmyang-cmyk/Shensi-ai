@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "Shensi 企业查询本机桥接",
+  "version": "0.1.0",
+  "description": "主动读取爱企查当前页已展示企业，发送到本机Shensi预览，不读取Cookie。",
+  "permissions": ["scripting", "nativeMessaging"],
+  "host_permissions": ["https://aiqicha.baidu.com/*"],
+  "action": { "default_popup": "popup.html" }
+}

@@ -23,6 +23,42 @@ registerFinancialCouncilRepositoryContract(
   () => new InMemoryFinancialCouncilRepository()
 );
 
+test("collaboration events are lease fenced, idempotent and workspace scoped", async () => {
+  const repository = new InMemoryFinancialCouncilRepository();
+  const aggregate = repositoryRunFixture();
+  const snapshot = snapshotFixture(aggregate);
+  await repository.createAndFreezeRun(command("collaboration"), {
+    aggregate, snapshot, occurredAt: snapshot.createdAt
+  });
+  const lease = (await repository.claimAnalysisRun({ workspaceId: aggregate.workspaceId,
+    runId: aggregate.runId, workerId: "worker", leaseToken: "a".repeat(64),
+    claimedAt: T1, leaseExpiresAt: "2026-08-16T09:00:00.000Z" }))!;
+  const event = { eventId: "analysis:finance:running:1", workspaceId: lease.workspaceId,
+    runId: lease.runId, role: "finance" as const, phase: "analysis" as const,
+    state: "running" as const, occurredAt: T1, message: "财务分析开始",
+    reasonCode: null, findingIds: [], narrative: null };
+  await repository.appendCollaborationEvent(lease, event);
+  await repository.appendCollaborationEvent(lease, event);
+  assert.equal((await repository.listCollaborationEvents(workspace(), lease.runId)).length, 1);
+  assert.equal((await repository.listCollaborationEvents({ ...workspace(), workspaceId: "other" }, lease.runId)).length, 0);
+  await assert.rejects(repository.appendCollaborationEvent({ ...lease, leaseToken: "b".repeat(64) }, event));
+});
+
+test("run history pages real workspace runs with stable ties and scoped cursors", async () => {
+  const repository = new InMemoryFinancialCouncilRepository();
+  for (const [runId, workspaceId] of [["run-a", "ws-1"], ["run-b", "ws-1"], ["run-c", "ws-2"]]) {
+    await repository.createRun(command(runId!, workspaceId!), repositoryRunFixture({ runId, workspaceId,
+      creationKeyHash: financialCouncilCanonicalHash(runId) }));
+  }
+  const first = await repository.listRunHistory(workspace(), { limit: 1 });
+  assert.deepEqual(first.items.map(run => run.runId), ["run-b"]);
+  assert.equal(first.nextCursor, "run-b");
+  const second = await repository.listRunHistory(workspace(), { limit: 1, after: first.nextCursor! });
+  assert.deepEqual(second.items.map(run => run.runId), ["run-a"]);
+  assert.equal(second.nextCursor, null);
+  await assert.rejects(repository.listRunHistory(workspace(), { limit: 1, after: "run-c" }));
+});
+
 test("memory consensus read reports stored canonical corruption as integrity", async () => {
   const repository = new InMemoryFinancialCouncilRepository();
   const { report } = await storedConsensusFixture(repository);

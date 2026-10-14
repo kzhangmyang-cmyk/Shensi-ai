@@ -931,6 +931,33 @@ test("provider success is never returned when call-ledger persistence fails", as
   assert.equal(f.store.pendingModelCallRecords.length, 1);
 });
 
+test("ledger failure takes precedence over provider failure and prevents schema repair", async (context) => {
+  for (const item of [
+    { name: "provider failure", response: completion({ error: { message: "provider private detail" } }, 503) },
+    { name: "invalid output", response: completion({ unknown: "invalid schema" }) }
+  ]) {
+    await context.test(item.name, async () => {
+      const f = fixture([item.response, completion(validAnalyzeOutput())], { failPersistAt: 2 });
+      await rejectsWith(f.port.analyze(analyzeInput()),
+        "financial_council_model_ledger_persistence_failed", false);
+      assert.equal(f.requests.length, 1, "unpersisted attempts must not dispatch a repair");
+      assert.equal(f.store.pendingModelCallRecords.length, 1, "do not silently reflush a failed ledger");
+      assert.equal(f.persistObservations.length, 2);
+    });
+  }
+});
+
+test("a successful repair is not returned before its own ledger is durable", async () => {
+  const f = fixture([completion({ unknown: "invalid schema" }), completion(validAnalyzeOutput())], { failPersistAt: 3 });
+  await rejectsWith(f.port.analyze(analyzeInput()),
+    "financial_council_model_ledger_persistence_failed", false);
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.store.modelCallRecords.length, 2);
+  assert.equal(f.store.pendingModelCallRecords.length, 1);
+  assert.equal(f.store.modelCallRecords.at(-1)?.status, "succeeded");
+  assert.equal(f.persistObservations.length, 3);
+});
+
 test("CFO synthesis uses the durable gateway and rejects non-contract output", async () => {
   const valid = {
     overallDiagnosis: "已审计结论 [finding:accepted]",

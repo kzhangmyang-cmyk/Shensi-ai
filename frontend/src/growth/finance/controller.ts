@@ -19,6 +19,8 @@ export type FinancePageState =
       facts: readonly FinancialFact[];
       importState: FinanceImportState;
       canVerify: boolean;
+      canImport?: boolean;
+      canReadWithModel?: boolean;
     };
 
 export interface FinanceControllerOptions {
@@ -38,6 +40,9 @@ export function createFinanceController(
   options: FinanceControllerOptions
 ): FinanceController {
   let importState: FinanceImportState = { kind: "idle" };
+  let costEntries: readonly AcquisitionCostEntry[] = Object.freeze([]);
+  let costEstimates: readonly AcquisitionCostEstimate[] = Object.freeze([]);
+  let facts: readonly FinancialFact[] = Object.freeze([]);
   const idFactory = options.idFactory
     ?? (() => `finance-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const controller: FinanceController = {
@@ -48,30 +53,41 @@ export function createFinanceController(
       importState = next;
       return {
         kind: "ready",
-        costEntries: Object.freeze([]),
-        costEstimates: Object.freeze([]),
-        facts: Object.freeze([]),
+        costEntries,
+        costEstimates,
+        facts,
         importState,
+        canImport: options.hasCapability("ledger.pending.create"),
+        canReadWithModel: options.hasCapability("finance.council.run"),
         canVerify: options.hasCapability("ledger.verify")
       };
     },
     async load(signal) {
       if (!options.hasFeature("finance")
-        || !options.hasCapability("ledger.pending.create")) {
+        || (!options.hasCapability("ledger.pending.create") && !options.hasCapability("finance.council.run"))) {
         return { kind: "forbidden" };
       }
+      if (!options.hasCapability("ledger.pending.create")) {
+        costEntries = []; costEstimates = []; facts = [];
+        return controller.setImportState(importState);
+      }
       try {
-        const [entries, estimates, facts] = await Promise.all([
+        const [entries, estimates, factResponse] = await Promise.all([
           options.api.listCostEntries({ limit: 100, signal }),
           options.api.listCostEstimates({ limit: 100, signal }),
           options.api.listFinancialFacts({ limit: 100, signal })
         ]);
+        costEntries = Object.freeze(entries.body.items ?? []);
+        costEstimates = Object.freeze(estimates.body.items ?? []);
+        facts = Object.freeze(factResponse.body.items ?? []);
         return {
           kind: "ready",
-          costEntries: Object.freeze(entries.body.items ?? []),
-          costEstimates: Object.freeze(estimates.body.items ?? []),
-          facts: Object.freeze(facts.body.items ?? []),
+          costEntries,
+          costEstimates,
+          facts,
           importState,
+          canImport: true,
+          canReadWithModel: options.hasCapability("finance.council.run"),
           canVerify: options.hasCapability("ledger.verify")
         };
       } catch (error) {

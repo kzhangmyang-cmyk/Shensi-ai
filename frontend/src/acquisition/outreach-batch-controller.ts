@@ -2,8 +2,11 @@ import { AcquisitionHttpError } from "./douyin-automation-api";
 import type {
   DirectMessageApprovalCommand,
   OutreachAction,
+  OutreachAccountRecovery,
   OutreachBatch,
-  OutreachBatchApi
+  OutreachBatchApi,
+  OutreachExecutionGate,
+  RecoverAccountActionsCommand
 } from "./outreach-batch-api";
 
 export interface OutreachBatchState {
@@ -18,6 +21,15 @@ export interface OutreachBatchState {
   directMessageConfirmed?: boolean;
   directMessageApprovalPhase?: "idle" | "approving" | "pending";
   directMessagePendingCandidateIds?: string[];
+  directMessageSelectedCandidateIds?: string[];
+  directMessageSender?: OutreachDirectMessageSender | null;
+  executionGate?: OutreachExecutionGate | null;
+  recoveryConfirmed?: boolean;
+  recoveryNotice?: string | null;
+}
+export interface OutreachDirectMessageSender {
+  accountId: string;
+  accountLoginStateVersion: number;
 }
 export interface OutreachBatchController {
   getState(): OutreachBatchState;
@@ -26,13 +38,18 @@ export interface OutreachBatchController {
   load(batchId: string): Promise<void>;
   editMessage(candidateId: string, field: "comment" | "directMessage", value: string): void;
   setDirectMessageDailyLimit(value: number): void;
+  setDirectMessageCandidateSelected(candidateId: string, selected: boolean): void;
   setDirectMessageConfirmed(value: boolean): void;
+  refreshDirectMessageSender(): void;
+  setRecoveryConfirmed(value: boolean): void;
   saveRevision(): Promise<void>;
   approve(): Promise<void>;
   approveDirectMessages(): Promise<void>;
   pause(reason?: string): Promise<void>;
+  cancelPending?(): Promise<void>;
   resume(): Promise<void>;
   refreshActions(): Promise<void>;
+  recoverAccountActions(): Promise<void>;
   reconcileAction(actionId: string): Promise<void>;
   abort(): void;
   close(): void;
@@ -47,7 +64,7 @@ type OutreachBatchClearTimer = (
 const makeKey = (prefix: string) => `${prefix}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
 const projectionGateText: Record<string, string> = {
   outreach_candidate_projection_pending:
-    "候选数据仍在采集中或等待最终入库。完成后再确认；当前不会排队真实评论或私信。评论成功后可再独立确认私信。",
+    "候选数据仍在采集中或等待最终入库。完成后再确认；当前不会排队真实评论或私信。私信可在候选人与当前发送账号就绪后单独确认。",
   outreach_candidate_projection_unavailable:
     "本次采集没有形成可审批的最终候选数据，请重新运行采集后再生成评论批次。"
 };
@@ -66,33 +83,28 @@ const errorText = (error: unknown) => projectionGateError(error)
   : error instanceof Error ? error.message.slice(0, 300) : "未知错误";
 const terminalAction = (status: OutreachAction["status"]) => ["succeeded", "failed", "risk_paused"].includes(status);
 const EMPTY_ACTION_POLL_ATTEMPTS = 20;
-const DEFAULT_DIRECT_MESSAGE_DAILY_LIMIT = 20;
+const DEFAULT_DIRECT_MESSAGE_DAILY_LIMIT = 50;
+const RECOVERY_REASON = "人工已核对账号与历史回执，仅恢复当前批次安全评论";
 const validDirectMessageLimit = (value: number) => Number.isInteger(value)
   && value >= 1 && value <= 100;
-
-function successfulCurrentComment(
-  batch: OutreachBatch,
-  candidate: OutreachBatch["candidates"][number],
-  actions: readonly OutreachAction[]
-): OutreachAction | null {
-  if (batch.state !== "approved" || !batch.approvalHash) return null;
-  return actions.find((action) => action.kind === "comment"
-    && action.batchId === batch.id
-    && action.candidateId === candidate.candidateId
-    && action.batchRevision === batch.revision
-    && action.contentHash === candidate.commentHash
-    && action.approvalHash === batch.approvalHash
-    && action.status === "succeeded"
-    && Boolean(action.platformReceiptReference?.trim())) ?? null;
-}
+const sameIds = (left: readonly string[], right: readonly string[]) =>
+  JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+const executionGateFromRecovery = (
+  value: OutreachAccountRecovery
+): OutreachExecutionGate => ({
+  accountId: value.accountId,
+  accountLoginStateVersion: value.accountLoginStateVersion,
+  riskPaused: value.riskPaused,
+  pendingActionIds: [...value.pendingActionIds],
+  unresolvedActions: value.unresolvedActions.map((action) => ({ ...action }))
+});
 
 function eligibleDirectMessageCandidates(
   batch: OutreachBatch,
   actions: readonly OutreachAction[]
 ) {
-  return batch.candidates.filter((candidate) => candidate.selected
-    && successfulCurrentComment(batch, candidate, actions)
-    && !actions.some((action) => action.kind === "direct_message"
+  return batch.candidates.filter((candidate) =>
+    !actions.some((action) => action.kind === "direct_message"
       && action.candidateId === candidate.candidateId)
   );
 }
@@ -102,10 +114,14 @@ export function createOutreachBatchController(options: {
   pollDelayMs?: number;
   setTimer?: OutreachBatchSetTimer;
   clearTimer?: OutreachBatchClearTimer;
+  currentSender?: () => OutreachDirectMessageSender | null;
+  directMessageCandidateScope?: () => readonly string[] | null;
 }): OutreachBatchController {
   type InternalState = OutreachBatchState & Required<Pick<OutreachBatchState,
     "directMessageDailyLimit" | "directMessageConfirmed"
-    | "directMessageApprovalPhase" | "directMessagePendingCandidateIds">>;
+    | "directMessageApprovalPhase" | "directMessagePendingCandidateIds"
+    | "directMessageSelectedCandidateIds" | "directMessageSender"
+    | "executionGate" | "recoveryConfirmed" | "recoveryNotice">>;
   let state: InternalState = {
     phase: "idle",
     batch: null,
@@ -117,7 +133,12 @@ export function createOutreachBatchController(options: {
     directMessageDailyLimit: DEFAULT_DIRECT_MESSAGE_DAILY_LIMIT,
     directMessageConfirmed: false,
     directMessageApprovalPhase: "idle",
-    directMessagePendingCandidateIds: []
+    directMessagePendingCandidateIds: [],
+    directMessageSelectedCandidateIds: [],
+    directMessageSender: null,
+    executionGate: null,
+    recoveryConfirmed: false,
+    recoveryNotice: null
   };
   const listeners = new Set<(state: OutreachBatchState) => void>();
   let generation = 0;
@@ -128,6 +149,9 @@ export function createOutreachBatchController(options: {
   let confirmedDirectMessageIntentFingerprint: string | null = null;
   let lastDirectMessageIntentFingerprint: string | null = null;
   let lastDirectMessageIdempotencyKey: string | null = null;
+  let confirmedRecoveryIntentFingerprint: string | null = null;
+  let lastRecoveryIntentFingerprint: string | null = null;
+  let lastRecoveryIdempotencyKey: string | null = null;
   const setTimer = options.setTimer ?? setTimeout;
   const clearTimer = options.clearTimer ?? clearTimeout;
   const emit = (patch: Partial<InternalState>) => { state = { ...state, ...patch }; listeners.forEach((listener) => listener(state)); };
@@ -138,19 +162,36 @@ export function createOutreachBatchController(options: {
     return draft && (draft.comment !== candidate.comment
       || draft.directMessage !== candidate.directMessage);
   }));
+  const readCurrentSender = (): OutreachDirectMessageSender | null => {
+    const sender = options.currentSender?.() ?? (state.batch ? {
+      accountId: state.batch.accountId,
+      accountLoginStateVersion: state.batch.accountLoginStateVersion
+    } : null);
+    return sender && sender.accountId.trim().length > 0
+      && Number.isInteger(sender.accountLoginStateVersion)
+      && sender.accountLoginStateVersion >= 1
+      ? { ...sender }
+      : null;
+  };
   const directMessageIntent = (
     actions: readonly OutreachAction[] = state.actions
   ) => {
     const batch = state.batch;
-    if (!batch || batch.state !== "approved" || !batch.approvalHash
+    const sender = readCurrentSender();
+    if (!batch || !["awaiting_approval", "approved"].includes(batch.state)
+      || !sender || sender.accountId !== batch.accountId
       || !validDirectMessageLimit(state.directMessageDailyLimit)) return null;
     const eligible = eligibleDirectMessageCandidates(batch, actions);
-    if (eligible.length === 0
-      || eligible.length > state.directMessageDailyLimit) return null;
-    const candidates = eligible.map((candidate) => ({
-      candidateId: candidate.candidateId,
-      directMessage: state.drafts[candidate.candidateId]?.directMessage
-        ?? candidate.directMessage
+    const selected = state.directMessageSelectedCandidateIds.map((candidateId) =>
+      eligible.find((candidate) => candidate.candidateId === candidateId));
+    if (selected.length === 0 || new Set(state.directMessageSelectedCandidateIds).size
+      !== state.directMessageSelectedCandidateIds.length
+      || selected.some((candidate) => !candidate)
+      || selected.length > state.directMessageDailyLimit) return null;
+    const candidates = selected.map((candidate) => ({
+      candidateId: candidate!.candidateId,
+      directMessage: state.drafts[candidate!.candidateId]?.directMessage
+        ?? candidate!.directMessage
     }));
     if (candidates.some((candidate) =>
       candidate.directMessage.trim().length < 1
@@ -159,35 +200,72 @@ export function createOutreachBatchController(options: {
       id: batch.id,
       revision: batch.revision,
       batchHash: batch.batchHash,
-      commentApprovalHash: batch.approvalHash,
       etag: batch.etag,
       accountId: batch.accountId,
-      accountLoginStateVersion: batch.accountLoginStateVersion,
+      frozenAccountLoginStateVersion: batch.accountLoginStateVersion,
+      accountLoginStateVersion: sender.accountLoginStateVersion,
       policyVersionId: batch.policyVersionId
     };
     const commandBody: DirectMessageApprovalCommand = {
       batchRevision: authority.revision,
       batchHash: authority.batchHash,
-      commentApprovalHash: authority.commentApprovalHash,
+      accountLoginStateVersion: authority.accountLoginStateVersion,
       dailyLimit: state.directMessageDailyLimit,
       candidates,
       confirm: true
     };
-    const predecessors = eligible.map((candidate) => {
-      const action = successfulCurrentComment(batch, candidate, actions)!;
-      return {
-        candidateId: candidate.candidateId,
-        actionId: action.id,
-        receipt: action.platformReceiptReference,
-        contentHash: action.contentHash,
-        approvalHash: action.approvalHash
-      };
-    });
     return {
       authority,
       commandBody,
       candidates,
-      fingerprint: JSON.stringify({ authority, commandBody, predecessors })
+      fingerprint: JSON.stringify({ authority, commandBody })
+    };
+  };
+  const recoveryIntent = (
+    gate: OutreachExecutionGate | null = state.executionGate,
+    actions: readonly OutreachAction[] = state.actions
+  ) => {
+    const batch = state.batch;
+    if (!batch || batch.state !== "approved" || !batch.approvalHash
+      || !gate?.riskPaused || !options.api.recoverAccountActions
+      || gate.accountId !== batch.accountId
+      || gate.accountLoginStateVersion !== batch.accountLoginStateVersion
+      || gate.pendingActionIds.length < 1) return null;
+    const pendingActionIds = [...gate.pendingActionIds].sort();
+    const acknowledgedUncertainActionIds = gate.unresolvedActions
+      .map((action) => action.actionId).sort();
+    if (new Set(acknowledgedUncertainActionIds).size
+      !== acknowledgedUncertainActionIds.length) return null;
+    const actionsById = new Map(actions.map((action) => [action.id, action]));
+    const pendingActions = pendingActionIds.map((id) => actionsById.get(id));
+    if (pendingActions.some((action) => !action
+      || action.kind !== "comment"
+      || action.batchId !== batch.id
+      || action.batchRevision !== batch.revision
+      || action.accountId !== batch.accountId
+      || action.accountLoginStateVersion !== batch.accountLoginStateVersion
+      || action.approvalHash !== batch.approvalHash
+      || action.attemptCount !== 0
+      || !(action.status === "queued" || (action.status === "risk_paused"
+        && action.failureCode === "account_risk_paused")))) return null;
+    const commandBody: RecoverAccountActionsCommand = {
+      batchRevision: batch.revision,
+      accountLoginStateVersion: batch.accountLoginStateVersion,
+      pendingActionIds,
+      acknowledgedUncertainActionIds,
+      reason: RECOVERY_REASON,
+      confirm: true
+    };
+    const authority = {
+      id: batch.id,
+      etag: batch.etag,
+      accountId: batch.accountId,
+      accountLoginStateVersion: batch.accountLoginStateVersion
+    };
+    return {
+      authority,
+      commandBody,
+      fingerprint: JSON.stringify({ authority, commandBody })
     };
   };
   const current = (value: number) => !state.closed && value === generation;
@@ -202,12 +280,15 @@ export function createOutreachBatchController(options: {
     confirmedDirectMessageIntentFingerprint = null;
     lastDirectMessageIntentFingerprint = null;
     lastDirectMessageIdempotencyKey = null;
+    confirmedRecoveryIntentFingerprint = null;
+    lastRecoveryIntentFingerprint = null;
+    lastRecoveryIdempotencyKey = null;
     return generation;
   };
-  const adopt = (batch: OutreachBatch) => {
+  const adopt = (batch: OutreachBatch, phase: "ready" | "loading" = "ready") => {
     confirmedDirectMessageIntentFingerprint = null;
     emit({
-      phase: "ready",
+      phase,
       batch,
       drafts: drafts(batch),
       error: null,
@@ -215,7 +296,16 @@ export function createOutreachBatchController(options: {
       directMessageDailyLimit: DEFAULT_DIRECT_MESSAGE_DAILY_LIMIT,
       directMessageConfirmed: false,
       directMessageApprovalPhase: "idle",
-      directMessagePendingCandidateIds: []
+      directMessagePendingCandidateIds: [],
+      directMessageSelectedCandidateIds: batch.candidates
+        .filter((candidate) => candidate.selected
+          && (options.directMessageCandidateScope?.() ?? batch.candidates
+            .map((item) => item.candidateId)).includes(candidate.candidateId))
+        .map((candidate) => candidate.candidateId),
+      directMessageSender: readCurrentSender(),
+      executionGate: null,
+      recoveryConfirmed: false,
+      recoveryNotice: null
     });
   };
   const reloadConflict = async (error: unknown, own: number, batchId: string) => {
@@ -242,6 +332,17 @@ export function createOutreachBatchController(options: {
     try {
       const result = await options.api.listActions(batchId, aborter.signal);
       if (!currentPoll()) return;
+      const eligibleIds = new Set(state.batch
+        ? eligibleDirectMessageCandidates(state.batch, result.items)
+          .map((candidate) => candidate.candidateId)
+        : []);
+      const directMessageSelectedCandidateIds =
+        state.directMessageSelectedCandidateIds.filter((id) =>
+          eligibleIds.has(id));
+      if (!sameIds(directMessageSelectedCandidateIds,
+        state.directMessageSelectedCandidateIds)) {
+        state = { ...state, directMessageSelectedCandidateIds };
+      }
       const nextIntentFingerprint = directMessageIntent(result.items)?.fingerprint
         ?? null;
       const confirmationRemainsCurrent = state.directMessageConfirmed
@@ -250,6 +351,17 @@ export function createOutreachBatchController(options: {
       if (!confirmationRemainsCurrent) {
         confirmedDirectMessageIntentFingerprint = null;
       }
+      const executionGate = result.executionGate ?? null;
+      const nextRecoveryFingerprint = recoveryIntent(
+        executionGate,
+        result.items
+      )?.fingerprint ?? null;
+      const recoveryConfirmationRemainsCurrent = state.recoveryConfirmed
+        && confirmedRecoveryIntentFingerprint !== null
+        && confirmedRecoveryIntentFingerprint === nextRecoveryFingerprint;
+      if (!recoveryConfirmationRemainsCurrent) {
+        confirmedRecoveryIntentFingerprint = null;
+      }
       const pendingCandidateIds = state.directMessagePendingCandidateIds.filter(
         (candidateId) => !result.items.some((action) =>
           action.kind === "direct_message" && action.candidateId === candidateId)
@@ -257,17 +369,25 @@ export function createOutreachBatchController(options: {
       const directMessageActionsObserved = state.directMessageApprovalPhase === "pending"
         && state.directMessagePendingCandidateIds.length > 0
         && pendingCandidateIds.length === 0;
-      emit({
+      const pollPatch: Partial<InternalState> = {
         actions: result.items,
+        directMessageSelectedCandidateIds,
+        executionGate,
+        recoveryConfirmed: recoveryConfirmationRemainsCurrent,
         directMessageConfirmed: confirmationRemainsCurrent,
         ...(directMessageActionsObserved ? {
           directMessageApprovalPhase: "idle" as const,
           directMessagePendingCandidateIds: []
         } : {}),
-        ...(state.phase === "error" ? { phase: "ready", error: null } : {})
-      });
-      const hasPendingAction = result.items.some((action) =>
-        !terminalAction(action.status));
+        ...(["error", "loading"].includes(state.phase) ? { phase: "ready", error: null } : {})
+      };
+      // A receipt observation is not a user edit. Re-emitting identical state
+      // rebuilds conversation views and clears the native reconciliation check.
+      if (JSON.stringify({ ...state, ...pollPatch }) !== JSON.stringify(state)) {
+        emit(pollPatch);
+      }
+      const hasPendingAction = !executionGate?.riskPaused
+        && result.items.some((action) => !terminalAction(action.status));
       const waitingForInitialActions = result.items.length === 0
         && emptyAttemptsRemaining > 0;
       const waitingForDirectMessageActions = state.directMessageApprovalPhase === "pending"
@@ -295,13 +415,13 @@ export function createOutreachBatchController(options: {
       }
     }
   };
-  const startPoll = (batchId: string, own: number) => {
+  const startPoll = (batchId: string, own: number, emptyAttempts = EMPTY_ACTION_POLL_ATTEMPTS) => {
     pollEpoch += 1;
     if (timer) clearTimer(timer);
     timer = null;
-    return poll(batchId, own, pollEpoch);
+    return poll(batchId, own, pollEpoch, emptyAttempts);
   };
-  const transition = async (name: "approve" | "pause" | "resume", reason = "") => {
+  const transition = async (name: "approve" | "pause" | "resume" | "reject", reason = "") => {
     if (!state.batch || activeCommand) return;
     if (name === "approve" && hasUnsavedChanges()) {
       emit({ phase: "ready", error: "当前文案尚未保存，请先保存为新修订后再审批。", conflict: false });
@@ -319,6 +439,8 @@ export function createOutreachBatchController(options: {
     try {
       const batch = name === "approve"
         ? await options.api.approveBatch(authority.id, authority.revision, authority.batchHash, authority.etag, makeKey("outreach-approve"), aborter.signal)
+        : name === "reject"
+          ? await options.api.rejectBatch(authority.id, reason, authority.etag, makeKey("outreach-reject"), aborter.signal)
         : name === "pause"
           ? await options.api.pauseBatch(authority.id, reason, authority.etag, makeKey("outreach-pause"), aborter.signal)
           : await options.api.resumeBatch(authority.id, authority.etag, makeKey("outreach-resume"), aborter.signal);
@@ -356,7 +478,10 @@ export function createOutreachBatchController(options: {
         directMessageDailyLimit: DEFAULT_DIRECT_MESSAGE_DAILY_LIMIT,
         directMessageConfirmed: false,
         directMessageApprovalPhase: "idle",
-        directMessagePendingCandidateIds: []
+        directMessagePendingCandidateIds: [],
+        executionGate: null,
+        recoveryConfirmed: false,
+        recoveryNotice: null
       });
       try { const batch = await options.api.createBatch(runId, [...candidateIds], makeKey("outreach-create"), aborter.signal); if (current(own)) adopt(batch); }
       catch (error) { if (current(own)) emit({ phase: "error", error: errorText(error) }); }
@@ -372,9 +497,25 @@ export function createOutreachBatchController(options: {
         directMessageDailyLimit: DEFAULT_DIRECT_MESSAGE_DAILY_LIMIT,
         directMessageConfirmed: false,
         directMessageApprovalPhase: "idle",
-        directMessagePendingCandidateIds: []
+        directMessagePendingCandidateIds: [],
+        executionGate: null,
+        recoveryConfirmed: false,
+        recoveryNotice: null
       });
-      try { const batch = await options.api.getBatch(batchId, aborter.signal); if (current(own)) { if (batch.id !== batchId) throw new Error("服务器返回的批次 ID 与请求不一致"); adopt(batch); if (["approved", "paused"].includes(batch.state)) void startPoll(batch.id, own); } }
+      try {
+        const batch = await options.api.getBatch(batchId, aborter.signal);
+        if (!current(own)) return;
+        if (batch.id !== batchId) throw new Error("服务器返回的批次 ID 与请求不一致");
+        if (["approved", "paused"].includes(batch.state)) {
+          adopt(batch);
+          void startPoll(batch.id, own);
+        } else {
+          // Independent DMs may already exist without comment approval. Read
+          // once before exposing the editor, then poll only observed active work.
+          adopt(batch, "loading");
+          await startPoll(batch.id, own, 0);
+        }
+      }
       catch (error) { if (current(own)) emit({ phase: "error", error: errorText(error) }); }
     },
     editMessage(candidateId, field, value) {
@@ -416,6 +557,18 @@ export function createOutreachBatchController(options: {
       });
       confirmedDirectMessageIntentFingerprint = null;
     },
+    setDirectMessageCandidateSelected(candidateId, selected) {
+      if (state.closed || activeCommand || !state.batch
+        || !eligibleDirectMessageCandidates(state.batch, state.actions)
+          .some((candidate) => candidate.candidateId === candidateId)) return;
+      const ids = new Set(state.directMessageSelectedCandidateIds);
+      if (selected) ids.add(candidateId); else ids.delete(candidateId);
+      confirmedDirectMessageIntentFingerprint = null;
+      updateSilently({
+        directMessageSelectedCandidateIds: [...ids],
+        directMessageConfirmed: false
+      });
+    },
     setDirectMessageConfirmed(value) {
       if (state.closed || activeCommand || !state.batch) return;
       const intent = directMessageIntent();
@@ -426,6 +579,22 @@ export function createOutreachBatchController(options: {
         ? intent.fingerprint
         : null;
       updateSilently({ directMessageConfirmed: confirmed });
+    },
+    refreshDirectMessageSender() {
+      if (state.closed) return;
+      const sender = readCurrentSender();
+      if (JSON.stringify(sender) === JSON.stringify(state.directMessageSender)) return;
+      confirmedDirectMessageIntentFingerprint = null;
+      emit({ directMessageSender: sender, directMessageConfirmed: false });
+    },
+    setRecoveryConfirmed(value) {
+      if (state.closed || activeCommand || !state.batch) return;
+      const intent = recoveryIntent();
+      const confirmed = value && intent !== null;
+      confirmedRecoveryIntentFingerprint = confirmed
+        ? intent.fingerprint
+        : null;
+      updateSilently({ recoveryConfirmed: confirmed });
     },
     async saveRevision() {
       if (!state.batch || activeCommand || state.batch.state !== "awaiting_approval") return;
@@ -448,8 +617,7 @@ export function createOutreachBatchController(options: {
       if (!state.batch || state.closed || activeCommand
         || state.directMessageApprovalPhase !== "idle"
         || !state.directMessageConfirmed
-        || state.batch.state !== "approved"
-        || !state.batch.approvalHash
+        || !["awaiting_approval", "approved"].includes(state.batch.state)
         || !options.api.approveDirectMessages
         || !validDirectMessageLimit(state.directMessageDailyLimit)) return;
       const intent = directMessageIntent();
@@ -490,10 +658,9 @@ export function createOutreachBatchController(options: {
         if (response.id !== authority.id
           || response.revision !== authority.revision
           || response.batchHash !== authority.batchHash
-          || response.approvalHash !== authority.commentApprovalHash
           || response.etag !== authority.etag
           || response.accountId !== authority.accountId
-          || response.accountLoginStateVersion !== authority.accountLoginStateVersion
+          || response.accountLoginStateVersion !== authority.frozenAccountLoginStateVersion
           || response.policyVersionId !== authority.policyVersionId) {
           throw new Error("服务器返回的私信授权批次与已核对权限不一致");
         }
@@ -508,7 +675,7 @@ export function createOutreachBatchController(options: {
         try {
           await reloadConflict(error, own, authority.id);
           if (current(own) && state.batch
-            && ["approved", "paused"].includes(state.batch.state)) {
+            && ["awaiting_approval", "approved", "paused"].includes(state.batch.state)) {
             await startPoll(state.batch.id, own);
           }
         } catch (nested) {
@@ -525,12 +692,76 @@ export function createOutreachBatchController(options: {
       }
     },
     pause: (reason = "人工暂停") => transition("pause", reason),
+    cancelPending: () => transition("reject", "用户取消尚未执行的私信"),
     resume: () => transition("resume"),
     async refreshActions() { if (state.batch) await startPoll(state.batch.id, generation); },
+    async recoverAccountActions() {
+      if (!state.batch || state.closed || activeCommand
+        || !state.recoveryConfirmed || !options.api.recoverAccountActions) return;
+      const intent = recoveryIntent();
+      if (!intent
+        || confirmedRecoveryIntentFingerprint !== intent.fingerprint) {
+        confirmedRecoveryIntentFingerprint = null;
+        updateSilently({ recoveryConfirmed: false });
+        return;
+      }
+      const { authority, commandBody, fingerprint } = intent;
+      if (fingerprint !== lastRecoveryIntentFingerprint
+        || !lastRecoveryIdempotencyKey) {
+        lastRecoveryIntentFingerprint = fingerprint;
+        lastRecoveryIdempotencyKey = makeKey("outreach-recover-account");
+      }
+      const command = Symbol("recover-account");
+      activeCommand = command;
+      confirmedRecoveryIntentFingerprint = null;
+      const own = generation;
+      emit({
+        phase: "saving",
+        error: null,
+        conflict: false,
+        recoveryConfirmed: false,
+        recoveryNotice: null
+      });
+      try {
+        const response = await options.api.recoverAccountActions(
+          authority.id,
+          commandBody,
+          authority.etag,
+          lastRecoveryIdempotencyKey,
+          aborter.signal
+        );
+        if (!current(own) || activeCommand !== command) return;
+        if (response.accountId !== authority.accountId
+          || response.accountLoginStateVersion
+            !== authority.accountLoginStateVersion
+          || response.riskPaused
+          || !sameIds(response.enabledActionIds, commandBody.pendingActionIds)
+          || !sameIds(response.acknowledgedUncertainActionIds,
+            commandBody.acknowledgedUncertainActionIds)) {
+          throw new Error("服务器返回的账号恢复结果与已确认队列不一致");
+        }
+        activeCommand = null;
+        emit({
+          phase: "ready",
+          executionGate: executionGateFromRecovery(response),
+          recoveryConfirmed: false,
+          recoveryNotice: `已恢复 ${response.enabledActionIds.length} 条公开评论，正在等待服务器领取。`
+        });
+        await startPoll(authority.id, own);
+      } catch (error) {
+        if (current(own)) emit({
+          phase: "ready",
+          error: errorText(error),
+          recoveryConfirmed: false
+        });
+      } finally {
+        if (activeCommand === command) activeCommand = null;
+      }
+    },
     async reconcileAction(actionId) {
       if (!state.batch || activeCommand || !options.api.reconcileAction) return;
       const action = state.actions.find((candidate) => candidate.id === actionId);
-      if (!action || action.status !== "risk_paused"
+      if (!action || !(action.status === "risk_paused" || (action.executionTarget === "desktop" && action.status === "reconciliation_required"))
         || !["action_unavailable", "douyin_action_timeout",
           "douyin_action_receipt_ambiguous"].includes(action.failureCode ?? "")) return;
       const authority = {
@@ -554,12 +785,15 @@ export function createOutreachBatchController(options: {
           || reconciled.batchRevision !== authority.batchRevision
           || reconciled.approvalHash !== authority.approvalHash
           || reconciled.contentHash !== authority.contentHash
-          || reconciled.status !== "succeeded") {
+          || !(reconciled.status === "succeeded" || (action.executionTarget === "desktop"
+            && reconciled.executionTarget === "desktop" && reconciled.status === action.status))) {
           if (current(own)) emit({ phase: "error", error: "只读回执核验结果与冻结动作不一致" });
           return;
         }
         if (activeCommand === command) activeCommand = null;
-        emit({ phase: "ready", actions: state.actions.map((candidate) =>
+        emit({ phase: "ready", recoveryNotice: action.executionTarget === "desktop" && reconciled.status !== "succeeded"
+          ? "已记录人工核对请求；等待只读对账，绝不会自动重发" : null,
+          actions: state.actions.map((candidate) =>
           candidate.id === reconciled.id ? reconciled : candidate) });
       } catch (error) {
         if (current(own)) emit({ phase: "error", error: errorText(error) });

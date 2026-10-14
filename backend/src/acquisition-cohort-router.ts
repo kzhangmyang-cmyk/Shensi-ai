@@ -11,6 +11,8 @@ import type {
 } from "./acquisition-cohort-repository.js";
 import { requireGrowthCapabilities } from "./growth-capabilities.js";
 import { GrowthHttpError } from "./growth-command-context.js";
+import type { AcquisitionCohortService } from "./acquisition-cohort.js";
+import { commandContextFromRequest } from "./growth-http-preconditions.js";
 import type {
   GrowthWorkspaceContextResolver
 } from "./growth-http-preconditions.js";
@@ -48,8 +50,39 @@ function publicCohort(cohort: AcquisitionCohort) {
 export function createAcquisitionCohortRouter(options: {
   repository: AcquisitionCohortRepository;
   workspaceContext: GrowthWorkspaceContextResolver;
+  service?: AcquisitionCohortService;
 }): Router {
   const router = express.Router();
+  if (options.service) {
+    const inputSchema = z.object({
+      platform: z.string().trim().min(1).max(191),
+      cohortFrom: z.string().datetime({offset:true}),
+      cohortTo: z.string().datetime({offset:true}),
+      definitionVersion: z.string().trim().min(1).max(191),
+      firstTouchRuleVersion: z.string().trim().min(1).max(191)
+    }).strict().refine(value => Date.parse(value.cohortFrom) < Date.parse(value.cohortTo));
+    router.post("/api/v1/acquisition/cohorts", (req, res, next) => {
+      void (async () => {
+        requireWorkspaceHeader(req);
+        requireGrowthCapabilities(options.workspaceContext(req), ["roi.close"]);
+        const parsed = inputSchema.safeParse(req.body);
+        if (!parsed.success) throw new GrowthHttpError(400, "invalid_cohort_input");
+        const context = commandContextFromRequest(req, {
+          canonicalPath: "/api/v1/acquisition/cohorts", pathParams: Object.freeze({}),
+          payload: parsed.data, expectedRevision: null
+        });
+        res.status(201).json(publicCohort(await options.service!.create(context, parsed.data)));
+      })().catch(next);
+    });
+    router.get("/api/v1/acquisition/cohorts/:id", (req, res, next) => {
+      void (async () => {
+        requireWorkspaceHeader(req);
+        const cohort = await options.service!.get(options.workspaceContext(req), idSchema.parse(req.params.id));
+        if (!cohort) throw new GrowthHttpError(404, "cohort_not_found");
+        res.json(publicCohort(cohort));
+      })().catch(next);
+    });
+  }
   router.get(
     "/api/v1/acquisition/cohorts",
     (req: Request, res: Response, next: NextFunction) => {

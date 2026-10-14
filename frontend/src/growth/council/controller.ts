@@ -1,4 +1,5 @@
 import { GrowthApiError } from "../http";
+import type { FinancialCouncilCollaboration, FinancialCouncilRunHistory } from "../contracts";
 import type {
   CreateCouncilRunFromPackageInput,
   FinancialCouncilApi,
@@ -27,6 +28,9 @@ export type FinancialCouncilBusy =
   | null;
 
 export interface FinancialCouncilControllerState {
+  readonly collaboration?: FinancialCouncilCollaboration | null;
+  readonly collaborationUpdating?: boolean;
+  readonly history?: FinancialCouncilRunHistory | null;
   readonly run: FinancialCouncilRun | null;
   readonly events: FinancialCouncilRunEventPage | null;
   readonly policy: FinancialCouncilPolicy | null;
@@ -51,6 +55,9 @@ export interface FinancialCouncilController {
   getState(): FinancialCouncilControllerState;
   subscribe(listener: (state: FinancialCouncilControllerState) => void): () => void;
   open(runId: string): Promise<void>;
+  openLatest(): Promise<void>;
+  loadMoreHistory(): Promise<void>;
+  retry(): Promise<void>;
   create(input: Parameters<FinancialCouncilApi["createRun"]>[0]): Promise<void>;
   createFromStatementPackage(input: CreateCouncilRunFromPackageInput): Promise<void>;
   updatePolicy(input: FinancialCouncilPolicyInput): Promise<void>;
@@ -66,6 +73,9 @@ export interface FinancialCouncilController {
 function initialState(): FinancialCouncilControllerState {
   return Object.freeze({
     run: null,
+    collaboration: null,
+    collaborationUpdating: false,
+    history: null,
     events: null,
     policy: null,
     dispatches: null,
@@ -99,6 +109,21 @@ function dispatchesComplete(dispatches: FinancialCouncilDispatchPage | null): bo
   if (!dispatches) return false;
   const items = dispatches.items as readonly { status: string }[];
   return items.every((item) => TERMINAL_DISPATCH_STATUSES.has(item.status));
+}
+
+function historyWithRun(
+  page: FinancialCouncilRunHistory | null | undefined,
+  run: FinancialCouncilRun
+): FinancialCouncilRunHistory | null {
+  if (!page) return null;
+  const summary: FinancialCouncilRunHistory["items"][number] = {
+    runId: run.runId, status: run.status, currency: run.currency,
+    dataAsOf: run.dataAsOf, createdAt: run.createdAt, updatedAt: run.updatedAt
+  };
+  const existing = page.items.some(item => item.runId === run.runId);
+  const items = existing ? page.items.map(item => item.runId === run.runId ? summary : item)
+    : [...page.items, summary].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return { ...page, items };
 }
 
 export function createFinancialCouncilController(
@@ -177,9 +202,9 @@ export function createFinancialCouncilController(
   }
 
   function schedule(run: FinancialCouncilRun, expected: number): void {
-    if (destroyed || generation !== expected || (!isTerminal(run)
-      || !dispatchesComplete(state.dispatches)) === false) return;
-    if (isTerminal(run) && dispatchesComplete(state.dispatches)) return;
+    if (destroyed || generation !== expected) return;
+    if (isTerminal(run) && (run.status !== "approved" || dispatchesComplete(state.dispatches))) return;
+    if (pollHandle !== null) cancelPoll(pollHandle);
     pollHandle = schedulePoll(() => {
       pollHandle = null;
       void refresh(expected, run.runId, true);
@@ -200,31 +225,47 @@ export function createFinancialCouncilController(
       const runResponse = await options.api.getRun(runId, abort.signal);
       if (!current(expected, runId) || requestGeneration !== refreshGeneration) return;
       const run = runResponse.body;
-      const [eventsResponse, dispatchesResponse, policyResponse] = await Promise.all([
+      runEtag = runResponse.etag;
+      publish({ run, history: historyWithRun(state.history, run), collaboration: state.collaboration?.runId === run.runId ? state.collaboration : null, collaborationUpdating: true, lastUpdatedAt: now() });
+      const [eventsResponse, dispatchesResponse, policyResponse, collaborationResponse, historyResponse] = await Promise.allSettled([
         options.api.listEvents(runId, abort.signal),
         run.status === "approved"
           ? options.api.listDispatches(runId, abort.signal)
           : Promise.resolve(null),
-        polling ? Promise.resolve(null) : options.api.getPolicy(abort.signal)
+        polling && state.policy ? Promise.resolve(null) : options.api.getPolicy(abort.signal),
+        options.api.getCollaboration(runId, abort.signal),
+        state.history ? Promise.resolve(null) : options.api.listRuns(undefined, abort.signal)
       ]);
       if (!current(expected, runId) || requestGeneration !== refreshGeneration) return;
-      runEtag = runResponse.etag;
-      if (policyResponse) policyEtag = policyResponse.etag;
+      const errors = [eventsResponse, dispatchesResponse, policyResponse, collaborationResponse, historyResponse]
+        .filter((result) => result.status === "rejected")
+        .map((result) => errorMessage((result as PromiseRejectedResult).reason));
+      const collaboration = collaborationResponse.status === "fulfilled" ? collaborationResponse.value.body : null;
+      const collaborationMatches = collaboration?.runId === run.runId && collaboration.revision === run.revision;
+      if (collaboration && !collaborationMatches) errors.push("协作记录版本同步中，请重试");
+      if (policyResponse.status === "fulfilled" && policyResponse.value) policyEtag = policyResponse.value.etag;
       publish({
         run,
-        events: eventsResponse.body,
-        dispatches: dispatchesResponse?.body ?? state.dispatches,
-        policy: policyResponse?.body ?? state.policy,
+        events: eventsResponse.status === "fulfilled" ? eventsResponse.value.body : state.events,
+        dispatches: dispatchesResponse.status === "fulfilled" ? dispatchesResponse.value?.body ?? state.dispatches : state.dispatches,
+        policy: policyResponse.status === "fulfilled" ? policyResponse.value?.body ?? state.policy : state.policy,
+        collaboration: collaborationMatches ? collaboration : state.collaboration,
+        collaborationUpdating: false,
+        history: historyWithRun(historyResponse.status === "fulfilled" ? historyResponse.value?.body ?? state.history : state.history, run),
         busy: polling ? null : state.busy,
-        error: null,
+        error: errors.length ? `部分信息加载失败：${errors.join("；")}` : null,
         lastUpdatedAt: now()
       });
       schedule(run, expected);
     } catch (error) {
       if (!current(expected, runId) || requestGeneration !== refreshGeneration
         || (error instanceof DOMException && error.name === "AbortError")) return;
-      publish({ busy: polling ? null : state.busy, error: errorMessage(error) });
+      publish({ busy: polling ? null : state.busy, collaborationUpdating: false, error: errorMessage(error) });
       if (state.run) schedule(state.run, expected);
+      else pollHandle = schedulePoll(() => {
+        pollHandle = null;
+        void refresh(expected, runId, true);
+      }, pollIntervalMs);
     } finally {
       if (pollAbort === abort) pollAbort = null;
     }
@@ -246,9 +287,39 @@ export function createFinancialCouncilController(
     async open(runId) {
       const expected = newGeneration();
       activeRunId = runId;
-      publish({ ...initialState(), busy: "loading" });
+      publish({ ...initialState(), history: state.history, busy: "loading" });
       await refresh(expected, runId, false);
       if (current(expected, runId)) publish({ busy: null });
+    },
+    async openLatest() {
+      const expected = newGeneration();
+      activeRunId = null;
+      publish({ ...initialState(), busy: "loading" });
+      try {
+        const response = await options.api.listRuns();
+        if (!generationCurrent(expected)) return;
+        publish({ history: response.body, busy: null });
+        if (response.body.items[0]) await this.open(response.body.items[0].runId);
+      } catch (error) {
+        if (generationCurrent(expected)) publish({ busy: null, error: errorMessage(error) });
+      }
+    },
+    async loadMoreHistory() {
+      const expected = generation;
+      const after = state.history?.nextAfter;
+      if (!after || !state.history?.hasMore) return;
+      try {
+        const response = await options.api.listRuns(after);
+        if (!generationCurrent(expected)) return;
+        const items = new Map((state.history?.items ?? []).map(item => [item.runId, item]));
+        response.body.items.forEach(item => items.set(item.runId, item));
+        publish({ history: { ...response.body, items: [...items.values()] } });
+      } catch (error) { if (generationCurrent(expected)) publish({ error: errorMessage(error) }); }
+    },
+    async retry() {
+      stopPolling();
+      if (activeRunId) await refresh(generation, activeRunId, false);
+      else await this.openLatest();
     },
     async create(input) {
       const [idempotencyKey, clearKey] = keyFor("create", input);

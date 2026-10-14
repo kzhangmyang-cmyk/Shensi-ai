@@ -64,6 +64,11 @@ export interface AcquisitionDetailCenterState {
   status: AcquisitionDetailCenterStatus;
   detail: AcquisitionTaskDetail | null;
   selectedCandidateId: string | null;
+  candidateFocus?: {
+    candidateId: string;
+    runId: string | null;
+    discoveredEventId: string | null;
+  } | null;
   candidateDetail: AcquisitionCandidateDetail | null;
   message: string | null;
   error: string | null;
@@ -553,11 +558,11 @@ function tabButton(
   `;
 }
 
-function renderTabs(mode: AcquisitionDetailCenterMode): string {
+function renderTabs(mode: AcquisitionDetailCenterMode, directHandoff = false): string {
   return `
     <div class="replica-acquisition-detail-tabs" role="tablist" aria-label="任务详情视图">
       ${tabButton("plan", mode, "计划详情")}
-      ${tabButton("candidates", mode, "候选研判")}
+      ${tabButton("candidates", mode, directHandoff ? "候选资料" : "候选研判")}
     </div>
   `;
 }
@@ -1056,7 +1061,8 @@ function renderIntelligenceAction(
     return `<div class="replica-acquisition-review-note">AI 客户情报任务正在${operation.status === "queued" ? "排队" : "运行"}，完成后刷新资格与作战卡。</div>`;
   }
   if (operation?.status === "failed") {
-    return `<div class="replica-acquisition-review-note is-warning">最近一次 AI 研判失败，请在任务刷新后重试。</div>`;
+    return `<div class="replica-acquisition-review-note is-warning">最近一次 AI 研判失败，尚未交接客户。重试成功后仍需人工审核和提交交接。</div>
+      <button type="button" data-acquisition-detail-action="start-intelligence">重试 AI 研判</button>`;
   }
   if (identityResolutionOperation?.status === "succeeded"
     && identityResolutionOperation.outcome === "verified_consensus") {
@@ -1341,7 +1347,7 @@ function renderPrivateDomainHandoff(
     const dueAt = textValue(completed.todo.dueAt, "待确认");
     const attributionMissing = !textValue(handoff.runId, "")
       || !textValue(handoff.discoveredEventId, "");
-    const recoveryAction = attributionMissing
+    const recoveryAction = attributionMissing && completed.intelligence !== null
       ? completed.recovery
         ? `<button type="button" data-acquisition-detail-action="open-private-domain-handoff">验证并补全历史归因</button>`
         : `<span class="replica-acquisition-review-note is-warning">历史归因不可验证，不能创建获客绑定商机</span>`
@@ -1359,7 +1365,7 @@ function renderPrivateDomainHandoff(
           <a href="#private-domain" data-private-domain-customer-id="${escapeHtml(handoff.customerId)}">查看客户</a>
           <a href="#private-domain" data-private-domain-customer-id="${escapeHtml(handoff.customerId)}" data-todo-id="${escapeHtml(handoff.todoId)}">查看待办</a>
           <button type="button" data-acquisition-detail-action="open-quote-workbench"
-            data-candidate-id="${escapeHtml(candidate.id)}"
+            data-candidate-id="${completed.intelligence === null ? "" : escapeHtml(candidate.id)}"
             data-customer-id="${escapeHtml(handoff.customerId)}">打开报价工作台</button>
           ${recoveryAction}
         </div>
@@ -1367,7 +1373,6 @@ function renderPrivateDomainHandoff(
     `;
   }
   const status = textValue(candidate.status, "");
-  if (status !== "approved" && status !== "converted_to_lead") return "";
   const pending = statusResult && "inProgress" in statusResult
     ? statusResult.inProgress
     : null;
@@ -1386,7 +1391,9 @@ function renderPrivateDomainHandoff(
 }
 
 function renderHandoffDialog(
-  dialog: AcquisitionHandoffDialogState | null | undefined
+  dialog: AcquisitionHandoffDialogState | null | undefined,
+  detail: AcquisitionCandidateDetail | null,
+  error: string | null
 ): string {
   if (!dialog?.open) return "";
   const dueDate = new Date(dialog.followUp.dueAt);
@@ -1396,19 +1403,22 @@ function renderHandoffDialog(
       ).toISOString().slice(0, 16)
     : dialog.followUp.dueAt.slice(0, 16);
   return `
-    <dialog class="replica-acquisition-handoff-dialog" open aria-labelledby="acquisition-handoff-title">
+    <section class="replica-acquisition-handoff-dialog" aria-labelledby="acquisition-handoff-title">
       <form data-acquisition-detail-form="private-domain-handoff">
         <header>
-          <div><span>CRM/私域</span><h4 id="acquisition-handoff-title">交接真实候选</h4></div>
-          <button type="button" data-acquisition-detail-action="close-private-domain-handoff"${dialog.busy ? " disabled" : ""}>关闭</button>
+          <div><span>CRM / 私域客户池</span><h4 id="acquisition-handoff-title">确认客户与首次跟进</h4></div>
         </header>
+        <div class="replica-handoff-fields">
+        <div class="replica-handoff-source"><strong>${escapeHtml(textValue(detail?.candidate?.displayName, textValue(detail?.candidate?.publicDisplayName, "当前候选")))}</strong><span>来源：${escapeHtml(textValue(detail?.evidence[0]?.sourceTitle, "已核对的公开采集结果"))} · 负责人：当前登录账号</span></div>
         ${dialog.recovering ? "<p>正在继续服务端已保留的原交接请求；为避免重复或改写目标，本次参数不可编辑。</p>" : ""}
-        <p>固定获客来源：Run <code>${escapeHtml(dialog.runId)}</code> · 发现事件 <code>${escapeHtml(dialog.discoveredEventId)}</code></p>
+        ${error ? `<p class="replica-acquisition-detail-message is-error" role="alert">${escapeHtml(error)}</p>` : ""}
         <fieldset${dialog.busy || dialog.recovering ? " disabled" : ""}>
           <legend>交接模式</legend>
-          <label><input type="radio" name="handoffMode" value="create_new"${dialog.mode === "create_new" ? " checked" : ""}> 创建新客户</label>
-          <label><input type="radio" name="handoffMode" value="link_existing"${dialog.mode === "link_existing" ? " checked" : ""}> 关联已有客户</label>
-          <label><span>已有 Customer ID</span><input name="existingCustomerId" maxlength="255" value="${escapeHtml(dialog.existingCustomerId)}"${dialog.mode === "link_existing" ? " required" : ""}></label>
+          <div class="replica-handoff-modes">
+            <label><input type="radio" name="handoffMode" value="create_new"${dialog.mode === "create_new" ? " checked" : ""}> 创建新客户</label>
+            <label><input type="radio" name="handoffMode" value="link_existing"${dialog.mode === "link_existing" ? " checked" : ""}> 关联已有客户</label>
+          </div>
+          <label class="replica-handoff-existing"><span>已有客户编号</span><input name="existingCustomerId" maxlength="255" value="${escapeHtml(dialog.existingCustomerId)}"${dialog.mode === "link_existing" ? " required" : ""} placeholder="填写要关联的客户编号"></label>
           <label><span>首次跟进标题</span><input name="followUpTitle" maxlength="500" required value="${escapeHtml(dialog.followUp.title)}"></label>
           <label><span>首次跟进时间</span><input name="followUpDueAt" type="datetime-local" required value="${escapeHtml(dueAt)}"></label>
           <label><span>优先级</span><select name="followUpPriority">
@@ -1417,9 +1427,10 @@ function renderHandoffDialog(
             ).join("")}
           </select></label>
         </fieldset>
-        <footer><button type="submit"${dialog.busy ? " disabled" : ""}>${dialog.busy ? "正在交接…" : dialog.recovering ? "继续原交接" : "确认交接"}</button></footer>
+        </div>
+        <footer><button type="button" data-acquisition-detail-action="close-private-domain-handoff"${dialog.busy ? " disabled" : ""}>取消</button><button type="submit"${dialog.busy ? " disabled" : ""}>${dialog.busy ? "正在交接…" : dialog.recovering ? "继续原交接" : "确认交接"}</button></footer>
       </form>
-    </dialog>
+    </section>
   `;
 }
 
@@ -1522,6 +1533,25 @@ function renderCandidateSummary(summary: DataRecord | null): string {
 
 function renderCandidatePanel(state: AcquisitionDetailCenterState): string {
   const detail = state.detail;
+  if (state.candidateFocus) {
+    return `
+      <section class="replica-acquisition-detail-panel" id="acquisition-detail-panel-candidates" role="tabpanel" aria-labelledby="acquisition-detail-tab-candidates" data-acquisition-detail-panel="candidates">
+        <div class="replica-acquisition-candidate-layout is-standalone">
+          <div class="replica-acquisition-candidate-inspector">
+            <article class="replica-acquisition-selected-candidate" data-selected-candidate-id="${escapeHtml(state.candidateFocus.candidateId)}">
+              <h4>${escapeHtml(textValue(state.candidateDetail?.candidate?.displayName,
+                textValue(state.candidateDetail?.candidate?.publicDisplayName, "候选资料加载中")))}</h4>
+              <p>核对姓名与公开来源后，选择新建或关联客户。负责人为当前登录账号，无需 AI 研判或人工资格审核。</p>
+              <section class="replica-acquisition-detail-section"><h5>公开来源</h5>
+                ${renderEvidenceDetail(state.candidateDetail?.evidence ?? [], state.visualArtifact)}
+              </section>
+              <section class="replica-acquisition-handoff-section">${state.candidateDetail?.candidate ? renderPrivateDomainHandoff(state.candidateDetail.candidate, state.candidateDetail) : ""}</section>
+            </article>
+          </div>
+        </div>
+      </section>
+    `;
+  }
   if (detail === null) {
     const candidateId = state.selectedCandidateId;
     if (!candidateId) return "";
@@ -1624,6 +1654,9 @@ function renderCandidatePanel(state: AcquisitionDetailCenterState): string {
 export function renderAcquisitionDetailCenter(
   state: AcquisitionDetailCenterState
 ): string {
+  if (state.handoffDialog?.open) {
+    return renderHandoffDialog(state.handoffDialog, state.candidateDetail, state.error);
+  }
   const statusMessage = renderStateMessage(state);
   const content = statusMessage ?? (state.mode === "plan"
     ? renderPlanOverview(state.detail as AcquisitionTaskDetail, state)
@@ -1635,7 +1668,7 @@ export function renderAcquisitionDetailCenter(
       data-acquisition-detail-status="${state.status}"
       aria-busy="${state.status === "loading"}"
     >
-      ${renderTabs(state.mode)}
+      ${renderTabs(state.mode, Boolean(state.candidateFocus))}
       ${state.message && state.status === "ready"
         ? `<div class="replica-acquisition-detail-message" role="status">${escapeHtml(state.message)}</div>`
         : ""}
@@ -1643,7 +1676,6 @@ export function renderAcquisitionDetailCenter(
         ? `<div class="replica-acquisition-detail-message is-error" role="alert">${escapeHtml(state.error)}</div>`
         : ""}
       ${content}
-      ${renderHandoffDialog(state.handoffDialog)}
     </section>
   `;
 }

@@ -5,7 +5,8 @@ import { dirname, isAbsolute } from 'node:path';
 import { parsedKnowledgeSchema, KNOWLEDGE_MAX_BYTES, type ParsedKnowledge, type KnowledgeUploadInput } from './domain.js';
 
 export interface KnowledgeReaderInput { inputPath: string; format: KnowledgeUploadInput['format']; bytes: number; }
-export interface KnowledgeReader { read(input: KnowledgeReaderInput, signal: AbortSignal): Promise<ParsedKnowledge>; }
+export interface KnowledgeReaderScope {workspaceId:string;actorId:string;}
+export interface KnowledgeReader { read(input: KnowledgeReaderInput, signal: AbortSignal, scope?:KnowledgeReaderScope): Promise<ParsedKnowledge>; }
 export function knowledgeReaderEnvironment(): NodeJS.ProcessEnv {
   return { LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', PYTHONDONTWRITEBYTECODE: '1', PYTHONNOUSERSITE: '1',
     HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1', TRANSFORMERS_OFFLINE: '1', OMP_NUM_THREADS: '2' };

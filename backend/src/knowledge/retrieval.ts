@@ -5,20 +5,13 @@ import { assertKnowledgeScope, knowledgeRoleSchema, type KnowledgeScope, type Kn
   type KnowledgeDocumentRecord, type KnowledgeVersionRecord, type KnowledgeChunk,
   type KnowledgeEvidence, type KnowledgeCitation } from './domain.js';
 import type { KnowledgeRepository } from './repository.js';
+import { tokenize } from './lexical.js';
 
 const MAX_INPUT = 64 * 1024 * 1024;
 const empty = (status: KnowledgeEvidence['status']): KnowledgeEvidence => ({ status, sources: [] });
 const scopeKey = (ctx: KnowledgeScope) => JSON.stringify([ctx.workspaceId, ctx.actorId]);
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const signature = (docs: KnowledgeDocumentRecord[]) => digest(docs.map(d => [d.id, d.revision, d.activeVersionId]).sort());
-const stopWords = new Set(['你好', '您好', '谢谢', '你', '我', '我们', '请', '帮', '一下', '怎么', '如何', '什么', '是否', '的', '了', '吗', '做', '计划', '预测']);
-let segmenter: Intl.Segmenter | undefined;
-function tokenize(text: string): string[] {
-  segmenter ??= new Intl.Segmenter('zh-CN', { granularity: 'word' });
-  const normalized = text.normalize('NFKC').toLowerCase()
-    .replace(/应收账款回收|现金回款|货款回收|资金回笼|回款/gu, '现金流');
-  return [...new Set([...segmenter.segment(normalized)].filter(s => s.isWordLike && !stopWords.has(s.segment)).map(s => s.segment))];
-}
 type Entry = { document: KnowledgeDocumentRecord; version: KnowledgeVersionRecord; chunk: KnowledgeChunk };
 type IndexRow = { id: string; title: string; chapter: string; text: string };
 type Index = { engine: MiniSearch<IndexRow>; entries: Map<string, Entry>; bytes: number; signature: string };

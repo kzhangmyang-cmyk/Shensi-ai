@@ -9,7 +9,8 @@ import {
 } from "./acquisition-pi-tools.js";
 import {
   acquisitionOutreachPromptTemplates,
-  acquisitionOutreachToolSchemas
+  acquisitionOutreachToolSchemas,
+  type AcquisitionOutreachContentContract
 } from "./acquisition-outreach-model-content.js";
 
 export const ACQUISITION_PI_PROMPT_ID = "acquisition.pi.turn.v1";
@@ -37,9 +38,9 @@ export const ACQUISITION_PREVIOUS_MODEL_PROMPT_VERSION =
 export const ACQUISITION_PREVIOUS_MODEL_SCHEMA_VERSION =
   "acquisition-model-schema-bundle.v3";
 export const ACQUISITION_MODEL_PROMPT_VERSION =
-  "acquisition-model-prompt-bundle.v7";
+  "acquisition-model-prompt-bundle.v8";
 export const ACQUISITION_MODEL_SCHEMA_VERSION =
-  "acquisition-model-schema-bundle.v8";
+  "acquisition-model-schema-bundle.v9";
 
 export const ACQUISITION_OUTREACH_V1_MODEL_PROMPT_VERSION =
   "acquisition-model-prompt-bundle.v6";
@@ -689,7 +690,7 @@ function modelContentBundle(
   options: CreateAcquisitionModelContentBundleOptions,
   includePlanDraft: boolean,
   battleCardVersion: "battle-card.v1" | "battle-card.v2",
-  outreachContract: "none" | "v1" | "v2" = "none"
+  outreachContract: "none" | AcquisitionOutreachContentContract = "none"
 ): ModelContentBundle {
   const systemPrompt = options.systemPrompt?.trim()
     || DEFAULT_ACQUISITION_PI_SYSTEM_PROMPT;
@@ -735,7 +736,7 @@ function modelContentBundle(
 export function createAcquisitionModelContentBundle(
   options: CreateAcquisitionModelContentBundleOptions = {}
 ): ModelContentBundle {
-  return modelContentBundle(options, true, "battle-card.v2", "v2");
+  return modelContentBundle(options, true, "battle-card.v2", "v3");
 }
 
 export const ACQUISITION_LEGACY_MODEL_CONTENT_BUNDLE =
@@ -765,6 +766,8 @@ export const ACQUISITION_OUTREACH_V1_MODEL_CONTENT_BUNDLE =
   modelContentBundle({}, true, "battle-card.v2", "v1");
 export const ACQUISITION_OUTREACH_V1_MODEL_CONTENT_HASHES =
   modelContentBundleHashes(ACQUISITION_OUTREACH_V1_MODEL_CONTENT_BUNDLE);
+
+const outreachV2Bundle = modelContentBundle({}, true, "battle-card.v2", "v2");
 
 export const ACQUISITION_MODEL_CONTENT_BUNDLE =
   createAcquisitionModelContentBundle();
@@ -804,6 +807,11 @@ const ACQUISITION_MODEL_CONTENT_REGISTRY = Object.freeze([{
   schemaVersion: ACQUISITION_OUTREACH_V1_MODEL_SCHEMA_VERSION,
   ...ACQUISITION_OUTREACH_V1_MODEL_CONTENT_HASHES,
   bundle: ACQUISITION_OUTREACH_V1_MODEL_CONTENT_BUNDLE
+}, {
+  promptVersion: "acquisition-model-prompt-bundle.v7",
+  schemaVersion: "acquisition-model-schema-bundle.v8",
+  ...modelContentBundleHashes(outreachV2Bundle),
+  bundle: outreachV2Bundle
 }, {
   promptVersion: ACQUISITION_MODEL_PROMPT_VERSION,
   schemaVersion: ACQUISITION_MODEL_SCHEMA_VERSION,

@@ -1,0 +1,81 @@
+services:
+  mysql:
+    image: mysql:8.4.11
+    environment:
+      MYSQL_DATABASE: shensi
+      MYSQL_USER: shensi_app
+      MYSQL_PASSWORD_FILE: /run/secrets/mysql_app_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+    secrets: [mysql_app_password, mysql_root_password]
+    volumes: [mysql_data:/var/lib/mysql]
+    ports: ["127.0.0.1:${SHENSI_API_MYSQL_HOST_PORT:?required}:3306"]
+    networks:
+      shensi_internal:
+      shensi_host:
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$(cat /run/secrets/mysql_root_password) --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+    env_file: ${SHENSI_API_BACKEND_ENV_FILE:?required}
+    environment:
+      NODE_ENV: production
+      CRM_STORE: mysql
+      BACKEND_HOST: 0.0.0.0
+      PORT: "4188"
+      TRUSTED_PROXY_CIDRS: ${SHENSI_API_GATEWAY_IP:?required}/32
+      SHENSI_API_GATEWAY_IP: ${SHENSI_API_GATEWAY_IP:?required}
+      DOUYIN_OUTREACH_ACTIONS_ENABLED: "false"
+      DOUYIN_OUTREACH_APPROVALS_ENABLED: "true"
+      DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED: "false"
+      DOUYIN_OUTREACH_DESKTOP_EXECUTION_ENABLED: "false"
+      SHENSI_DESKTOP_CLIENT_ADMISSION_MODE: migration_locked
+    depends_on:
+      mysql: { condition: service_healthy }
+    networks: [shensi_internal, shensi_egress]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4188/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  gateway:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    ports: ["127.0.0.1:${SHENSI_API_HTTP_PORT:?required}:8080"]
+    volumes:
+      - ${SHENSI_API_GATEWAY_CONFIG_FILE:?required}:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend: { condition: service_healthy }
+    networks:
+      shensi_internal:
+        ipv4_address: ${SHENSI_API_GATEWAY_IP:?required}
+      shensi_host:
+secrets:
+  mysql_app_password:
+    file: ${SHENSI_API_MYSQL_APP_PASSWORD_FILE:?required}
+  mysql_root_password:
+    file: ${SHENSI_API_MYSQL_ROOT_PASSWORD_FILE:?required}
+volumes:
+  mysql_data:
+networks:
+  shensi_internal:
+    internal: true
+    labels:
+      io.shensi.api.runtime-nonce: ${SHENSI_API_RUNTIME_NONCE:?required}
+      io.shensi.api.daemon-identity: ${SHENSI_API_DAEMON_IDENTITY:?required}
+    ipam:
+      config:
+        - subnet: ${SHENSI_API_INTERNAL_SUBNET:?required}
+          gateway: ${SHENSI_API_IPAM_GATEWAY:?required}
+  shensi_egress:
+  shensi_host:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
+    labels:
+      io.shensi.api.runtime-nonce: ${SHENSI_API_RUNTIME_NONCE:?required}
+      io.shensi.api.daemon-identity: ${SHENSI_API_DAEMON_IDENTITY:?required}

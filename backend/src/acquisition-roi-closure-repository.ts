@@ -1,3 +1,4 @@
+import { assertGrowthSealedReadCutoff, type GrowthSealedReadCutoff } from "./growth-temporal-barrier.js";
 import type {
   ClosureAttestation,
   RoiClosureRepository,
@@ -20,6 +21,20 @@ export class InMemoryRoiClosureRepository implements RoiClosureRepository {
   private readonly reopenHashes = new Map<string, string>();
   private readonly reopenEvents = new Map<string, number>();
   private closeOperations = 0;
+  private readonly published = new Set<string>();
+
+  async selectPublishedVersionAt(
+    workspaceId: string, cohortId: string, currency: string,
+    cutoff: GrowthSealedReadCutoff, versionId?: string
+  ): Promise<RoiClosureVersion | null> {
+    assertGrowthSealedReadCutoff(cutoff, workspaceId);
+    return [...this.versions.values()].filter(version =>
+      version.workspaceId === workspaceId && version.cohortId === cohortId
+      && version.currency === currency && this.published.has(version.id)
+      && version.closedAt <= cutoff.effectiveAsOf
+      && (versionId === undefined || version.id === versionId)
+    ).sort((a,b) => b.closedAt.localeCompare(a.closedAt) || b.version-a.version)[0] ?? null;
+  }
 
   private seriesKey(workspaceId: string, cohortId: string, currency: string) {
     return `${workspaceId}\u0000${cohortId}\u0000${currency}`;
@@ -88,6 +103,7 @@ export class InMemoryRoiClosureRepository implements RoiClosureRepository {
 
   async appendClosureVersion(input: {
     version: RoiClosureVersion;
+    series?: RoiClosureSeries;
     snapshots: RoiSnapshot[];
     sliceMembers: RoiSnapshotSliceMember[];
     entries: RoiSnapshotEntry[];
@@ -111,6 +127,7 @@ export class InMemoryRoiClosureRepository implements RoiClosureRepository {
       `${input.version.workspaceId}\u0000${input.domainCommandHash}`,
       input.version.id
     );
+    if (input.series) await this.markClosed(input.series, input.version.id);
     return stored;
   }
 
@@ -156,6 +173,7 @@ export class InMemoryRoiClosureRepository implements RoiClosureRepository {
     series: RoiClosureSeries,
     closureVersionId: string
   ): Promise<RoiClosureSeries> {
+    this.published.add(closureVersionId);
     const updated = Object.freeze({
       ...series,
       status: "closed",

@@ -18,7 +18,7 @@ export interface KnowledgeApi {
   list(query:KnowledgeQuery,signal?:AbortSignal):Promise<S['KnowledgeDocumentList']>;
   get(id:string,signal?:AbortSignal):Promise<KnowledgeDocument>;
   version(id:string,versionId:string,signal?:AbortSignal):Promise<KnowledgeVersion>;
-  chunks(id:string,versionId:string,cursor?:string,signal?:AbortSignal):Promise<S['KnowledgeChunkList']>;
+  chunks(id:string,versionId:string,cursor?:string,signal?:AbortSignal,limit?:20|100):Promise<S['KnowledgeChunkList']>;
   create(input:KnowledgeUploadInput,key:string,signal?:AbortSignal):Promise<S['KnowledgeCreated']>;
   patch(id:string,input:S['Patch'],revision:number,key:string,signal?:AbortSignal):Promise<KnowledgeDocument>;
   replace(id:string,input:KnowledgeUploadInput,revision:number,key:string,signal?:AbortSignal):Promise<KnowledgeVersion>;
@@ -61,7 +61,7 @@ export function createKnowledgeApi(options:{http?:GrowthHttpClient;fetchImpl?:ty
     availability:signal=>json(`${prefix}/availability`,{signal}),
     list:(query,signal)=>{const params=new URLSearchParams({limit:String(query.limit)});for(const key of ['cursor','q','role','status'] as const)if(query[key])params.set(key,query[key]!);return json(`${prefix}/documents?${params}`,{signal});},
     get:(id,signal)=>json(path(id),{signal}),version:(id,versionId,signal)=>json(path(id,versionId),{signal}),
-    chunks:(id,versionId,cursor,signal)=>json(`${path(id,versionId)}/chunks?${new URLSearchParams({limit:'20',...(cursor?{cursor}:{})})}`,{signal}),
+    chunks:(id,versionId,cursor,signal,limit=20)=>json(`${path(id,versionId)}/chunks?${new URLSearchParams({limit:String(limit),...(cursor?{cursor}:{})})}`,{signal}),
     create:(body,key,signal)=>json(`${prefix}/documents`,{method:'POST',body,idempotencyKey:key,signal}),
     patch:(id,body,revision,key,signal)=>json(path(id),{method:'PATCH',body,ifMatch:`"${revision}"`,idempotencyKey:key,signal}),
     replace:(id,body,revision,key,signal)=>json(`${path(id)}/versions`,{method:'POST',body,ifMatch:`"${revision}"`,idempotencyKey:key,signal}),

@@ -1,8 +1,11 @@
 export type DemoModule =
+  | "home"
   | "dashboard"
   | "acquisition"
   | "conversations"
   | "private-domain"
+  | "enterprise-query"
+  | "decision-simulation"
   | "conversion"
   | "agents"
   | "knowledge"

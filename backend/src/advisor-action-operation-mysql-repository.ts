@@ -23,6 +23,10 @@ import type { AdvisorActionOperationRepository } from "./advisor-action-operatio
 
 type MysqlRow = Record<string, unknown>;
 
+function mysqlJson<T>(value: unknown): T {
+  return (typeof value === "string" ? JSON.parse(value) : value) as T;
+}
+
 export const ADVISOR_ACTION_MYSQL_SCHEMA_STATEMENTS = Object.freeze([
   `CREATE TABLE IF NOT EXISTS advisor_action_operations (
     id VARCHAR(255) NOT NULL,
@@ -91,7 +95,9 @@ function operationRow(row: MysqlRow): AdvisorActionOperation {
     recommendationRevision: Number(row.recommendation_revision),
     requestingActorId: String(row.requesting_actor_id),
     stableActionHash: String(row.stable_action_hash) as `sha256:${string}`,
-    frozenAction: JSON.parse(String(row.frozen_action_json)),
+    frozenAction: mysqlJson<FrozenAdvisorActionInput["frozenAction"]>(
+      row.frozen_action_json
+    ),
     status: String(row.status) as AdvisorActionOperation["status"],
     leaseOwner: row.lease_owner === null ? null : String(row.lease_owner),
     leaseExpiresAt: row.lease_expires_at === null
@@ -412,7 +418,9 @@ implements AdvisorActionOperationRepository {
       recommendationRevision: Number(row.recommendation_revision),
       stableActionHash: String(row.stable_action_hash) as `sha256:${string}`,
       actionKind: String(row.action_kind) as AdvisorActionReceipt["actionKind"],
-      resourceRefs: JSON.parse(String(row.resource_refs_json)),
+      resourceRefs: mysqlJson<AdvisorActionReceipt["resourceRefs"]>(
+        row.resource_refs_json
+      ),
       contentHash: String(row.content_hash) as `sha256:${string}`,
       createdAt: growthMysqlInstant(row.created_at)
     })));

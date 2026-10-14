@@ -2,6 +2,14 @@ import { createHash } from "node:crypto";
 import { canonicalJsonStringify } from "./canonical-json.js";
 import type { ProbabilityAssessmentV2 } from "./probability-assessment.js";
 import type { CommercialBindingSnapshot } from "./commercial-binding-snapshot.js";
+import type {
+  CrmQuoteAssessmentSnapshot,
+  CrmQuoteAuthoritySnapshot
+} from "./crm-quote-assessment.js";
+import {
+  isCrmQuoteAssessmentSnapshot,
+  isCrmQuoteAuthoritySnapshot
+} from "./crm-quote-assessment.js";
 import type { ActiveWorkspaceContext } from "./growth-workspace-context.js";
 import type { Deal, DealEvent } from "./types.js";
 import { requireGrowthCapabilities } from "./growth-capabilities.js";
@@ -17,6 +25,11 @@ import {
   type GrowthTemporalTransactionRunner
 } from "./growth-temporal-barrier.js";
 
+export type QuoteCommercialAuthoritySnapshot = CommercialBindingSnapshot
+  | CrmQuoteAuthoritySnapshot;
+export type QuoteAssessmentSnapshot = ProbabilityAssessmentV2
+  | CrmQuoteAssessmentSnapshot;
+
 export interface QuoteCase {
   readonly id: string;
   readonly workspaceId: string;
@@ -27,7 +40,7 @@ export interface QuoteCase {
   readonly status: "open" | "closed" | "cancelled";
   readonly currentDraftVersionId: string | null;
   readonly revision: number;
-  readonly commercialBindingSnapshot: CommercialBindingSnapshot | null;
+  readonly commercialBindingSnapshot: QuoteCommercialAuthoritySnapshot | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -56,7 +69,7 @@ export interface DealAuthoritativeQuoteEvent {
   readonly quotedAmountMinor?: number;
   readonly commercialAmountHash?: `sha256:${string}`;
   readonly commercialBindingEvidence?: CommercialBindingEvidenceSnapshot;
-  readonly commercialBindingSnapshot?: CommercialBindingSnapshot;
+  readonly commercialBindingSnapshot?: QuoteCommercialAuthoritySnapshot;
   readonly decidedAt?: string;
   readonly reasonCode?: string | null;
   readonly reasonText?: string | null;
@@ -83,7 +96,9 @@ export interface QuoteVersion {
   readonly lifecycleRevision: number;
   readonly versionKind: "draft" | "formal";
   readonly sourceDraftVersionId: string | null;
-  readonly probabilityAssessmentSnapshot: ProbabilityAssessmentV2 | null;
+  readonly probabilityAssessmentSnapshot: QuoteAssessmentSnapshot | null;
+  readonly commercialBindingSnapshot?: QuoteCommercialAuthoritySnapshot | null;
+  readonly subjectEvidence?: QuoteSubjectEvidenceSnapshot;
   readonly status: "draft" | "submitted" | "approved" | "rejected" | "superseded" | "expired";
   readonly createdBy: string;
   readonly createdAt: string;
@@ -185,7 +200,7 @@ export interface AppendQuoteVersionCommand {
   readonly sourceDraftVersionId: string | null;
   readonly effectiveAt: string;
   readonly calculated: QuoteCalculationResult;
-  readonly probabilityAssessmentSnapshot: ProbabilityAssessmentV2 | null;
+  readonly probabilityAssessmentSnapshot: QuoteAssessmentSnapshot | null;
   readonly actorId: string;
   readonly idempotencyKey: string;
   readonly requestHash: string;
@@ -259,7 +274,7 @@ export interface DecideQuoteApprovalCommand {
   readonly reason: string | null;
   readonly stableCommandHash: `sha256:${string}`;
   readonly requestHash: string;
-  readonly verifiedBindingSnapshot: CommercialBindingSnapshot;
+  readonly verifiedBindingSnapshot: QuoteCommercialAuthoritySnapshot;
 }
 
 export interface QuoteApprovalDecisionPersistenceResult {
@@ -326,8 +341,8 @@ interface QuoteCommandBase {
 
 export interface CreateQuoteCaseCommand extends QuoteCommandBase {
   readonly quoteCase: QuoteCase;
-  readonly bindingSnapshot?: CommercialBindingSnapshot | null;
-  readonly probabilityAssessment?: ProbabilityAssessmentV2 | null;
+  readonly bindingSnapshot?: QuoteCommercialAuthoritySnapshot | null;
+  readonly probabilityAssessment?: QuoteAssessmentSnapshot | null;
 }
 
 export interface BindQuoteCaseDealCommand extends QuoteCommandBase {
@@ -538,12 +553,30 @@ export function quoteSubjectEvidence(
     throw quoteError("quote_case_subject_required");
   }
   const binding = quoteCase.commercialBindingSnapshot;
-  if (binding && (subject.candidateId !== binding.candidateId
-    || subject.customerId !== binding.customerId
-    || subject.dealId !== binding.dealId)) {
+  if (binding && (subject.customerId !== binding.customerId
+    || subject.dealId !== binding.dealId
+    || (isCrmQuoteAuthoritySnapshot(binding)
+      ? subject.candidateId !== null
+      : subject.candidateId !== binding.candidateId))) {
     throw quoteError("commercial_binding_authority_mismatch");
   }
   return subject;
+}
+
+export function assertCrmQuoteCaseAuthority(command: CreateQuoteCaseCommand): void {
+  const authority = command.bindingSnapshot;
+  if (!isCrmQuoteAuthoritySnapshot(authority)) return;
+  const quoteCase = command.quoteCase;
+  const assessment = command.probabilityAssessment;
+  if (quoteCase.candidateId !== null
+    || quoteCase.customerId !== authority.customerId
+    || quoteCase.dealId !== authority.dealId
+    || quoteCase.workspaceId !== authority.workspaceId
+    || quoteCase.commercialBindingSnapshot?.bindingHash !== authority.bindingHash
+    || !isCrmQuoteAssessmentSnapshot(assessment)
+    || assessment.inputSnapshotHash !== authority.assessment.inputSnapshotHash) {
+    throw quoteError("commercial_binding_authority_mismatch");
+  }
 }
 
 export function createQuoteVersionFromCalculation(input: Readonly<{
@@ -552,7 +585,7 @@ export function createQuoteVersionFromCalculation(input: Readonly<{
   version: number;
   versionKind: "draft" | "formal";
   sourceDraftVersionId: string | null;
-  probabilityAssessmentSnapshot: ProbabilityAssessmentV2 | null;
+  probabilityAssessmentSnapshot: QuoteAssessmentSnapshot | null;
   calculated: QuoteCalculationResult;
   actorId: string;
   effectiveAt: string;
@@ -654,8 +687,8 @@ export class InMemoryQuoteRepository implements QuoteRepository {
   private readonly previewByStableHash = new Map<string, string>();
   private readonly approvals = new Map<string, QuoteApproval>();
   private readonly approvalEvents: QuoteApprovalEvent[] = [];
-  private readonly bindingSnapshots = new Map<string, CommercialBindingSnapshot>();
-  private readonly boundAssessments = new Map<string, ProbabilityAssessmentV2>();
+  private readonly bindingSnapshots = new Map<string, QuoteCommercialAuthoritySnapshot>();
+  private readonly boundAssessments = new Map<string, QuoteAssessmentSnapshot>();
   private readonly dealAuthorities = new Map<string, DealAuthoritativeQuote>();
   private readonly authorityEvents: DealAuthoritativeQuoteEvent[] = [];
   private readonly publicationOperations = new Map<string, QuotePublicationOperation>();
@@ -1254,15 +1287,21 @@ export class InMemoryQuoteRepository implements QuoteRepository {
       if (!frozenBinding || typeof frozenBinding !== "object") {
         throw quoteError("commercial_binding_authority_mismatch");
       }
-      const binding = frozenBinding as CommercialBindingSnapshot;
-      if (binding.dealId !== quoteCase.dealId
-        || binding.customerId !== quoteCase.customerId
-        || binding.candidateId !== quoteCase.candidateId
-        || command.verifiedBindingSnapshot.bindingHash !== binding.bindingHash
-        || command.verifiedBindingSnapshot.dealContentHash
-          !== binding.dealContentHash
-        || command.verifiedBindingSnapshot.handoffContentHash
-          !== binding.handoffContentHash) {
+      const binding = frozenBinding;
+      const verified = command.verifiedBindingSnapshot;
+      const authorityMatches = binding.dealId === quoteCase.dealId
+        && binding.customerId === quoteCase.customerId
+        && verified.bindingHash === binding.bindingHash
+        && verified.dealContentHash === binding.dealContentHash
+        && (isCrmQuoteAuthoritySnapshot(binding)
+          ? isCrmQuoteAuthoritySnapshot(verified)
+            && quoteCase.candidateId === null
+            && verified.assessment.inputSnapshotHash
+              === binding.assessment.inputSnapshotHash
+          : !isCrmQuoteAuthoritySnapshot(verified)
+            && binding.candidateId === quoteCase.candidateId
+            && verified.handoffContentHash === binding.handoffContentHash);
+      if (!authorityMatches) {
         throw quoteError("commercial_binding_authority_mismatch");
       }
       const gate = version.gate as { status?: string } | undefined;
@@ -1353,14 +1392,16 @@ export class InMemoryQuoteRepository implements QuoteRepository {
       const authorityRevision = existingAuthority.authorityRevision + 1;
       const commercialAmountHash = String(version.commercialAmountHash) as
         `sha256:${string}`;
-      const evidence = immutableQuoteValue({
-        candidateId: binding.candidateId, customerId: binding.customerId,
-        dealId: binding.dealId,
-        handoffContentHash: binding.handoffContentHash,
-        dealContentHash: binding.dealContentHash,
-        bindingHashSchemaVersion: binding.bindingHashSchemaVersion,
-        bindingHash: binding.bindingHash
-      });
+      const evidence: CommercialBindingEvidenceSnapshot | undefined =
+        isCrmQuoteAuthoritySnapshot(binding) ? undefined : immutableQuoteValue({
+              candidateId: binding.candidateId,
+              customerId: binding.customerId,
+              dealId: binding.dealId,
+              handoffContentHash: binding.handoffContentHash,
+              dealContentHash: binding.dealContentHash,
+              bindingHashSchemaVersion: binding.bindingHashSchemaVersion,
+              bindingHash: binding.bindingHash
+            });
       const authorityEvent = immutableQuoteValue({
         id: `deal-authority-${workspaceId}-${authorityStamp.temporalSequence}`,
         workspaceId, dealId: quoteCase.dealId, authorityRevision,
@@ -1372,7 +1413,7 @@ export class InMemoryQuoteRepository implements QuoteRepository {
         currency: String(version.currency),
         quotedAmountMinor: Number(version.quotedAmountMinor),
         commercialAmountHash,
-        commercialBindingEvidence: evidence,
+        ...(evidence ? { commercialBindingEvidence: evidence } : {}),
         commercialBindingSnapshot: immutableQuoteValue(structuredClone(binding)),
         decidedAt: authorityStamp.recordedAt,
         ...authorityStamp
@@ -1644,6 +1685,7 @@ export class InMemoryQuoteRepository implements QuoteRepository {
         if (!command.bindingSnapshot || !command.probabilityAssessment) {
           throw quoteError("commercial_binding_required");
         }
+        assertCrmQuoteCaseAuthority(command);
         const conflict = [...this.cases.values()].some((row) =>
           row.workspaceId === value.workspaceId && row.dealId === value.dealId
           && row.status === "open");
@@ -2155,8 +2197,12 @@ export class InMemoryQuoteRepository implements QuoteRepository {
   }
 
   async boundProbabilityAssessmentId(workspaceId: string, quoteCaseId: string) {
-    return this.boundAssessments.get(this.caseKey(workspaceId, quoteCaseId))?.id
-      ?? null;
+    const assessment = this.boundAssessments.get(
+      this.caseKey(workspaceId, quoteCaseId)
+    );
+    return assessment
+      ? "id" in assessment ? assessment.id : assessment.inputSnapshotHash
+      : null;
   }
 
   async findDealAuthority(workspaceId: string, dealId: string) {

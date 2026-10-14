@@ -2,15 +2,19 @@ packages:
   - backend
   - frontend
   - contracts
+  - desktop
 
 allowBuilds:
   "@google/genai": false
   "@scarf/scarf": false
   esbuild: true
+  electron: true
+  electron-winstaller: false
   msgpackr-extract: true
   protobufjs: true
   puppeteer: true
   tesseract.js: true
+  node-apple-speech: set this to true or false
 
 overrides:
   tldts-core: 7.4.10

@@ -8,11 +8,13 @@ import { parseAgentsHash } from "./entry";
 import {
   renderAgentDetail,
   renderAgentsOverview,
+  renderRealAgentConversationSupport,
   renderRealAgentsOverview,
   renderCompanyPicker,
   renderDiagnosisReport
 } from "./view";
 import type { DiagnosisReport } from "./api";
+import type { RealAgentCenterControllerState } from "./real-controller";
 import { createFinancialCashForecastDraft } from "./cash-forecast-draft";
 import {
   activateFinancialCashForecastDraft,
@@ -84,7 +86,7 @@ const autoRoute = {
   mode: "auto" as const, primaryConnectionId: null, fallbackConnectionIds: [] as string[],
   preferenceWeightBps: 0
 };
-const realOverview = renderRealAgentsOverview({
+const realOverviewState: RealAgentCenterControllerState = {
   readiness: {
     capabilities: { canApprove: true, canManageRouting: true, canRun: true },
     data: { status: "not_connected", packageId: null, companyName: null,
@@ -115,7 +117,8 @@ const realOverview = renderRealAgentsOverview({
   files: { balance_sheet: null, income_statement: null, cash_flow_statement: null },
   statementPreview: null, statementPackage: null, latestRun: null, runAgents: null,
   consentAccepted: false, busy: null, error: null
-});
+};
+const realOverview = renderRealAgentsOverview(realOverviewState);
 const realOverviewDom = parseHTML(realOverview).document;
 assert.equal(realOverviewDom.querySelectorAll(".real-agent-card").length, 6);
 assert.equal(
@@ -126,6 +129,26 @@ for (const kind of ["balance_sheet", "income_statement", "cash_flow_statement"])
   assert.match(realOverview, new RegExp(`data-statements-file="${kind}"`, "u"));
 }
 assert.match(realOverview, /已选择 0 \/ 3 份必需报表/u);
+assert.equal(realOverviewDom.querySelector('[data-agent-id="finance"] .agent-status')?.textContent,
+  "等待运行", "a role with no run is idle, not proof that financial data is ready");
+const noModelOverview = parseHTML(renderRealAgentsOverview({ ...realOverviewState,
+  routingPreview: [], readiness: { ...realOverviewState.readiness!, models: {
+    status: "not_connected", routingPolicyVersionId: null,
+    roles: roles.map(role => ({ role, status: "ready", connectionDisplayName: null,
+      provider: null, model: null }))
+  } }
+})).document;
+assert.equal(noModelOverview.querySelector('[data-agent-id="finance"] .agent-status')?.textContent,
+  "等待运行", "ready without a run must not claim a configured model either");
+const priorRunOverview = parseHTML(renderRealAgentsOverview({ ...realOverviewState, runAgents: {
+  runId: "previous-run", status: "analyzing", revision: 1, updatedAt: "2026-09-10T00:00:00.000Z",
+  roles: roles.map((role, index) => ({ role, phase: role === "cfo" ? "consensus" : "analysis",
+    status: (["completed", "running", "waiting", "manual_review", "model_error", "ready"] as const)[index]!,
+    attempts: [] }))
+} })).document;
+assert.deepEqual([...priorRunOverview.querySelectorAll('.real-agent-card .agent-status')].map(node => node.textContent),
+  ["已完成", "分析中", "等待其他专家", "需要人工复核", "模型连接异常", "等待运行"],
+"changing the idle label must not overwrite persisted execution states");
 assert.doesNotMatch(realOverview, /sample-report|示例数据/u);
 assert.deepEqual(
   roles.map((role) => realOverview.indexOf(`data-agent-id="${role}"`)).every(
@@ -142,6 +165,51 @@ assert.match(realOverview, /data-routing-action="save"/u);
 assert.doesNotMatch(realOverview, /<tax>/u);
 assert.match(realOverview, /&lt;tax&gt;/u);
 assert.doesNotMatch(realOverview, /apiKey|prompt|rawWorkbook/u);
+
+const realConversationSupport = renderRealAgentConversationSupport({
+  readiness: {
+    capabilities: { canApprove: true, canManageRouting: true, canRun: true },
+    data: { status: "not_connected", packageId: null, companyName: null,
+      period: null, verifiedAt: null, warningCodes: [] },
+    models: { status: "ready", routingPolicyVersionId: "policy-1", roles: [] },
+    latestRun: null
+  },
+  routingPolicy: null,
+  routingPreview: [],
+  files: { balance_sheet: null, income_statement: null, cash_flow_statement: null },
+  statementPreview: null, statementPackage: null, latestRun: null, runAgents: null,
+  consentAccepted: false, busy: null, error: null
+});
+const realConversationSupportDom = parseHTML(realConversationSupport).document;
+assert.equal(
+  realConversationSupportDom.querySelector('[data-agent-center-authority="real"]')
+    ?.classList.contains("cfo-chat-inspector"),
+  true,
+  "real conversation support must retain a concise inspector"
+);
+assert.equal(
+  realConversationSupportDom.querySelector('[data-cfo-inspector-role]')?.textContent,
+  "经营总管"
+);
+assert.match(realConversationSupport, /相关待办/u);
+assert.match(realConversationSupport, /等待导入三张报表/u);
+assert.match(realConversationSupport, /模型路由已就绪/u);
+const realPreparationDialog = realConversationSupportDom.querySelector<HTMLDialogElement>(
+  "[data-agent-preparation-dialog]"
+);
+assert.ok(realPreparationDialog);
+assert.equal(realPreparationDialog.hasAttribute("open"), false);
+assert.equal(
+  realConversationSupportDom.querySelector(".agent-preparation-inspector [data-statements-file]"),
+  null,
+  "three report fields must remain out of the normal narrow inspector"
+);
+assert.equal(realPreparationDialog.querySelectorAll("[data-statements-file]").length, 3);
+assert.equal(realPreparationDialog.querySelectorAll("[data-real-action]").length, 3);
+assert.ok(
+  realConversationSupportDom.querySelector('[data-agent-preparation-action="open"][aria-haspopup="dialog"]'),
+  "a keyboard-accessible control must open full financial preparation"
+);
 
 const forecastDraft = createFinancialCashForecastDraft();
 forecastDraft.setAmount("inflow30", "1000.00");

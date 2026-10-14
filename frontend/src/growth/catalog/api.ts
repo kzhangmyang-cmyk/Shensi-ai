@@ -29,6 +29,8 @@ export type PricingPolicyVersionPagedResult = Omit<
   components["schemas"]["PricingPolicyVersionPagedResult"],
   "$defs"
 >;
+export type CatalogItemInput = components["schemas"]["CatalogItem_CatalogItemInput"];
+export type PricingPolicyDraftInput = components["schemas"]["PricingPolicyVersion_PricingPolicyDraftInput"];
 
 export interface CatalogListQuery {
   limit: number;
@@ -38,6 +40,8 @@ export interface CatalogListQuery {
 }
 
 export interface CatalogApi {
+  createItem(input: CatalogItemInput, idempotencyKey: string, signal?: AbortSignal): Promise<GrowthHttpResponse<CatalogItem>>;
+  createPricingPolicy(input: PricingPolicyDraftInput, idempotencyKey: string, signal?: AbortSignal): Promise<GrowthHttpResponse<PricingPolicyVersion>>;
   listItems(query: CatalogListQuery): Promise<GrowthHttpResponse<CatalogItemPagedResult>>;
   getItem(id: string, signal?: AbortSignal): Promise<GrowthHttpResponse<CatalogItem>>;
   listPackageVersions(
@@ -62,34 +66,40 @@ export interface CatalogApi {
   activatePackageVersion(
     id: string,
     etag: string,
-    idempotencyKey: string
+    idempotencyKey: string, signal?: AbortSignal
   ): Promise<GrowthHttpResponse<PackageVersion>>;
   retirePackageVersion(
     id: string,
     etag: string,
-    idempotencyKey: string
+    idempotencyKey: string, signal?: AbortSignal
   ): Promise<GrowthHttpResponse<PackageVersion>>;
   activatePricingPolicy(
     id: string,
     etag: string,
-    idempotencyKey: string
+    idempotencyKey: string, signal?: AbortSignal
   ): Promise<GrowthHttpResponse<PricingPolicyVersion>>;
   retirePricingPolicy(
     id: string,
     etag: string,
-    idempotencyKey: string
+    idempotencyKey: string, signal?: AbortSignal
   ): Promise<GrowthHttpResponse<PricingPolicyVersion>>;
 }
 
 function commandOptions(
   etag: string,
-  idempotencyKey: string
+  idempotencyKey: string, signal?: AbortSignal
 ): GrowthHttpRequestOptions {
-  return { method: "POST", ifMatch: etag, idempotencyKey };
+  return { method: "POST", ifMatch: etag, idempotencyKey, ...(signal ? { signal } : {}) };
 }
 
 export function createCatalogApi(http: GrowthHttpClient): CatalogApi {
   const api: CatalogApi = {
+    async createItem(input, idempotencyKey, signal) {
+      return http.request<CatalogItem>("/api/v1/catalog/items", { method: "POST", body: input, idempotencyKey, signal });
+    },
+    async createPricingPolicy(input, idempotencyKey, signal) {
+      return http.request<PricingPolicyVersion>("/api/v1/catalog/pricing-policies", { method: "POST", body: input, idempotencyKey, signal });
+    },
     async listItems(query) {
       const params = new URLSearchParams({ limit: String(query.limit) });
       if (query.cursor) params.set("cursor", query.cursor);
@@ -133,28 +143,28 @@ export function createCatalogApi(http: GrowthHttpClient): CatalogApi {
         { method: "PATCH", ifMatch: etag, idempotencyKey, body: input }
       );
     },
-    async activatePackageVersion(id, etag, idempotencyKey) {
+    async activatePackageVersion(id, etag, idempotencyKey, signal) {
       return http.request<PackageVersion>(
         `/api/v1/catalog/package-versions/${encodeURIComponent(id)}/activate`,
-        commandOptions(etag, idempotencyKey)
+        commandOptions(etag, idempotencyKey, signal)
       );
     },
-    async retirePackageVersion(id, etag, idempotencyKey) {
+    async retirePackageVersion(id, etag, idempotencyKey, signal) {
       return http.request<PackageVersion>(
         `/api/v1/catalog/package-versions/${encodeURIComponent(id)}/retire`,
-        commandOptions(etag, idempotencyKey)
+        commandOptions(etag, idempotencyKey, signal)
       );
     },
-    async activatePricingPolicy(id, etag, idempotencyKey) {
+    async activatePricingPolicy(id, etag, idempotencyKey, signal) {
       return http.request<PricingPolicyVersion>(
         `/api/v1/catalog/pricing-policies/${encodeURIComponent(id)}/activate`,
-        commandOptions(etag, idempotencyKey)
+        commandOptions(etag, idempotencyKey, signal)
       );
     },
-    async retirePricingPolicy(id, etag, idempotencyKey) {
+    async retirePricingPolicy(id, etag, idempotencyKey, signal) {
       return http.request<PricingPolicyVersion>(
         `/api/v1/catalog/pricing-policies/${encodeURIComponent(id)}/retire`,
-        commandOptions(etag, idempotencyKey)
+        commandOptions(etag, idempotencyKey, signal)
       );
     }
   };

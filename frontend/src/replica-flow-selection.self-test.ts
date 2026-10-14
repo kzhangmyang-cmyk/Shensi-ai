@@ -29,7 +29,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   getFlowCardSpacing(720),
-  { firstStep: 136, nextStep: 96 },
+  { firstStep: 170, nextStep: 112 },
   "wide platform stages must present the carousel as five discoverable cards"
 );
 assert.deepEqual(

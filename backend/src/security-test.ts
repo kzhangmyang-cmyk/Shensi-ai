@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import { Value } from "typebox/value";
 import apiErrorSchema from "../../contracts/json-schema/api-error.v1.schema.json" with { type: "json" };
-import { app } from "./server.js";
+import { app, installTestAcquisitionHttpRuntime } from "./server.js";
 import { createGrowthOpenApiPaths } from "./growth-openapi.js";
 import { completeAgentJob, enqueueAgentJob, failAgentJob, startAgentJob } from "./agent-jobs.js";
 import {
@@ -15,6 +15,15 @@ import { resolveBackendHost, resolveTrustedProxy } from "./server-network.js";
 import { getStore } from "./store.js";
 
 const TEST_JWT_SECRET = "goodjob-security-test-secret-at-least-32-characters";
+const acquisitionBuildDigest = "e".repeat(64);
+const uninstallAcquisition = installTestAcquisitionHttpRuntime({
+  admissionConfiguration: { mode: "exact", admittedBuildManifestSha256: acquisitionBuildDigest },
+  workspaceMiddleware() { throw new Error("security request unexpectedly reached acquisition workspace authority"); },
+  runtime: {
+    handler() { throw new Error("security request unexpectedly reached acquisition business runtime"); },
+    async close() {}
+  }
+});
 const server = app.listen(0);
 const address = server.address();
 if (!address || typeof address === "string") throw new Error("Cannot start security test server");
@@ -23,7 +32,10 @@ const baseUrl = `http://127.0.0.1:${address.port}`;
 async function request(path: string, options: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...options,
-    headers: { "content-type": "application/json", ...(options.headers || {}) }
+    headers: { "content-type": "application/json",
+      ...(path.startsWith("/api/v1/acquisition/")
+        ? { "x-shensi-desktop-build-manifest-sha256": acquisitionBuildDigest } : {}),
+      ...(options.headers || {}) }
   });
   const json = await response.json().catch(() => ({}));
   return { response, json };
@@ -82,10 +94,41 @@ try {
   ) {
     throw new Error("production backend must trust only the fixed Compose gateway hop");
   }
+  if (
+    JSON.stringify(resolveTrustedProxy({
+      NODE_ENV: "production",
+      TRUSTED_PROXY_CIDRS: "198.18.250.2/32",
+      SHENSI_API_GATEWAY_IP: "198.18.250.2"
+    })) !== JSON.stringify(["loopback", "198.18.250.2/32"])
+  ) {
+    throw new Error("production backend must trust the bound API-only gateway hop");
+  }
+  if (
+    JSON.stringify(resolveTrustedProxy({
+      NODE_ENV: "production",
+      TRUSTED_PROXY_CIDRS: "198.18.250.254/32",
+      SHENSI_API_GATEWAY_IP: "198.18.250.254"
+    })) !== JSON.stringify(["loopback", "198.18.250.254/32"])
+  ) {
+    throw new Error("production backend must trust the high API-only gateway address");
+  }
   for (const unsafeTrustedProxy of ["172.30.0.0/24", "10.0.0.8/32", "172.30.0.4/32,10.0.0.8/32"]) {
     try {
       resolveTrustedProxy({ NODE_ENV: "production", TRUSTED_PROXY_CIDRS: unsafeTrustedProxy });
       throw new Error(`production trusted proxy unexpectedly accepted ${unsafeTrustedProxy}`);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("production trusted proxy unexpectedly")) throw error;
+    }
+  }
+  for (const unsafeApiOnlyProxy of [
+    { TRUSTED_PROXY_CIDRS: "198.18.250.2/32" },
+    { TRUSTED_PROXY_CIDRS: "198.18.250.2/32", SHENSI_API_GATEWAY_IP: "198.18.251.2" },
+    { TRUSTED_PROXY_CIDRS: "198.18.250.3/32", SHENSI_API_GATEWAY_IP: "198.18.250.3" },
+    { TRUSTED_PROXY_CIDRS: "198.18.239.2/32", SHENSI_API_GATEWAY_IP: "198.18.239.2" }
+  ]) {
+    try {
+      resolveTrustedProxy({ NODE_ENV: "production", ...unsafeApiOnlyProxy });
+      throw new Error(`production trusted proxy unexpectedly accepted ${JSON.stringify(unsafeApiOnlyProxy)}`);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("production trusted proxy unexpectedly")) throw error;
     }
@@ -212,6 +255,83 @@ try {
   if (!isolatedCustomers.response.ok || isolatedCustomers.json.customers?.length !== 0) {
     throw new Error("registered workspace must not inherit another tenant's customer data");
   }
+
+  const deviceACookies = cookieHeader(bareAccountLogin.response);
+  const deviceBCookies = cookieHeader(canonicalEmailLogin.response);
+  const deviceACsrf = bareAccountLogin.json.csrfToken as string;
+  const deviceBCsrf = canonicalEmailLogin.json.csrfToken as string;
+  if (!deviceACookies || !deviceBCookies || !deviceACsrf || !deviceBCsrf
+    || deviceACookies === deviceBCookies || deviceACsrf === deviceBCsrf) {
+    throw new Error("independent clients must receive independent cookie sessions");
+  }
+  const sharedCompany = `Cross Mac ${registrationSuffix}`;
+  const createdOnDeviceA = await request("/api/customers", {
+    method: "POST",
+    headers: { cookie: deviceACookies, "x-csrf-token": deviceACsrf },
+    body: JSON.stringify({ company: sharedCompany, country: "CN", contact: "Test",
+      stage: "询盘", amount: 100 })
+  });
+  if (!createdOnDeviceA.response.ok || !createdOnDeviceA.json.customer?.id) {
+    throw new Error("first independent client could not create shared customer data");
+  }
+  const sharedCustomerId = createdOnDeviceA.json.customer.id as string;
+  const readOnDeviceB = await request("/api/customers", {
+    headers: { cookie: deviceBCookies }
+  });
+  if (!readOnDeviceB.response.ok || !readOnDeviceB.json.customers?.some(
+    (customer: { id?: string; company?: string }) =>
+      customer.id === sharedCustomerId && customer.company === sharedCompany
+  )) throw new Error("second independent client did not read the same central customer");
+
+  const updatedOnDeviceB = await request(`/api/customers/${sharedCustomerId}`, {
+    method: "PATCH",
+    headers: { cookie: deviceBCookies, "x-csrf-token": deviceBCsrf },
+    body: JSON.stringify({ stage: "已报价", amount: 250 })
+  });
+  if (!updatedOnDeviceB.response.ok) {
+    throw new Error("second independent client could not update shared customer data");
+  }
+  const rereadOnDeviceA = await request("/api/customers", {
+    headers: { cookie: deviceACookies }
+  });
+  if (!rereadOnDeviceA.json.customers?.some(
+    (customer: { id?: string; stage?: string; amount?: number }) =>
+      customer.id === sharedCustomerId && customer.stage === "已报价" && customer.amount === 250
+  )) throw new Error("first independent client did not observe the central update");
+
+  const isolatedAccountToken = concurrentRegistrations.find(
+    (result) => result.response.status === 201
+  )?.json.token as string | undefined;
+  const isolatedAccountRead = await request("/api/customers", {
+    headers: bearer(isolatedAccountToken ?? "missing")
+  });
+  if (!isolatedAccountRead.response.ok || isolatedAccountRead.json.customers?.some(
+    (customer: { id?: string }) => customer.id === sharedCustomerId
+  )) throw new Error("another workspace must not read the shared central customer");
+
+  const logoutDeviceB = await request("/api/auth/logout", {
+    method: "POST",
+    headers: { cookie: deviceBCookies, "x-csrf-token": deviceBCsrf },
+    body: "{}"
+  });
+  if (!logoutDeviceB.response.ok) throw new Error("second independent client logout failed");
+  const clearedDeviceBCookies = cookieHeader(logoutDeviceB.response);
+  const loggedOutDeviceRead = await request("/api/customers", {
+    headers: { cookie: clearedDeviceBCookies }
+  });
+  await expectStatus("logged-out second independent client", loggedOutDeviceRead.response.status, 401);
+  const survivingDeviceARead = await request("/api/customers", {
+    headers: { cookie: deviceACookies }
+  });
+  if (!survivingDeviceARead.response.ok || !survivingDeviceARead.json.customers?.some(
+    (customer: { id?: string }) => customer.id === sharedCustomerId
+  )) throw new Error("logging out one client must not invalidate another client or shared data");
+
+  const sharedCustomerIndex = getStore().customers.findIndex(
+    (customer) => customer.id === sharedCustomerId
+  );
+  if (sharedCustomerIndex >= 0) getStore().customers.splice(sharedCustomerIndex, 1);
+  results.sameAccountIndependentSessions = true;
   results.publicRegistrationIsolated = true;
 
   const aiCredentialContext = {
@@ -1209,5 +1329,6 @@ try {
   console.log(JSON.stringify({ ok: true, ...results }, null, 2));
 } finally {
   setProviderHttpTestTransport(null);
+  await uninstallAcquisition();
   server.close();
 }

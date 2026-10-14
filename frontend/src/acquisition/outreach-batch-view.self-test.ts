@@ -14,6 +14,20 @@ import {
 
 const { document } = parseHTML("<main id='host'></main>");
 const host = document.querySelector<HTMLElement>("#host")!;
+const stableTimelineState: OutreachBatchState = {
+  phase: "idle", batch: null, drafts: {}, actions: [], error: null, conflict: false, closed: false,
+  directMessageDailyLimit: 20, directMessageConfirmed: false, directMessageApprovalPhase: "idle", directMessagePendingCandidateIds: []
+};
+renderOutreachBatchView(host, stableTimelineState);
+const stableTimeline = host.firstElementChild;
+renderOutreachBatchView(host, { ...stableTimelineState, error: "desktop_offline" });
+assert.equal(host.firstElementChild === stableTimeline, true, "action status refresh must not replace the entire batch host");
+renderOutreachBatchView(host, stableTimelineState, { desktopStatus: {
+  state: "offline", diagnostic: "central_unreachable", currentActionKind: null,
+  updatedAt: null, pendingReconciliationCount: 0, ownership: "unknown"
+} });
+assert.match(host.textContent ?? "", /中心服务离线，未领取新动作/u,
+  "shared acquisition/conversation batch surface must show sanitized Main status");
 const directMessageApprovalState = (overrides: Partial<{
   directMessageDailyLimit: number;
   directMessageConfirmed: boolean;
@@ -83,6 +97,31 @@ const batch = (state: OutreachBatch["state"] = "awaiting_approval"): OutreachBat
   updatedBy: "operator-1",
   updatedAt: "2026-08-27T00:00:00.000Z"
 });
+for (const limits of [
+  { count: 50, dailyCandidateLimit: 50, dailyRemainingLimit: 50 },
+  { count: 5, dailyCandidateLimit: 5, dailyRemainingLimit: 3 }
+]) {
+  const commentBatch: OutreachBatch = {
+    ...batch(),
+    dailyCandidateLimit: limits.dailyCandidateLimit,
+    dailyRemainingLimit: limits.dailyRemainingLimit,
+    candidates: Array.from({ length: limits.count }, (_, index) => ({
+      ...batch().candidates[0]!, candidateId: `candidate-${index + 1}`
+    }))
+  };
+  renderOutreachBatchView(host, {
+    ...stableTimelineState, phase: "ready", batch: commentBatch
+  }, { surface: "comments" });
+  assert.equal(host.querySelectorAll(".outreach-editor [data-outreach-field=comment]").length,
+    limits.count, "comment review must render every persisted candidate, including all 50 in a new batch");
+  assert.ok(host.querySelector(`[data-outreach-candidate-id="candidate-${limits.count}"][data-outreach-field=comment]`));
+  const summary = host.querySelector(".outreach-summary")!;
+  assert.equal(summary.querySelectorAll("strong")[2]?.textContent,
+    `${limits.dailyRemainingLimit} / ${limits.dailyCandidateLimit}`,
+    "comment review must keep the server batch allowance, including a historical 3 / 5, instead of applying new defaults");
+  assert.match(summary.textContent ?? "", /本批次剩余\s*\/\s*上限/u);
+  assert.match(host.textContent ?? "", /本批次上限沿用创建时的采集运行/u);
+}
 const api: OutreachBatchApi = {
   async listBatches() { return { items: [], nextCursor: null }; },
   async createBatch() { return batch(); },
@@ -182,6 +221,51 @@ assert.equal(
 );
 unmountContext();
 
+const passivePollErrorState: OutreachBatchState = {
+  phase: "error",
+  batch: batch(),
+  drafts: {
+    "candidate-1": { comment: "原始精确评论", directMessage: "原始精确私信" }
+  },
+  actions: [],
+  error: "动作状态暂时不可用",
+  conflict: false,
+  closed: false,
+  ...directMessageApprovalState()
+};
+let passivePollListener: ((state: OutreachBatchState) => void) | null = null;
+const passivePollController = {
+  getState: () => passivePollErrorState,
+  subscribe(listener: (state: OutreachBatchState) => void) {
+    passivePollListener = listener;
+    return () => undefined;
+  }
+} as unknown as OutreachBatchController;
+const passiveHtmlElementPrototype = document.defaultView!.HTMLElement.prototype;
+const originalPassiveFocus = passiveHtmlElementPrototype.focus;
+let passiveAlertFocusCalls = 0;
+passiveHtmlElementPrototype.focus = function focus(options?: FocusOptions) {
+  if (this.matches("[role=alert]")) passiveAlertFocusCalls += 1;
+  originalPassiveFocus.call(this, options);
+};
+let unmountPassivePoll: (() => void) | null = null;
+try {
+  unmountPassivePoll = mountOutreachBatchView(
+    host,
+    passivePollController
+  );
+  const emitPassivePoll = passivePollListener as unknown as (
+    state: OutreachBatchState
+  ) => void;
+  assert.ok(emitPassivePoll);
+  emitPassivePoll(passivePollErrorState);
+  assert.equal(passiveAlertFocusCalls, 0,
+    "a passive action poll must not focus an alert and move the user's scroll position");
+} finally {
+  unmountPassivePoll?.();
+  passiveHtmlElementPrototype.focus = originalPassiveFocus;
+}
+
 renderOutreachBatchView(host, {
   phase: "saving",
   batch: batch(),
@@ -246,15 +330,10 @@ assert.equal(
     ?.getAttribute("maxlength"),
   "300"
 );
-assert.equal(
-  host.querySelector<HTMLTextAreaElement>("[data-outreach-field=directMessage]")
-    ?.disabled,
-  true,
-  "the retained direct-message draft must be read-only while sending is unavailable"
-);
+assert.equal(host.querySelector("[data-outreach-field=directMessage]"), null,
+  "the comment surface must not render the former combined private-message step");
 assert.match(host.textContent ?? "", /6 \/ 300/u);
 assert.match(host.textContent ?? "", /确认后服务器只会排队执行本批次真实评论/u);
-assert.match(host.textContent ?? "", /私信尚未解锁.*评论成功后可再独立复核并确认私信/u);
 assert.doesNotMatch(host.textContent ?? "", /至少等待 180 秒后.*私信/u);
 assert.match(host.textContent ?? "", /确认并排队真实评论/u);
 assert.equal(
@@ -406,6 +485,27 @@ const reconciliationState = {
   error: null, conflict: false, closed: false,
   ...directMessageApprovalState()
 };
+for (const [status, copy] of [["queued", "等待桌面应用领取"], ["claimed", "桌面应用已领取"], ["executing", "正在通过本机抖音执行"], ["reconciliation_required", "等待只读对账，绝不会自动重发"], ["succeeded", "平台回执已确认"]] as const) {
+  renderOutreachBatchView(host, { ...reconciliationState, actions: [{ ...riskPausedAction, executionTarget: "desktop", status, failureCode: null }] });
+  assert.ok(host.textContent?.includes(copy), `desktop ${status} should expose its persisted action phase`);
+}
+renderOutreachBatchView(host, {
+  ...reconciliationState,
+  actions: [{ ...riskPausedAction, kind: "direct_message", status: "failed", authorizationVersion: 3,
+    executionTarget: "desktop", failureCode: "douyin_direct_message_unavailable",
+    targetPublicUrl: "https://www.douyin.com/user/actor-1" }]
+}, {
+  surface: "direct_messages",
+  desktopStatus: { state: "idle", diagnostic: null, currentActionKind: null,
+    updatedAt: null, pendingReconciliationCount: 0, ownership: "this_device" }
+});
+assert.match(host.textContent ?? "", /私信发送失败/u);
+assert.match(host.textContent ?? "", /执行器已就绪/u);
+assert.doesNotMatch(host.textContent ?? "", /等待桌面应用领取|当前目标暂不支持私信/u,
+  "a terminal DM and idle executor must not imply queueing or blame the recipient without platform evidence");
+assert.match(host.textContent ?? "", /私信执行未完成，未确认具体原因/u);
+assert.match(host.textContent ?? "", /douyin_direct_message_unavailable/u,
+  "the stored failure code remains available without rewriting the receipt");
 renderOutreachBatchView(host, {
   ...reconciliationState,
   error: "outreach_actions_disabled",
@@ -424,12 +524,23 @@ assert.equal(
   host.querySelector(".outreach-technical code")?.textContent,
   "outreach_actions_disabled"
 );
+renderOutreachBatchView(host, { ...reconciliationState, error: "outreach_actions_disabled" }, {
+  surface: "direct_messages",
+  desktopStatus: { state: "disabled", diagnostic: null, currentActionKind: null,
+    updatedAt: null, pendingReconciliationCount: 0, ownership: "this_device" }
+});
+assert.match(host.textContent ?? "", /当前桌面发送尚未启用/u);
+assert.doesNotMatch(host.textContent ?? "", /服务器尚未开启真实抖音评论/u);
+renderOutreachBatchView(host, { ...reconciliationState, error: "douyin_desktop_executor_invalid" });
+assert.match(host.textContent ?? "", /桌面执行绑定已失效.*管理账号.*重新检测本机登录.*重新绑定本机账号/u);
+assert.equal(host.querySelector(".outreach-technical code")?.textContent,
+  "douyin_desktop_executor_invalid", "keep the diagnostic code without exposing it as the only recovery instruction");
 renderOutreachBatchView(host, {
   ...reconciliationState,
   batch: batch("awaiting_approval"),
   error: "outreach_candidate_projection_pending"
 });
-assert.match(host.textContent ?? "", /候选数据仍在采集.*当前不会排队真实评论或私信.*评论成功后可再独立确认私信/u);
+assert.match(host.textContent ?? "", /候选数据仍在采集.*当前不会排队真实评论或私信.*私信可.*单独确认/u);
 assert.equal(
   host.querySelector(".outreach-technical code")?.textContent,
   "outreach_candidate_projection_pending"
@@ -509,6 +620,7 @@ const directMessageReviewState = {
   ...directMessageApprovalState()
 };
 const boundAccountContext = {
+  surface: "direct_messages" as const,
   account: {
     id: "account-1",
     displayName: "真实复核账号",
@@ -517,42 +629,185 @@ const boundAccountContext = {
   },
   candidates: [{ candidateId: "candidate-1", displayName: "候选人甲" }]
 };
+const defaultLimitReviewState: OutreachBatchState = { ...directMessageReviewState };
+delete defaultLimitReviewState.directMessageDailyLimit;
+for (const compactDirectMessage of [false, true]) {
+  renderOutreachBatchView(host, defaultLimitReviewState, {
+    ...boundAccountContext, compactDirectMessage
+  });
+  const defaultLimitInput = host.querySelector<HTMLInputElement>("[data-outreach-direct-message-limit]");
+  assert.equal(defaultLimitInput?.value, "50",
+    "an absent review allowance must render the requested daily default of 50");
+  assert.equal(defaultLimitInput?.getAttribute("min"), "1");
+  assert.equal(defaultLimitInput?.getAttribute("max"), "100");
+  assert.equal(host.querySelector("[data-outreach-direct-message-configured]")?.textContent, "50 条");
+}
+renderOutreachBatchView(host, directMessageReviewState, {
+  ...boundAccountContext,
+  compactDirectMessage: true
+});
+const compactDirectMessageCompose = host.querySelector<HTMLElement>(
+  "[data-outreach-direct-message-compose]"
+)!;
+assert.equal(compactDirectMessageCompose.classList.contains("is-compact-single-recipient"), true);
+assert.equal(compactDirectMessageCompose.querySelector(
+  ".outreach-direct-message-header-summary [data-outreach-direct-message-limit]"
+)?.getAttribute("value"), "20");
+assert.equal(compactDirectMessageCompose.querySelector(
+  ".outreach-direct-message-controls.is-compact-single-recipient .outreach-direct-message-preview"
+)?.hasAttribute("open"), false,
+"the compact one-recipient layout keeps the review confirmation explicit before a queue action");
+const pendingRecoveryAction: OutreachAction = {
+  ...riskPausedAction,
+  id: "action-comment-recovery",
+  batchRevision: approvedBatch.revision,
+  accountLoginStateVersion: approvedBatch.accountLoginStateVersion,
+  status: "queued",
+  content: approvedBatch.candidates[0]!.comment,
+  contentHash: approvedBatch.candidates[0]!.commentHash,
+  approvalHash: approvedBatch.approvalHash!,
+  attemptCount: 0,
+  platformReceiptReference: null,
+  occurredAt: null,
+  failureCode: null
+};
+let recoveryViewState: OutreachBatchState = {
+  phase: "ready",
+  batch: approvedBatch,
+  drafts: {},
+  actions: [pendingRecoveryAction],
+  executionGate: {
+    accountId: approvedBatch.accountId,
+    accountLoginStateVersion: approvedBatch.accountLoginStateVersion,
+    riskPaused: true,
+    pendingActionIds: [pendingRecoveryAction.id],
+    unresolvedActions: [{
+      actionId: "action-uncertain-history",
+      failureCode: "douyin_action_receipt_ambiguous"
+    }]
+  },
+  recoveryConfirmed: false,
+  recoveryNotice: null,
+  error: null,
+  conflict: false,
+  closed: false,
+  ...directMessageApprovalState()
+};
+renderOutreachBatchView(host, recoveryViewState, {
+  ...boundAccountContext,
+  surface: "comments"
+});
+assert.match(host.textContent ?? "", /发送账号已风险暂停/u);
+assert.match(host.textContent ?? "", /当前批次 1 条公开评论尚未开始/u);
+assert.match(host.textContent ?? "", /1 条历史结果待确认.*不会重发/u);
+assert.doesNotMatch(host.textContent ?? "", /等待服务器状态更新/u);
+assert.match(host.textContent ?? "", /账号风险暂停，动作尚未开始/u);
+const recoveryConfirm = host.querySelector<HTMLInputElement>(
+  "[data-outreach-recovery-confirm]"
+)!;
+const recoveryButton = host.querySelector<HTMLButtonElement>(
+  "[data-outreach-action=recover-account]"
+)!;
+assert.equal(recoveryButton.disabled, true);
+let recoveryViewCalls = 0;
+const recoveryViewController = {
+  getState: () => recoveryViewState,
+  setRecoveryConfirmed(value: boolean) {
+    recoveryViewState = { ...recoveryViewState, recoveryConfirmed: value };
+  },
+  async recoverAccountActions() { recoveryViewCalls += 1; }
+} as unknown as OutreachBatchController;
+const unbindRecovery = bindOutreachBatchActions(host, recoveryViewController);
+recoveryButton.dispatchEvent(new window.Event("click", { bubbles: true }));
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(recoveryViewCalls, 0,
+  "risk recovery must not run before the page confirmation");
+recoveryConfirm.checked = true;
+recoveryConfirm.dispatchEvent(new window.Event("change", { bubbles: true }));
+assert.equal(recoveryButton.disabled, false);
+recoveryButton.dispatchEvent(new window.Event("click", { bubbles: true }));
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(recoveryViewCalls, 1);
+assert.equal(recoveryConfirm.checked, false);
+assert.equal(recoveryButton.disabled, true);
+unbindRecovery();
+
 renderOutreachBatchView(
   host,
   directMessageReviewState,
   boundAccountContext
 );
-const directMessageFieldset = host.querySelector<HTMLFieldSetElement>(
-  "fieldset[data-outreach-direct-message-state=editable]"
+const compactDirectMessageFlow = host.querySelector<HTMLElement>(
+  "[data-outreach-direct-message-compose]"
 );
-assert.ok(directMessageFieldset,
-  "a current successful comment receipt must unlock a semantic private-message fieldset");
-assert.match(directMessageFieldset?.querySelector("legend")?.textContent ?? "", /真实私信复核/u);
+assert.ok(compactDirectMessageFlow,
+  "the batch must reveal an independent private-message confirmation flow");
+assert.equal(host.querySelector("[data-outreach-field=comment]"), null,
+  "the private-message surface must never render comment approval controls");
+assert.match(compactDirectMessageFlow?.textContent ?? "", /本次已选择\s*1 人/u);
+assert.match(compactDirectMessageFlow?.textContent ?? "", /当前设置上限\s*20 条/u);
+assert.doesNotMatch(compactDirectMessageFlow?.textContent ?? "", /今日剩余/u,
+  "batch-local actions must not be presented as authoritative account-wide quota");
+assert.match(compactDirectMessageFlow?.textContent ?? "", /发送私信/u);
+assert.match(compactDirectMessageFlow?.textContent ?? "", /批准并发送 \d+ 条私信/u);
+assert.match(compactDirectMessageFlow?.textContent ?? "", /预览并确认私信/u);
+assert.match(compactDirectMessageFlow?.querySelector(
+  "[data-outreach-direct-message-preview-content=candidate-1]"
+)?.textContent ?? "", /原始精确私信/u);
 assert.equal(
-  directMessageFieldset?.querySelector<HTMLAnchorElement>(
-    "[data-outreach-direct-message-target=candidate-1]"
-  )?.href,
-  approvedBatch.candidates[0]!.publicProfileUrl,
-  "the second confirmation must show the exact frozen public profile target"
+  compactDirectMessageFlow?.querySelectorAll(
+    "[data-outreach-direct-message-confirm]"
+  ).length,
+  1,
+  "the compact flow must expose exactly one explicit human confirmation"
 );
-const unlockedDirectMessage = directMessageFieldset
+assert.equal(
+  host.querySelector(".outreach-editor [data-outreach-field=directMessage]"),
+  null,
+  "private-message drafts must not be repeated inside the comment review cards"
+);
+const receiptDisclosure = host.querySelector<HTMLDetailsElement>(
+  "details[data-outreach-receipts]"
+);
+assert.ok(receiptDisclosure, "send details and receipts must use one disclosure");
+assert.equal(receiptDisclosure?.hasAttribute("open"), false,
+  "send details and receipts must be collapsed by default");
+const directMessageDraft = host.querySelector<HTMLElement>(
+  "[data-outreach-direct-message-state=editable]"
+);
+assert.ok(directMessageDraft,
+  "a current successful comment receipt must unlock one compact private-message draft");
+assert.match(compactDirectMessageFlow?.textContent ?? "", /查看公开主页/u,
+  "the independent private-message review must show the exact recipient profile");
+const unlockedDirectMessage = directMessageDraft
   ?.querySelector<HTMLTextAreaElement>("[data-outreach-field=directMessage]");
 assert.equal(unlockedDirectMessage?.disabled, false);
 assert.equal(unlockedDirectMessage?.getAttribute("maxlength"), "800");
-assert.match(directMessageFieldset?.textContent ?? "", /6 \/ 800/u);
+assert.match(directMessageDraft?.textContent ?? "", /6 \/ 800/u);
 const dailyLimit = host.querySelector<HTMLInputElement>(
   "[data-outreach-direct-message-limit]"
 );
 assert.equal(dailyLimit?.value, "20");
 assert.equal(dailyLimit?.getAttribute("min"), "1");
 assert.equal(dailyLimit?.getAttribute("max"), "100");
-assert.ok(host.querySelector("fieldset[data-outreach-direct-message-approval] legend"));
-assert.match(host.textContent ?? "", /确认并排队真实私信/u);
-assert.match(host.textContent ?? "", /评论成功回执/u);
+assert.match(host.textContent ?? "", /批准并发送 \d+ 条私信/u);
+assert.match(host.textContent ?? "", /无需先发表评论/u);
 assert.equal(
   host.querySelector("[data-outreach-confirm]"),
   null,
   "the comment confirmation must not be reused after comment approval"
+);
+
+renderOutreachBatchView(host, directMessageReviewState, {
+  ...boundAccountContext,
+  account: { ...boundAccountContext.account!, loginStateVersion: 8 }
+});
+assert.equal(
+  host.querySelector<HTMLInputElement>(
+    "[data-outreach-direct-message-confirm]"
+  )?.disabled,
+  false,
+  "the current active sender version may authorize DM even when the batch froze an older login"
 );
 
 renderOutreachBatchView(host, {
@@ -562,10 +817,9 @@ renderOutreachBatchView(host, {
     platformReceiptReference: null
   }]
 }, boundAccountContext);
-assert.ok(host.querySelector(
-  "fieldset[data-outreach-direct-message-state=locked][disabled]"
-));
-assert.match(host.textContent ?? "", /等待本候选人的公开评论成功回执/u);
+assert.ok(host.querySelector("[data-outreach-direct-message-compose]"));
+assert.ok(host.querySelector("[data-outreach-field=directMessage]"),
+  "a non-verifiable comment result must not hide independent private-message controls");
 
 renderOutreachBatchView(host, {
   ...directMessageReviewState,
@@ -581,7 +835,7 @@ assert.equal(
   host.querySelector("[data-outreach-direct-message-state=dirty]") !== null,
   true
 );
-assert.match(host.textContent ?? "", /私信草稿已修改/u);
+assert.match(host.textContent ?? "", /私信草稿已更新/u);
 assert.equal(
   host.querySelector<HTMLInputElement>("[data-outreach-direct-message-confirm]")
     ?.hasAttribute("checked"),
@@ -596,7 +850,7 @@ for (const approvalPhase of ["approving", "pending"] as const) {
   }, boundAccountContext);
   assert.match(
     host.textContent ?? "",
-    approvalPhase === "approving" ? /正在提交私信授权/u : /等待服务器私信动作/u
+    approvalPhase === "approving" ? /正在提交私信确认/u : /私信已确认，等待发送结果/u
   );
   assert.equal(
     host.querySelector<HTMLButtonElement>(
@@ -627,12 +881,12 @@ const directMessageActionBase: OutreachAction = {
   occurredAt: null,
   failureCode: null
 };
-for (const [status, label] of [
-  ["queued", "已排队"],
-  ["executing", "执行中"],
-  ["succeeded", "已送达"],
-  ["failed", "执行失败"],
-  ["risk_paused", "风险暂停"]
+for (const [status, label, summary] of [
+  ["queued", "已排队", "私信发送中"],
+  ["executing", "执行中", "私信发送中"],
+  ["succeeded", "已送达", "私信发送完成"],
+  ["failed", "执行失败", "私信发送失败"],
+  ["risk_paused", "风险暂停", "私信发送失败"]
 ] as const) {
   const terminalFailure = status === "failed" || status === "risk_paused";
   renderOutreachBatchView(host, {
@@ -650,12 +904,34 @@ for (const [status, label] of [
     }]
   }, boundAccountContext);
   assert.match(host.textContent ?? "", new RegExp(`真实私信.*${label}`, "u"));
+  assert.match(
+    host.querySelector("[data-outreach-direct-message-compose]")?.textContent
+      ?? "",
+    new RegExp(summary, "u"),
+    "private-message outcomes must be summarized in readable Chinese"
+  );
   assert.equal(
     host.querySelector("[data-outreach-action=approve-direct-messages]"),
     null,
     "any existing private-message action must prevent reapproval"
   );
 }
+
+renderOutreachBatchView(host, {
+  ...directMessageReviewState,
+  actions: [{
+    ...directMessageActionBase,
+    status: "reconciliation_required",
+    executionTarget: "desktop",
+    attemptCount: 1,
+    failureCode: "douyin_action_receipt_ambiguous",
+    occurredAt: "2026-08-27T00:04:00.000Z"
+  }]
+}, boundAccountContext);
+assert.match(host.querySelector("[data-outreach-direct-message-compose]")
+  ?.textContent ?? "", /私信结果待确认.*不会自动重发/u);
+assert.doesNotMatch(host.querySelector("[data-outreach-direct-message-compose]")
+  ?.textContent ?? "", /正在排队或执行/u);
 
 renderOutreachBatchView(host, {
   ...directMessageReviewState,
@@ -670,17 +946,13 @@ renderOutreachBatchView(host, {
     content: "已由私信动作冻结的人工修订文案"
   }]
 }, boundAccountContext);
-const queuedDirectMessageDirtyHint = host.querySelector<HTMLElement>(
-  "[data-outreach-dirty=candidate-1]"
-);
-assert.equal(queuedDirectMessageDirtyHint?.hidden, true,
-  "a queued private-message action must replace the local dirty hint with server state");
+assert.equal(host.querySelector("[data-outreach-field=comment]"), null,
+  "the private-message surface must not render comment editing state");
 assert.match(
-  host.querySelector(
-    "[data-outreach-direct-message-state=queued] .outreach-direct-message-status"
-  )?.textContent ?? "",
-  /真实私信已排队/u,
-  "queued private messages must display their server action state"
+  host.querySelector("[data-outreach-direct-message-compose]")?.textContent
+    ?? "",
+  /私信发送中/u,
+  "queued private messages must display one compact flow status"
 );
 
 const secondViewCandidate = {
@@ -735,6 +1007,37 @@ assert.ok(host.querySelector(
 assert.ok(host.querySelector("[data-outreach-action=approve-direct-messages]"),
   "the remaining eligible candidate must retain its separate approval CTA");
 
+const secondDirectMessageAction: OutreachAction = {
+  ...directMessageActionBase,
+  id: "action-direct-message-v2-second",
+  candidateId: "candidate-2",
+  sequence: 2,
+  predecessorActionId: successfulSecondViewComment.id,
+  targetPublicUrl: secondViewCandidate.publicProfileUrl,
+  content: secondViewCandidate.directMessage,
+  contentHash: secondViewCandidate.directMessageHash,
+  directMessageDailyOrdinal: 2,
+  status: "failed",
+  failureCode: "action_rejected",
+  occurredAt: "2026-08-27T00:05:00.000Z"
+};
+renderOutreachBatchView(host, {
+  ...directMessageReviewState,
+  batch: twoCandidateBatch,
+  actions: [successfulCommentForDirectMessage, successfulSecondViewComment, {
+    ...directMessageActionBase,
+    status: "succeeded",
+    platformReceiptReference: "douyin-message:receipt-v2",
+    occurredAt: "2026-08-27T00:04:00.000Z"
+  }, secondDirectMessageAction]
+}, boundAccountContext);
+assert.match(
+  host.querySelector("[data-outreach-direct-message-compose]")?.textContent
+    ?? "",
+  /部分私信发送未完成.*1 条已送达，1 条未完成/u,
+  "mixed private-message outcomes must have one readable partial-success summary"
+);
+
 const historicalDirectMessageAction: OutreachAction = {
   ...riskPausedAction,
   id: "action-history-dm-1",
@@ -753,7 +1056,7 @@ const historicalDirectMessageAction: OutreachAction = {
 renderOutreachBatchView(host, {
   ...reconciliationState,
   actions: [historicalDirectMessageAction]
-});
+}, { surface: "history" });
 assert.match(host.textContent ?? "", /历史私信（只读） · 已停用/u);
 assert.match(host.textContent ?? "", /服务器不会领取或发送这条私信/u);
 assert.equal(
@@ -766,6 +1069,8 @@ assert.equal(
   null,
   "a historical direct-message row remains readable but can never be reapproved"
 );
+assert.equal(host.querySelector("[data-outreach-field]"), null,
+  "the history surface must be receipt-only");
 renderOutreachBatchView(host, reconciliationState);
 let viewReconciliationCalls = 0;
 const viewController = {
@@ -868,13 +1173,13 @@ const directMessageTextarea = host.querySelector<HTMLTextAreaElement>(
   "[data-outreach-candidate-id=candidate-1][data-outreach-field=directMessage]"
 )!;
 const editedDirectMessageCard = directMessageTextarea.closest<HTMLElement>(
-  ".outreach-editor"
+  ".outreach-direct-message-draft"
 )!;
-const editedDirectMessageFieldset = directMessageTextarea
-  .closest<HTMLFieldSetElement>("[data-outreach-direct-message-state]")!;
-const untouchedDirectMessageFieldset = host.querySelector<HTMLFieldSetElement>(
+const editedDirectMessageDraft = directMessageTextarea
+  .closest<HTMLElement>("[data-outreach-direct-message-state]")!;
+const untouchedDirectMessageDraft = host.querySelector<HTMLTextAreaElement>(
   "[data-outreach-candidate-id=candidate-2][data-outreach-field=directMessage]"
-)!.closest<HTMLFieldSetElement>("[data-outreach-direct-message-state]")!;
+)!.closest<HTMLElement>("[data-outreach-direct-message-state]")!;
 const directMessageConfirmation = host.querySelector<HTMLInputElement>(
   "[data-outreach-direct-message-confirm]"
 )!;
@@ -890,22 +1195,30 @@ assert.equal(directMessageApprovalButton.disabled, false);
 directMessageTextarea.value = "编辑后必须清除二次确认";
 directMessageTextarea.dispatchEvent(new window.Event("input", { bubbles: true }));
 assert.equal(editedDirectMessage, "编辑后必须清除二次确认");
+assert.equal(host.querySelector(
+  '[data-outreach-direct-message-preview-content="candidate-1"]'
+)?.textContent, "编辑后必须清除二次确认",
+"the confirmation preview must immediately reflect the edited exact body without a rerender");
+assert.equal(host.querySelector(
+  '[data-outreach-direct-message-preview-content="candidate-2"]'
+)?.textContent, directMessageBindingInitialState.batch!.candidates[1].directMessage,
+"editing a message must not change another recipient's preview");
 assert.equal(directMessageConfirmation.checked, false);
 assert.equal(directMessageApprovalButton.disabled, true);
-assert.equal(editedDirectMessageFieldset.classList.contains("is-dirty"), true,
+assert.equal(editedDirectMessageDraft.classList.contains("is-dirty"), true,
   "the edited private-message card must immediately enter the dirty visual state");
-assert.equal(editedDirectMessageFieldset.classList.contains("is-editable"), false);
-assert.equal(editedDirectMessageFieldset.dataset.outreachDirectMessageState, "dirty");
+assert.equal(editedDirectMessageDraft.classList.contains("is-editable"), false);
+assert.equal(editedDirectMessageDraft.dataset.outreachDirectMessageState, "dirty");
 assert.match(
-  editedDirectMessageFieldset.querySelector(
+  editedDirectMessageDraft.querySelector(
     ".outreach-direct-message-status"
   )?.textContent ?? "",
-  /本地私信草稿已修改.*重新核对.*独立确认/u
+  /私信草稿已更新.*重新预览并确认/u
 );
-assert.match(editedDirectMessageCard.textContent ?? "", /无需保存为批次新修订/u);
+assert.match(editedDirectMessageCard.textContent ?? "", /重新预览并确认/u);
 assert.doesNotMatch(editedDirectMessageCard.textContent ?? "", /保存新修订后才能最终确认/u);
-assert.equal(untouchedDirectMessageFieldset.classList.contains("is-editable"), true);
-assert.equal(untouchedDirectMessageFieldset.classList.contains("is-dirty"), false,
+assert.equal(untouchedDirectMessageDraft.classList.contains("is-editable"), true);
+assert.equal(untouchedDirectMessageDraft.classList.contains("is-dirty"), false,
   "editing one private-message draft must not mark another candidate dirty");
 const overlongDirectMessage = "长".repeat(801);
 directMessageTextarea.value = overlongDirectMessage;
@@ -918,10 +1231,19 @@ assert.equal(directMessageConfirmation.disabled, true,
 directMessageTextarea.value = "";
 directMessageTextarea.dispatchEvent(new window.Event("input", { bubbles: true }));
 assert.equal(editedDirectMessage, "");
+assert.equal(host.querySelector(
+  '[data-outreach-direct-message-preview-content="candidate-1"]'
+)?.textContent, "", "clearing the body must also clear its confirmation preview");
 assert.equal(directMessageConfirmation.disabled, true,
   "an empty message must not expose an enabled confirmation control");
-directMessageTextarea.value = "恢复为有效精确私信";
+directMessageTextarea.value = "恢复为有效精确私信 <b>纯文本</b>";
 directMessageTextarea.dispatchEvent(new window.Event("input", { bubbles: true }));
+const restoredPreview = host.querySelector(
+  '[data-outreach-direct-message-preview-content="candidate-1"]'
+)!;
+assert.equal(restoredPreview.textContent, directMessageTextarea.value);
+assert.equal(restoredPreview.querySelector("b"), null,
+  "exact message previews must display markup literally, never interpret HTML");
 assert.equal(directMessageConfirmation.disabled, false);
 const directMessageLimitInput = host.querySelector<HTMLInputElement>(
   "[data-outreach-direct-message-limit]"

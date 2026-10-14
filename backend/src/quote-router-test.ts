@@ -113,7 +113,11 @@ function context(role: "sales" | "manager" = "manager",
 async function quoteRouterFixture() {
   const adapterCalls: unknown[] = [];
   let replay = false;
-  const calls = { caseListQuery: null as unknown, retryRevision: null as unknown };
+  const calls = {
+    caseListQuery: null as unknown,
+    caseCreateInput: null as unknown,
+    retryRevision: null as unknown
+  };
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -134,7 +138,10 @@ async function quoteRouterFixture() {
           { code: "quote_case_not_found" });
         return { ...quoteCase, id };
       },
-      async create() { return { value: quoteCase, replayed: replay }; },
+      async create(_command: unknown, input: unknown) {
+        calls.caseCreateInput = input;
+        return { value: quoteCase, replayed: replay };
+      },
       async bindDeal() { return { value: { ...quoteCase, dealId: "deal-1",
         revision: 2 }, replayed: replay }; },
       async close() { return { value: { ...quoteCase, status: "closed",
@@ -303,6 +310,30 @@ test("Quote bodies and queries are closed and workspace authority is header-only
     assert.deepEqual(listed.body, { items: [quoteCase], nextAfter: null,
       hasMore: false });
     assert.deepEqual(api.calls.caseListQuery, { cursor: "next-1", limit: 25 });
+
+    const crmAssessment = {
+      demandConfirmed: true,
+      budgetConfirmed: true,
+      decisionMakerConfirmed: false,
+      closeProbabilityBps: 6500,
+      evidenceSummary: "客户已确认预算，技术负责人仍需引入决策人。"
+    };
+    const ordinary = await api.request("POST", "/api/v1/quotes/cases", {
+      body: {
+        customerId: "customer-1",
+        dealId: "deal-1",
+        assignedTo: "sales-1",
+        crmAssessment
+      },
+      headers: { "Idempotency-Key": "ordinary-crm-case" }
+    });
+    assert.equal(ordinary.response.status, 201);
+    assert.deepEqual(api.calls.caseCreateInput, {
+      customerId: "customer-1",
+      dealId: "deal-1",
+      assignedTo: "sales-1",
+      crmAssessment
+    });
   } finally { await api.close(); }
 });
 

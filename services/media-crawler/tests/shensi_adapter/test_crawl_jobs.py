@@ -1,6 +1,8 @@
 import asyncio
 import copy
 import json
+import os
+import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -20,6 +22,13 @@ from shensi_adapter.schemas import CrawlActivity, CrawlJobPage, CrawlJobRequest
 
 
 NOW = datetime(2026, 8, 24, 1, 2, 3, tzinfo=UTC)
+
+
+def _stub_absent_process_group(monkeypatch):
+    def killpg(pid, _signal):
+        assert pid == 90001
+        raise ProcessLookupError()
+    monkeypatch.setattr(crawl_jobs.os, "killpg", killpg)
 
 
 def request(job_id="job-1", account_handle="account-private-1", *,
@@ -80,6 +89,44 @@ def test_pinned_runner_reads_the_actual_douyin_jsonl_output_directory(tmp_path):
     assert _read_output_rows(tmp_path) == [
         ("video", {"aweme_id": "73001"}), ("comment", public_comment),
     ]
+
+
+def test_live_reader_does_not_mix_new_redacted_comments_into_an_older_public_snapshot(
+    tmp_path, monkeypatch,
+):
+    directory = tmp_path / "douyin" / "jsonl"
+    directory.mkdir(parents=True)
+    captured = directory / "000-shensi-comments.jsonl"
+    redacted = directory / "search_comments.jsonl"
+    first = {"comment_id": "c-1", "aweme_id": "73001", "sec_uid": "PublicActor1", "content": "first"}
+    second = {"comment_id": "c-2", "aweme_id": "73001", "sec_uid": "PublicActor2", "content": "second"}
+    captured.write_text(json.dumps(first) + "\n", encoding="utf-8")
+    redacted.write_text(json.dumps({"comment_id": "c-1", "aweme_id": "73001", "creator_hash": "private-hash"}) + "\n", encoding="utf-8")
+    read_bytes = Path.read_bytes
+    advanced = False
+
+    def concurrent_append(path):
+        nonlocal advanced
+        snapshot = read_bytes(path)
+        if path == captured and not advanced:
+            advanced = True
+            # Production writes the public capture before the upstream redacted
+            # row, but both can be appended between the reader's two snapshots.
+            with captured.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(second) + "\n")
+            with redacted.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps({"comment_id": "c-2", "aweme_id": "73001", "creator_hash": "private-hash"}) + "\n")
+        return snapshot
+
+    monkeypatch.setattr(Path, "read_bytes", concurrent_append)
+    first_poll = normalize_douyin_records(
+        _read_output_rows(tmp_path, ignore_incomplete_tail=True), observed_at=NOW,
+    )
+    assert [record.text_excerpt for record in first_poll] == ["first"]
+    next_poll = normalize_douyin_records(
+        _read_output_rows(tmp_path, ignore_incomplete_tail=True), observed_at=NOW,
+    )
+    assert [record.text_excerpt for record in next_poll] == ["first", "second"]
 
 
 def test_pinned_runner_treats_only_physical_lf_as_a_jsonl_record_boundary(tmp_path):
@@ -541,7 +588,11 @@ def test_runner_reads_each_activity_snapshot_once_when_replaced_during_a_poll(
     }, separators=(",", ":"))
 
     class FakeProcess:
+        pid = 90001
         returncode = None
+
+        def wait(self, timeout):
+            return self.returncode
 
         def __init__(self):
             self.polls = 0
@@ -572,6 +623,7 @@ def test_runner_reads_each_activity_snapshot_once_when_replaced_during_a_poll(
         return original_read_text(path, *args, **kwargs)
 
     monkeypatch.setattr("shensi_adapter.crawl_jobs.subprocess.Popen", popen)
+    _stub_absent_process_group(monkeypatch)
     monkeypatch.setattr(Path, "read_text", read_text)
 
     activities = [
@@ -591,6 +643,26 @@ def test_runner_reads_each_activity_snapshot_once_when_replaced_during_a_poll(
     ]
 
 
+def test_crawl_worker_command_reenters_the_frozen_sidecar_without_python_module_mode(
+    tmp_path,
+):
+    spec = tmp_path / "request.json"
+
+    assert crawl_jobs._crawl_worker_command(
+        spec, executable="/Applications/Shensi.app/sidecar/shensi-sidecar",
+        frozen=True,
+    ) == [
+        "/Applications/Shensi.app/sidecar/shensi-sidecar",
+        "--execute-crawl",
+        str(spec),
+    ]
+    assert crawl_jobs._crawl_worker_command(
+        spec, executable="/usr/bin/python3", frozen=False,
+    ) == [
+        "/usr/bin/python3", "-m", "shensi_adapter.crawl_jobs",
+        "--execute", str(spec),
+    ]
+
 def test_runner_isolates_each_attempt_from_stale_job_output(tmp_path, monkeypatch):
     service_root = tmp_path / "service"
     job_output = service_root / ".shensi-crawl-output" / "isolated-attempt"
@@ -605,7 +677,11 @@ def test_runner_isolates_each_attempt_from_stale_job_output(tmp_path, monkeypatc
     outputs = []
 
     class CompletedProcess:
+        pid = 90001
         returncode = 0
+
+        def wait(self, timeout):
+            return 0
 
         def poll(self):
             return 0
@@ -616,6 +692,7 @@ def test_runner_isolates_each_attempt_from_stale_job_output(tmp_path, monkeypatc
         return CompletedProcess()
 
     monkeypatch.setattr("shensi_adapter.crawl_jobs.subprocess.Popen", popen)
+    _stub_absent_process_group(monkeypatch)
     runner = MediaCrawlerRunner(service_root)
     request_value = request("isolated-attempt").model_copy(update={
         "deadline_at": datetime.now(UTC) + timedelta(minutes=5),
@@ -637,7 +714,11 @@ def test_runner_uses_custom_output_root_for_completed_job(tmp_path, monkeypatch)
     outputs = []
 
     class CompletedProcess:
+        pid = 90001
         returncode = 0
+
+        def wait(self, timeout):
+            return 0
 
         def poll(self):
             return 0
@@ -648,6 +729,7 @@ def test_runner_uses_custom_output_root_for_completed_job(tmp_path, monkeypatch)
         return CompletedProcess()
 
     monkeypatch.setattr("shensi_adapter.crawl_jobs.subprocess.Popen", popen)
+    _stub_absent_process_group(monkeypatch)
     runner = MediaCrawlerRunner(
         headless=False, service_root=service_root, output_root=output_root,
     )
@@ -847,6 +929,19 @@ def wait_terminal(manager, job_id):
     raise AssertionError("crawl did not terminate")
 
 
+def test_comment_nested_identity_wins_over_video_context_fields():
+    record = normalize_douyin_records([("comment", {
+        "cid": "comment-distinct", "aweme_id": "73001",
+        "sec_uid": "video-author", "nickname": "Video author",
+        "user": {"sec_uid": "actual-commenter", "nickname": "Actual commenter"},
+        "text": "请问多少钱", "source_keyword": "电子合同",
+    })], observed_at=NOW)[0]
+    assert str(record.public_profile_url) == "https://www.douyin.com/user/actual-commenter"
+    assert record.public_display_name == "Actual commenter"
+    assert str(record.canonical_url) == "https://www.douyin.com/video/73001"
+    assert record.text_excerpt == "请问多少钱"
+
+
 def test_normalizer_emits_closed_bounded_records_with_stable_hashes():
     records = normalize_douyin_records(fixtures(), observed_at=NOW)
 
@@ -942,6 +1037,99 @@ def test_manager_filters_disabled_frozen_record_kinds(tmp_path, creators, commen
     assert wait_terminal(manager, job_id).state == "succeeded"
     assert [record.kind for record in manager.page(job_id, None).records] == expected
     manager.close()
+
+
+@pytest.mark.parametrize("page_size", [1, 100])
+def test_real_process_pause_resume_stop_keeps_one_job_and_results(tmp_path, monkeypatch, page_size):
+    marker = tmp_path / "heartbeat"
+    pid_file = tmp_path / "worker.pid"
+    script = """
+import json, os, pathlib, sys, time
+spec=json.loads(pathlib.Path(sys.argv[1]).read_text())
+out=pathlib.Path(spec['output'])/'douyin'/'jsonl'
+out.mkdir(parents=True)
+pathlib.Path(sys.argv[3]).write_text(str(os.getpid()))
+for i in range(1000):
+    row={'comment_id':str(i//2), 'aweme_id':'73001', 'sec_uid':'MS4wLjABCommenter', 'nickname':'Buyer', 'content':'Need seals'}
+    with (out/'000-shensi-comments.jsonl').open('a') as f: f.write(json.dumps(row)+'\\n')
+    pathlib.Path(sys.argv[2]).write_text(str(i))
+    time.sleep(.05)
+"""
+    monkeypatch.setattr(crawl_jobs, "_crawl_worker_command", lambda spec: [
+        sys.executable, "-c", script, str(spec), str(marker), str(pid_file),
+    ])
+    runner = MediaCrawlerRunner(service_root=tmp_path, output_root=tmp_path / "output")
+    manager = CrawlJobManager(tmp_path, account_resolver=lambda *_: tmp_path / "profile",
+                              runner=runner, page_size=page_size)
+    req = request("controlled").model_copy(update={"deadline_at": datetime.now(UTC) + timedelta(seconds=2)})
+    def wait_for(predicate):
+        until = time.monotonic() + 5
+        while not predicate():
+            assert time.monotonic() < until
+            time.sleep(.01)
+    try:
+        manager.start(req)
+        wait_for(lambda: marker.exists() and int(marker.read_text() or "0") >= 4)
+        manager.control(req.job_id, "pause")
+        wait_for(lambda: manager.get(req.job_id).control_state == "paused")
+        before = marker.read_text()
+        count = manager.get(req.job_id).comment_count
+        assert count > 0, "pause must flush the partial page"
+        time.sleep(2.1)  # Suspension outlives the original wall-clock deadline.
+        assert marker.read_text() == before
+        assert manager.get(req.job_id).state == "running"
+        manager.control(req.job_id, "resume")
+        wait_for(lambda: int(marker.read_text() or "0") >= int(before) + 4)
+        manager.control(req.job_id, "pause")
+        wait_for(lambda: manager.get(req.job_id).control_state == "paused")
+        manager.control(req.job_id, "stop")
+        result = wait_terminal(manager, req.job_id)
+        assert result.state == "succeeded"
+        assert result.comment_count > count
+        assert len(manager._jobs) == 1
+        records, cursor = [], None
+        while True:
+            page = manager.page(req.job_id, cursor)
+            records.extend(page.records)
+            if page.done:
+                break
+            cursor = page.next_cursor
+        assert len(records) == len({r.record_id for r in records}) == result.comment_count
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(pid_file.read_text()), 0)
+    finally:
+        manager.close()
+
+
+@pytest.mark.parametrize("target", [1, 2])
+def test_comment_target_stops_successfully_and_keeps_unique_results(tmp_path, target):
+    closed = threading.Event()
+    def runner(*_):
+        try:
+            yield from fixtures()
+            yield fixtures()[-1]
+            second = copy.deepcopy(fixtures()[-1])
+            second[1]["comment_id"] = "c-2"
+            yield second
+            raise AssertionError("must stop after the second unique comment")
+        finally:
+            closed.set()
+    manager = CrawlJobManager(
+        tmp_path, account_resolver=lambda *_: tmp_path / "profile",
+        runner=runner, now=lambda: NOW,
+    )
+    try:
+        bounded = request().model_copy(update={"max_comments": target})
+        manager.start(bounded)
+        assert wait_terminal(manager, bounded.job_id).state == "succeeded"
+        records = manager.page(bounded.job_id, None).records
+        assert [r.kind for r in records] == ["video", "creator"] + ["comment"] * target
+        assert manager.get(bounded.job_id).comment_count == target
+        assert manager.get(bounded.job_id).comment_target == target
+        assert manager.page(bounded.job_id, None).done is True
+        assert closed.is_set()
+    finally:
+        manager.close()
 
 
 def test_manager_enforces_one_active_job_per_account_and_replays_opaque_cursor(tmp_path):
@@ -1139,6 +1327,9 @@ def test_media_crawler_runner_streams_completed_jsonl_rows_before_process_exit(
         pid = 90001
         returncode = None
 
+        def wait(self, timeout):
+            return self.returncode
+
         def poll(self):
             if not process_release.is_set():
                 return None
@@ -1160,6 +1351,7 @@ def test_media_crawler_runner_streams_completed_jsonl_rows_before_process_exit(
         return process
 
     monkeypatch.setattr("shensi_adapter.crawl_jobs.subprocess.Popen", popen)
+    _stub_absent_process_group(monkeypatch)
     manager = CrawlJobManager(
         tmp_path / "state",
         account_resolver=lambda *_: tmp_path / "profile",

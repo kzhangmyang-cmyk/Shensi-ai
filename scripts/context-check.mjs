@@ -28,8 +28,8 @@ if (status.includes(".worktrees/agent-center-shell")) {
   throw new Error("PROJECT_STATUS_POINTS_TO_LEGACY_WORKTREE");
 }
 const contractManifest = JSON.parse(readFileSync(
-  resolve(root, "contracts/releases/growth-advisor-quote-roi/1.0.12/manifest.json"),
+  resolve(root, "contracts/releases/growth-advisor-quote-roi/1.0.13/manifest.json"),
   "utf8"
 ));
-if (contractManifest.contractVersion !== "1.0.12") throw new Error("CONTRACT_RELEASE_DRIFT");
+if (contractManifest.contractVersion !== "1.0.13") throw new Error("CONTRACT_RELEASE_DRIFT");
 console.log("SHENSI_CONTEXT_OK");

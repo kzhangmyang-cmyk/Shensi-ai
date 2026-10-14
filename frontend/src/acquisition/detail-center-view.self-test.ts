@@ -342,6 +342,21 @@ const candidateDetail: AcquisitionCandidateDetail = {
   privateDomainHandoff: null
 };
 
+{
+  const html = renderAcquisitionDetailCenter(state({
+    mode: "candidates",
+    selectedCandidateId: "candidate-1",
+    candidateDetail: {
+      ...candidateDetail,
+      candidate: { ...candidateDetail.candidate, identityResolved: true },
+      qualification: null,
+      intelligenceOperation: { id: "failed-operation", status: "failed" }
+    }
+  }));
+  assert.match(html, /data-acquisition-detail-action="start-intelligence">重试 AI 研判/);
+  assert.doesNotMatch(html, /请在任务刷新后重试/);
+}
+
 function automaticIdentityOperation(
   overrides: Partial<CandidateDouyinIdentityResolutionOperation> = {}
 ): CandidateDouyinIdentityResolutionOperation {
@@ -661,8 +676,8 @@ function state(
   }));
   assert.match(html, /data-acquisition-detail-form="private-domain-handoff"/);
   assert.match(html, /继续服务端已保留的原交接请求/);
-  assert.match(html, /固定获客来源：Run/);
-  assert.match(html, /event-org/);
+  assert.match(html, /来源：公开短视频/);
+  assert.doesNotMatch(html, /固定获客来源：Run|event-org|<dialog/);
   assert.match(html, /<fieldset disabled>/);
   assert.match(html, /继续原交接/);
   assert.match(html, /name="handoffMode"/);

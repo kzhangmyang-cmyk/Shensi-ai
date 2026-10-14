@@ -172,6 +172,7 @@ export function createAiSearchProvider(
         limit: query.limit
       };
       const gateway = createActiveModelGatewayForSnapshot(store, {
+        platformFeature: "acquisition",
         storedSnapshot: snapshot,
         fetch: ((url: string, init?: RequestInit) =>
           tools.http.fetch(url, init)) as typeof fetch,

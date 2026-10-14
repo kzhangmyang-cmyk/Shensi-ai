@@ -16,7 +16,7 @@ import {
 const REAL_ROLES = ["cfo", "finance", "profit", "cost", "cashflow", "tax"] as const;
 const REAL_STATUS_LABELS = {
   not_connected: "未连接数据",
-  ready: "数据已就绪",
+  ready: "等待运行",
   running: "分析中",
   waiting: "等待其他专家",
   completed: "已完成",
@@ -111,7 +111,7 @@ function realFileField(
 ): string {
   const file = state.files[kind];
   return `<label class="statement-dropzone" data-statements-drop="${kind}">
-    <input class="statements-file-input" type="file" accept=".xls,.xlsx"
+    <input class="statements-file-input" type="file" multiple accept=".xls,.xlsx"
       aria-label="${label}" data-statements-file="${kind}" />
     <span class="statement-file-type" aria-hidden="true">XLS</span>
     <span class="statement-file-copy"><strong>${label}</strong>
@@ -275,8 +275,8 @@ export function renderRealAgentsOverview(
     : !state.readiness ? '<p class="agents-real-loading" role="status">正在连接真实财务服务…</p>' : "";
   return `<section class="growth-panel agents-home agents-real" data-agent-center-authority="real">
     <header class="agents-hero"><div class="agents-hero-copy">
-      <span class="agents-eyebrow">REAL FINANCIAL COUNCIL</span>
-      <h2>AI 经营顾问团队</h2><p>真实企业工作区 · 服务端财务权威</p></div>
+      <span class="agents-overline">财务委员会准备</span>
+      <h2>三表与模型路由</h2><p>上传并验证三张报表，核对模型路由后启动六角色分析。</p></div>
       <div class="agents-hero-actions"><button type="button" data-routing-action="open">
         查看模型路由</button></div></header>
     ${serviceMessage}
@@ -327,6 +327,120 @@ export function renderRealAgentsOverview(
     </section>
     ${realRoutingDialog(state)}
   </section>`;
+}
+
+interface RealPreparationSummary {
+  readonly title: string;
+  readonly detail: string;
+  readonly files: string;
+}
+
+function realPreparationSummary(
+  state: RealAgentCenterControllerState
+): RealPreparationSummary {
+  const selected = Object.values(state.files).filter(Boolean).length;
+  const verified = state.statementPackage;
+  const run = state.latestRun;
+  if (run) {
+    return {
+      title: "委员会已启动",
+      detail: "六位顾问正在按已验证资料协作分析。",
+      files: verified ? `${escapeHtml(verified.companyName)} · 已验证` : "已创建运行"
+    };
+  }
+  if (verified) {
+    return {
+      title: "报表已验证",
+      detail: "可以检查路由后启动财务委员会。",
+      files: `${escapeHtml(verified.companyName)} · ${escapeHtml(verified.period)}`
+    };
+  }
+  if (state.statementPreview) {
+    return {
+      title: "报表等待确认",
+      detail: "已生成解析预览，补充现金预测后即可提交验证。",
+      files: `${escapeHtml(state.statementPreview.companyName)} · 预览中`
+    };
+  }
+  if (selected > 0) {
+    return {
+      title: `已选择 ${selected} / 3 份报表`,
+      detail: "补齐三张报表后可生成服务端解析预览。",
+      files: `${selected} / 3 份已选择`
+    };
+  }
+  if (state.error) {
+    return {
+      title: "财务服务待确认",
+      detail: "打开准备页查看当前可执行步骤。",
+      files: "尚未导入"
+    };
+  }
+  return {
+    title: "等待导入三张报表",
+    detail: "资产负债表、利润表和现金流量表会在确认后交由服务端验证。",
+    files: "尚未导入"
+  };
+}
+
+function modelPreparationStatus(state: RealAgentCenterControllerState): string {
+  if (state.readiness?.models.status === "ready") return "模型路由已就绪";
+  if (state.routingPolicy) return "路由策略已保存";
+  return "模型连接待确认";
+}
+
+/**
+ * The real conversation owns the main workspace.  Its financial-preparation
+ * controls deliberately live behind a full-width dialog so a narrow inspector
+ * never turns the three report fields into vertical cards.
+ */
+export function renderRealAgentConversationSupport(
+  state: RealAgentCenterControllerState
+): string {
+  const summary = realPreparationSummary(state);
+  const modelStatus = modelPreparationStatus(state);
+  return `<section class="cfo-chat-inspector agent-preparation-support"
+      data-agent-center-authority="real" aria-label="本次对话与财务委员会准备">
+    <header><h2>本次对话</h2></header>
+    <dl>
+      <div><dt>当前角色</dt><dd data-cfo-inspector-role>经营总管</dd></div>
+      <div><dt>工作范围</dt><dd>当前工作区</dd></div>
+      <div><dt>已使用资料</dt><dd>暂无</dd></div>
+    </dl>
+    <section class="cfo-related-work"><div><h3>相关待办</h3>
+      <i class="ph ph-caret-down" aria-hidden="true"></i></div>
+      <p>查询完成后显示</p>
+    </section>
+    <section class="agent-preparation-inspector" aria-labelledby="agent-preparation-title">
+      <header><span class="agents-overline">财务委员会准备</span>
+        <h3 id="agent-preparation-title">${summary.title}</h3></header>
+      <p>${summary.detail}</p>
+      <dl class="agent-preparation-meta">
+        <div><dt>报表</dt><dd>${summary.files}</dd></div>
+        <div><dt>模型</dt><dd>${modelStatus}</dd></div>
+      </dl>
+      <div class="agent-preparation-actions">
+        <button type="button" class="agent-preparation-primary"
+          data-agent-preparation-action="open" aria-haspopup="dialog"
+          aria-expanded="false" aria-controls="agent-preparation-dialog">
+          准备财务分析</button>
+        <button type="button" data-routing-action="open">查看模型路由</button>
+      </div>
+    </section>
+  </section>
+  <dialog id="agent-preparation-dialog" class="agent-preparation-dialog"
+    data-agent-preparation-dialog aria-labelledby="agent-preparation-dialog-title"
+    aria-describedby="agent-preparation-dialog-description">
+    <header class="agent-preparation-dialog-heading">
+      <div><span class="agents-overline">财务委员会准备</span>
+        <h2 id="agent-preparation-dialog-title">三表、模型路由与委员会运行</h2>
+        <p id="agent-preparation-dialog-description">在这里导入财务报表、核对模型路由，并在确认后启动委员会。</p></div>
+      <button type="button" data-agent-preparation-action="close" aria-label="关闭财务准备">关闭</button>
+    </header>
+    <div class="agent-preparation-dialog-body">
+      ${renderRealAgentsOverview(state)}
+    </div>
+  </dialog>`;
 }
 
 export function renderAgentsOverview(

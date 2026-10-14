@@ -694,3 +694,35 @@ test("run-now freezes plan, policy, account, login and binds a distinct authorit
     rejectsCode("automation_idempotency_conflict")
   );
 });
+
+test("desktop run-now freezes the same authority without dispatching the server worker", async () => {
+  const base = await fixture();
+  const initial = await base.service.get(SCOPE, "plan-1");
+  const saved = await base.service.put(
+    SCOPE, "plan-1", initial.etag, "desktop-policy-1", POLICY
+  );
+  let serverDispatches = 0;
+  const service = new AcquisitionDouyinAutomationService({
+    repository: base.repository,
+    plans: base.plans,
+    accounts: base.accountRepository,
+    resolvePlanWorkspace: async () => ({ workspaceId: SCOPE.workspaceId }),
+    idFactory: (prefix) => `${prefix}-desktop`,
+    now: () => NOW,
+    onRunIntent: async () => { serverDispatches += 1; }
+  });
+
+  const first = await service.runNowDesktop(
+    SCOPE, "plan-1", "desktop-run-now-1", { reason: "本机采集" }
+  );
+  const replay = await service.runNowDesktop(
+    SCOPE, "plan-1", "desktop-run-now-1", { reason: "本机采集" }
+  );
+
+  assert.equal(serverDispatches, 0);
+  assert.equal(first.value.status, "queued");
+  assert.equal(first.policy.id, saved.value.id);
+  assert.equal(replay.replayed, true);
+  assert.deepEqual(replay.value, first.value);
+  assert.deepEqual(replay.policy, first.policy);
+});

@@ -8,7 +8,7 @@ import {
 import { AcquisitionOutreachBatchError } from "./acquisition-outreach-batch-service.js";
 import { ModelGatewayError } from "./model-providers/gateway.js";
 
-async function appRequest(input: { capabilities?: string[]; workspaceId?: string; headers?: Record<string, string>; body?: unknown; path?: string; method?: string; createError?: Error; approveError?: Error; directMessageApproveError?: Error; directMessageReplay?: boolean; onDirectMessageApprove?: () => void; onReconcile?: () => void; onInternalError?: (event: AcquisitionOutreachInternalErrorEvent) => void }) {
+async function appRequest(input: { putError?: Error; capabilities?: string[]; workspaceId?: string; headers?: Record<string, string>; body?: unknown; path?: string; method?: string; createError?: Error; approveError?: Error; directMessageApproveError?: Error; directMessageReplay?: boolean; onDirectMessageApprove?: () => void; onReconcile?: () => void; onRecover?: () => void; onInternalError?: (event: AcquisitionOutreachInternalErrorEvent) => void }) {
   const app = express(); app.use(express.json());
   app.use((req, _res, next) => {
     req.user = { id: "owner-1", teamId: "team-1" } as never;
@@ -23,7 +23,7 @@ async function appRequest(input: { capabilities?: string[]; workspaceId?: string
         return { replayed: false, value: { id: "batch-1", etag: '"outreach-batch:batch-1:1"' } };
       },
       async get() { return { id: "batch-1", etag: '"outreach-batch:batch-1:1"' }; },
-      async put() { return { replayed: false, value: { id: "batch-1", etag: '"outreach-batch:batch-1:2"' } }; },
+      async put() { if (input.putError) throw input.putError; return { replayed: false, value: { id: "batch-1", etag: '"outreach-batch:batch-1:2"' } }; },
       async approve() {
         if (input.approveError) throw input.approveError;
         return { replayed: false, value: { id: "batch-1", etag: '"outreach-batch:batch-1:2"' } };
@@ -38,6 +38,24 @@ async function appRequest(input: { capabilities?: string[]; workspaceId?: string
       async pause() { return { replayed: false, value: { id: "batch-1", etag: '"outreach-batch:batch-1:2"' } }; },
       async resume() { return { replayed: false, value: { id: "batch-1", etag: '"outreach-batch:batch-1:3"' } }; },
       async actions() { return []; },
+      async actionExecutionGate() {
+        return { accountId: "account-1", accountLoginStateVersion: 3,
+          riskPaused: true, pendingActionIds: ["action-1"],
+          unresolvedActions: [{ actionId: "old-ambiguous",
+            failureCode: "douyin_action_receipt_ambiguous" }] };
+      },
+      async recoverAccountActions() {
+        input.onRecover?.();
+        return { replayed: false, value: {
+          accountId: "account-1", accountLoginStateVersion: 3,
+          riskPaused: false, pendingActionIds: ["action-1"],
+          unresolvedActions: [{ actionId: "old-ambiguous",
+            failureCode: "douyin_action_receipt_ambiguous" }],
+          enabledActionIds: ["action-1"],
+          acknowledgedUncertainActionIds: ["old-ambiguous"],
+          recoveredBy: "owner-1", recoveredAt: "2026-08-25T04:00:00.000Z"
+        } };
+      },
       async reconcileAction() {
         input.onReconcile?.();
         return {
@@ -162,6 +180,21 @@ test("batch discovery cursor is signed and bound to workspace, run, and candidat
   }
 });
 
+test("independent DM HTTP command requires current reviewed login, exact confirmation and no mixed legacy authority", async () => {
+  const path = "/api/v1/acquisition/outreach-batches/batch-1/direct-messages/approve";
+  const headers = { "Idempotency-Key": "independent-http-key", "If-Match": '"batch:1"' };
+  const body = { batchRevision: 1, batchHash: `sha256:${"a".repeat(64)}`, accountLoginStateVersion: 8,
+    dailyLimit: 20, candidates: [{ candidateId: "candidate-1", directMessage: "reviewed text" }], confirm: true };
+  let calls = 0;
+  assert.equal((await appRequest({ path, headers, body, onDirectMessageApprove: () => { calls++; } })).response.status, 200);
+  for (const invalid of [{ ...body, confirm: false }, { ...body, accountLoginStateVersion: 0 },
+    { ...body, commentApprovalHash: `sha256:${"b".repeat(64)}` }]) {
+    assert.equal((await appRequest({ path, headers, body: invalid,
+      onDirectMessageApprove: () => { calls++; } })).response.status, 400);
+  }
+  assert.equal(calls, 1);
+});
+
 test("batch mutations require capability, Idempotency-Key, and If-Match where revision-bound", async () => {
   const forbidden = await appRequest({ capabilities: [] });
   assert.equal(forbidden.response.status, 403);
@@ -209,6 +242,58 @@ test("manual action reconciliation requires explicit confirmation and idempotenc
   assert.equal(calls, 1);
 });
 
+test("account queue recovery requires exact batch version, confirmation, and idempotency", async () => {
+  const path = "/api/v1/acquisition/outreach-batches/batch-1/actions/recover-account";
+  const body = {
+    batchRevision: 1,
+    accountLoginStateVersion: 3,
+    pendingActionIds: ["action-1"],
+    acknowledgedUncertainActionIds: ["old-ambiguous"],
+    reason: "人工核验后恢复当前已审批评论",
+    confirm: true
+  };
+  let calls = 0;
+  const missingKey = await appRequest({ path,
+    headers: { "If-Match": '"outreach-batch:batch-1:1"' }, body,
+    onRecover: () => { calls += 1; } });
+  assert.equal(missingKey.response.status, 400);
+  assert.equal(missingKey.json.code, "invalid_idempotency_key");
+  const missingMatch = await appRequest({ path,
+    headers: { "Idempotency-Key": "recover-key-missing-match" }, body,
+    onRecover: () => { calls += 1; } });
+  assert.equal(missingMatch.response.status, 428);
+  assert.equal(missingMatch.json.code, "if_match_required");
+  const unconfirmed = await appRequest({ path,
+    headers: { "Idempotency-Key": "recover-key-unconfirmed",
+      "If-Match": '"outreach-batch:batch-1:1"' },
+    body: { ...body, confirm: false },
+    onRecover: () => { calls += 1; } });
+  assert.equal(unconfirmed.response.status, 400);
+  assert.equal(unconfirmed.json.code, "invalid_request");
+  assert.equal(calls, 0);
+  const recovered = await appRequest({
+    path,
+    headers: { "Idempotency-Key": "recover-key-1",
+      "If-Match": '"outreach-batch:batch-1:1"' },
+    body,
+    onRecover: () => { calls += 1; }
+  });
+  assert.equal(recovered.response.status, 200);
+  assert.equal(recovered.json.riskPaused, false);
+  assert.deepEqual(recovered.json.enabledActionIds, ["action-1"]);
+  assert.equal(calls, 1);
+
+  const emptyQueueRecovery = await appRequest({
+    path,
+    headers: { "Idempotency-Key": "recover-key-empty-queue",
+      "If-Match": '"outreach-batch:batch-1:1"' },
+    body: { ...body, pendingActionIds: [] },
+    onRecover: () => { calls += 1; }
+  });
+  assert.equal(emptyQueueRecovery.response.status, 200);
+  assert.equal(calls, 2);
+});
+
 test("public routes publish ETag and reject closed-schema additions", async () => {
   const created = await appRequest({ headers: { "Idempotency-Key": "create-key-1" } });
   assert.equal(created.response.status, 201);
@@ -242,6 +327,17 @@ test("batch creation publishes safe actionable draft and model failures", async 
   assert.equal(model.json.code, "acquisition_model_unavailable");
   assert.equal(model.json.message, "AI 模型暂时不可用，请稍后重试");
   assert.equal(model.json.retryable, true);
+});
+
+test("manual PUT validation errors never recommend changing AI models", async () => {
+  const result = await appRequest({ method: "PUT", path: "/api/v1/acquisition/outreach-batches/batch-1",
+    headers: { "Idempotency-Key": "manual-edit-error", "If-Match": '"batch:1"' },
+    body: { candidates: [{ candidateId: "candidate-1", selected: true, comment: "聊聊？", directMessage: "你好" }] },
+    putError: new Error("OUTREACH_MANUAL_DRAFT_INVALID") });
+  assert.equal(result.response.status, 422);
+  assert.equal(result.json.code, "outreach_manual_draft_invalid");
+  assert.match(result.json.message, /手动文案/u);
+  assert.doesNotMatch(result.json.message, /AI 未返回|请重试或切换模型/u);
 });
 
 test("unexpected batch errors emit a redacted request-scoped diagnostic", async () => {

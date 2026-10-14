@@ -214,7 +214,7 @@ test("real private-domain customers can create an authoritative deal", async ({ 
       }
     }
   });
-  await expect(page).toHaveURL(/#conversion$/u);
+  await expect(page).toHaveURL(/#growth\/quotes\?customer=customer-shell-1&deal=/u);
   await expect(page.locator("#replicaToast")).toHaveClass(/show/u);
   await expect(page.locator("#replicaToast")).toContainText("商机已新增");
 });

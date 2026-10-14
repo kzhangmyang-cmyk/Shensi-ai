@@ -1,4 +1,7 @@
 import type { GrowthHttpClient } from "../http";
+import { BUSINESS_AGENT_TEAM } from './agents';
+import { createFinanceApi } from '../finance/api';
+import { importErrorMessage } from '../finance/import-workflow';
 import { createGrowthHttpClient } from "../http";
 import * as XLSX from "xlsx";
 import {
@@ -19,6 +22,7 @@ import {
   renderAgentConclusion,
   renderAgentDetail,
   renderAgentsOverview,
+  renderRealAgentConversationSupport,
   renderRealAgentsOverview,
   renderDiagnosisReport
 } from "./view";
@@ -35,6 +39,9 @@ export interface AgentsControllerOptions {
   readonly input?: BusinessReportInput;
   readonly demo?: boolean;
   readonly real?: RealAgentCenterController;
+  readonly conversation?: (host: HTMLElement) => { dispose(): void };
+  /** Optional companion surface for the real financial preparation controls. */
+  readonly supportHost?: HTMLElement;
   readonly session?: AgentsSessionState;
   readonly window?: Window;
 }
@@ -248,14 +255,85 @@ function createRealAgentsController(
 ): AgentsController {
   const windowPort = options.window ?? window;
   let disposed = false;
+  let reports = options.host;
+  let conversation: { dispose(): void } | undefined;
+  let preparationOpen = false;
+  type Candidate = { id: number; file: File; state: string; parsed?: boolean };
+  const candidates = new Map<FinancialStatementKind, Candidate[]>(); let candidateId = 0;
+  const candidateGeneration = new Map<FinancialStatementKind, number>();
+  const candidateAborts = new Map<FinancialStatementKind, AbortController>();
+  const documentApi = createFinanceApi(options.http ?? createGrowthHttpClient());
+  if (options.conversation) {
+    const chatHost = options.host.ownerDocument.createElement('div');
+    reports = options.supportHost
+      ?? options.host.ownerDocument.createElement('div');
+    reports.classList.add('agents-support-workspace');
+    options.host.replaceChildren(chatHost);
+    if (!options.supportHost) options.host.append(reports);
+    conversation = options.conversation(chatHost);
+  }
+  function setPreparationDialogOpen(open: boolean): void {
+    const dialog = reports.querySelector<HTMLDialogElement>("[data-agent-preparation-dialog]");
+    const trigger = reports.querySelector<HTMLButtonElement>(
+      '[data-agent-preparation-action="open"]'
+    );
+    if (!dialog) return;
+    if (open) {
+      if (typeof dialog.showModal === "function") {
+        if (!dialog.open) dialog.showModal();
+      } else {
+        dialog.setAttribute("open", "");
+      }
+    } else if (typeof dialog.close === "function") {
+      if (dialog.open) dialog.close();
+    } else {
+      dialog.removeAttribute("open");
+    }
+    trigger?.setAttribute("aria-expanded", String(open));
+  }
+
   const render = () => {
     if (disposed) return;
-    options.host.innerHTML = renderRealAgentsOverview(options.real.getState());
+    reports.innerHTML = options.conversation
+      ? renderRealAgentConversationSupport(options.real.getState())
+      : renderRealAgentsOverview(options.real.getState());
+    const selectedRole = options.host.querySelector<HTMLElement>('[data-cfo-role-choice][aria-pressed="true"]')?.dataset.cfoRoleChoice;
+    const roleLabel = reports.querySelector<HTMLElement>('[data-cfo-inspector-role]');
+    const role = BUSINESS_AGENT_TEAM.find(agent => agent.id === selectedRole);
+    if (roleLabel && role) roleLabel.textContent = role.name.replace(/^AI\s*/u, '');
+    for (const [kind, files] of candidates) {
+      const field = reports.querySelector(`[data-statements-drop="${kind}"]`); if (!field) continue;
+      const list = reports.ownerDocument.createElement('div');
+      const hint = reports.ownerDocument.createElement('p'); hint.textContent = '同一表种可暂存多份；请明确选用一份用于本次正式三表，其他期间不会混入。'; list.append(hint);
+      for (const item of files) {
+        const row = reports.ownerDocument.createElement('div'); const text = reports.ownerDocument.createElement('span'); text.textContent = `${item.file.name} · ${item.state} `;
+        const use = reports.ownerDocument.createElement('button'); use.type = 'button'; use.dataset.statementCandidate = String(item.id); use.dataset.candidateKind = kind; use.textContent = '选用 / 重试';
+        const remove = reports.ownerDocument.createElement('button'); remove.type = 'button'; remove.dataset.statementCandidateRemove = String(item.id); remove.dataset.candidateKind = kind; remove.textContent = '移除';
+        use.disabled = remove.disabled = candidateAborts.has(kind) || files.some(file => file.state === '读取中');
+        row.append(text, use, remove); list.append(row);
+      }
+      field.after(list);
+    }
+    // A native modal cannot reliably live inside another open native modal.
+    // The full preparation body contains the routing markup, but the routing
+    // dialog itself is promoted to this support surface so either action can
+    // be opened safely from the real conversation.
+    if (options.conversation) {
+      const routingDialog = reports.querySelector<HTMLDialogElement>(
+        "[data-agent-preparation-dialog] [data-routing-dialog]"
+      );
+      if (routingDialog) reports.append(routingDialog);
+    }
+    if (preparationOpen) setPreparationDialogOpen(true);
   };
   const unsubscribe = options.real.subscribe(render);
 
   function openRouting(): void {
-    const dialog = options.host.querySelector<HTMLDialogElement>("[data-routing-dialog]");
+    if (preparationOpen) {
+      preparationOpen = false;
+      setPreparationDialogOpen(false);
+    }
+    const dialog = reports.querySelector<HTMLDialogElement>("[data-routing-dialog]");
     if (!dialog) return;
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");
@@ -265,7 +343,7 @@ function createRealAgentsController(
     const policy = options.real.getState().routingPolicy;
     if (!policy) return null;
     const roles = Object.fromEntries(REAL_ROLES.map((role) => {
-      const row = options.host.querySelector<HTMLElement>(`[data-routing-role="${role}"]`);
+      const row = reports.querySelector<HTMLElement>(`[data-routing-role="${role}"]`);
       const mode = row?.querySelector<HTMLSelectElement>('[data-routing-field="mode"]')?.value;
       const primary = row?.querySelector<HTMLSelectElement>('[data-routing-field="primary"]')?.value ?? "";
       const fallback = row?.querySelector<HTMLSelectElement>('[data-routing-field="fallback"]')?.value ?? "";
@@ -294,25 +372,48 @@ function createRealAgentsController(
     if (disposed) return;
     const input = (event.target as HTMLElement | null)
       ?.closest<HTMLInputElement>("[data-statements-file]");
-    if (input && options.host.contains(input)) {
-      const file = input.files?.[0];
+    if (input && reports.contains(input)) {
       const kind = input.dataset.statementsFile as FinancialStatementKind | undefined;
-      if (file && kind) void options.real.selectStatement(kind, file);
+      if (kind) stageCandidates(kind, Array.from(input.files ?? []));
       return;
     }
     const consent = (event.target as HTMLElement | null)
       ?.closest<HTMLInputElement>("[data-real-consent]");
-    if (consent && options.host.contains(consent)) {
+    if (consent && reports.contains(consent)) {
       options.real.acceptModelDataNotice(consent.checked);
     }
   }
 
   function onClick(event: MouseEvent): void {
     if (disposed) return;
+    const candidateButton = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-statement-candidate], [data-statement-candidate-remove]');
+    if (candidateButton && reports.contains(candidateButton)) {
+      const kind = candidateButton.dataset.candidateKind as FinancialStatementKind;
+      const files = candidates.get(kind) ?? []; const id = Number(candidateButton.dataset.statementCandidate ?? candidateButton.dataset.statementCandidateRemove);
+      const item = files.find(file => file.id === id); if (!item) return;
+      if (candidateButton.dataset.statementCandidateRemove) {
+        candidateGeneration.set(kind, (candidateGeneration.get(kind) ?? 0) + 1);
+        if (item.state === '已选用' || item.state === '读取中') options.real.clearStatement?.(kind);
+        candidates.set(kind, files.filter(file => file !== item)); render();
+      } else if (!item.parsed && files.length > 1) void inspectCandidates(kind, [item]);
+      else void useCandidate(kind, item);
+      return;
+    }
     const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(
-      "[data-real-action], [data-routing-action]"
+      "[data-real-action], [data-routing-action], [data-agent-preparation-action]"
     );
-    if (!target || !options.host.contains(target)) return;
+    if (!target || !reports.contains(target)) return;
+    const preparationAction = target.dataset.agentPreparationAction;
+    if (preparationAction === "open") {
+      preparationOpen = true;
+      setPreparationDialogOpen(true);
+      return;
+    }
+    if (preparationAction === "close") {
+      preparationOpen = false;
+      setPreparationDialogOpen(false);
+      return;
+    }
     const routingAction = target.dataset.routingAction;
     if (routingAction === "open") {
       openRouting();
@@ -336,8 +437,62 @@ function createRealAgentsController(
     }
   }
 
-  options.host.addEventListener("change", onChange);
-  options.host.addEventListener("click", onClick);
+  function onPreparationDialogClosed(event: Event): void {
+    const dialog = event.target as HTMLDialogElement | null;
+    if (dialog?.matches("[data-agent-preparation-dialog]")) {
+      preparationOpen = false;
+      const trigger = reports.querySelector<HTMLButtonElement>(
+        '[data-agent-preparation-action="open"]'
+      );
+      trigger?.setAttribute("aria-expanded", "false");
+    }
+  }
+
+  function stageCandidates(kind: FinancialStatementKind, files: File[]) {
+    if (files.length > 10 || files.reduce((sum, file) => sum + file.size, 0) > 5 * 1024 * 1024) {
+      const field = reports.querySelector(`[data-statements-drop="${kind}"]`); const notice = reports.ownerDocument.createElement('p'); notice.textContent = '每批最多10份，合计5MB；原选择保留。'; field?.after(notice); return;
+    }
+    candidateGeneration.set(kind, (candidateGeneration.get(kind) ?? 0) + 1);
+    candidateAborts.get(kind)?.abort(); candidateAborts.delete(kind);
+    options.real.clearStatement?.(kind);
+    const selected = files.map(file => ({ id: ++candidateId, file, state: '待选用' })); candidates.set(kind, selected); render();
+    if (selected.length === 1) void useCandidate(kind, selected[0]);
+    else if (selected.length) void inspectCandidates(kind, selected);
+  }
+  async function inspectCandidates(kind: FinancialStatementKind, files: Candidate[]) {
+    const epoch = candidateGeneration.get(kind); const abort = new AbortController(); candidateAborts.set(kind, abort);
+    for (const item of files) {
+      if (disposed || abort.signal.aborted || candidateGeneration.get(kind) !== epoch) break;
+      item.state = '正在识别'; render();
+      try {
+        if (!/\.(xls|xlsx)$/iu.test(item.file.name)) throw new Error('请选择XLS或XLSX');
+        const { body } = await documentApi.inspectDocument(item.file, item.file.name, false, abort.signal);
+        if (disposed || abort.signal.aborted || candidateGeneration.get(kind) !== epoch) break;
+        if (!body.cells.length) throw new Error('没有可识别来源');
+        item.parsed = true; item.state = '识别成功，待选用';
+      } catch (error) { if (!abort.signal.aborted) { item.parsed = false; item.state = `失败：${importErrorMessage(error)}`; } }
+    }
+    if (candidateAborts.get(kind) === abort) candidateAborts.delete(kind);
+    if (!disposed) render();
+  }
+  async function useCandidate(kind: FinancialStatementKind, item: Candidate) {
+    const epoch = (candidateGeneration.get(kind) ?? 0) + 1; candidateGeneration.set(kind, epoch);
+    options.real.clearStatement?.(kind);
+    if (!/\.(xls|xlsx)$/iu.test(item.file.name) || !item.file.size || item.file.size > 5 * 1024 * 1024) { item.state = '文件无效：请选择5MB内的XLS/XLSX'; render(); return; }
+    for (const file of candidates.get(kind) ?? []) if (file !== item && file.state === '已选用') file.state = '识别成功，待选用';
+    item.state = '读取中'; render(); await options.real.selectStatement(kind, item.file);
+    if (disposed || candidateGeneration.get(kind) !== epoch) return;
+    item.state = options.real.getState().files[kind]?.name === item.file.name ? '已选用' : '读取失败，可重试'; render();
+  }
+  function dropCandidates(event: DragEvent) {
+    const zone = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-statements-drop]');
+    if (!zone || !reports.contains(zone)) return; event.preventDefault();
+    if (event.type === 'drop') stageCandidates(zone.dataset.statementsDrop as FinancialStatementKind, Array.from(event.dataTransfer?.files ?? []));
+  }
+  reports.addEventListener('dragover', dropCandidates); reports.addEventListener('drop', dropCandidates);
+  reports.addEventListener("change", onChange);
+  reports.addEventListener("click", onClick);
+  reports.addEventListener("close", onPreparationDialogClosed, true);
   render();
   return Object.freeze({
     render,
@@ -345,9 +500,15 @@ function createRealAgentsController(
       if (disposed) return;
       disposed = true;
       unsubscribe();
-      options.host.removeEventListener("change", onChange);
-      options.host.removeEventListener("click", onClick);
+      candidates.clear(); candidateGeneration.clear();
+      for (const abort of candidateAborts.values()) abort.abort(); candidateAborts.clear();
+      reports.removeEventListener('dragover', dropCandidates); reports.removeEventListener('drop', dropCandidates);
+      reports.removeEventListener("change", onChange);
+      reports.removeEventListener("click", onClick);
+      reports.removeEventListener("close", onPreparationDialogClosed, true);
       options.real.destroy();
+      conversation?.dispose();
+      if (reports !== options.host) reports.replaceChildren();
       options.host.replaceChildren();
     }
   });

@@ -75,6 +75,8 @@ test("ledger schema is idempotent DDL with required immutable uniqueness guards"
   assert.match(ddl, /uk_ledger_entry_revision/u);
   assert.match(ddl, /uk_cost_estimate_event_sequence/u);
   assert.match(ddl, /uk_cost_estimate_event_revision/u);
+  assert.match(ddl,
+    /CREATE TABLE IF NOT EXISTS ledger_source_heads[\s\S]*PRIMARY KEY \(workspace_id, ledger_type, source_identity_root\)/u);
 });
 
 test("live MySQL permits only one concurrent correction of a source head", async () => {
@@ -177,7 +179,8 @@ test("MySQL loss COGS round-trips and invalid direct create/correct write nothin
       ids: created.ids, expectedRevision: 2,
       revenueMinor: Number.MAX_SAFE_INTEGER, grossProfitMinor: -1,
       currency: "CNY"
-    }), /amount_out_of_range/);
+    }), (error: unknown) =>
+      (error as { code?: string }).code === "amount_out_of_range");
     assert.deepEqual(await fixture.financialLedgerCounts(), before);
   });
 });
@@ -217,12 +220,22 @@ test("MySQL contract_won round-trips the frozen binding and rejects mismatches",
     const before = await fixture.financialLedgerCounts();
     await assert.rejects(() => service.createPending(
       fixture.command("workspace-a", "contract-won-wrong-amount"),
-      { ...input, amountMinor: 1 }
+      {
+        ...input,
+        amountMinor: 1,
+        externalId: "invoice-wrong-amount",
+        sourceIdentityRoot: "external:invoice:invoice-wrong-amount"
+      }
     ), (error: unknown) =>
       (error as { code?: string }).code === "financial_fact_conflict");
     await assert.rejects(() => service.createPending(
       fixture.command("workspace-a", "contract-won-wrong-currency"),
-      { ...input, currency: "USD" }
+      {
+        ...input,
+        currency: "USD",
+        externalId: "invoice-wrong-currency",
+        sourceIdentityRoot: "external:invoice:invoice-wrong-currency"
+      }
     ), (error: unknown) =>
       (error as { code?: string }).code === "financial_fact_conflict");
     await assert.rejects(() => service.correct(

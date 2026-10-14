@@ -63,7 +63,7 @@ test("MySQL discovery projection appends atomically and pages by source record t
       fixture.foundation.temporalTransactions
     ).sealReadCutoff(
       fixture.workspaceContext("workspace-a"),
-      "2026-08-09T00:00:00.000Z"
+      appended[0]!.sourceRecordedAt
     );
     const page = await writer.listDiscoveries("workspace-a", {
       platform: "douyin",

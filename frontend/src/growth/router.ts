@@ -8,7 +8,9 @@ export type GrowthRoute =
       name: "quote";
       quoteCaseId?: string;
       candidateId?: string;
+      customerId?: string;
       dealId?: string;
+      assignedTo?: string;
     }
   | {
       name: "roi";
@@ -44,7 +46,11 @@ export function parseGrowthHash(hash: string): GrowthRoute | null {
       params.get("case") ? { quoteCaseId: params.get("case")! } : null,
       params.get("candidate")
         ? { candidateId: params.get("candidate")! } : null,
-      params.get("deal") ? { dealId: params.get("deal")! } : null
+      params.get("customer")
+        ? { customerId: params.get("customer")! } : null,
+      params.get("deal") ? { dealId: params.get("deal")! } : null,
+      params.get("assignee")
+        ? { assignedTo: params.get("assignee")! } : null
     );
   }
   if (pathname === "growth/roi") {
@@ -74,7 +80,9 @@ export function growthHash(route: GrowthRoute): string {
       const params = new URLSearchParams();
       if (route.quoteCaseId) params.set("case", route.quoteCaseId);
       if (route.candidateId) params.set("candidate", route.candidateId);
+      if (route.customerId) params.set("customer", route.customerId);
       if (route.dealId) params.set("deal", route.dealId);
+      if (route.assignedTo) params.set("assignee", route.assignedTo);
       const query = params.toString();
       return query ? `#growth/quotes?${query}` : "#growth/quotes";
     }

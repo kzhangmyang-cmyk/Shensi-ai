@@ -1,9 +1,13 @@
 import {
+  AcquisitionHttpError,
   isDouyinCommentOutreachCandidate,
-  type DouyinAccount, type DouyinAutomationApi, type DouyinCandidatePage,
-  type DouyinCrawlerStatus, type DouyinLoginSession, type DouyinPolicy,
+  type DouyinAccount, type DouyinAutomationApi,
+  type DouyinCrawlerStatus, type DouyinLoginInteraction, type DouyinLoginSession, type DouyinPolicy,
   type DouyinPolicyInput, type DouyinRunCandidate, type DouyinRunIntent
 } from "./douyin-automation-api";
+import { createAcquisitionBrowserRuntimes, DesktopLoginSyncError, isDesktopLoginSessionUnavailable } from "./acquisition-browser-runtime";
+import { getInstalledDesktopRuntime } from "../desktop/desktop-runtime";
+import type { ConnectorStatus, DouyinCollectionStatus } from "../desktop/desktop-bridge";
 
 export type DouyinAutomationPhase = "idle" | "loading" | "ready" | "saving" | "running" | "error";
 export interface DouyinAutomationState {
@@ -18,10 +22,16 @@ export interface DouyinAutomationState {
   runIntent: DouyinRunIntent | null;
   activeRunId: string | null;
   crawlerStatus: DouyinCrawlerStatus | null;
+  localCrawlerStatus?: DouyinCollectionStatus | null;
+  historicalRun?: boolean;
   candidates: DouyinRunCandidate[];
   selectedCandidateIds: string[];
   error: string | null;
+  errorRetry?: "reload" | "reconnect" | "cancel" | null;
+  connectionPending?: boolean;
+  interactionPending?: boolean;
   suggestionError: string | null;
+  connectorStatus?: ConnectorStatus | null;
   closed: boolean;
 }
 
@@ -35,14 +45,20 @@ export interface DouyinAutomationController {
   subscribe(listener: (state: DouyinAutomationState) => void): () => void;
   load(planId: string | null, planName?: string, latestRunId?: string | null): Promise<void>;
   connect(): Promise<void>;
+  confirmLogin(): Promise<void>;
+  cancelLogin(): Promise<void>;
+  interactLogin(input: DouyinLoginInteraction): Promise<void>;
   disconnect(): Promise<void>;
   suggestKeywords(): Promise<void>;
   save(input: DouyinAutomationDraft): Promise<void>;
   saveAndRun(input: DouyinAutomationDraft): Promise<void>;
   savePolicy(input: DouyinPolicyInput): Promise<void>;
   runNow(): Promise<void>;
+  controlCollection?(action: "pause" | "resume" | "stop"): Promise<void>;
   toggleCandidate(candidateId: string): void;
+  selectAllCandidates(selected: boolean): void;
   refreshRun(): Promise<void>;
+  restartConnector(): Promise<void>;
   abort(): void;
   close(): void;
 }
@@ -51,6 +67,36 @@ function key(prefix: string): string {
   return `${prefix}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
 }
 function message(error: unknown): string { return error instanceof Error ? error.message.slice(0, 300) : "未知错误"; }
+function loginMessage(error: unknown): string {
+  return error instanceof AcquisitionHttpError
+    && (error.status >= 500 || ["internal_error", "http_500"].includes(error.code))
+    ? "抖音登录服务暂时不可用，请稍后重新打开登录页。"
+    : message(error);
+}
+function expiredLoginSession(session: DouyinLoginSession): DouyinLoginSession {
+  return {
+    ...session,
+    state: "login_expired",
+    qrImageDataUrl: null,
+    qrStatus: null,
+    loginPage: null,
+    failureCode: null,
+    authState: session.authState === undefined ? undefined : "expired",
+    taskState: session.taskState === undefined ? undefined : "completed",
+    screenshotAvailable: session.screenshotAvailable === undefined ? undefined : false,
+    qrAvailable: session.qrAvailable === undefined ? undefined : false,
+    account: null
+  };
+}
+function isExpiredLoginError(error: unknown): boolean {
+  return error instanceof AcquisitionHttpError
+    && (error.status === 410 || error.code === "douyin_login_session_expired");
+}
+function isMissingCrawlerStatus(error: unknown): boolean {
+  return error instanceof AcquisitionHttpError
+    && error.status === 404
+    && error.code === "crawler_status_not_found";
+}
 const terminalStates = new Set(["succeeded", "partial", "paused", "cancelled", "failed"]);
 const requiresRunPolling = (status: DouyinCrawlerStatus) => !terminalStates.has(status.state)
   || status.candidateProjectionState === "pending";
@@ -58,19 +104,25 @@ const emptyPolicy = (): DouyinPolicyInput => ({
   keywords: [],
   schedule: { enabled: false, localTime: "09:30", timeZone: "Asia/Shanghai" },
   dailyCandidateLimit: 50,
-  collectCreators: true,
+  collectCreators: false,
   collectDemandComments: true,
   limits: { maxVideos: 30, maxCommentsPerVideo: 50, maxPagesPerVideo: 3, maxDurationSeconds: 3_600 }
 });
 
 export function createDouyinAutomationController(options: {
   api: DouyinAutomationApi;
-  onPlanCreated?: (planId: string) => void;
+  onPlanSaved?: (planId: string) => void;
   pollDelayMs?: number;
   terminalCandidateRetryLimit?: number;
   setTimer?: typeof setTimeout;
   clearTimer?: typeof clearTimeout;
 }): DouyinAutomationController {
+  const desktopRuntime = getInstalledDesktopRuntime();
+  const browserRuntimes = createAcquisitionBrowserRuntimes(options.api, {
+    desktopBridge: desktopRuntime?.bridge,
+    accountId: () => desktopRuntime?.accountId() ?? null,
+    onLocalAccount: desktopRuntime ? (account, local) => desktopRuntime.acceptLocalAccount(account, local) : undefined
+  });
   const listeners = new Set<(state: DouyinAutomationState) => void>();
   const setTimer = options.setTimer ?? setTimeout;
   const clearTimer = options.clearTimer ?? clearTimeout;
@@ -78,9 +130,15 @@ export function createDouyinAutomationController(options: {
   const terminalCandidateRetryLimit = options.terminalCandidateRetryLimit ?? 3;
   let generation = 0;
   let aborter = new AbortController();
+  let loginGeneration = 0;
+  let loginAborter = new AbortController();
   let loginTimer: ReturnType<typeof setTimeout> | null = null;
+  let loginInteractionRevision = 0;
+  let interactionQueue: Promise<void> = Promise.resolve();
+  let queuedInteractionCount = 0;
   let runTimer: { handle: ReturnType<typeof setTimeout>; runId: string; generation: number } | null = null;
   let runFlight: Promise<void> | null = null;
+  let collectionControlFlight: Promise<void> | null = null;
   let runRefreshFlight: { runId: string; generation: number; promise: Promise<void> } | null = null;
   let terminalCandidateRetry: {
     runId: string;
@@ -88,34 +146,151 @@ export function createDouyinAutomationController(options: {
     failures: number;
   } | null = null;
   let saveFlight: Promise<void> | null = null;
-  let state: DouyinAutomationState = { phase: "idle", planId: null, planName: "", planStatus: null, account: null, loginSession: null, policy: null, draftPolicy: emptyPolicy(), runIntent: null, activeRunId: null, crawlerStatus: null, candidates: [], selectedCandidateIds: [], error: null, suggestionError: null, closed: false };
+  let connectFlight: Promise<void> | null = null;
+  const cancelledLoginCreates = new Set<number>();
+  let loginCancellation: {
+    identity: string | (() => Promise<void>);
+    promise: Promise<void>;
+  } | null = null;
+  let state: DouyinAutomationState = { phase: "idle", planId: null, planName: "", planStatus: null, account: null, loginSession: null, policy: null, draftPolicy: emptyPolicy(), runIntent: null, activeRunId: null, crawlerStatus: null, historicalRun: false, candidates: [], selectedCandidateIds: [], error: null, errorRetry: null, connectionPending: false, interactionPending: false, suggestionError: null, connectorStatus: desktopRuntime?.connectorStatus() ?? null, closed: false };
   const emit = (patch: Partial<DouyinAutomationState>) => {
-    state = { ...state, ...patch };
+    const normalized = patch.error === null
+      ? { ...patch, errorRetry: null }
+      : patch.phase === "error" && patch.error && patch.errorRetry === undefined
+        ? { ...patch, errorRetry: "reload" as const }
+        : patch;
+    state = { ...state, ...normalized };
+    if (patch.candidates !== undefined || patch.selectedCandidateIds !== undefined) {
+      const eligible = new Set(state.candidates.filter(isDouyinCommentOutreachCandidate).map((candidate) => candidate.id));
+      state.selectedCandidateIds = [...new Set(state.selectedCandidateIds)].filter((id) => eligible.has(id));
+    }
     listeners.forEach((listener) => listener(state));
   };
+  const unsubscribeConnector = desktopRuntime?.subscribe((connectorStatus) => {
+    emit({ connectorStatus });
+  }) ?? (() => undefined);
   const current = (value: number) => !state.closed && value === generation;
+  const currentLogin = (value: number) => !state.closed && value === loginGeneration;
+  const resetLoginLifecycle = () => {
+    loginGeneration += 1;
+    loginAborter.abort();
+    loginAborter = new AbortController();
+    if (loginTimer) clearTimer(loginTimer);
+    loginTimer = null;
+    loginInteractionRevision = 0;
+    interactionQueue = Promise.resolve();
+    queuedInteractionCount = 0;
+    connectFlight = null;
+    return loginGeneration;
+  };
   const resetLifecycle = () => {
     generation += 1;
     aborter.abort();
     aborter = new AbortController();
-    if (loginTimer) clearTimer(loginTimer);
+    resetLoginLifecycle();
     if (runTimer) clearTimer(runTimer.handle);
-    loginTimer = null; runTimer = null;
+    runTimer = null;
     runRefreshFlight = null;
     terminalCandidateRetry = null;
     return generation;
   };
+  const cancelLoginSessionTracked = (
+    session: Pick<DouyinLoginSession, "id" | "interactionSurface"> | (() => Promise<void>)
+  ): Promise<void> => {
+    const identity = typeof session === "function" ? session : session.id;
+    if (loginCancellation?.identity === identity) return loginCancellation.promise;
+    const prior = loginCancellation?.promise.catch(() => undefined)
+      ?? Promise.resolve();
+    const tracked = {
+      identity,
+      promise: prior
+        .then(() => typeof session === "function" ? session()
+          : browserRuntimes.forSession(session).cancelLogin(session.id))
+    };
+    loginCancellation = tracked;
+    void tracked.promise.then(() => {
+      if (loginCancellation === tracked) loginCancellation = null;
+    }, () => {
+      if (loginCancellation === tracked) loginCancellation = null;
+    });
+    return tracked.promise;
+  };
+  const cancelLoginSessionBestEffort = (
+    session: Pick<DouyinLoginSession, "id" | "interactionSurface">
+  ): Promise<void> => cancelLoginSessionTracked(session).catch(() => undefined);
+  const cancelAwaitingLoginBestEffort = () => {
+    if (state.loginSession?.state !== "awaiting_scan") return;
+    void cancelLoginSessionBestEffort(state.loginSession);
+  };
   const pollLogin = async (sessionId: string, ownGeneration: number): Promise<void> => {
-    if (!current(ownGeneration)) return;
+    if (!currentLogin(ownGeneration)) return;
+    const observedInteractionRevision = loginInteractionRevision;
     try {
-      const loginSession = await options.api.getLoginSession(sessionId, aborter.signal);
-      if (!current(ownGeneration)) return;
-      emit({ loginSession, account: loginSession.account ?? state.account, phase: "ready", error: null });
-      if (loginSession.state === "awaiting_scan" && Date.parse(loginSession.expiresAt) > Date.now()) {
+      const activeSession = state.loginSession;
+      if (!activeSession || activeSession.id !== sessionId) return;
+      const loginSession = await browserRuntimes.forSession(activeSession)
+        .getStatus(sessionId, loginAborter.signal);
+      if (!currentLogin(ownGeneration)) return;
+      if (observedInteractionRevision !== loginInteractionRevision) {
+        if (state.loginSession?.state === "awaiting_scan"
+          && !state.loginSession.failureCode
+          && Date.parse(state.loginSession.expiresAt) > Date.now()
+          && !state.interactionPending
+          && loginTimer === null) {
+          loginTimer = setTimer(() => void pollLogin(sessionId, ownGeneration), pollDelayMs);
+        }
+        return;
+      }
+      const observedSession = loginSession.state === "awaiting_scan"
+        && Date.parse(loginSession.expiresAt) <= Date.now()
+        ? expiredLoginSession(loginSession)
+        : loginSession;
+      emit({
+        loginSession: observedSession,
+        account: observedSession.account ?? state.account,
+        phase: "ready",
+        error: null,
+        connectionPending: false,
+        interactionPending: false
+      });
+      if (observedSession.state === "awaiting_scan" && !observedSession.failureCode
+        && Date.parse(observedSession.expiresAt) > Date.now()) {
         loginTimer = setTimer(() => void pollLogin(sessionId, ownGeneration), pollDelayMs);
       }
     } catch (error) {
-      if (current(ownGeneration) && !(error instanceof DOMException && error.name === "AbortError")) emit({ phase: "error", error: message(error) });
+      if (!currentLogin(ownGeneration)
+        || error instanceof DOMException && error.name === "AbortError") return;
+      if (error instanceof DesktopLoginSyncError) {
+        emit({ phase: "ready", loginSession: error.session, error: error.message,
+          errorRetry: null, connectionPending: false, interactionPending: false });
+        return;
+      }
+      const activeSession = state.loginSession;
+      if (!activeSession || activeSession.id !== sessionId
+        || activeSession.state !== "awaiting_scan" || activeSession.failureCode) return;
+      if (isDesktopLoginSessionUnavailable(error)) {
+        emit({ phase: "ready", loginSession: expiredLoginSession(activeSession),
+          error: "本机登录会话已结束，请重新打开抖音登录。", errorRetry: "reconnect",
+          connectionPending: false, interactionPending: false });
+        return;
+      }
+      if (Date.parse(activeSession.expiresAt) <= Date.now()) {
+        emit({
+          phase: "ready",
+          loginSession: expiredLoginSession(activeSession),
+          error: null,
+          connectionPending: false,
+          interactionPending: false
+        });
+        return;
+      }
+      if (observedInteractionRevision === loginInteractionRevision) emit({
+        phase: "ready",
+        error: "抖音登录状态暂时不可用，正在自动重试；请保持登录窗口打开。",
+        errorRetry: null,
+        connectionPending: false
+      });
+      loginTimer = setTimer(() => void pollLogin(sessionId, ownGeneration), pollDelayMs);
     }
   };
   const clearRunTimer = () => {
@@ -137,6 +312,22 @@ export function createDouyinAutomationController(options: {
     }, delayMs);
     runTimer = timer;
   };
+  const readCandidatePages = async (runId: string, signal: AbortSignal): Promise<DouyinRunCandidate[]> => {
+    const candidates = new Map<string, DouyinRunCandidate>();
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    while (!signal.aborted) {
+      signal.throwIfAborted();
+      const page = await options.api.listRunCandidates(runId, signal, cursor ? { cursor } : undefined);
+      signal.throwIfAborted();
+      page.items.forEach((candidate) => candidates.set(candidate.id, candidate));
+      if (page.nextCursor === null) return [...candidates.values()];
+      if (seen.has(page.nextCursor)) break;
+      seen.add(page.nextCursor);
+      cursor = page.nextCursor;
+    }
+    throw new Error("候选人分页未能完整读取，请刷新重试");
+  };
   const refreshRunFor = (runId: string, ownGeneration: number): Promise<void> => {
     if (!current(ownGeneration)) return Promise.resolve();
     const existing = runRefreshFlight;
@@ -149,14 +340,45 @@ export function createDouyinAutomationController(options: {
         if (!current(ownGeneration)) return;
         if (crawlerStatus.runId !== runId) throw new Error("服务器返回的采集状态与当前运行不匹配");
         validatedStatus = crawlerStatus;
-        const page = await options.api.listRunCandidates(runId, aborter.signal);
+        const candidates = await readCandidatePages(runId, aborter.signal);
         if (!current(ownGeneration)) return;
         terminalCandidateRetry = null;
-        emit({ crawlerStatus, candidates: page.items, phase: "ready", error: null });
+        emit({ crawlerStatus,
+          localCrawlerStatus: terminalStates.has(crawlerStatus.state) ? null
+            : browserRuntimes.desktop.getCollectionStatusForRun(runId),
+          historicalRun: false, candidates, phase: "ready", error: null });
         if (requiresRunPolling(crawlerStatus)) scheduleRunRefresh(runId, ownGeneration);
       } catch (error) {
         if (current(ownGeneration) && !(error instanceof DOMException && error.name === "AbortError")) {
-          emit({ ...(validatedStatus ? { crawlerStatus: validatedStatus } : {}), phase: "error", error: message(error) });
+          if (isMissingCrawlerStatus(error) && state.runIntent === null) {
+            try {
+              const candidates = await readCandidatePages(runId, aborter.signal);
+              if (!current(ownGeneration)) return;
+              terminalCandidateRetry = null;
+              emit({
+                crawlerStatus: null,
+                localCrawlerStatus: null,
+                historicalRun: true,
+                candidates,
+                phase: "ready",
+                error: null
+              });
+            } catch (candidateError) {
+              if (current(ownGeneration)
+                && !(candidateError instanceof DOMException
+                  && candidateError.name === "AbortError")) {
+                emit({
+                  phase: "error",
+                  error: message(candidateError)
+                });
+              }
+            }
+            return;
+          }
+          emit({ ...(validatedStatus ? { crawlerStatus: validatedStatus } : {}),
+            localCrawlerStatus: validatedStatus && terminalStates.has(validatedStatus.state) ? null
+              : browserRuntimes.desktop.getCollectionStatusForRun(runId),
+            phase: "error", error: message(error) });
           if (!validatedStatus || requiresRunPolling(validatedStatus)) {
             scheduleRunRefresh(runId, ownGeneration);
           } else {
@@ -189,7 +411,7 @@ export function createDouyinAutomationController(options: {
     const planName = input.planName.trim();
     const keywords = [...new Set(input.policy.keywords.map((keyword) => keyword.trim()).filter(Boolean))];
     if (!state.account || state.account.state !== "active") {
-      emit({ phase: "error", error: "请先扫码连接抖音账号" });
+      emit({ phase: "error", error: "请先连接抖音账号" });
       return Promise.resolve();
     }
     if (!planName) {
@@ -207,7 +429,7 @@ export function createDouyinAutomationController(options: {
       try {
         let planId = state.planId;
         let policy = state.policy;
-        let created = false;
+        let savedPlanName = planName;
         if (!planId) {
           const plan = await options.api.createPlan({
             name: planName,
@@ -220,8 +442,17 @@ export function createDouyinAutomationController(options: {
             : await options.api.approvePlan(plan.id, plan.etag, aborter.signal);
           if (!current(own)) return;
           planId = approved.id;
-          created = true;
-          emit({ planId, planName: approved.name || planName, planStatus: approved.status });
+          savedPlanName = approved.name;
+          emit({ planId, planName: savedPlanName, planStatus: approved.status });
+          policy = await options.api.getAutomation(planId, aborter.signal);
+          if (!current(own)) return;
+        } else {
+          const approved = await options.api.savePlanName(planId, planName, aborter.signal, keywords);
+          if (!current(own)) return;
+          savedPlanName = approved.name;
+          emit({ planName: savedPlanName, planStatus: approved.status });
+          // A plan revision changes the policy's frozen plan identity. Read its
+          // current ETag before publishing the new policy against that version.
           policy = await options.api.getAutomation(planId, aborter.signal);
           if (!current(own)) return;
         }
@@ -231,9 +462,9 @@ export function createDouyinAutomationController(options: {
         }
         const saved = await options.api.putAutomation(planId, normalized, policy.etag, key("douyin-policy"), aborter.signal);
         if (!current(own)) return;
-        emit({ phase: "ready", policy: saved, draftPolicy: normalized, planId, planName, planStatus: "approved", error: null });
+        emit({ phase: "ready", policy: saved, draftPolicy: normalized, planId, planName: savedPlanName, planStatus: "approved", error: null });
         if (runAfterSave) await controller.runNow();
-        if (created) options.onPlanCreated?.(planId);
+        if (current(own) && state.phase !== "error") options.onPlanSaved?.(planId);
       } catch (error) {
         if (current(own) && !(error instanceof DOMException && error.name === "AbortError")) emit({ phase: "error", error: message(error) });
       }
@@ -248,7 +479,7 @@ export function createDouyinAutomationController(options: {
     async load(planId, planName, latestRunId = null) {
       const own = resetLifecycle();
       const restoredRunId = planId ? latestRunId?.trim() || null : null;
-      emit({ phase: "loading", planId, planName: planName?.trim() ?? "", planStatus: planId ? "approved" : null, policy: null, draftPolicy: emptyPolicy(), error: null, suggestionError: null, runIntent: null, activeRunId: restoredRunId, crawlerStatus: null, candidates: [], selectedCandidateIds: [] });
+      emit({ phase: "loading", planId, planName: planName?.trim() ?? "", planStatus: planId ? "approved" : null, policy: null, draftPolicy: emptyPolicy(), error: null, connectionPending: false, interactionPending: false, suggestionError: null, runIntent: null, activeRunId: restoredRunId, crawlerStatus: null, localCrawlerStatus: null, historicalRun: false, candidates: [], selectedCandidateIds: [] });
       try {
         const accountPromise = options.api.listAccounts(aborter.signal);
         const policyPromise = planId ? options.api.getAutomation(planId, aborter.signal) : Promise.resolve(null);
@@ -258,23 +489,245 @@ export function createDouyinAutomationController(options: {
         if (restoredRunId) await refreshRunFor(restoredRunId, own);
       } catch (error) { if (current(own)) emit({ phase: "error", error: message(error) }); }
     },
-    async connect() {
-      const own = resetLifecycle();
-      emit({ phase: "loading", loginSession: null, error: null });
+    connect() {
+      if (connectFlight) return connectFlight;
+      if (state.loginSession?.state === "awaiting_scan"
+        && !state.loginSession.failureCode
+        && (state.loginSession.interactionSurface === "external_window"
+          || state.loginSession.qrStatus === "opening")) {
+        return Promise.resolve();
+      }
+      const previousSessionId = state.loginSession?.state === "awaiting_scan"
+        ? state.loginSession.id
+        : null;
+      const previousSession = state.loginSession?.state === "awaiting_scan"
+        ? state.loginSession
+        : null;
+      const browserRuntime = browserRuntimes.forSession(previousSession);
+      const pendingCancellation = previousSessionId
+        ? cancelLoginSessionTracked(previousSession!)
+        : loginCancellation?.promise ?? null;
+      let cancellationCompleted = pendingCancellation === null;
+      const own = resetLoginLifecycle();
+      emit({ phase: "loading", loginSession: previousSession, error: null,
+        connectionPending: true, interactionPending: false });
+      const flight = (async () => {
+        try {
+          if (pendingCancellation) {
+            await pendingCancellation;
+            cancellationCompleted = true;
+          }
+          if (!currentLogin(own)) return;
+          if (previousSessionId
+            && state.loginSession?.id === previousSessionId) {
+            emit({ loginSession: null });
+          }
+          const loginSession = await browserRuntime.startLogin(
+            key("douyin-login"), loginAborter.signal
+          );
+          if (cancelledLoginCreates.delete(own)) {
+            if (!state.closed && loginGeneration === own + 1) {
+              emit({ loginSession, connectionPending: false, interactionPending: true });
+            }
+            try {
+              await browserRuntimes.forSession(loginSession).cancelLogin(loginSession.id);
+              if (!state.closed && loginGeneration === own + 1) emit({ phase: "ready", loginSession: null,
+                error: null, connectionPending: false, interactionPending: false });
+            } catch (error) {
+              if (!state.closed && loginGeneration === own + 1) emit({ phase: "error", loginSession,
+                error: `取消登录失败：${loginMessage(error)}`, errorRetry: "cancel",
+                connectionPending: false, interactionPending: false });
+            }
+            return;
+          }
+          if (!currentLogin(own)) return;
+          emit({ phase: "ready", loginSession, account: loginSession.account ?? state.account, connectionPending: false });
+          if (loginSession.state === "awaiting_scan" && !loginSession.failureCode) {
+            void pollLogin(loginSession.id, own);
+          }
+        } catch (error) {
+          if (!currentLogin(own)) return;
+          if (error instanceof DesktopLoginSyncError) {
+            emit({ phase: "ready", loginSession: error.session, error: error.message,
+              errorRetry: null, connectionPending: false, interactionPending: false });
+            return;
+          }
+          if (!cancellationCompleted && previousSession) {
+            emit({ phase: "error", loginSession: previousSession,
+              error: `取消旧登录失败：${loginMessage(error)}`,
+              errorRetry: "cancel", connectionPending: false,
+              interactionPending: false });
+            return;
+          }
+          emit({ phase: "error", error: loginMessage(error),
+            errorRetry: "reconnect", connectionPending: false });
+        }
+      })();
+      connectFlight = flight;
+      void flight.finally(() => {
+        if (connectFlight === flight) connectFlight = null;
+      });
+      return flight;
+    },
+    async confirmLogin() {
+      const activeSession = state.loginSession;
+      if (!activeSession || activeSession.state !== "awaiting_scan"
+        || activeSession.failureCode) return;
+      if (Date.parse(activeSession.expiresAt) <= Date.now()) {
+        if (loginTimer) clearTimer(loginTimer);
+        loginTimer = null;
+        emit({
+          phase: "ready",
+          loginSession: expiredLoginSession(activeSession),
+          error: null,
+          interactionPending: false
+        });
+        return;
+      }
+      const own = loginGeneration;
+      const sessionId = activeSession.id;
+      loginInteractionRevision += 1;
+      if (loginTimer) clearTimer(loginTimer);
+      loginTimer = null;
+      emit({ interactionPending: true, error: null });
       try {
-        const loginSession = await options.api.createLoginSession(key("douyin-login"), aborter.signal);
-        if (!current(own)) return;
-        emit({ phase: "ready", loginSession, account: loginSession.account ?? state.account });
-        if (loginSession.state === "awaiting_scan") void pollLogin(loginSession.id, own);
-      } catch (error) { if (current(own)) emit({ phase: "error", error: message(error) }); }
+        const loginSession = await browserRuntimes.forSession(activeSession)
+          .confirmLogin(sessionId, loginAborter.signal);
+        if (!currentLogin(own) || state.loginSession?.id !== sessionId) return;
+        emit({
+          phase: "ready",
+          loginSession,
+          account: loginSession.account ?? state.account,
+          error: null,
+          connectionPending: false
+        });
+        if (loginSession.state === "awaiting_scan" && !loginSession.failureCode
+          && Date.parse(loginSession.expiresAt) > Date.now()) {
+          loginTimer = setTimer(() => void pollLogin(sessionId, own), pollDelayMs);
+        }
+      } catch (error) {
+        if (!currentLogin(own) || state.loginSession?.id !== sessionId
+          || error instanceof DOMException && error.name === "AbortError") return;
+        if (error instanceof DesktopLoginSyncError) {
+          emit({ phase: "ready", loginSession: error.session, error: error.message,
+            errorRetry: null, connectionPending: false });
+        } else if (isExpiredLoginError(error) || isDesktopLoginSessionUnavailable(error)) {
+          emit({
+            phase: "ready",
+            loginSession: expiredLoginSession(state.loginSession),
+            error: null
+          });
+        } else {
+          emit({
+            phase: "ready",
+            error: `登录状态检测失败：${loginMessage(error)}`,
+            errorRetry: null
+          });
+          loginTimer = setTimer(() => void pollLogin(sessionId, own), pollDelayMs);
+        }
+      } finally {
+        if (currentLogin(own) && state.loginSession?.id === sessionId) {
+          emit({ interactionPending: false });
+        }
+      }
+    },
+    async cancelLogin() {
+      if (connectFlight && !state.loginSession) {
+        cancelledLoginCreates.add(loginGeneration);
+        loginGeneration += 1;
+        emit({ interactionPending: true });
+        return;
+      }
+      const session = state.loginSession?.state === "awaiting_scan"
+        ? state.loginSession : null;
+      if (!session) return;
+      if (loginTimer) clearTimer(loginTimer);
+      loginTimer = null;
+      emit({ interactionPending: true, error: null });
+      try {
+        await browserRuntimes.forSession(session).cancelLogin(session.id);
+        resetLoginLifecycle();
+        emit({ phase: "ready", loginSession: null, error: null,
+          connectionPending: false, interactionPending: false });
+      } catch (error) {
+        emit({ phase: "error", loginSession: session,
+          error: `取消登录失败：${loginMessage(error)}`, errorRetry: "cancel",
+          connectionPending: false, interactionPending: false });
+      }
+    },
+    interactLogin(input) {
+      const activeSession = state.loginSession;
+      if (!activeSession || activeSession.state !== "awaiting_scan"
+        || activeSession.failureCode) return Promise.resolve();
+      if (Date.parse(activeSession.expiresAt) <= Date.now()) {
+        if (loginTimer) clearTimer(loginTimer);
+        loginTimer = null;
+        emit({
+          phase: "ready",
+          loginSession: expiredLoginSession(activeSession),
+          error: null,
+          interactionPending: false
+        });
+        return Promise.resolve();
+      }
+      const own = loginGeneration;
+      const sessionId = activeSession.id;
+      const signal = loginAborter.signal;
+      loginInteractionRevision += 1;
+      queuedInteractionCount += 1;
+      emit({ interactionPending: true, error: null });
+      const flight = interactionQueue.then(async () => {
+        if (!currentLogin(own) || state.loginSession?.id !== sessionId
+          || state.loginSession.state !== "awaiting_scan") return;
+        try {
+          const loginSession = await options.api.interactLoginSession(sessionId, input, signal);
+          if (!currentLogin(own) || state.loginSession?.id !== sessionId
+            || state.account?.state === "active") return;
+          if ((loginSession.state !== "awaiting_scan" || loginSession.failureCode) && loginTimer) {
+            clearTimer(loginTimer);
+            loginTimer = null;
+          }
+          emit({
+            loginSession,
+            account: loginSession.account ?? state.account,
+            phase: "ready",
+            error: null
+          });
+        } catch (error) {
+          if (currentLogin(own) && state.loginSession?.id === sessionId
+            && isExpiredLoginError(error)) {
+            if (loginTimer) clearTimer(loginTimer);
+            loginTimer = null;
+            emit({
+              phase: "ready",
+              loginSession: expiredLoginSession(state.loginSession),
+              error: null,
+              interactionPending: false
+            });
+          } else if (currentLogin(own) && !(error instanceof DOMException && error.name === "AbortError")) {
+            emit({ phase: "ready", error: `登录页操作失败：${loginMessage(error)}` });
+          }
+        }
+      });
+      interactionQueue = flight.catch(() => undefined);
+      return flight.finally(() => {
+        if (!currentLogin(own)) return;
+        queuedInteractionCount = Math.max(0, queuedInteractionCount - 1);
+        if (queuedInteractionCount === 0) emit({ interactionPending: false });
+      });
     },
     async disconnect() {
       if (!state.account) return;
+      const cancelLocalLogin = browserRuntimes.forSession(null).kind === "desktop"
+        ? browserRuntimes.desktop.captureLoginCancellation() : null;
       const own = resetLifecycle();
-      emit({ phase: "loading", error: null });
+      emit({ phase: "loading", error: null, localCrawlerStatus: null, connectionPending: false, interactionPending: false });
       try {
         await options.api.disconnectAccount(state.account.id, state.account.etag, key("douyin-disconnect"), aborter.signal);
-        if (current(own)) emit({ phase: "ready", account: null, loginSession: null, runIntent: null, activeRunId: null, crawlerStatus: null, candidates: [], selectedCandidateIds: [] });
+        // Cloud success must release the captured login even after route exit.
+        const cancellation = cancelLocalLogin ? cancelLoginSessionTracked(cancelLocalLogin) : null;
+        if (current(own)) emit({ phase: "ready", account: null, loginSession: null, runIntent: null, activeRunId: null, crawlerStatus: null, historicalRun: false, candidates: [], selectedCandidateIds: [] });
+        if (cancellation) await cancellation;
       } catch (error) { if (current(own)) emit({ phase: "error", error: message(error) }); }
     },
     async suggestKeywords() {
@@ -300,19 +753,26 @@ export function createDouyinAutomationController(options: {
         return Promise.resolve();
       }
       const own = generation;
-      emit({ phase: "running", error: null });
+      emit({ phase: "running", error: null, runIntent: null, activeRunId: null,
+        crawlerStatus: null, localCrawlerStatus: null, historicalRun: false,
+        candidates: [], selectedCandidateIds: [] });
       const flight = (async () => {
         try {
-          const runIntent = await options.api.runNow(state.planId!, key("douyin-run"), aborter.signal);
+          const runIntent = await browserRuntimes.forSession(state.loginSession)
+            .startCollection(state.planId!, key("douyin-run"), aborter.signal);
           if (!current(own)) return;
           terminalCandidateRetry = null;
-          emit({ runIntent, activeRunId: runIntent.acquisitionRunId, crawlerStatus: null, candidates: [], selectedCandidateIds: [], phase: "ready", error: null });
+          emit({ runIntent, activeRunId: runIntent.acquisitionRunId, crawlerStatus: null, localCrawlerStatus: null, historicalRun: false, candidates: [], selectedCandidateIds: [], phase: "ready", error: null });
           await refreshRunFor(runIntent.acquisitionRunId, own);
         } catch (error) { if (current(own)) emit({ phase: "error", error: message(error) }); }
       })();
       runFlight = flight;
       void flight.finally(() => { if (runFlight === flight) runFlight = null; });
       return flight;
+    },
+    selectAllCandidates(selected) {
+      emit({ selectedCandidateIds: selected
+        ? state.candidates.filter(isDouyinCommentOutreachCandidate).map((candidate) => candidate.id) : [] });
     },
     toggleCandidate(candidateId) {
       const candidate = state.candidates.find((item) => item.id === candidateId);
@@ -324,8 +784,62 @@ export function createDouyinAutomationController(options: {
     async refreshRun() {
       if (state.activeRunId) await refreshRunFor(state.activeRunId, generation);
     },
-    abort() { if (!state.closed) resetLifecycle(); },
-    close() { if (state.closed) return; resetLifecycle(); emit({ closed: true, phase: "idle" }); listeners.clear(); }
+    controlCollection(action) {
+      if (collectionControlFlight) return collectionControlFlight;
+      const runId = state.activeRunId;
+      const ownGeneration = generation;
+      if (!runId) return Promise.resolve();
+      collectionControlFlight = (async () => {
+        try {
+          await browserRuntimes.desktop.controlCollectionForRun(runId, action);
+          if (current(ownGeneration) && state.activeRunId === runId) {
+            emit({ localCrawlerStatus: browserRuntimes.desktop.getCollectionStatusForRun(runId), error: null });
+          }
+        } catch (error) {
+          if (current(ownGeneration)) emit({ error: message(error) });
+        } finally { collectionControlFlight = null; }
+      })();
+      return collectionControlFlight;
+    },
+    async restartConnector() {
+      if (!desktopRuntime) return;
+      try {
+        emit({ connectorStatus: { state: "starting", protocolVersion: null, diagnostic: null }, error: null });
+        await desktopRuntime.restartConnector();
+      } catch (error) {
+        emit({ connectorStatus: { state: "crashed", protocolVersion: null, diagnostic: {
+          code: "connector_restart_failed", message: loginMessage(error), recoverable: true,
+          occurredAt: new Date().toISOString()
+        } } });
+      }
+    },
+    abort() {
+      if (state.closed) return;
+      if (connectFlight && !state.loginSession) {
+        cancelledLoginCreates.add(loginGeneration);
+      }
+      cancelAwaitingLoginBestEffort();
+      resetLifecycle();
+      emit({ loginSession: null, localCrawlerStatus: null, connectionPending: false, interactionPending: false });
+    },
+    close() {
+      if (state.closed) return;
+      if (connectFlight && !state.loginSession) {
+        cancelledLoginCreates.add(loginGeneration);
+      }
+      cancelAwaitingLoginBestEffort();
+      resetLifecycle();
+      emit({
+        closed: true,
+        phase: "idle",
+        loginSession: null,
+        localCrawlerStatus: null,
+        connectionPending: false,
+        interactionPending: false
+      });
+      listeners.clear();
+      unsubscribeConnector();
+    }
   };
   return controller;
 }

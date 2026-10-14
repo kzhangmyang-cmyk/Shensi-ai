@@ -8,7 +8,9 @@ import {
 } from "./acquisition-douyin-automation-mysql-repository.js";
 import { ensureAcquisitionMysqlSchema } from "./acquisition-mysql-repositories.js";
 import {
+  acquisitionCrawlerDesktopPageReplaysDdl,
   acquisitionCrawlerJobDdls,
+  acquisitionCrawlerJobsDdl,
   acquisitionCrawlerJobMigrationStatements,
   ensureAcquisitionCrawlerJobMysqlSchema,
   MysqlAcquisitionCrawlerJobRepository
@@ -47,6 +49,49 @@ function scheduledCrawlerJob() {
   };
 }
 
+function desktopCrawlerInput() {
+  return {
+    ...crawlerInput(),
+    id: "desktop-job-1",
+    runId: "desktop-run-1",
+    automationIntentId: "desktop-intent-1",
+    executionTarget: "desktop" as const,
+    desktopTaskTokenHash: `sha256:${"d".repeat(64)}`,
+    maxAttempts: 1
+  };
+}
+
+function desktopScheduledCrawlerJob() {
+  const input = desktopCrawlerInput();
+  return {
+    ...input,
+    runIds: [input.runId],
+    automationIntentIds: [input.automationIntentId],
+    state: "scheduled" as const,
+    attempt: 0,
+    cursor: null,
+    cursorHistory: [] as string[],
+    recordCount: 0,
+    candidateBudgetUsed: 0,
+    cancelRequestedAt: null,
+    lastErrorCode: null,
+    leaseWorkerId: null,
+    leaseToken: null,
+    leaseExpiresAt: null,
+    fencingToken: 0,
+    updatedAt: input.createdAt,
+    completedAt: null,
+    ingestionState: null,
+    ingestionAttempt: 0,
+    ingestionLeaseWorkerId: null,
+    ingestionLeaseToken: null,
+    ingestionLeaseExpiresAt: null,
+    ingestionFencingToken: 0,
+    ingestedAt: null,
+    acknowledgedAt: null
+  };
+}
+
 function assertMysqlDatetime(value: unknown) {
   if (typeof value !== "string"
     || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/u.test(value)) {
@@ -62,6 +107,26 @@ test("crawler MySQL schema has durable jobs, daily aliases, append-only records 
   await ensureAcquisitionCrawlerJobMysqlSchema({
     async query(statement: string) {
       sql.push(statement);
+      if (statement.includes("TABLE_NAME='acquisition_crawler_jobs'")
+        && statement.includes("COLUMN_NAME='execution_target'")) {
+        return [[{ COLUMN_NAME: "execution_target" }], []];
+      }
+      if (statement.includes("TABLE_NAME='acquisition_crawler_jobs'")
+        && statement.includes("INDEX_NAME='acquisition_crawler_job_daily'")) {
+        return [[
+          { COLUMN_NAME: "workspace_id" },
+          { COLUMN_NAME: "plan_id" },
+          { COLUMN_NAME: "policy_version_id" },
+          { COLUMN_NAME: "local_date" },
+          { COLUMN_NAME: "execution_target" }
+        ], []];
+      }
+      if (statement.includes("TABLE_NAME='acquisition_crawler_jobs'")
+        && statement.includes("CONSTRAINT_NAME='acquisition_crawler_job_execution_target'")) {
+        return [[{
+          CONSTRAINT_NAME: "acquisition_crawler_job_execution_target"
+        }], []];
+      }
       if (statement.includes("information_schema.COLUMNS")) {
         return [[{
           COLUMN_TYPE: "varchar(160)",
@@ -76,14 +141,14 @@ test("crawler MySQL schema has durable jobs, daily aliases, append-only records 
     sql.slice(0, acquisitionCrawlerJobDdls.length),
     acquisitionCrawlerJobDdls
   );
-  assert.deepEqual(
-    sql.slice(
-      acquisitionCrawlerJobDdls.length + 3,
-      acquisitionCrawlerJobDdls.length + 3
-        + acquisitionCrawlerJobMigrationStatements.length
-    ),
-    acquisitionCrawlerJobMigrationStatements
+  const firstMigration = sql.findIndex((statement) =>
+    statement === acquisitionCrawlerJobMigrationStatements[0]
   );
+  assert.notEqual(firstMigration, -1);
+  assert.deepEqual(sql.slice(
+    firstMigration,
+    firstMigration + acquisitionCrawlerJobMigrationStatements.length
+  ), acquisitionCrawlerJobMigrationStatements);
   const ddl = acquisitionCrawlerJobDdls.join("\n");
   assert.match(ddl, /UNIQUE KEY acquisition_crawler_job_daily/u);
   assert.match(ddl, /lease_token CHAR\(64\)/u);
@@ -102,7 +167,7 @@ test("crawler MySQL schema has durable jobs, daily aliases, append-only records 
     /BINARY b\.acquisition_run_id <> BINARY r\.run_id/u
   );
   assert.match(
-    sql[acquisitionCrawlerJobDdls.length + 2]!,
+    sql.find((statement) => /MODIFY COLUMN run_id/u.test(statement))!,
     /MODIFY COLUMN run_id varchar\(160\)[\s\S]*COLLATE utf8mb4_unicode_ci/iu
   );
   assert.match(
@@ -142,6 +207,85 @@ test("crawler schema aligns run aliases to authoritative runs before adding the 
   assert.ok(addForeignKey > align);
 });
 
+test("crawler schema migrates legacy jobs to a checked target-scoped daily index", async () => {
+  const sql: string[] = [];
+  await ensureAcquisitionCrawlerJobMysqlSchema({
+    async query(statement: string) {
+      sql.push(statement);
+      if (statement.includes("TABLE_NAME='acquisition_crawler_jobs'")
+        && statement.includes("COLUMN_NAME='execution_target'")) {
+        return [[], []];
+      }
+      if (statement.includes("TABLE_NAME='acquisition_crawler_jobs'")
+        && statement.includes("INDEX_NAME='acquisition_crawler_job_daily'")) {
+        return [[
+          { COLUMN_NAME: "workspace_id" },
+          { COLUMN_NAME: "plan_id" },
+          { COLUMN_NAME: "policy_version_id" },
+          { COLUMN_NAME: "local_date" }
+        ], []];
+      }
+      if (statement.includes("information_schema.COLUMNS")) {
+        return [[{
+          COLUMN_TYPE: "varchar(160)",
+          CHARACTER_SET_NAME: "utf8mb4",
+          COLLATION_NAME: "utf8mb4_unicode_ci"
+        }], []];
+      }
+      return [[], []];
+    }
+  } as never);
+
+  const addColumn = sql.findIndex((statement) =>
+    /ADD COLUMN execution_target VARCHAR\(16\)/u.test(statement)
+  );
+  const backfill = sql.findIndex((statement) =>
+    /UPDATE acquisition_crawler_jobs[\s\S]*SET execution_target=/u.test(statement)
+  );
+  const rebuildDaily = sql.findIndex((statement) =>
+    /DROP INDEX acquisition_crawler_job_daily[\s\S]*local_date,execution_target/u
+      .test(statement)
+  );
+  assert.notEqual(addColumn, -1);
+  assert.ok(backfill > addColumn);
+  assert.ok(rebuildDaily > backfill);
+});
+
+test("crawler target migration resumes after a column-only partial migration", async () => {
+  const sql: string[] = [];
+  await ensureAcquisitionCrawlerJobMysqlSchema({
+    async query(statement: string) {
+      sql.push(statement);
+      if (statement.includes("TABLE_NAME='acquisition_crawler_jobs'")
+        && statement.includes("COLUMN_NAME='execution_target'")) {
+        return [[{ COLUMN_NAME: "execution_target" }], []];
+      }
+      if (statement.includes("TABLE_NAME='acquisition_crawler_jobs'")
+        && statement.includes("INDEX_NAME='acquisition_crawler_job_daily'")) {
+        return [[
+          { COLUMN_NAME: "workspace_id" },
+          { COLUMN_NAME: "plan_id" },
+          { COLUMN_NAME: "policy_version_id" },
+          { COLUMN_NAME: "local_date" }
+        ], []];
+      }
+      if (statement.includes("information_schema.COLUMNS")) {
+        return [[{
+          COLUMN_TYPE: "varchar(160)",
+          CHARACTER_SET_NAME: "utf8mb4",
+          COLLATION_NAME: "utf8mb4_unicode_ci"
+        }], []];
+      }
+      return [[], []];
+    }
+  } as never);
+
+  assert.ok(sql.some((statement) =>
+    /UPDATE acquisition_crawler_jobs[\s\S]*SET execution_target=/u
+      .test(statement)
+  ));
+});
+
 test("crawler legacy alias migration compares cross-collation identifiers as bytes", async () => {
   await assert.doesNotReject(ensureAcquisitionCrawlerJobMysqlSchema({
     async query(statement: string) {
@@ -173,6 +317,221 @@ test("checked-in schemas define authoritative runs before alias foreign keys", (
     assert.match(sql, /acquisition_run_id VARCHAR\(160\)/u);
     assert.match(sql, /run_id VARCHAR\(160\) NOT NULL,[\s\S]*acquisition_crawler_job_run_job/u);
   }
+});
+
+test("crawler MySQL persists execution target and scopes daily uniqueness by target", () => {
+  assert.match(
+    acquisitionCrawlerJobsDdl,
+    /execution_target VARCHAR\(16\) NOT NULL DEFAULT 'server'/u
+  );
+  assert.match(
+    acquisitionCrawlerJobsDdl,
+    /UNIQUE KEY acquisition_crawler_job_daily \(workspace_id,plan_id,policy_version_id,local_date,execution_target\)/u
+  );
+  assert.match(
+    acquisitionCrawlerJobsDdl,
+    /CHECK \(execution_target IN \('server','desktop'\)\)/u
+  );
+  assert.match(
+    acquisitionCrawlerJobsDdl,
+    /INDEX acquisition_crawler_job_claim \(state,execution_target,created_at\)/u
+  );
+  assert.match(
+    acquisitionCrawlerDesktopPageReplaysDdl,
+    /PRIMARY KEY \(job_id,idempotency_key_hash\)/u
+  );
+
+  for (const name of ["schema.mysql.sql", "goodjob_crm.full.sql"]) {
+    const sql = readFileSync(new URL(`../${name}`, import.meta.url), "utf8");
+    assert.match(
+      sql,
+      /execution_target VARCHAR\(16\) NOT NULL DEFAULT 'server'/u,
+      `${name}: execution target column missing`
+    );
+    assert.match(
+      sql,
+      /UNIQUE KEY acquisition_crawler_job_daily \(workspace_id,plan_id,policy_version_id,local_date,execution_target\)/u,
+      `${name}: target-scoped daily uniqueness missing`
+    );
+    assert.match(
+      sql,
+      /CREATE TABLE acquisition_crawler_desktop_page_replays \([\s\S]*PRIMARY KEY \(job_id,idempotency_key_hash\)/u,
+      `${name}: durable desktop page replay table missing`
+    );
+  }
+});
+
+test("crawler MySQL creation writes and queries the physical execution target", async () => {
+  for (const input of [crawlerInput(), desktopCrawlerInput()]) {
+    let dailySql = "";
+    let dailyValues: unknown[] = [];
+    let insertSql = "";
+    let insertValues: unknown[] = [];
+    const pool = {
+      async getConnection() {
+        return {
+          async beginTransaction() {}, async commit() {}, async rollback() {},
+          release() {},
+          async query(sql: string, values: unknown[] = []) {
+            if (sql.includes("FROM acquisition_douyin_run_bindings")) {
+              return [[{
+                automation_intent_id: input.automationIntentId,
+                acquisition_run_id: input.runId
+              }], []];
+            }
+            if (sql.startsWith("SELECT job_id FROM acquisition_crawler_job_")) {
+              return [[], []];
+            }
+            if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE workspace_id=?")) {
+              dailySql = sql;
+              dailyValues = values;
+              return [[], []];
+            }
+            if (sql.startsWith("INSERT INTO acquisition_crawler_jobs")) {
+              insertSql = sql;
+              insertValues = values;
+            }
+            return [{ affectedRows: 1 }, []];
+          }
+        };
+      }
+    };
+    const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+    await repository.createOrGet(input);
+
+    const target = input.executionTarget ?? "server";
+    assert.match(dailySql, /AND execution_target=\? FOR UPDATE/u);
+    assert.equal(dailyValues.at(-1), target);
+    assert.match(insertSql, /updated_at,execution_target\) VALUES/u);
+    assert.equal(insertValues.at(-1), target);
+  }
+});
+
+test("crawler MySQL server claim uses the physical server target", async () => {
+  let claimSql = "";
+  const repository = new MysqlAcquisitionCrawlerJobRepository({
+    async getConnection() {
+      return {
+        async beginTransaction() {}, async commit() {}, async rollback() {},
+        release() {},
+        async query(sql: string) {
+          claimSql = sql;
+          return [[], []];
+        }
+      };
+    }
+  } as never);
+
+  assert.equal(await repository.claimNext(
+    "server-worker", "2026-08-24T01:02:03.456Z", 1_000
+  ), null);
+  assert.match(claimSql, /execution_target='server'/u);
+  assert.doesNotMatch(claimSql, /JSON_EXTRACT[\s\S]*executionTarget/u);
+});
+
+test("crawler MySQL retries a duplicate desktop replay race and replays a terminal response", async () => {
+  const running = {
+    ...desktopScheduledCrawlerJob(),
+    state: "running" as const,
+    attempt: 1,
+    leaseWorkerId: "desktop-worker",
+    leaseToken: "d".repeat(64),
+    leaseExpiresAt: "2026-08-24T01:03:00.000Z",
+    fencingToken: 1,
+    activity: {
+      phase: "finalizing" as const,
+      currentKeyword: "pump",
+      browserMode: "visible" as const,
+      sequence: 1
+    },
+    activityObserved: true
+  };
+  const terminal = {
+    ...running,
+    state: "succeeded" as const,
+    leaseWorkerId: null,
+    leaseToken: null,
+    leaseExpiresAt: null,
+    completedAt: "2026-08-24T01:02:04.567Z",
+    ingestionState: "pending" as const,
+    activity: {
+      phase: "completed" as const,
+      currentKeyword: null,
+      browserMode: "visible" as const,
+      sequence: 2
+    },
+    updatedAt: "2026-08-24T01:02:04.567Z"
+  };
+  const requestHash = `sha256:${"a".repeat(64)}`;
+  const keyHash = `sha256:${"b".repeat(64)}`;
+  let transactions = 0;
+  let rollbacks = 0;
+  const pool = {
+    async getConnection() {
+      transactions += 1;
+      const transaction = transactions;
+      return {
+        async beginTransaction() {}, async commit() {},
+        async rollback() { rollbacks += 1; }, release() {},
+        async query(sql: string) {
+          if (sql.startsWith("SELECT request_hash,response_json")) {
+            return transaction === 1 ? [[], []] : [[{
+              request_hash: requestHash,
+              response_json: JSON.stringify(terminal)
+            }], []];
+          }
+          if (sql.startsWith("SELECT payload_json FROM acquisition_crawler_jobs WHERE id=")) {
+            return [[{ payload_json: JSON.stringify(running) }], []];
+          }
+          if (sql.startsWith("SELECT COALESCE(MAX(sequence_no)")) {
+            return [[{ sequence_no: 0 }], []];
+          }
+          if (sql.startsWith("UPDATE acquisition_crawler_jobs")) {
+            return [{ affectedRows: 1 }, []];
+          }
+          if (sql.startsWith("INSERT INTO acquisition_crawler_desktop_page_replays")) {
+            throw Object.assign(new Error("concurrent replay committed"), {
+              code: "ER_DUP_ENTRY", errno: 1062
+            });
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        }
+      };
+    }
+  };
+  const repository = new MysqlAcquisitionCrawlerJobRepository(pool as never);
+  const fence = {
+    jobId: running.id,
+    workerId: "desktop-worker",
+    leaseToken: "d".repeat(64),
+    fencingToken: 1
+  };
+  const input = {
+    expectedCursor: null,
+    nextCursor: null,
+    records: [],
+    done: true,
+    terminalState: "succeeded" as const,
+    terminalErrorCode: null,
+    terminalActivity: terminal.activity,
+    idempotencyKeyHash: keyHash,
+    requestHash,
+    now: "2026-08-24T01:02:04.567Z"
+  };
+
+  const replay = await repository.persistDesktopPage(fence, input);
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.job.state, "succeeded");
+  assert.equal(transactions, 2);
+  assert.equal(rollbacks, 1);
+
+  await assert.rejects(
+    repository.persistDesktopPage(fence, {
+      ...input,
+      requestHash: `sha256:${"c".repeat(64)}`
+    }),
+    /desktop_crawler_page_replay_conflict/u
+  );
 });
 
 test("restart fails closed on an unmigrated Task-4 mixed alias payload", async () => {
@@ -1274,7 +1633,7 @@ test("crawler MySQL repository sweeps DATETIME leases with a compatible timestam
   assert.deepEqual(observed, ["2026-08-24 01:02:06.789"]);
 });
 
-test("live MySQL preserves lease ABA fencing and cursor/record atomicity", {
+test("live MySQL preserves target-scoped jobs, lease fencing and atomic desktop replay", {
   skip: !process.env.MYSQL_TEST_ADMIN_URL
     ? "MYSQL_TEST_ADMIN_URL is required; no database is provisioned implicitly"
     : false
@@ -1302,7 +1661,7 @@ test("live MySQL preserves lease ABA fencing and cursor/record atomicity", {
        VALUES ('plan-version-1','plan-1','owner-1','team-1',1,'{}',?)`,
       [at]
     );
-    for (const runId of ["run-1", "run-2"]) {
+    for (const runId of ["run-1", "run-2", "run-3"]) {
       await pool.query(
         `INSERT INTO acquisition_runs
          (id,plan_id,plan_version_id,owner_id,team_id,revision,
@@ -1321,7 +1680,11 @@ test("live MySQL preserves lease ABA fencing and cursor/record atomicity", {
         'plan-version-1','account-1',1,1,1,'"policy-1"',?,'{}','owner-1',?)`,
       [`sha256:${"a".repeat(64)}`, at]
     );
-    for (const [intentId, runId] of [["intent-1", "run-1"], ["intent-2", "run-2"]]) {
+    for (const [intentId, runId] of [
+      ["intent-1", "run-1"],
+      ["intent-2", "run-2"],
+      ["intent-3", "run-3"]
+    ]) {
       await pool.query(
         `INSERT INTO acquisition_douyin_run_intents
          (id,workspace_id,owner_id,team_id,plan_id,plan_version_id,
@@ -1374,9 +1737,27 @@ test("live MySQL preserves lease ABA fencing and cursor/record atomicity", {
       ["intent-1", "intent-2"]
     );
     assert.equal(scheduled.job.state, "scheduled");
+    const desktopTokenHash = `sha256:${"d".repeat(64)}`;
+    const desktop = await repository.createOrGet({
+      ...scheduledInput,
+      id: "job-3",
+      runId: "run-3",
+      automationIntentId: "intent-3",
+      trigger: "run_now",
+      executionTarget: "desktop",
+      desktopTaskTokenHash: desktopTokenHash,
+      maxAttempts: 1
+    });
+    assert.equal(desktop.created, true);
+    assert.notEqual(desktop.job.id, scheduled.job.id);
+    assert.equal(desktop.job.executionTarget, "desktop");
+    assert.equal((await repository.enqueue(
+      "workspace-1", "run-3", "2026-08-24T00:00:00.000Z"
+    ))?.state, "queued");
     assert.equal((await repository.enqueue("workspace-1", "run-1", "2026-08-24T00:00:00.000Z"))?.state, "queued");
     const first = await repository.claimNext("worker-A", "2026-08-24T00:00:01.000Z", 1_000);
     assert.ok(first);
+    assert.equal(first.job.executionTarget, "server");
     assert.equal(first.job.state, "running");
     await assert.rejects(repository.renew(first.fence, "2026-08-24T00:00:02.000Z", 1_000), /stale_crawler_job_fence/u);
     assert.equal(await repository.sweepExpired("2026-08-24T00:00:02.000Z"), 1);
@@ -1395,6 +1776,44 @@ test("live MySQL preserves lease ABA fencing and cursor/record atomicity", {
       terminalActivity: { phase: "completed", currentKeyword: null, browserMode: "headless", sequence: 1 }, now: "2026-08-24T00:00:06.000Z" });
     assert.equal((await repository.findByRun("workspace-1", "run-1"))?.state, "succeeded");
     assert.equal((await repository.listRecords(scheduled.job.id)).length, 1);
+
+    const desktopClaim = await repository.claimDesktop(
+      "workspace-1", desktop.job.id, desktopTokenHash, "desktop-worker",
+      "2026-08-24T00:00:07.000Z", 5_000
+    );
+    const desktopPage = {
+      expectedCursor: null,
+      nextCursor: null,
+      records: [],
+      done: true,
+      terminalState: "succeeded" as const,
+      terminalErrorCode: null,
+      terminalActivity: {
+        phase: "completed" as const,
+        currentKeyword: null,
+        browserMode: "visible" as const,
+        sequence: 1
+      },
+      idempotencyKeyHash: `sha256:${"e".repeat(64)}`,
+      requestHash: `sha256:${"f".repeat(64)}`,
+      now: "2026-08-24T00:00:08.000Z"
+    };
+    const concurrent = await Promise.all([
+      repository.persistDesktopPage(desktopClaim.fence, desktopPage),
+      repository.persistDesktopPage(desktopClaim.fence, desktopPage)
+    ]);
+    assert.deepEqual(
+      concurrent.map((result) => result.replayed).sort(),
+      [false, true]
+    );
+    assert.ok(concurrent.every((result) => result.job.state === "succeeded"));
+    await assert.rejects(
+      repository.persistDesktopPage(desktopClaim.fence, {
+        ...desktopPage,
+        requestHash: `sha256:${"0".repeat(64)}`
+      }),
+      /desktop_crawler_page_replay_conflict/u
+    );
   } finally {
     await pool.end();
     await admin.query(`DROP DATABASE \`${database}\``);

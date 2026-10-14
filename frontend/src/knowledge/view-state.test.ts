@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { normalizeAppHash } from '../app-route';
 import { moduleSurfaceForSession, demoModuleFromHash } from '../demo/demo-router';
-import { createKnowledgeViewState, formatKnowledgeLocator, validateKnowledgeFiles } from './view-state';
+import { createKnowledgeViewState, formatKnowledgeLocator, knowledgeErrorMessage, validateKnowledgeFiles } from './view-state';
 import { createKnowledgeApi, KnowledgeApiError, type KnowledgeApi, type KnowledgeDocument, type KnowledgeVersion } from './api';
 
 const id='11111111-1111-4111-8111-111111111111', vid='22222222-2222-4222-8222-222222222222';
@@ -52,6 +52,21 @@ test('metadata mutation refreshes enabled state and deletion removes the private
     patch:async()=>{current={...doc,revision:2,enabled:false};return current;},remove:async()=>{deleted=true;}}),identity:()=> 'actor-a',onChange:()=>{},pollMs:0});
   await controller.load();await controller.select(id);await controller.patch({enabled:false});assert.equal(controller.snapshot().selected?.enabled,false);
   await controller.remove();assert.equal(controller.snapshot().selected,null);assert.deepEqual(controller.snapshot().chunks,[]);controller.dispose();
+});
+test('replacement waits for metadata acknowledgement and uses the confirmed document revision',async()=>{
+  let current=doc;const response=deferred<KnowledgeDocument>();const replacements:number[]=[];
+  const controller=createKnowledgeViewState({api:api({list:async()=>({items:[current],nextCursor:null}),get:async()=>current,
+    patch:async()=>response.promise,replace:async(_id,_input,revision)=>{replacements.push(revision);return version;}}),identity:()=> 'actor-a',onChange:()=>{},pollMs:0});
+  try{
+    await controller.load();await controller.select(id);const saving=controller.patch({roles:['cfo']});
+    assert.equal(controller.snapshot().detailBusy,true);
+    await controller.enqueue([new File(['budget'],'pending.txt')],{sourceKind:'book',roles:['cfo']},controller.snapshot().selected!);
+    assert.deepEqual(replacements,[]);assert.deepEqual(controller.snapshot().uploads,[]);
+    current={...doc,revision:2};response.resolve(current);await saving;
+    assert.equal(controller.snapshot().detailBusy,false);
+    await controller.enqueue([new File(['budget'],'confirmed.txt')],{sourceKind:'book',roles:['cfo']},controller.snapshot().selected!);
+    assert.deepEqual(replacements,[2]);
+  }finally{response.resolve(current);controller.dispose();}
 });
 test('binary API uses raw file, exact scope/revision and refuses automatic redirects or aggregate workspace',async()=>{
   let request:RequestInit|undefined;let url='';const client=createKnowledgeApi({workspaceId:()=> 'personal-a',csrf:()=> 'csrf-a',fetchImpl:async(input,init)=>{
@@ -114,6 +129,42 @@ test('exact citation opens its old version and a later chunk page without fallin
   assert.equal(await controller.openCitation({documentId:id,versionId:vid,chunkId,sourceHash:'b'.repeat(64)}),false);
   assert.deepEqual(controller.snapshot().chunks,[]);assert.match(controller.snapshot().error,/版本|原文/);
   controller.dispose();
+});
+test('deep citation stays within the normal request budget while ordinary previews still read twenty chunks',async()=>{
+  const hash='a'.repeat(64),targetOrder=14200;
+  const chunkId=(order:number)=>`${order.toString(16).padStart(8,'0')}-4444-4444-8444-444444444444`;
+  let requests=0;const limits:number[]=[];
+  const client=createKnowledgeApi({workspaceId:()=> 'personal-a',csrf:()=> '',fetchImpl:async(input)=>{
+    const url=new URL(String(input),'http://localhost');requests++;
+    if(requests>600)return new Response(JSON.stringify({message:'请求过于频繁，请稍后再试'}),{status:429});
+    if(url.pathname.endsWith('/chunks')){
+      const limit=Number(url.searchParams.get('limit')),start=Number(url.searchParams.get('cursor')??0);limits.push(limit);
+      return new Response(JSON.stringify({items:Array.from({length:Math.min(limit,targetOrder+1-start)},(_value,index)=>({
+        id:chunkId(start+index),versionId:vid,order:start+index,text:'合成定位原文',locator:{page:447},warnings:[]
+      })),nextCursor:start+limit<=targetOrder?String(start+limit):null}),{status:200});
+    }
+    return new Response(JSON.stringify(url.pathname.includes('/versions/')
+      ?{...version,sourceHash:hash,uploadComplete:true,status:'ready'}:{...doc,activeVersionId:vid}),{status:200});
+  }});
+  const controller=createKnowledgeViewState({api:client,identity:()=> 'actor-a',onChange:()=>{},pollMs:0});
+  try{
+    await controller.select(id);assert.deepEqual(limits,[20]);
+    const initial=requests;limits.length=0;
+    assert.equal(await controller.openCitation({documentId:id,versionId:vid,chunkId:chunkId(targetOrder),sourceHash:hash}),true);
+    assert.ok(requests-initial<=145);assert.equal(limits.every(limit=>limit===100),true);
+    assert.equal(controller.snapshot().chunks[0].order,14200);assert.ok(controller.snapshot().chunks.length<=100);
+    assert.equal(controller.snapshot().selectedVersion?.sourceHash,hash);assert.equal(controller.snapshot().error,'');
+  }finally{controller.dispose();}
+});
+test('rate-limited knowledge reads show an explicit bounded message without retrying',async()=>{
+  let requests=0;const client=createKnowledgeApi({workspaceId:()=> 'personal-a',fetchImpl:async()=>{
+    requests++;return new Response(JSON.stringify({message:'untrusted server detail'}),{status:429});
+  }});
+  const controller=createKnowledgeViewState({api:client,identity:()=> 'actor-a',onChange:()=>{},pollMs:0});
+  try{await controller.select(id);assert.equal(requests,1);assert.match(controller.snapshot().error,/请求.*受限/);
+    assert.equal(controller.snapshot().error.includes('untrusted server detail'),false);
+    assert.match(knowledgeErrorMessage(new KnowledgeApiError('growth_api_error',429)),/不会自动/);
+  }finally{controller.dispose();}
 });
 test('missing citation and identity changes never open a different source',async()=>{
   const chunkId='44444444-4444-4444-8444-444444444444';let identity='actor-a';

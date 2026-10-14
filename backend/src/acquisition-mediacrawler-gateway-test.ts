@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import test from "node:test";
 
@@ -33,7 +34,7 @@ test("health sends the service bearer authorization", async () => {
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify(validHealth));
   }, async (baseUrl) => {
-    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret, runtimeMode: "desktop" });
     assert.deepEqual(await gateway.health(), {
       ok: true,
       service: "shensi-mediacrawler",
@@ -192,7 +193,7 @@ test("default action HTTP timeout preserves the ten-second result review window"
   }
 });
 
-test("login creation allows interactive browser startup beyond the general timeout", async () => {
+test("login creation accepts an explicit transport timeout override", async () => {
   await withServer((_request, response) => {
     setTimeout(() => {
       response.setHeader("content-type", "application/json");
@@ -200,6 +201,12 @@ test("login creation allows interactive browser startup beyond the general timeo
         session_id: "login-1",
         state: "awaiting_scan",
         qr_image_data_url: "data:image/png;base64,cXI=",
+        qr_status: "ready",
+        login_page: {
+          image_data_url: "data:image/png;base64,cGFnZQ==",
+          width: 1280,
+          height: 720,
+        },
         expires_at: "2026-08-25T05:30:00.000Z",
         account_handle: null,
         account_display_name: null,
@@ -211,9 +218,602 @@ test("login creation allows interactive browser startup beyond the general timeo
       baseUrl,
       serviceSecret,
       timeoutMs: 5,
+      loginCreationTimeoutMs: 50,
     });
-    assert.equal((await gateway.createLoginSession()).state, "awaiting_scan");
+    assert.deepEqual((await gateway.createLoginSession()).loginPage, {
+      imageDataUrl: "data:image/png;base64,cGFnZQ==",
+      width: 1280,
+      height: 720,
+    });
   });
+});
+
+test("desktop login creation sends only a stable opaque account key and maps split runtime state", async () => {
+  const accountKey = createHash("sha256")
+    .update("douyin-profile:workspace-a", "utf8")
+    .digest("hex");
+  await withServer(async (request, response) => {
+    assert.equal(request.method, "POST");
+    assert.equal(request.url, "/internal/v1/douyin/login-sessions");
+    let rawBody = "";
+    for await (const chunk of request) rawBody += chunk;
+    assert.deepEqual(JSON.parse(rawBody), { account_key: accountKey });
+    assert.equal(rawBody.includes("workspace-a"), false,
+      "the raw workspace identifier must not cross the Sidecar boundary");
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      session_id: "desktop-login-1",
+      state: "awaiting_scan",
+      interaction_surface: "external_window",
+      runtime_state: "running",
+      auth_state: "waiting_for_user",
+      task_state: "idle",
+      diagnostic: {
+        code: "waiting_for_user",
+        message: "External browser is ready for manual login.",
+        recoverable: true,
+        occurred_at: "2026-09-02T08:00:00.000Z"
+      },
+      screenshot_available: false,
+      qr_available: false,
+      qr_image_data_url: null,
+      qr_status: null,
+      login_page: null,
+      failure_code: null,
+      expires_at: "2026-09-02T08:10:00.000Z",
+      account_handle: null,
+      account_display_name: null,
+      login_state_version: null
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    const session = await gateway.createLoginSession({ accountKey });
+    assert.deepEqual({
+      interactionSurface: session.interactionSurface,
+      runtimeState: session.runtimeState,
+      authState: session.authState,
+      taskState: session.taskState,
+      diagnostic: session.diagnostic,
+      screenshotAvailable: session.screenshotAvailable,
+      qrAvailable: session.qrAvailable,
+      qrImageDataUrl: session.qrImageDataUrl,
+      loginPage: session.loginPage
+    }, {
+      interactionSurface: "external_window",
+      runtimeState: "running",
+      authState: "waiting_for_user",
+      taskState: "idle",
+      diagnostic: {
+        code: "waiting_for_user",
+        message: "External browser is ready for manual login.",
+        recoverable: true,
+        occurredAt: "2026-09-02T08:00:00.000Z"
+      },
+      screenshotAvailable: false,
+      qrAvailable: false,
+      qrImageDataUrl: null,
+      loginPage: null
+    });
+  });
+});
+
+test("live login creation returns only a bounded public websocket token", async () => {
+  await withServer(async (request, response) => {
+    assert.equal(request.method, "POST");
+    assert.equal(request.url,
+      "/internal/v1/douyin/login-sessions/upstream%2Fsession/live-sessions");
+    assert.equal(request.headers.authorization, `Bearer ${serviceSecret}`);
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      token: "a".repeat(64),
+      expires_at: "2026-09-01T00:05:00.000Z",
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    assert.deepEqual(await gateway.createLiveLoginSession("upstream/session"), {
+      token: "a".repeat(64),
+      expiresAt: "2026-09-01T00:05:00.000Z",
+    });
+  });
+});
+
+test("live login creation preserves a context-not-ready conflict", async () => {
+  await withServer((_request, response) => {
+    response.statusCode = 409;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      detail: "douyin_login_session_not_interactive",
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    await assert.rejects(gateway.createLiveLoginSession("starting-session"), {
+      code: "douyin_login_session_not_ready",
+    });
+  });
+});
+
+test("live login creation does not treat another 409 as startup", async () => {
+  await withServer((_request, response) => {
+    response.statusCode = 409;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ detail: "another_conflict" }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    await assert.rejects(gateway.createLiveLoginSession("conflict-session"), {
+      code: "mediacrawler_unavailable"
+    });
+  });
+});
+
+test("live login creation preserves an upstream-expired session", async () => {
+  await withServer((_request, response) => {
+    response.statusCode = 404;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ detail: "login_session_not_found" }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    await assert.rejects(gateway.createLiveLoginSession("expired-session"), {
+      code: "douyin_login_session_expired"
+    });
+  });
+});
+
+test("login creation maps a sidecar 500 to mediacrawler_unavailable", async () => {
+  await withServer((_request, response) => {
+    response.statusCode = 500;
+    response.end();
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    await assert.rejects(gateway.createLoginSession(), (error: unknown) => {
+      assert.equal((error as { name?: string }).name, "MediaCrawlerGatewayError");
+      assert.equal(
+        (error as { code?: string }).code,
+        "mediacrawler_unavailable"
+      );
+      return true;
+    });
+  });
+});
+
+test("login lookup treats an exact sidecar not-found as an expired mapped session", async () => {
+  await withServer((_request, response) => {
+    response.statusCode = 404;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ detail: "login_session_not_found" }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    await assert.rejects(gateway.getLoginSession("missing-login"), {
+      code: "douyin_login_session_expired"
+    });
+  });
+});
+
+test("login sessions expose only an allowlisted sidecar failure code", async () => {
+  await withServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      session_id: "failed-login",
+      state: "failed",
+      qr_image_data_url: null,
+      qr_status: null,
+      login_page: null,
+      failure_code: "douyin_login_ui_unsupported",
+      expires_at: "2026-08-25T05:30:00.000Z",
+      account_handle: null,
+      account_display_name: null,
+      login_state_version: null,
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    const session = await gateway.getLoginSession("failed-login");
+    assert.equal(session.state, "failed");
+    assert.equal(session.failureCode, "douyin_login_ui_unsupported");
+  });
+});
+
+test("login sessions map the required closed QR status", async () => {
+  await withServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      session_id: "ready-login",
+      state: "awaiting_scan",
+      qr_image_data_url: "data:image/png;base64,cXI=",
+      qr_status: "ready",
+      login_page: null,
+      failure_code: null,
+      expires_at: "2026-08-25T05:30:00.000Z",
+      account_handle: null,
+      account_display_name: null,
+      login_state_version: null,
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    const session = await gateway.getLoginSession("ready-login");
+    assert.equal(session.qrStatus, "ready");
+  });
+});
+
+test("login sessions reject a missing QR status", async () => {
+  await withServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      session_id: "legacy-login",
+      state: "awaiting_scan",
+      qr_image_data_url: null,
+      login_page: null,
+      failure_code: null,
+      expires_at: "2026-08-25T05:30:00.000Z",
+      account_handle: null,
+      account_display_name: null,
+      login_state_version: null,
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    await assert.rejects(gateway.getLoginSession("legacy-login"), {
+      code: "mediacrawler_invalid_response"
+    });
+  });
+});
+
+test("login sessions fail closed when the sidecar omits runtime ownership fields", async () => {
+  await withServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      session_id: "desktop-runtime-unknown",
+      state: "awaiting_scan",
+      qr_image_data_url: null,
+      qr_status: null,
+      login_page: null,
+      failure_code: null,
+      expires_at: "2026-08-25T05:30:00.000Z",
+      account_handle: null,
+      account_display_name: null,
+      login_state_version: null,
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret, runtimeMode: "desktop" });
+    await assert.rejects(gateway.getLoginSession("desktop-runtime-unknown"), {
+      code: "mediacrawler_invalid_response"
+    });
+  });
+});
+
+test("login lookup rejects a response belonging to another session", async () => {
+  await withServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      session_id: "other-session", state: "awaiting_scan", qr_image_data_url: null,
+      qr_status: null, login_page: null, failure_code: null,
+      expires_at: "2026-08-25T05:30:00.000Z", account_handle: null,
+      account_display_name: null, login_state_version: null,
+      interaction_surface: "external_window", runtime_state: "running",
+      auth_state: "waiting_for_user", task_state: "idle", diagnostic: null,
+      screenshot_available: false, qr_available: false
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret, runtimeMode: "desktop" });
+    await assert.rejects(gateway.getLoginSession("requested-session"), {
+      code: "mediacrawler_invalid_response"
+    });
+  });
+});
+
+test("login page frames larger than 64 KiB use a dedicated bounded response budget", async () => {
+  const encodedFrame = "A".repeat(128 * 1024);
+  await withServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      session_id: "large-login-frame",
+      state: "awaiting_scan",
+      qr_image_data_url: null,
+      qr_status: "opening",
+      login_page: {
+        image_data_url: `data:image/jpeg;base64,${encodedFrame}`,
+        width: 1280,
+        height: 800,
+      },
+      failure_code: null,
+      expires_at: "2026-08-25T05:30:00.000Z",
+      account_handle: null,
+      account_display_name: null,
+      login_state_version: null,
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({
+      baseUrl,
+      serviceSecret,
+    });
+    const session = await gateway.getLoginSession("large-login-frame");
+    assert.equal(session.loginPage?.imageDataUrl.length,
+      "data:image/jpeg;base64,".length + encodedFrame.length);
+  });
+});
+
+test("login page frames still reject responses larger than 2 MiB", async () => {
+  const encodedFrame = "A".repeat(2 * 1024 * 1024);
+  await withServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      session_id: "oversized-login-frame",
+      state: "awaiting_scan",
+      qr_image_data_url: null,
+      qr_status: "opening",
+      login_page: {
+        image_data_url: `data:image/jpeg;base64,${encodedFrame}`,
+        width: 1280,
+        height: 800,
+      },
+      failure_code: null,
+      expires_at: "2026-08-25T05:30:00.000Z",
+      account_handle: null,
+      account_display_name: null,
+      login_state_version: null,
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({
+      baseUrl,
+      serviceSecret,
+    });
+    await assert.rejects(
+      gateway.getLoginSession("oversized-login-frame"),
+      { code: "mediacrawler_invalid_response" },
+    );
+  });
+});
+
+test("login sessions reject an arbitrary upstream failure code", async () => {
+  await withServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      session_id: "failed-login",
+      state: "failed",
+      qr_image_data_url: null,
+      qr_status: null,
+      login_page: null,
+      failure_code: "raw_playwright_exception",
+      expires_at: "2026-08-25T05:30:00.000Z",
+      account_handle: null,
+      account_display_name: null,
+      login_state_version: null,
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    await assert.rejects(gateway.getLoginSession("failed-login"), {
+      code: "mediacrawler_invalid_response"
+    });
+  });
+});
+
+test("login interaction sends the exact upstream session and normalized click", async () => {
+  await withServer(async (request, response) => {
+    assert.equal(request.method, "POST");
+    assert.equal(request.url,
+      "/internal/v1/douyin/login-sessions/upstream%2Fsession/interactions");
+    assert.equal(request.headers.authorization, `Bearer ${serviceSecret}`);
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    assert.deepEqual(JSON.parse(body), {
+      type: "click",
+      normalized_x: 0.25,
+      normalized_y: 0.75,
+    });
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      session_id: "upstream/session",
+      state: "awaiting_scan",
+      qr_image_data_url: null,
+      qr_status: "opening",
+      login_page: {
+        image_data_url: "data:image/png;base64,cGFnZQ==",
+        width: 1280,
+        height: 720,
+      },
+      expires_at: "2026-08-25T05:30:00.000Z",
+      account_handle: null,
+      account_display_name: null,
+      login_state_version: null,
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    const session = await gateway.interactLoginSession("upstream/session", {
+      type: "click",
+      normalizedX: 0.25,
+      normalizedY: 0.75,
+    });
+    assert.equal(session.sessionId, "upstream/session");
+    assert.equal(session.loginPage?.width, 1280);
+  });
+});
+
+test("login interaction sends the semantic QR refresh command", async () => {
+  await withServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    assert.deepEqual(JSON.parse(body), { type: "refresh_qr" });
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      session_id: "refresh-session",
+      state: "awaiting_scan",
+      qr_image_data_url: "data:image/png;base64,bmV3",
+      qr_status: "ready",
+      login_page: null,
+      failure_code: null,
+      expires_at: "2026-08-25T05:30:00.000Z",
+      account_handle: null,
+      account_display_name: null,
+      login_state_version: null,
+    }));
+  }, async (baseUrl) => {
+    const gateway = createDouyinMediaCrawlerGateway({ baseUrl, serviceSecret });
+    const session = await gateway.interactLoginSession("refresh-session", {
+      type: "refresh_qr"
+    });
+    assert.equal(session.qrStatus, "ready");
+  });
+});
+
+test("default login creation timeout stays on the short transport budget", async () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const observedTimeouts: number[] = [];
+  globalThis.setTimeout = ((callback: () => void, delay?: number) => {
+    observedTimeouts.push(delay ?? 0);
+    queueMicrotask(callback);
+    return 0 as unknown as NodeJS.Timeout;
+  }) as typeof setTimeout;
+  try {
+    const gateway = createDouyinMediaCrawlerGateway({
+      baseUrl: "http://127.0.0.1:8000",
+      serviceSecret,
+      fetchImpl: (async (_input, init) => new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) reject(new Error("aborted"));
+        else signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true
+        });
+      })) as typeof fetch
+    });
+    await assert.rejects(gateway.createLoginSession(), {
+      code: "mediacrawler_unavailable"
+    });
+    assert.deepEqual(observedTimeouts, [5_000]);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test("login polling has a dedicated browser-command timeout", async () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const observedTimeouts: number[] = [];
+  globalThis.setTimeout = ((callback: () => void, delay?: number) => {
+    observedTimeouts.push(delay ?? 0);
+    queueMicrotask(callback);
+    return 0 as unknown as NodeJS.Timeout;
+  }) as typeof setTimeout;
+  try {
+    const gateway = createDouyinMediaCrawlerGateway({
+      baseUrl: "http://127.0.0.1:8000",
+      serviceSecret,
+      fetchImpl: (async (_input, init) => new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) reject(new Error("aborted"));
+        else signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true
+        });
+      })) as typeof fetch
+    });
+    await assert.rejects(gateway.health(), {
+      code: "mediacrawler_unavailable"
+    });
+    await assert.rejects(gateway.getLoginSession("polling-session"), {
+      code: "mediacrawler_unavailable"
+    });
+    assert.deepEqual(observedTimeouts, [5_000, 70_000]);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test("login interactions keep the browser-command timeout instead of the short transport budget", async () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const observedTimeouts: number[] = [];
+  globalThis.setTimeout = ((callback: () => void, delay?: number) => {
+    observedTimeouts.push(delay ?? 0);
+    queueMicrotask(callback);
+    return 0 as unknown as NodeJS.Timeout;
+  }) as typeof setTimeout;
+  try {
+    const gateway = createDouyinMediaCrawlerGateway({
+      baseUrl: "http://127.0.0.1:8000",
+      serviceSecret,
+      fetchImpl: (async (_input, init) => new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) reject(new Error("aborted"));
+        else signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true
+        });
+      })) as typeof fetch
+    });
+    await assert.rejects(gateway.interactLoginSession("refresh-session", {
+      type: "refresh_qr"
+    }), { code: "mediacrawler_unavailable" });
+    assert.deepEqual(observedTimeouts, [70_000]);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test("login interaction accepts a sidecar result after 65 seconds but before its 70 second transport deadline", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    let requestSignal: AbortSignal | undefined;
+    const gateway = createDouyinMediaCrawlerGateway({
+      baseUrl: "http://127.0.0.1:8000",
+      serviceSecret,
+      fetchImpl: (async (_input, init) => {
+        requestSignal = init?.signal;
+        return await new Promise<Response>((resolve) => {
+          setTimeout(() => resolve(new Response(JSON.stringify({
+            session_id: "slow-refresh-session",
+            state: "awaiting_scan",
+            qr_image_data_url: "data:image/png;base64,bmV3",
+            qr_status: "ready",
+            login_page: null,
+            failure_code: null,
+            expires_at: "2026-08-25T05:30:00.000Z",
+            account_handle: null,
+            account_display_name: null,
+            login_state_version: null,
+          }))), 65_000);
+        });
+      }) as typeof fetch
+    });
+
+    const interaction = gateway.interactLoginSession("slow-refresh-session", {
+      type: "refresh_qr"
+    });
+    context.mock.timers.tick(64_999);
+    assert.equal(requestSignal?.aborted, false);
+    context.mock.timers.tick(1);
+
+    const session = await interaction;
+    assert.equal(session.qrStatus, "ready");
+    assert.equal(requestSignal?.aborted, false);
+  } finally {
+    context.mock.timers.reset();
+  }
+});
+
+test("login interaction aborts at its 70 second transport deadline", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    let requestSignal: AbortSignal | undefined;
+    const gateway = createDouyinMediaCrawlerGateway({
+      baseUrl: "http://127.0.0.1:8000",
+      serviceSecret,
+      fetchImpl: (async (_input, init) => {
+        requestSignal = init?.signal;
+        return await new Promise<Response>((_resolve, reject) => {
+          requestSignal?.addEventListener(
+            "abort",
+            () => reject(new Error("aborted")),
+            { once: true },
+          );
+        });
+      }) as typeof fetch
+    });
+
+    const interaction = gateway.interactLoginSession("stalled-refresh-session", {
+      type: "refresh_qr"
+    });
+    context.mock.timers.tick(69_999);
+    assert.equal(requestSignal?.aborted, false);
+    context.mock.timers.tick(1);
+
+    await assert.rejects(interaction, { code: "mediacrawler_unavailable" });
+    assert.equal(requestSignal?.aborted, true);
+  } finally {
+    context.mock.timers.reset();
+  }
 });
 
 test("gateway rejects a secret with fewer than 32 non-whitespace bytes", () => {

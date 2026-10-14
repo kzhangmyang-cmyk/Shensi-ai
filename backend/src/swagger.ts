@@ -2535,6 +2535,18 @@ export function createOpenApiDocument(app: Application) {
           name: "X-CSRF-Token",
           description: "Cookie 会话执行写操作时需要；Swagger UI 会从 gj_csrf Cookie 自动附加。"
         },
+        desktopInstallationId: {
+          type: "apiKey",
+          in: "header",
+          name: "X-Shensi-Desktop-Installation-Id",
+          description: "Installation identifier; required together with desktopDeviceToken."
+        },
+        desktopDeviceToken: {
+          type: "apiKey",
+          in: "header",
+          name: "X-Shensi-Desktop-Device-Token",
+          description: "Device credential; browser cookies or bearer identity cannot replace it."
+        },
         twilioSignature: {
           type: "apiKey",
           in: "header",

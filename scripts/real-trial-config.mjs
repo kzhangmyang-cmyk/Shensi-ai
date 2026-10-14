@@ -1,11 +1,12 @@
 import { randomBytes, createHash } from "node:crypto";
-import { access, chmod, copyFile, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { validateActionVisualLocator } from "./dev.mjs";
 
 export const TRIAL_PORTS = Object.freeze({ mysql: 3310, gateway: 5608, frontend: 5610, backend: 5611, mediaCrawler: 5612 });
-const secretNames = ["jwt_secret", "provider_credential_key", "agent_job_encryption_key", "acquisition_master_secret", "acquisition_v1_cursor_secret", "mediacrawler_service_secret", "mysql_app_password", "trade_observation_cursor_secret", "market_opportunity_cursor_secret", "prospect_run_idempotency_secret", "prospect_run_cursor_secret", "prospect_execution_claim_secret", "organization_identity_master_secret", "prospect_source_raw_envelope_secret", "prospect_coverage_master_secret"];
+export const TRIAL_CLOUDFLARED_SHA256 = "b61054d3d6326ea558cb49826eebf5676e0d0a36d51b546975096ca3e0e3c89d";
+const secretNames = ["jwt_secret", "provider_credential_key", "agent_job_encryption_key", "acquisition_master_secret", "acquisition_v1_cursor_secret", "mysql_app_password", "trade_observation_cursor_secret", "market_opportunity_cursor_secret", "prospect_run_idempotency_secret", "prospect_run_cursor_secret", "prospect_execution_claim_secret", "organization_identity_master_secret", "prospect_source_raw_envelope_secret", "prospect_coverage_master_secret"];
 
 async function privateDirectory(path) {
   try {
@@ -36,6 +37,72 @@ async function privateFile(path, value) {
   return readFile(path, "utf8");
 }
 
+function presentPath(value) {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+export async function prepareTrialCloudflared(
+  runtimeRoot, options = {}, dependencies = {}
+) {
+  const root = resolve(runtimeRoot);
+  const toolsDirectory = resolve(root, "tools");
+  const destination = resolve(toolsDirectory, "cloudflared");
+  const hostEnvironment = options.hostEnvironment ?? process.env;
+  const source = presentPath(options.cloudflaredBinary)
+    ?? presentPath(hostEnvironment.SHENSI_TRIAL_CLOUDFLARED)
+    ?? destination;
+  let bytes;
+  try {
+    bytes = await readFile(source);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new Error("TRIAL_CLOUDFLARED_REQUIRED");
+    }
+    throw error;
+  }
+  const expectedSha256 = dependencies.expectedSha256
+    ?? TRIAL_CLOUDFLARED_SHA256;
+  const actualSha256 = createHash("sha256").update(bytes).digest("hex");
+  if (actualSha256 !== expectedSha256) {
+    throw new Error("TRIAL_CLOUDFLARED_SHA256_MISMATCH");
+  }
+  await privateDirectory(root);
+  await privateDirectory(toolsDirectory);
+  const temporary = resolve(
+    toolsDirectory, `.cloudflared.${randomBytes(16).toString("hex")}.tmp`
+  );
+  try {
+    await writeFile(temporary, bytes, { mode: 0o700, flag: "wx" });
+    await chmod(temporary, 0o700);
+    await rename(temporary, destination);
+  } finally {
+    await unlink(temporary).catch((error) => {
+      if (error?.code !== "ENOENT") throw error;
+    });
+  }
+  return destination;
+}
+
+async function migrateRetainedPath(legacy, destination, kind) {
+  let legacyInfo;
+  let destinationInfo;
+  try { legacyInfo = await lstat(legacy); } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  try { destinationInfo = await lstat(destination); } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  if (!legacyInfo) return;
+  if (legacyInfo.isSymbolicLink()
+    || (kind === "directory" ? !legacyInfo.isDirectory() : !legacyInfo.isFile())) {
+    throw new Error("TRIAL_RETAINED_MEDIACRAWLER_PATH_INVALID");
+  }
+  if (destinationInfo) {
+    throw new Error("TRIAL_RETAINED_MEDIACRAWLER_PATH_CONFLICT");
+  }
+  await rename(legacy, destination);
+}
+
 export function isTrialPortAvailable(port, host = "127.0.0.1") {
   return new Promise((resolvePort) => {
     const server = createServer();
@@ -55,6 +122,17 @@ function outreachActionsEnabled(options) {
   return value === true
     || (typeof value === "string" && value.toLowerCase() === "true");
 }
+export function trialOutreachEnvironment(enabled) {
+  const authorized = enabled === true ? "true" : "false";
+  return {
+    DOUYIN_OUTREACH_ACTIONS_ENABLED: authorized,
+    DOUYIN_OUTREACH_APPROVALS_ENABLED: authorized,
+    DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED: authorized,
+    DOUYIN_OUTREACH_DESKTOP_EXECUTION_ENABLED: "false",
+    SHENSI_DESKTOP_CLIENT_ADMISSION_MODE: "migration_locked",
+    SHENSI_DESKTOP_ADMITTED_BUILD_MANIFEST_SHA256: ""
+  };
+}
 export async function prepareTrialRuntime(repositoryRoot, options = {}) {
   const actionVisualLocator = validateActionVisualLocator(
     options.actionVisualLocator
@@ -66,10 +144,15 @@ export async function prepareTrialRuntime(repositoryRoot, options = {}) {
   for (const port of Object.values(TRIAL_PORTS)) if (!await isPortAvailable(port)) throw new Error(`TRIAL_PORT_OCCUPIED:${port}`);
   const suppliedPassword = await password(options);
   if (suppliedPassword && /[\r\n]/u.test(suppliedPassword)) throw new Error("TRIAL_APP_PASSWORD_REQUIRED");
-  const secretsDirectory = resolve(runtimeRoot, "secrets"), stateDirectory = resolve(runtimeRoot, "state"), logsDirectory = resolve(runtimeRoot, "logs"), pidsDirectory = resolve(runtimeRoot, "pids"), toolsDirectory = resolve(runtimeRoot, "tools"), mysqlDirectory = resolve(stateDirectory, "mysql"), profileDirectory = resolve(stateDirectory, "mediacrawler-profile"), outputDirectory = resolve(stateDirectory, "mediacrawler-output");
-  for (const directory of [runtimeRoot, secretsDirectory, stateDirectory, logsDirectory, pidsDirectory, toolsDirectory, mysqlDirectory, profileDirectory, outputDirectory]) await privateDirectory(directory);
+  const secretsDirectory = resolve(runtimeRoot, "secrets"), stateDirectory = resolve(runtimeRoot, "state"), logsDirectory = resolve(runtimeRoot, "logs"), pidsDirectory = resolve(runtimeRoot, "pids"), toolsDirectory = resolve(runtimeRoot, "tools"), mysqlDirectory = resolve(stateDirectory, "mysql"), mediaCrawlerDirectory = resolve(stateDirectory, "mediacrawler"), profileDirectory = resolve(mediaCrawlerDirectory, "profile"), outputDirectory = resolve(mediaCrawlerDirectory, "output"), mediaCrawlerSecretsDirectory = resolve(secretsDirectory, "mediacrawler"), mediaCrawlerSecretFile = resolve(mediaCrawlerSecretsDirectory, "service_secret");
+  for (const directory of [runtimeRoot, secretsDirectory, stateDirectory, logsDirectory, pidsDirectory, toolsDirectory, mysqlDirectory, mediaCrawlerDirectory, mediaCrawlerSecretsDirectory]) await privateDirectory(directory);
+  await migrateRetainedPath(resolve(stateDirectory, "mediacrawler-profile"), profileDirectory, "directory");
+  await migrateRetainedPath(resolve(stateDirectory, "mediacrawler-output"), outputDirectory, "directory");
+  await migrateRetainedPath(resolve(secretsDirectory, "mediacrawler_service_secret"), mediaCrawlerSecretFile, "file");
+  for (const directory of [profileDirectory, outputDirectory]) await privateDirectory(directory);
   const secrets = {};
   for (const name of secretNames) secrets[name] = await privateFile(resolve(secretsDirectory, name), randomBytes(48).toString("base64url"));
+  secrets.mediacrawler_service_secret = await privateFile(mediaCrawlerSecretFile, randomBytes(48).toString("base64url"));
   const trialPasswordPath = resolve(secretsDirectory, "trial_app_password");
   const bootstrapPasswordPath = resolve(secretsDirectory, "bootstrap_admin_password");
   let trialPassword = "";
@@ -87,9 +170,9 @@ export async function prepareTrialRuntime(repositoryRoot, options = {}) {
   }
   const bootstrapPassword = await privateFile(bootstrapPasswordPath, randomBytes(32).toString("base64url"));
   const databaseUrl = `mysql://shensi_trial_app:${encodeURIComponent(secrets.mysql_app_password)}@127.0.0.1:3310/shensi_trial`;
-  const environment = { DATABASE_URL: databaseUrl, CRM_STORE: "mysql", CRM_SEED_DEVELOPMENT_DATA: "false", SESSION_COOKIE_SECURE: "true", SHENSI_GATEWAY_PORT: "5608", SHENSI_FRONTEND_PORT: "5610", SHENSI_BACKEND_PORT: "5611", MEDIACRAWLER_PORT: "5612", MEDIACRAWLER_BASE_URL: "http://127.0.0.1:5612", MYSQL_PORT: "3310", VITE_REAL_TRIAL: "true", VITE_TRIAL_LOGIN_ALIAS: "test,test2", VITE_TRIAL_LOGIN_EMAIL: "test@shensi.local,test2@shensi.local", MEDIACRAWLER_BROWSER_HEADLESS: "false", MEDIACRAWLER_BROWSER_CHANNEL: "chrome", DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS: "120", DOUYIN_OUTREACH_ACTIONS_ENABLED: outreachActionsEnabled(options) ? "true" : "false", DOUYIN_ACTION_VISUAL_LOCATOR: actionVisualLocator, MEDIACRAWLER_ENCRYPTED_VOLUME: stateDirectory, MEDIACRAWLER_PROFILE_ROOT: profileDirectory, MEDIACRAWLER_CRAWL_OUTPUT_ROOT: outputDirectory, MEDIACRAWLER_SERVICE_SECRET_FILE: resolve(secretsDirectory, "mediacrawler_service_secret"), SHENSI_TRIAL_APP_PASSWORD_FILE: trialPasswordPath, SHENSI_TRIAL_MYSQL_APP_PASSWORD_FILE: resolve(secretsDirectory, "mysql_app_password"), SHENSI_MYSQL_APP_PASSWORD: secrets.mysql_app_password, JWT_SECRET: secrets.jwt_secret, PROVIDER_CREDENTIAL_KEY: secrets.provider_credential_key, AGENT_JOB_ENCRYPTION_KEY: secrets.agent_job_encryption_key, ACQUISITION_MASTER_SECRET: secrets.acquisition_master_secret, ACQUISITION_V1_CURSOR_SECRET: secrets.acquisition_v1_cursor_secret, TRADE_OBSERVATION_CURSOR_SECRET: secrets.trade_observation_cursor_secret, MARKET_OPPORTUNITY_CURSOR_SECRET: secrets.market_opportunity_cursor_secret, PROSPECT_RUN_IDEMPOTENCY_SECRET: secrets.prospect_run_idempotency_secret, PROSPECT_RUN_CURSOR_SECRET: secrets.prospect_run_cursor_secret, PROSPECT_EXECUTION_CLAIM_SECRET: secrets.prospect_execution_claim_secret, ORGANIZATION_IDENTITY_MASTER_SECRET: secrets.organization_identity_master_secret, PROSPECT_SOURCE_RAW_ENVELOPE_SECRET: secrets.prospect_source_raw_envelope_secret, PROSPECT_COVERAGE_MASTER_SECRET: secrets.prospect_coverage_master_secret };
+  const environment = { DATABASE_URL: databaseUrl, CRM_STORE: "mysql", CRM_SEED_DEVELOPMENT_DATA: "false", SESSION_COOKIE_SECURE: "true", SHENSI_GATEWAY_PORT: "5608", SHENSI_FRONTEND_PORT: "5610", SHENSI_BACKEND_PORT: "5611", MEDIACRAWLER_PORT: "5612", MEDIACRAWLER_BASE_URL: "http://127.0.0.1:5612", MYSQL_PORT: "3310", VITE_REAL_TRIAL: "true", VITE_TRIAL_LOGIN_ALIAS: "test,test2", VITE_TRIAL_LOGIN_EMAIL: "test@shensi.local,test2@shensi.local", MEDIACRAWLER_BROWSER_HEADLESS: "false", MEDIACRAWLER_BROWSER_CHANNEL: "", MEDIACRAWLER_BROWSER_DISPLAY: "virtual", DOUYIN_ACTION_MANUAL_VERIFICATION_SECONDS: "120", DOUYIN_OUTREACH_ACTIONS_ENABLED: outreachActionsEnabled(options) ? "true" : "false", DOUYIN_ACTION_VISUAL_LOCATOR: actionVisualLocator, MEDIACRAWLER_ENCRYPTED_VOLUME: mediaCrawlerDirectory, MEDIACRAWLER_PROFILE_ROOT: profileDirectory, MEDIACRAWLER_CRAWL_OUTPUT_ROOT: outputDirectory, MEDIACRAWLER_SERVICE_SECRET_FILE: mediaCrawlerSecretFile, SHENSI_TRIAL_APP_PASSWORD_FILE: trialPasswordPath, SHENSI_TRIAL_MYSQL_APP_PASSWORD_FILE: resolve(secretsDirectory, "mysql_app_password"), SHENSI_MYSQL_APP_PASSWORD: secrets.mysql_app_password, JWT_SECRET: secrets.jwt_secret, PROVIDER_CREDENTIAL_KEY: secrets.provider_credential_key, AGENT_JOB_ENCRYPTION_KEY: secrets.agent_job_encryption_key, ACQUISITION_MASTER_SECRET: secrets.acquisition_master_secret, ACQUISITION_V1_CURSOR_SECRET: secrets.acquisition_v1_cursor_secret, TRADE_OBSERVATION_CURSOR_SECRET: secrets.trade_observation_cursor_secret, MARKET_OPPORTUNITY_CURSOR_SECRET: secrets.market_opportunity_cursor_secret, PROSPECT_RUN_IDEMPOTENCY_SECRET: secrets.prospect_run_idempotency_secret, PROSPECT_RUN_CURSOR_SECRET: secrets.prospect_run_cursor_secret, PROSPECT_EXECUTION_CLAIM_SECRET: secrets.prospect_execution_claim_secret, ORGANIZATION_IDENTITY_MASTER_SECRET: secrets.organization_identity_master_secret, PROSPECT_SOURCE_RAW_ENVELOPE_SECRET: secrets.prospect_source_raw_envelope_secret, PROSPECT_COVERAGE_MASTER_SECRET: secrets.prospect_coverage_master_secret };
+  Object.assign(environment, trialOutreachEnvironment(outreachActionsEnabled(options)));
   const environmentFile = resolve(runtimeRoot, "trial.env"); await writeFile(environmentFile, `${Object.entries(environment).map(([key, value]) => `${key}=${value}`).join("\n")}\n`, { mode: 0o600 }); await chmod(environmentFile, 0o600);
-  if (options.cloudflared?.path) { const actual = createHash("sha256").update(await readFile(options.cloudflared.path)).digest("hex"); if (actual !== options.cloudflared.sha256) throw new Error("TRIAL_CLOUDFLARED_SHA256_MISMATCH"); await copyFile(options.cloudflared.path, resolve(toolsDirectory, "cloudflared")); await chmod(resolve(toolsDirectory, "cloudflared"), 0o700); }
   options.emit?.(`TRIAL_RUNTIME_PREPARED:${runtimeRoot}`);
-  return { root: runtimeRoot, secretsDirectory, stateDirectory, logsDirectory, pidsDirectory, toolsDirectory, mysqlDirectory, environmentFile, environment, trialPasswordPath, bootstrapPasswordPath, bootstrapPassword };
+  return { root: runtimeRoot, secretsDirectory, stateDirectory, logsDirectory, pidsDirectory, toolsDirectory, mysqlDirectory, mediaCrawlerDirectory, mediaCrawlerSecretsDirectory, environmentFile, environment, trialPasswordPath, bootstrapPasswordPath, bootstrapPassword };
 }

@@ -12,6 +12,7 @@ import type { CommercialBindingSnapshot } from "./commercial-binding-snapshot.js
 import { MysqlVerifiedFinancialLedgerSealedReader } from "./financial-ledger-as-of-mysql-reader.js";
 import { ensureFinancialLedgerMysqlSchema, MysqlFinancialLedgerRepository } from "./financial-ledger-mysql-repository.js";
 import {
+  ensureFinanceImportMysqlSchema,
   MysqlFinanceImportRepository
 } from "./finance-import-mysql-repository.js";
 import {
@@ -49,6 +50,9 @@ import {
   ensureRoiClosureMysqlSchema,
   MysqlRoiClosureRepository
 } from "./acquisition-roi-closure-mysql-repository.js";
+import {
+  ensureAcquisitionCohortMysqlSchema
+} from "./acquisition-cohort-mysql-repository.js";
 import type { CommandContext } from "./growth-command-context.js";
 import type { GrowthFoundationServices } from "./growth-foundation-module.js";
 import { ensureGrowthHttpIdempotencyMysqlSchema, MysqlGrowthHttpIdempotencyRepository } from "./growth-http-idempotency-mysql-repository.js";
@@ -65,6 +69,8 @@ const DEFAULT_NOW = "2026-08-09T03:00:00.000Z";
 function connectionOptions(url: URL) {
   return {
     host: url.hostname,
+    ...(url.searchParams.get("socketPath")
+      ? { socketPath: url.searchParams.get("socketPath")! } : {}),
     port: Number(url.port || 3306),
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),
@@ -207,6 +213,7 @@ export interface GrowthFinanceMysqlTestDatabase {
     input: { fileHash: string }
   ): Promise<void>;
   setNow(value: string): void;
+  now(): string;
   advanceNowBy(milliseconds: number): string;
   replaceWonAuthority(overrides: Partial<AuthoritativeDealDecisionRef>): void;
   restoreWonAuthorityFor(quoteVersionId: string): void;
@@ -255,8 +262,10 @@ export async function withGrowthFinanceMysqlTestDatabase<T>(
     await ensureFinancialLedgerMysqlSchema(pool);
     await ensureAttributionAllocationMysqlSchema(pool);
     await ensureFinancialSettlementMysqlSchema(pool);
+    await ensureAcquisitionCohortMysqlSchema(pool);
     await ensureRoiClosureMysqlSchema(pool);
     await ensureGrowthWorkspaceSettingsMysqlSchema(pool);
+    await ensureFinanceImportMysqlSchema(pool);
     // Schema installation is an upgrade path and must remain retry-safe.
     await ensureFinancialLedgerMysqlSchema(pool);
     connectionA = await pool.getConnection();
@@ -871,11 +880,11 @@ export async function withGrowthFinanceMysqlTestDatabase<T>(
           previewId,
           workspaceId: "workspace-a",
           requestingActorId: "finance-a",
-          idempotencyKey: "finance-commit-0001",
+          idempotencyKey: `finance-commit-${operationId}`,
           requestHash: canonicalGrowthRequestHash({
             workspaceId: "workspace-a",
-            previewId,
-            operationId
+            key: `finance-commit-${operationId}`,
+            expectedRevision: null
           }),
           previewRequestHash,
           fileHash,
@@ -894,7 +903,7 @@ export async function withGrowthFinanceMysqlTestDatabase<T>(
         return operationId;
       },
       commandContext: (operationId) => command(
-        "workspace-a", "finance-commit-0001"
+        "workspace-a", `finance-commit-${operationId}`
       ),
       rowResult: () => ({
         rowId: "row-1",
@@ -902,12 +911,22 @@ export async function withGrowthFinanceMysqlTestDatabase<T>(
         createdLedgerIds: []
       }),
       countCreatedLedgerRows: async (operationId) => {
+        if (operationId) {
+          const resultIds = (await importRepository.listRowResults(operationId))
+            .flatMap((result) => result.createdLedgerIds);
+          if (resultIds.length === 0) return 0;
+          const [rows] = await pool!.query(
+            `SELECT COUNT(*) AS count FROM financial_facts
+             WHERE id IN (${resultIds.map(() => "?").join(", ")})`,
+            resultIds
+          );
+          return Number((rows as Array<{ count: string }>)[0]?.count);
+        }
         const [rows] = await pool!.query(
           `SELECT COUNT(*) AS count FROM financial_facts
            WHERE workspace_id = 'workspace-a'
              AND source_identity_root LIKE 'import:%'`
         );
-        void operationId;
         return Number((rows as Array<{ count: string }>)[0]?.count);
       },
       countFinanceImportRowResults: async (operationId) =>
@@ -939,6 +958,7 @@ export async function withGrowthFinanceMysqlTestDatabase<T>(
       setNow: (value) => {
         importClock = growthInstantMilliseconds(value);
       },
+      now: importNow,
       advanceNowBy: (milliseconds) => {
         importClock += milliseconds;
         return importNow();
@@ -1019,7 +1039,9 @@ export async function withGrowthFinanceMysqlTestDatabase<T>(
     connectionB?.release();
     connectionA?.release();
     if (pool) await pool.end();
-    if (created) await admin.query(`DROP DATABASE IF EXISTS \`${databaseName}\``);
+    const retainForPackagedRestart = process.env.SHENSI_PACKAGED_ROI_RESTART === "1"
+      && /^\/private\/tmp\/shensi-db-[^/]+\/mysql\.sock$/u.test(new URL(adminUrl).searchParams.get("socketPath") ?? "");
+    if (created && !retainForPackagedRestart) await admin.query(`DROP DATABASE IF EXISTS \`${databaseName}\``);
     await admin.end();
   }
 }

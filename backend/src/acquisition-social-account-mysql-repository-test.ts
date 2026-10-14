@@ -5,12 +5,16 @@ import test from "node:test";
 import mysql from "mysql2/promise";
 import { InMemoryAcquisitionSocialAccountRepository } from "./acquisition-social-account-repository.js";
 import {
+  acquisitionSocialAccountLoginOpeningsDdl,
   acquisitionSocialAccountReplaysDdl,
+  acquisitionSocialAccountSessionsDdl,
   acquisitionSocialAccountsDdl,
   ensureAcquisitionSocialAccountsMysqlSchema,
   MysqlAcquisitionSocialAccountRepository
 } from "./acquisition-social-account-mysql-repository.js";
 import { AcquisitionSocialAccountService } from "./acquisition-social-account-service.js";
+import { MysqlDesktopInstallationRepository } from
+  "./acquisition-desktop-installation-mysql-repository.js";
 
 test("repository rejects raw cookie and profile fields and retains a restart-readable safe record", async () => {
   const repository = new InMemoryAcquisitionSocialAccountRepository();
@@ -27,6 +31,181 @@ test("repository rejects raw cookie and profile fields and retains a restart-rea
   assert.equal((stored as Record<string, unknown>).cookies, undefined);
 });
 
+test("desktop executor MySQL binding locks installation account and cross-target actions before one fenced write", async () => {
+  const calls: string[] = [];
+  const accountRow: Record<string, unknown> = { id: "account", workspace_id: "w",
+    platform: "douyin", account_handle: `dyacct_${"d".repeat(64)}`,
+    upstream_session_id: null, display_name: "Douyin", state: "active",
+    login_state_version: 7, login_state_version_high_water: 7,
+    executor_mode: null, executor_device_id_hash: null,
+    executor_binding_generation: 0, executor_lease_expires_at: null, revision: 1,
+    etag: '"account-v1"', last_validated_at: "2026-09-04T00:00:00.000Z",
+    created_at: "2026-09-04T00:00:00.000Z",
+    updated_at: "2026-09-04T00:00:00.000Z" };
+  let replayRow: Record<string, unknown> | null = null;
+  const connection = {
+    async beginTransaction() { calls.push("begin"); },
+    async commit() { calls.push("commit"); },
+    async rollback() { calls.push("rollback"); },
+    release() { calls.push("release"); },
+    async execute(sql: string, values: unknown[] = []) {
+      const normalized = sql.replace(/\s+/gu, " ").trim();
+      if (normalized.includes("FROM acquisition_desktop_installations")) {
+        calls.push("lock-installation");
+        return [[{ workspace_id: "w", user_id: "u", team_id: "t",
+          device_id_hash: `sha256:${"a".repeat(64)}`,
+          device_credential_hash: `sha256:${"c".repeat(64)}`,
+          protocol_version: 1, state: "active", created_at: "2026-09-04 00:00:00.000",
+          updated_at: "2026-09-04 00:00:00.000", revoked_at: null }], []] as never;
+      }
+      if (normalized.includes("FROM acquisition_social_accounts")) {
+        calls.push("lock-account");
+        return [[accountRow], []] as never;
+      }
+      if (normalized.includes("FROM acquisition_outreach_actions")) {
+        calls.push("lock-actions");
+        assert.match(normalized,
+          /status IN \('claimed','executing','reconciliation_required'\)/u);
+        assert.doesNotMatch(normalized, /executionTarget|execution_target/u);
+        return [[], []] as never;
+      }
+      if (normalized.startsWith("SELECT request_hash")) {
+        calls.push("lock-replay"); return [[replayRow].filter(Boolean), []] as never;
+      }
+      if (normalized.startsWith("UPDATE acquisition_social_accounts")) {
+        calls.push("write-binding");
+        Object.assign(accountRow, { executor_mode: "desktop",
+          executor_device_id_hash: `sha256:${"a".repeat(64)}`,
+          executor_binding_generation: 1,
+          executor_lease_expires_at: "2026-09-04T00:01:40.000Z", revision: 2,
+          etag: '"account-v2"', updated_at: "2026-09-04T00:00:10.000Z" });
+        return [{ affectedRows: 1 }, []] as never;
+      }
+      if (normalized.startsWith("INSERT INTO acquisition_social_account_replays")) {
+        calls.push("write-replay");
+        replayRow = { request_hash: "f".repeat(64),
+          response_json: JSON.parse(String(values[3] ?? "{}")) };
+        return [{ affectedRows: 1 }, []] as never;
+      }
+      throw new Error(`unexpected SQL: ${normalized}`);
+    }
+  };
+  const repository = new MysqlDesktopInstallationRepository({
+    getConnection: async () => connection
+  } as never);
+
+  const result = await repository.bindDesktopExecutor({ workspaceId: "w", userId: "u",
+    teamId: "t", accountId: "account", accountHandle: `dyacct_${"d".repeat(64)}`,
+    loginStateVersion: 7, deviceIdHash: `sha256:${"a".repeat(64)}`,
+    expectedGeneration: 0, handoff: false, idempotencyKeyHash: "e".repeat(64),
+    requestHash: "f".repeat(64), boundAt: "2026-09-04T00:00:10.000Z",
+    leaseExpiresAt: "2026-09-04T00:01:40.000Z" });
+
+  assert.equal(result.kind, "bound");
+  assert.deepEqual(calls, ["begin", "lock-installation", "lock-account",
+    "lock-actions", "lock-replay", "write-binding", "write-replay", "commit", "release"]);
+  calls.length = 0;
+  const replay = await new MysqlDesktopInstallationRepository({
+    getConnection: async () => connection
+  } as never).bindDesktopExecutor({ workspaceId: "w", userId: "u", teamId: "t",
+    accountId: "account", accountHandle: `dyacct_${"d".repeat(64)}`,
+    loginStateVersion: 7, deviceIdHash: `sha256:${"a".repeat(64)}`,
+    expectedGeneration: 0, handoff: false, idempotencyKeyHash: "e".repeat(64),
+    requestHash: "f".repeat(64), boundAt: "2026-09-04T00:00:30.000Z",
+    leaseExpiresAt: "2026-09-04T00:02:00.000Z" });
+  assert.equal(replay.kind, "replay");
+  assert.equal(replay.kind === "replay"
+    ? replay.account.executorLeaseExpiresAt : null, "2026-09-04T00:01:40.000Z");
+  assert.deepEqual(calls, ["begin", "lock-installation", "lock-account",
+    "lock-actions", "lock-replay", "commit", "release"]);
+});
+
+test("desktop installation MySQL revocation invalidates bound accounts in the same transaction", async () => {
+  const calls: string[] = [];
+  const connection = {
+    async beginTransaction() { calls.push("begin"); },
+    async commit() { calls.push("commit"); },
+    async rollback() { calls.push("rollback"); },
+    release() { calls.push("release"); },
+    async execute(sql: string) {
+      const normalized = sql.replace(/\s+/gu, " ").trim();
+      if (normalized.startsWith("SELECT * FROM acquisition_desktop_installations")) {
+        calls.push("lock-installation");
+        return [[{ workspace_id: "w", user_id: "u", team_id: "t",
+          device_id_hash: `sha256:${"a".repeat(64)}`,
+          device_credential_hash: `sha256:${"c".repeat(64)}`, protocol_version: 1,
+          state: "active", created_at: "2026-09-04 00:00:00.000",
+          updated_at: "2026-09-04 00:00:00.000", revoked_at: null }], []] as never;
+      }
+      if (normalized.startsWith("UPDATE acquisition_desktop_installations")) {
+        calls.push("revoke"); return [{ affectedRows: 1 }, []] as never;
+      }
+      if (normalized.startsWith("UPDATE acquisition_social_accounts")) {
+        assert.doesNotMatch(normalized, /executor_mode=NULL/u);
+        assert.match(normalized, /executor_mode='desktop'/u);
+        assert.match(normalized,
+          /executor_binding_generation=executor_binding_generation\+1/u);
+        assert.match(normalized, /executor_lease_expires_at=\?/u);
+        assert.match(normalized, /revision=revision\+1/u);
+        calls.push("invalidate-bindings"); return [{ affectedRows: 1 }, []] as never;
+      }
+      throw new Error(`unexpected SQL: ${normalized}`);
+    }
+  };
+  const repository = new MysqlDesktopInstallationRepository({
+    getConnection: async () => connection
+  } as never);
+  assert.equal(await repository.revoke("w", `sha256:${"a".repeat(64)}`,
+    "2026-09-04T00:02:00.000Z"), true);
+  assert.deepEqual(calls, ["begin", "lock-installation", "revoke",
+    "invalidate-bindings", "commit", "release"]);
+});
+
+test("desktop executor MySQL binding rolls back and releases on a stale affected-row fence", async () => {
+  const calls: string[] = [];
+  const connection = {
+    async beginTransaction() { calls.push("begin"); },
+    async commit() { calls.push("commit"); },
+    async rollback() { calls.push("rollback"); },
+    release() { calls.push("release"); },
+    async execute(sql: string) {
+      const normalized = sql.replace(/\s+/gu, " ").trim();
+      if (normalized.includes("FROM acquisition_desktop_installations")) return [[{
+        workspace_id: "w", user_id: "u", team_id: "t",
+        device_id_hash: `sha256:${"a".repeat(64)}`,
+        device_credential_hash: `sha256:${"b".repeat(64)}`, protocol_version: 1,
+        state: "active", created_at: "2026-09-04 00:00:00.000",
+        updated_at: "2026-09-04 00:00:00.000", revoked_at: null }], []] as never;
+      if (normalized.includes("FROM acquisition_social_accounts")) return [[{
+        id: "account", workspace_id: "w", platform: "douyin",
+        account_handle: `dyacct_${"d".repeat(64)}`, upstream_session_id: null,
+        display_name: "Douyin", state: "active", login_state_version: 1,
+        login_state_version_high_water: 1, executor_mode: null,
+        executor_device_id_hash: null, executor_binding_generation: 0,
+        executor_lease_expires_at: null, revision: 1, etag: '"account-v1"',
+        last_validated_at: null, created_at: "2026-09-04T00:00:00.000Z",
+        updated_at: "2026-09-04T00:00:00.000Z" }], []] as never;
+      if (normalized.includes("FROM acquisition_outreach_actions")
+        || normalized.startsWith("SELECT request_hash")) return [[], []] as never;
+      if (normalized.startsWith("UPDATE acquisition_social_accounts")) {
+        calls.push("stale-write"); return [{ affectedRows: 0 }, []] as never;
+      }
+      throw new Error(`unexpected SQL: ${normalized}`);
+    }
+  };
+  const repository = new MysqlDesktopInstallationRepository({
+    getConnection: async () => connection
+  } as never);
+  await assert.rejects(repository.bindDesktopExecutor({ workspaceId: "w", userId: "u",
+    teamId: "t", accountId: "account", accountHandle: `dyacct_${"d".repeat(64)}`,
+    loginStateVersion: 1, deviceIdHash: `sha256:${"a".repeat(64)}`,
+    expectedGeneration: 0, handoff: false, idempotencyKeyHash: "e".repeat(64),
+    requestHash: "f".repeat(64), boundAt: "2026-09-04T00:00:10.000Z",
+    leaseExpiresAt: "2026-09-04T00:01:40.000Z" }),
+  /desktop_executor_binding_stale/u);
+  assert.deepEqual(calls, ["begin", "stale-write", "rollback", "release"]);
+});
+
 test("MySQL bind uses a transaction and rolls back a competing active handle", async () => {
   const calls: string[] = [];
   const currentHandle = `dyacct_${"b".repeat(64)}`;
@@ -39,6 +218,30 @@ test("MySQL bind uses a transaction and rolls back a competing active handle", a
   const result = await repository.bindActive({ id: "a", workspaceId: "w", platform: "douyin", accountHandle: candidateHandle, upstreamSessionId: "candidate-session", displayName: "新账号", state: "active", loginStateVersion: 2, loginStateVersionHighWater: 2, revision: 2, etag: '"account-v2"', lastValidatedAt: null, createdAt: "x", updatedAt: "x" });
   assert.equal(result, "active_handle_conflict");
   assert.deepEqual(calls, ["begin", "select", "rollback", "release"]);
+});
+
+test("MySQL active binding checks the login-session fence in the same transaction", async () => {
+  const calls: string[] = [];
+  let sessionSelectParameters: unknown[] = [];
+  const connection = {
+    async beginTransaction() { calls.push("begin"); }, async commit() { calls.push("commit"); },
+    async rollback() { calls.push("rollback"); }, release() { calls.push("release"); },
+    async execute(sql: string, parameters?: unknown[]) {
+      calls.push(sql.includes("acquisition_social_account_sessions") ? "session-select" : "unexpected");
+      if (sql.includes("acquisition_social_account_sessions")) sessionSelectParameters = parameters ?? [];
+      return [[], []] as never;
+    }
+  };
+  const repository = new MysqlAcquisitionSocialAccountRepository({ getConnection: async () => connection } as never);
+  const result = await repository.bindActiveFromLoginSession("w", "deleted-login", "upstream", {
+    id: "a", workspaceId: "w", platform: "douyin", accountHandle: `dyacct_${"a".repeat(64)}`,
+    upstreamSessionId: "upstream", displayName: "账号", state: "active", loginStateVersion: 1,
+    loginStateVersionHighWater: 1, revision: 1, etag: '"account-v1"', lastValidatedAt: null,
+    createdAt: "x", updatedAt: "x"
+  });
+  assert.equal(result, "login_session_stale");
+  assert.deepEqual(calls, ["begin", "session-select", "rollback", "release"]);
+  assert.deepEqual(sessionSelectParameters, ["w", "deleted-login", "upstream"]);
 });
 
 test("MySQL bind replaces the same handle with a newer global login version", async () => {
@@ -85,6 +288,57 @@ test("MySQL bind replaces the same handle with a newer global login version", as
   assert.deepEqual(calls, ["begin", "select", "write", "commit", "release"]);
 });
 
+test("MySQL login-session bind keeps the latest revoked executor fence under a stale candidate", async () => {
+  const deviceA = `sha256:${"a".repeat(64)}`;
+  const deviceB = `sha256:${"b".repeat(64)}`;
+  const writes: unknown[][] = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async execute(sql: string, values: unknown[] = []) {
+      if (sql.includes("acquisition_social_account_sessions")) return [[{ id: "login" }], []] as never;
+      if (sql.includes("acquisition_social_account_login_openings")) return [[], []] as never;
+      if (sql.startsWith("SELECT * FROM acquisition_social_accounts")) return [[{
+        id: "account", workspace_id: "w", platform: "douyin",
+        account_handle: `dyacct_${"a".repeat(64)}`, upstream_session_id: null,
+        display_name: "Douyin", state: "active", login_state_version: 7,
+        login_state_version_high_water: 7, executor_mode: "desktop",
+        executor_device_id_hash: deviceB, executor_binding_generation: 5,
+        executor_lease_expires_at: "2026-09-04T00:00:05.000Z", revision: 5,
+        etag: '"account-v5"', last_validated_at: null,
+        created_at: "2026-09-04T00:00:00.000Z",
+        updated_at: "2026-09-04T00:00:05.000Z" }], []] as never;
+      writes.push(values); return [{ affectedRows: 1 }, []] as never;
+    }
+  };
+  const repository = new MysqlAcquisitionSocialAccountRepository({
+    getConnection: async () => connection
+  } as never);
+
+  const result = await repository.bindActiveFromLoginSession("w", "login", "upstream", {
+    id: "stale", workspaceId: "w", platform: "douyin",
+    accountHandle: `dyacct_${"a".repeat(64)}`, upstreamSessionId: "upstream",
+    displayName: "Douyin", state: "active", loginStateVersion: 8,
+    loginStateVersionHighWater: 8, executorMode: "desktop",
+    executorDeviceIdHash: deviceA, executorBindingGeneration: 5,
+    executorLeaseExpiresAt: "2026-09-04T00:02:00.000Z", revision: 5,
+    etag: '"account-v5"', lastValidatedAt: null,
+    createdAt: "2026-09-04T00:00:00.000Z",
+    updatedAt: "2026-09-04T00:00:10.000Z"
+  });
+
+  assert.notEqual(result, "active_handle_conflict");
+  assert.notEqual(result, "login_session_stale");
+  if (typeof result === "string") throw new Error("unexpected bind result");
+  assert.deepEqual({ device: result.executorDeviceIdHash,
+    generation: result.executorBindingGeneration,
+    lease: result.executorLeaseExpiresAt, revision: result.revision }, {
+    device: deviceB, generation: 6,
+    lease: "2026-09-04T00:00:05.000Z", revision: 6
+  });
+  assert.deepEqual(writes[0]?.slice(9, 14), ["desktop", deviceB, 6,
+    "2026-09-04T00:00:05.000Z", 6]);
+});
+
 type ColumnMetadata = {
   columnType: string;
   nullable: "YES" | "NO";
@@ -110,6 +364,13 @@ const freshReplayColumns = new Map<string, ColumnMetadata>([
 ]);
 
 class StatefulLegacyReplaySchemaPool {
+  readonly engines = new Map([
+    ["acquisition_social_accounts", "MyISAM"],
+    ["acquisition_social_account_sessions", "MyISAM"],
+    ["acquisition_social_account_login_openings", "MyISAM"],
+    ["acquisition_social_account_replays", "MyISAM"]
+  ]);
+  engineMutations = 0;
   readonly accountColumns = new Map([
     "id", "workspace_id", "platform", "account_handle", "display_name", "state", "login_state_version",
     "revision", "etag", "last_validated_at", "created_at", "updated_at"
@@ -122,8 +383,15 @@ class StatefulLegacyReplaySchemaPool {
     ["response_json", { columnType: "json", nullable: "NO", defaultValue: null }],
     ["response_status", { columnType: "int", nullable: "NO", defaultValue: null }]
   ]);
+  readonly sessionColumns = new Map<string, ColumnMetadata>([
+    ["id", { columnType: "varchar(255)", nullable: "NO", defaultValue: null }],
+    ["workspace_id", { columnType: "varchar(255)", nullable: "NO", defaultValue: null }],
+    ["upstream_id", { columnType: "varchar(512)", nullable: "NO", defaultValue: null }],
+    ["expires_at", { columnType: "varchar(40)", nullable: "NO", defaultValue: null }],
+    ["created_at", { columnType: "varchar(40)", nullable: "NO", defaultValue: null }]
+  ]);
   readonly accountRows = [{ login_state_version: 5,
-    login_state_version_high_water: 0 }];
+    login_state_version_high_water: 0, executor_binding_generation: 8, executor_binding_generation_high_water: 0 }];
   readonly rows = [
     { idempotency_key: "raw-key-completed", idempotency_key_hash: null as string | null,
       response_status: 201, state: null as string | null, response_headers_json: null as object | null,
@@ -134,6 +402,9 @@ class StatefulLegacyReplaySchemaPool {
   ];
   expiryIndex: string[] | null = ["updated_at"];
   stateCheck: string | null = "state IN ('completed')";
+  executorIndex: string[] | null = null;
+  executorCheck: string | null = null;
+  accountDefinitionMutations = 0;
 
   private setColumn(definition: string) {
     const match = definition.match(/^(\w+) ((?:VAR)?CHAR\(\d+\)|JSON|INT|BIGINT UNSIGNED) (.*?)(?: AFTER \w+)?$/iu);
@@ -151,25 +422,97 @@ class StatefulLegacyReplaySchemaPool {
   async query(sql: string, values: unknown[] = []) {
     const normalized = sql.replace(/\s+/gu, " ").trim();
     if (normalized.startsWith("CREATE TABLE IF NOT EXISTS")) return [{ affectedRows: 0 }, []];
+    if (normalized.includes("information_schema.TABLES")) {
+      return [[{ ENGINE: this.engines.get(String(values[0])) }], []];
+    }
     if (normalized.includes("information_schema.COLUMNS")) {
-      const source = values[0] === "acquisition_social_accounts" ? this.accountColumns : this.replayColumns;
+      const source = values[0] === "acquisition_social_accounts"
+        ? this.accountColumns
+        : values[0] === "acquisition_social_account_sessions"
+          ? this.sessionColumns : this.replayColumns;
       return [[...source].map(([name, metadata]) => ({ COLUMN_NAME: name, COLUMN_TYPE: metadata.columnType,
         IS_NULLABLE: metadata.nullable, COLUMN_DEFAULT: metadata.defaultValue })), []];
     }
     if (normalized.includes("information_schema.STATISTICS")) {
+      if (normalized.includes("acquisition_social_accounts")) {
+        return [this.executorIndex?.map((name, index) => ({
+          INDEX_NAME: "acquisition_social_accounts_executor_lookup", COLUMN_NAME: name,
+          SEQ_IN_INDEX: index + 1, NON_UNIQUE: 1 })) ?? [], []];
+      }
       return [this.expiryIndex?.map((name, index) => ({ INDEX_NAME: "acquisition_social_account_replays_expiry",
         COLUMN_NAME: name, SEQ_IN_INDEX: index + 1, NON_UNIQUE: 1 })) ?? [], []];
     }
     if (normalized.includes("information_schema.TABLE_CONSTRAINTS")) {
+      if (normalized.includes("acquisition_social_accounts")) {
+        return [this.executorCheck ? [{ CONSTRAINT_NAME:
+          "acquisition_social_accounts_executor_binding",
+        CHECK_CLAUSE: this.executorCheck }] : [], []];
+      }
       return [this.stateCheck ? [{ CONSTRAINT_NAME: "acquisition_social_account_replays_state", CHECK_CLAUSE: this.stateCheck }] : [], []];
     }
     if (normalized.startsWith("ALTER TABLE acquisition_social_accounts ADD COLUMN upstream_session_id")) {
       this.accountColumns.set("upstream_session_id", { columnType: "varchar(512)", nullable: "YES", defaultValue: null });
       return [{ affectedRows: 0 }, []];
     }
+    const engineChange = normalized.match(
+      /^ALTER TABLE (acquisition_social_accounts|acquisition_social_account_sessions|acquisition_social_account_login_openings|acquisition_social_account_replays) ENGINE=InnoDB$/u);
+    if (engineChange) {
+      this.engines.set(engineChange[1], "InnoDB");
+      this.engineMutations += 1;
+      return [{ affectedRows: 0 }, []];
+    }
     if (normalized.startsWith("ALTER TABLE acquisition_social_accounts ADD COLUMN login_state_version_high_water")) {
       this.accountColumns.set("login_state_version_high_water",
         { columnType: "bigint unsigned", nullable: "NO", defaultValue: "0" });
+      return [{ affectedRows: 0 }, []];
+    }
+    if (normalized.startsWith("ALTER TABLE acquisition_social_accounts ADD COLUMN executor_mode")) {
+      this.accountDefinitionMutations += 1;
+      this.accountColumns.set("executor_mode",
+        { columnType: "varchar(16)", nullable: "YES", defaultValue: null });
+      return [{ affectedRows: 0 }, []];
+    }
+    if (normalized.startsWith("ALTER TABLE acquisition_social_accounts ADD COLUMN executor_device_id_hash")) {
+      this.accountDefinitionMutations += 1;
+      this.accountColumns.set("executor_device_id_hash",
+        { columnType: "char(71)", nullable: "YES", defaultValue: null });
+      return [{ affectedRows: 0 }, []];
+    }
+    if (normalized.startsWith("ALTER TABLE acquisition_social_accounts ADD COLUMN executor_binding_generation_high_water ")) {
+      this.accountDefinitionMutations += 1;
+      this.accountColumns.set("executor_binding_generation_high_water", { columnType: "bigint unsigned", nullable: "NO", defaultValue: "0" });
+      return [{ affectedRows: 0 }, []];
+    }
+    if (normalized.startsWith("UPDATE acquisition_social_accounts SET executor_binding_generation_high_water=")) {
+      for (const row of this.accountRows) row.executor_binding_generation_high_water = Math.max(row.executor_binding_generation_high_water, row.executor_binding_generation);
+      return [{ affectedRows: this.accountRows.length }, []];
+    }
+    if (normalized.startsWith("ALTER TABLE acquisition_social_accounts ADD COLUMN executor_binding_generation")) {
+      this.accountDefinitionMutations += 1;
+      this.accountColumns.set("executor_binding_generation",
+        { columnType: "bigint unsigned", nullable: "NO", defaultValue: "0" });
+      return [{ affectedRows: 0 }, []];
+    }
+    if (normalized.startsWith("ALTER TABLE acquisition_social_accounts ADD COLUMN executor_lease_expires_at")) {
+      this.accountDefinitionMutations += 1;
+      this.accountColumns.set("executor_lease_expires_at",
+        { columnType: "varchar(40)", nullable: "YES", defaultValue: null });
+      return [{ affectedRows: 0 }, []];
+    }
+    if (normalized.includes("ADD INDEX acquisition_social_accounts_executor_lookup")) {
+      this.executorIndex = ["workspace_id", "executor_mode", "executor_device_id_hash",
+        "executor_lease_expires_at"];
+      this.accountDefinitionMutations += 1;
+      return [{ affectedRows: 0 }, []];
+    }
+    if (normalized.includes("ADD CONSTRAINT acquisition_social_accounts_executor_binding")) {
+      this.executorCheck = "((executor_mode is null or executor_mode='server') and executor_device_id_hash is null and executor_binding_generation=0 and executor_lease_expires_at is null) or (executor_mode='desktop' and executor_device_id_hash is not null and executor_binding_generation>0 and executor_lease_expires_at is not null)";
+      this.accountDefinitionMutations += 1;
+      return [{ affectedRows: 0 }, []];
+    }
+    if (normalized.startsWith("ALTER TABLE acquisition_social_account_sessions ADD COLUMN interaction_surface")) {
+      this.sessionColumns.set("interaction_surface",
+        { columnType: "varchar(32)", nullable: "NO", defaultValue: "remote_canvas" });
       return [{ affectedRows: 0 }, []];
     }
     if (normalized.startsWith("UPDATE acquisition_social_accounts SET login_state_version_high_water=GREATEST")) {
@@ -237,31 +580,95 @@ test("runtime migration makes a legacy replay table statefully identical to fres
   assert.match(pool.stateCheck ?? "", /state.*pending.*completed/iu);
   assert.deepEqual(pool.rows.map((row) => row.state), ["completed", "pending"]);
   assert.equal(pool.accountRows[0]?.login_state_version_high_water, 5);
+  assert.equal(pool.accountRows[0]?.executor_binding_generation_high_water, 8);
+  assert.deepEqual(pool.sessionColumns.get("interaction_surface"), {
+    columnType: "varchar(32)", nullable: "NO", defaultValue: "remote_canvas"
+  });
   assert.equal("idempotency_key" in pool.rows[0], false);
+  assert.deepEqual(pool.executorIndex, ["workspace_id", "executor_mode",
+    "executor_device_id_hash", "executor_lease_expires_at"]);
+  assert.match(pool.executorCheck ?? "", /executor_mode.*desktop/iu);
+  const mutations = pool.accountDefinitionMutations;
+  await ensureAcquisitionSocialAccountsMysqlSchema(pool as never);
+  assert.equal(pool.accountDefinitionMutations, mutations,
+    "a canonical executor schema must be a no-op on the second ensure");
+});
+
+test("schema ensure repairs every social-account engine once then becomes a no-op", async () => {
+  const pool = new StatefulLegacyReplaySchemaPool();
+
+  await ensureAcquisitionSocialAccountsMysqlSchema(pool as never);
+  assert.deepEqual([...pool.engines.values()], ["InnoDB", "InnoDB", "InnoDB", "InnoDB"]);
+  assert.equal(pool.engineMutations, 4);
+
+  await ensureAcquisitionSocialAccountsMysqlSchema(pool as never);
+  assert.equal(pool.engineMutations, 4);
 });
 
 test("schema definitions contain restart-safe replay state and upstream handle metadata", () => {
   assert.match(acquisitionSocialAccountsDdl, /upstream_session_id VARCHAR\(512\) NULL/u);
   assert.match(acquisitionSocialAccountsDdl,
     /login_state_version_high_water BIGINT UNSIGNED NOT NULL DEFAULT 0/u);
+  assert.match(acquisitionSocialAccountsDdl,
+    /executor_mode VARCHAR\(16\).*NULL/u);
+  assert.match(acquisitionSocialAccountsDdl,
+    /executor_device_id_hash CHAR\(71\).*NULL/u);
+  assert.match(acquisitionSocialAccountsDdl,
+    /executor_binding_generation BIGINT UNSIGNED NOT NULL DEFAULT 0/u);
+  assert.match(acquisitionSocialAccountsDdl,
+    /executor_lease_expires_at VARCHAR\(40\) NULL/u);
+  assert.match(acquisitionSocialAccountsDdl,
+    /acquisition_social_accounts_executor_lookup\s+\(workspace_id,executor_mode,executor_device_id_hash,executor_lease_expires_at\)/u);
   for (const column of ["state", "response_headers_json", "lease_owner", "lease_expires_at", "fencing_token", "expires_at", "created_at", "updated_at", "completed_at"]) {
     assert.match(acquisitionSocialAccountReplaysDdl, new RegExp(`\\b${column}\\b`, "u"));
   }
   assert.match(acquisitionSocialAccountReplaysDdl, /response_json JSON NULL/u);
   assert.match(acquisitionSocialAccountReplaysDdl, /idempotency_key_hash CHAR\(64\) NOT NULL/u);
   assert.doesNotMatch(acquisitionSocialAccountReplaysDdl, /idempotency_key VARCHAR/u);
+  assert.match(acquisitionSocialAccountLoginOpeningsDdl,
+    /workspace_id VARCHAR\(255\) NOT NULL PRIMARY KEY/u);
+  assert.match(acquisitionSocialAccountLoginOpeningsDdl,
+    /session_id VARCHAR\(255\) NULL/u);
+  assert.match(acquisitionSocialAccountLoginOpeningsDdl,
+    /fencing_token BIGINT UNSIGNED NOT NULL DEFAULT 0/u);
+  assert.match(acquisitionSocialAccountSessionsDdl,
+    /interaction_surface VARCHAR\(32\) NOT NULL DEFAULT 'remote_canvas'/u);
 });
 
 test("both checked-in schema snapshots match the runtime social-account state", async () => {
+  for (const ddl of [acquisitionSocialAccountsDdl, acquisitionSocialAccountSessionsDdl,
+    acquisitionSocialAccountLoginOpeningsDdl, acquisitionSocialAccountReplaysDdl]) {
+    assert.match(ddl, /\) ENGINE=InnoDB$/u);
+  }
   for (const name of ["schema.mysql.sql", "goodjob_crm.full.sql"]) {
     const snapshot = await readFile(new URL(`../${name}`, import.meta.url), "utf8");
-    const account = snapshot.match(/CREATE TABLE acquisition_social_accounts \([\s\S]*?\n\)/u)?.[0] ?? "";
-    const replay = snapshot.match(/CREATE TABLE acquisition_social_account_replays \([\s\S]*?\n\)/u)?.[0] ?? "";
+    const statement = (table: string) => snapshot.match(new RegExp(
+      `CREATE TABLE ${table} \\([\\s\\S]*?;`, "u"))?.[0] ?? "";
+    const account = statement("acquisition_social_accounts");
+    const session = statement("acquisition_social_account_sessions");
+    const opening = statement("acquisition_social_account_login_openings");
+    const replay = statement("acquisition_social_account_replays");
     assert.match(account, /upstream_session_id VARCHAR\(512\) NULL/u, name);
     assert.match(account,
       /login_state_version_high_water BIGINT UNSIGNED NOT NULL DEFAULT 0/u, name);
+    for (const column of ["executor_mode", "executor_device_id_hash",
+      "executor_binding_generation", "executor_lease_expires_at",
+      "acquisition_social_accounts_executor_lookup"]) {
+      assert.match(account, new RegExp(`\\b${column}\\b`, "u"), `${name}: ${column}`);
+    }
+    assert.match(account, /\) ENGINE=InnoDB;$/u, `${name}: engine`);
     for (const column of ["idempotency_key_hash", "state", "response_json JSON NULL", "response_headers_json", "lease_owner", "lease_expires_at", "fencing_token", "expires_at", "created_at", "updated_at", "completed_at"]) {
       assert.match(replay, new RegExp(column.replaceAll(" ", "\\s+"), "u"), `${name}: ${column}`);
+    }
+    assert.match(opening, /workspace_id VARCHAR\(255\) NOT NULL PRIMARY KEY/u, name);
+    assert.match(opening, /session_id VARCHAR\(255\) NULL/u, name);
+    assert.match(opening,
+      /fencing_token BIGINT UNSIGNED NOT NULL DEFAULT 0/u, name);
+    assert.match(session,
+      /interaction_surface VARCHAR\(32\) NOT NULL DEFAULT 'remote_canvas'/u, name);
+    for (const [table, definition] of [["accounts", account], ["sessions", session],
+      ["login openings", opening], ["replays", replay]] as const) {
+      assert.match(definition, /\) ENGINE=InnoDB;$/u, `${name}: ${table} engine`);
     }
   }
 });
@@ -270,11 +677,13 @@ type ReplayRow = Record<string, unknown>;
 type FakeState = {
   replays: Map<string, ReplayRow>;
   sessions: Map<string, Record<string, unknown>>;
+  loginOpenings: Map<string, Record<string, unknown>>;
   accounts: Map<string, Record<string, unknown>>;
 };
 
 class StatefulSocialMysqlPool {
-  state: FakeState = { replays: new Map(), sessions: new Map(), accounts: new Map() };
+  state: FakeState = { replays: new Map(), sessions: new Map(),
+    loginOpenings: new Map(), accounts: new Map() };
   failNextCompletion = false;
   private transactionTail: Promise<void> = Promise.resolve();
 
@@ -294,6 +703,88 @@ class StatefulSocialMysqlPool {
 
   private async run(state: FakeState, sql: string, values: unknown[] = []) {
     const normalized = sql.replace(/\s+/gu, " ").trim();
+    if (normalized.startsWith("INSERT IGNORE INTO acquisition_social_account_login_openings")) {
+      const [workspaceId, leaseOwner, leaseExpiresAt, updatedAt] = values;
+      const key = String(workspaceId);
+      if (state.loginOpenings.has(key)) return [{ affectedRows: 0 }, []];
+      state.loginOpenings.set(key, { workspace_id: workspaceId, session_id: null,
+        lease_owner: leaseOwner, lease_expires_at: leaseExpiresAt,
+        fencing_token: 1, updated_at: updatedAt });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (normalized.startsWith("SELECT opening.*")
+      && normalized.includes("FROM acquisition_social_account_login_openings")) {
+      const opening = state.loginOpenings.get(String(values[0]));
+      if (!opening) return [[], []];
+      const session = opening.session_id == null
+        ? undefined
+        : state.sessions.get(`${String(opening.workspace_id)}\u0000${String(opening.session_id)}`);
+      return [[structuredClone({ ...opening,
+        session_record_id: session?.id,
+        session_workspace_id: session?.workspace_id,
+        session_upstream_id: session?.upstream_id,
+        session_interaction_surface: session?.interaction_surface,
+        session_expires_at: session?.expires_at,
+        session_created_at: session?.created_at
+      })], []];
+    }
+    if (normalized.startsWith("SELECT workspace_id FROM acquisition_social_account_login_openings")) {
+      const opening = state.loginOpenings.get(String(values[0]));
+      return [[opening ? structuredClone(opening) : undefined].filter(Boolean), []];
+    }
+    if (normalized.startsWith("SELECT * FROM acquisition_social_account_login_openings")) {
+      const opening = state.loginOpenings.get(String(values[0]));
+      return [[opening ? structuredClone(opening) : undefined].filter(Boolean), []];
+    }
+    if (normalized.startsWith("INSERT INTO acquisition_social_account_login_openings")) {
+      if (normalized.includes("VALUES (?,NULL")) {
+        const [workspaceId, leaseOwner, leaseExpiresAt, updatedAt] = values;
+        state.loginOpenings.set(String(workspaceId), { workspace_id: workspaceId,
+          session_id: null, lease_owner: leaseOwner, lease_expires_at: leaseExpiresAt,
+          fencing_token: 1, updated_at: updatedAt });
+        return [{ affectedRows: 1 }, []];
+      }
+      const [workspaceId, sessionId, updatedAt] = values;
+      state.loginOpenings.set(String(workspaceId), { workspace_id: workspaceId,
+        session_id: sessionId, lease_owner: null, lease_expires_at: null,
+        fencing_token: 1, updated_at: updatedAt });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (normalized.startsWith("UPDATE acquisition_social_account_login_openings")
+      && normalized.includes("SET session_id=NULL")) {
+      const [leaseOwner, leaseExpiresAt, updatedAt, workspaceId] = values;
+      const fence = values.at(-1);
+      const opening = state.loginOpenings.get(String(workspaceId));
+      if (!opening || opening.fencing_token !== fence) return [{ affectedRows: 0 }, []];
+      Object.assign(opening, { session_id: null, lease_owner: leaseOwner,
+        lease_expires_at: leaseExpiresAt,
+        fencing_token: Number(opening.fencing_token) + 1,
+        updated_at: updatedAt });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (normalized.startsWith("UPDATE acquisition_social_account_login_openings")
+      && normalized.includes("SET session_id=?")) {
+      const [sessionId, updatedAt, workspaceId, leaseOwner, fence] = values;
+      const opening = state.loginOpenings.get(String(workspaceId));
+      const matches = opening && opening.session_id == null
+        && opening.lease_owner === leaseOwner && opening.fencing_token === fence;
+      if (!matches) return [{ affectedRows: 0 }, []];
+      Object.assign(opening, { session_id: sessionId, lease_owner: null,
+        lease_expires_at: null, updated_at: updatedAt });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (normalized.startsWith("DELETE FROM acquisition_social_account_login_openings")) {
+      const [workspaceId, second, fence] = values;
+      const key = String(workspaceId);
+      const opening = state.loginOpenings.get(key);
+      const matches = normalized.includes("session_id IS NULL")
+        ? opening?.session_id == null && opening?.lease_owner === second
+          && opening?.fencing_token === fence
+        : opening?.session_id === second;
+      if (!matches) return [{ affectedRows: 0 }, []];
+      state.loginOpenings.delete(key);
+      return [{ affectedRows: 1 }, []];
+    }
     if (normalized.startsWith("INSERT IGNORE INTO acquisition_social_account_replays")) {
       const [workspaceId, operation, key, requestHash, leaseOwner, leaseExpiresAt, expiresAt, createdAt, updatedAt] = values;
       const replayKey = this.replayKey(workspaceId, operation, key);
@@ -348,14 +839,23 @@ class StatefulSocialMysqlPool {
       return [{ affectedRows: 1 }, []];
     }
     if (normalized.startsWith("INSERT INTO acquisition_social_account_sessions")) {
-      const [id, workspaceId, upstreamId, expiresAt, createdAt] = values;
-      state.sessions.set(`${workspaceId}\u0000${id}`, { id, workspace_id: workspaceId, upstream_id: upstreamId, expires_at: expiresAt, created_at: createdAt });
+      const [id, workspaceId, upstreamId, interactionSurface, expiresAt, createdAt] = values;
+      state.sessions.set(`${workspaceId}\u0000${id}`, { id, workspace_id: workspaceId,
+        upstream_id: upstreamId, interaction_surface: interactionSurface,
+        expires_at: expiresAt, created_at: createdAt });
       return [{ affectedRows: 1 }, []];
     }
     if (normalized.startsWith("SELECT * FROM acquisition_social_account_sessions")) {
       return [[state.sessions.get(`${values[0]}\u0000${values[1]}`)].filter(Boolean), []];
     }
+    if (normalized.startsWith("SELECT id FROM acquisition_social_account_sessions")) {
+      return [[state.sessions.get(`${values[0]}\u0000${values[1]}`)].filter(Boolean), []];
+    }
     if (normalized.startsWith("DELETE FROM acquisition_social_account_sessions")) {
+      if (normalized.includes("WHERE workspace_id=? AND id=?")) {
+        const deleted = state.sessions.delete(`${values[0]}\u0000${values[1]}`);
+        return [{ affectedRows: deleted ? 1 : 0 }, []];
+      }
       for (const [key, row] of state.sessions) if (String(row.expires_at) <= String(values[0])) state.sessions.delete(key);
       return [{ affectedRows: 1 }, []];
     }
@@ -367,8 +867,10 @@ class StatefulSocialMysqlPool {
     }
     if (normalized.startsWith("INSERT INTO acquisition_social_accounts")) {
       const [id, workspaceId, platform, accountHandle, upstreamSessionId,
-        displayName, accountState, loginStateVersion, highWater, revision, etag,
-        lastValidatedAt, createdAt, updatedAt] = values;
+        displayName, accountState, loginStateVersion, highWater, executorMode,
+        executorDeviceIdHash, executorBindingGeneration, executorLeaseExpiresAt,
+        revision, etag,
+        lastValidatedAt, createdAt, updatedAt, bindingHighWater] = values;
       const existingEntry = [...state.accounts].find(([, candidate]) =>
         candidate.workspace_id === workspaceId && candidate.platform === platform);
       const next = { id, workspace_id: workspaceId, platform,
@@ -379,6 +881,10 @@ class StatefulSocialMysqlPool {
           Number(existingEntry?.[1].login_state_version_high_water ?? 0),
           Number(highWater ?? 0)
         ),
+        executor_mode: executorMode, executor_device_id_hash: executorDeviceIdHash,
+        executor_binding_generation: executorBindingGeneration,
+        executor_binding_generation_high_water: Math.max(Number(bindingHighWater ?? 0), Number(existingEntry?.[1].executor_binding_generation_high_water ?? 0), Number(existingEntry?.[1].executor_binding_generation ?? 0)),
+        executor_lease_expires_at: executorLeaseExpiresAt,
         revision, etag, last_validated_at: lastValidatedAt,
         created_at: existingEntry?.[1].created_at ?? createdAt, updated_at: updatedAt };
       if (existingEntry) state.accounts.delete(existingEntry[0]);
@@ -398,13 +904,16 @@ class StatefulSocialMysqlPool {
       Object.assign(row, { state: "risk_paused", revision, etag, updated_at: updatedAt });
       return [{ affectedRows: 1 }, []];
     }
-    if (normalized.startsWith("UPDATE acquisition_social_accounts SET state='disconnected'")) {
+    if (normalized.startsWith("UPDATE acquisition_social_accounts SET ") && normalized.includes("state='disconnected'")) {
       const [revision, etag, updatedAt, workspaceId, id, expectedEtag] = values;
       const key = `${workspaceId}\u0000${id}`;
       const row = state.accounts.get(key);
       if (!row || row.etag !== expectedEtag) return [{ affectedRows: 0 }, []];
       Object.assign(row, { state: "disconnected", account_handle: null, upstream_session_id: null,
-        login_state_version: null, revision, etag, updated_at: updatedAt });
+        executor_binding_generation_high_water: Math.max(Number(row.executor_binding_generation_high_water ?? 0), Number(row.executor_binding_generation ?? 0)),
+        login_state_version: null, executor_mode: null, executor_device_id_hash: null,
+        executor_binding_generation: 0, executor_lease_expires_at: null,
+        revision, etag, updated_at: updatedAt });
       return [{ affectedRows: 1 }, []];
     }
     throw new Error(`unexpected fake SQL: ${normalized}`);
@@ -450,8 +959,9 @@ class StatefulSocialMysqlPool {
 
 function gateway(counter: { creates: number; disconnects: number }) {
   return {
-    async createLoginSession() { counter.creates += 1; return { sessionId: `upstream-${counter.creates}`, state: "awaiting_scan" as const, qrImageDataUrl: "data:image/png;base64,cXI=", expiresAt: "2026-08-24T00:10:00.000Z", accountHandle: null, accountDisplayName: null, loginStateVersion: null }; },
-    async getLoginSession() { throw new Error("not used"); },
+    async createLoginSession() { counter.creates += 1; return { sessionId: `upstream-${counter.creates}`, state: "awaiting_scan" as const, qrImageDataUrl: "data:image/png;base64,cXI=", qrStatus: "ready" as const, loginPage: null, expiresAt: "2026-08-24T00:10:00.000Z", accountHandle: null, accountDisplayName: null, loginStateVersion: null }; },
+    async interactLoginSession(sessionId: string) { return { sessionId, state: "awaiting_scan" as const, qrImageDataUrl: null, qrStatus: "opening" as const, loginPage: null, expiresAt: "2026-08-24T00:10:00.000Z", accountHandle: null, accountDisplayName: null, loginStateVersion: null }; },
+    async getLoginSession(sessionId: string) { return { sessionId, state: "awaiting_scan" as const, qrImageDataUrl: null, qrStatus: "opening" as const, loginPage: null, expiresAt: "2026-08-24T00:10:00.000Z", accountHandle: null, accountDisplayName: null, loginStateVersion: null }; },
     async disconnectLoginSession() { counter.disconnects += 1; }
   };
 }
@@ -652,6 +1162,32 @@ test("stateful fake MySQL rejects a stale replay fence and deletes only the fenc
   }))).kind, "pending");
 });
 
+test("MySQL login sessions preserve the interaction surface across repository restarts", async () => {
+  const pool = new StatefulSocialMysqlPool();
+  const first = new MysqlAcquisitionSocialAccountRepository(pool as never);
+  await first.saveLoginSession({
+    id: "desktop-session", workspaceId: "workspace-desktop",
+    upstreamId: "upstream-desktop", interactionSurface: "external_window",
+    expiresAt: "2026-09-01T00:05:00.000Z",
+    createdAt: "2026-09-01T00:00:00.000Z"
+  });
+
+  const restarted = new MysqlAcquisitionSocialAccountRepository(pool as never);
+  assert.equal((await restarted.findLoginSession(
+    "workspace-desktop", "desktop-session"
+  ))?.interactionSurface, "external_window");
+
+  pool.state.sessions.set("workspace-legacy\u0000legacy-session", {
+    id: "legacy-session", workspace_id: "workspace-legacy",
+    upstream_id: "upstream-legacy",
+    expires_at: "2026-09-01T00:05:00.000Z",
+    created_at: "2026-09-01T00:00:00.000Z"
+  });
+  assert.equal((await restarted.findLoginSession(
+    "workspace-legacy", "legacy-session"
+  ))?.interactionSurface, "remote_canvas");
+});
+
 test("stateful fake MySQL preserves replay across restart, reclaims expiry, and really rolls back", async () => {
   const pool = new StatefulSocialMysqlPool();
   const counter = { creates: 0, disconnects: 0 };
@@ -667,7 +1203,7 @@ test("stateful fake MySQL preserves replay across restart, reclaims expiry, and 
   now = "2026-08-24T00:00:02.000Z";
   const expired = await service().createLoginSessionIdempotently({ workspaceId: "w" }, { platform: "douyin" }, "key", "hash");
   assert.equal(expired.replayed, false);
-  assert.equal(counter.creates, 2);
+  assert.equal(counter.creates, 1);
 
   now = "2026-08-24T00:00:04.000Z";
   const rollbackPool = new StatefulSocialMysqlPool();
@@ -675,11 +1211,331 @@ test("stateful fake MySQL preserves replay across restart, reclaims expiry, and 
     idFactory: () => `local-${counter.creates}`, now: () => now, replayLeaseMs: 100, replayTtlMs: 1_000, pendingPollMs: 1 });
   rollbackPool.failNextCompletion = true;
   await assert.rejects(rollbackService().createLoginSessionIdempotently({ workspaceId: "w" }, { platform: "douyin" }, "rollback", "hash"), /stale_social_account_replay_fence/u);
-  assert.equal(rollbackPool.state.sessions.has("w\u0000local-3"), false);
+  assert.equal(rollbackPool.state.sessions.has("w\u0000local-2"), false);
   assert.equal(rollbackPool.state.replays.size, 0);
+  assert.equal(rollbackPool.state.loginOpenings.size, 0);
   const recovered = await rollbackService().createLoginSessionIdempotently({ workspaceId: "w" }, { platform: "douyin" }, "rollback", "hash");
   assert.equal(recovered.replayed, false);
   assert.equal(counter.disconnects, 1);
+});
+
+test("stateful fake MySQL serializes different login keys by workspace", async () => {
+  const pool = new StatefulSocialMysqlPool();
+  const counter = { creates: 0, disconnects: 0 };
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const sharedGateway = {
+    ...gateway(counter),
+    async createLoginSession() {
+      counter.creates += 1;
+      entered();
+      await gate;
+      return { sessionId: "mysql-shared-upstream", state: "awaiting_scan" as const,
+        qrImageDataUrl: null, qrStatus: "opening" as const, loginPage: null,
+        expiresAt: "2026-08-24T00:10:00.000Z", accountHandle: null,
+        accountDisplayName: null, loginStateVersion: null };
+    }
+  };
+  const service = (id: string) => new AcquisitionSocialAccountService({
+    repository: new MysqlAcquisitionSocialAccountRepository(pool as never),
+    gateway: sharedGateway,
+    idFactory: () => id,
+    now: () => "2026-08-24T00:00:00.000Z",
+    replayLeaseMs: 1_000,
+    pendingPollMs: 1
+  });
+
+  const first = service("mysql-public-session").createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" }, "mysql-first-key", "hash"
+  );
+  await started;
+  const second = service("must-not-create").createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" }, "mysql-second-key", "hash"
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(counter.creates, 1);
+  release();
+
+  const [created, reused] = await Promise.all([first, second]);
+  assert.equal(counter.creates, 1);
+  assert.equal(reused.view.id, created.view.id);
+  assert.equal(pool.state.loginOpenings.get("w")?.session_id,
+    "mysql-public-session");
+});
+
+test("stateful fake MySQL does not replay a login cancelled during the upstream reuse check", async () => {
+  const pool = new StatefulSocialMysqlPool();
+  const counter = { creates: 0, disconnects: 0 };
+  let releaseUpstreamCheck!: () => void;
+  let upstreamCheckStarted!: () => void;
+  const upstreamCheckGate = new Promise<void>((resolve) => {
+    releaseUpstreamCheck = resolve;
+  });
+  const upstreamCheckEntered = new Promise<void>((resolve) => {
+    upstreamCheckStarted = resolve;
+  });
+  const baseGateway = gateway(counter);
+  const sharedGateway = {
+    ...baseGateway,
+    async getLoginSession(sessionId: string) {
+      upstreamCheckStarted();
+      await upstreamCheckGate;
+      return baseGateway.getLoginSession(sessionId);
+    }
+  };
+  let nextId = 0;
+  const service = () => new AcquisitionSocialAccountService({
+    repository: new MysqlAcquisitionSocialAccountRepository(pool as never),
+    gateway: sharedGateway,
+    idFactory: () => `mysql-cancel-race-${++nextId}`,
+    now: () => "2026-08-24T00:00:00.000Z",
+    pendingPollMs: 1
+  });
+  const firstService = service();
+  const first = await firstService.createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" },
+    "mysql-cancel-race-first", "hash"
+  );
+  const replacementPromise = service().createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" },
+    "mysql-cancel-race-second", "hash"
+  );
+  await upstreamCheckEntered;
+  await firstService.cancelLoginSession({ workspaceId: "w" }, first.view.id);
+  assert.equal(pool.state.loginOpenings.has("w"), false);
+  assert.equal(pool.state.sessions.has(`w\u0000${first.view.id}`), false);
+  releaseUpstreamCheck();
+
+  const replacement = await replacementPromise;
+
+  assert.equal(counter.creates, 2);
+  assert.notEqual(replacement.view.id, first.view.id);
+  assert.equal(replacement.view.id, "mysql-cancel-race-2");
+});
+
+test("stateful fake MySQL closes reuse before a remote disconnect finishes", async () => {
+  const pool = new StatefulSocialMysqlPool();
+  const counter = { creates: 0, disconnects: 0 };
+  let releaseDisconnect!: () => void;
+  let disconnectStarted!: () => void;
+  const disconnectGate = new Promise<void>((resolve) => {
+    releaseDisconnect = resolve;
+  });
+  const disconnectEntered = new Promise<void>((resolve) => {
+    disconnectStarted = resolve;
+  });
+  const baseGateway = gateway(counter);
+  const sharedGateway = {
+    ...baseGateway,
+    async disconnectLoginSession() {
+      counter.disconnects += 1;
+      disconnectStarted();
+      await disconnectGate;
+    }
+  };
+  let nextId = 0;
+  const service = () => new AcquisitionSocialAccountService({
+    repository: new MysqlAcquisitionSocialAccountRepository(pool as never),
+    gateway: sharedGateway,
+    idFactory: () => `mysql-begin-cancel-${++nextId}`,
+    now: () => "2026-08-24T00:00:00.000Z",
+    pendingPollMs: 1
+  });
+  const cancellingService = service();
+  const first = await cancellingService.createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" },
+    "mysql-begin-cancel-first", "hash"
+  );
+  const cancellation = cancellingService.cancelLoginSession(
+    { workspaceId: "w" }, first.view.id
+  );
+  await disconnectEntered;
+  assert.equal(pool.state.loginOpenings.has("w"), true);
+  assert.equal(pool.state.loginOpenings.get("w")?.session_id, null);
+  assert.equal(pool.state.sessions.has(`w\u0000${first.view.id}`), true);
+
+  const replacementPromise = service().createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" },
+    "mysql-begin-cancel-second", "hash"
+  );
+  await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  assert.equal(counter.creates, 1, "create must remain pending behind the cancellation fence");
+  releaseDisconnect();
+  await cancellation;
+  const replacement = await replacementPromise;
+
+  assert.equal(pool.state.sessions.has(`w\u0000${first.view.id}`), false);
+  assert.equal(pool.state.loginOpenings.get("w")?.session_id,
+    replacement.view.id);
+});
+
+test("stateful fake MySQL rejects an in-flight reuse after pre-disconnect cancellation", async () => {
+  const pool = new StatefulSocialMysqlPool();
+  const counter = { creates: 0, disconnects: 0 };
+  const baseGateway = gateway(counter);
+  let releaseReuseGet!: () => void;
+  let reuseGetStarted!: () => void;
+  const reuseGetGate = new Promise<void>((resolve) => {
+    releaseReuseGet = resolve;
+  });
+  const reuseGetEntered = new Promise<void>((resolve) => {
+    reuseGetStarted = resolve;
+  });
+  let getCalls = 0;
+  let releaseDisconnect!: () => void;
+  let disconnectStarted!: () => void;
+  const disconnectGate = new Promise<void>((resolve) => {
+    releaseDisconnect = resolve;
+  });
+  const disconnectEntered = new Promise<void>((resolve) => {
+    disconnectStarted = resolve;
+  });
+  const sharedGateway = {
+    ...baseGateway,
+    async getLoginSession(sessionId: string) {
+      getCalls += 1;
+      if (getCalls === 1) {
+        reuseGetStarted();
+        await reuseGetGate;
+      }
+      return baseGateway.getLoginSession(sessionId);
+    },
+    async disconnectLoginSession() {
+      counter.disconnects += 1;
+      disconnectStarted();
+      await disconnectGate;
+    }
+  };
+  let nextId = 0;
+  const service = () => new AcquisitionSocialAccountService({
+    repository: new MysqlAcquisitionSocialAccountRepository(pool as never),
+    gateway: sharedGateway,
+    idFactory: () => `mysql-combined-race-${++nextId}`,
+    now: () => "2026-08-24T00:00:00.000Z",
+    pendingPollMs: 1
+  });
+  const cancellingService = service();
+  const first = await cancellingService.createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" },
+    "mysql-combined-race-first", "hash"
+  );
+  const replacementPromise = service().createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" },
+    "mysql-combined-race-second", "hash"
+  );
+  await reuseGetEntered;
+  const cancellation = cancellingService.cancelLoginSession(
+    { workspaceId: "w" }, first.view.id
+  );
+  await disconnectEntered;
+  assert.equal(pool.state.loginOpenings.get("w")?.session_id, null);
+  assert.equal(pool.state.sessions.has(`w\u0000${first.view.id}`), true);
+  releaseReuseGet();
+  await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  assert.equal(counter.creates, 1);
+  releaseDisconnect();
+  await cancellation;
+  const replacement = await replacementPromise;
+  assert.equal(counter.creates, 2);
+  assert.notEqual(replacement.view.id, first.view.id);
+  assert.equal(pool.state.loginOpenings.get("w")?.session_id,
+    replacement.view.id);
+
+  const reusedReplacement = await service().createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" },
+    "mysql-combined-race-third", "hash"
+  );
+
+  assert.equal(counter.creates, 2);
+  assert.equal(reusedReplacement.view.id, replacement.view.id);
+  assert.equal(pool.state.sessions.has(`w\u0000${first.view.id}`), false);
+  assert.equal(pool.state.sessions.has(
+    `w\u0000${replacement.view.id}`
+  ), true);
+  assert.equal(pool.state.loginOpenings.get("w")?.session_id,
+    replacement.view.id);
+});
+
+test("stateful fake MySQL restores a failed cancel as the reusable workspace opening", async () => {
+  const pool = new StatefulSocialMysqlPool();
+  const counter = { creates: 0, disconnects: 0 };
+  const baseGateway = gateway(counter);
+  let failDisconnect = true;
+  const sharedGateway = {
+    ...baseGateway,
+    async disconnectLoginSession() {
+      counter.disconnects += 1;
+      if (failDisconnect) throw new Error("disconnect_failed");
+    }
+  };
+  let nextId = 0;
+  const service = new AcquisitionSocialAccountService({
+    repository: new MysqlAcquisitionSocialAccountRepository(pool as never),
+    gateway: sharedGateway,
+    idFactory: () => `mysql-cancel-retry-${++nextId}`,
+    now: () => "2026-08-24T00:00:00.000Z",
+    pendingPollMs: 1
+  });
+  const first = await service.createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" },
+    "mysql-cancel-retry-first", "hash"
+  );
+
+  await assert.rejects(service.cancelLoginSession(
+    { workspaceId: "w" }, first.view.id
+  ), /disconnect_failed/u);
+  assert.equal(pool.state.sessions.has(`w\u0000${first.view.id}`), true);
+  assert.equal(pool.state.loginOpenings.get("w")?.session_id, first.view.id);
+
+  const replacement = await service.createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" },
+    "mysql-cancel-retry-second", "hash"
+  );
+  assert.equal(counter.creates, 1);
+  assert.equal(replacement.view.id, first.view.id);
+
+  failDisconnect = false;
+  await service.cancelLoginSession({ workspaceId: "w" }, first.view.id);
+  const reusedReplacement = await service.createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" },
+    "mysql-cancel-retry-third", "hash"
+  );
+
+  assert.equal(counter.disconnects, 2);
+  assert.equal(counter.creates, 2);
+  assert.notEqual(reusedReplacement.view.id, replacement.view.id);
+  assert.equal(pool.state.sessions.has(`w\u0000${first.view.id}`), false);
+});
+
+test("stateful fake MySQL releases the workspace opening after login cancellation", async () => {
+  const pool = new StatefulSocialMysqlPool();
+  const counter = { creates: 0, disconnects: 0 };
+  let nextId = 0;
+  const service = new AcquisitionSocialAccountService({
+    repository: new MysqlAcquisitionSocialAccountRepository(pool as never),
+    gateway: gateway(counter),
+    idFactory: () => `mysql-cancel-${++nextId}`,
+    now: () => "2026-08-24T00:00:00.000Z",
+    pendingPollMs: 1
+  });
+  const first = await service.createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" }, "mysql-cancel-first", "hash"
+  );
+
+  await service.cancelLoginSession({ workspaceId: "w" }, first.view.id);
+  assert.equal(pool.state.loginOpenings.has("w"), false);
+  assert.equal(pool.state.sessions.has(`w\u0000${first.view.id}`), false);
+  const reconnected = await service.createLoginSessionIdempotently(
+    { workspaceId: "w" }, { platform: "douyin" }, "mysql-cancel-second", "hash"
+  );
+
+  assert.equal(counter.disconnects, 1);
+  assert.equal(counter.creates, 2);
+  assert.notEqual(reconnected.view.id, first.view.id);
+  assert.equal(pool.state.loginOpenings.get("w")?.session_id,
+    reconnected.view.id);
 });
 
 test("stateful fake MySQL atomically rolls back account disconnect and replay completion", async () => {
@@ -739,8 +1595,15 @@ test("live MySQL restart, replay expiry, reclaim, and transaction rollback", {
     const fence = await repository().claimReplay({ workspaceId: "w", operation: "rollback", key: "rollback", requestHash: "good", attemptedAt: now, leaseOwner: "owner", leaseDurationMs: 100, replayExpiresAt: "2026-08-24T00:01:00.000Z" });
     assert.equal(fence.kind, "claimed");
     if (fence.kind !== "claimed") throw new Error("live claim missing");
+    const opening = await repository().claimLoginOpening({
+      workspaceId: "w", attemptedAt: now, leaseOwner: "opening-owner",
+      leaseDurationMs: 100
+    });
+    assert.equal(opening.kind, "claimed");
+    if (opening.kind !== "claimed") throw new Error("live opening claim missing");
     await assert.rejects(repository().saveLoginSessionAndCompleteReplay({ id: "rolled-back", workspaceId: "w", upstreamId: "raw", expiresAt: "2026-08-24T00:10:00.000Z", createdAt: now }, fence,
-      { requestHash: "wrong", response: {}, status: 200, headers: {}, completedAt: now }), /stale_social_account_replay_fence/u);
+      { requestHash: "wrong", response: {}, status: 200, headers: {}, completedAt: now },
+    opening), /stale_social_account_replay_fence/u);
     assert.equal(await repository().findLoginSession("w", "rolled-back"), null);
   } finally {
     await pool.end();

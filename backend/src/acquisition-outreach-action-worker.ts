@@ -1,16 +1,33 @@
 import { outreachContentHash, validOutreachTarget,
   type AcquisitionOutreachAction } from "./acquisition-outreach-batch.js";
+import type { PlatformExecutionAccess } from './platform-execution-access.js';
 import type { AcquisitionOutreachBatchRepository } from "./acquisition-outreach-batch-repository.js";
+import type { OutreachActionAuthority } from
+  "./acquisition-outreach-action-authority.js";
+export type { OutreachActionAuthority } from
+  "./acquisition-outreach-action-authority.js";
 
-const CLOSED_FAILURES = new Set([
-  "action_unavailable", "action_rejected", "deadline_exceeded",
+const UNCERTAIN_FAILURES = new Set([
+  "action_unavailable", "douyin_action_timeout",
+  "douyin_action_receipt_ambiguous"
+]);
+
+const EXPLICIT_RISK_FAILURES = new Set([
   "douyin_verification_required", "douyin_rate_limited",
   "douyin_account_warning", "douyin_account_identity_changed",
-  "douyin_login_expired",
+  "douyin_login_expired"
+]);
+
+const PROVEN_PREWRITE_FAILURES = new Set([
+  "action_rejected", "deadline_exceeded",
   "douyin_direct_message_unavailable",
   "douyin_action_control_missing", "douyin_action_control_ambiguous",
-  "douyin_action_content_mismatch", "douyin_action_receipt_ambiguous",
-  "douyin_action_timeout"
+  "douyin_action_content_mismatch"
+]);
+
+const CLOSED_FAILURES = new Set([
+  ...UNCERTAIN_FAILURES, ...EXPLICIT_RISK_FAILURES,
+  ...PROVEN_PREWRITE_FAILURES
 ]);
 
 const DEFAULT_MANUAL_VERIFICATION_SECONDS = 120;
@@ -60,9 +77,52 @@ export interface OutreachActionExecutionReceipt {
   failureCode: string | null;
 }
 
-export type OutreachActionAuthority =
-  | { accountHandle: string }
-  | { failureCode: "approval_authority_changed" };
+export interface OutreachActionReceiptClassificationInput {
+  executionTarget: "server" | "desktop";
+  executionPhase: "pre_start" | "started_pre_journal" | "started_post_journal";
+  receiptState: "succeeded" | "failed";
+  failureCode: string | null;
+}
+
+export interface OutreachActionReceiptClassification {
+  taxonomy: "success" | "retryable_prewrite" | "uncertain" |
+    "explicit_risk" | "proven_prewrite_rejection";
+  stateEffect: "succeeded" | "queued" | "risk_paused" |
+    "reconciliation_required" | "failed";
+}
+
+export function classifyOutreachActionReceipt(
+  input: OutreachActionReceiptClassificationInput
+): OutreachActionReceiptClassification {
+  if (input.receiptState === "succeeded") {
+    return { taxonomy: "success", stateEffect: "succeeded" };
+  }
+  if (input.failureCode === "douyin_profile_busy") {
+    if (input.executionPhase !== "started_post_journal") {
+      return { taxonomy: "retryable_prewrite", stateEffect: "queued" };
+    }
+    return { taxonomy: "uncertain", stateEffect: input.executionTarget === "server"
+      ? "risk_paused" : "reconciliation_required" };
+  }
+  if (EXPLICIT_RISK_FAILURES.has(input.failureCode ?? "")) {
+    return { taxonomy: "explicit_risk", stateEffect: "risk_paused" };
+  }
+  if (UNCERTAIN_FAILURES.has(input.failureCode ?? "")) {
+    if (input.executionTarget === "server") {
+      return { taxonomy: "uncertain", stateEffect: "risk_paused" };
+    }
+    return { taxonomy: "uncertain", stateEffect: input.executionPhase === "pre_start"
+      ? "failed" : "reconciliation_required" };
+  }
+  if (PROVEN_PREWRITE_FAILURES.has(input.failureCode ?? "")) {
+    return { taxonomy: "proven_prewrite_rejection", stateEffect: "failed" };
+  }
+  if (input.executionTarget === "desktop") {
+    return { taxonomy: "uncertain", stateEffect: input.executionPhase === "pre_start"
+      ? "failed" : "reconciliation_required" };
+  }
+  return { taxonomy: "proven_prewrite_rejection", stateEffect: "failed" };
+}
 
 export class AcquisitionOutreachActionWorker {
   private timer: NodeJS.Timeout | null = null;
@@ -73,6 +133,7 @@ export class AcquisitionOutreachActionWorker {
 
   constructor(private readonly options: {
     repository: AcquisitionOutreachBatchRepository;
+    platformExecutionAccess?: PlatformExecutionAccess;
     workerId: string;
     now(): string;
     accountAuthority(action: AcquisitionOutreachAction): Promise<OutreachActionAuthority | null>;
@@ -104,13 +165,13 @@ export class AcquisitionOutreachActionWorker {
     const claimedAt = this.options.now();
     const claim = await this.options.repository.claimNextAction({
       workerId: this.options.workerId, now: claimedAt,
-      leaseDurationMs: this.leaseDurationMs
+      leaseDurationMs: this.leaseDurationMs, executionTarget: "server"
     });
     if (!claim) return false;
     const action = claim.action;
     let failureCode: string | null = null;
     try {
-      if (action.kind === "direct_message" && (action.authorizationVersion !== 2
+      if (action.kind === "direct_message" && (![2, 3].includes(action.authorizationVersion ?? 0)
         || typeof action.approvedBy !== "string" || !action.approvedBy
         || typeof action.approvedAt !== "string"
         || !Number.isFinite(Date.parse(action.approvedAt))
@@ -142,6 +203,13 @@ export class AcquisitionOutreachActionWorker {
       }
       const started = Date.parse(claimedAt);
       const deadlineAt = new Date(started + this.actionDeadlineMs).toISOString();
+      if (this.options.platformExecutionAccess
+        && !await this.options.platformExecutionAccess(action.workspaceId, this.options.now())) {
+        const released = await this.options.repository.completeActionRetry(
+          claim.fence, 'platform_execution_denied', this.options.now());
+        if (!released) throw new OutreachActionFenceLost();
+        return false;
+      }
       const receipt = await this.options.execute({
         actionId: action.id,
         accountHandle: authority && "accountHandle" in authority
@@ -157,6 +225,13 @@ export class AcquisitionOutreachActionWorker {
           || receipt.platformReceiptReference.length > 255 || receipt.failureCode !== null) {
           failureCode = "douyin_action_receipt_ambiguous";
         } else {
+          const classification = classifyOutreachActionReceipt({
+            executionTarget: "server", executionPhase: "started_post_journal",
+            receiptState: receipt.state, failureCode: receipt.failureCode
+          });
+          if (classification.stateEffect !== "succeeded") {
+            throw new Error("invalid_success_receipt_classification");
+          }
           const completed = await this.options.repository.completeActionSuccess(claim.fence, {
             platformReceiptReference: receipt.platformReceiptReference,
             occurredAt: new Date(Math.max(Date.parse(this.options.now()),
@@ -166,7 +241,14 @@ export class AcquisitionOutreachActionWorker {
           return true;
         }
       } else {
-        if (receipt.failureCode === "douyin_profile_busy") {
+        const normalizedFailureCode = receipt.failureCode === "douyin_profile_busy"
+          || (typeof receipt.failureCode === "string" && CLOSED_FAILURES.has(receipt.failureCode))
+          ? receipt.failureCode : "action_rejected";
+        const classification = classifyOutreachActionReceipt({
+          executionTarget: "server", executionPhase: "started_pre_journal",
+          receiptState: receipt.state, failureCode: normalizedFailureCode
+        });
+        if (classification.stateEffect === "queued") {
           const retryAt = new Date(Math.max(Date.parse(this.options.now()),
             Date.parse(claim.claimedAt))).toISOString();
           const released = await this.options.repository.completeActionRetry(
@@ -174,8 +256,7 @@ export class AcquisitionOutreachActionWorker {
           if (!released) throw new OutreachActionFenceLost();
           return true;
         }
-        failureCode = receipt.failureCode && CLOSED_FAILURES.has(receipt.failureCode)
-          ? receipt.failureCode : "action_rejected";
+        failureCode = normalizedFailureCode;
       }
     } catch (error) {
       if (error instanceof OutreachActionFenceLost) throw error;

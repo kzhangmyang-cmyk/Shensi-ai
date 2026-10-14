@@ -4,18 +4,22 @@ export interface AcquisitionDetailOpenRequest {
   mode: AcquisitionDetailMode;
   planId?: string;
   candidateId?: string;
+  candidateRunId?: string;
 }
 
 export function acquisitionCandidateDetailRequest(
   candidateId: string,
-  planId?: string
+  planId?: string,
+  candidateRunId?: string
 ): AcquisitionDetailOpenRequest | null {
   const selectedCandidateId = candidateId.trim();
   if (!selectedCandidateId) return null;
   const selectedPlanId = planId?.trim();
+  const selectedCandidateRunId = candidateRunId?.trim();
   return {
     mode: "candidates",
     ...(selectedPlanId ? { planId: selectedPlanId } : {}),
+    ...(selectedPlanId && selectedCandidateRunId ? { candidateRunId: selectedCandidateRunId } : {}),
     candidateId: selectedCandidateId
   };
 }

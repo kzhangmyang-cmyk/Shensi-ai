@@ -23,10 +23,13 @@ class DeterministicBrowser:
     def open_douyin_login(self, profile: Path):
         return {
             "profile": profile,
-            "qr_image_data_url": (
-                "data:image/svg+xml;base64,"
-                "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4="
-            ),
+            "login_page": {
+                "image_data_url": (
+                    "data:image/jpeg;base64,bG9naW4tanBlZw=="
+                ),
+                "width": 1280,
+                "height": 800,
+            },
         }
 
     def poll_douyin_login(self, _context):

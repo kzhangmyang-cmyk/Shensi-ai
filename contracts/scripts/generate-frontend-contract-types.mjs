@@ -44,7 +44,16 @@ function parseArguments(arguments_) {
 }
 
 async function render(input) {
-  const nodes = await openapiTS(pathToFileURL(input));
+  const nodes = await openapiTS(pathToFileURL(input), {
+    transform(schema) {
+      // Normalize the loaded generation copy only. A server-side off default
+      // must not make reference retrieval mandatory for legacy/voice callers.
+      if (schema.type === "object" && schema.properties?.knowledgeMode?.default === "off"
+          && !schema.required?.includes("knowledgeMode")) {
+        delete schema.properties.knowledgeMode.default;
+      }
+    }
+  });
   return astToString(nodes);
 }
 

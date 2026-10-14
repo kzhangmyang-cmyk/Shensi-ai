@@ -52,6 +52,21 @@ const http: GrowthHttpClient = {
 
 const api = createFinancialCouncilApi(http);
 
+// Dropping subsequent cursor pages or appending duplicate events loses timeline truth.
+{
+  const event = { eventId: "event-1", runId: "run-1", revision: 1, fromStatus: null, toStatus: "created", reasonCode: null, occurredAt: "2026-09-10T00:00:00Z" };
+  const paths: string[] = [];
+  const paged = createFinancialCouncilApi({ async request(path) {
+    paths.push(path);
+    return { status: 200, etag: null, body: paths.length === 1
+      ? { items: [event], nextAfter: "cursor / 1", hasMore: true }
+      : { items: [event, { ...event, eventId: "event-2" }], nextAfter: null, hasMore: false } } as never;
+  } });
+  const response = await paged.listEvents("run-1");
+  assert.deepEqual(response.body.items.map(item => item.eventId), ["event-1", "event-2"]);
+  assert.equal(paths[1], "/api/v1/finance/council-runs/run-1/events?after=cursor%20%2F%201&limit=100");
+}
+
 await api.createRun({
   currency: "CNY",
   dataAsOf: "2026-08-16T08:00:00.000Z",

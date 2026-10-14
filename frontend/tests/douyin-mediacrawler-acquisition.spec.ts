@@ -3,6 +3,64 @@ import { expect, test } from "@playwright/test";
 const FIXTURE = "http://127.0.0.1:5391";
 const hashForFixture = (char: string) => `sha256:${char.repeat(64)}`;
 
+test("desktop local collection progress preserves scroll and separates persisted results", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.route("**/__desktop-progress-check", (route) => route.fulfill({
+    contentType: "text/html", body: `<!doctype html><html lang="zh-CN"><head>
+    <link rel="stylesheet" href="/src/app-shell.css">
+    <link rel="stylesheet" href="/src/replica-dashboard.css"></head><body class="is-authenticated">
+    <main class="replica-shell" data-acquisition-mode="real"
+      style="display:block;min-width:0;padding:16px;height:100vh;overflow:auto" id="scroll">
+      <div id="host"></div></main></body></html>`
+  }));
+  await page.goto("/__desktop-progress-check");
+  await page.evaluate(async () => {
+    const modulePath = "/src/acquisition/douyin-automation-view.ts";
+    const { renderDouyinAutomationView } = await import(modulePath);
+    const now = "2026-08-25T09:30:00.000Z";
+    const state = {
+      phase: "ready", planId: "plan-1", planName: "工业除尘", planStatus: "approved",
+      account: { id: "account-1", state: "active", displayName: "测试账号", lastValidatedAt: now },
+      loginSession: null, policy: null,
+      draftPolicy: { keywords: ["工业除尘"], schedule: { enabled: false, localTime: "09:30", timeZone: "Asia/Shanghai" },
+        dailyCandidateLimit: 5, collectCreators: true, collectDemandComments: true,
+        limits: { maxVideos: 30, maxCommentsPerVideo: 50, maxPagesPerVideo: 3, maxDurationSeconds: 3600 } },
+      runIntent: null, activeRunId: "run-1", candidates: [], selectedCandidateIds: [],
+      error: null, suggestionError: null, closed: false,
+      crawlerStatus: { runId: "run-1", state: "running", attempt: 1, cursorPersisted: false,
+        recordCount: 0, candidateBudgetUsed: 0, candidateBudgetLimit: 5, candidateProjectionState: "pending",
+        lastErrorCode: null, createdAt: now, updatedAt: now, completedAt: null,
+        activity: { phase: "queued", currentKeyword: null, browserMode: "headless", sequence: 0 } },
+      localCrawlerStatus: { taskId: "job-1", state: "running", createdAt: now, updatedAt: now,
+        completedAt: null, acknowledgedAt: null, recordCount: 300, pageCount: 12, failureCode: null,
+        activity: { phase: "collecting_comments", currentKeyword: "工业除尘", browserMode: "visible", sequence: 4 } }
+    };
+    const render = (count: number) => {
+      state.localCrawlerStatus.recordCount = count;
+      renderDouyinAutomationView(document.getElementById("host"), state);
+    };
+    Object.assign(window, { renderProgressFixture: render });
+    render(300);
+  });
+  const live = page.locator(".douyin-run-live-activity");
+  await live.scrollIntoViewIfNeeded();
+  await expect(live).toContainText("正在采集评论");
+  await expect(live).not.toContainText("等待浏览器启动");
+  await expect(page.locator(".douyin-run-metrics")).toContainText("本机已采集300");
+  await expect(page.locator(".douyin-run-metrics")).toContainText("已入库公开记录0");
+  await expect(page.getByRole("button", { name: "保存并立即运行" })).toBeDisabled();
+  const scrollTop = await page.locator("#scroll").evaluate((element) => element.scrollTop);
+  await page.evaluate(() => {
+    (window as unknown as { renderProgressFixture(count: number): void }).renderProgressFixture(875);
+  });
+  await expect(page.locator(".douyin-run-metrics")).toContainText("本机已采集875");
+  expect(await page.locator("#scroll").evaluate((element) => element.scrollTop)).toBe(scrollTop);
+  await page.locator(".douyin-run-panel").screenshot({ path: "test-results/desktop-local-progress.png" });
+  await page.setViewportSize({ width: 760, height: 650 });
+  await expect(live).toContainText("正在采集评论");
+  expect(await page.locator(".douyin-run-panel").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
+
 type FixtureAttempt =
   | {
       kind: "collection";

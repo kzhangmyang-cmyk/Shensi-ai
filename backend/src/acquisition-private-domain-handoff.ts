@@ -10,6 +10,7 @@ import type {
   AcquisitionDomainService
 } from "./acquisition-domain-service.js";
 import { canonicalJsonStringify } from "./canonical-json.js";
+import { isAcquisitionSourceShape, type AcquisitionSourceAttribution } from "./acquisition-outcome-attribution.js";
 import type {
   AcquisitionCustomerHandoff,
   AcquisitionCustomerHandoffOperation,
@@ -44,18 +45,23 @@ export interface AcquisitionPrivateDomainHandoffStore {
 }
 
 export interface AcquisitionPrivateDomainHandoffResult {
+  source?: AcquisitionSourceAttribution;
   replayed: boolean;
   handoff: AcquisitionCustomerHandoff;
   lead: Lead;
   customer: Customer;
   todo: Todo;
-  intelligence: AcquisitionHandoffIntelligence;
+  intelligence: AcquisitionHandoffIntelligence | null;
   recovery?: {
     request: AcquisitionPrivateDomainHandoffRecoveryRequest;
   };
 }
 
 export interface AcquisitionPrivateDomainHandoffAttributionResolver {
+  resolveSource?(
+    scope: { ownerId: string; teamId: string },
+    input: { runId: string; discoveredEventId: string; candidateId: string; evidenceIds: string[] }
+  ): Promise<AcquisitionSourceAttribution | null>;
   resolve(
     scope: { ownerId: string; teamId: string },
     input: {
@@ -157,7 +163,7 @@ function normalizeHandoffRequest(
   request: AcquisitionPrivateDomainHandoffRequest
 ): AcquisitionCustomerHandoffRequestSnapshot {
   return {
-    operationCode: "handoff_acquisition_candidate_v1",
+    operationCode: request.operationCode,
     runId: request.runId.trim(),
     discoveredEventId: request.discoveredEventId.trim(),
     decisionVersion: request.decisionVersion.trim(),
@@ -201,7 +207,7 @@ function legacyHandoffRequestSnapshot(
       || request.runId.trim().length === 0
       || typeof request.discoveredEventId !== "string"
       || request.discoveredEventId.trim().length === 0))
-    || request.operationCode !== "handoff_acquisition_candidate_v1"
+    || (request.operationCode !== "handoff_acquisition_candidate_v1" && request.operationCode !== "handoff_acquisition_candidate_v2")
     || typeof request.decisionVersion !== "string"
     || (request.mode !== "create_new" && request.mode !== "link_existing")
     || typeof request.existingCustomerId !== "string"
@@ -330,6 +336,9 @@ export class AcquisitionPrivateDomainHandoffService {
     request: AcquisitionPrivateDomainHandoffRequest,
     idempotencyKey: string
   ): Promise<AcquisitionPrivateDomainHandoffResult> {
+    if (request.operationCode === "handoff_acquisition_candidate_v2") {
+      return this.#createDirect(scope, candidateId, request, idempotencyKey);
+    }
     await this.#store.readBarrier();
     const normalizedRequest = normalizeHandoffRequest(request);
     const processingKeyHash = digest([
@@ -347,7 +356,7 @@ export class AcquisitionPrivateDomainHandoffService {
     if (completed) {
       const acceptedKey = acceptedProcessingKeyHashes(completed)
         .includes(processingKeyHash);
-      if (!completed.acquisitionAttribution) {
+      if (!completed.acquisitionAttribution && completed.intelligence !== null) {
         return await this.#upgradeCompletedLegacy(
           scope,
           candidateId,
@@ -615,6 +624,8 @@ export class AcquisitionPrivateDomainHandoffService {
       );
     }
     const intelligence = structuredClone(operation.intelligence);
+    if (!intelligence) throw new AcquisitionPrivateDomainHandoffError(
+      "ACQUISITION_HANDOFF_RECOVERY_DATA_MISSING", "历史交接缺少评分快照", 409);
     const linkedCustomerId = lead.convertedCustomerId?.trim() ?? "";
     const linkedCustomer = linkedCustomerId
       ? this.#store.customers.find((item) =>
@@ -891,6 +902,112 @@ export class AcquisitionPrivateDomainHandoffService {
     return await this.#persistMutation(apply);
   }
 
+  async #createDirect(
+    scope: AcquisitionActorScope,
+    candidateId: string,
+    input: AcquisitionPrivateDomainHandoffRequest,
+    idempotencyKey: string
+  ): Promise<AcquisitionPrivateDomainHandoffResult> {
+    await this.#store.readBarrier();
+    const request = normalizeHandoffRequest({ ...input, decisionVersion: "" });
+    const processingKeyHash = digest([scope.ownerId, scope.teamId, candidateId, idempotencyKey].join("\u001f"));
+    const requestHash = digest(canonicalJsonStringify(request));
+    const completed = this.#store.acquisitionCustomerHandoffs.find((item) =>
+      item.ownerId === scope.ownerId && item.teamId === scope.teamId && item.candidateId === candidateId);
+    if (completed) {
+      const replayed = acceptedProcessingKeyHashes(completed).includes(processingKeyHash);
+      if (replayed && completed.requestHash !== requestHash) throw new AcquisitionPrivateDomainHandoffError(
+        "ACQUISITION_HANDOFF_IDEMPOTENCY_CONFLICT", "同一幂等键已用于不同交接请求", 409);
+      return this.#completedResult(scope, completed, replayed);
+    }
+    if (this.#store.acquisitionCustomerHandoffOperations.some((item) =>
+      item.ownerId === scope.ownerId && item.teamId === scope.teamId && item.candidateId === candidateId)) {
+      throw new AcquisitionPrivateDomainHandoffError("ACQUISITION_HANDOFF_RECOVERY_DATA_MISSING",
+        "该候选存在未完成的历史交接，请先恢复原交接，避免重复创建客户", 409);
+    }
+    const candidate = await this.#repository.findCandidate(scope, candidateId);
+    if (!candidate) throw new AcquisitionPrivateDomainHandoffError("ACQUISITION_CANDIDATE_NOT_FOUND", "候选不存在", 404);
+    const profile = candidate.profile;
+    const name = (profile.kind === "organization" ? profile.name : profile.publicDisplayName).trim();
+    if (!name) throw new AcquisitionPrivateDomainHandoffError("ACQUISITION_HANDOFF_NAME_REQUIRED", "候选姓名不能为空", 400);
+    const source = await this.#attributionResolver?.resolveSource?.(scope, {
+      runId: request.runId, discoveredEventId: request.discoveredEventId,
+      candidateId, evidenceIds: candidate.evidenceIds
+    });
+    if (!source) throw new AcquisitionPrivateDomainHandoffError("ACQUISITION_HANDOFF_ATTRIBUTION_INVALID", "候选来源运行或证据无效", 409);
+    const existing = request.mode === "link_existing" ? this.#store.customers.find((item) =>
+      item.id === request.existingCustomerId && item.ownerId === scope.ownerId && item.teamId === scope.teamId) : undefined;
+    if (request.mode === "link_existing" && !existing) throw new AcquisitionPrivateDomainHandoffError(
+      "ACQUISITION_HANDOFF_CUSTOMER_NOT_FOUND", "指定客户不在当前负责人及团队范围", 404);
+    const identity = [scope.ownerId, scope.teamId, candidateId];
+    const createdAt = new Date(this.#now()).toISOString();
+    const priorLead = candidate.leadId ? this.#store.leads.find((item) =>
+      item.id === candidate.leadId && item.ownerId === scope.ownerId && item.teamId === scope.teamId) : undefined;
+    if (candidate.leadId && !priorLead) throw new AcquisitionPrivateDomainHandoffError(
+      "ACQUISITION_HANDOFF_LEAD_MISSING", "原线索不存在或不在当前工作区", 409);
+    const linked = priorLead?.convertedCustomerId ? this.#store.customers.find((item) =>
+      item.id === priorLead.convertedCustomerId && item.ownerId === scope.ownerId && item.teamId === scope.teamId) : undefined;
+    if ((priorLead?.convertedCustomerId && !linked) || (linked && existing && linked.id !== existing.id)) {
+      throw new AcquisitionPrivateDomainHandoffError("ACQUISITION_HANDOFF_LEAD_CUSTOMER_CONFLICT", "原线索客户关联不能覆盖", 409);
+    }
+    const customerId = linked?.id ?? existing?.id ?? stableId("customer", identity);
+    const target = linked ?? existing;
+    const customer: Customer = target ? { ...target, nextReminder: request.followUp.dueAt } : {
+      id: customerId, company: name, country: "未知", contact: name,
+      ownerId: scope.ownerId, teamId: scope.teamId, stage: "待首次跟进", amount: 0,
+      health: 72, grade: "C", nextReminder: request.followUp.dueAt, wecomBound: false,
+      poolStatus: "owned", ownershipVersion: 0, billingName: "", billingAddress: "", documentContact: name,
+      defaultPortDischarge: "", defaultIncoterm: "", defaultPaymentTerm: ""
+    };
+    const lead: Lead = priorLead ? { ...priorLead, convertedCustomerId: customerId } : {
+      id: stableId("lead", identity), company: name, contact: name, country: "", email: "", phone: "", wechat: "",
+      source: "获客候选", intent: "未评估", stage: "待首次跟进", status: "new",
+      ownerId: scope.ownerId, teamId: scope.teamId, estimatedAmount: 0,
+      nextFollowAt: request.followUp.dueAt, lastActivityAt: createdAt, remark: "人工确认加入私域，未进行 AI 研判",
+      convertedCustomerId: customerId, convertedDealId: "", sourceType: "outbound",
+      sourceChannel: "acquisition_direct_handoff", sourceCampaign: source.planId,
+      externalId: candidateId, sourceUrl: (profile.kind === "individual" ? profile.publicProfileUrl : profile.domain) ?? "",
+      createdAt
+    };
+    const todo: Todo = { id: stableId("todo", identity), title: request.followUp.title, type: "customer",
+      priority: request.followUp.priority, status: "pending", dueAt: request.followUp.dueAt,
+      ownerId: scope.ownerId, teamId: scope.teamId, related: name, done: false,
+      customerId, leadId: lead.id, triggerKey: `acquisition-first-follow-up:${candidateId}`, createdAt };
+    const activity: CustomerActivity = { id: stableId("ca", identity), customerId, type: "note",
+      content: `由获客候选 ${name} 加入私域；来源运行 ${source.runId}。`,
+      operatorId: scope.actorId, nextReminder: request.followUp.dueAt, createdAt };
+    const event: LeadSourceEvent = { id: stableId("lse", [...identity, "direct-handoff"]), leadId: lead.id,
+      sourceType: "outbound", channel: "acquisition_direct_handoff", campaign: source.planId,
+      externalId: candidateId, sourceUrl: lead.sourceUrl, occurredAt: createdAt, receivedAt: createdAt,
+      rawPayload: canonicalJsonStringify({ candidateId, sourceAttribution: source }), ownerId: scope.ownerId, teamId: scope.teamId };
+    const handoff: AcquisitionCustomerHandoff = { id: stableId("ach", identity), ownerId: scope.ownerId,
+      teamId: scope.teamId, candidateId, leadId: lead.id, customerId, todoId: todo.id,
+      decisionVersion: "", mode: request.mode, processingKeyHash, acceptedProcessingKeyHashes: [processingKeyHash],
+      requestHash, intelligence: null, qualificationSnapshotHash: "", financialSnapshotHash: "",
+      acquisitionAttribution: null, createdAt };
+    const operation: AcquisitionCustomerHandoffOperation = { ...handoff, id: stableId("acho", identity),
+      existingCustomerId: request.existingCustomerId, stage: "completed", activityId: activity.id,
+      handoffId: handoff.id, request, updatedAt: createdAt };
+    return this.#persistMutation(() => {
+      const oldCustomer = target ? structuredClone(target) : null;
+      const oldLead = priorLead ? structuredClone(priorLead) : null;
+      if (target) Object.assign(target, customer); else this.#store.customers.unshift(customer);
+      if (priorLead) Object.assign(priorLead, lead); else this.#store.leads.unshift(lead);
+      this.#store.todos.unshift(todo);
+      this.#store.customerActivities.unshift(activity);
+      this.#store.leadSourceEvents.unshift(event);
+      this.#store.acquisitionCustomerHandoffs.unshift(handoff);
+      this.#store.acquisitionCustomerHandoffOperations.unshift(operation);
+      return { value: { replayed: false, handoff, lead, customer, todo, intelligence: null, source }, rollback: () => {
+        if (target && oldCustomer) Object.assign(target, oldCustomer); else removeById(this.#store.customers, customerId);
+        if (priorLead && oldLead) Object.assign(priorLead, oldLead); else removeById(this.#store.leads, lead.id);
+        removeById(this.#store.todos, todo.id); removeById(this.#store.customerActivities, activity.id);
+        removeById(this.#store.leadSourceEvents, event.id); removeById(this.#store.acquisitionCustomerHandoffs, handoff.id);
+        removeById(this.#store.acquisitionCustomerHandoffOperations, operation.id);
+      } };
+    });
+  }
+
   async #upgradeCompletedLegacy(
     scope: AcquisitionActorScope,
     candidateId: string,
@@ -991,7 +1108,7 @@ export class AcquisitionPrivateDomainHandoffService {
       sourceUrl: durable.lead.sourceUrl,
       occurredAt: handoff.createdAt,
       acquisitionAttribution,
-      intelligence: operation.intelligence,
+      intelligence: operation.intelligence!,
       qualificationSnapshotHash: operation.qualificationSnapshotHash,
       financialSnapshotHash: operation.financialSnapshotHash
     });
@@ -1106,7 +1223,22 @@ export class AcquisitionPrivateDomainHandoffService {
       customer,
       todo
     );
+    let source: AcquisitionSourceAttribution | undefined;
+    if (handoff.intelligence === null) {
+      const event = this.#store.leadSourceEvents.find((item) => item.leadId === lead.id
+        && item.ownerId === scope.ownerId && item.teamId === scope.teamId
+        && item.externalId === handoff.candidateId && item.channel === "acquisition_direct_handoff");
+      if (event) {
+        try {
+          const parsed = JSON.parse(event.rawPayload);
+          if (parsed.candidateId === handoff.candidateId && isAcquisitionSourceShape(parsed.sourceAttribution)) {
+            source = parsed.sourceAttribution;
+          }
+        } catch { /* A malformed historical source is not fabricated. */ }
+      }
+    }
     return {
+      ...(source ? { source } : {}),
       replayed,
       handoff,
       lead,
@@ -1126,7 +1258,7 @@ export class AcquisitionPrivateDomainHandoffService {
     customer: Customer,
     todo: Todo
   ): AcquisitionPrivateDomainHandoffRecoveryRequest | null {
-    if (handoff.acquisitionAttribution) return null;
+    if (handoff.acquisitionAttribution || handoff.intelligence === null) return null;
     const operations = this.#store.acquisitionCustomerHandoffOperations.filter(
       (item) => item.ownerId === scope.ownerId
         && item.teamId === scope.teamId

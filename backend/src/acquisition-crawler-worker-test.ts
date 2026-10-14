@@ -26,6 +26,27 @@ const job: AcquisitionCrawlerJobInput = {
   limits: { maxVideos: 1, maxCommentsPerVideo: 1, maxPagesPerVideo: 1, maxDurationSeconds: 60 }, createdAt: now
 };
 
+test("queued crawler pauses before browser execution when current entitlement is denied", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(job);
+  await repository.enqueue(job.workspaceId, job.runId, now);
+  let externalCalls = 0;
+  const forbidden = async (): Promise<never> => { externalCalls++; throw new Error("unexpected browser call"); };
+  const worker = new AcquisitionCrawlerWorker({ repository,
+    gateway: { startCrawlJob: forbidden, getCrawlJob: forbidden, getCrawlResults: forbidden, cancelCrawlJob: forbidden },
+    accounts: { async findById() { return { id: job.accountId, workspaceId: job.workspaceId, platform: "douyin",
+      accountHandle: "private-handle", state: "active", loginStateVersion: 2 }; } },
+    workerId: "worker-entitlement", now: () => now,
+    executionAccess: async (workspaceId) => { assert.equal(workspaceId, job.workspaceId); return false; }
+  });
+  assert.equal(await worker.runOnce(), true);
+  assert.equal(externalCalls, 0);
+  const stored = await repository.findByRun(job.workspaceId, job.runId);
+  assert.equal(stored?.state, "paused");
+  assert.equal(stored?.lastErrorCode, "crawler_execution_forbidden");
+  await worker.close();
+});
+
 test("worker resumes from persisted cursor and never acknowledges sidecar pages", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   await repository.createOrGet(job);
@@ -71,7 +92,7 @@ test("worker resumes from persisted cursor and never acknowledges sidecar pages"
   await worker.close();
 });
 
-test("worker adopts a persisted terminal sidecar job without starting a new crawl", async () => {
+test("worker adopts a persisted terminal sidecar job after entitlement revocation without starting a new crawl", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   await repository.createOrGet(job);
   await repository.enqueue("workspace-1", "run-1", now);
@@ -110,6 +131,7 @@ test("worker adopts a persisted terminal sidecar job without starting a new craw
       loginStateVersion: 2
     }; } },
     workerId: "worker-adopt-terminal",
+    executionAccess: async () => false,
     now: () => now
   });
 

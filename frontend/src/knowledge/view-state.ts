@@ -26,6 +26,7 @@ export function formatKnowledgeLocator(locator:components['schemas']['Locator'])
 }
 export function knowledgeErrorMessage(error:unknown):string {
   const code=error instanceof Error?error.message:'knowledge_unavailable';
+  if(error instanceof KnowledgeApiError&&error.status===429)return '请求暂时受限，请稍后重新打开资料或引用；不会自动重传文件或重新调用模型。';
   if(code.includes('ten_files'))return '一次最多选择 10 份资料，请分批上传。';
   if(code.includes('format'))return '支持 PDF、DOCX、XLSX、CSV、TXT、MD，不支持宏或旧版 XLS。';
   if(code.includes('roles'))return '至少选择一个适用角色。';
@@ -76,11 +77,11 @@ export function createKnowledgeViewState(options:{api:KnowledgeApi;identity:()=>
       }
     }catch(error){if(request===epoch)fail(error);}finally{aborter.signal.removeEventListener('abort',abortRead);if(request===epoch){loading=false;if(valid()){state.loading=false;notify();schedule();}}}
   }
-  async function select(id:string,versionId?:string){
+  async function select(id:string,versionId?:string,chunkLimit:20|100=20){
     if(!valid())return;const request=++selectionEpoch;state.detailBusy=true;state.error='';state.chunks=[];state.nextChunks=null;notify();
     try{
       const document=await api.get(id,aborter.signal);const version=await api.version(id,versionId??document.latestVersionId,aborter.signal);
-      const chunks=version.status==='ready'?await api.chunks(id,version.id,undefined,aborter.signal):{items:[],nextCursor:null};
+      const chunks=version.status==='ready'?await api.chunks(id,version.id,undefined,aborter.signal,chunkLimit):{items:[],nextCursor:null};
       if(!valid()||request!==selectionEpoch)return;state.selected=document;state.selectedVersion=version;state.chunks=chunks.items;state.nextChunks=chunks.nextCursor;
     }catch(error){if(valid()&&request===selectionEpoch){state.selected=null;state.selectedVersion=null;fail(error);}}
     finally{if(valid()&&request===selectionEpoch){state.detailBusy=false;notify();}}
@@ -92,18 +93,19 @@ export function createKnowledgeViewState(options:{api:KnowledgeApi;identity:()=>
   async function openCitation(source: Pick<KnowledgeCitation, 'documentId' | 'versionId' | 'chunkId' | 'sourceHash'>): Promise<boolean> {
     if (!valid()) return false;
     const request = selectionEpoch + 1;
-    await select(source.documentId, source.versionId);
+    await select(source.documentId, source.versionId,100);
     if (!valid() || request !== selectionEpoch || !state.selectedVersion) return false;
     state.detailBusy = true; notify();
     try {
       if (state.selectedVersion.id !== source.versionId || state.selectedVersion.sourceHash !== source.sourceHash || state.selectedVersion.status !== 'ready') throw new Error('knowledge_reference_changed');
       let page = { items: state.chunks, nextCursor: state.nextChunks }; const cursors = new Set<string>();
       // Scan bounded pages, retaining only the target page, not the whole book
-      // in the renderer. The parser allows at most50,000 chunks per version.
+      // in the renderer. Citation reads use the existing100-item API budget;
+      // ordinary previews remain20. At most50,000 chunks means500 pages.
       while (!page.items.some(chunk => chunk.id === source.chunkId)) {
-        if (!page.nextCursor || cursors.has(page.nextCursor) || cursors.size >= 2500) throw new Error('knowledge_reference_not_found');
+        if (!page.nextCursor || cursors.has(page.nextCursor) || cursors.size >= 500) throw new Error('knowledge_reference_not_found');
         cursors.add(page.nextCursor);
-        page = await api.chunks(source.documentId, source.versionId, page.nextCursor, aborter.signal);
+        page = await api.chunks(source.documentId, source.versionId, page.nextCursor, aborter.signal,100);
         if (!valid() || request !== selectionEpoch) return false;
       }
       if (!valid() || request !== selectionEpoch) return false;
@@ -134,7 +136,7 @@ export function createKnowledgeViewState(options:{api:KnowledgeApi;identity:()=>
   }
   async function drain(){if(queueBusy)return;queueBusy=true;try{for(const item of queue){if(!valid())return;if(item.row.state==='waiting')await attempt(item);}}finally{queueBusy=false;if(valid())await load();}}
   async function enqueue(files:File[],meta:UploadMeta,replace?:KnowledgeDocument){
-    try{validateKnowledgeFiles(files);if(!meta.roles.length)throw new Error('knowledge_roles_required');if(!valid())return;
+    try{if(!valid()||(replace&&state.detailBusy))return;validateKnowledgeFiles(files);if(!meta.roles.length)throw new Error('knowledge_roles_required');
       if(queue.some(item=>['waiting','uploading'].includes(item.row.state)))throw new Error('knowledge_queue_busy');
       queue=files.map(file=>({row:{id:crypto.randomUUID(),filename:file.name,state:'waiting',error:''},file,meta,replace}));notify();await drain();
     }catch(error){fail(error);}

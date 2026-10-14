@@ -9,6 +9,10 @@ import { requireExpectedRevision, type CommandContext } from "./growth-command-c
 import type { ActiveWorkspaceContext } from "./growth-workspace-context.js";
 import type { ProbabilityAssessmentRepository } from "./probability-assessment.js";
 import type { CommercialBindingVerifier } from "./commercial-binding-snapshot.js";
+import type {
+  CrmQuoteAssessmentInput,
+  CrmQuoteAuthorityVerifier
+} from "./crm-quote-assessment.js";
 import type { GrowthWorkspaceMemberAssignabilityReader } from "./growth-workspace-member-assignability.js";
 import type {
   QuoteCase,
@@ -27,6 +31,7 @@ export interface QuoteCaseCreateInput {
   readonly customerId?: string;
   readonly dealId?: string;
   readonly assignedTo: string;
+  readonly crmAssessment?: CrmQuoteAssessmentInput;
 }
 
 export interface BindQuoteCaseDealInput {
@@ -59,6 +64,7 @@ export interface QuoteCaseServiceOptions {
   readonly assignments: GrowthWorkspaceMemberAssignabilityReader;
   readonly subjects: QuoteSubjectReader;
   readonly bindingVerifier: CommercialBindingVerifier;
+  readonly crmAuthorityVerifier?: CrmQuoteAuthorityVerifier;
   readonly probabilityAssessments: ProbabilityAssessmentRepository;
   readonly now?: () => string;
   readonly idFactory?: () => string;
@@ -170,25 +176,37 @@ export class QuoteCaseService {
       let bindingSnapshot = null;
       let probabilityAssessment = null;
       if (subject.dealId) {
-        if (!subject.candidateId || !subject.customerId) {
+        if (!subject.customerId) {
           throw quoteError("commercial_binding_authority_mismatch");
         }
-        bindingSnapshot = await this.options.bindingVerifier.verify(context, {
-          candidateId: subject.candidateId,
-          customerId: subject.customerId,
-          dealId: subject.dealId
-        });
-        const current = await this.options.probabilityAssessments.findCurrent(
-          context.workspaceId,
-          subject.candidateId
-        );
-        if (!current) throw quoteError("probability_assessment_v2_required");
-        probabilityAssessment = await this.options.probabilityAssessments.bindDeal(
-          context.workspaceId,
-          current.id,
-          subject.dealId,
-          bindingSnapshot.bindingHash
-        );
+        if (subject.candidateId) {
+          bindingSnapshot = await this.options.bindingVerifier.verify(context, {
+            candidateId: subject.candidateId,
+            customerId: subject.customerId,
+            dealId: subject.dealId
+          });
+          const current = await this.options.probabilityAssessments.findCurrent(
+            context.workspaceId,
+            subject.candidateId
+          );
+          if (!current) throw quoteError("probability_assessment_v2_required");
+          probabilityAssessment = await this.options.probabilityAssessments.bindDeal(
+            context.workspaceId,
+            current.id,
+            subject.dealId,
+            bindingSnapshot.bindingHash
+          );
+        } else {
+          if (!input.crmAssessment || !this.options.crmAuthorityVerifier) {
+            throw quoteError("crm_quote_assessment_required");
+          }
+          bindingSnapshot = this.options.crmAuthorityVerifier.create(context, {
+            customerId: subject.customerId,
+            dealId: subject.dealId,
+            assessment: input.crmAssessment
+          });
+          probabilityAssessment = bindingSnapshot.assessment;
+        }
       }
       const id = this.idFactory();
       const createdAt = this.now();

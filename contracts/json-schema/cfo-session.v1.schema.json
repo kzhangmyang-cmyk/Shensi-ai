@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.goodjob.ai/cfo-session.v1.schema.json",
+  "title": "CfoSession",
+  "type": "object", "additionalProperties": false,
+  "required": ["sessionId", "revision", "title", "documentId", "createdAt", "updatedAt", "turns"],
+  "properties": {
+    "sessionId": { "type": "string", "format": "uuid" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "documentId": { "type": ["string", "null"], "minLength": 1, "maxLength": 191 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "turns": { "type": "array", "maxItems": 100, "items": {
+      "type": "object", "additionalProperties": false, "required": ["role", "text"],
+      "properties": {
+        "role": { "enum": ["user", "assistant"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "model": { "type": "string", "maxLength": 191 },
+        "sourceLabel": { "type": "string", "maxLength": 1000 },
+        "research": { "$ref": "cfo-conversation.v1.schema.json#/$defs/Research" },
+        "libraryStatus": { "$ref": "system-reference.v1.schema.json#/$defs/LibraryStatus" },
+        "knowledge": { "$ref": "knowledge.v1.schema.json#/$defs/Answer" }
+      }
+    } }
+  },
+  "$defs": {
+    "Event": { "oneOf": [
+      { "type": "object", "additionalProperties": false, "required": ["type", "stage"], "properties": {
+        "type": { "const": "stage" }, "stage": { "enum": ["material_ready", "skill_ready", "model_started", "answer_validated"] }
+      } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "result"], "properties": {
+        "type": { "const": "result" }, "result": { "$ref": "#/$defs/Reply" }
+      } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "status", "code"], "properties": {
+        "type": { "const": "error" }, "status": { "type": "integer", "minimum": 400, "maximum": 599 }, "code": { "type": "string" }
+      } }
+    ] },
+    "Create": { "type": "object", "additionalProperties": false, "required": ["documentId"],
+      "properties": { "documentId": { "type": ["string", "null"], "minLength": 1, "maxLength": 191 } } },
+    "Ask": { "type": "object", "additionalProperties": false, "required": ["question", "revision", "documentId"],
+      "dependentRequired": { "referenceTopicIds": ["referenceProtocol"] },
+      "properties": {
+        "referenceProtocol": { "const": "system-v1", "description": "Explicit negotiated protocol; knowledgeMode off or omitted closes both libraries." },
+        "referenceTopicIds": { "$ref": "system-reference.v1.schema.json#/$defs/ReferenceTopicSelection" },
+        "question": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "knowledgeMode": { "enum": ["auto", "off"], "default": "off" },
+        "webSearchMode": { "enum": ["on", "off"], "description": "Explicit public search preference for this turn; omitted retains legacy automatic planning." },
+        "revision": { "type": "integer", "minimum": 1 },
+        "history": { "type": "array", "maxItems": 10, "items": { "$ref": "cfo-conversation.v1.schema.json#/$defs/Turn" } },
+        "documentId": { "type": ["string", "null"], "minLength": 1, "maxLength": 191 }
+      } },
+    "Reply": { "type": "object", "additionalProperties": false, "required": ["session", "answer"],
+      "properties": { "session": { "$ref": "#" }, "answer": { "$ref": "cfo-conversation.v1.schema.json" } } },
+    "Summary": { "type": "object", "additionalProperties": false,
+      "required": ["sessionId", "revision", "title", "documentId", "createdAt", "updatedAt", "turnCount"],
+      "properties": {
+        "sessionId": { "type": "string", "format": "uuid" }, "revision": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "maxLength": 120 }, "documentId": { "type": ["string", "null"] },
+        "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" },
+        "turnCount": { "type": "integer", "minimum": 0, "maximum": 100 }
+      } }
+  }
+}

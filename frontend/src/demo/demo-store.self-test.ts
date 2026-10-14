@@ -1,5 +1,10 @@
 import { strict as assert } from "node:assert";
-import { parseFollowUpAt, renderDashboardView } from "./demo-app";
+import {
+  handOffDemoSurfaceToGrowth,
+  parseFollowUpAt,
+  readConversationCaptureFixture,
+  renderDashboardView
+} from "./demo-app";
 import { renderCapabilityDemoView } from "./demo-capabilities-view";
 import { renderConversationsView } from "./demo-conversations-view";
 import { getConversionMetrics, renderConversionView } from "./demo-conversion-view";
@@ -19,6 +24,39 @@ const initial = store.getState();
 assert.equal(initial.conversations.length >= 5, true);
 assert.equal(initial.customers.length >= 4, true);
 assert.equal(initial.opportunities.length >= 3, true);
+assert.equal(
+  readConversationCaptureFixture({
+    hostname: "127.0.0.1",
+    search: "?captureFixture=conversations"
+  })?.snapshot?.interactions.length,
+  5,
+  "the conversations capture fixture must expose the isolated 5-candidate snapshot"
+);
+assert.equal(
+  readConversationCaptureFixture({
+    hostname: "example.com",
+    search: "?captureFixture=conversations"
+  }),
+  null,
+  "the capture fixture must stay local-only"
+);
+
+const growthMain = {
+  hidden: true,
+  innerHTML: "<section>财务委员会</section>"
+} as HTMLElement;
+let growthInspectorHtml = "<p>旧演示检查器</p>";
+const growthInspector = {
+  replaceChildren() { growthInspectorHtml = ""; }
+} as unknown as HTMLElement;
+handOffDemoSurfaceToGrowth(growthMain, growthInspector);
+assert.equal(growthMain.hidden, false);
+assert.equal(
+  growthMain.innerHTML,
+  "<section>财务委员会</section>",
+  "the demo renderer must not clear content owned by the growth runtime"
+);
+assert.equal(growthInspectorHtml, "");
 
 const scopedMemory = new Map<string, string>();
 const scopedStorage = {
@@ -257,7 +295,12 @@ assert.equal(capabilityMain.innerHTML.includes("预览 · 待接入"), true);
 renderCapabilityDemoView("trade-marketing", unsafeCapabilityState, capabilityMain, capabilityInspector);
 assert.equal(capabilityMain.innerHTML.includes("预览 · 待接入"), true);
 renderCapabilityDemoView("settings", unsafeCapabilityState, capabilityMain, capabilityInspector);
-assert.equal(capabilityMain.innerHTML.includes("重置演示数据"), true);
+assert.equal(capabilityMain.innerHTML.includes("重置演示数据"), false);
+assert.equal(capabilityMain.innerHTML.includes("管理模型"), true);
+assert.equal(capabilityMain.innerHTML.includes("模型与搜索"), true);
+assert.equal(capabilityMain.innerHTML.includes("语音与启动"), true);
+assert.equal(capabilityMain.innerHTML.includes("账号与工作区"), true);
+assert.equal(capabilityInspector.innerHTML, "");
 
 renderConversationsView(initial, capabilityMain, capabilityInspector);
 assert.equal(capabilityMain.innerHTML.includes("预览 · 待接入"), true);

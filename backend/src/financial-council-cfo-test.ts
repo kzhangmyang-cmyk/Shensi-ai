@@ -81,6 +81,19 @@ test("CFO accepts only fully referenced structured narrative", async () => {
     ["finding-critical-minority"]);
 });
 
+test("CFO accepts ordinary Chinese financial prose without accepting invented quantities", async () => {
+  const accepted = await synthesizeFinancialCfoNarrative(port(validOutput({
+    overallDiagnosis: "成本压力形成经营风险，需统一关注 [finding-accepted]"
+  })), input());
+  assert.equal(accepted.narrativeStatus, "model_valid");
+  for (const quantity of ["三万元", "两倍", "五成", "一百", "壹仟万", "三笔", "百分之五"]) {
+    const rejected = await synthesizeFinancialCfoNarrative(port(validOutput({
+      overallDiagnosis: `${quantity} [finding-accepted]`
+    })), input());
+    assert.equal(rejected.narrativeStatus, "model_invalid", quantity);
+  }
+});
+
 test("CFO invalid output uses a server template and never blocks consensus", async () => {
   const invalidCases: Array<[string, FinancialCfoNarrativeOutput]> = [
     ["critical minority omitted", validOutput({ minorityFindingIds: [] })],

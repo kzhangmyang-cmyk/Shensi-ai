@@ -1,4 +1,5 @@
 import mysql from "mysql2/promise";
+import { emptyPlatformState } from './platform-admin-domain.js';
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
@@ -78,6 +79,7 @@ import {
 import { ProspectSourceRawError } from "./prospect-source-raw.js";
 import { validateAllProspectRunQueueBridges } from "./prospect-run-queue-bridge.js";
 import { CustomerOwnershipError } from "./customer-public-pool.js";
+import { createMysqlConnectionOptions } from "./mysql-connection-options.js";
 import { mutateAuthoritativeQuoteProjectionMysql } from "./quote-crm-command-mysql.js";
 import {
   createCredentialRef,
@@ -489,7 +491,7 @@ export async function createMysqlStore(
   }
   const databaseUrl = configuredUrl || defaultUrl;
   const processRole = options.processRole || "api";
-  const pool = mysql.createPool({ uri: databaseUrl, connectionLimit: 4, namedPlaceholders: true });
+  const pool = mysql.createPool(createMysqlConnectionOptions(databaseUrl));
   const prospectExecutionLockName = `goodjob_prospect_exec_${createHash(
     "sha256"
   ).update(databaseUrl).digest("hex").slice(0, 24)}`;
@@ -674,6 +676,72 @@ export async function createMysqlStore(
         );
       }
       return modelConnectionFromAiConfig(activated);
+    } catch (error) {
+      if (transactionStarted) await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  });
+  const deactivateModelConnection = (
+    scope: ModelConnectionScope,
+    connectionId: string,
+    _actorId: string,
+    _reason: string
+  ): Promise<ModelConnection> => enqueuePersistence(async () => {
+    const connection = await pool.getConnection();
+    let transactionStarted = false;
+    try {
+      await connection.beginTransaction();
+      transactionStarted = true;
+      const [targetRows] = await connection.query(
+        `SELECT * FROM ai_model_configs
+         WHERE id = ? AND owner_id = ? AND team_id = ?
+         FOR UPDATE`,
+        [connectionId, scope.ownerId, scope.teamId]
+      );
+      const target = (targetRows as Array<Record<string, any>>)[0];
+      if (!target) {
+        throw new ModelConnectionError(
+          "connection_not_found",
+          "模型连接不存在或不属于当前用户",
+          404
+        );
+      }
+      const updatedAt = new Date().toISOString();
+      await connection.query(
+        `UPDATE ai_model_configs
+         SET enabled = FALSE, is_default = FALSE, updated_at = ?
+         WHERE id = ? AND owner_id = ? AND team_id = ?`,
+        [
+          mysqlDate(updatedAt),
+          connectionId,
+          scope.ownerId,
+          scope.teamId
+        ]
+      );
+      await connection.commit();
+      transactionStarted = false;
+
+      const loadedConfigs = await loadAiModelConfigs(pool);
+      store.aiModelConfigs.splice(
+        0,
+        store.aiModelConfigs.length,
+        ...loadedConfigs
+      );
+      const deactivated = store.aiModelConfigs.find(
+        (item) => item.id === connectionId
+          && item.ownerId === scope.ownerId
+          && item.teamId === scope.teamId
+      );
+      if (!deactivated) {
+        throw new ModelConnectionError(
+          "connection_not_found",
+          "停用后未能重新加载模型连接",
+          404
+        );
+      }
+      return modelConnectionFromAiConfig(deactivated);
     } catch (error) {
       if (transactionStarted) await connection.rollback();
       throw error;
@@ -1549,6 +1617,12 @@ export async function createMysqlStore(
   store = {
     mode: "mysql",
     users: await loadUsers(pool),
+    readPlatformAdminState: async () => {
+      const result = await rows<{ payload: string | import('./platform-admin-domain.js').PlatformAdminState }>(pool, 'SELECT payload FROM platform_administration_state WHERE id=1');
+      return result.length ? (typeof result[0].payload === 'string' ? JSON.parse(result[0].payload) : result[0].payload) : emptyPlatformState();
+    },
+    platformAdminStates: processRole === 'api' ? (await rows<{ payload: string | import('./platform-admin-domain.js').PlatformAdminState }>(pool, 'SELECT payload FROM platform_administration_state WHERE id=1')).map(row => typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload) : undefined,
+    accountAuditEvents: (await rows<{ event_json: string | import('./account-command.js').AccountAuditEvent }>(pool, 'SELECT event_json FROM account_administration_audit ORDER BY occurred_at DESC LIMIT 5000')).map(row => typeof row.event_json === 'string' ? JSON.parse(row.event_json) : row.event_json),
     companyProfiles: await loadCompanyProfiles(pool),
     dailyReports: await loadDailyReports(pool),
     dailyReportComments: await loadDailyReportComments(pool),
@@ -1720,6 +1794,7 @@ export async function createMysqlStore(
 		    whatsappMessages: await loadWhatsAppMessages(pool),
         persist,
         activateModelConnection,
+        deactivateModelConnection,
         deleteModelConnection,
         persistMutation,
         persistAsyncMutation,
@@ -1839,13 +1914,14 @@ export async function createMysqlStore(
       if (!email || password.length < 12) {
         throw new Error("首次生产部署必须配置 INITIAL_ADMIN_EMAIL 和至少 12 位的 INITIAL_ADMIN_PASSWORD");
       }
+      const localCustomer = process.env.SHENSI_LOCAL_INITIAL_ACCOUNT === "true";
       store.users.push({
-        id: "u_initial_super_admin",
+        id: localCustomer ? `u_${randomUUID()}` : "u_initial_super_admin",
         name: process.env.INITIAL_ADMIN_NAME?.trim() || "Super Admin",
         email,
         password: await hashPassword(password),
-        role: "super_admin",
-        teamId: "all",
+        role: localCustomer ? "admin" : "super_admin",
+        teamId: localCustomer ? `workspace_${randomUUID()}` : "all",
         avatar: "SA",
         status: "active",
         authVersion: 1
@@ -1974,6 +2050,20 @@ export async function createMysqlStore(
 }
 
 async function ensureSchema(pool: mysql.Pool) {
+  await pool.query(`CREATE TABLE IF NOT EXISTS platform_administration_state (
+    id TINYINT UNSIGNED PRIMARY KEY,
+    revision BIGINT UNSIGNED NOT NULL,
+    payload JSON NOT NULL
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS account_administration_audit (
+    id VARCHAR(36) PRIMARY KEY,
+    actor_id VARCHAR(100) NOT NULL,
+    target_id VARCHAR(100) NOT NULL,
+    workspace_id VARCHAR(100) NOT NULL,
+    occurred_at VARCHAR(30) NOT NULL,
+    event_json JSON NOT NULL,
+    INDEX account_audit_workspace_time (workspace_id, occurred_at)
+  )`);
   await pool.query(`CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(64) PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
@@ -10801,6 +10891,15 @@ async function persistAll(pool: mysql.Pool, store: CrmStore) {
   try {
     await connection.beginTransaction();
     await replaceRows(connection, "users", store.users, (item) => [item.id, item.name, item.email, item.password, item.role, item.teamId, item.avatar, item.status, item.authVersion || 1, item.outboundEmail || "", item.emailSenderName ?? "", item.emailSignature || "", item.smtpHost || "", item.smtpPort || 465, item.smtpSecure ?? true, item.smtpUser || "", item.smtpPassword || "", item.lastDevelopmentEmailAt ? mysqlDate(item.lastDevelopmentEmailAt) : null, item.lastDevelopmentEmailTo || "", item.lastDevelopmentEmailSubject || "", item.reportNote || ""], "(id,name,email,password_hash,role,team_id,avatar,status,auth_version,outbound_email,email_sender_name,email_signature,smtp_host,smtp_port,smtp_secure,smtp_user,smtp_password,last_development_email_at,last_development_email_to,last_development_email_subject,report_note)");
+    const accountAuditEvents = store.accountAuditEvents ?? [];
+    const platformState = store.platformAdminStates?.[0];
+    if (platformState) {
+      await connection.query('INSERT INTO platform_administration_state (id,revision,payload) VALUES (1,?,?) ON DUPLICATE KEY UPDATE revision=VALUES(revision),payload=VALUES(payload)', [platformState.revision, JSON.stringify(platformState)]);
+    }
+    for (let offset = 0; offset < accountAuditEvents.length; offset += 250) {
+      const batch = accountAuditEvents.slice(offset, offset + 250);
+      await connection.query(`INSERT INTO account_administration_audit (id,actor_id,target_id,workspace_id,occurred_at,event_json) VALUES ${batch.map(() => '(?,?,?,?,?,?)').join(',')} ON DUPLICATE KEY UPDATE id=id`, batch.flatMap(event => [event.id, event.actorId, event.targetId, event.workspaceId, event.occurredAt, JSON.stringify(event)]));
+    }
     await replaceRows(connection, "company_profiles", store.companyProfiles, (item) => [item.teamId, item.companyName, item.website, item.productSummary, item.address, item.phone, item.email, item.updatedBy, mysqlDate(item.updatedAt)], "(team_id,company_name,website,product_summary,address,phone,email,updated_by,updated_at)");
     await replaceRows(connection, "daily_reports", store.dailyReports, (item) => [item.id, item.reportDate, item.completedWork, item.customerProgress, item.results, item.risks, item.nextPlan, item.supportNeeded, item.status, item.ownerId, item.teamId, mysqlDate(item.submittedAt), mysqlDate(item.createdAt), mysqlDate(item.updatedAt)], "(id,report_date,completed_work,customer_progress,results_text,risks_text,next_plan,support_needed,report_status,owner_id,team_id,submitted_at,created_at,updated_at)");
     await replaceRows(connection, "daily_report_comments", store.dailyReportComments, (item) => [item.id, item.reportId, item.parentId || "", item.content, item.authorId, item.teamId, mysqlDate(item.createdAt), mysqlDate(item.updatedAt)], "(id,report_id,parent_id,content,author_id,team_id,created_at,updated_at)");

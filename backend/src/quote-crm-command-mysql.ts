@@ -1,4 +1,5 @@
 import type mysql from "mysql2/promise";
+import type { CrmStore } from "./store.js";
 import { createHash } from "node:crypto";
 import type {
   EnsurePiProjectionInput,
@@ -9,11 +10,12 @@ import type {
   AuthoritativeQuoteProjectionMutationResult
 } from "./quote-crm-command.js";
 import type { QuoteRepository } from "./quote-repository.js";
+import { isCrmQuoteAuthoritySnapshot } from "./crm-quote-assessment.js";
 import {
   assertGrowthTemporalBarrier,
   type GrowthTemporalBarrier
 } from "./growth-temporal-barrier.js";
-import { MysqlGrowthTemporalTransaction } from "./growth-temporal-barrier-mysql-repository.js";
+import { MysqlGrowthTemporalTransaction, growthMysqlDate } from "./growth-temporal-barrier-mysql-repository.js";
 
 /**
  * MySQL's store adapter supplies the dedicated transaction. This small port is
@@ -23,7 +25,8 @@ import { MysqlGrowthTemporalTransaction } from "./growth-temporal-barrier-mysql-
 export async function mutateAuthoritativeQuoteProjectionMysql(
   pool: mysql.Pool,
   input: AuthoritativeQuoteProjectionMutation,
-  temporalBarrier?: GrowthTemporalBarrier
+  temporalBarrier?: GrowthTemporalBarrier,
+  projectionStore?: Pick<CrmStore, "tradeDocuments" | "dealEvents" | "deals">
 ): Promise<AuthoritativeQuoteProjectionMutationResult> {
   const connection = await pool.getConnection();
   try {
@@ -93,7 +96,7 @@ export async function mutateAuthoritativeQuoteProjectionMysql(
             items_json,updated_at)
            SELECT ?,d.customer_id,d.id,1,'quote_projection',?,?,?,?,
              'current',?,?,?,?,?,'PI',?,?,'',c.company,c.billing_address,
-             c.document_contact,'','','USD','FOB','','','','','','','',
+             c.document_contact,'','',?,'FOB','','','','','','','',
              'executive','draft',JSON_ARRAY(),JSON_ARRAY(),d.owner_id,d.team_id,
              ?,?
            FROM deals d JOIN customers c ON c.id = d.customer_id
@@ -103,14 +106,26 @@ export async function mutateAuthoritativeQuoteProjectionMysql(
             Number(input.quoteVersion.quotedAmountMinor),
             JSON.stringify(input.quoteVersion.lineSnapshot),
             JSON.stringify(input.quoteVersion.packageSnapshot ?? null),
-            input.recordedAt, input.temporalSequence,
+            growthMysqlDate(input.recordedAt), input.temporalSequence,
             `PI ${input.quoteVersion.id}`, input.stableId,
-            JSON.stringify(item), input.recordedAt, input.dealId,
+            String(input.quoteVersion.currency),
+            JSON.stringify(item), growthMysqlDate(input.recordedAt), input.dealId,
             input.workspaceId]
         );
       }
       const document = await loadProjectedDocument(connection, input.stableId);
       await connection.commit();
+      if (projectionStore) {
+        for (const previous of projectionStore.tradeDocuments) {
+          if (previous.id !== document.id && previous.dealId === document.dealId
+            && previous.teamId === input.workspaceId
+            && previous.commercialAuthority === "quote_projection"
+            && previous.projectionState === "current") previous.projectionState = "superseded";
+        }
+        const index = projectionStore.tradeDocuments.findIndex(item => item.id === document.id);
+        if (index < 0) projectionStore.tradeDocuments.push(document);
+        else projectionStore.tradeDocuments[index] = document;
+      }
       return { kind: "pi", document };
     }
     const [existingRows] = await connection.query(
@@ -118,9 +133,9 @@ export async function mutateAuthoritativeQuoteProjectionMysql(
     );
     if (!(existingRows as unknown[]).length) {
       const line = input.quoteVersion.lineSnapshot as Record<string, unknown>;
-      const binding = input.quoteVersion.commercialBindingSnapshot as
-        import("./commercial-binding-snapshot.js").CommercialBindingSnapshot
-        | null;
+      const authority = input.quoteVersion.commercialBindingSnapshot;
+      const binding = authority && !isCrmQuoteAuthoritySnapshot(authority)
+        ? authority : null;
       const evidence = binding ? { candidateId: binding.candidateId,
         customerId: binding.customerId, dealId: binding.dealId,
         handoffContentHash: binding.handoffContentHash,
@@ -134,7 +149,7 @@ export async function mutateAuthoritativeQuoteProjectionMysql(
         [String(line.catalogItemId), Number(line.quantityMicros) / 1_000_000,
           Number(line.offeredUnitPriceMinor) / 100,
           Number(input.quoteVersion.quotedAmountMinor) / 100,
-          String(input.quoteVersion.currency), input.recordedAt, input.dealId,
+          String(input.quoteVersion.currency), growthMysqlDate(input.recordedAt), input.dealId,
           input.workspaceId]
       );
       await connection.query(
@@ -157,9 +172,9 @@ export async function mutateAuthoritativeQuoteProjectionMysql(
           String(input.quoteVersion.currency), input.quoteCaseId,
           input.quoteVersion.id, input.commercialAmountHash,
           input.dealAuthorityRevision, evidence ? JSON.stringify(evidence) : null,
-          binding ? JSON.stringify(binding) : null, input.piDocumentId,
-          input.recordedAt,
-          input.temporalSequence, input.recordedAt, input.dealId,
+          authority ? JSON.stringify(authority) : null, input.piDocumentId,
+          growthMysqlDate(input.recordedAt),
+          input.temporalSequence, growthMysqlDate(input.recordedAt), input.dealId,
           input.workspaceId]
       );
     }
@@ -169,7 +184,24 @@ export async function mutateAuthoritativeQuoteProjectionMysql(
     const row = (rows as Record<string, unknown>[])[0];
     if (!row) throw new Error("authoritative_deal_event_not_created");
     await connection.commit();
-    return { kind: "crm", event: mysqlEvent(row) };
+    const event = mysqlEvent(row);
+    if (projectionStore) {
+      const index = projectionStore.dealEvents.findIndex(item => item.id === event.id);
+      if (index < 0) projectionStore.dealEvents.push(event);
+      else projectionStore.dealEvents[index] = event;
+      const deal = projectionStore.deals.find(item => item.id === input.dealId
+        && item.teamId === input.workspaceId);
+      if (deal) {
+        const line = input.quoteVersion.lineSnapshot as Record<string, unknown>;
+        Object.assign(deal, { stage: "已报价", product: String(line.catalogItemId),
+          quantity: Number(line.quantityMicros) / 1_000_000,
+          unitPrice: Number(line.offeredUnitPriceMinor) / 100,
+          amount: Number(input.quoteVersion.quotedAmountMinor) / 100,
+          currency: input.quoteVersion.currency, amountType: "quoted",
+          stageChangedAt: event.recordedAt });
+      }
+    }
+    return { kind: "crm", event };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -185,6 +217,7 @@ function stableId(kind: "pi" | "event", key: string) {
 
 export function createMysqlQuoteCrmCommand(options: {
   pool: mysql.Pool;
+  store?: Pick<CrmStore, "tradeDocuments" | "dealEvents" | "deals">;
   temporalBarrier: GrowthTemporalBarrier;
   repository: Pick<QuoteRepository, "decideDeal">;
 }): QuoteCrmCommand {
@@ -195,7 +228,7 @@ export function createMysqlQuoteCrmCommand(options: {
         { ...input, kind: "pi", stableId: stableId("pi", input.stableKey),
           commercialAmountHash: input.commercialAmountHash as `sha256:${string}`,
           recordedAt: input.quoteVersion.recordedAt, temporalSequence: 0 },
-        barrier);
+        barrier, options.store);
       if (result.kind !== "pi") throw new Error("invalid_pi_projection_result");
       return { piDocumentId: result.document.id };
     },
@@ -204,7 +237,7 @@ export function createMysqlQuoteCrmCommand(options: {
         { ...input, kind: "crm", stableId: stableId("event", input.stableKey),
           commercialAmountHash: input.commercialAmountHash as `sha256:${string}`,
           recordedAt: input.quoteVersion.recordedAt, temporalSequence: 0 },
-        barrier);
+        barrier, options.store);
       if (result.kind !== "crm") {
         throw new Error("invalid_crm_projection_result");
       }

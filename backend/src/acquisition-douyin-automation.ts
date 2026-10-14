@@ -8,6 +8,7 @@ export interface DouyinAutomationSchedule {
 }
 
 export interface DouyinAutomationLimits {
+  maxComments?: number;
   maxVideos: number;
   maxCommentsPerVideo: number;
   maxPagesPerVideo: number;
@@ -173,6 +174,7 @@ export function normalizeDouyinAutomationPolicyInput(
     collectCreators: input.collectCreators,
     collectDemandComments: input.collectDemandComments,
     limits: Object.freeze({
+      ...(input.limits?.maxComments === undefined ? {} : { maxComments: integerInRange(input.limits.maxComments, 1, 10000, "invalid_automation_limits") }),
       maxVideos: integerInRange(
         input.limits?.maxVideos,
         1,
@@ -212,7 +214,7 @@ export function defaultDouyinAutomationPolicyInput(
       timeZone: "Asia/Shanghai"
     },
     dailyCandidateLimit: 50,
-    collectCreators: true,
+    collectCreators: false,
     collectDemandComments: true,
     limits: {
       maxVideos: 30,

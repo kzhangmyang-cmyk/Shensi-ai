@@ -100,6 +100,27 @@ export function validateAcquisitionOutreachDraft(
   value: Omit<AcquisitionOutreachDraft, "contentHash">,
   authority: { candidateId: string; candidateRevision: number; evidenceHashes: string[]; evidenceText: string[]; modelSnapshotId: string; }
 ): Readonly<AcquisitionOutreachDraft> {
+  return validateDraft(value, authority, true);
+}
+
+export function validateManualAcquisitionOutreachDraft(
+  value: Omit<AcquisitionOutreachDraft, "contentHash">,
+  authority: Parameters<typeof validateAcquisitionOutreachDraft>[1]
+): Readonly<AcquisitionOutreachDraft> {
+  try { return validateDraft(value, authority, false); }
+  catch (error) {
+    if (error instanceof Error && error.message === "OUTREACH_DRAFT_INVALID") {
+      throw new Error("OUTREACH_MANUAL_DRAFT_INVALID");
+    }
+    throw error;
+  }
+}
+
+function validateDraft(
+  value: Omit<AcquisitionOutreachDraft, "contentHash">,
+  authority: Parameters<typeof validateAcquisitionOutreachDraft>[1],
+  requireVerbatimEvidence: boolean
+): Readonly<AcquisitionOutreachDraft> {
   if (!value || value.candidateId !== authority.candidateId
     || value.candidateRevision !== authority.candidateRevision
     || value.modelSnapshotId !== authority.modelSnapshotId
@@ -109,7 +130,9 @@ export function validateAcquisitionOutreachDraft(
   const comment = singleLine(value.comment, 300);
   const directMessage = singleLine(value.directMessage, 800);
   const evidenceRows = authority.evidenceText.map(safetyProjection);
-  const messages = [comment, directMessage].map(safetyProjection);
+  // Only generated comments require verbatim grounding. Human revisions retain
+  // authority/safety checks and must still pass separate send approval.
+  const messages = (requireVerbatimEvidence ? [comment] : []).map(safetyProjection);
   const clauses = (text: string) => text.split(/[，；！？,.;!?]+/u)
     .map((part) => part.trim()).filter(Boolean);
   for (const clause of messages.flatMap(clauses)) {
@@ -142,6 +165,7 @@ export function buildValidatedAcquisitionOutreachFallback(
     evidenceHashes: string[];
     evidenceText: string[];
     modelSnapshotId: string;
+    evidenceAttributionKnown?: boolean;
   }
 ): Readonly<AcquisitionOutreachDraft> {
   const phrases = new Set<string>();
@@ -165,7 +189,9 @@ export function buildValidatedAcquisitionOutreachFallback(
         candidateRevision: authority.candidateRevision,
         evidenceHashes: authority.evidenceHashes,
         comment: `看到你公开提到${phrase}，方便的话`,
-        directMessage: `看到你公开提到${phrase}，如你愿意，可交流公开场景里的思路`,
+        directMessage: authority.evidenceAttributionKnown === false
+          ? "你好，方便的话，咱们简单聊两句呗。"
+          : `你好，看到你提到${phrase}，挺感兴趣的。方便的话，咱们简单聊两句呗。`,
         rationaleCodes: ["evidence_grounded", "manual_review_required"],
         modelSnapshotId: authority.modelSnapshotId
       }, authority);

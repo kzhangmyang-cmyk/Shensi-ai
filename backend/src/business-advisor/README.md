@@ -13,13 +13,22 @@
 | cashflow | 现金流分析 | 现金预测、应收分析、资金全链条复盘 |
 | tax | 税务健康 | 发票、收入确认、成本真实性、个税、股权（只体检不做避税） |
 
-每个智能体带专属知识库（`knowledge.ts`），口径与方法论来自领雁财税/冠琦咨询的真实项目（丰博自动化、金辉酒业、天瑞产业），已按脱敏口径沉淀。
+报告流程读取 `knowledge.ts` 的静态方法条目，不代表已确认的当前公司事实；通用阈值、税务前提和简化指标仍需按角色与资料口径验证。
+
+六位角色的文字问答使用 `../skills/` 的独立技能，由 `specialists.ts` 和
+经营总管 preparer 校验来源并确定性计算，再进入所选角色的现有模型路由。
+经营总管还支持语音业务问答；其余五位仅文字。模型只收到展示事实而非原始
+Minor 整数；答案引用由程序校验、替换，金额错误无法通过时不展示。
+只读取最新 verified 三表包，预算/历史基准、细分产品成本、现金计划及长期
+公司知识尚未接入。技能不强制问候做体检，不自动改账或外发。
+详见 [问答模块](../../../docs/modules/cfo-conversation.md) 和
+[六角色技能边界](../../../docs/modules/agent-specialist-skills.md)。
 
 ## 金额与比例约定
 
 - 金额一律用整数 minor（元 × 100），避免浮点误差。
 - 比例一律用 BPS（万分之一）：`800 bps = 8%`。
-- 报表勾稽不平、毛利为负、期末现金为负时抛错拒绝编数，绝不粉饰。
+- 报表勾稽不平或期末现金为负时按校验规则拒绝；负毛利/亏损保留真实符号，不伪装成盈利。
 
 ## 指标口径（analysis.ts）
 
@@ -100,7 +109,7 @@ revision 1 是独立不可变记录，同时绑定 run/snapshot/audit/policy/con
 
 委员会公开 API 使用认证的 active workspace；浏览器和客户端不得发送 `X-Workspace-Id`。`POST /api/v1/finance/council-runs/{runId}/portfolio-revisions` 只接受严格闭合的 edit operations，并返回新的 revision 中三套重新计算组合。该命令以及 approve/reject 都需要 `Idempotency-Key` 和对应 run 的 `If-Match`：缺失 `If-Match` 返回 428，缺失或格式错误的幂等键返回 400，过期 revision 返回 412，重复但不同请求返回 409；相同请求重放会标记 `Idempotency-Replayed: true`。
 
-`POST /api/v1/finance/council-runs/{runId}/portfolio-revisions/{revision}/approve` 需要 `finance.council.approve`，显式绑定 `portfolioKind`，以 202 只创建受控草案、待办或后续审批任务，绝不直接写权威财务、报价或 CRM 数据。`POST /api/v1/finance/council-runs/{runId}/reject` 同样绑定 revision、portfolio kind 与原因。`GET /api/v1/finance/council-runs/{runId}/dispatches` 返回 no-store 的公共操作投影；`queued`、`running`、`retry` 均表示非终态，且永不暴露 proof、hash、lease 或 fence。发布消费者应导入不可变 Growth contract `1.0.12`。
+`POST /api/v1/finance/council-runs/{runId}/portfolio-revisions/{revision}/approve` 需要 `finance.council.approve`，显式绑定 `portfolioKind`，以 202 只创建受控草案、待办或后续审批任务，绝不直接写权威财务、报价或 CRM 数据。`POST /api/v1/finance/council-runs/{runId}/reject` 同样绑定 revision、portfolio kind 与原因。`GET /api/v1/finance/council-runs/{runId}/dispatches` 返回 no-store 的公共操作投影；`queued`、`running`、`retry` 均表示非终态，且永不暴露 proof、hash、lease 或 fence。发布消费者应导入不可变 Growth contract `1.0.19`。
 
 生产 composition 为 Memory/MySQL 各自装配 draft repository、approved-action loader、进程内 approval proof issuer、dispatch worker 与 recovery sweeper。消费者必须从已批准的确切 portfolio revision 重读 action 并核对 action/portfolio hash，才能创建非权威 draft；进程重启后通过 dispatch hash probe 继续，不重复产生副作用。同角色、portfolio-level 的不同行动风险偏好以 `role:<role>` 形成真实 `risk_preference` 冲突，每个角色仍最多一次 rebuttal。
 
@@ -137,6 +146,6 @@ MYSQL_TEST_ADMIN_URL="mysql://..." npm run test:financial-council:mysql --worksp
 
 `test:financial-council:mysql` 是真实 InnoDB 发布门禁；未配置 `MYSQL_TEST_ADMIN_URL` 时必须显式失败，不得将缺少证据记为通过。
 
-当前实现状态：财务委员会 P1–P5、工作区模型路由、三表与管理层现金预测 onboarding、脱敏 agent-center public surface 均已实现，Growth contract 固定为 `1.0.12`。隔离 InnoDB 的迁移/竞态（4/4）与跨两 runtime 恢复（1/1）已真实通过；无 route-intercept Chromium 已在两个独立随机 MySQL 数据库中连续完成 forecast-backed 五专家、恰好一次反驳、三组合、revision 2、balanced 审批、成功回执和 reload identity。consent-only package 仍按安全设计进入 `not_computable`。真实双供应商因凭据环境缺失必须 BLOCKED，因此整体状态仍是“实施完成，真实供应商验收待凭据”。
+当前实现状态：财务委员会 P1–P5、工作区模型路由、三表与管理层现金预测 onboarding、脱敏 agent-center public surface 均已实现，Growth contract 固定为 `1.0.19`。隔离 InnoDB 的迁移/竞态（4/4）与跨两 runtime 恢复（1/1）已真实通过；无 route-intercept Chromium 已在两个独立随机 MySQL 数据库中连续完成 forecast-backed 五专家、恰好一次反驳、三组合、revision 2、balanced 审批、成功回执和 reload identity。consent-only package 仍按安全设计进入 `not_computable`。委员会真实双供应商验收因凭据环境缺失仍未完成；六角色问答的单供应商合成资料测试不替代委员会端到端验收。当前证据与待验收项统一见 `docs/PROJECT_STATUS.md`。
 
 覆盖：金额换算、勾稽校验、指标计算、假利润/客户 ABC/现金流预警、知识库条目、诊断阈值（负债率/应收天数/利息保障/净现比）、两种报表格式解析与勾稽错误。

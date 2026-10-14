@@ -48,6 +48,13 @@ const idSchema = z.string().min(1).max(191)
   .refine((value) => value.trim() === value);
 const nullableIdSchema = idSchema.nullable();
 const emptyBodySchema = z.object({}).strict();
+const crmAssessmentSchema = z.object({
+  demandConfirmed: z.boolean(),
+  budgetConfirmed: z.boolean(),
+  decisionMakerConfirmed: z.boolean(),
+  closeProbabilityBps: z.number().int().min(0).max(10_000),
+  evidenceSummary: z.string().trim().min(1).max(1_000)
+}).strict();
 const listQuerySchema = z.object({
   cursor: idSchema.optional(),
   limit: z.preprocess((value) => {
@@ -61,7 +68,8 @@ const caseCreateSchema = z.object({
   candidateId: nullableIdSchema.optional(),
   customerId: nullableIdSchema.optional(),
   dealId: nullableIdSchema.optional(),
-  assignedTo: idSchema
+  assignedTo: idSchema,
+  crmAssessment: crmAssessmentSchema.optional()
 }).strict().refine((value) => value.candidateId !== undefined
   || value.customerId !== undefined || value.dealId !== undefined);
 const bindDealSchema = z.object({ dealId: idSchema }).strict();
@@ -210,6 +218,24 @@ export function projectQuoteCase(value: QuoteCase) {
 function projectProbability(value: unknown): unknown {
   if (value === null) return null;
   const row = value as Record<string, unknown>;
+  if (row.sourceKind === "crm") {
+    return Object.freeze({
+      sourceKind: "crm",
+      assessmentVersion: row.assessmentVersion,
+      workspaceId: row.workspaceId,
+      customerId: row.customerId,
+      dealId: row.dealId,
+      assessedBy: row.assessedBy,
+      assessedAt: row.assessedAt,
+      inputSnapshotHash: row.inputSnapshotHash,
+      precision: row.precision,
+      demandConfirmed: row.demandConfirmed,
+      budgetConfirmed: row.budgetConfirmed,
+      decisionMakerConfirmed: row.decisionMakerConfirmed,
+      closeProbabilityBps: row.closeProbabilityBps,
+      evidenceSummary: row.evidenceSummary
+    });
+  }
   return Object.freeze({
     id: row.id,
     candidateId: row.candidateId,
@@ -492,7 +518,10 @@ export function createQuoteRouter(options: QuoteRouterOptions): Router {
       assignedTo: payload.assignedTo,
       ...(payload.candidateId ? { candidateId: payload.candidateId } : {}),
       ...(payload.customerId ? { customerId: payload.customerId } : {}),
-      ...(payload.dealId ? { dealId: payload.dealId } : {})
+      ...(payload.dealId ? { dealId: payload.dealId } : {}),
+      ...(payload.crmAssessment
+        ? { crmAssessment: payload.crmAssessment }
+        : {})
     };
     const execution = await options.cases.create(command(options, req,
       "/api/v1/quotes/cases", Object.freeze({}), payload, null), servicePayload);

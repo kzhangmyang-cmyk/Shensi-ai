@@ -13,6 +13,17 @@ test("policy admits explicit public demand at an allowed buying stage", () => {
   assert.equal(result.buyingStage, "solution_research");
 });
 
+test("comment price and recommendation questions are research leads, not confirmed purchases", () => {
+  for (const text of ["请问多少钱", "怎么收费？", "有推荐的吗", "求推荐适合小店的方案"]) {
+    const result = qualifyDouyinCrawlerCandidate({ text, kind: "comment", hasOriginalPublicSource: true });
+    assert.equal(result.status, "qualified", text);
+    assert.notEqual(result.buyingStage, "purchase_ready", text);
+  }
+  assert.equal(qualifyDouyinCrawlerCandidate({
+    text: "电子合同", kind: "comment", hasOriginalPublicSource: true
+  }).status, "suppressed");
+});
+
 test("policy fails closed for refusals, complaints, minors, and missing sources", () => {
   for (const input of [
     { text: "请勿联系，勿扰", hasOriginalPublicSource: true },
@@ -94,7 +105,7 @@ test("creator discovery and demand comments use separate admission policies", ()
     text: "工业除尘设备厂家",
     kind: "creator",
     hasOriginalPublicSource: true
-  }).status, "qualified");
+  }).status, "suppressed");
   assert.deepEqual(qualifyDouyinCrawlerCandidate({
     text: "工业除尘设备厂家",
     kind: "comment",

@@ -1,3 +1,7 @@
+import { createPlatformExecutionAccess } from './platform-execution-access.js';
+import { emptyPlatformState } from './platform-admin-domain.js';
+import { isPlatformMutationPending } from './account-mutation-state.js';
+import { createXhsApplication } from './xiaohongshu-application.js';
 import {
   createHash,
   createHmac,
@@ -5,6 +9,7 @@ import {
 } from "node:crypto";
 import { Router, type RequestHandler } from "express";
 import mysql from "mysql2/promise";
+import { createMysqlConnectionOptions } from "./mysql-connection-options.js";
 import type {
   AcquisitionCandidate
 } from "./acquisition-domain.js";
@@ -122,6 +127,12 @@ import {
 import {
   AcquisitionPrivateDomainHandoffService
 } from "./acquisition-private-domain-handoff.js";
+import {
+  CfoAcquisitionWorkflowService
+} from "./cfo-acquisition-workflow.js";
+import {
+  createCfoAcquisitionWorkflowRouter
+} from "./cfo-acquisition-workflow-router.js";
 import {
   AcquisitionLeadConversionReconciliationService
 } from "./acquisition-lead-conversion-reconciliation.js";
@@ -305,8 +316,7 @@ import type { DouyinMediaCrawlerGateway } from "./acquisition-mediacrawler-gatew
 import { InMemoryAcquisitionSocialAccountRepository, type AcquisitionSocialAccountRepository } from "./acquisition-social-account-repository.js";
 import { MysqlAcquisitionSocialAccountRepository, ensureAcquisitionSocialAccountsMysqlSchema } from "./acquisition-social-account-mysql-repository.js";
 import {
-  AcquisitionSocialAccountService,
-  isBoundDouyinAccountHandle
+  AcquisitionSocialAccountService
 } from "./acquisition-social-account-service.js";
 import { createAcquisitionSocialAccountRouter } from "./acquisition-social-account-router.js";
 import {
@@ -333,6 +343,22 @@ import {
   MysqlAcquisitionCrawlerJobRepository
 } from "./acquisition-crawler-job-mysql-repository.js";
 import { createAcquisitionCrawlerJobRouter } from "./acquisition-crawler-job-router.js";
+import { AcquisitionDesktopSyncService } from "./acquisition-desktop-sync.js";
+import { createAcquisitionDesktopSyncRouter } from "./acquisition-desktop-sync-router.js";
+import {
+  AcquisitionDesktopInstallationService
+} from "./acquisition-desktop-installation-service.js";
+import {
+  InMemoryDesktopInstallationRepository,
+  type DesktopInstallationRepository
+} from "./acquisition-desktop-installation-repository.js";
+import {
+  ensureAcquisitionDesktopInstallationMysqlSchema,
+  MysqlDesktopInstallationRepository
+} from "./acquisition-desktop-installation-mysql-repository.js";
+import { AcquisitionDesktopOutreachSync } from "./acquisition-desktop-outreach-sync.js";
+import { createAcquisitionDesktopOutreachSyncRouter } from
+  "./acquisition-desktop-outreach-sync-router.js";
 import { createAcquisitionRunCandidatesRouter } from "./acquisition-run-candidates-router.js";
 import { discoveryEvidencePublicSourceUrl } from "./acquisition-domain.js";
 import {
@@ -359,7 +385,7 @@ import { AcquisitionCrawlerRecoverySweeper } from "./acquisition-crawler-recover
 import { AcquisitionDouyinScheduler } from "./acquisition-douyin-scheduler.js";
 import {
   InMemoryAcquisitionOutreachBatchRepository,
-  validDirectMessageClaimAuthority,
+  type AcquisitionDesktopOutreachRepository,
   type AcquisitionOutreachBatchRepository
 } from "./acquisition-outreach-batch-repository.js";
 import {
@@ -372,6 +398,13 @@ import {
   AcquisitionOutreachActionWorker,
   douyinActionDeadlineMs
 } from "./acquisition-outreach-action-worker.js";
+import { createAcquisitionOutreachActionAuthority,
+  type DouyinOutreachFeatureFlags } from
+  "./acquisition-outreach-action-authority.js";
+export { resolveDouyinOutreachFeatureFlags } from
+  "./acquisition-outreach-action-authority.js";
+export type { DouyinOutreachFeatureFlags } from
+  "./acquisition-outreach-action-authority.js";
 import { AcquisitionOutreachActionRecoverySweeper } from "./acquisition-outreach-action-recovery-sweeper.js";
 import {
   AcquisitionVisualCommentIngestionService
@@ -571,6 +604,7 @@ export interface CreateAcquisitionApplicationOptions {
   douyinMediaCrawlerGateway?: DouyinMediaCrawlerGateway;
   /** Literal deployment opt-in; every omitted or false value keeps external actions disabled. */
   douyinOutreachActionsEnabled?: boolean;
+  douyinOutreachFeatureFlags?: DouyinOutreachFeatureFlags;
   /** Test/runtime override; production selects Memory or MySQL from the store mode. */
   socialAccountRepository?: AcquisitionSocialAccountRepository;
   /** Test/runtime override for immutable policy and run-intent authority. */
@@ -581,7 +615,10 @@ export interface CreateAcquisitionApplicationOptions {
    * the application from constructing a built-in atomic authority adapter. */
   outreachFinalAuthority?: AcquisitionOutreachFinalAuthority;
   /** Test/runtime override for immutable outreach batch and ordered outbox persistence. */
-  outreachBatchRepository?: AcquisitionOutreachBatchRepository;
+  outreachBatchRepository?: AcquisitionOutreachBatchRepository &
+    AcquisitionDesktopOutreachRepository;
+  /** Test/runtime override for the desktop installation persistence boundary. */
+  desktopInstallationRepository?: DesktopInstallationRepository;
   crawlerWorkerIntervalMs?: number;
   crawlerRecoveryIntervalMs?: number;
   crawlerEvidenceRetentionIntervalMs?: number;
@@ -599,11 +636,13 @@ export function effectiveDouyinOutreachActionsEnabled(input: {
       === "function";
 }
 
+
 export interface AcquisitionApplicationRuntime
 extends AcquisitionHttpRuntime {
   visualReaderRepository: AcquisitionVisualReaderRepository;
   planDraftGenerator: AcquisitionPlanDraftGenerator;
   outreachDraftService: AcquisitionOutreachDraftService;
+  cfoAcquisitionWorkflowService: CfoAcquisitionWorkflowService;
   runOutcomeReconciliation(
     scope: { ownerId: string; teamId: string }
   ): ReturnType<AcquisitionCrmOutcomeReconciliationService["runTenant"]>;
@@ -721,6 +760,15 @@ function derivedSecret(masterSecret: string, purpose: string) {
     .update("goodjob-acquisition-application\u0000")
     .update(purpose)
     .digest("hex");
+}
+
+function isAcquisitionDesktopOutreachRepository(
+  value: AcquisitionOutreachBatchRepository
+): value is AcquisitionOutreachBatchRepository & AcquisitionDesktopOutreachRepository {
+  return ["claimNextDesktopAction", "markDesktopActionStarted",
+    "completeDesktopAction", "completeDesktopReconciliation",
+    "recoverDesktopAction"].every((name) =>
+      typeof Reflect.get(value, name) === "function");
 }
 
 export function trackAcquisitionBackgroundTask<T>(
@@ -918,11 +966,7 @@ export function isTrustedAcquisitionDouyinPublicCommentConnection(
 }
 
 function defaultMysqlPool(databaseUrl: string) {
-  return mysql.createPool({
-    uri: databaseUrl,
-    connectionLimit: 4,
-    namedPlaceholders: true
-  });
+  return mysql.createPool(createMysqlConnectionOptions(databaseUrl));
 }
 
 function comparePriorityRows(
@@ -1299,6 +1343,7 @@ export async function createAcquisitionApplication(
   let douyinScheduler: AcquisitionDouyinScheduler | null = null;
   let outreachActionWorker: AcquisitionOutreachActionWorker | null = null;
   let outreachActionRecoverySweeper: AcquisitionOutreachActionRecoverySweeper | null = null;
+  let cfoWorkflowTimer: ReturnType<typeof setInterval> | null = null;
 
   try {
     let repositories: AcquisitionRepositorySet;
@@ -1333,6 +1378,7 @@ export async function createAcquisitionApplication(
       await ensureAcquisitionCrawlerJobMysqlSchema(pool);
       await ensureAcquisitionDouyinCrawlerIngestionMysqlSchema(pool);
       await ensureAcquisitionOutreachBatchMysqlSchema(pool);
+      await ensureAcquisitionDesktopInstallationMysqlSchema(pool);
       await ensureAdvisorCandidateAuthorityMysqlSchema(pool);
       const mysqlAuthority = options.advisorCandidateAuthority
         instanceof MysqlAdvisorCandidateAuthorityRepository
@@ -1467,6 +1513,18 @@ export async function createAcquisitionApplication(
       );
     }
 
+    const crawlerJobs = options.crawlerJobRepository
+      ?? (options.store.mode === "mysql"
+        ? new MysqlAcquisitionCrawlerJobRepository(pool!)
+        : new InMemoryAcquisitionCrawlerJobRepository());
+    const candidateRunAttribution = new AcquisitionCandidateRunAttributionResolver({
+      planRuns: repositories.planRun,
+      crawler: {
+        jobs: crawlerJobs,
+        domain: repositories.domain,
+        workspace: acquisitionWorkspace
+      }
+    });
     const rawDomainService = (
       options.domainServiceFactory
       ?? ((input) => new AcquisitionDomainService(input))
@@ -1478,6 +1536,7 @@ export async function createAcquisitionApplication(
         now
       }),
       growthAcquisitionWorkspace: acquisitionWorkspace,
+      outcomeAttributionResolver: candidateRunAttribution,
       growthTemporalBarrier,
       idFactory,
       now
@@ -1488,10 +1547,6 @@ export async function createAcquisitionApplication(
           options.probabilityAssessments
         )
       : rawDomainService;
-    const candidateRunAttribution =
-      new AcquisitionCandidateRunAttributionResolver({
-        planRuns: repositories.planRun
-      });
     const privateDomainHandoffService =
       new AcquisitionPrivateDomainHandoffService({
         repository: repositories.domain,
@@ -1513,6 +1568,7 @@ export async function createAcquisitionApplication(
         store: options.store,
         outcomeRecorder: domainService,
         planRuns: repositories.planRun,
+        attributionResolver: candidateRunAttribution,
         commercialAuthority: options.commercialOutcomeAuthority
           ?? (() => {
             const projected = options.quoteProjectedDocumentAuthority as
@@ -2028,6 +2084,34 @@ export async function createAcquisitionApplication(
       idFactory,
       now
     });
+    const cfoAcquisitionWorkflowService = new CfoAcquisitionWorkflowService({
+      store: options.store,
+      planDraftGenerator,
+      resolveModelSnapshot: async (scope, input) => {
+        const snapshot = await resolveModelSnapshot(scope, input);
+        return {
+          jobSnapshotId: snapshot.jobId,
+          connectionId: snapshot.connectionId,
+          credentialVersion: snapshot.credentialVersion,
+          provider: snapshot.provider,
+          model: snapshot.model,
+          capabilitySnapshotHash: snapshot.capabilitySnapshotHash,
+          promptVersion: snapshot.promptVersion,
+          schemaVersion: snapshot.schemaVersion,
+          promptHash: snapshot.promptHash,
+          schemaHash: snapshot.schemaHash
+        };
+      },
+      planService,
+      planRepository: repositories.planRun,
+      domainService,
+      handoffService: privateDomainHandoffService,
+      now
+    });
+    cfoWorkflowTimer = setInterval(() => {
+      void cfoAcquisitionWorkflowService.reconcileRunningJobs();
+    }, 5_000);
+    cfoWorkflowTimer.unref?.();
     const runPresentationService = new AcquisitionRunPresentationService({
       planRunRepository: repositories.planRun,
       domainRepository: repositories.domain,
@@ -2202,18 +2286,31 @@ export async function createAcquisitionApplication(
             planMemoryTransactions
               ?? new AcquisitionMemoryTransactionCoordinator()
           ));
-    if (options.douyinMediaCrawlerGateway) {
-      const socialAccounts = new AcquisitionSocialAccountService({
-        repository: socialAccountRepository,
-        gateway: options.douyinMediaCrawlerGateway,
-        idFactory: () => idFactory("social_account"),
-        now
-      });
-      router.use("/api/v1/acquisition", createAcquisitionSocialAccountRouter({
-        service: socialAccounts,
-        requestIdFactory: () => idFactory("request")
-      }));
-    }
+    const unavailableSocialGateway = {
+      async createLoginSession(): Promise<never> {
+        throw new Error("mediacrawler_unavailable");
+      },
+      async getLoginSession(): Promise<never> {
+        throw new Error("mediacrawler_unavailable");
+      },
+      async interactLoginSession(): Promise<never> {
+        throw new Error("mediacrawler_unavailable");
+      }
+    };
+    const socialAccounts = new AcquisitionSocialAccountService({
+      repository: socialAccountRepository,
+      gateway: options.douyinMediaCrawlerGateway ?? unavailableSocialGateway,
+      idFactory: () => idFactory("social_account"),
+      now
+    });
+    const desktopMemoryTransactions = socialAccountRepository
+      instanceof InMemoryAcquisitionSocialAccountRepository
+      ? socialAccountRepository.memoryTransactions
+      : planMemoryTransactions;
+    router.use("/api/v1/acquisition", createAcquisitionSocialAccountRouter({
+      service: socialAccounts,
+      requestIdFactory: () => idFactory("request")
+    }));
     const defaultDouyinAutomationRepository = () => {
       if (options.store.mode === "mysql") {
         return new MysqlAcquisitionDouyinAutomationRepository(pool!);
@@ -2237,10 +2334,6 @@ export async function createAcquisitionApplication(
     };
     const douyinAutomationRepository = options.douyinAutomationRepository
       ?? defaultDouyinAutomationRepository();
-    const crawlerJobs = options.crawlerJobRepository
-      ?? (options.store.mode === "mysql"
-        ? new MysqlAcquisitionCrawlerJobRepository(pool!)
-        : new InMemoryAcquisitionCrawlerJobRepository());
     const crawlerIngestion = options.crawlerIngestionRepository
       ?? (repositories.domain instanceof MysqlAcquisitionDomainRepository
         && repositories.planRun instanceof MysqlAcquisitionPlanRunRepository
@@ -2284,6 +2377,7 @@ export async function createAcquisitionApplication(
     const outreachDraftService = new AcquisitionOutreachDraftService({
       domain: repositories.domain,
       finalAuthority,
+      crawlerJobs,
       resolveSnapshot: async (scope) => {
         const snapshot = await resolveModelSnapshot(scope, {
           connectionId: null
@@ -2302,26 +2396,199 @@ export async function createAcquisitionApplication(
           : createAcquisitionModelGatewayForSnapshot(options.store, snapshot);
       }
     });
-    const outreachBatchRepository = options.outreachBatchRepository
-        ?? (options.store.mode === "mysql"
-          ? new MysqlAcquisitionOutreachBatchRepository(pool!,
-              crawlerIngestion instanceof MysqlAcquisitionDouyinCrawlerIngestionRepository
-                ? crawlerIngestion : undefined)
-          : new InMemoryAcquisitionOutreachBatchRepository({
-              memoryTransactions: planMemoryTransactions ?? undefined,
-              memoryDomainTransactions: repositories.domain
-                instanceof InMemoryAcquisitionDomainRepository
-                ? repositories.domain : undefined
-            }));
-    const outreachActionsEnabled = effectiveDouyinOutreachActionsEnabled({
-      enabled: options.douyinOutreachActionsEnabled === true,
-      gateway: options.douyinMediaCrawlerGateway
+    let desktopInstallationRepository = options.desktopInstallationRepository;
+    let outreachBatchRepository: AcquisitionOutreachBatchRepository | undefined =
+      options.outreachBatchRepository;
+    let installationTesting: {
+      memoryTransactions: AcquisitionMemoryTransactionCoordinator;
+      socialAccounts?: InMemoryAcquisitionSocialAccountRepository;
+      outreachActions?: InMemoryAcquisitionOutreachBatchRepository;
+    } | undefined;
+    if (!desktopInstallationRepository) {
+      if (options.store.mode === "mysql") {
+        desktopInstallationRepository = new MysqlDesktopInstallationRepository(pool!);
+      } else {
+        installationTesting = {
+          memoryTransactions: desktopMemoryTransactions
+            ?? new AcquisitionMemoryTransactionCoordinator(),
+          ...(socialAccountRepository instanceof
+            InMemoryAcquisitionSocialAccountRepository
+            ? { socialAccounts: socialAccountRepository } : {})
+        };
+        desktopInstallationRepository = new InMemoryDesktopInstallationRepository(
+          installationTesting
+        );
+      }
+    }
+    const platformExecutionAccess = createPlatformExecutionAccess(options.store.mode === 'mysql'
+      ? { mysql: pool! }
+      : { isMutationPending: () => isPlatformMutationPending(options.store),
+        readState: async () => options.store.readPlatformAdminState
+        ? options.store.readPlatformAdminState()
+        : options.store.platformAdminStates?.[0] ?? emptyPlatformState() });
+    const acquisitionExecutionAccess = createPlatformExecutionAccess(options.store.mode === 'mysql'
+      ? { mysql: pool!, feature: 'acquisition' }
+      : { feature: 'acquisition', isMutationPending: () => isPlatformMutationPending(options.store),
+        readState: async () => options.store.readPlatformAdminState
+        ? options.store.readPlatformAdminState()
+        : options.store.platformAdminStates?.[0] ?? emptyPlatformState() });
+    if (!outreachBatchRepository) {
+      if (options.store.mode === "mysql") {
+        outreachBatchRepository = new MysqlAcquisitionOutreachBatchRepository(
+          pool!,
+          crawlerIngestion instanceof MysqlAcquisitionDouyinCrawlerIngestionRepository
+            ? crawlerIngestion : undefined,
+          { desktopTaskTokenKey: Buffer.from(derivedSecret(
+            masterSecret, "desktop-outreach-task-capability"), "hex") },
+          platformExecutionAccess
+        );
+      } else {
+        if (!installationTesting) {
+          throw new Error("acquisition_memory_desktop_transaction_boundary_required");
+        }
+        const memoryOutreach = new InMemoryAcquisitionOutreachBatchRepository({
+          platformExecutionAccess,
+          memoryTransactions: installationTesting.memoryTransactions,
+          memoryDomainTransactions: repositories.domain
+            instanceof InMemoryAcquisitionDomainRepository
+            ? repositories.domain : undefined,
+          socialAccounts: installationTesting.socialAccounts,
+          desktopInstallations: desktopInstallationRepository instanceof
+            InMemoryDesktopInstallationRepository
+            ? desktopInstallationRepository : undefined,
+          desktopTaskTokenKey: Buffer.from(derivedSecret(
+            masterSecret, "desktop-outreach-task-capability"), "hex")
+        });
+        installationTesting.outreachActions = memoryOutreach;
+        outreachBatchRepository = memoryOutreach;
+      }
+    }
+    if (!desktopInstallationRepository) {
+      throw new Error("acquisition_desktop_installation_repository_required");
+    }
+    if (!outreachBatchRepository) {
+      throw new Error("acquisition_outreach_repository_required");
+    }
+    const outreachRepository = outreachBatchRepository;
+    const outreachFeatureFlags = options.douyinOutreachFeatureFlags
+      ?? Object.freeze({
+        approvalsEnabled: options.douyinOutreachActionsEnabled === true,
+        serverExecutionEnabled: effectiveDouyinOutreachActionsEnabled({
+          enabled: options.douyinOutreachActionsEnabled === true,
+          gateway: options.douyinMediaCrawlerGateway
+        }),
+        desktopExecutionEnabled: false
+      });
+    if (outreachFeatureFlags.serverExecutionEnabled
+      && typeof options.douyinMediaCrawlerGateway?.executeAction !== "function") {
+      throw new TypeError(
+        "DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED requires a MediaCrawler gateway"
+      );
+    }
+    const desktopInstallationService = new AcquisitionDesktopInstallationService({
+      repository: desktopInstallationRepository,
+      secret: derivedSecret(masterSecret, "desktop-installation-service"),
+      now,
+      async isActiveMembership(scope) {
+        await options.store.readBarrier();
+        const user = options.store.users.find((candidate) =>
+          candidate.id === scope.userId
+          && candidate.teamId === scope.teamId
+          && candidate.status === "active"
+        );
+        if (!user) return false;
+        const workspace = await acquisitionWorkspace.resolve({
+          ownerId: user.id,
+          teamId: user.teamId
+        });
+        return workspace?.workspaceId === scope.workspaceId;
+      }
     });
+    router.use('/api/v1/acquisition/xiaohongshu', await createXhsApplication({
+      pool, installationService: desktopInstallationService,
+      enabled: process.env.XHS_DESKTOP_SENDING_ENABLED === 'true',
+      dailyLimit: process.env.XHS_DAILY_LIMIT ? Number(process.env.XHS_DAILY_LIMIT) : 20,
+    }));
+    const actionAuthority = createAcquisitionOutreachActionAuthority({
+      findBatch: (workspaceId, batchId) =>
+        outreachRepository.find(workspaceId, batchId),
+      listActions: (workspaceId, batchId) =>
+        outreachRepository.listActions(workspaceId, batchId),
+      findAccount: (workspaceId, accountId) =>
+        socialAccountRepository.findById(workspaceId, accountId),
+      findRun: (runId) => repositories.planRun.getRun(runId),
+      findCrawlerJob: (workspaceId, runId) =>
+        crawlerJobs.findByRun(workspaceId, runId),
+      listPolicyVersions: (workspaceId, planId) =>
+        douyinAutomationRepository.listVersions(workspaceId, planId),
+      findCandidate: (scope, candidateId) =>
+        repositories.domain.findCandidate(scope, candidateId),
+      findEvidence: (scope, evidenceId) =>
+        repositories.domain.findEvidence(scope, evidenceId),
+      hasDoNotContact: (scope, publicActorKey) =>
+        finalAuthority.hasDoNotContact(scope, publicActorKey),
+      async loadLockedCandidateAuthority({ scope, candidateId, publicActorKey }) {
+        const candidate = await repositories.domain.findCandidate(scope, candidateId);
+        if (!candidate) return null;
+        const evidenceIds = orderedCandidateEvidenceIds(candidate);
+        const evidence = await Promise.all(evidenceIds.map((id) =>
+          repositories.domain.findEvidence(scope, id)));
+        if (evidence.some((item) => !item)) return null;
+        // The claim repository owns the surrounding transaction. The existing
+        // verifier reuses it and locks candidate/evidence/DNC before returning.
+        return finalAuthority.verify({ scope, candidateId, evidenceIds, publicActorKey,
+          expectedCandidate: candidate,
+          expectedEvidence: evidence.filter((item): item is NonNullable<typeof item> => Boolean(item)) });
+      }
+    });
+    const desktopRepository = isAcquisitionDesktopOutreachRepository(
+      outreachRepository
+    ) ? outreachRepository : null;
+    if (outreachFeatureFlags.desktopExecutionEnabled && !desktopRepository) {
+      throw new TypeError(
+        "desktop outreach repository must implement the Task 5 completion/recovery contract"
+      );
+    }
+    if (outreachFeatureFlags.desktopExecutionEnabled
+      && options.store.mode === "memory"
+      && (!(socialAccountRepository instanceof InMemoryAcquisitionSocialAccountRepository)
+        || !(desktopInstallationRepository instanceof InMemoryDesktopInstallationRepository)
+        || !(outreachRepository instanceof InMemoryAcquisitionOutreachBatchRepository)
+        || socialAccountRepository.memoryTransactions
+          !== desktopInstallationRepository.memoryTransactions
+        || outreachRepository.memoryTransactions
+          !== desktopInstallationRepository.memoryTransactions
+        || !desktopInstallationRepository.hasDesktopAuthorityBundle(
+          socialAccountRepository, outreachRepository)
+        || !outreachRepository.hasDesktopAuthorityBundle(
+          socialAccountRepository, desktopInstallationRepository))) {
+      throw new TypeError(
+        "desktop Memory composition must share one transaction coordinator and authority bundle"
+      );
+    }
+    const desktopOutreachSync: Pick<AcquisitionDesktopOutreachSync,
+      "claim" | "complete" | "reconcile"> = desktopRepository
+      ? new AcquisitionDesktopOutreachSync({
+          platformExecutionAccess,
+          repository: desktopRepository,
+          installationService: desktopInstallationService,
+          authority: actionAuthority,
+          now,
+          actionDeadlineMs: douyinActionDeadlineMs(),
+          leaseDurationMs: douyinActionDeadlineMs() + 30_000
+        })
+      : {
+          async claim() { throw new Error("desktop_execution_disabled"); },
+          async complete() { throw new Error("desktop_execution_disabled"); },
+          async reconcile() { throw new Error("desktop_execution_disabled"); }
+        };
     const outreachBatches = new AcquisitionOutreachBatchService({
-      repository: outreachBatchRepository,
+      repository: outreachRepository,
       approveDirectMessages: (input) =>
-        outreachBatchRepository.approveDirectMessages(input),
-      douyinOutreachActionsEnabled: outreachActionsEnabled,
+        outreachRepository.approveDirectMessages(input),
+      douyinOutreachActionsEnabled: outreachFeatureFlags.approvalsEnabled,
+      serverExecutionEnabled: outreachFeatureFlags.serverExecutionEnabled,
+      desktopExecutionEnabled: outreachFeatureFlags.desktopExecutionEnabled,
       idFactory,
       now,
       async loadRunAuthority(scope, runId) {
@@ -2390,7 +2657,11 @@ export async function createAcquisitionApplication(
         return account ? { accountId: account.id, state: account.state,
           loginStateVersion: account.loginStateVersion,
           accountHandle: account.accountHandle,
-          displayName: account.displayName } : null;
+          displayName: account.displayName,
+          executorMode: account.executorMode,
+          executorDeviceIdHash: account.executorDeviceIdHash,
+          executorBindingGeneration: account.executorBindingGeneration,
+          executorLeaseExpiresAt: account.executorLeaseExpiresAt } : null;
       },
       reconciliationDeadlineMs: douyinActionDeadlineMs(),
       reconcileAction: options.douyinMediaCrawlerGateway
@@ -2432,6 +2703,71 @@ export async function createAcquisitionApplication(
       now,
       onRunIntent: enqueueCrawlerJob
     });
+    const desktopCrawlerActorId = idFactory("desktop-crawler-ingester");
+    const boundDesktopCrawlerRun = async (
+      job: import("./acquisition-crawler-job.js").AcquisitionCrawlerJob,
+      scope: { workspaceId: string; ownerId: string; teamId: string; actorId: string }
+    ) => {
+      const run = await repositories.planRun.getRun(job.runId);
+      if (!run || run.ownerId !== scope.ownerId || run.teamId !== scope.teamId
+        || run.planId !== job.planId
+        || run.planVersionId !== job.planVersionId
+        || run.planSnapshotHash !== job.planSnapshotHash) {
+        throw new Error("desktop_crawler_ingestion_run_binding_changed");
+      }
+      const resolved = await acquisitionWorkspace.resolve({
+        ownerId: run.ownerId,
+        teamId: run.teamId
+      });
+      if (!resolved || resolved.workspaceId !== job.workspaceId
+        || resolved.workspaceId !== scope.workspaceId) {
+        throw new Error("desktop_crawler_ingestion_workspace_binding_changed");
+      }
+      return run;
+    };
+    const desktopSync = new AcquisitionDesktopSyncService({
+      executionAccess: acquisitionExecutionAccess,
+      automation: douyinAutomation,
+      crawlerJobs,
+      accounts: socialAccountRepository,
+      taskTokenSecret: derivedSecret(
+        masterSecret,
+        "desktop-crawler-task-capability"
+      ),
+      now,
+      async ingestTerminalJob(job, scope) {
+        if (!crawlerIngestion) {
+          throw new Error("acquisition_crawler_ingestion_transaction_boundary_required");
+        }
+        const run = await boundDesktopCrawlerRun(job, scope);
+        await ingestDouyinCrawlerPage({
+          crawlerJobs,
+          repository: crawlerIngestion,
+          workspaceId: job.workspaceId,
+          runId: job.runId,
+          scope: {
+            ownerId: run.ownerId,
+            teamId: run.teamId,
+            actorId: desktopCrawlerActorId
+          },
+          now
+        });
+      },
+      async projectTerminalJob(job, scope) {
+        const run = await boundDesktopCrawlerRun(job, scope);
+        await projectDouyinCrawlerTerminalRuns({
+          repository: repositories.planRun,
+          scope: {
+            workspaceId: job.workspaceId,
+            ownerId: run.ownerId,
+            teamId: run.teamId,
+            actorId: desktopCrawlerActorId
+          },
+          job,
+          at: job.updatedAt
+        });
+      }
+    });
     const douyinKeywordSuggestions = {
       async generate(scope: {
         workspaceId: string; ownerId: string; teamId: string; actorId: string;
@@ -2459,7 +2795,7 @@ export async function createAcquisitionApplication(
           const gateway = options.modelGatewayFactory ? options.modelGatewayFactory(stored, acquisitionModelContentForSnapshot(stored)) : createAcquisitionModelGatewayForSnapshot(options.store, stored);
           const value = await generateDouyinKeywords({ gateway, modelSnapshotId: snapshot.jobId, business: plan.payload.objective, icp: plan.payload.icp });
           return { status: 200, body: value };
-        });
+        }, { persistenceScope: "result" });
         return { ...(outcome.body as { keywords: readonly string[]; modelSnapshotId: string }), replayed: outcome.replayed };
       }
     };
@@ -2468,6 +2804,22 @@ export async function createAcquisitionApplication(
       createAcquisitionDouyinAutomationRouter({
         service: douyinAutomation,
         requestIdFactory: () => idFactory("request")
+      })
+    );
+    router.use(
+      "/api/v1/acquisition",
+      createAcquisitionDesktopSyncRouter({
+        socialAccounts,
+        desktopSync,
+        requestIdFactory: () => idFactory("request")
+      })
+    );
+    router.use(
+      "/api/v1/acquisition",
+      createAcquisitionDesktopOutreachSyncRouter({
+        installationService: desktopInstallationService,
+        outreachSync: desktopOutreachSync,
+        desktopExecutionEnabled: outreachFeatureFlags.desktopExecutionEnabled
       })
     );
     router.use(
@@ -2691,6 +3043,7 @@ export async function createAcquisitionApplication(
         });
       };
       crawlerWorker = new AcquisitionCrawlerWorker({
+        executionAccess: acquisitionExecutionAccess,
         repository: crawlerJobs,
         gateway: options.douyinMediaCrawlerGateway,
         accounts: socialAccountRepository,
@@ -2701,94 +3054,20 @@ export async function createAcquisitionApplication(
         projectTerminalJob: projectTerminalCrawlerJob
       });
       crawlerWorker.start(options.crawlerWorkerIntervalMs);
-      if (outreachActionsEnabled) {
+      if (outreachFeatureFlags.serverExecutionEnabled) {
         outreachActionRecoverySweeper = new AcquisitionOutreachActionRecoverySweeper({
-          repository: outreachBatchRepository, now,
+          repository: outreachRepository, now,
           intervalMs: options.outreachActionRecoveryIntervalMs
         });
         outreachActionRecoverySweeper.start();
         const actionWorkerId = idFactory("outreach-action-worker");
         outreachActionWorker = new AcquisitionOutreachActionWorker({
-          repository: outreachBatchRepository, workerId: actionWorkerId, now,
+          platformExecutionAccess,
+          repository: outreachRepository, workerId: actionWorkerId, now,
           intervalMs: options.outreachActionWorkerIntervalMs,
           actionDeadlineMs: douyinActionDeadlineMs(),
           execute: (input) => options.douyinMediaCrawlerGateway!.executeAction(input),
-          async accountAuthority(action) {
-            const [batch, account, actions] = await Promise.all([
-              outreachBatchRepository.find(action.workspaceId, action.batchId),
-              socialAccountRepository.findById(action.workspaceId, action.accountId),
-              outreachBatchRepository.listActions(action.workspaceId, action.batchId)
-            ]);
-            const predecessor = actions?.find((value) =>
-              value.id === action.predecessorActionId);
-            if (!batch || (action.kind === "comment"
-              ? batch.state !== "approved" || batch.revision !== action.batchRevision
-                || batch.approvalHash !== action.approvalHash
-              : !validDirectMessageClaimAuthority(action, batch, predecessor))) {
-              return { failureCode: "approval_authority_changed" };
-            }
-            if (!account || account.state !== "active"
-              || !isBoundDouyinAccountHandle(account.accountHandle)
-              || !account.displayName?.trim()
-              || account.loginStateVersion !== action.accountLoginStateVersion) return null;
-            const frozen = batch.candidates.find((value) => value.candidateId === action.candidateId);
-            if (!frozen || (action.kind === "comment"
-              ? frozen.commentHash !== action.contentHash
-                || frozen.commentTargetPublicUrl !== action.targetPublicUrl
-              : frozen.publicProfileUrl !== action.targetPublicUrl)) {
-              return { failureCode: "approval_authority_changed" };
-            }
-            const [authoritativeRun, crawlerJob, policyVersions] = await Promise.all([
-              repositories.planRun.getRun(batch.runId),
-              crawlerJobs.findByRun(action.workspaceId, batch.runId),
-              douyinAutomationRepository.listVersions(action.workspaceId, batch.planId)
-            ]);
-            const policy = policyVersions.find((value) => value.id === batch.policyVersionId);
-            if (!authoritativeRun || !crawlerJob || !policy
-              || crawlerOutreachFinalizationState(crawlerJob) !== "ready"
-              || policy.policyHash !== batch.policyHash
-              || policy.schedule.timeZone !== batch.timeZone
-              || crawlerJob.policyVersionId !== batch.policyVersionId
-              || crawlerJob.policyHash !== batch.policyHash
-              || crawlerJob.accountId !== batch.accountId
-              || crawlerJob.accountLoginStateVersion !== batch.accountLoginStateVersion
-              || crawlerJob.dailyBudgetId !== batch.dailyBudgetId
-              || crawlerJob.localDate !== batch.localDate
-              || crawlerJob.dailyCandidateLimit !== batch.dailyCandidateLimit) {
-              return { failureCode: "approval_authority_changed" };
-            }
-            const scope = { workspaceId: action.workspaceId, ownerId: authoritativeRun.ownerId,
-              teamId: authoritativeRun.teamId, actorId: actionWorkerId };
-            const candidate = await repositories.domain.findCandidate(scope, action.candidateId);
-            if (!candidate || candidate.version !== frozen.candidateRevision
-              || candidate.profile.kind !== "individual"
-              || candidate.profile.publicActorKey !== frozen.publicActorKey
-              || candidate.profile.publicProfileUrl !== frozen.publicProfileUrl) {
-              return { failureCode: "approval_authority_changed" };
-            }
-            const evidence = await Promise.all(orderedCandidateEvidenceIds(candidate).map((id) =>
-              repositories.domain.findEvidence(scope, id)));
-            if (evidence.some((value) => !value)) {
-              return { failureCode: "approval_authority_changed" };
-            }
-            const trustedEvidence = evidence.filter(
-              (value): value is NonNullable<typeof value> => Boolean(value)
-            );
-            const exactVideoEvidence = selectDouyinCandidateEvidence(
-              trustedEvidence,
-              { requireVideo: true }
-            );
-            const exactVideoUrl = exactVideoEvidence
-              ? discoveryEvidencePublicSourceUrl(exactVideoEvidence) : null;
-            const hashes = trustedEvidence.map((value) => value.contentHash).sort();
-            if (canonicalJsonStringify(hashes) !== canonicalJsonStringify([...frozen.evidenceHashes].sort())
-              || exactVideoUrl !== frozen.commentTargetPublicUrl
-              || candidate.status === "do_not_contact"
-              || await finalAuthority.hasDoNotContact(scope, frozen.publicActorKey)) {
-              return { failureCode: "approval_authority_changed" };
-            }
-            return { accountHandle: account.accountHandle };
-          },
+          accountAuthority: (action) => actionAuthority.resolve(action, actionWorkerId),
           async pauseAccount(workspaceId, accountId, loginStateVersion, occurredAt) {
             const account = await socialAccountRepository.findById(workspaceId, accountId);
             if (!account || account.state !== "active"
@@ -2950,6 +3229,10 @@ export async function createAcquisitionApplication(
       },
       requestIdFactory: () => idFactory("request")
     }));
+    router.use(createCfoAcquisitionWorkflowRouter({
+      service: cfoAcquisitionWorkflowService,
+      requestIdFactory: () => idFactory("request")
+    }));
     router.use(createAcquisitionTaskOverviewRouter({
       overviewService: taskOverviewService,
       planService,
@@ -3038,6 +3321,7 @@ export async function createAcquisitionApplication(
       handler: router as RequestHandler,
       planDraftGenerator,
       outreachDraftService,
+      cfoAcquisitionWorkflowService,
       visualReaderRepository: repositories.visualReader,
       runOutcomeReconciliation(scope) {
         return outcomeReconciliation.runTenant(scope, {
@@ -3048,6 +3332,10 @@ export async function createAcquisitionApplication(
         if (closePromise) return closePromise;
         closing = true;
         closePromise = (async () => {
+          if (cfoWorkflowTimer) {
+            clearInterval(cfoWorkflowTimer);
+            cfoWorkflowTimer = null;
+          }
           let settlements: PromiseSettledResult<void>[] = [];
           let gracefulFailure: unknown;
           try {

@@ -7,14 +7,17 @@ import {
   outreachBatchLifecycleEtag,
   outreachContentHash,
   outreachDirectMessageApprovalHash,
+  outreachIndependentDirectMessageApprovalHash,
   publicOutreachBatch,
   validOutreachTarget,
   type AcquisitionOutreachAction,
+  type AcquisitionOutreachActionExecutionTarget,
   type AcquisitionOutreachBatch,
   type AcquisitionOutreachBatchCandidate
 } from "./acquisition-outreach-batch.js";
-import type { AcquisitionOutreachBatchRepository, OutreachRepositoryResult } from "./acquisition-outreach-batch-repository.js";
-import { validateAcquisitionOutreachDraft, type AcquisitionOutreachDraft } from "./acquisition-outreach-draft.js";
+import type { AcquisitionOutreachBatchRepository, OutreachRepositoryResult,
+  OutreachActionAccountRecovery } from "./acquisition-outreach-batch-repository.js";
+import { validateManualAcquisitionOutreachDraft, type AcquisitionOutreachDraft } from "./acquisition-outreach-draft.js";
 
 export interface OutreachScope { workspaceId: string; ownerId: string; teamId: string; actorId: string; }
 export interface OutreachRunAuthority {
@@ -30,20 +33,21 @@ export interface OutreachCandidateAuthority {
   evidenceText: string[]; publicActorKey: string; publicProfileUrl: string;
   commentTargetPublicUrl: string; doNotContact: boolean;
 }
-export interface DirectMessageApprovalCommand {
+export type DirectMessageApprovalCommand = {
   batchRevision: number;
   batchHash: string;
-  commentApprovalHash: string;
   dailyLimit: number;
   candidates: Array<{ candidateId: string; directMessage: string }>;
   confirm: true;
-}
+} & ({ accountLoginStateVersion: number; commentApprovalHash?: never }
+  | { commentApprovalHash: string; accountLoginStateVersion?: never });
 export interface DirectMessageApprovalPersistence {
   approveDirectMessages(input: {
     workspaceId: string; batchId: string; ifMatch: string; idempotencyKey: string;
     requestHash: string;
     candidates: readonly { candidateId: string; directMessage: string }[];
     dailyLimit: number; approvedBy: string; approvedAt: string;
+    accountLoginStateVersion?: number;
     build(current: AcquisitionOutreachBatch,
       predecessors: readonly AcquisitionOutreachAction[],
       dailyOrdinals: readonly number[], dailyLocalDate: string): Promise<{
@@ -65,8 +69,8 @@ export function outreachDirectMessageApprovalRequestHash(batchId: string,
   input: DirectMessageApprovalCommand) {
   return digest({ operation: "approve_direct_messages", batchId, input });
 }
-function selectedIds(value: string[]) {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 200
+function selectedIds(value: string[], minimum = 1) {
+  if (!Array.isArray(value) || value.length < minimum || value.length > 200
     || value.some((item) => typeof item !== "string" || !item.trim() || item.length > 255)) {
     throw new AcquisitionOutreachBatchError("invalid_request", 400);
   }
@@ -101,17 +105,30 @@ function assertOutreachTargets(authority: OutreachCandidateAuthority) {
     throw new AcquisitionOutreachBatchError("outreach_direct_message_target_invalid");
   }
 }
-function validBoundDouyinAccount(authority: {
+function validBoundDouyinAccountIdentity(authority: {
   state: string; loginStateVersion: number | null;
   accountHandle?: string | null; displayName?: string | null;
 }) {
-  return authority.state === "active"
-    && typeof authority.accountHandle === "string"
+  return typeof authority.accountHandle === "string"
     && /^dyacct_[0-9a-f]{64}$/u.test(authority.accountHandle)
     && typeof authority.displayName === "string"
     && authority.displayName.trim().length > 0
     && Number.isSafeInteger(authority.loginStateVersion)
     && (authority.loginStateVersion ?? 0) > 0;
+}
+function validBoundDouyinAccount(authority: {
+  state: string; loginStateVersion: number | null;
+  accountHandle?: string | null; displayName?: string | null;
+}) {
+  return authority.state === "active"
+    && validBoundDouyinAccountIdentity(authority);
+}
+function validRecoverableBoundDouyinAccount(authority: {
+  state: string; loginStateVersion: number | null;
+  accountHandle?: string | null; displayName?: string | null;
+}) {
+  return ["active", "risk_paused"].includes(authority.state)
+    && validBoundDouyinAccountIdentity(authority);
 }
 function assertRunFinalized(authority: OutreachRunAuthority) {
   if (authority.finalizationState === "ready") return;
@@ -134,7 +151,9 @@ function sameRunAuthority(
     && authority.policyVersionId === batch.policyVersionId
     && authority.policyHash === batch.policyHash
     && authority.accountId === batch.accountId
-    && authority.accountLoginStateVersion === batch.accountLoginStateVersion
+    // Collection keeps its historical login; a newly reviewed send can use
+    // a later login of the same account without rewriting source evidence.
+    && authority.accountLoginStateVersion <= batch.accountLoginStateVersion
     && authority.dailyBudgetId === batch.dailyBudgetId
     && authority.localDate === batch.localDate
     && authority.timeZone === batch.timeZone
@@ -147,6 +166,8 @@ export class AcquisitionOutreachBatchService {
     /** Task 2 supplies the atomic persistence implementation. */
     approveDirectMessages?: DirectMessageApprovalPersistence["approveDirectMessages"];
     douyinOutreachActionsEnabled: boolean;
+    serverExecutionEnabled: boolean;
+    desktopExecutionEnabled: boolean;
     idFactory(kind: string): string;
     now(): string;
     loadRunAuthority(scope: OutreachScope, runId: string): Promise<OutreachRunAuthority | null>;
@@ -155,7 +176,9 @@ export class AcquisitionOutreachBatchService {
     loadCandidateAuthority(scope: OutreachScope, candidateId: string): Promise<OutreachCandidateAuthority | null>;
     loadAccountAuthority(scope: OutreachScope, accountId: string): Promise<{ accountId: string;
       state: string; loginStateVersion: number | null; accountHandle?: string | null;
-      displayName?: string | null } | null>;
+      displayName?: string | null; executorMode: "desktop" | "server" | null;
+      executorDeviceIdHash: string | null; executorBindingGeneration: number;
+      executorLeaseExpiresAt: string | null } | null>;
     reconcileAction?(input: { actionId: string; accountHandle: string;
       loginStateVersion: number; kind: "comment" | "direct_message";
       targetPublicUrl: string; content: string; approvedContentHash: string;
@@ -163,7 +186,40 @@ export class AcquisitionOutreachBatchService {
         state: "succeeded" | "failed"; platformReceiptReference: string | null;
         occurredAt: string; failureCode: string | null }>;
     reconciliationDeadlineMs?: number;
-  }) {}
+  }) {
+    if (typeof options.serverExecutionEnabled !== "boolean"
+      || typeof options.desktopExecutionEnabled !== "boolean") {
+      throw new TypeError("outreach_action_execution_gates_invalid");
+    }
+  }
+
+  private executionTarget(account: Awaited<ReturnType<typeof this.options.loadAccountAuthority>>,
+    at: string): AcquisitionOutreachActionExecutionTarget {
+    if (!account) throw new AcquisitionOutreachBatchError("douyin_login_expired");
+    if (account.executorMode === "desktop") {
+      if (!/^sha256:[0-9a-f]{64}$/u.test(account.executorDeviceIdHash ?? "")
+        || !Number.isSafeInteger(account.executorBindingGeneration)
+        || account.executorBindingGeneration < 1
+        || !account.executorLeaseExpiresAt
+        || Date.parse(at) >= Date.parse(account.executorLeaseExpiresAt)) {
+        throw new AcquisitionOutreachBatchError("douyin_desktop_executor_invalid");
+      }
+      if (!this.options.desktopExecutionEnabled) {
+        throw new AcquisitionOutreachBatchError("outreach_desktop_execution_disabled", 503);
+      }
+      return "desktop";
+    }
+    if ((account.executorMode === null || account.executorMode === "server")
+      && account.executorDeviceIdHash === null
+      && account.executorBindingGeneration === 0
+      && account.executorLeaseExpiresAt === null) {
+      if (!this.options.serverExecutionEnabled) {
+        throw new AcquisitionOutreachBatchError("outreach_server_execution_disabled", 503);
+      }
+      return "server";
+    }
+    throw new AcquisitionOutreachBatchError("douyin_desktop_executor_invalid");
+  }
 
   async create(scope: OutreachScope, runId: string, idempotencyKey: string,
     input: { candidateIds: string[] }) {
@@ -173,6 +229,11 @@ export class AcquisitionOutreachBatchService {
     assertRunFinalized(authority);
     const allowed = new Set(await this.options.listRunCandidateIds(scope, runId));
     if (candidateIds.some((id) => !allowed.has(id))) throw new AcquisitionOutreachBatchError("candidate_evidence_invalid");
+    const account = await this.options.loadAccountAuthority(scope, authority.accountId);
+    if (!account || account.accountId !== authority.accountId || !validBoundDouyinAccount(account)
+      || account.loginStateVersion! < authority.accountLoginStateVersion) {
+      throw new AcquisitionOutreachBatchError("douyin_login_expired");
+    }
     const candidates: AcquisitionOutreachBatchCandidate[] = [];
     for (const candidateId of candidateIds) {
       const [draft, current] = await Promise.all([
@@ -197,7 +258,8 @@ export class AcquisitionOutreachBatchService {
     const createdAt = this.options.now(); const id = this.options.idFactory("outreach-batch");
     const remaining = await this.options.repository.remaining(scope.workspaceId, authority.accountId, authority.localDate, authority.dailyCandidateLimit);
     const { finalizationState: _finalizationState, ...frozenAuthority } = authority;
-    const base = { id, ...frozenAuthority, revision: 1, state: "awaiting_approval" as const,
+    const base = { id, ...frozenAuthority, accountLoginStateVersion: account.loginStateVersion!,
+      revision: 1, state: "awaiting_approval" as const,
       candidates: Object.freeze(candidates), createdBy: scope.actorId, createdAt };
     const batch: AcquisitionOutreachBatch = Object.freeze({ ...base,
       dailyRemainingLimit: remaining, etag: outreachBatchEtag(id, 1),
@@ -271,7 +333,7 @@ export class AcquisitionOutreachBatchService {
             throw new AcquisitionOutreachBatchError("candidate_evidence_invalid");
           }
           const changed = old.comment !== edit.comment || old.directMessage !== edit.directMessage;
-          const validated = validateAcquisitionOutreachDraft({ candidateId: old.candidateId,
+          const validated = validateManualAcquisitionOutreachDraft({ candidateId: old.candidateId,
             candidateRevision: old.candidateRevision, evidenceHashes: [...old.evidenceHashes],
             comment: edit.comment, directMessage: edit.directMessage,
             rationaleCodes: [...old.rationaleCodes], modelSnapshotId: old.sourceModelSnapshotId }, {
@@ -348,6 +410,7 @@ export class AcquisitionOutreachBatchService {
           }
         }
         const approvedAt = this.options.now();
+        const executionTarget = this.executionTarget(account, approvedAt);
         const approvalHash = outreachApprovalHash({ batchId, batchRevision: current.revision,
           batchHash: current.batchHash, approvedBy: scope.actorId, approvedAt, candidates: current.candidates });
         const batch: AcquisitionOutreachBatch = Object.freeze({ ...current,
@@ -362,7 +425,8 @@ export class AcquisitionOutreachBatchService {
             batchRevision: current.revision, candidateId: candidate.candidateId,
             accountId: current.accountId, accountLoginStateVersion: current.accountLoginStateVersion,
             policyVersionId: current.policyVersionId, localDate: current.localDate,
-            kind: "comment", sequence: 1, status: "queued", predecessorActionId: null,
+            kind: "comment", executionTarget,
+            sequence: 1, status: "queued", predecessorActionId: null,
             targetPublicUrl: candidate.commentTargetPublicUrl,
             content: candidate.comment, contentHash: candidate.commentHash, approvalHash, createdAt: approvedAt });
         }
@@ -386,12 +450,15 @@ export class AcquisitionOutreachBatchService {
 
   async approveDirectMessages(scope: OutreachScope, batchId: string, ifMatch: string,
     idempotencyKey: string, input: DirectMessageApprovalCommand) {
+    const independent = input.accountLoginStateVersion !== undefined;
     if (!this.options.douyinOutreachActionsEnabled) {
       throw new AcquisitionOutreachBatchError("outreach_actions_disabled", 503);
     }
     if (!input.confirm || !Number.isSafeInteger(input.batchRevision)
       || input.batchRevision < 1 || !/^sha256:[a-f0-9]{64}$/u.test(input.batchHash)
-      || !/^sha256:[a-f0-9]{64}$/u.test(input.commentApprovalHash)
+      || (independent ? (!Number.isSafeInteger(input.accountLoginStateVersion)
+        || input.accountLoginStateVersion! < 1 || input.commentApprovalHash !== undefined)
+        : !/^sha256:[a-f0-9]{64}$/u.test(input.commentApprovalHash!))
       || !Number.isSafeInteger(input.dailyLimit) || input.dailyLimit < 1
       || input.dailyLimit > 100 || !Array.isArray(input.candidates)
       || input.candidates.length < 1 || input.candidates.length > input.dailyLimit
@@ -414,12 +481,14 @@ export class AcquisitionOutreachBatchService {
     try { result = await persist({ workspaceId: scope.workspaceId, batchId, ifMatch,
       idempotencyKey, requestHash: outreachDirectMessageApprovalRequestHash(batchId, input),
       dailyLimit: input.dailyLimit,
+      accountLoginStateVersion: input.accountLoginStateVersion,
       candidates: input.candidates, approvedBy: scope.actorId, approvedAt,
       build: async (current, predecessors, dailyOrdinals, dailyLocalDate) => {
         const orderedOrdinals = [...dailyOrdinals].sort((left, right) => left - right);
-        if (current.state !== "approved" || current.revision !== input.batchRevision
+        if (!(current.state === "approved" || (independent && current.state === "awaiting_approval"))
+          || current.revision !== input.batchRevision
           || current.batchHash !== input.batchHash
-          || current.approvalHash !== input.commentApprovalHash
+          || (!independent && current.approvalHash !== input.commentApprovalHash)
           || dailyOrdinals.length !== input.candidates.length
           || dailyOrdinals.some((ordinal) => !Number.isSafeInteger(ordinal)
             || ordinal < 1 || ordinal > input.dailyLimit)) {
@@ -442,9 +511,13 @@ export class AcquisitionOutreachBatchService {
         }
         const account = await this.options.loadAccountAuthority(scope, current.accountId);
         if (!account || !validBoundDouyinAccount(account)
-          || account.loginStateVersion !== current.accountLoginStateVersion) {
+          || account.accountId !== current.accountId
+          || account.loginStateVersion !== (independent
+            ? input.accountLoginStateVersion : current.accountLoginStateVersion)
+          || account.loginStateVersion < current.accountLoginStateVersion) {
           throw new AcquisitionOutreachBatchError("douyin_login_expired");
         }
+        const executionTarget = this.executionTarget(account, approvedAt);
         const actions: AcquisitionOutreachAction[] = [];
         for (const [index, requested] of input.candidates.entries()) {
           const candidate = current.candidates.find((item) => item.candidateId === requested.candidateId
@@ -453,8 +526,9 @@ export class AcquisitionOutreachBatchService {
             && action.kind === "comment" && action.status === "succeeded"
             && action.approvalHash === input.commentApprovalHash
             && action.platformReceiptReference);
-          if (!candidate || !predecessor || !predecessor.platformReceiptReference) {
-            throw new AcquisitionOutreachBatchError("outreach_comment_receipt_required");
+          if (!candidate || (!independent && !predecessor?.platformReceiptReference)) {
+            throw new AcquisitionOutreachBatchError(independent
+              ? "candidate_evidence_invalid" : "outreach_comment_receipt_required");
           }
           const authority = await this.options.loadCandidateAuthority(scope, candidate.candidateId);
           if (!authority || authority.doNotContact
@@ -473,23 +547,31 @@ export class AcquisitionOutreachBatchService {
             workspaceId: current.workspaceId, batchId: current.id,
             batchRevision: current.revision, candidateId: candidate.candidateId,
             accountId: current.accountId,
-            accountLoginStateVersion: current.accountLoginStateVersion,
+            accountLoginStateVersion: account.loginStateVersion,
             policyVersionId: current.policyVersionId, localDate: dailyLocalDate,
-            kind: "direct_message", sequence: 2, status: "queued",
-            predecessorActionId: predecessor.id,
+            kind: "direct_message", executionTarget,
+            sequence: 2, status: "queued",
+            predecessorActionId: independent ? null : predecessor!.id,
             targetPublicUrl: candidate.publicProfileUrl, content: requested.directMessage,
             contentHash,
-            approvalHash: outreachDirectMessageApprovalHash({ authorizationVersion: 2,
+            approvalHash: independent ? outreachIndependentDirectMessageApprovalHash({
+              authorizationVersion: 3, batchId: current.id, batchRevision: current.revision,
+              batchHash: current.batchHash, candidateId: candidate.candidateId,
+              accountId: current.accountId, accountLoginStateVersion: account.loginStateVersion,
+              targetPublicUrl: candidate.publicProfileUrl,
+              directMessage: requested.directMessage, directMessageHash: contentHash,
+              dailyLimit: input.dailyLimit, dailyOrdinal, approvedBy: scope.actorId, approvedAt
+            }) : outreachDirectMessageApprovalHash({ authorizationVersion: 2,
               batchId: current.id, batchRevision: current.revision,
-              batchHash: current.batchHash, commentApprovalHash: input.commentApprovalHash,
+              batchHash: current.batchHash, commentApprovalHash: input.commentApprovalHash!,
               candidateId: candidate.candidateId, accountId: current.accountId,
               accountLoginStateVersion: current.accountLoginStateVersion,
               targetPublicUrl: candidate.publicProfileUrl,
               directMessage: requested.directMessage, directMessageHash: contentHash,
-              predecessorActionId: predecessor.id,
-              predecessorReceiptReference: predecessor.platformReceiptReference,
+              predecessorActionId: predecessor!.id,
+              predecessorReceiptReference: predecessor!.platformReceiptReference!,
               dailyLimit: input.dailyLimit, dailyOrdinal, approvedBy: scope.actorId,
-              approvedAt }), authorizationVersion: 2, approvedBy: scope.actorId,
+              approvedAt }), authorizationVersion: independent ? 3 : 2, approvedBy: scope.actorId,
             approvedAt, directMessageDailyLimit: input.dailyLimit,
             directMessageDailyOrdinal: dailyOrdinal, createdAt: approvedAt });
         }
@@ -527,13 +609,14 @@ export class AcquisitionOutreachBatchService {
     const result = await this.options.repository.transition({ workspaceId: scope.workspaceId,
       batchId, ifMatch, operation, idempotencyKey, requestHash, build: (current) => {
         const allowed = operation === "reject" ? current.state === "awaiting_approval"
-          : operation === "pause" ? current.state === "approved" : current.state === "paused";
+          || (current.state === "paused" && !current.approvalHash)
+          : operation === "pause" ? ["approved", "awaiting_approval"].includes(current.state) : current.state === "paused";
         if (!allowed) throw new AcquisitionOutreachBatchError("outreach_batch_stale");
         const at = this.options.now();
         return Object.freeze({ ...current,
-          state: operation === "reject" ? "rejected" : operation === "pause" ? "paused" : "approved",
+          state: operation === "reject" ? "rejected" : operation === "pause" ? "paused" : current.approvalHash ? "approved" : "awaiting_approval",
           etag: outreachBatchLifecycleEtag(batchId, current.revision, current.etag,
-            operation === "reject" ? "rejected" : operation === "pause" ? "paused" : "approved",
+            operation === "reject" ? "rejected" : operation === "pause" ? "paused" : current.approvalHash ? "approved" : "awaiting_approval",
             at, scope.actorId),
           rejectedBy: operation === "reject" ? scope.actorId : current.rejectedBy,
           rejectedAt: operation === "reject" ? at : current.rejectedAt,
@@ -552,14 +635,105 @@ export class AcquisitionOutreachBatchService {
     return Object.freeze(actions.map((action) => Object.freeze(action)));
   }
 
-  async reconcileAction(scope: OutreachScope, batchId: string, actionId: string,
-    input: { batchRevision: number; approvalHash: string; contentHash: string;
-      confirm: true }) {
-    if (!this.options.douyinOutreachActionsEnabled
-      || !this.options.reconcileAction) {
+  async actionExecutionGate(scope: OutreachScope, batchId: string) {
+    const value = await this.options.repository.actionExecutionGate(
+      scope.workspaceId,
+      batchId
+    );
+    if (!value) {
+      throw new AcquisitionOutreachBatchError("outreach_batch_not_found", 404);
+    }
+    return Object.freeze({ ...value,
+      pendingActionIds: Object.freeze([...value.pendingActionIds]),
+      unresolvedActions: Object.freeze(value.unresolvedActions.map((action) =>
+        Object.freeze({ ...action }))) });
+  }
+
+  async recoverAccountActions(scope: OutreachScope, batchId: string,
+    ifMatch: string, idempotencyKey: string, input: {
+      batchRevision: number;
+      accountLoginStateVersion: number;
+      pendingActionIds: string[];
+      acknowledgedUncertainActionIds: string[];
+      reason: string;
+      confirm: true;
+    }) {
+    if (!this.options.douyinOutreachActionsEnabled) {
       throw new AcquisitionOutreachBatchError("outreach_actions_disabled", 503);
     }
+    let pendingActionIds: string[];
+    let acknowledgedUncertainActionIds: string[];
+    try {
+      pendingActionIds = selectedIds(input.pendingActionIds, 0);
+      acknowledgedUncertainActionIds = input.acknowledgedUncertainActionIds.length
+        ? selectedIds(input.acknowledgedUncertainActionIds) : [];
+    } catch {
+      throw new AcquisitionOutreachBatchError("invalid_request", 400);
+    }
+    const reason = typeof input.reason === "string" ? input.reason.trim() : "";
     if (!input.confirm || !Number.isSafeInteger(input.batchRevision)
+      || input.batchRevision < 1
+      || !Number.isSafeInteger(input.accountLoginStateVersion)
+      || input.accountLoginStateVersion < 1
+      || reason.length < 8 || reason.length > 2_000) {
+      throw new AcquisitionOutreachBatchError("invalid_request", 400);
+    }
+    const batch = await this.options.repository.find(scope.workspaceId, batchId);
+    if (!batch) {
+      throw new AcquisitionOutreachBatchError("outreach_batch_not_found", 404);
+    }
+    const account = await this.options.loadAccountAuthority(scope,
+      batch.accountId);
+    if (!account || !validRecoverableBoundDouyinAccount(account)
+      || account.loginStateVersion !== input.accountLoginStateVersion) {
+      throw new AcquisitionOutreachBatchError("douyin_login_expired");
+    }
+    const recoveredAt = this.options.now();
+    const request = { batchRevision: input.batchRevision,
+      accountLoginStateVersion: input.accountLoginStateVersion,
+      pendingActionIds, acknowledgedUncertainActionIds,
+      reason, confirm: true as const };
+    const result = await this.options.repository.recoverAccountActions({
+      workspaceId: scope.workspaceId,
+      batchId,
+      batchRevision: input.batchRevision,
+      ifMatch,
+      accountLoginStateVersion: input.accountLoginStateVersion,
+      pendingActionIds,
+      acknowledgedUncertainActionIds,
+      actorId: scope.actorId,
+      reason,
+      recoveredAt,
+      operation: "recover_account_actions",
+      idempotencyKey,
+      requestHash: digest(request)
+    });
+    if (result.kind === "conflict") {
+      throw new AcquisitionOutreachBatchError("outreach_idempotency_conflict");
+    }
+    if (result.kind === "not_found") {
+      throw new AcquisitionOutreachBatchError("outreach_batch_not_found", 404);
+    }
+    if (result.kind === "stale") {
+      throw new AcquisitionOutreachBatchError("outreach_action_recovery_stale");
+    }
+    return { value: Object.freeze(result.value) as Readonly<OutreachActionAccountRecovery>,
+      replayed: result.kind === "replay" };
+  }
+
+  async reconcileAction(scope: OutreachScope, batchId: string, actionId: string,
+    idempotencyKeyOrInput: string | { batchRevision: number; approvalHash: string;
+      contentHash: string; confirm: true },
+    inputValue?: { batchRevision: number; approvalHash: string; contentHash: string;
+      confirm: true }) {
+    const idempotencyKey = typeof idempotencyKeyOrInput === "string"
+      ? idempotencyKeyOrInput.trim() : null;
+    const input = typeof idempotencyKeyOrInput === "string"
+      ? inputValue : idempotencyKeyOrInput;
+    if (!this.options.douyinOutreachActionsEnabled) {
+      throw new AcquisitionOutreachBatchError("outreach_actions_disabled", 503);
+    }
+    if (!input || !input.confirm || !Number.isSafeInteger(input.batchRevision)
       || input.batchRevision < 1
       || !/^sha256:[a-f0-9]{64}$/u.test(input.approvalHash)
       || !/^sha256:[a-f0-9]{64}$/u.test(input.contentHash)) {
@@ -579,13 +753,68 @@ export class AcquisitionOutreachBatchService {
         404,
       );
     }
+    if (!validOutreachTarget(action.kind, action.targetPublicUrl)) {
+      throw new AcquisitionOutreachBatchError("outreach_action_stale");
+    }
+    if (action.executionTarget === "desktop") {
+      if (!idempotencyKey || idempotencyKey.length < 8
+        || idempotencyKey.length > 200) {
+        throw new AcquisitionOutreachBatchError("invalid_idempotency_key", 400);
+      }
+      const requestedAt = this.options.now();
+      if (!Number.isFinite(Date.parse(requestedAt))) {
+        throw new AcquisitionOutreachBatchError("outreach_internal_error", 500);
+      }
+      const request = {
+        batchRevision: input.batchRevision,
+        approvalHash: input.approvalHash,
+        contentHash: input.contentHash,
+        confirm: true as const,
+      };
+      const result = await this.options.repository.recordDesktopReconciliation({
+        workspaceId: scope.workspaceId,
+        batchId,
+        actionId,
+        batchRevision: input.batchRevision,
+        approvalHash: input.approvalHash,
+        contentHash: input.contentHash,
+        requestedByUserId: scope.actorId,
+        requestedAt,
+        operation: "request_desktop_action_reconciliation",
+        idempotencyKey,
+        requestHash: digest({
+          operation: "request_desktop_action_reconciliation",
+          workspaceId: scope.workspaceId,
+          batchId,
+          actionId,
+          actorId: scope.actorId,
+          input: request,
+        }),
+      });
+      if (result.kind === "created" || result.kind === "replay") {
+        const { reconciliationRequest: _internalAudit, ...publicAction } = result.value;
+        return Object.freeze(publicAction);
+      }
+      if (result.kind === "conflict") {
+        throw new AcquisitionOutreachBatchError("outreach_idempotency_conflict");
+      }
+      if (result.kind === "not_found") {
+        throw new AcquisitionOutreachBatchError("outreach_action_not_found", 404);
+      }
+      if (result.kind === "stale") {
+        throw new AcquisitionOutreachBatchError("outreach_action_stale");
+      }
+      throw new AcquisitionOutreachBatchError("outreach_internal_error", 500);
+    }
     if (action.batchRevision !== input.batchRevision
       || action.approvalHash !== input.approvalHash
-      || action.contentHash !== input.contentHash
-      || !validOutreachTarget(action.kind, action.targetPublicUrl)) {
+      || action.contentHash !== input.contentHash) {
       throw new AcquisitionOutreachBatchError("outreach_action_stale");
     }
     if (action.status === "succeeded") return Object.freeze(action);
+    if (!this.options.reconcileAction) {
+      throw new AcquisitionOutreachBatchError("outreach_actions_disabled", 503);
+    }
     const reconcilableFailures = new Set([
       "action_unavailable",
       "douyin_action_timeout",

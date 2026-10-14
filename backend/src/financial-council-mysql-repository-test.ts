@@ -29,6 +29,39 @@ import { buildCanonicalFinancialCouncilAuditGraph } from
   "./financial-council-audit.js";
 
 type Row = Record<string, unknown>;
+
+test("mysql collaboration writes preserve append order and reject stale leases", async () => {
+  const { repository } = repositoryWith();
+  const aggregate = repositoryRunFixture();
+  const snapshot = snapshotFixture(aggregate);
+  await repository.createAndFreezeRun(command("collaboration"), { aggregate, snapshot, occurredAt: snapshot.createdAt });
+  const lease = (await repository.claimAnalysisRun({ workspaceId: aggregate.workspaceId, runId: aggregate.runId,
+    workerId: "worker", leaseToken: "a".repeat(64), claimedAt: T1, leaseExpiresAt: "2026-08-16T09:00:00.000Z" }))!;
+  const start = { eventId: "analysis:finance:running:1", workspaceId: lease.workspaceId, runId: lease.runId,
+    role: "finance" as const, phase: "analysis" as const, state: "running" as const,
+    occurredAt: T1, message: "分析开始", reasonCode: null, findingIds: [], narrative: null };
+  await repository.appendCollaborationEvent(lease, start);
+  await repository.appendCollaborationEvent(lease, { ...start, eventId: "analysis:finance:completed", state: "completed" });
+  await repository.appendCollaborationEvent(lease, start);
+  assert.deepEqual((await repository.listCollaborationEvents(workspace(), lease.runId)).map(event => event.state), ["running", "completed"]);
+  assert.deepEqual(await repository.listCollaborationEvents(workspace("other"), lease.runId), []);
+  await assert.rejects(repository.appendCollaborationEvent({ ...lease, leaseToken: "b".repeat(64) }, start));
+});
+
+test("mysql history paginates workspace scoped real runs", async () => {
+  const { repository } = repositoryWith();
+  for (const runId of ["run-a", "run-b"]) {
+    await repository.createRun(command(runId), repositoryRunFixture({ runId,
+      creationKeyHash: financialCouncilCanonicalHash(runId) }));
+  }
+  const first = await repository.listRunHistory(workspace(), { limit: 1 });
+  assert.deepEqual(first.items.map(run => run.runId), ["run-b"]);
+  assert.equal(first.nextCursor, "run-b");
+  const second = await repository.listRunHistory(workspace(), { limit: 1, after: first.nextCursor! });
+  assert.deepEqual(second.items.map(run => run.runId), ["run-a"]);
+  assert.equal(second.nextCursor, null);
+  await assert.rejects(repository.listRunHistory(workspace("other"), { limit: 1, after: "run-b" }));
+});
 type State = {
   runs: Row[];
   events: Row[];
@@ -43,6 +76,7 @@ type State = {
   portfolioRevisions: Row[];
   analysisControls: Row[];
   analysisGaps: Row[];
+  collaborationEvents: Row[];
 };
 
 function cloneState(state: State): State {
@@ -118,6 +152,7 @@ class FakeConnection {
       this.pool.state.portfolioRevisions = this.pending.portfolioRevisions;
       this.pool.state.analysisControls = this.pending.analysisControls;
       this.pool.state.analysisGaps = this.pending.analysisGaps;
+      this.pool.state.collaborationEvents = this.pending.collaborationEvents;
     }
     this.pending = null;
     this.dirty = false;
@@ -148,6 +183,16 @@ class FakeConnection {
     const normalized = sql.replace(/\s+/gu, " ").trim();
     this.calls.push(normalized);
     const state = this.pending ?? this.pool.state;
+    if (normalized.startsWith("INSERT INTO financial_council_collaboration_events")) {
+      this.dirty = true;
+      if (!state.collaborationEvents.some(row => row.workspace_id === values[0] && row.run_id === values[1] && row.event_id === values[2])) {
+        state.collaborationEvents.push({ workspace_id: values[0], run_id: values[1], event_id: values[2], event_json: values[3], occurred_at: values[4] });
+      }
+      return [{ affectedRows: 1 }, []];
+    }
+    if (normalized.startsWith("SELECT") && normalized.includes("FROM financial_council_collaboration_events")) {
+      return [structuredClone(state.collaborationEvents.filter(row => row.workspace_id === values[0] && row.run_id === values[1])), []];
+    }
     if (normalized.includes("GET_LOCK")) {
       return [[{ lock_acquired: this.pool.lockAcquire }], []];
     }
@@ -208,6 +253,14 @@ class FakeConnection {
     }
     if (normalized.startsWith("SELECT")
       && normalized.includes("FROM financial_council_runs")) {
+      if (normalized.includes("ORDER BY JSON_UNQUOTE")) {
+        let rows = state.runs.filter(row => row.workspace_id === values[0]);
+        const createdAt = (row: Row) => JSON.parse(String(row.run_json)).createdAt as string;
+        if (normalized.includes("AND BINARY run_id <")) rows = rows.filter(row => createdAt(row) < String(values[1])
+          || (createdAt(row) === values[2] && compareUtf8Bytes(String(row.run_id), String(values[3])) < 0));
+        rows.sort((a, b) => createdAt(b).localeCompare(createdAt(a)) || -compareUtf8Bytes(String(a.run_id), String(b.run_id)));
+        return [structuredClone(rows.slice(0, normalized.endsWith("LIMIT 1") ? 1 : Number(values.at(-1)))), []];
+      }
       if (normalized.includes("status = 'snapshot_frozen'")) {
         const afterWorkspaceId = values[0] as string | null;
         const afterRunId = values[3] as string | null;
@@ -684,7 +737,7 @@ class FakePool {
     runs: [], events: [], snapshots: [], specialistResults: [], findings: [],
     actions: [], auditGraphs: [], rebuttalAttempts: [], dispositions: [],
     consensusReports: [], portfolioRevisions: [],
-    analysisControls: [], analysisGaps: []
+    analysisControls: [], analysisGaps: [], collaborationEvents: []
   };
   readonly connections: FakeConnection[] = [];
   readonly lockAttempts = new Map<string, number>();
@@ -1082,6 +1135,7 @@ async () => {
   const names = [...ddl.matchAll(/CREATE TABLE IF NOT EXISTS ([a-z_]+)/gu)]
     .map((match) => match[1]);
   assert.deepEqual(names, [
+    "financial_council_collaboration_events",
     "financial_council_runs",
     "financial_council_run_events",
     "financial_council_snapshots",

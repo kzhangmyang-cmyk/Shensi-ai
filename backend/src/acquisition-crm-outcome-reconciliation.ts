@@ -17,7 +17,14 @@ import type {
   CommercialBindingEvidenceSnapshot,
   QuoteVersion
 } from "./quote-repository.js";
-import type { ActiveWorkspaceContext } from "./growth-workspace-context.js";
+import {
+  assertGrowthAcquisitionWorkspaceResolver,
+  type ActiveWorkspaceContext,
+  type GrowthAcquisitionWorkspaceResolver
+} from "./growth-workspace-context.js";
+import type { AcquisitionCrawlerJobRepository } from "./acquisition-crawler-job-repository.js";
+import type { AcquisitionDomainRepository } from "./acquisition-domain-repository.js";
+import { isOutcomeAttributionShape, isAcquisitionSourceShape, type AcquisitionSourceAttribution } from "./acquisition-outcome-attribution.js";
 import type {
   AcquisitionPlanRunRepository
 } from "./acquisition-plan-run-repository.js";
@@ -47,25 +54,48 @@ export interface AcquisitionCandidateRunAttributionInput {
   decisionSnapshotHash: string;
 }
 
+export interface AcquisitionCrawlerAttributionAuthority {
+  jobs: Pick<AcquisitionCrawlerJobRepository, "findByRun" | "listRecords">;
+  domain: Pick<AcquisitionDomainRepository, "findCandidate" | "findEvidence">;
+  workspace: GrowthAcquisitionWorkspaceResolver;
+}
+
 export class AcquisitionCandidateRunAttributionResolver {
+  readonly #crawler: AcquisitionCrawlerAttributionAuthority | null;
   readonly #planRuns: Pick<
     AcquisitionPlanRunRepository,
     "getRun" | "listRunEvents" | "listRunShards"
   >;
 
   constructor(options: {
+    crawler?: AcquisitionCrawlerAttributionAuthority;
     planRuns: Pick<
       AcquisitionPlanRunRepository,
       "getRun" | "listRunEvents" | "listRunShards"
     >;
   }) {
     this.#planRuns = options.planRuns;
+    this.#crawler = options.crawler ? {
+      ...options.crawler,
+      workspace: assertGrowthAcquisitionWorkspaceResolver(options.crawler.workspace)
+    } : null;
   }
 
   async resolve(
     scope: { ownerId: string; teamId: string },
     input: AcquisitionCandidateRunAttributionInput
   ): Promise<OutcomeAttributionInput | null> {
+    const source = await this.resolveSource(scope, input);
+    if (!source) return null;
+    const result = { ...source, qualificationDecisionId: input.qualificationDecisionId,
+      decisionVersion: input.decisionVersion, decisionSnapshotHash: input.decisionSnapshotHash };
+    return isOutcomeAttributionShape(result) ? result : null;
+  }
+
+  async resolveSource(
+    scope: { ownerId: string; teamId: string },
+    input: Pick<AcquisitionCandidateRunAttributionInput, "runId" | "discoveredEventId" | "candidateId" | "evidenceIds">
+  ): Promise<AcquisitionSourceAttribution | null> {
     const run = await this.#planRuns.getRun(input.runId);
     if (!run
       || run.ownerId !== scope.ownerId
@@ -77,11 +107,63 @@ export class AcquisitionCandidateRunAttributionResolver {
         && item.ownerId === scope.ownerId
         && item.teamId === scope.teamId
         && item.type === "candidate.discovered"
-        && item.data.candidateId === input.candidateId
-        && isText(item.data.operationId)
-        && isText(item.data.connectionId)
-        && isText(item.shardId));
-    if (!event?.shardId) return null;
+        && item.data.candidateId === input.candidateId);
+    if (!event) return null;
+    const common = {
+      runId: run.id,
+      planId: run.planId,
+      planVersionId: run.planVersionId,
+      planVersion: run.planVersion,
+      planSnapshotHash: run.planSnapshotHash,
+      discoveredEventId: event.id,
+      discoveredAt: event.at,
+      evidenceIds: [...new Set(input.evidenceIds)],
+      strategyVersion: `acquisition-plan-v${run.planVersion}`
+    };
+    if (event.data.source === "douyin_crawler") {
+      if (!this.#crawler || event.shardId !== null || !isText(event.data.jobId)
+        || event.data.operationId != null || event.data.connectionId != null) return null;
+      const workspace = await this.#crawler.workspace.resolve(scope);
+      if (!workspace) return null;
+      const job = await this.#crawler.jobs.findByRun(workspace.workspaceId, run.id);
+      if (!job || job.id !== event.data.jobId
+        || job.workspaceId !== workspace.workspaceId || !job.runIds.includes(run.id)
+        || job.planId !== run.planId || job.planVersionId !== run.planVersionId
+        || job.planSnapshotHash !== run.planSnapshotHash) return null;
+      const candidate = await this.#crawler.domain.findCandidate(scope, input.candidateId);
+      if (!candidate || candidate.ownerId !== scope.ownerId || candidate.teamId !== scope.teamId
+        || candidate.profile.kind !== "individual" || candidate.profile.sourcePlatform !== "douyin"
+        || !common.evidenceIds.length
+        || !common.evidenceIds.every((id) => candidate.evidenceIds.includes(id))) return null;
+      const evidence = await Promise.all(common.evidenceIds.map((id) =>
+        this.#crawler!.domain.findEvidence(scope, id)));
+      if (evidence.some((item) => !item || item.ownerId !== scope.ownerId
+        || item.teamId !== scope.teamId)) return null;
+      const records = await this.#crawler.jobs.listRecords(job.id);
+      const profileUrl = candidate.profile.publicProfileUrl;
+      // Ingestion deduplicates content across jobs; a re-observed record can
+      // legitimately reference evidence retaining its first job's provenance.
+      const linkedRecord = evidence.some((item) => item
+        && item.sourcePlatform === "douyin" && item.accessStatus === "public_content"
+        && item.provenance.kind === "mediacrawler_public_record"
+        && records.some((record) =>
+          (record.kind === "creator" || record.kind === "comment")
+          && record.publicProfileUrl === profileUrl
+          && record.contentHash === item.contentHash
+          && item.provenance.kind === "mediacrawler_public_record"
+          && record.recordId === item.provenance.recordId
+          && record.actorKind === item.provenance.actorKind
+          && record.canonicalUrl === item.provenance.sourceUrl));
+      if (!linkedRecord) return null;
+      const result: AcquisitionSourceAttribution = {
+        ...common, attributionVersion: "douyin-crawler.v1", jobId: job.id,
+        shardId: null, operationId: null, connectionId: null, providerId: null,
+        providerIds: [], queryIds: []
+      };
+      return isAcquisitionSourceShape(result) ? result : null;
+    }
+    if (!isText(event.shardId) || !isText(event.data.operationId)
+      || !isText(event.data.connectionId)) return null;
     const shard = (await this.#planRuns.listRunShards(run.id)).find((item) =>
       item.id === event.shardId
       && item.runId === run.id
@@ -91,25 +173,14 @@ export class AcquisitionCandidateRunAttributionResolver {
       && item.connection.connectionId === event.data.connectionId);
     if (!shard) return null;
     return {
+      ...common,
       attributionVersion: "acquisition-run.v1",
-      runId: run.id,
-      planId: run.planId,
-      planVersionId: run.planVersionId,
-      planVersion: run.planVersion,
-      planSnapshotHash: run.planSnapshotHash,
-      discoveredEventId: event.id,
-      discoveredAt: event.at,
       shardId: shard.id,
       operationId: shard.operationId,
       connectionId: shard.connection.connectionId,
       providerId: shard.connection.providerId,
-      evidenceIds: [...new Set(input.evidenceIds)],
       providerIds: [shard.connection.providerId],
-      queryIds: [`operation:${shard.operationId}`],
-      strategyVersion: `acquisition-plan-v${run.planVersion}`,
-      qualificationDecisionId: input.qualificationDecisionId,
-      decisionVersion: input.decisionVersion,
-      decisionSnapshotHash: input.decisionSnapshotHash
+      queryIds: [`operation:${shard.operationId}`]
     };
   }
 }
@@ -180,47 +251,10 @@ function isText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-type ReconciledOutcomeAttribution = OutcomeAttributionInput & Required<Pick<
-  OutcomeAttributionInput,
-  | "planId"
-  | "planVersionId"
-  | "planVersion"
-  | "planSnapshotHash"
-  | "discoveredEventId"
-  | "discoveredAt"
-  | "shardId"
-  | "operationId"
-  | "connectionId"
-  | "providerId"
->>;
+type ReconciledOutcomeAttribution = OutcomeAttributionInput;
 
 function validAttribution(value: unknown): value is ReconciledOutcomeAttribution {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const item = value as Record<string, unknown>;
-  const textFields = [
-    "runId",
-    "attributionVersion",
-    "planId",
-    "planVersionId",
-    "planSnapshotHash",
-    "discoveredEventId",
-    "discoveredAt",
-    "shardId",
-    "operationId",
-    "connectionId",
-    "providerId",
-    "strategyVersion",
-    "qualificationDecisionId",
-    "decisionVersion",
-    "decisionSnapshotHash"
-  ];
-  return textFields.every((field) => isText(item[field]))
-    && item.attributionVersion === "acquisition-run.v1"
-    && Number.isSafeInteger(item.planVersion)
-    && Number(item.planVersion) > 0
-    && ["evidenceIds", "providerIds", "queryIds"].every((field) =>
-      Array.isArray(item[field])
-      && (item[field] as unknown[]).every(isText));
+  return isOutcomeAttributionShape(value);
 }
 
 function amountForDealEvent(event: DealEvent) {
@@ -256,6 +290,7 @@ export class AcquisitionCrmOutcomeReconciliationService {
   readonly #now: () => string;
   readonly #commercialAuthority: AcquisitionCommercialOutcomeAuthority | null;
   readonly #bindingVerifier: Pick<CommercialBindingVerifier, "verify"> | null;
+  readonly #attributionResolver: Pick<AcquisitionCandidateRunAttributionResolver, "resolve"> | null;
 
   constructor(options: {
     store: AcquisitionCrmOutcomeReconciliationStore;
@@ -266,6 +301,7 @@ export class AcquisitionCrmOutcomeReconciliationService {
     >;
     commercialAuthority?: AcquisitionCommercialOutcomeAuthority;
     bindingVerifier?: Pick<CommercialBindingVerifier, "verify"> | null;
+    attributionResolver?: Pick<AcquisitionCandidateRunAttributionResolver, "resolve">;
     now?: () => string;
   }) {
     this.#store = options.store;
@@ -273,6 +309,7 @@ export class AcquisitionCrmOutcomeReconciliationService {
     this.#planRuns = options.planRuns;
     this.#commercialAuthority = options.commercialAuthority ?? null;
     this.#bindingVerifier = options.bindingVerifier ?? null;
+    this.#attributionResolver = options.attributionResolver ?? null;
     this.#now = options.now ?? (() => new Date().toISOString());
   }
 
@@ -660,6 +697,19 @@ export class AcquisitionCrmOutcomeReconciliationService {
       || run.planVersion !== attribution.planVersion
       || run.planSnapshotHash !== attribution.planSnapshotHash) {
       return "attribution_invalid";
+    }
+    if (attribution.attributionVersion === "douyin-crawler.v1") {
+      const resolved = await this.#attributionResolver?.resolve(scope, {
+        candidateId,
+        runId: attribution.runId,
+        discoveredEventId: attribution.discoveredEventId,
+        evidenceIds: attribution.evidenceIds,
+        qualificationDecisionId: attribution.qualificationDecisionId,
+        decisionVersion: attribution.decisionVersion,
+        decisionSnapshotHash: attribution.decisionSnapshotHash
+      });
+      return resolved && canonicalJsonStringify(resolved) === canonicalJsonStringify(attribution)
+        ? null : "attribution_invalid";
     }
     const event = (await this.#planRuns.listRunEvents(run.id)).find((item) =>
       item.id === attribution.discoveredEventId

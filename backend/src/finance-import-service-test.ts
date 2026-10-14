@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import XLSX from "xlsx-js-style";
+import { financeImportFieldValue } from "./finance-import-columns.js";
 import {
   FinanceImportService,
   parseFinancePreviewBody
@@ -12,6 +14,72 @@ import {
   ledgerCommandContext,
   wonQuoteFixture
 } from "./growth-finance-test-fixtures.js";
+
+test("closed value aliases match existing finance UI labels without guessing currency symbols", () => {
+  for (const [label, code] of [["API 调用", "api"], ["媒体投放", "media"], ["内容制作", "content"], ["代理服务", "agency"], ["运营支出", "operation"]]) {
+    assert.equal(financeImportFieldValue("category", label!), code);
+  }
+  assert.equal(financeImportFieldValue("factType", "合同赢单"), "contract_won");
+  assert.equal(financeImportFieldValue("factType", "回款"), "payment_received");
+  assert.equal(financeImportFieldValue("factType", "销售成本确认"), "cogs_recognized");
+  assert.equal(financeImportFieldValue("status", "待核对"), "pending");
+  for (const symbol of ["$", "¥", "￥"]) assert.equal(financeImportFieldValue("currency", symbol), symbol);
+});
+
+test("empty mapping accepts closed Chinese and bilingual headers for CSV and XLSX", async () => {
+  for (const xlsx of [false, true]) {
+    const rows = [[" 外部ID ", "事实类型", " Ａｍｏｕｎｔ （ 金额 ） ", "币种", "业务发生时间"],
+      ["cn-1", "已收款", "100.00", "人民币", "2026-08-08"]];
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), "客户资料");
+    const service = new FinanceImportService({ repository: new InMemoryFinanceImportRepository(),
+      foundation: foundationServicesFixture({ timeZone: "Asia/Shanghai" }) });
+    const preview = await service.preview(ledgerCommandContext("workspace-a", "finance-a"), {
+      kind: "financial_fact", fileName: xlsx ? "客户.xlsx" : "客户.csv",
+      mediaType: xlsx ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "text/csv",
+      content: xlsx ? XLSX.write(book, { type: "buffer", bookType: "xlsx" }) : Buffer.from(rows.map(row => row.join(",")).join("\n")), mapping: {}
+    });
+    assert.equal(preview.validRows, 1);
+    assert.equal(preview.rows[0]?.normalized?.currency, "CNY");
+  }
+});
+
+test("auto mapping rejects ambiguous aliases while explicit mapping selects the named column", async () => {
+  const content = Buffer.from("事实类型,金额,amount,币种,业务发生时间\n已收款,12.50,100.00,CNY,2026-08-08");
+  const service = new FinanceImportService({ repository: new InMemoryFinanceImportRepository(), foundation: foundationServicesFixture() });
+  const input = { kind: "financial_fact" as const, fileName: "ambiguous.csv", mediaType: "text/csv", content, mapping: {} };
+  await assert.rejects(service.preview(ledgerCommandContext("workspace-a", "finance-a", "ambiguous"), input), /invalid_finance_import_mapping/);
+  const preview = await service.preview(ledgerCommandContext("workspace-a", "finance-a", "explicit"), { ...input,
+    mapping: { factType: "事实类型", amount: "金额", currency: "币种", businessOccurredAt: "业务发生时间" } });
+  assert.equal(preview.validRows, 1);
+  assert.equal(preview.rows[0]?.normalized?.kind === "financial_fact" && preview.rows[0].normalized.derivedFacts[0]?.amountMinor, 1250);
+});
+
+test("short rows preserve precise missing fields and negative costs have amount errors", async () => {
+  const service = new FinanceImportService({ repository: new InMemoryFinanceImportRepository(), foundation: foundationServicesFixture() });
+  const input = { kind: "acquisition_cost" as const, fileName: "short.csv", mediaType: "text/csv",
+    content: Buffer.from("费用类别,金额,币种,业务发生时间\n运营费用\n运营费用,−1.00,CNY,2026-08-08\n运营费用,1.00,$,2026-08-08"), mapping: {} };
+  const preview = await service.preview(ledgerCommandContext("workspace-a", "finance-a", "short"), input);
+  assert.equal(preview.invalidRows, 3);
+  assert.deepEqual(preview.rows[0]?.errorDetails?.map(error => error.field), ["currency", "amount", "businessOccurredAt"]);
+  assert.ok(preview.rows[1]?.errorDetails?.some(error => error.field === "amount" && error.code === "money_invalid"));
+  assert.ok(preview.rows[2]?.errorDetails?.some(error => error.field === "currency" && error.code === "currency_invalid"));
+  const replay = await service.preview(ledgerCommandContext("workspace-a", "finance-a", "short"), input);
+  assert.deepEqual(replay.rows, preview.rows);
+  assert.equal(replay.replayed, true);
+});
+
+test("automatic versus explicit English mapping retains the same file-row identity", async () => {
+  const service = new FinanceImportService({ repository: new InMemoryFinanceImportRepository(), foundation: foundationServicesFixture() });
+  const input = { kind: "financial_fact" as const, fileName: "old.csv", mediaType: "text/csv",
+    content: Buffer.from("factType,amount,currency,businessOccurredAt\npayment_received,1.00,CNY,2026-08-08"), mapping: {} };
+  const automatic = await service.preview(ledgerCommandContext("workspace-a", "finance-a", "auto-identity"), input);
+  const explicit = await service.preview(ledgerCommandContext("workspace-a", "finance-a", "explicit-identity"), { ...input,
+    mapping: { factType: "factType", amount: "amount", currency: "currency", businessOccurredAt: "businessOccurredAt" } });
+  assert.equal(automatic.rows[0]?.sourceIdentityRoot, explicit.rows[0]?.sourceIdentityRoot);
+  assert.equal(automatic.rows[0]?.rowNumber, 1);
+  assert.deepEqual(automatic.rows[0]?.normalized, explicit.rows[0]?.normalized);
+});
 
 test("preview separates valid rows, rejects verified and formula cells, and derives COGS", async () => {
   const csv = Buffer.from([
@@ -73,6 +141,47 @@ test("preview separates valid rows, rejects verified and formula cells, and deri
     mapping: {},
     tenantTimeZone: "UTC"
   }), /additionalProperties/);
+});
+
+test("preview auto-maps standard template headers when the client omits mapping overrides", async () => {
+  const csv = Buffer.from([
+    "externalId,factType,amount,currency,businessOccurredAt,provenance,revenue,grossProfit,status",
+    "bank-1,payment_received,100.00,CNY,2026-08-08T10:00:00+08:00,portal_export,,,pending",
+    "invoice-1,revenue_recognized,1000.00,CNY,2026-08-08,derived_from_import,1000.00,400.00,pending"
+  ].join("\n"));
+  const service = new FinanceImportService({
+    repository: new InMemoryFinanceImportRepository(),
+    foundation: foundationServicesFixture({
+      timeZone: "Asia/Shanghai", settingsRevision: "settings-1"
+    })
+  });
+
+  const preview = await service.preview(
+    ledgerCommandContext(
+      "workspace-a", "finance-a", "finance-preview-auto-map-0001"
+    ),
+    {
+      kind: "financial_fact",
+      fileName: "facts.csv",
+      mediaType: "text/csv",
+      content: csv,
+      mapping: {}
+    }
+  );
+
+  assert.equal(preview.validRows, 2);
+  assert.equal(preview.invalidRows, 0);
+  assert.equal(preview.rows[0]?.status, "valid");
+  assert.deepEqual(preview.rows[1]?.normalized?.kind === "financial_fact"
+    ? preview.rows[1].normalized.derivedFacts
+    : null, [
+    { factType: "revenue_recognized", amountMinor: 100000 },
+    {
+      factType: "cogs_recognized",
+      amountMinor: 60000,
+      provenance: "derived_from_import"
+    }
+  ]);
 });
 
 test("import preview shares bigint COGS derivation for loss invalid and overflow rows", async () => {

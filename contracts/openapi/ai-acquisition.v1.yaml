@@ -21,7 +21,47 @@ components:
       type: apiKey
       in: header
       name: X-CSRF-Token
+    desktopInstallationId:
+      type: apiKey
+      in: header
+      name: X-Shensi-Desktop-Installation-Id
+      description: Installation identifier; required together with desktopDeviceToken.
+    desktopDeviceToken:
+      type: apiKey
+      in: header
+      name: X-Shensi-Desktop-Device-Token
+      description: Device credential; browser cookies or bearer identity cannot replace it.
   parameters:
+    desktopBuildManifestSha256:
+      name: X-Shensi-Desktop-Build-Manifest-SHA256
+      in: header
+      required: true
+      description: Exactly one physical header with the admitted build digest. Missing, duplicate, comma-joined or mismatched values return 409 before body parsing; migration_locked returns 503.
+      schema: { type: string, pattern: '^[a-f0-9]{64}$' }
+    desktopOutreachIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Exactly one physical header; comma-joined values are rejected. Exact retries replay the stored operation result.
+      schema: { type: string, minLength: 8, maxLength: 200, pattern: '^[^\u0000-\u001f\u007f,]+$' }
+    desktopInstallationId:
+      name: X-Shensi-Desktop-Installation-Id
+      in: header
+      required: true
+      description: Exactly one physical header; duplicates and comma-joined values are rejected.
+      schema: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+    desktopDeviceToken:
+      name: X-Shensi-Desktop-Device-Token
+      in: header
+      required: true
+      description: Exactly one physical device credential header, checked against fresh active membership.
+      schema: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+    desktopOutreachTaskToken:
+      name: X-Shensi-Desktop-Task-Token
+      in: header
+      required: true
+      description: Exactly one task capability header. A reconciliation-only token can report observed receipts but cannot start an action. Never include it in a URL or request body.
+      schema: { $ref: '#/components/schemas/DesktopOpaqueToken' }
     id:
       name: id
       in: path
@@ -51,6 +91,12 @@ components:
       required: true
       description: 租户作用域内的写入幂等键；原文不会持久化。
       schema: { type: string, minLength: 8, maxLength: 200 }
+    desktopTaskToken:
+      name: X-Shensi-Desktop-Task-Token
+      in: header
+      required: true
+      description: Opaque capability scoped to one workspace and desktop crawler job; never place it in a URL or request body.
+      schema: { type: string, minLength: 32, maxLength: 512, pattern: '^[A-Za-z0-9_-]+$' }
     ifMatch:
       name: If-Match
       in: header
@@ -87,6 +133,375 @@ components:
       required: false
       schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
   schemas:
+    EnterpriseQueryRecord:
+      type: object
+      description: Read-only directory projection of an authorized opportunity or public LEI record. Unknown registry fields are not inferred; public records do not confer CRM conversion authority.
+      required: [id, company, business, country, website, contact, contactInfo, description, status]
+      properties:
+        id: { type: string }
+        company: { type: string }
+        business: { type: string }
+        country: { type: string }
+        website: { type: string }
+        contact: { type: string }
+        contactInfo: { type: string }
+        description: { type: string }
+        status: { type: string }
+        sourceLabel: { type: string }
+        sourceUpdatedAt: { type: string }
+        lei: { type: string }
+        registryNumber: { type: string, description: Identifier returned by the source registration authority; not automatically classified as a unified social credit code. }
+        registryAuthority: { type: string, description: Source registration authority identifier. }
+        postalCode: { type: string }
+        leiRegistrationStatus: { type: string, description: LEI registration renewal status, separate from entity or business operating status. }
+        address: { type: string }
+        founded: { type: string }
+        operatingStatus: { type: string }
+        tenantProspectId: { type: string }
+        customerId: { type: string }
+        leadId: { type: string }
+    EnterpriseQueryPage:
+      type: object
+      required: [items, total, page, updatedAt]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/EnterpriseQueryRecord' }
+        total: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 1 }
+        updatedAt: { type: string }
+    DesktopOpaqueToken: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+    DesktopSafeId: { type: string, minLength: 1, maxLength: 255, pattern: '^[^\u0000-\u001f\u007f]+$' }
+    DesktopPositiveVersion: { type: integer, minimum: 1, maximum: 9007199254740991 }
+    DesktopBareHash: { type: string, pattern: '^[a-f0-9]{64}$' }
+    DesktopAccountHandle: { type: string, pattern: '^dyacct_[a-f0-9]{64}$' }
+    DesktopTimestamp:
+      type: string
+      format: date-time
+      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$'
+      description: Canonical UTC timestamp with exactly three fractional digits.
+    DesktopOutreachError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [desktop_client_migration_locked, desktop_client_build_not_admitted, unsupported_media_type, invalid_idempotency_key, unauthorized, workspace_context_invalid, capability_forbidden, desktop_device_authentication_required, invalid_desktop_task_token, unexpected_desktop_task_token, invalid_request, method_not_allowed, desktop_enrollment_invalid, desktop_enrollment_idempotency_conflict, desktop_registration_idempotency_conflict, desktop_enrollment_expired, desktop_enrollment_unavailable, desktop_membership_inactive, desktop_executor_binding_invalid, desktop_executor_binding_unavailable, desktop_executor_handoff_required, desktop_executor_handoff_blocked, desktop_executor_generation_stale, idempotency_key_conflict, social_account_not_found, desktop_installation_unavailable, invalid_desktop_outreach_claim, desktop_outreach_claim_not_authorized, desktop_outreach_claim_idempotency_conflict, invalid_desktop_outreach_completion, desktop_outreach_completion_not_authorized, desktop_outreach_completion_stale, desktop_outreach_start_expired, desktop_action_replay_conflict, invalid_desktop_outreach_reconcile, desktop_outreach_unavailable, desktop_execution_disabled]
+    DesktopMalformedJsonError:
+      type: object
+      additionalProperties: false
+      required: [code, message, details, requestId, retryable]
+      properties:
+        code: { type: string, const: invalid_json }
+        message: { type: string, const: JSON 格式不正确 }
+        details: { type: 'null' }
+        requestId: { type: string, minLength: 1, maxLength: 100 }
+        retryable: { type: boolean, const: false }
+    DesktopPayloadTooLargeError:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message: { type: string, const: 请求内容过大 }
+    DesktopEnrollmentRequest:
+      type: object
+      additionalProperties: false
+      required: [protocolVersion, installationId]
+      properties:
+        protocolVersion: { type: integer, const: 1 }
+        installationId: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+    DesktopEnrollmentResponse:
+      type: object
+      additionalProperties: false
+      required: [enrollmentToken, expiresAt]
+      properties:
+        enrollmentToken: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+        expiresAt: { $ref: '#/components/schemas/DesktopTimestamp' }
+    DesktopRegistrationRequest:
+      type: object
+      additionalProperties: false
+      required: [protocolVersion, installationId, enrollmentToken]
+      properties:
+        protocolVersion: { type: integer, const: 1 }
+        installationId: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+        enrollmentToken: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+    DesktopRegistrationResponse:
+      type: object
+      additionalProperties: false
+      required: [deviceToken, workspaceId, protocolVersion]
+      properties:
+        deviceToken: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+        workspaceId: { $ref: '#/components/schemas/DesktopSafeId' }
+        protocolVersion: { type: integer, const: 1 }
+    DesktopExecutorBindingRequest:
+      type: object
+      additionalProperties: false
+      required: [installationId, accountHandle, loginStateVersion, expectedBindingGeneration, handoff]
+      properties:
+        installationId: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+        accountHandle: { $ref: '#/components/schemas/DesktopAccountHandle' }
+        loginStateVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        expectedBindingGeneration: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        handoff: { type: boolean }
+    DesktopBindingStatus:
+      type: object
+      additionalProperties: false
+      required: [accountId, executorMode, bindingGeneration, leaseExpiresAt, ownedByInstallation, hasUnresolvedActions]
+      properties:
+        accountId: { $ref: '#/components/schemas/DesktopSafeId' }
+        executorMode: { type: [string, 'null'], enum: [desktop, server, null] }
+        bindingGeneration: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        leaseExpiresAt: { type: [string, 'null'], format: date-time }
+        ownedByInstallation: { type: boolean }
+        hasUnresolvedActions: { type: boolean }
+    DesktopExecutorBindingResponse:
+      type: object
+      additionalProperties: false
+      required: [accountId, executorMode, bindingGeneration, leaseExpiresAt, ownedByInstallation]
+      properties:
+        accountId: { $ref: '#/components/schemas/DesktopSafeId' }
+        executorMode: { type: string, const: desktop }
+        bindingGeneration: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        leaseExpiresAt: { $ref: '#/components/schemas/DesktopTimestamp' }
+        ownedByInstallation: { type: boolean, const: true }
+    DesktopOutreachAvailableAccount:
+      type: object
+      additionalProperties: false
+      required: [accountId, accountHandle, loginStateVersion, bindingGeneration]
+      properties:
+        accountId: { $ref: '#/components/schemas/DesktopSafeId' }
+        accountHandle: { $ref: '#/components/schemas/DesktopAccountHandle' }
+        loginStateVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        bindingGeneration: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+    DesktopOutreachClaimRequest:
+      type: object
+      additionalProperties: false
+      required: [protocolVersion, processInstanceId, waitSeconds, availableAccounts]
+      properties:
+        protocolVersion: { type: integer, const: 1 }
+        processInstanceId: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+        waitSeconds: { type: integer, const: 0 }
+        availableAccounts:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          description: accountId values must be unique, including entries with different handle/version fields.
+          items: { $ref: '#/components/schemas/DesktopOutreachAvailableAccount' }
+    DesktopOutreachActionTask:
+      type: object
+      additionalProperties: false
+      required: [actionId, workspaceId, accountId, accountHandle, loginStateVersion, executorBindingGeneration, kind, canonicalTargetPublicUrl, content, approvedContentHash, taskRequestHash, deadlineAt, leaseVersion, leaseExpiresAt, predecessorReceipt]
+      properties:
+        actionId: { $ref: '#/components/schemas/DesktopSafeId' }
+        workspaceId: { $ref: '#/components/schemas/DesktopSafeId' }
+        accountId: { $ref: '#/components/schemas/DesktopSafeId' }
+        accountHandle: { $ref: '#/components/schemas/DesktopAccountHandle' }
+        loginStateVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        executorBindingGeneration: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        kind: { type: string, enum: [comment, direct_message] }
+        canonicalTargetPublicUrl: { type: string, format: uri }
+        content: { type: string }
+        approvedContentHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+        taskRequestHash: { $ref: '#/components/schemas/DesktopBareHash' }
+        deadlineAt: { $ref: '#/components/schemas/DesktopTimestamp' }
+        leaseVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        leaseExpiresAt: { $ref: '#/components/schemas/DesktopTimestamp' }
+        predecessorReceipt: { type: [string, 'null'] }
+    DesktopOutreachClaimResponse:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          description: Explicit human-requested receipt observation; never authorizes started or execute. Durable request is owned by the backend, not a local write journal.
+          required: [kind, task, taskToken, serverTime, replayed]
+          properties:
+            kind: { type: string, const: reconcile }
+            task: { $ref: '#/components/schemas/DesktopOutreachReconciliationTask' }
+            taskToken: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+            serverTime: { $ref: '#/components/schemas/DesktopTimestamp' }
+            replayed: { type: boolean }
+        - type: object
+          additionalProperties: false
+          required: [kind, task, taskToken, serverTime, replayed]
+          properties:
+            kind: { type: string, const: claimed }
+            task: { $ref: '#/components/schemas/DesktopOutreachActionTask' }
+            taskToken: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+            serverTime: { $ref: '#/components/schemas/DesktopTimestamp' }
+            replayed: { type: boolean }
+        - type: object
+          additionalProperties: false
+          required: [kind, serverTime, retryAfterMs, replayed]
+          properties:
+            kind: { type: string, const: empty }
+            serverTime: { $ref: '#/components/schemas/DesktopTimestamp' }
+            retryAfterMs: { type: integer, minimum: 0 }
+            replayed: { type: boolean }
+    DesktopOutreachStartedCommand:
+      type: object
+      additionalProperties: false
+      required: [event, leaseVersion, loginStateVersion, taskRequestHash, occurredAt]
+      properties:
+        event: { type: string, const: started }
+        leaseVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        loginStateVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        taskRequestHash: { $ref: '#/components/schemas/DesktopBareHash' }
+        occurredAt: { $ref: '#/components/schemas/DesktopTimestamp' }
+    DesktopOutreachSucceededReceipt:
+      type: object
+      additionalProperties: false
+      required: [actionId, state, platformReceiptReference, occurredAt, failureCode]
+      properties:
+        actionId: { $ref: '#/components/schemas/DesktopSafeId' }
+        state: { type: string, const: succeeded }
+        platformReceiptReference: { type: string, minLength: 1, maxLength: 255 }
+        occurredAt: { $ref: '#/components/schemas/DesktopTimestamp' }
+        failureCode: { type: 'null' }
+    DesktopOutreachFailedReceipt:
+      type: object
+      additionalProperties: false
+      required: [actionId, state, platformReceiptReference, occurredAt, failureCode]
+      properties:
+        actionId: { $ref: '#/components/schemas/DesktopSafeId' }
+        state: { type: string, const: failed }
+        platformReceiptReference: { type: 'null' }
+        occurredAt: { $ref: '#/components/schemas/DesktopTimestamp' }
+        failureCode:
+          type: string
+          enum: [action_unavailable, action_rejected, deadline_exceeded, douyin_verification_required, douyin_rate_limited, douyin_account_warning, douyin_account_identity_changed, douyin_login_expired, douyin_direct_message_unavailable, douyin_action_control_missing, douyin_action_control_ambiguous, douyin_action_content_mismatch, douyin_action_receipt_ambiguous, douyin_action_timeout, douyin_profile_busy]
+    DesktopOutreachReceiptCommand:
+      type: object
+      additionalProperties: false
+      required: [event, leaseVersion, loginStateVersion, taskRequestHash, reconciliation, receipt]
+      properties:
+        event: { type: string, const: receipt }
+        leaseVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        loginStateVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        taskRequestHash: { $ref: '#/components/schemas/DesktopBareHash' }
+        reconciliation: { type: boolean }
+        receipt:
+          oneOf:
+            - { $ref: '#/components/schemas/DesktopOutreachSucceededReceipt' }
+            - { $ref: '#/components/schemas/DesktopOutreachFailedReceipt' }
+      allOf:
+        - oneOf:
+            - properties:
+                reconciliation: { const: false }
+            - properties:
+                reconciliation: { const: true }
+                receipt:
+                  properties:
+                    failureCode: { enum: [action_unavailable, douyin_action_receipt_ambiguous, null] }
+    DesktopOutreachCompleteRequest:
+      type: object
+      additionalProperties: false
+      required: [protocolVersion, processInstanceId, bindingGeneration, command]
+      properties:
+        protocolVersion: { type: integer, const: 1 }
+        processInstanceId: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+        bindingGeneration: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        command:
+          oneOf:
+            - { $ref: '#/components/schemas/DesktopOutreachStartedCommand' }
+            - { $ref: '#/components/schemas/DesktopOutreachReceiptCommand' }
+      description: command carries the frozen lease, login-state version and task-request hash; receipt.actionId must equal the path actionId. Task capability and idempotency are headers only.
+    DesktopOutreachCompletionResponse:
+      type: object
+      additionalProperties: false
+      required: [actionId, state, replayed, accountPaused, occurredAt]
+      properties:
+        actionId: { $ref: '#/components/schemas/DesktopSafeId' }
+        state: { type: string, enum: [executing, succeeded, failed, queued, risk_paused, reconciliation_required] }
+        replayed: { type: boolean }
+        accountPaused: { type: boolean }
+        occurredAt: { $ref: '#/components/schemas/DesktopTimestamp' }
+    DesktopOutreachReconcileRequest:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [protocolVersion, processInstanceId, accountId, accountHandle, loginStateVersion, bindingGeneration, originalLeaseVersion, taskRequestHash, journalPhase]
+          properties: &desktopRecoveryProperties
+            protocolVersion: { type: integer, const: 1 }
+            processInstanceId: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+            accountId: { $ref: '#/components/schemas/DesktopSafeId' }
+            accountHandle: { $ref: '#/components/schemas/DesktopAccountHandle' }
+            loginStateVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+            bindingGeneration: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+            originalLeaseVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+            taskRequestHash: { $ref: '#/components/schemas/DesktopBareHash' }
+            journalPhase: { type: string, enum: [claimed, central_started] }
+        - type: object
+          additionalProperties: false
+          required: [protocolVersion, processInstanceId, accountId, accountHandle, loginStateVersion, bindingGeneration, originalLeaseVersion, taskRequestHash, journalPhase, receiptHash]
+          properties:
+            <<: *desktopRecoveryProperties
+            journalPhase: { type: string, const: sidecar_completed }
+            receiptHash: { $ref: '#/components/schemas/DesktopBareHash' }
+    DesktopOutreachReconciliationTask:
+      type: object
+      additionalProperties: false
+      required: [actionId, workspaceId, accountId, accountHandle, loginStateVersion, executorBindingGeneration, kind, canonicalTargetPublicUrl, content, approvedContentHash, deadlineAt, taskRequestHash, leaseVersion, originalLeaseVersion, reconciliationGeneration, capability]
+      properties:
+        actionId: { $ref: '#/components/schemas/DesktopSafeId' }
+        workspaceId: { $ref: '#/components/schemas/DesktopSafeId' }
+        accountId: { $ref: '#/components/schemas/DesktopSafeId' }
+        accountHandle: { $ref: '#/components/schemas/DesktopAccountHandle' }
+        loginStateVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        observationLoginStateVersion:
+          allOf: [{ $ref: '#/components/schemas/DesktopPositiveVersion' }]
+          description: Current same-account login authorized for human-requested read-only observation. The original loginStateVersion and taskRequestHash remain unchanged. Never authorizes a write.
+        executorBindingGeneration: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        kind: { type: string, enum: [comment, direct_message] }
+        canonicalTargetPublicUrl: { type: string, format: uri }
+        content: { type: string }
+        approvedContentHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+        deadlineAt: { $ref: '#/components/schemas/DesktopTimestamp' }
+        taskRequestHash: { $ref: '#/components/schemas/DesktopBareHash' }
+        leaseVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        originalLeaseVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        reconciliationGeneration: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+        capability: { type: string, const: reconcile_only }
+    DesktopOutreachReconcileResponse:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, actionId, taskRequestHash, originalLeaseVersion, replayed]
+          properties:
+            kind: { type: string, const: released }
+            actionId: { type: string, minLength: 1, maxLength: 255 }
+            taskRequestHash: { $ref: '#/components/schemas/DesktopBareHash' }
+            originalLeaseVersion: { $ref: '#/components/schemas/DesktopPositiveVersion' }
+            replayed: { type: boolean }
+        - type: object
+          additionalProperties: false
+          required: [kind, retryAfterMs, replayed]
+          properties:
+            kind: { type: string, const: waiting }
+            retryAfterMs: { type: integer, minimum: 0 }
+            replayed: { type: boolean }
+        - type: object
+          additionalProperties: false
+          required: [kind, status, receiptHash, replayed]
+          properties:
+            kind: { type: string, const: terminal }
+            status: { type: string, enum: [executing, succeeded, failed, queued, risk_paused, reconciliation_required] }
+            receiptHash: { $ref: '#/components/schemas/DesktopBareHash' }
+            replayed: { type: boolean }
+        - type: object
+          additionalProperties: false
+          required: [kind, replayed]
+          properties:
+            kind: { type: string, const: not_authorized }
+            replayed: { type: boolean }
+        - type: object
+          additionalProperties: false
+          required: [kind, replayed, taskToken, task]
+          properties:
+            kind: { type: string, const: reconcile }
+            replayed: { type: boolean }
+            taskToken: { $ref: '#/components/schemas/DesktopOpaqueToken' }
+            task: { $ref: '#/components/schemas/DesktopOutreachReconciliationTask' }
     AsyncOperation: { $ref: ../json-schema/async-operation.v1.schema.json }
     ApiError:
       oneOf:
@@ -194,6 +609,81 @@ components:
     AcquisitionRun: { $ref: ../json-schema/acquisition-run.v1.schema.json }
     AcquisitionOperationShard: { $ref: ../json-schema/acquisition-operation-shard.v1.schema.json }
     AcquisitionRunPresentation: { $ref: ../json-schema/acquisition-run-presentation.v1.schema.json }
+    CfoAcquisitionWorkflow:
+      type: object
+      additionalProperties: false
+      required: [workflowId, instruction, stage, summary, planId, planEtag, planReview, runId, runStatus, candidates, createdAt, updatedAt]
+      properties:
+        workflowId: { type: string, minLength: 1, maxLength: 100 }
+        instruction: { type: string, minLength: 1, maxLength: 20000 }
+        stage: { type: string, enum: [preparing_plan, awaiting_plan_approval, running_acquisition, awaiting_candidate_review, completed, completed_empty, cancelled, failed] }
+        summary: { type: string, minLength: 1, maxLength: 2000 }
+        planId: { type: [string, 'null'], maxLength: 100 }
+        planEtag: { type: [string, 'null'], maxLength: 200 }
+        planReview:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [targetPlatform, objective, providers, operations, budget]
+              properties:
+                targetPlatform: { type: string }
+                objective: { type: string }
+                providers:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [providerId, status]
+                    properties:
+                      providerId: { type: string }
+                      status: { type: string }
+                operations:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [kind, query, allocatedBudget]
+                    properties:
+                      kind: { type: string }
+                      query: { type: string }
+                      allocatedBudget:
+                        type: object
+                        additionalProperties: false
+                        required: [requests, results, amountMinor, durationSeconds]
+                        properties:
+                          requests: { type: integer, minimum: 0 }
+                          results: { type: integer, minimum: 0 }
+                          amountMinor: { type: integer, minimum: 0 }
+                          durationSeconds: { type: integer, minimum: 0 }
+                budget:
+                  type: object
+                  additionalProperties: false
+                  required: [currency, requests, results, amountMinor, durationSeconds]
+                  properties:
+                    currency: { type: string }
+                    requests: { type: integer, minimum: 0 }
+                    results: { type: integer, minimum: 0 }
+                    amountMinor: { type: integer, minimum: 0 }
+                    durationSeconds: { type: integer, minimum: 0 }
+            - { type: 'null' }
+        runId: { type: [string, 'null'], maxLength: 100 }
+        runStatus: { type: [string, 'null'], maxLength: 100 }
+        candidates:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [candidateId, displayName, decisionVersion, discoveredEventId, decision, customerId, todoId]
+            properties:
+              candidateId: { type: string }
+              displayName: { type: string }
+              decisionVersion: { type: string }
+              discoveredEventId: { type: string }
+              decision: { type: string, enum: [pending, approved, rejected, do_not_contact] }
+              customerId: { type: [string, 'null'] }
+              todoId: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     OrganizationCandidate: { $ref: ../json-schema/organization-candidate.v1.schema.json }
     IndividualDemandSignal: { $ref: ../json-schema/individual-demand-signal.v1.schema.json }
     Candidate:
@@ -241,7 +731,7 @@ components:
             enabled: { type: boolean }
             localTime: { type: string, pattern: '^(?:[01]\d|2[0-3]):[0-5]\d$' }
             timeZone: { type: string, minLength: 1, maxLength: 100 }
-        dailyCandidateLimit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        dailyCandidateLimit: { type: integer, minimum: 1, maximum: 200, default: 50, description: "Legacy approval-budget compatibility field; does not limit candidate discovery." }
         collectCreators: { type: boolean }
         collectDemandComments: { type: boolean }
         limits:
@@ -251,6 +741,7 @@ components:
           properties:
             maxVideos: { type: integer, minimum: 1, maximum: 200 }
             maxCommentsPerVideo: { type: integer, minimum: 1, maximum: 200 }
+            maxComments: { type: integer, minimum: 1, maximum: 10000 }
             maxPagesPerVideo: { type: integer, minimum: 1, maximum: 20 }
             maxDurationSeconds: { type: integer, minimum: 60, maximum: 14400 }
     DouyinAutomationPolicyResource:
@@ -285,7 +776,7 @@ components:
             enabled: { type: boolean }
             localTime: { type: string, pattern: '^(?:[01]\d|2[0-3]):[0-5]\d$' }
             timeZone: { type: string, minLength: 1, maxLength: 100 }
-        dailyCandidateLimit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        dailyCandidateLimit: { type: integer, minimum: 1, maximum: 200, default: 50, description: "Legacy approval-budget compatibility field; does not limit candidate discovery." }
         collectCreators: { type: boolean }
         collectDemandComments: { type: boolean }
         limits:
@@ -295,6 +786,7 @@ components:
           properties:
             maxVideos: { type: integer, minimum: 1, maximum: 200 }
             maxCommentsPerVideo: { type: integer, minimum: 1, maximum: 200 }
+            maxComments: { type: integer, minimum: 1, maximum: 10000 }
             maxPagesPerVideo: { type: integer, minimum: 1, maximum: 20 }
             maxDurationSeconds: { type: integer, minimum: 60, maximum: 14400 }
         createdBy: { type: [string, 'null'] }
@@ -331,7 +823,7 @@ components:
             enabled: { type: boolean }
             localTime: { type: string, pattern: '^(?:[01]\d|2[0-3]):[0-5]\d$' }
             timeZone: { type: string, minLength: 1, maxLength: 100 }
-        dailyCandidateLimit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        dailyCandidateLimit: { type: integer, minimum: 1, maximum: 200, default: 50, description: "Legacy approval-budget compatibility field; does not limit candidate discovery." }
         collectCreators: { type: boolean }
         collectDemandComments: { type: boolean }
         limits:
@@ -341,6 +833,7 @@ components:
           properties:
             maxVideos: { type: integer, minimum: 1, maximum: 200 }
             maxCommentsPerVideo: { type: integer, minimum: 1, maximum: 200 }
+            maxComments: { type: integer, minimum: 1, maximum: 10000 }
             maxPagesPerVideo: { type: integer, minimum: 1, maximum: 20 }
             maxDurationSeconds: { type: integer, minimum: 60, maximum: 14400 }
         createdBy: { type: string }
@@ -393,7 +886,7 @@ components:
         cursorPersisted: { type: boolean }
         recordCount: { type: integer, minimum: 0 }
         candidateBudgetUsed: { type: integer, minimum: 0 }
-        candidateBudgetLimit: { type: integer, minimum: 1, maximum: 200 }
+        candidateBudgetLimit: { type: integer, nullable: true, minimum: 1, maximum: 200, description: "Null means unlimited candidate discovery; numbers are historical limits." }
         candidateProjectionState: { type: string, enum: [pending, ready, failed] }
         lastErrorCode: { type: [string, 'null'], maxLength: 100 }
         createdAt: { type: string, format: date-time }
@@ -408,6 +901,167 @@ components:
             currentKeyword: { type: [string, 'null'], minLength: 1, maxLength: 100 }
             browserMode: { type: string, enum: [visible, headless] }
             sequence: { type: integer, minimum: 0 }
+    DesktopDouyinLoginCompletionInput:
+      type: object
+      additionalProperties: false
+      required: [accountHandle, displayName, loginStateVersion]
+      properties:
+        accountHandle: { type: string, pattern: '^dyacct_[0-9a-f]{64}$' }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        loginStateVersion: { type: integer, minimum: 1, maximum: 9007199254740991 }
+    DesktopDouyinAccountResource:
+      type: object
+      additionalProperties: false
+      required: [id, workspaceId, platform, displayName, state, loginStateVersion, revision, etag, lastValidatedAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 255 }
+        workspaceId: { type: string, minLength: 1, maxLength: 255 }
+        platform: { type: string, enum: [douyin] }
+        displayName: { type: [string, 'null'], maxLength: 100 }
+        state: { type: string, enum: [awaiting_scan, active, login_expired, risk_paused, disconnected] }
+        loginStateVersion: { type: [integer, 'null'], minimum: 1, maximum: 9007199254740991 }
+        revision: { type: integer, minimum: 1, maximum: 9007199254740991 }
+        etag: { type: string, minLength: 1, maxLength: 255 }
+        lastValidatedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    DesktopDouyinRunNowInput:
+      type: object
+      additionalProperties: false
+      properties:
+        reason: { type: string, maxLength: 2000 }
+    DesktopDouyinCollectionTask:
+      type: object
+      additionalProperties: false
+      required: [taskId, loginStateVersion, keywords, maxVideos, maxCommentsPerVideo, maxPagesPerVideo, collectCreators, collectDemandComments, deadlineAt]
+      properties:
+        taskId: { type: string, minLength: 1, maxLength: 255 }
+        loginStateVersion: { type: integer, minimum: 1, maximum: 9007199254740991 }
+        keywords: { type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 } }
+        maxVideos: { type: integer, minimum: 1, maximum: 200 }
+        maxCommentsPerVideo: { type: integer, minimum: 1, maximum: 200 }
+        maxComments: { type: integer, minimum: 1, maximum: 10000 }
+        maxPagesPerVideo: { type: integer, minimum: 1, maximum: 20 }
+        collectCreators: { type: boolean }
+        collectDemandComments: { type: boolean }
+        deadlineAt: { type: string, format: date-time }
+    DesktopDouyinRunPreparation:
+      type: object
+      additionalProperties: false
+      required: [run, taskToken, task]
+      properties:
+        run: { $ref: '#/components/schemas/DouyinAutomationRunIntent' }
+        taskToken:
+          type: string
+          minLength: 32
+          maxLength: 512
+          pattern: '^[A-Za-z0-9_-]+$'
+          description: Opaque one-job capability. Keep only in memory and send only in X-Shensi-Desktop-Task-Token.
+        task: { $ref: '#/components/schemas/DesktopDouyinCollectionTask' }
+    DesktopCrawlerLeaseInput:
+      type: object
+      additionalProperties: false
+      required: [leaseVersion]
+      properties:
+        leaseVersion: { type: integer, minimum: 0, maximum: 9007199254740991 }
+    DesktopCrawlerActivity:
+      type: object
+      additionalProperties: false
+      required: [phase, currentKeyword, browserMode, sequence]
+      properties:
+        phase: { type: string, enum: [queued, starting_browser, opening_douyin, searching, collecting_comments, finalizing, completed] }
+        currentKeyword: { type: [string, 'null'], minLength: 1, maxLength: 100 }
+        browserMode: { type: string, enum: [visible, headless] }
+        sequence: { type: integer, minimum: 0, maximum: 9007199254740991 }
+    DesktopDouyinNormalizedRecord:
+      type: object
+      additionalProperties: false
+      required: [recordId, kind, actorKind, canonicalUrl, publicDisplayName, publicProfileUrl, textExcerpt, sourceKeyword, observedAt, contentHash]
+      properties:
+        recordId: { type: string, minLength: 1, maxLength: 255 }
+        kind: { type: string, enum: [video, creator, comment] }
+        actorKind: { type: [string, 'null'], enum: [creator, commenter, null] }
+        canonicalUrl: { type: string, format: uri, maxLength: 2000, pattern: '^https://www\.douyin\.com/' }
+        publicDisplayName: { type: string, maxLength: 200 }
+        publicProfileUrl: { type: [string, 'null'], format: uri, maxLength: 2000, pattern: '^https://www\.douyin\.com/user/[A-Za-z0-9_-]{1,300}$' }
+        textExcerpt: { type: string, maxLength: 500 }
+        sourceKeyword: { type: string, maxLength: 100 }
+        observedAt: { type: string, format: date-time }
+        contentHash: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }
+      allOf:
+        - if: { properties: { kind: { const: video } }, required: [kind] }
+          then: { properties: { actorKind: { type: 'null' } } }
+        - if: { properties: { kind: { const: creator } }, required: [kind] }
+          then: { properties: { actorKind: { const: creator }, publicProfileUrl: { type: string } } }
+        - if: { properties: { kind: { const: comment } }, required: [kind] }
+          then: { properties: { actorKind: { const: commenter }, publicProfileUrl: { type: string } } }
+    DesktopCrawlerTerminal:
+      type: object
+      additionalProperties: false
+      required: [state, failureCode, activity]
+      properties:
+        state: { type: string, enum: [succeeded, partial] }
+        failureCode: { type: [string, 'null'], enum: [crawl_interrupted_after_partial_results, null] }
+        activity:
+          allOf:
+            - { $ref: '#/components/schemas/DesktopCrawlerActivity' }
+            - type: object
+              properties:
+                phase: { const: completed }
+                currentKeyword: { type: 'null' }
+                browserMode: { const: visible }
+      oneOf:
+        - properties: { state: { const: succeeded }, failureCode: { type: 'null' } }
+        - properties: { state: { const: partial }, failureCode: { const: crawl_interrupted_after_partial_results } }
+    DesktopCrawlerPageInput:
+      type: object
+      additionalProperties: false
+      required: [leaseVersion, cursor, nextCursor, done, records]
+      properties:
+        leaseVersion: { type: integer, minimum: 1, maximum: 9007199254740991 }
+        cursor: { type: [string, 'null'], maxLength: 512 }
+        nextCursor: { type: [string, 'null'], maxLength: 512 }
+        done: { type: boolean }
+        records: { type: array, maxItems: 200, items: { $ref: '#/components/schemas/DesktopDouyinNormalizedRecord' } }
+        terminal: { $ref: '#/components/schemas/DesktopCrawlerTerminal' }
+      oneOf:
+        - properties: { done: { const: false } }
+          not: { required: [terminal] }
+        - required: [terminal]
+          properties: { done: { const: true } }
+    DesktopCrawlerJobResource:
+      type: object
+      additionalProperties: false
+      required: [jobId, runId, state, leaseVersion, leaseExpiresAt, cursor, recordCount, ingestionState, cloudDurable, acknowledgedAt, activity]
+      properties:
+        jobId: { type: string, minLength: 1, maxLength: 255 }
+        runId: { type: string, minLength: 1, maxLength: 255 }
+        state: { type: string, enum: [scheduled, queued, running, succeeded, partial, paused, cancelled, failed] }
+        leaseVersion: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        leaseExpiresAt: { type: [string, 'null'], format: date-time }
+        cursor: { type: [string, 'null'], maxLength: 512 }
+        recordCount: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        ingestionState: { type: [string, 'null'], enum: [pending, running, succeeded, failed, null] }
+        cloudDurable: { type: boolean }
+        acknowledgedAt: { type: [string, 'null'], format: date-time }
+        activity: { $ref: '#/components/schemas/DesktopCrawlerActivity' }
+    DesktopCrawlerPageResource:
+      type: object
+      additionalProperties: false
+      required: [jobId, runId, state, leaseVersion, leaseExpiresAt, cursor, recordCount, ingestionState, cloudDurable, acknowledgedAt, activity, replayed]
+      properties:
+        jobId: { type: string, minLength: 1, maxLength: 255 }
+        runId: { type: string, minLength: 1, maxLength: 255 }
+        state: { type: string, enum: [scheduled, queued, running, succeeded, partial, paused, cancelled, failed] }
+        leaseVersion: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        leaseExpiresAt: { type: [string, 'null'], format: date-time }
+        cursor: { type: [string, 'null'], maxLength: 512 }
+        recordCount: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        ingestionState: { type: [string, 'null'], enum: [pending, running, succeeded, failed, null] }
+        cloudDurable: { type: boolean }
+        acknowledgedAt: { type: [string, 'null'], format: date-time }
+        activity: { $ref: '#/components/schemas/DesktopCrawlerActivity' }
+        replayed: { type: boolean }
     AcquisitionRunCandidate:
       type: object
       additionalProperties: false
@@ -416,6 +1070,8 @@ components:
         id: { type: string }
         status: { type: string }
         displayName: { type: string, maxLength: 200 }
+        avatarUrl: { type: string, format: uri, maxLength: 2000, pattern: '^[Hh][Tt][Tt][Pp][Ss]://', description: Optional display-only public avatar hint. It may be absent and never changes candidate, sender, approval, or action authority. }
+        coverUrl: { type: string, format: uri, maxLength: 2000, pattern: '^[Hh][Tt][Tt][Pp][Ss]://', description: Optional display-only public content-cover hint. It may be absent and never changes candidate, sender, approval, or action authority. }
         evidence:
           type: object
           additionalProperties: false
@@ -504,14 +1160,15 @@ components:
         policyVersionId: { type: string, minLength: 1, maxLength: 255 }
         localDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
         kind: { type: string, enum: [comment, direct_message] }
+        executionTarget: { type: string, enum: [desktop, server], description: Persisted execution authority. Omitted only by historical server responses. }
         sequence: { type: integer, enum: [1, 2] }
-        status: { type: string, enum: [queued, blocked_by_predecessor, executing, succeeded, failed, risk_paused] }
+        status: { type: string, enum: [queued, blocked_by_predecessor, claimed, executing, succeeded, failed, risk_paused, reconciliation_required] }
         predecessorActionId: { type: [string, 'null'], maxLength: 255 }
         targetPublicUrl: { type: string, format: uri, maxLength: 2000 }
         content: { type: string, minLength: 1, maxLength: 800 }
         contentHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
         approvalHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
-        authorizationVersion: { type: integer, enum: [2], description: Version-2 direct-message authorization marker; omitted on historical actions. }
+        authorizationVersion: { type: integer, enum: [2, 3], description: v3 independently confirmed direct message; v2 retains comment-linked authority; absent on historical actions. }
         approvedBy: { type: string, minLength: 1, maxLength: 255 }
         approvedAt: { type: string, format: date-time }
         directMessageDailyLimit: { type: integer, minimum: 1, maximum: 100 }
@@ -526,9 +1183,41 @@ components:
     AcquisitionOutreachActionList:
       type: object
       additionalProperties: false
-      required: [items]
+      required: [items, executionGate]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/AcquisitionOutreachAction' } }
+        executionGate: { $ref: '#/components/schemas/AcquisitionOutreachExecutionGate' }
+    AcquisitionOutreachUncertainAction:
+      type: object
+      additionalProperties: false
+      required: [actionId, failureCode]
+      properties:
+        actionId: { type: string, minLength: 1, maxLength: 255 }
+        failureCode: { type: string, enum: [action_unavailable, douyin_action_timeout, douyin_action_receipt_ambiguous] }
+    AcquisitionOutreachExecutionGate:
+      type: object
+      additionalProperties: false
+      required: [accountId, accountLoginStateVersion, riskPaused, pendingActionIds, unresolvedActions]
+      properties:
+        accountId: { type: string, minLength: 1, maxLength: 255 }
+        accountLoginStateVersion: { type: integer, minimum: 1 }
+        riskPaused: { type: boolean }
+        pendingActionIds: { type: array, maxItems: 200, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 255 } }
+        unresolvedActions: { type: array, maxItems: 200, items: { $ref: '#/components/schemas/AcquisitionOutreachUncertainAction' } }
+    AcquisitionOutreachAccountRecovery:
+      type: object
+      additionalProperties: false
+      required: [accountId, accountLoginStateVersion, riskPaused, pendingActionIds, unresolvedActions, enabledActionIds, acknowledgedUncertainActionIds, recoveredBy, recoveredAt]
+      properties:
+        accountId: { type: string, minLength: 1, maxLength: 255 }
+        accountLoginStateVersion: { type: integer, minimum: 1 }
+        riskPaused: { type: boolean }
+        pendingActionIds: { type: array, maxItems: 200, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 255 } }
+        unresolvedActions: { type: array, maxItems: 200, items: { $ref: '#/components/schemas/AcquisitionOutreachUncertainAction' } }
+        enabledActionIds: { type: array, maxItems: 200, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 255 } }
+        acknowledgedUncertainActionIds: { type: array, maxItems: 200, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 255 } }
+        recoveredBy: { type: string, minLength: 1, maxLength: 255 }
+        recoveredAt: { type: string, format: date-time }
     DouyinAutomationFailureCode:
       type: string
       enum: [unauthorized, workspace_required, workspace_context_invalid, invalid_request, invalid_automation_scope, invalid_automation_policy, invalid_automation_keywords, invalid_automation_schedule, invalid_automation_local_time, invalid_automation_time_zone, invalid_automation_collection, automation_collection_required, invalid_automation_limits, invalid_daily_candidate_limit, invalid_run_now_input, invalid_idempotency_key, invalid_if_match, if_match_required, automation_plan_not_found, automation_plan_snapshot_corrupt, active_douyin_account_required, active_douyin_account_workspace_mismatch, automation_policy_required, approved_automation_plan_required, automation_policy_plan_version_mismatch, automation_account_login_state_changed, automation_idempotency_conflict, automation_precondition_failed, automation_policy_binding_conflict, automation_run_binding_conflict, automation_policy_binding_corrupt, automation_idempotency_record_corrupt, automation_internal_error]
@@ -988,6 +1677,13 @@ x-acquisition-standard-responses: &acquisitionStandardResponses
   '404': *apiError
   '409': *apiError
   '500': *apiError
+x-desktop-success-headers: &desktopSuccessHeaders
+  X-Request-Id: { required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+  Cache-Control: { required: true, schema: { type: string, enum: [no-store] } }
+x-desktop-api-error: &desktopApiError
+  description: Desktop synchronization request failed
+  headers: *desktopSuccessHeaders
+  content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
 x-acquisition-resource-schema: &acquisitionResourceSchema
   { type: object, additionalProperties: true }
 x-discovery-provider-schema: &discoveryProviderSchema
@@ -1008,9 +1704,278 @@ x-import-binary-schema: &importBinarySchema
   { type: string, format: binary, maxLength: 5242880 }
 x-social-account-schema: &socialAccountSchema
   { type: object, additionalProperties: false, required: [id, workspaceId, platform, displayName, state, loginStateVersion, revision, etag, lastValidatedAt, createdAt, updatedAt], properties: { id: { type: string }, workspaceId: { type: string }, platform: { type: string, enum: [douyin] }, displayName: { type: string, nullable: true }, state: { type: string, enum: [awaiting_scan, active, login_expired, risk_paused, disconnected] }, loginStateVersion: { type: integer, nullable: true }, revision: { type: integer, minimum: 1 }, etag: { type: string }, lastValidatedAt: { type: string, nullable: true, format: date-time }, createdAt: { type: string, format: date-time }, updatedAt: { type: string, format: date-time } } }
+x-social-login-page-schema: &socialLoginPageSchema
+  { type: object, additionalProperties: false, required: [imageDataUrl, width, height], properties: { imageDataUrl: { type: string, pattern: '^data:image/' }, width: { type: integer, minimum: 1 }, height: { type: integer, minimum: 1 } } }
+x-social-login-diagnostic-schema: &socialLoginDiagnosticSchema
+  { type: object, additionalProperties: false, required: [code, message, recoverable, occurredAt], properties: { code: { type: string, minLength: 1, maxLength: 100 }, message: { type: string, minLength: 1, maxLength: 500 }, recoverable: { type: boolean }, occurredAt: { type: string, format: date-time } } }
 x-social-login-session-schema: &socialLoginSessionSchema
-  { type: object, additionalProperties: false, required: [id, platform, state, qrImageDataUrl, expiresAt, account], properties: { id: { type: string }, platform: { type: string, enum: [douyin] }, state: { type: string, enum: [awaiting_scan, active, login_expired] }, qrImageDataUrl: { type: string, nullable: true, pattern: '^data:image/' }, expiresAt: { type: string, format: date-time }, account: { oneOf: [*socialAccountSchema, { type: 'null' }] } } }
+  { type: object, additionalProperties: false, required: [id, platform, state, interactionSurface, runtimeState, authState, taskState, diagnostic, screenshotAvailable, qrAvailable, qrImageDataUrl, qrStatus, loginPage, failureCode, expiresAt, account], properties: { id: { type: string }, platform: { type: string, enum: [douyin] }, state: { type: string, enum: [awaiting_scan, active, login_expired] }, interactionSurface: { type: string, enum: [external_window, remote_canvas] }, runtimeState: { type: string, enum: [stopped, starting, running, crashed] }, authState: { type: string, enum: [unknown, logged_out, waiting_for_user, verification_required, authenticated, expired] }, taskState: { type: string, enum: [idle, preparing, running, cancelling, completed, failed] }, diagnostic: { oneOf: [*socialLoginDiagnosticSchema, { type: 'null' }] }, screenshotAvailable: { type: boolean }, qrAvailable: { type: boolean }, qrImageDataUrl: { type: string, nullable: true, pattern: '^data:image/' }, qrStatus: { type: string, nullable: true, enum: [opening, ready, expired, network_error, verification_required, null] }, loginPage: { oneOf: [*socialLoginPageSchema, { type: 'null' }] }, failureCode: { type: string, nullable: true, enum: [douyin_login_ui_unsupported, douyin_verification_required, douyin_login_page_unavailable, douyin_login_page_not_allowed, douyin_browser_unavailable, douyin_browser_command_timeout, douyin_login_open_failed, null] }, expiresAt: { type: string, format: date-time }, account: { oneOf: [*socialAccountSchema, { type: 'null' }] } } }
+x-social-live-login-session-schema: &socialLiveLoginSessionSchema
+  { type: object, additionalProperties: false, required: [socketPath, expiresAt], properties: { socketPath: { type: string, pattern: '^/douyin-live/[A-Za-z0-9_-]{43,128}$' }, expiresAt: { type: string, format: date-time } } }
 paths:
+  /api/v1/acquisition/desktop-installations/enrollments:
+    post:
+      operationId: createAcquisitionDesktopEnrollment
+      tags: [AI 获客智能体]
+      summary: 创建桌面设备注册凭据
+      description: Requires active workspace membership and acquisition.outreach.approve. The enrollment is bound to the authenticated workspace/user/team and installation. This operation remains available when desktop action execution is disabled. Exact retries retain the original token and expiry and return 201.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/desktopBuildManifestSha256' }
+        - { $ref: '#/components/parameters/desktopOutreachIdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DesktopEnrollmentRequest' }
+      responses:
+        '201':
+          description: Enrollment created or replayed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopEnrollmentResponse' }
+        '400': &desktopInvalidRequest
+          description: Invalid JSON body or physical idempotency/task header.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/DesktopOutreachError' }
+                  - { $ref: '#/components/schemas/DesktopMalformedJsonError' }
+        '413': &desktopPayloadTooLarge
+          description: JSON body exceeds the configured server parser limit. Admission is checked before body parsing.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopPayloadTooLargeError' }
+        '401': &desktopUserUnauthorized
+          description: User session or bearer authentication is missing or invalid.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/DesktopOutreachError' }
+                  - { $ref: '#/components/schemas/ApiError' }
+        '403': &desktopUserForbidden
+          description: Workspace membership, capability or cookie-session CSRF check failed.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/DesktopOutreachError' }
+                  - { $ref: '#/components/schemas/ApiError' }
+        '405': &desktopMethodNotAllowed
+          description: The operation accepts POST only.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopOutreachError' }
+        '409': &desktopConflict
+          description: Build digest is not admitted, idempotency conflicts, or action/binding authority is stale. Admission runs before JSON parsing and authentication.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopOutreachError' }
+        '415': &desktopUnsupportedMedia
+          description: Content-Type must be application/json.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopOutreachError' }
+        '503': &desktopUnavailable
+          description: Migration lock, disabled desktop execution (action routes only), or unavailable service. A migration lock is checked before JSON parsing and authentication.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopOutreachError' }
+  /api/v1/acquisition/desktop-installations/register:
+    post:
+      operationId: registerAcquisitionDesktopInstallation
+      tags: [AI 获客智能体]
+      summary: 兑换桌面设备凭据
+      description: Consumes the workspace-bound enrollment token. Browser authentication is not a registration credential; no workspace or user can be supplied in the body. Available when desktop action execution is disabled. First registration returns 201 and an exact replay returns 200 with the same device credential.
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/desktopBuildManifestSha256' }
+        - { $ref: '#/components/parameters/desktopOutreachIdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DesktopRegistrationRequest' }
+      responses:
+        '201': &desktopRegistered
+          description: Installation registered; workspace is determined by the enrollment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopRegistrationResponse' }
+        '200': *desktopRegistered
+        '400': *desktopInvalidRequest
+        '413': *desktopPayloadTooLarge
+        '405': *desktopMethodNotAllowed
+        '409': *desktopConflict
+        '410': &desktopExpired
+          description: Enrollment or action start lease expired.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopOutreachError' }
+        '415': *desktopUnsupportedMedia
+        '503': *desktopUnavailable
+  /api/v1/acquisition/social-accounts/{accountId}/desktop-binding:
+    get:
+      operationId: getAcquisitionDesktopBindingStatus
+      tags: [AI 获客智能体]
+      summary: 读取当前账号的桌面绑定版本与交接状态
+      description: Authenticated workspace-scoped read for an active installation registered to this user and team. Returns only relative ownership, exact generation, lease and unresolved-action state, never device hashes or account handles. No lease renewal or binding mutation occurs. The subsequent binding mutation revalidates the generation and in-flight actions transactionally.
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - { name: accountId, in: path, required: true, schema: { $ref: '#/components/schemas/DesktopSafeId' } }
+        - { name: installationId, in: query, required: true, schema: { $ref: '#/components/schemas/DesktopOpaqueToken' } }
+      responses:
+        '200':
+          description: Non-cacheable read-only account binding snapshot.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopBindingStatus' }
+        '400': *desktopInvalidRequest
+        '401': *desktopUserUnauthorized
+        '403': *desktopUserForbidden
+        '404':
+          description: Account or active installation is not available to this principal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopOutreachError' }
+        '405': *desktopMethodNotAllowed
+        '503': *desktopUnavailable
+    post:
+      operationId: bindAcquisitionDesktopExecutor
+      tags: [AI 获客智能体]
+      summary: 绑定社交账号的桌面执行设备
+      description: Requires active workspace membership and acquisition.outreach.approve. Binding uses the exact account handle/login version and expected generation; a handoff requires the explicit handoff flag and no conflicting in-flight action. Available when desktop action execution is disabled. Returns only the public binding projection.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters:
+        - { name: accountId, in: path, required: true, schema: { $ref: '#/components/schemas/DesktopSafeId' } }
+        - { $ref: '#/components/parameters/desktopBuildManifestSha256' }
+        - { $ref: '#/components/parameters/desktopOutreachIdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DesktopExecutorBindingRequest' }
+      responses:
+        '200':
+          description: Bound or exact replay of binding.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopExecutorBindingResponse' }
+        '400': *desktopInvalidRequest
+        '413': *desktopPayloadTooLarge
+        '401': *desktopUserUnauthorized
+        '403': *desktopUserForbidden
+        '404': &desktopNotFound
+          description: Account or action is absent or not authorized for this principal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopOutreachError' }
+        '405': *desktopMethodNotAllowed
+        '409': *desktopConflict
+        '415': *desktopUnsupportedMedia
+        '503': *desktopUnavailable
+  /api/v1/acquisition/desktop-outreach-actions/claim:
+    post:
+      operationId: claimAcquisitionDesktopOutreachAction
+      tags: [AI 获客智能体]
+      summary: 领取一条已审批的桌面外联动作
+      description: Nonblocking claim for exact available account bindings. Both physical device headers are required and checked against fresh active membership; browser cookies or bearer identity do not replace device credentials. X-Shensi-Desktop-Task-Token is forbidden on this route. The response projects the immutable action task without repository fence/device hashes; an empty result carries retryAfterMs. Approval and execution are independent gates.
+      security: [{ desktopInstallationId: [], desktopDeviceToken: [] }]
+      parameters: &desktopDeviceParameters
+        - { $ref: '#/components/parameters/desktopBuildManifestSha256' }
+        - { $ref: '#/components/parameters/desktopOutreachIdempotencyKey' }
+        - { $ref: '#/components/parameters/desktopInstallationId' }
+        - { $ref: '#/components/parameters/desktopDeviceToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DesktopOutreachClaimRequest' }
+      responses:
+        '200':
+          description: One task claimed or no eligible task; replayed identifies an exact retry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopOutreachClaimResponse' }
+        '400': *desktopInvalidRequest
+        '413': *desktopPayloadTooLarge
+        '401': &desktopDeviceUnauthorized
+          description: Physical installation/device headers are missing, duplicated, malformed, revoked or lack active membership. Browser authentication does not authorize device operations.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopOutreachError' }
+        '404': *desktopNotFound
+        '405': *desktopMethodNotAllowed
+        '409': *desktopConflict
+        '415': *desktopUnsupportedMedia
+        '503': *desktopUnavailable
+  /api/v1/acquisition/desktop-outreach-actions/{actionId}/complete:
+    post:
+      operationId: completeAcquisitionDesktopOutreachAction
+      tags: [AI 获客智能体]
+      summary: 上报桌面动作开始或平台回执
+      description: Requires physical device credentials plus one exact X-Shensi-Desktop-Task-Token header. The command preserves the original lease/login/task-request snapshot and top-level binding generation. The started event admits one execution attempt; receipt records the result. A reconciliation-only token cannot start or submit content, and its failed observation may only report action_unavailable. receipt.actionId must equal the path actionId. Exact retries replay; changed evidence conflicts.
+      security: [{ desktopInstallationId: [], desktopDeviceToken: [] }]
+      parameters:
+        - { name: actionId, in: path, required: true, schema: { $ref: '#/components/schemas/DesktopSafeId' } }
+        - { $ref: '#/components/parameters/desktopBuildManifestSha256' }
+        - { $ref: '#/components/parameters/desktopOutreachIdempotencyKey' }
+        - { $ref: '#/components/parameters/desktopInstallationId' }
+        - { $ref: '#/components/parameters/desktopDeviceToken' }
+        - { $ref: '#/components/parameters/desktopOutreachTaskToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DesktopOutreachCompleteRequest' }
+      responses:
+        '200':
+          description: Authoritative action state after start or receipt, including exact replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopOutreachCompletionResponse' }
+        '400': *desktopInvalidRequest
+        '413': *desktopPayloadTooLarge
+        '401': *desktopDeviceUnauthorized
+        '404': *desktopNotFound
+        '405': *desktopMethodNotAllowed
+        '409': *desktopConflict
+        '410': *desktopExpired
+        '415': *desktopUnsupportedMedia
+        '503': *desktopUnavailable
+  /api/v1/acquisition/desktop-outreach-actions/{actionId}/reconcile:
+    post:
+      operationId: reconcileAcquisitionDesktopOutreachAction
+      tags: [AI 获客智能体]
+      summary: 恢复桌面持久化日志中的动作状态
+      description: Requires physical device credentials and the complete version-1 durable journal snapshot. X-Shensi-Desktop-Task-Token is forbidden on this route. receiptHash is required only when journalPhase is sidecar_completed and forbidden otherwise. A fresh process can obtain a bounded reconciliation-only task/capability; it cannot retry a platform write. Durable central started or receipt evidence takes precedence over a lagging claimed journal. Returns waiting, terminal, not_authorized, released or the complete read-only reconciliation task. released authorizes cleanup only of the exact claimed action/request/original-lease journal after the central attempt is proven never started, has no receipt and no longer holds claim authority; it grants no execution capability.
+      security: [{ desktopInstallationId: [], desktopDeviceToken: [] }]
+      parameters:
+        - { name: actionId, in: path, required: true, schema: { $ref: '#/components/schemas/DesktopSafeId' } }
+        - { $ref: '#/components/parameters/desktopBuildManifestSha256' }
+        - { $ref: '#/components/parameters/desktopOutreachIdempotencyKey' }
+        - { $ref: '#/components/parameters/desktopInstallationId' }
+        - { $ref: '#/components/parameters/desktopDeviceToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DesktopOutreachReconcileRequest' }
+      responses:
+        '200':
+          description: Recovery disposition or full immutable reconciliation task.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesktopOutreachReconcileResponse' }
+        '400': *desktopInvalidRequest
+        '413': *desktopPayloadTooLarge
+        '401': *desktopDeviceUnauthorized
+        '405': *desktopMethodNotAllowed
+        '409': *desktopConflict
+        '415': *desktopUnsupportedMedia
+        '503': *desktopUnavailable
   /api/v1/ai/providers:
     get: { <<: *list, summary: List model providers }
   /api/v1/ai/endpoint-profiles:
@@ -1041,6 +2006,9 @@ paths:
   /api/v1/ai/connections/{id}/activate:
     parameters: [{ $ref: '#/components/parameters/id' }]
     post: { <<: *write, summary: Activate model connection, responses: { '200': { description: Model connection, content: { application/json: { schema: { $ref: '#/components/schemas/ModelConnection' } } } }, '400': *apiError, '401': *apiError } }
+  /api/v1/ai/connections/{id}/deactivate:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post: { <<: *write, summary: Deactivate model connection, responses: { '200': { description: Model connection, content: { application/json: { schema: { $ref: '#/components/schemas/ModelConnection' } } } }, '400': *apiError, '401': *apiError } }
   /api/v1/ai/calls:
     get: { <<: *list, summary: List model call records }
   /api/v1/ai/calls/{id}:
@@ -1056,7 +2024,8 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '201': { description: QR login session, content: { application/json: { schema: *socialLoginSessionSchema } } }
-        '200': { description: Idempotent replay, headers: { Idempotency-Replayed: { schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: *socialLoginSessionSchema } } }
+        '200': { description: Existing pending session or idempotent replay, headers: { Idempotency-Replayed: { schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: *socialLoginSessionSchema } } }
+        '503': *apiError
   /api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}:
     parameters: [{ name: sessionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
     get:
@@ -1066,6 +2035,72 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '200': { description: QR login session, content: { application/json: { schema: *socialLoginSessionSchema } } }
+        '410': *apiError
+        '503': *apiError
+    delete:
+      operationId: cancelAcquisitionDouyinLoginSession
+      summary: Cancel the workspace-bound Douyin login session
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '204': { description: Douyin login session cancelled }
+  /api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/interactions:
+    parameters: [{ name: sessionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post:
+      operationId: interactAcquisitionDouyinLoginSession
+      summary: Interact with the workspace-bound Douyin login page
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              discriminator: { propertyName: type }
+              oneOf:
+                - { type: object, additionalProperties: false, required: [type], properties: { type: { const: refresh_qr } } }
+                - { type: object, additionalProperties: false, required: [type, normalizedX, normalizedY], properties: { type: { const: click }, normalizedX: { type: number, minimum: 0, maximum: 1 }, normalizedY: { type: number, minimum: 0, maximum: 1 } } }
+                - { type: object, additionalProperties: false, required: [type, text], properties: { type: { const: text }, text: { type: string, minLength: 1, maxLength: 200 } } }
+                - { type: object, additionalProperties: false, required: [type, key], properties: { type: { const: key }, key: { type: string, enum: [Enter, Tab, Backspace, Escape, ArrowUp, ArrowDown, ArrowLeft, ArrowRight] } } }
+                - { type: object, additionalProperties: false, required: [type, deltaX, deltaY], properties: { type: { const: scroll }, deltaX: { type: number, minimum: -1, maximum: 1 }, deltaY: { type: number, minimum: -1, maximum: 1 } } }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Updated Douyin login session, content: { application/json: { schema: *socialLoginSessionSchema } } }
+        '410': *apiError
+        '503': *apiError
+  /api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/live:
+    parameters: [{ name: sessionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post:
+      operationId: createAcquisitionDouyinLiveLoginSession
+      summary: Create an interactive Douyin login window for the workspace-bound session
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Interactive Douyin login window, content: { application/json: { schema: *socialLiveLoginSessionSchema } } }
+        '409': *apiError
+        '410': *apiError
+        '503': *apiError
+  /api/v1/acquisition/social-accounts/douyin/desktop-login-completions:
+    post:
+      operationId: completeAcquisitionDouyinDesktopLogin
+      summary: Bind a bounded identity from the authenticated local Douyin profile
+      description: Accepts only the public, versioned identity asserted by the local Sidecar. Browser state, cookies and profile paths never cross this boundary.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DesktopDouyinLoginCompletionInput' } } }
+      responses:
+        '200':
+          description: Active workspace-bound Douyin account
+          headers:
+            <<: *desktopSuccessHeaders
+            Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/DesktopDouyinAccountResource' } } }
+        '400': *desktopApiError
+        '401': *desktopApiError
+        '403': *desktopApiError
+        '409': *desktopApiError
+        '500': *desktopApiError
   /api/v1/acquisition/social-accounts/douyin:
     get:
       operationId: listAcquisitionDouyinSocialAccounts
@@ -1118,6 +2153,28 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '202': { description: Frozen queued run intent, headers: { Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/DouyinAutomationRunIntent' } } } }
+  /api/v1/acquisition/plans/{planId}/desktop-run-now:
+    parameters: [{ name: planId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post:
+      operationId: prepareAcquisitionDouyinDesktopRun
+      summary: Freeze a run and create its desktop-owned crawler job
+      description: Returns one bounded local task and an opaque in-memory capability for that exact workspace job. It never returns local paths, browser state or Sidecar credentials.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DesktopDouyinRunNowInput' } } }
+      responses:
+        '202':
+          description: Frozen run, desktop job capability and bounded local collection task
+          headers: *desktopSuccessHeaders
+          content: { application/json: { schema: { $ref: '#/components/schemas/DesktopDouyinRunPreparation' } } }
+        '400': *desktopApiError
+        '401': *desktopApiError
+        '403': *desktopApiError
+        '404': *desktopApiError
+        '409': *desktopApiError
+        '500': *desktopApiError
   /api/v1/acquisition/plans/{planId}/automation/keyword-suggestions:
     parameters: [{ name: planId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }]
     post:
@@ -1140,12 +2197,105 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '200': { description: Persisted crawler status, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionCrawlerStatus' } } } }
+  /api/v1/acquisition/desktop-crawler-jobs/{jobId}/claim:
+    parameters: [{ name: jobId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post:
+      operationId: claimAcquisitionDesktopCrawlerJob
+      summary: Claim one exact desktop-owned crawler job
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/desktopTaskToken' }]
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object, additionalProperties: false, maxProperties: 0 } } }
+      responses:
+        '200': { description: Claimed desktop crawler job, headers: *desktopSuccessHeaders, content: { application/json: { schema: { $ref: '#/components/schemas/DesktopCrawlerJobResource' } } } }
+        '400': *desktopApiError
+        '401': *desktopApiError
+        '403': *desktopApiError
+        '404': *desktopApiError
+        '409': *desktopApiError
+        '500': *desktopApiError
+  /api/v1/acquisition/desktop-crawler-jobs/{jobId}/lease:
+    parameters: [{ name: jobId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    put:
+      operationId: renewAcquisitionDesktopCrawlerJobLease
+      summary: Renew the fenced lease for one exact desktop crawler job
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/desktopTaskToken' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DesktopCrawlerLeaseInput' } } }
+      responses:
+        '200': { description: Renewed desktop crawler job, headers: *desktopSuccessHeaders, content: { application/json: { schema: { $ref: '#/components/schemas/DesktopCrawlerJobResource' } } } }
+        '400': *desktopApiError
+        '401': *desktopApiError
+        '403': *desktopApiError
+        '404': *desktopApiError
+        '409': *desktopApiError
+        '500': *desktopApiError
+  /api/v1/acquisition/desktop-crawler-jobs/{jobId}/pages:
+    parameters: [{ name: jobId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    put:
+      operationId: uploadAcquisitionDesktopCrawlerJobPage
+      summary: Persist one idempotent normalized result page
+      description: The capability is accepted only in X-Shensi-Desktop-Task-Token. The body accepts bounded public Douyin records and exact terminal activity only; it rejects browser, cookie, profile, command and Sidecar fields.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/desktopTaskToken' }
+        - { $ref: '#/components/parameters/planIdempotencyKey' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DesktopCrawlerPageInput' } } }
+      responses:
+        '200': { description: Durably accepted page or same-body replay, headers: *desktopSuccessHeaders, content: { application/json: { schema: { $ref: '#/components/schemas/DesktopCrawlerPageResource' } } } }
+        '400': *desktopApiError
+        '401': *desktopApiError
+        '403': *desktopApiError
+        '404': *desktopApiError
+        '409': *desktopApiError
+        '500': *desktopApiError
+  /api/v1/acquisition/desktop-crawler-jobs/{jobId}/complete:
+    parameters: [{ name: jobId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post:
+      operationId: completeAcquisitionDesktopCrawlerJob
+      summary: Ingest and project one terminal desktop crawler job
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/desktopTaskToken' }]
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object, additionalProperties: false, maxProperties: 0 } } }
+      responses:
+        '200': { description: Cloud-durable desktop crawler job, headers: *desktopSuccessHeaders, content: { application/json: { schema: { $ref: '#/components/schemas/DesktopCrawlerJobResource' } } } }
+        '400': *desktopApiError
+        '401': *desktopApiError
+        '403': *desktopApiError
+        '404': *desktopApiError
+        '409': *desktopApiError
+        '500': *desktopApiError
+  /api/v1/acquisition/desktop-crawler-jobs/{jobId}/cancel:
+    parameters: [{ name: jobId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post:
+      operationId: cancelAcquisitionDesktopCrawlerJob
+      summary: Cancel one exact desktop crawler job under its current fence
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/desktopTaskToken' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DesktopCrawlerLeaseInput' } } }
+      responses:
+        '200': { description: Cancelled desktop crawler job, headers: *desktopSuccessHeaders, content: { application/json: { schema: { $ref: '#/components/schemas/DesktopCrawlerJobResource' } } } }
+        '400': *desktopApiError
+        '401': *desktopApiError
+        '403': *desktopApiError
+        '404': *desktopApiError
+        '409': *desktopApiError
+        '500': *desktopApiError
   /api/v1/acquisition/runs/{runId}/candidates:
     parameters: [{ name: runId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 160 } }]
     get:
       operationId: listAcquisitionRunCandidates
       summary: List evidence-bound candidates for an acquisition run
-      description: Cursor is bound to the active workspace, run, full filter set, and candidate snapshot. Only bounded public evidence is returned. When a candidate has multiple Douyin evidence rows, an exact commentable video is projected before a profile-only inspection fallback.
+      description: Cursor is bound to the active workspace, run, full filter set, and candidate snapshot. Only bounded public evidence is returned. Optional public HTTPS avatar and cover hints are display-only and never change candidate, approval, or action authority. When a candidate has multiple Douyin evidence rows, an exact commentable video is projected before a profile-only inspection fallback.
       security: [{ bearerAuth: [] }, { cookieAuth: [] }]
       parameters:
         - { name: status, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 100 } }
@@ -1227,11 +2377,11 @@ paths:
     parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
     post:
       operationId: approveAcquisitionOutreachBatchDirectMessages
-      summary: Confirm and queue direct messages after exact successful comment receipts
-      description: Requires an exact succeeded comment receipt for every requested candidate. The command only authorizes durable direct-message actions; it never executes the browser action in this HTTP request.
+      summary: Independently confirm and queue direct messages
+      description: Authorizes v3 direct-message actions using the current reviewed sender login, recipient and exact body. No comment or comment receipt is required. The batch and comment approval are unchanged; this HTTP request never executes a browser send. Historical v2 approvals retain their comment-linked authority.
       security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }, { $ref: '#/components/parameters/ifMatch' }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [batchRevision, batchHash, commentApprovalHash, dailyLimit, candidates, confirm], properties: { batchRevision: { type: integer, minimum: 1 }, batchHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }, commentApprovalHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }, dailyLimit: { type: integer, minimum: 1, maximum: 100, default: 20 }, candidates: { type: array, minItems: 1, maxItems: 100, items: { type: object, additionalProperties: false, required: [candidateId, directMessage], properties: { candidateId: { type: string, minLength: 1, maxLength: 255 }, directMessage: { type: string, minLength: 1, maxLength: 800 } } } }, confirm: { type: boolean, const: true } } } } } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [batchRevision, batchHash, accountLoginStateVersion, dailyLimit, candidates, confirm], properties: { batchRevision: { type: integer, minimum: 1 }, batchHash: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }, accountLoginStateVersion: { type: integer, minimum: 1 }, dailyLimit: { type: integer, minimum: 1, maximum: 100, default: 20 }, candidates: { type: array, minItems: 1, maxItems: 100, items: { type: object, additionalProperties: false, required: [candidateId, directMessage], properties: { candidateId: { type: string, minLength: 1, maxLength: 255 }, directMessage: { type: string, minLength: 1, maxLength: 800 } } } }, confirm: { type: boolean, const: true } } } } } }
       responses:
         <<: *acquisitionStandardResponses
         '200': { description: Direct messages authorized, headers: { ETag: { required: true, schema: { type: string } }, Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachBatch' } } } }
@@ -1272,6 +2422,36 @@ paths:
       responses:
         <<: *acquisitionStandardResponses
         '200': { description: Ordered outreach actions, content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachActionList' } } } }
+  /api/v1/acquisition/outreach-batches/{batchId}/actions/recover-account:
+    parameters: [{ name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }]
+    post:
+      operationId: recoverAcquisitionOutreachActionAccount
+      summary: Resume the exact safe comments, or an audited empty queue, after manual review
+      description: Atomically restores the same-version bound social account from risk_paused and clears its execution gate only when the submitted pending-action set exactly equals the current queue and no other account actions are queued or executing. An empty set restores only the account and enables no action. Disconnected, stale-version, or malformed account authority is rejected. Historical uncertain writes remain frozen and are never resent.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }, { $ref: '#/components/parameters/ifMatch' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [batchRevision, accountLoginStateVersion, pendingActionIds, acknowledgedUncertainActionIds, reason, confirm]
+              properties:
+                batchRevision: { type: integer, minimum: 1 }
+                accountLoginStateVersion: { type: integer, minimum: 1 }
+                pendingActionIds: { type: array, maxItems: 200, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 255 } }
+                acknowledgedUncertainActionIds: { type: array, maxItems: 200, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 255 } }
+                reason: { type: string, minLength: 8, maxLength: 2000 }
+                confirm: { type: boolean, const: true }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200':
+          description: The exact safe batch comments were enabled; uncertain writes remain frozen
+          headers: { Idempotency-Replayed: { required: false, schema: { type: string, enum: ['true'] } } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/AcquisitionOutreachAccountRecovery' } } }
+        '428': *apiError
   /api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile:
     parameters:
       - { name: batchId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
@@ -1439,6 +2619,146 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DiscoveryEvidence' }
+  /api/v1/acquisition/cfo-workflows:
+    post:
+      operationId: createCfoAcquisitionWorkflow
+      summary: Create a durable CFO acquisition workflow and reviewable plan
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [instruction]
+              properties:
+                instruction: { type: string, minLength: 1, maxLength: 20000 }
+      responses:
+        <<: *acquisitionStandardResponses
+        '201': { description: Workflow and plan created, content: { application/json: { schema: { $ref: '#/components/schemas/CfoAcquisitionWorkflow' } } } }
+  /api/v1/acquisition/cfo-workflows/latest:
+    get:
+      operationId: getLatestCfoAcquisitionWorkflow
+      summary: Restore the current actor's latest CFO acquisition workflow
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200':
+          description: Latest workflow or null
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/CfoAcquisitionWorkflow' }
+                  - { type: 'null' }
+  /api/v1/acquisition/cfo-workflows/{id}:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    get:
+      operationId: getCfoAcquisitionWorkflow
+      summary: Read and reconcile one owned CFO acquisition workflow
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Workflow, content: { application/json: { schema: { $ref: '#/components/schemas/CfoAcquisitionWorkflow' } } } }
+  /api/v1/acquisition/cfo-workflows/{id}/approval:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    post:
+      operationId: approveCfoAcquisitionWorkflow
+      summary: Record human plan approval and start the existing acquisition run
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Workflow started or replayed, content: { application/json: { schema: { $ref: '#/components/schemas/CfoAcquisitionWorkflow' } } } }
+  /api/v1/acquisition/cfo-workflows/{id}/candidate-decisions:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    post:
+      operationId: decideCfoAcquisitionWorkflowCandidate
+      summary: Record one human candidate decision and create CRM follow-up when approved
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [candidateId, action, reason]
+              properties:
+                candidateId: { type: string, minLength: 1, maxLength: 100 }
+                action: { type: string, enum: [approved, rejected, do_not_contact] }
+                reason: { type: [string, 'null'], maxLength: 2000 }
+                dueAt: { type: string, format: date-time }
+                priority: { type: string, enum: [high, medium, normal] }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Candidate decision and workflow state, content: { application/json: { schema: { $ref: '#/components/schemas/CfoAcquisitionWorkflow' } } } }
+  /api/v1/acquisition/cfo-workflows/{id}/candidate-decisions/batch:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    post:
+      operationId: decideCfoAcquisitionWorkflowCandidates
+      summary: Record an ordered batch of human candidate approvals and create CRM follow-ups
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decisions]
+              properties:
+                decisions:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [candidateId, action, reason]
+                    properties:
+                      candidateId: { type: string, minLength: 1, maxLength: 100 }
+                      action: { type: string, enum: [approved, rejected, do_not_contact] }
+                      reason: { type: [string, 'null'], maxLength: 2000 }
+                      dueAt: { type: string, format: date-time }
+                      priority: { type: string, enum: [high, medium, normal] }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Ordered candidate decisions and workflow state, content: { application/json: { schema: { $ref: '#/components/schemas/CfoAcquisitionWorkflow' } } } }
+  /api/v1/acquisition/cfo-workflows/{id}/cancel:
+    parameters: [{ $ref: '#/components/parameters/acquisitionId' }]
+    post:
+      operationId: cancelCfoAcquisitionWorkflow
+      summary: Cancel the workflow before any not-yet-started candidate writes
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/planIdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        <<: *acquisitionStandardResponses
+        '200': { description: Workflow cancelled, content: { application/json: { schema: { $ref: '#/components/schemas/CfoAcquisitionWorkflow' } } } }
   /api/v1/acquisition/plans:
     post:
       operationId: createAcquisitionPlan

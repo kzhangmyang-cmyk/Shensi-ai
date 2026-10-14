@@ -1,6 +1,7 @@
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 const COMPOSE_INTERNAL_NETWORK_HOST = "0.0.0.0";
 const COMPOSE_GATEWAY_PROXY_CIDR = "172.30.0.4/32";
+const API_ONLY_GATEWAY_IP = /^198\.18\.(?:24\d|25[0-5])\.(?:2|254)$/u;
 
 export function resolveBackendHost(env: NodeJS.ProcessEnv = process.env) {
   const host = (env.BACKEND_HOST || "127.0.0.1").trim();
@@ -18,8 +19,8 @@ export function resolveBackendHost(env: NodeJS.ProcessEnv = process.env) {
 export function resolveTrustedProxy(env: NodeJS.ProcessEnv = process.env) {
   const configured = (env.TRUSTED_PROXY_CIDRS || "").trim();
   if (!configured) return "loopback";
-  if (configured !== COMPOSE_GATEWAY_PROXY_CIDR) {
-    throw new Error(`TRUSTED_PROXY_CIDRS 只能是 Compose 网关 ${COMPOSE_GATEWAY_PROXY_CIDR}`);
-  }
-  return ["loopback", COMPOSE_GATEWAY_PROXY_CIDR];
+  const apiOnlyGatewayIp = (env.SHENSI_API_GATEWAY_IP || "").trim();
+  if (!apiOnlyGatewayIp && configured === COMPOSE_GATEWAY_PROXY_CIDR) return ["loopback", COMPOSE_GATEWAY_PROXY_CIDR];
+  if (API_ONLY_GATEWAY_IP.test(apiOnlyGatewayIp) && configured === `${apiOnlyGatewayIp}/32`) return ["loopback", configured];
+  throw new Error(`TRUSTED_PROXY_CIDRS 只能是受控 Compose 网关 ${COMPOSE_GATEWAY_PROXY_CIDR} 或已绑定的 API-only 网关`);
 }

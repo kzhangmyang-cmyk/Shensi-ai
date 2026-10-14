@@ -5,14 +5,40 @@ import {
   MysqlQuoteRepository,
   ensureQuoteMysqlSchema
 } from "./quote-mysql-repository.js";
-import { withGrowthCatalogMysqlTestDatabase } from "./growth-catalog-mysql-test-support.js";
+import { withGrowthQuoteMysqlTestDatabase } from "./growth-quote-mysql-test-support.js";
 import { createCommercialBindingSnapshot } from "./commercial-binding-snapshot.js";
 import { bindingInputFixture, probabilityRecordFixture } from "./growth-quote-test-fixtures.js";
 import type { QuoteCase } from "./quote-repository.js";
+import { approvalFixture } from "./growth-quote-test-fixtures.js";
+import { DefaultGrowthTemporalBarrier, InMemoryGrowthTemporalTransactionRunner } from "./growth-temporal-barrier.js";
+
+test("current MySQL quote reads project lifecycle without rewriting frozen amounts", async () => {
+  const frozen = approvalFixture().formalVersion;
+  const pool = { async query(sql: string, values: unknown[]) {
+    assert.equal(values[0], frozen.workspaceId);
+    if (sql.includes('FROM quote_versions')) return [[{ frozen_version_json: JSON.stringify(frozen) }], []];
+    assert.match(sql, /FROM quote_lifecycle_events/);
+    return [[{ id: 'approved-event', workspace_id: frozen.workspaceId,
+      quote_case_id: frozen.quoteCaseId, quote_version_id: frozen.id,
+      lifecycle_revision: frozen.lifecycleRevision + 1, from_status: 'submitted', to_status: 'approved',
+      event_type: 'version_transition', actor_id: 'reviewer',
+      recorded_at: new Date('2026-08-09T08:00:00.000Z'), temporal_sequence: 20 }], []];
+  }};
+  const repository = new MysqlQuoteRepository(pool as never,
+    new DefaultGrowthTemporalBarrier(new InMemoryGrowthTemporalTransactionRunner('2026-08-09T08:00:00.000Z')));
+  const read = await repository.getVersion(frozen.workspaceId, frozen.id);
+  assert.equal(read?.status, 'approved');
+  assert.equal(read?.lifecycleRevision, frozen.lifecycleRevision + 1);
+  assert.equal(read?.quotedAmountMinor, frozen.quotedAmountMinor);
+  assert.equal(frozen.status, 'submitted');
+  const list = await repository.listVersions(frozen.workspaceId, frozen.quoteCaseId);
+  assert.equal(list[0]?.status, 'approved');
+});
 
 class Mysql84QuoteSchemaPool {
   readonly calls: string[] = [];
   private readonly columns = new Map<string, Set<string>>([
+    ["quote_cases", new Set()],
     ["deal_events", new Set()],
     ["quote_publication_operations", new Set(["operation_json"])]
   ]);
@@ -48,6 +74,7 @@ test("MySQL schema owns all quote streams, closed version authority, and concurr
   ]) assert.match(schema, new RegExp(`create table if not exists ${table}`));
   assert.match(schema, /unique key uk_quote_open_deal/u);
   assert.match(schema, /unique key uk_quote_formal_source_draft/u);
+  assert.match(schema, /crm_authority_snapshot_json json null/u);
   assert.match(schema, /check \(\(version_kind = 'draft'/u);
   assert.doesNotMatch(schema, /quote.*clock|quote_workspace_temporal/u);
 });
@@ -60,6 +87,9 @@ test("MySQL 8.4 upgrades legacy quote columns without MariaDB-only DDL", async (
 
   assert.equal(pool.calls.some((sql) =>
     /ADD COLUMN IF NOT EXISTS/u.test(sql)), false);
+  assert.equal(pool.calls.some((sql) =>
+    /^ALTER TABLE quote_cases ADD COLUMN crm_authority_snapshot_json/u
+      .test(sql)), true);
   assert.equal(pool.calls.some((sql) =>
     /^ALTER TABLE deal_events ADD COLUMN commercial_binding_evidence_json/u
       .test(sql)), true);
@@ -74,11 +104,9 @@ test("two physical MySQL connections produce exactly one open-Deal bind winner",
     ? false
     : "MYSQL_TEST_ADMIN_URL is required; live Quote contention remains fail-closed/unrun"
 }, async () => {
-  await withGrowthCatalogMysqlTestDatabase(async ({ pool, barrier,
+  await withGrowthQuoteMysqlTestDatabase(async ({ pool, repository,
     connectionA, connectionB }) => {
     assert.notEqual(connectionA.threadId, connectionB.threadId);
-    await ensureQuoteMysqlSchema(pool);
-    const repository = new MysqlQuoteRepository(pool, barrier);
     const base = (id: string): QuoteCase => ({
       id, workspaceId: "team-a", candidateId: "candidate-1",
       customerId: null, dealId: null, assignedTo: "sales-a", status: "open",

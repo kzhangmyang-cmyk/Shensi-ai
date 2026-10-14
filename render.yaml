@@ -1,0 +1,67 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+services:
+  - type: web
+    name: shensi-api-test
+    runtime: docker
+    plan: free
+    dockerfilePath: ./deploy/docker/backend.Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CRM_STORE
+        value: mysql
+      - key: CRM_SEED_DEVELOPMENT_DATA
+        value: "false"
+      - key: BACKEND_HOST
+        value: 0.0.0.0
+      - key: MYSQL_SSL_MODE
+        value: verify_ca
+      - key: DATABASE_URL
+        sync: false
+      - key: MYSQL_SSL_CA
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PROVIDER_CREDENTIAL_KEY
+        generateValue: true
+      - key: AGENT_JOB_ENCRYPTION_KEY
+        generateValue: true
+      - key: ACQUISITION_MASTER_SECRET
+        generateValue: true
+      - key: TRADE_OBSERVATION_CURSOR_SECRET
+        generateValue: true
+      - key: MARKET_OPPORTUNITY_CURSOR_SECRET
+        generateValue: true
+      - key: PROSPECT_RUN_IDEMPOTENCY_SECRET
+        generateValue: true
+      - key: PROSPECT_RUN_CURSOR_SECRET
+        generateValue: true
+      - key: PROSPECT_EXECUTION_CLAIM_SECRET
+        generateValue: true
+      - key: ORGANIZATION_IDENTITY_MASTER_SECRET
+        generateValue: true
+      - key: PROSPECT_SOURCE_RAW_ENVELOPE_SECRET
+        generateValue: true
+      - key: PROSPECT_COVERAGE_MASTER_SECRET
+        generateValue: true
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: ENABLE_API_DOCS
+        value: "false"
+      - key: PROSPECT_QUEUE_REQUIRED
+        value: "false"
+      - key: PROSPECT_WORKER_ENABLED
+        value: "true"
+      - key: PROSPECT_SCHEDULER_ENABLED
+        value: "true"
+      - key: DOUYIN_OUTREACH_APPROVALS_ENABLED
+        value: "true"
+      - key: DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED
+        value: "false"
+      - key: DOUYIN_OUTREACH_DESKTOP_EXECUTION_ENABLED
+        value: "true"
+      - key: SHENSI_DESKTOP_CLIENT_ADMISSION_MODE
+        value: migration_locked

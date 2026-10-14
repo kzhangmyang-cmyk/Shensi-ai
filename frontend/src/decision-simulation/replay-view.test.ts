@@ -1,0 +1,61 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { parseHTML } from 'linkedom';
+import { mountDecisionReplay } from './replay-view';
+import { operatingExample, type SimulationRecord } from './samples';
+
+function fixture():SimulationRecord {
+  const months=[10000,-5000,2000].map((cashMinor,index)=>({month:index+1,cashMinor,orders:10,delivered:8,backlogUnits:2,revenueMinor:80,receiptsMinor:70,paymentsMinor:60,profitMinor:20,receivablesMinor:10,shock:{demand:1,procurement:1,collectionDelay:0,delivery:1}}));
+  const samples=Array.from({length:100},(_,index)=>({months:months.map(month=>({...month,cashMinor:month.cashMinor+index})),minimumCashMinor:-5000,totalProfitMinor:40,fundingGapMinor:5000}));
+  return {runId:'12345678-1234-1234-1234-123456789012',createdAt:'2026-09-15T00:00:00Z',recordVersion:'decision-simulation.v1',input:operatingExample('normal'),paths:[],report:{modelVersion:'test',plans:[],replays:[{planId:'baseline',modelVersion:'test',samples},{planId:'方案二',modelVersion:'test',samples:samples.map(sample=>({...sample,months:sample.months.map(month=>({...month,cashMinor:month.cashMinor+10000}))}))}],sensitivity:[],threshold:{unitsForMonthlyOperatingBreakEven:1,withinBaselineCapacity:true,conditions:'test'}}};
+}
+
+test('100-world controls replay persisted data and stop on pause, completion and disposal',t=>{
+  const {document,window}=parseHTML('<html><body><main></main></body></html>');
+  const descriptor=Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value');
+  Object.defineProperty(window.HTMLSelectElement.prototype,'value',{configurable:true,get(){return this.querySelector('option[selected]')?.value??this.querySelector('option')?.value??'';},set(value){this.querySelectorAll('option').forEach((option:HTMLOptionElement)=>option.selected=option.value===value);}});
+  t.after(()=>{if(descriptor)Object.defineProperty(window.HTMLSelectElement.prototype,'value',descriptor);});
+  t.mock.timers.enable({apis:['setTimeout']});
+  let selection=[-1,-1,-1];
+  const dispose=mountDecisionReplay(document.querySelector('main')!,fixture(),(...args)=>{selection=args;});
+  const q=<T extends HTMLElement>(selector:string)=>document.querySelector<T>(selector)!;
+  assert.equal(document.querySelectorAll('[data-world]').length,100);
+  assert.equal(document.querySelectorAll('.decision-background-path').length,100);
+  assert.equal(document.querySelectorAll('.decision-world-inspector details [data-world]').length,0);
+  assert.equal(document.querySelectorAll('[data-world] svg [data-mini-path]').length,100);
+  assert.equal(document.querySelectorAll('[data-mini-factors]').length,100);
+  assert.match(q('[data-factor-explanation]').textContent!,/采购成本/);
+  assert.match(q('[data-factor-explanation]').textContent!,/回款/);
+  assert.equal(document.querySelectorAll('[data-factor-month]').length,3);
+  assert.match(q('[data-factor-assumptions]').textContent!,/隔离示例/);
+  assert.equal(q('.decision-replay').getAttribute('data-replay-view'),'overview');
+  assert.equal(q<HTMLElement>('.decision-world-panel').hidden,false);
+  assert.equal(q<HTMLElement>('.decision-plot-panel').hidden,true);
+  const baselineMini=q('[data-world="99"] [data-mini-path]').getAttribute('d');
+  assert.ok(document.querySelector('.decision-plot-panel .decision-playback-toolbar'));
+  assert.ok(document.querySelector('[data-restart]'));
+  assert.deepEqual(selection,[0,0,2]);
+  assert.match(q('[data-playback-status]').textContent!,/已暂停/);
+  q<HTMLButtonElement>('[data-play]').click();
+  assert.deepEqual(selection,[0,0,0]);
+  t.mock.timers.tick(900);assert.deepEqual(selection,[0,0,1]);
+  assert.match(q('[data-world-count]').textContent!,/100\/100/);
+  q<HTMLButtonElement>('[data-play]').click();t.mock.timers.tick(900);assert.deepEqual(selection,[0,0,1]);
+  q<HTMLInputElement>('[data-month]').value='0';q<HTMLInputElement>('[data-month]').dispatchEvent(new window.Event('input'));
+  assert.deepEqual(selection,[0,0,0]);assert.match(q('[data-world-count]').textContent!,/0\/100/);
+  q<HTMLButtonElement>('[data-world="99"]').click();assert.deepEqual(selection,[0,99,0]);
+  assert.equal(q('[data-world="99"]').getAttribute('aria-pressed'),'true');
+  assert.equal(q('.decision-replay').getAttribute('data-replay-view'),'overview');
+  q<HTMLButtonElement>('[data-replay-view-button="detail"]').click();
+  assert.equal(q<HTMLElement>('.decision-plot-panel').hidden,false);
+  q<HTMLButtonElement>('[data-replay-view-button="overview"]').click();
+  assert.deepEqual(selection,[0,99,0]);
+  q<HTMLSelectElement>('[data-plan]').value='1';q('[data-plan]').dispatchEvent(new window.Event('change'));assert.deepEqual(selection,[1,99,0]);
+  assert.match(q('[data-world-values]').textContent!,/200.99/);
+  assert.notEqual(q('[data-world="99"] [data-mini-path]').getAttribute('d'),baselineMini);
+  q<HTMLButtonElement>('[data-play]').click();t.mock.timers.tick(900);t.mock.timers.tick(900);assert.deepEqual(selection,[1,99,2]);assert.match(q('[data-playback-status]').textContent!,/已暂停/);
+  q<HTMLButtonElement>('[data-restart]').click();assert.deepEqual(selection,[1,99,0]);assert.match(q('[data-playback-status]').textContent!,/正在回放/);
+  q<HTMLButtonElement>('[data-play]').click();
+  q<HTMLInputElement>('[data-month]').value='2';q<HTMLInputElement>('[data-month]').dispatchEvent(new window.Event('input'));
+  q<HTMLButtonElement>('[data-play]').click();dispose();t.mock.timers.tick(1800);assert.deepEqual(selection,[1,99,0]);
+});

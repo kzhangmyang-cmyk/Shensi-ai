@@ -56,6 +56,7 @@ import {
   LEGACY_TRUSTED_STATEMENT_PACKAGE_HASH,
   LEGACY_TRUSTED_STATEMENT_PACKAGE_ID
 } from "./financial-council-domain.js";
+import { projectFinancialCouncilCollaboration } from "./financial-council-collaboration.js";
 
 export interface FinancialCouncilWakeSink {
   wake(run: FinancialCouncilRun): Promise<void>;
@@ -478,6 +479,42 @@ export class FinancialCouncilService {
         updatedAt: operation?.updatedAt ?? row.updatedAt
       });
     })));
+  }
+
+  async listRunHistory(context: ActiveWorkspaceContext,
+    input: { readonly limit: number; readonly after?: string }) {
+    authorize(context);
+    const page = await this.dependencies.repository.listRunHistory(context, input);
+    return { items: page.items.map(run => ({ runId: run.runId, status: run.status,
+      currency: run.currency, dataAsOf: run.dataAsOf, createdAt: run.createdAt,
+      updatedAt: run.updatedAt })), nextAfter: page.nextCursor, hasMore: page.nextCursor !== null };
+  }
+
+  async getCollaboration(context: ActiveWorkspaceContext, runId: string) {
+    await this.getRun(context, runId);
+    const repository = this.dependencies.repository;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const verified = await repository.getVerifiedRunSnapshot(context, runId);
+      if (!verified) throw financialCouncilError("financial_council_run_not_found");
+      const events = await repository.listCollaborationEvents(context, runId);
+      const [runEvents, results, gaps, attempts, dispositions, graph, consensus, control] = await Promise.all([
+        repository.listEvents(context, runId), repository.listSpecialistResults(context, runId),
+        repository.listAnalysisGaps(context, runId), repository.listRebuttalAttempts(context, runId),
+        repository.listFindingDispositions(context, runId), repository.getAuditGraph(context, runId),
+        repository.getConsensus(context, runId), repository.getAnalysisControl(context, runId)
+      ]);
+      const [current, currentEvents] = await Promise.all([
+        repository.findRun(context, runId), repository.listCollaborationEvents(context, runId)
+      ]);
+      // The worker commits milestones and run revisions independently. Fence both
+      // before publishing a report assembled from multiple read transactions.
+      if (!current || current.revision !== verified.run.revision
+        || currentEvents.length !== events.length
+        || currentEvents.some((event, index) => event.eventId !== events[index]!.eventId)) continue;
+      return projectFinancialCouncilCollaboration({ ...verified, events, runEvents,
+        results, gaps, attempts, dispositions, graph, consensus, control, now: this.now() });
+    }
+    throw financialCouncilError("financial_council_read_retry");
   }
 
   async listEvents(

@@ -1,8 +1,15 @@
 import { strict as assert } from "node:assert";
 import {
-  createFinancialCouncilController
+  createFinancialCouncilController as createController
 } from "./controller";
 import type { FinancialCouncilApi } from "./api";
+
+function createFinancialCouncilController(options: Parameters<typeof createController>[0]) {
+  return createController({ ...options, api: Object.assign({
+    async getCollaboration() { return { status: 200, etag: null, body: null } as never; },
+    async listRuns() { return { status: 200, etag: null, body: { items: [], hasMore: false, nextAfter: null } }; },
+  }, options.api) });
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -39,8 +46,93 @@ function run(runId: string, status = "analyzing", revision = 2) {
 const emptyPage = Object.freeze({ items: [], nextAfter: null, hasMore: false });
 const policy = Object.freeze({ policyVersionId: "policy-1", revision: 1 });
 
+// A delayed new projection must not unmount the same-run report while it is being read.
+{
+  let revision = 2;
+  const pending = deferred<never>();
+  const prior = { runId: "reading", revision: 2 };
+  const controller = createFinancialCouncilController({ api: {
+    async getRun() { return { body: run("reading", "failed", revision), etag: null }; },
+    async getCollaboration() { return revision === 2 ? { body: prior } : pending.promise; },
+    async listEvents() { return { body: emptyPage }; }, async getPolicy() { return { body: policy }; }
+  } as unknown as FinancialCouncilApi });
+  await controller.open("reading");
+  revision = 3;
+  const refreshing = controller.retry();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(controller.getState().run?.revision, 3);
+  assert.equal(controller.getState().collaboration, prior, "keep displayed report during delayed revision read");
+  assert.equal(controller.getState().collaborationUpdating, true);
+  pending.resolve({ body: { runId: "reading", revision: 3 } } as never);
+  await refreshing;
+  assert.equal(controller.getState().collaboration?.revision, 3);
+  assert.equal(controller.getState().collaborationUpdating, false);
+  controller.destroy();
+}
+
+// A known server run must enter loaded history immediately and update without losing its cursor.
+{
+  let revision = 2;
+  const controller = createFinancialCouncilController({ api: {
+    async listRuns() { return { body: { items: [], nextAfter: "older", hasMore: true } }; },
+    async createFromStatementPackage() { return { body: run("created"), etag: null }; },
+    async getRun() { return { body: run("created", revision === 2 ? "analyzing" : "failed", revision), etag: null }; },
+    async listEvents() { return { body: emptyPage }; }, async getPolicy() { return { body: policy }; }
+  } as unknown as FinancialCouncilApi });
+  await controller.openLatest();
+  await controller.createFromStatementPackage({ statementPackageId: "package-1", policyVersionId: "policy-1" });
+  assert.equal(controller.getState().history?.items[0]?.runId, "created");
+  revision = 3;
+  await controller.retry();
+  assert.equal(controller.getState().history?.items[0]?.status, "failed");
+  assert.equal(controller.getState().history?.items.length, 1);
+  assert.equal(controller.getState().history?.nextAfter, "older");
+  assert.equal(controller.getState().history?.hasMore, true);
+  controller.destroy();
+}
+
+// A secondary endpoint failure must never discard the successful primary run.
+{
+  let broken = true;
+  const callbacks: (() => void)[] = [];
+  const controller = createFinancialCouncilController({
+    api: {
+      async getRun() { return { body: run("partial", "failed"), etag: '"run:2"' }; },
+      async listEvents() { if (broken) throw new Error("events unavailable"); return { body: emptyPage }; },
+      async getCollaboration() { return { body: null }; },
+      async getPolicy() { return { body: policy }; }
+    } as unknown as FinancialCouncilApi,
+    schedulePoll(callback) { callbacks.push(callback); return callback; }
+  });
+  await controller.open("partial");
+  assert.equal(controller.getState().run?.runId, "partial");
+  assert.match(controller.getState().error ?? "", /events unavailable/);
+  assert.equal(callbacks.length, 0, "failed runs must not poll indefinitely");
+  broken = false;
+  await controller.retry();
+  assert.equal(controller.getState().error, null);
+  controller.destroy();
+}
+
 // This catches production package onboarding falling back to the legacy
 // browser-supplied businessReport creation method.
+{
+  let collaborationRevision = 3;
+  const controller = createFinancialCouncilController({ api: {
+    async getRun() { return { body: run("mismatch", "failed", 2), etag: null }; },
+    async listEvents() { return { body: emptyPage }; }, async getPolicy() { return { body: policy }; },
+    async getCollaboration() { return { body: { runId: "mismatch", revision: collaborationRevision } }; }
+  } as unknown as FinancialCouncilApi });
+  await controller.open("mismatch");
+  assert.equal(controller.getState().collaboration, null, "never pair different run/report revisions");
+  assert.match(controller.getState().error ?? "", /版本/);
+  collaborationRevision = 2;
+  await controller.retry();
+  assert.equal(controller.getState().collaboration?.revision, 2);
+  assert.equal(controller.getState().error, null);
+  controller.destroy();
+}
+
 {
   let createdInput: unknown = null;
   const api: FinancialCouncilApi = {
@@ -129,6 +221,39 @@ class ManualScheduler {
     const index = this.callbacks.indexOf(handle as () => void);
     if (index >= 0) this.callbacks.splice(index, 1);
   };
+}
+
+// A failed initial GET must remain retryable even before there is any run state.
+{
+  const scheduler = new ManualScheduler();
+  let reads = 0;
+  const controller = createFinancialCouncilController({
+    api: {
+      async getRun() { if (++reads === 1) throw new Error("offline"); return { body: run("recovered", "failed"), etag: null }; },
+      async listEvents() { return { body: emptyPage }; }, async getPolicy() { return { body: policy }; }
+    } as unknown as FinancialCouncilApi,
+    schedulePoll: scheduler.schedule, cancelPoll: scheduler.cancel
+  });
+  await controller.open("recovered");
+  assert.equal(scheduler.callbacks.length, 1);
+  scheduler.callbacks.shift()?.();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(controller.getState().run?.runId, "recovered");
+  assert.equal(scheduler.callbacks.length, 0);
+  controller.destroy();
+}
+
+// Reopening without an ID uses the server's current workspace history, not cached run identity.
+{
+  const controller = createFinancialCouncilController({ api: {
+    async listRuns() { return { body: { items: [{ runId: "latest", status: "failed", currency: "CNY", dataAsOf: "2026-09-10T00:00:00Z", createdAt: "2026-09-10T00:00:00Z", updatedAt: "2026-09-10T00:00:00Z" }], nextAfter: null, hasMore: false } }; },
+    async getRun(id: string) { return { body: run(id, "failed"), etag: null }; },
+    async listEvents() { return { body: emptyPage }; }, async getPolicy() { return { body: policy }; }
+  } as unknown as FinancialCouncilApi });
+  await controller.openLatest();
+  assert.equal(controller.getState().run?.runId, "latest");
+  assert.equal(controller.getState().history?.items.length, 1);
+  controller.destroy();
 }
 
 // This catches an implementation that commits an old GET after a replacement

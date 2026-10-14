@@ -373,50 +373,69 @@ test("artifact GET returns raw WebP with private anti-sniffing headers", async (
   });
 });
 
-test("production parser order keeps visual writes at 2 MiB when JSON_BODY_LIMIT is larger", async () => {
+test("production parser order keeps visual writes at 2 MiB when JSON_BODY_LIMIT is larger", async (t) => {
   const previousNodeEnv = process.env.NODE_ENV;
   const previousBodyLimit = process.env.JSON_BODY_LIMIT;
+  let server: import("node:http").Server | undefined;
+  let uninstall: (() => Promise<void>) | undefined;
+  t.after(async () => {
+    try {
+      if (server) await new Promise<void>((resolve, reject) => server!.close((error) =>
+        error ? reject(error) : resolve()));
+    } finally {
+      try { await uninstall?.(); } finally {
+        if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = previousNodeEnv;
+        if (previousBodyLimit === undefined) delete process.env.JSON_BODY_LIMIT;
+        else process.env.JSON_BODY_LIMIT = previousBodyLimit;
+      }
+    }
+  });
   process.env.NODE_ENV = "test";
   process.env.JSON_BODY_LIMIT = "10mb";
-  const { app } = await import("./server.js");
-  const server = app.listen(0, "127.0.0.1");
+  const { app, installTestAcquisitionHttpRuntime } = await import("./server.js");
+  const admittedDigest = "a".repeat(64);
+  uninstall = installTestAcquisitionHttpRuntime({
+    admissionConfiguration: { mode: "exact", admittedBuildManifestSha256: admittedDigest },
+    workspaceMiddleware: (_req, _res, next) => next(),
+    runtime: { handler: () => assert.fail("oversized body reached the runtime"), close: async () => undefined }
+  });
+  server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
   assert.ok(address && typeof address === "object");
-  try {
-    const secret = "OVERSIZED_VISUAL_BODY_MUST_NOT_ECHO";
-    const rawBody = `${" ".repeat(2 * 1024 * 1024)}${JSON.stringify({ secret })}`;
-    const response = await fetch(
-      `http://127.0.0.1:${address.port}/api/v1/acquisition/visual-reader-sessions`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "Idempotency-Key": "oversized-whitespace",
-          "X-Request-Id": "visual-reader-oversized-body"
-        },
-        body: rawBody
-      }
-    );
-    assert.equal(response.status, 413);
-    const body = await response.json() as Record<string, unknown>;
-    assert.deepEqual(Object.keys(body).sort(), [
-      "code", "details", "message", "requestId", "retryable"
-    ]);
-    assert.equal(body.code, "payload_too_large");
-    assert.equal(body.details, null);
-    assert.equal(body.requestId, "visual-reader-oversized-body");
-    assert.equal(body.retryable, false);
-    assert.equal(JSON.stringify(body).includes(secret), false);
-    assert.equal(response.headers.get("x-request-id"),
-      "visual-reader-oversized-body");
-    assert.equal(response.headers.get("cache-control"), "no-store");
-  } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) =>
-      error ? reject(error) : resolve()));
-    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = previousNodeEnv;
-    if (previousBodyLimit === undefined) delete process.env.JSON_BODY_LIMIT;
-    else process.env.JSON_BODY_LIMIT = previousBodyLimit;
-  }
+  const secret = "OVERSIZED_VISUAL_BODY_MUST_NOT_ECHO";
+  const rawBody = `${" ".repeat(2 * 1024 * 1024)}${JSON.stringify({ secret })}`;
+  const notAdmitted = await fetch(
+    `http://127.0.0.1:${address.port}/api/v1/acquisition/visual-reader-sessions`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: rawBody }
+  );
+  assert.equal(notAdmitted.status, 409);
+  assert.deepEqual(await notAdmitted.json(), { error: "desktop_client_build_not_admitted" });
+  const response = await fetch(
+    `http://127.0.0.1:${address.port}/api/v1/acquisition/visual-reader-sessions`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Shensi-Desktop-Build-Manifest-SHA256": admittedDigest,
+        "Idempotency-Key": "oversized-whitespace",
+        "X-Request-Id": "visual-reader-oversized-body"
+      },
+      body: rawBody
+    }
+  );
+  assert.equal(response.status, 413);
+  const body = await response.json() as Record<string, unknown>;
+  assert.deepEqual(Object.keys(body).sort(), [
+    "code", "details", "message", "requestId", "retryable"
+  ]);
+  assert.equal(body.code, "payload_too_large");
+  assert.equal(body.details, null);
+  assert.equal(body.requestId, "visual-reader-oversized-body");
+  assert.equal(body.retryable, false);
+  assert.equal(JSON.stringify(body).includes(secret), false);
+  assert.equal(response.headers.get("x-request-id"),
+    "visual-reader-oversized-body");
+  assert.equal(response.headers.get("cache-control"), "no-store");
 });

@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
   auditTrialOutreachQueue,
   assertOutreachQueueAuditEmpty,
+  createTrialDockerDependencyShim,
   effectiveTrialOutreachActionsEnabled,
   isRecordedProcess,
   parseTrialCli,
@@ -15,11 +16,15 @@ import {
   startTrialRuntime,
   stopTrialRuntime,
   trialStatus,
+  trialStopWaitMilliseconds,
   writeRecord
 } from "./real-trial-runtime.mjs";
 import { verifyTrialRuntime } from "./real-trial-verify.mjs";
 
 function child(pid) { const value = new EventEmitter(); value.pid = pid; value.stdout = new EventEmitter(); value.stderr = new EventEmitter(); value.kill = () => value.emit("exit", 0); return value; }
+async function fixturePrepareCloudflared(runtimeRoot) {
+  return join(runtimeRoot, "tools", "cloudflared");
+}
 
 test("outreach runtime authorization requires request and a usable configured sidecar", () => {
   const configured = {
@@ -43,6 +48,198 @@ test("outreach runtime authorization requires request and a usable configured si
     baseUrl: "http://127.0.0.1:9999",
     serviceSecretFile: configured.serviceSecretFile
   }), false);
+});
+
+test("container-backed sidecar gets enough time to stop its owned browser", () => {
+  assert.equal(trialStopWaitMilliseconds({ name: "sidecar" }), 30_000);
+  assert.equal(trialStopWaitMilliseconds({ name: "backend" }), 5_000);
+});
+
+test("start removes the same runtime's owned orphan before prepare checks ports", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-orphan-preflight-"));
+  const runtimeRoot = join(root, ".runtime", "real-trial");
+  await mkdir(join(runtimeRoot, "state", "mediacrawler"), {
+    recursive: true,
+    mode: 0o700
+  });
+  const calls = [];
+  await assert.rejects(startTrialRuntime(root, {
+    runtimeRoot,
+    prepareCloudflared: fixturePrepareCloudflared,
+    hostEnvironment: {
+      PATH: "/fixture/bin",
+      HOME: "/fixture/home",
+      LIMA_HOME: "/fixture/lima",
+      TMPDIR: "/fixture/tmp",
+      LANG: "C.UTF-8",
+      HTTPS_PROXY: "http://127.0.0.1:7897"
+    },
+    runCommand: async (command, args, options) => {
+      calls.push({ kind: "command", command, args, options });
+    },
+    isVirtualHostProfilePresent: async () => true,
+    cleanupSidecarContainer: async (environment, options) => {
+      calls.push({ kind: "cleanup", environment, options });
+      return { exists: true, stopped: true, id: "a".repeat(64) };
+    },
+    prepare: async () => {
+      calls.push({ kind: "prepare" });
+      throw new Error("fixture_prepare_after_cleanup");
+    }
+  }), /fixture_prepare_after_cleanup/u);
+
+  assert.deepEqual(calls.map((call) => call.kind), [
+    "command", "cleanup", "prepare"
+  ]);
+  assert.equal(calls[0].command, "/Users/mac/bin/limactl");
+  assert.deepEqual(calls[0].args, [
+    "start", "colima-shensi-trial", "--tty=false"
+  ]);
+  assert.equal(calls[0].options.env.HOME.length > 0, true);
+  assert.equal(calls[0].options.env.LIMA_HOME, "/fixture/lima");
+  assert.equal(calls[0].options.env.HTTPS_PROXY, "http://127.0.0.1:7897");
+  assert.equal(
+    calls[1].environment.MEDIACRAWLER_ENCRYPTED_VOLUME,
+    join(runtimeRoot, "state", "mediacrawler")
+  );
+});
+
+test("first virtual-host bootstrap uses and removes only a private temporary Docker shim", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-first-profile-"));
+  const runtimeRoot = join(root, ".runtime", "real-trial");
+  await mkdir(join(runtimeRoot, "state", "mediacrawler"), {
+    recursive: true,
+    mode: 0o700
+  });
+  const calls = [];
+  await assert.rejects(startTrialRuntime(root, {
+    runtimeRoot,
+    prepareCloudflared: fixturePrepareCloudflared,
+    hostEnvironment: {
+      PATH: "",
+      HOME: "/fixture/home",
+      TMPDIR: "/fixture/tmp",
+      LANG: "C.UTF-8"
+    },
+    isVirtualHostProfilePresent: async () => false,
+    createDockerDependencyShim: async () => ({
+      directory: "/private/runtime/docker-shim",
+      cleanup: async () => calls.push({ kind: "shim-cleanup" })
+    }),
+    runCommand: async (command, args, options) => {
+      calls.push({ kind: "command", command, args, options });
+    },
+    cleanupSidecarContainer: async () => {
+      calls.push({ kind: "container-cleanup" });
+      return { exists: false, stopped: false, id: null };
+    },
+    prepare: async () => {
+      calls.push({ kind: "prepare" });
+      throw new Error("fixture_after_first_bootstrap");
+    }
+  }), /fixture_after_first_bootstrap/u);
+
+  assert.deepEqual(calls.map((call) => call.kind), [
+    "command", "shim-cleanup", "container-cleanup", "prepare"
+  ]);
+  assert.equal(calls[0].command, "/Users/mac/bin/colima");
+  assert.deepEqual(calls[0].args, [
+    "--profile", "shensi-trial", "start",
+    "--runtime", "docker", "--activate=false",
+    "--cpus", "4", "--memory", "6", "--disk", "30",
+    "--mount-type", "virtiofs", "--downloader", "curl"
+  ]);
+  assert.equal(calls[0].options.env.PATH,
+    "/private/runtime/docker-shim:/usr/bin:/bin:/usr/sbin:/sbin");
+});
+
+test("failed first virtual-host bootstrap still removes its private Docker shim", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-first-profile-failure-"));
+  const runtimeRoot = join(root, ".runtime", "real-trial");
+  await mkdir(join(runtimeRoot, "state", "mediacrawler"), {
+    recursive: true,
+    mode: 0o700
+  });
+  const calls = [];
+  await assert.rejects(startTrialRuntime(root, {
+    runtimeRoot,
+    prepareCloudflared: fixturePrepareCloudflared,
+    isVirtualHostProfilePresent: async () => false,
+    createDockerDependencyShim: async () => ({
+      directory: "/private/runtime/docker-shim",
+      cleanup: async () => calls.push("shim-cleanup")
+    }),
+    runCommand: async () => {
+      calls.push("colima-start");
+      throw new Error("fixture_colima_start_failed");
+    },
+    prepare: async () => {
+      calls.push("prepare");
+      throw new Error("prepare_must_not_run");
+    }
+  }), /fixture_colima_start_failed/u);
+  assert.deepEqual(calls, ["colima-start", "shim-cleanup"]);
+});
+
+test("default Docker dependency shim is private, minimal, and recoverably removed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-docker-shim-test-"));
+  const shim = await createTrialDockerDependencyShim({
+    PATH: "/fixture/bin",
+    HOME: "/fixture/home",
+    TMPDIR: root,
+    LANG: "C.UTF-8"
+  });
+  const directory = await lstat(shim.directory);
+  const executable = await lstat(join(shim.directory, "docker"));
+  assert.equal(directory.isDirectory(), true);
+  assert.equal(directory.isSymbolicLink(), false);
+  assert.equal(directory.mode & 0o077, 0);
+  assert.equal(executable.isFile(), true);
+  assert.equal(executable.isSymbolicLink(), false);
+  assert.equal(executable.mode & 0o077, 0);
+  assert.equal(await readFile(join(shim.directory, "docker"), "utf8"),
+    "#!/bin/sh\nexit 0\n");
+  await shim.cleanup();
+  await assert.rejects(lstat(shim.directory), /ENOENT/u);
+});
+
+test("stop and status expose a same-runtime orphan container", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-orphan-status-"));
+  const pidsDirectory = join(root, "pids");
+  await mkdir(join(root, "state", "mediacrawler"), {
+    recursive: true,
+    mode: 0o700
+  });
+  const inspected = [];
+  const orphan = {
+    exists: true,
+    running: true,
+    id: "b".repeat(64)
+  };
+  const status = await trialStatus(root, {
+    inspectSidecarContainer: async (environment) => {
+      inspected.push(environment.MEDIACRAWLER_ENCRYPTED_VOLUME);
+      return orphan;
+    }
+  });
+  assert.equal(status.running, false);
+  assert.deepEqual(status.sidecarContainer, orphan);
+
+  const stopped = await stopTrialRuntime({ pidsDirectory }, {
+    cleanupSidecarContainer: async (environment) => {
+      inspected.push(environment.MEDIACRAWLER_ENCRYPTED_VOLUME);
+      return { exists: true, stopped: true, id: orphan.id };
+    }
+  });
+  assert.deepEqual(stopped.sidecarContainer, {
+    exists: true,
+    stopped: true,
+    id: orphan.id
+  });
+  assert.deepEqual(inspected, [
+    join(root, "state", "mediacrawler"),
+    join(root, "state", "mediacrawler")
+  ]);
 });
 
 test("CLI outreach authorization is an explicit one-shot publish or start flag", () => {
@@ -127,18 +324,28 @@ test("outreach queue audit uses a read-only transaction and aggregates every non
   assert.deepEqual(calls.slice(-2), ["ROLLBACK", "END"]);
 });
 
-test("publish stops the current trial before rebuilding the same retained runtime", async () => {
+test("publish preflights retained cloudflared before stopping and rebuilding the current trial", async () => {
   const root = await mkdtemp(join(tmpdir(), "shensi-trial-publish-"));
   const runtimeRoot = join(root, ".runtime", "real-trial");
   const calls = [];
+  const hostEnvironment = { PATH: "/fixture/bin" };
   const published = await publishTrialRuntime(root, {
     runtimeRoot,
+    hostEnvironment,
+    prepareCloudflared: async (preparedRoot, options) => {
+      calls.push(["prepare-cloudflared", preparedRoot, options]);
+      return join(preparedRoot, "tools", "cloudflared");
+    },
     stop: async (runtime) => {
       calls.push(["stop", runtime.pidsDirectory]);
       return { stopped: ["frontend", "backend"], stale: [] };
     },
     removeStatus: async (path) => calls.push(["remove-status", path]),
-    startOptions: { outreachActionsEnabled: true, actionVisualLocator: "rapidocr" },
+    startOptions: {
+      outreachActionsEnabled: true,
+      actionVisualLocator: "rapidocr",
+      cloudflaredBinary: "/fixture/external-cloudflared"
+    },
     start: async (repositoryRoot, options) => {
       calls.push(["start", repositoryRoot, options]);
       return { origin: "https://published.trycloudflare.com" };
@@ -146,17 +353,46 @@ test("publish stops the current trial before rebuilding the same retained runtim
     verify: async (runtime) => calls.push(["verify", runtime.origin])
   });
   assert.deepEqual(calls, [
+    ["prepare-cloudflared", runtimeRoot, {
+      cloudflaredBinary: "/fixture/external-cloudflared",
+      hostEnvironment
+    }],
     ["stop", join(runtimeRoot, "pids")],
     ["remove-status", join(runtimeRoot, "status.json")],
     ["start", root, {
       outreachActionsEnabled: true,
       actionVisualLocator: "rapidocr",
+      cloudflaredBinary: "/fixture/external-cloudflared",
+      preparedCloudflaredBinary: join(runtimeRoot, "tools", "cloudflared"),
       runtimeRoot
     }],
     ["verify", "https://published.trycloudflare.com"]
   ]);
   assert.equal(published.origin, "https://published.trycloudflare.com");
   assert.deepEqual(published.stopped, ["frontend", "backend"]);
+});
+
+test("publish keeps the current trial and status untouched when cloudflared preflight fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-publish-preflight-failure-"));
+  const calls = [];
+
+  await assert.rejects(publishTrialRuntime(root, {
+    prepareCloudflared: async () => {
+      calls.push("prepare-cloudflared");
+      throw new Error("TRIAL_CLOUDFLARED_REQUIRED");
+    },
+    stop: async () => {
+      calls.push("stop");
+      return { stopped: [], stale: [] };
+    },
+    removeStatus: async () => calls.push("remove-status"),
+    start: async () => {
+      calls.push("start");
+      return { origin: "https://must-not-start.example" };
+    }
+  }), /TRIAL_CLOUDFLARED_REQUIRED/u);
+
+  assert.deepEqual(calls, ["prepare-cloudflared"]);
 });
 
 test("publish tears down the newly started runtime when verification fails", async () => {
@@ -171,6 +407,7 @@ test("publish tears down the newly started runtime when verification fails", asy
   await assert.rejects(
     publishTrialRuntime(root, {
       runtimeRoot,
+      prepareCloudflared: fixturePrepareCloudflared,
       stop: async (runtime) => {
         calls.push(["stop", runtime.records?.map((record) => record.name) ?? "old"]);
         return { stopped: [], stale: [] };
@@ -201,6 +438,7 @@ test("start failure signals the owned process group instead of only the wrapper"
   };
 
   await assert.rejects(startTrialRuntime(root, {
+    prepareCloudflared: fixturePrepareCloudflared,
     prepare: async () => ({
       root,
       stateDirectory: join(root, "state"),
@@ -254,7 +492,7 @@ test("trial status recomputes aggregate running from owned process records", asy
   }]);
 });
 
-test("trial status is running only when all six owned service records are live", async () => {
+test("trial status is running only when all six owned service records are live and the public origin is reachable", async () => {
   const root = await mkdtemp(join(tmpdir(), "shensi-trial-status-complete-"));
   const pidsDirectory = join(root, "pids");
   await writeFile(join(root, "status.json"), JSON.stringify({
@@ -279,9 +517,57 @@ test("trial status is running only when all six owned service records are live",
       const record = (await readRuntimeRecords({ pidsDirectory }))
         .find((value) => value.pid === recordPid);
       return record?.expectedPsCommand ?? null;
-    }
+    },
+    fetchImpl: async () => new Response(null, { status: 200 })
   });
   assert.equal(status.running, true);
+  assert.equal(status.processesRunning, true);
+  assert.equal(status.publicReachable, true);
+});
+
+test("trial status reports live processes separately when the public origin returns 530 or cannot resolve", async () => {
+  const root = await mkdtemp(join(tmpdir(), "shensi-trial-status-public-down-"));
+  const pidsDirectory = join(root, "pids");
+  await writeFile(join(root, "status.json"), JSON.stringify({
+    version: 1,
+    running: true,
+    origin: "https://unreachable.trycloudflare.com"
+  }), { mode: 0o600 });
+  let pid = 4_700;
+  let nonceValue = 1;
+  for (const name of ["mysql", "tunnel", "backend", "sidecar", "frontend", "gateway"]) {
+    const nonce = String(nonceValue++).repeat(32);
+    await writeRecord({ pidsDirectory }, {
+      name,
+      pid: pid++,
+      command: "/fixture/node",
+      args: [name, "--runtime-nonce", nonce],
+      nonce
+    });
+  }
+  const readProcessCommand = async (recordPid) => {
+    const record = (await readRuntimeRecords({ pidsDirectory }))
+      .find((value) => value.pid === recordPid);
+    return record?.expectedPsCommand ?? null;
+  };
+  const unreachableFetches = [
+    async () => new Response(null, { status: 530 }),
+    async () => {
+      throw new TypeError("fetch failed", {
+        cause: { code: "ENOTFOUND" }
+      });
+    }
+  ];
+
+  for (const fetchImpl of unreachableFetches) {
+    const status = await trialStatus(root, {
+      readProcessCommand,
+      fetchImpl
+    });
+    assert.equal(status.processesRunning, true);
+    assert.equal(status.publicReachable, false);
+    assert.equal(status.running, false);
+  }
 });
 
 test("supervisor orders isolated loopback processes around the tunnel origin and stops only recorded children", async () => {
@@ -289,8 +575,20 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
   const calls = [];
   const children = new Map();
   let nextPid = 900;
+  const staleDesktopEnvironment = {
+    DOUYIN_OUTREACH_APPROVALS_ENABLED: "true",
+    DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED: "true",
+    DOUYIN_OUTREACH_DESKTOP_EXECUTION_ENABLED: "true",
+    SHENSI_DESKTOP_CLIENT_ADMISSION_MODE: "exact",
+    SHENSI_DESKTOP_ADMITTED_BUILD_MANIFEST_SHA256: "d".repeat(64)
+  };
   const runtime = await startTrialRuntime(root, {
-    prepare: async () => ({ root, environmentFile: join(root, "trial.env"), stateDirectory: join(root, "state"), logsDirectory: join(root, "logs"), pidsDirectory: join(root, "pids"), toolsDirectory: join(root, "tools"), mysqlDirectory: join(root, "mysql"), secretsDirectory: join(root, "secrets"), environment: { DATABASE_URL: "mysql://shensi_trial_app:fixture@127.0.0.1:3310/shensi_trial", SHENSI_TRIAL_APP_PASSWORD_FILE: join(root, "secrets/app-password"), MEDIACRAWLER_BASE_URL: "http://127.0.0.1:5612", MEDIACRAWLER_SERVICE_SECRET_FILE: join(root, "secrets/service-secret"), DOUYIN_OUTREACH_ACTIONS_ENABLED: "true", DOUYIN_ACTION_VISUAL_LOCATOR: "rapidocr" } }),
+    hostEnvironment: { ...process.env, ...staleDesktopEnvironment },
+    prepareCloudflared: async (runtimeRoot, options) => {
+      calls.push({ cloudflaredPreflight: { runtimeRoot, options } });
+      return join(runtimeRoot, "tools", "cloudflared");
+    },
+    prepare: async () => ({ root, environmentFile: join(root, "trial.env"), stateDirectory: join(root, "state"), logsDirectory: join(root, "logs"), pidsDirectory: join(root, "pids"), toolsDirectory: join(root, "tools"), mysqlDirectory: join(root, "mysql"), secretsDirectory: join(root, "secrets"), environment: { ...staleDesktopEnvironment, DATABASE_URL: "mysql://shensi_trial_app:fixture@127.0.0.1:3310/shensi_trial", SHENSI_TRIAL_APP_PASSWORD_FILE: join(root, "secrets/app-password"), MEDIACRAWLER_BASE_URL: "http://127.0.0.1:5612", MEDIACRAWLER_SERVICE_SECRET_FILE: join(root, "secrets/service-secret"), DOUYIN_OUTREACH_ACTIONS_ENABLED: "true", DOUYIN_ACTION_VISUAL_LOCATOR: "rapidocr" } }),
     isPortAvailable: async () => true,
     wrapCommands: false,
     runCommand: async (command, args, options) => calls.push({ oneShot: [command, ...args], options }),
@@ -306,6 +604,7 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
         queued: 0, blockedByPredecessor: 0, executing: 0
       }, nonterminalCount: 0 };
     },
+    isVirtualHostProfilePresent: async () => true,
     mysqlBinary: "/fixture/mysqld",
     cloudflaredBinary: "/fixture/cloudflared",
     backendCommand: ["node", "backend.js"],
@@ -315,9 +614,20 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
   assert.equal(calls.find((call) => call.command === "/fixture/mysqld")?.command, "/fixture/mysqld");
   const mysql = calls.find((call) => call.command === "/fixture/mysqld");
   assert.ok(mysql.args.includes("--socket=/private/tmp/shensi-real-trial-3310.sock"));
-  const tunnel = calls.findIndex((call) => call.command === "/fixture/cloudflared");
+  const tunnel = calls.findIndex((call) => call.command
+    === join(root, ".runtime", "real-trial", "tools", "cloudflared"));
+  const cloudflaredPreflight = calls.findIndex((call) => call.cloudflaredPreflight);
   const backendCalls = calls.filter((call) => call.args?.includes("backend.js"));
   const backend = calls.findIndex((call) => call === backendCalls.at(-1));
+  assert.ok(cloudflaredPreflight >= 0 && cloudflaredPreflight < tunnel);
+  assert.equal(
+    calls[cloudflaredPreflight].cloudflaredPreflight.runtimeRoot,
+    join(root, ".runtime", "real-trial")
+  );
+  assert.equal(
+    calls[cloudflaredPreflight].cloudflaredPreflight.options.cloudflaredBinary,
+    "/fixture/cloudflared"
+  );
   assert.ok(tunnel >= 0 && backend > tunnel);
   assert.equal(
     calls[backend].options.env.CORS_ORIGINS,
@@ -325,15 +635,23 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
   );
   assert.equal(backendCalls[0].options.env.DOUYIN_OUTREACH_ACTIONS_ENABLED, "false");
   assert.equal(backendCalls[1].options.env.DOUYIN_OUTREACH_ACTIONS_ENABLED, "true");
-  const sidecarCall = calls.find((call) => call.command === "uv");
-  assert.ok(sidecarCall, "rapidocr trial must launch the pinned uv extra command");
-  assert.deepEqual(sidecarCall.args.slice(0, 8), [
-    "run", "--frozen", "--project", join(root, "services/media-crawler"),
-    "--extra", "visual-locator", "uvicorn", "shensi_adapter.app:app"
-  ]);
+  for (const key of ["DOUYIN_OUTREACH_APPROVALS_ENABLED", "DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED"]) {
+    assert.equal(backendCalls[0].options.env[key], "false", `bootstrap ${key}`);
+    assert.equal(backendCalls[1].options.env[key], "true", `authorized server ${key}`);
+  }
+  for (const call of calls.filter((value) => value.options?.env?.DOUYIN_OUTREACH_ACTIONS_ENABLED)) {
+    assert.equal(call.options.env.DOUYIN_OUTREACH_DESKTOP_EXECUTION_ENABLED, "false");
+    assert.equal(call.options.env.SHENSI_DESKTOP_CLIENT_ADMISSION_MODE, "migration_locked");
+    assert.equal(call.options.env.SHENSI_DESKTOP_ADMITTED_BUILD_MANIFEST_SHA256, "");
+  }
+  const sidecarCall = calls.find((call) => call.command?.endsWith("node")
+    && call.args?.[0]?.endsWith("scripts/real-trial-sidecar-container.mjs"));
+  assert.ok(sidecarCall, "trial must supervise the virtual-display container wrapper");
   assert.equal(sidecarCall.options.env.DOUYIN_ACTION_VISUAL_LOCATOR, "rapidocr");
+  assert.equal(sidecarCall.options.env.HOME.length > 0, true);
+  assert.equal(sidecarCall.options.env.LIMA_HOME.length > 0, true);
   const audit = calls.findIndex((call) => call.outreachQueueAudit);
-  const sidecar = calls.findIndex((call) => call.command === "uv");
+  const sidecar = calls.findIndex((call) => call === sidecarCall);
   assert.ok(audit > calls.findIndex((call) => call.provision));
   assert.ok(sidecar >= 0 && sidecar < audit);
   assert.ok(audit < backend);
@@ -343,7 +661,26 @@ test("supervisor orders isolated loopback processes around the tunnel origin and
   );
   assert.ok(calls.filter((call) => call.options?.env?.HOST).every((call) => call.options.env.HOST === "127.0.0.1"));
   const oneShotCalls = calls.filter((call) => call.oneShot);
-  assert.equal(oneShotCalls.length, 5);
+  assert.equal(oneShotCalls.length, 7);
+  assert.ok(oneShotCalls.some((call) => call.oneShot.join(" ")
+    === "/Users/mac/bin/limactl start colima-shensi-trial --tty=false"));
+  assert.ok(oneShotCalls.some((call) => call.oneShot.join(" ").includes(
+    "colima --profile shensi-trial ssh -- docker build"
+  )));
+  const colimaBuild = oneShotCalls.find((call) => call.oneShot.join(" ").includes(
+    "colima --profile shensi-trial ssh -- docker build"
+  ));
+  assert.equal(colimaBuild.options.env.HOME.length > 0, true);
+  assert.equal(colimaBuild.options.env.LIMA_HOME.length > 0, true);
+  const virtualHost = calls.findIndex((call) => call.oneShot?.join(" ").includes(
+    "limactl start colima-shensi-trial"
+  ));
+  const imageBuild = calls.findIndex((call) => call.oneShot?.join(" ").includes(
+    "docker build"
+  ));
+  assert.ok(virtualHost >= 0 && virtualHost < imageBuild);
+  assert.ok(imageBuild < calls.findIndex((call) => call.command === "/fixture/mysqld"));
+  assert.ok(imageBuild < tunnel);
   assert.ok(oneShotCalls.some((call) => call.oneShot.join(" ").includes("--filter ./frontend exec tsc -b")));
   assert.ok(oneShotCalls.some((call) => call.oneShot.join(" ").includes("--filter ./frontend exec vite build --outDir")));
   assert.ok(oneShotCalls.some((call) => call.oneShot.join(" ").includes("--filter ./backend exec tsx scripts/setup-trial-mysql.ts")));
@@ -361,6 +698,16 @@ test("supervisor wraps direct long-lived service commands so recorded wrapper PI
   const oneShotCalls = [];
   let nextPid = 1_100;
   await startTrialRuntime(root, {
+    hostEnvironment: {
+      ...process.env,
+      DOUYIN_OUTREACH_ACTIONS_ENABLED: "true",
+      DOUYIN_OUTREACH_APPROVALS_ENABLED: "true",
+      DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED: "true",
+      DOUYIN_OUTREACH_DESKTOP_EXECUTION_ENABLED: "true",
+      SHENSI_DESKTOP_CLIENT_ADMISSION_MODE: "exact",
+      SHENSI_DESKTOP_ADMITTED_BUILD_MANIFEST_SHA256: "d".repeat(64)
+    },
+    prepareCloudflared: fixturePrepareCloudflared,
     prepare: async () => ({
       root, environmentFile: join(root, "trial.env"), stateDirectory: join(root, "state"),
       logsDirectory: join(root, "logs"), pidsDirectory: join(root, "pids"),
@@ -390,12 +737,19 @@ test("supervisor wraps direct long-lived service commands so recorded wrapper PI
     const marker = wrapper.args.indexOf("--");
     return JSON.parse(Buffer.from(wrapper.args[marker + 1], "base64url").toString("utf8"));
   });
+  for (const call of calls) {
+    assert.equal(call.options.env.DOUYIN_OUTREACH_ACTIONS_ENABLED, "false");
+    assert.equal(call.options.env.DOUYIN_OUTREACH_APPROVALS_ENABLED, "false");
+    assert.equal(call.options.env.DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED, "false");
+    assert.equal(call.options.env.DOUYIN_OUTREACH_DESKTOP_EXECUTION_ENABLED, "false");
+    assert.equal(call.options.env.SHENSI_DESKTOP_CLIENT_ADMISSION_MODE, "migration_locked");
+    assert.equal(call.options.env.SHENSI_DESKTOP_ADMITTED_BUILD_MANIFEST_SHA256, "");
+  }
   const target = (suffix) => targets.find((item) => item.args[0]?.endsWith(suffix));
   const backend = target("backend/dist/server.js");
   const frontend = target("frontend/node_modules/vite/bin/vite.js");
-  const sidecar = targets.find((item) => item.command.endsWith(
-    "services/media-crawler/.venv/bin/uvicorn"
-  ));
+  const sidecar = targets.find((item) => item.command.endsWith("node")
+    && item.args[0]?.endsWith("scripts/real-trial-sidecar-container.mjs"));
   assert.ok(backend && frontend && sidecar);
   assert.match(backend.command, /node$/u);
   assert.match(backend.args[0], /backend\/dist\/server\.js$/u);
@@ -409,8 +763,8 @@ test("supervisor wraps direct long-lived service commands so recorded wrapper PI
     && call.includes("build")
     && call.includes("--outDir")
     && call.includes(isolatedFrontend)));
-  assert.match(sidecar.command, /services\/media-crawler\/\.venv\/bin\/uvicorn$/u);
-  assert.deepEqual(sidecar.args.slice(0, 2), ["shensi_adapter.app:app", "--app-dir"]);
+  assert.match(sidecar.command, /node$/u);
+  assert.match(sidecar.args[0], /scripts\/real-trial-sidecar-container\.mjs$/u);
 });
 
 test("verification checks local health, protected authentication, and public isolation", async () => {
@@ -420,6 +774,143 @@ test("verification checks local health, protected authentication, and public iso
     return { ok: url.endsWith("/healthz") || url.endsWith("/api/health") || url.endsWith("/internal/v1/health"), status: url.endsWith("/api/auth/me") ? 401 : url.endsWith("/internal/v1/health") ? 404 : 200 };
   } });
   assert.deepEqual(calls, ["http://127.0.0.1:5608/healthz", "http://127.0.0.1:5608/api/health", "http://127.0.0.1:5608/api/auth/me", "http://127.0.0.1:5608/internal/v1/health"]);
+});
+
+test("verification retries a transient network failure before checking the full public contract", async () => {
+  const calls = [];
+  await verifyTrialRuntime({
+    origin: "https://trial-fixture.example",
+    retryDelaysMs: [0],
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (calls.length === 1) throw new TypeError("fetch failed");
+      return {
+        ok: url.endsWith("/healthz") || url.endsWith("/api/health"),
+        status: url.endsWith("/api/auth/me") ? 401 : url.endsWith("/internal/v1/health") ? 404 : 200
+      };
+    }
+  });
+  assert.deepEqual(calls, [
+    "https://trial-fixture.example/healthz",
+    "https://trial-fixture.example/healthz",
+    "https://trial-fixture.example/api/health",
+    "https://trial-fixture.example/api/auth/me",
+    "https://trial-fixture.example/internal/v1/health"
+  ]);
+});
+
+test("verification retries a temporary 530 before the public origin becomes healthy", async () => {
+  const calls = [];
+  await verifyTrialRuntime({
+    origin: "https://trial-fixture.example",
+    retryDelaysMs: [0],
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (calls.length === 1) return { ok: false, status: 530 };
+      return {
+        ok: url.endsWith("/healthz") || url.endsWith("/api/health"),
+        status: url.endsWith("/api/auth/me") ? 401 : url.endsWith("/internal/v1/health") ? 404 : 200
+      };
+    }
+  });
+  assert.deepEqual(calls, [
+    "https://trial-fixture.example/healthz",
+    "https://trial-fixture.example/healthz",
+    "https://trial-fixture.example/api/health",
+    "https://trial-fixture.example/api/auth/me",
+    "https://trial-fixture.example/internal/v1/health"
+  ]);
+});
+
+test("verification bounds each request and reports an exhausted network failure with a safe code", async () => {
+  const observedSignals = [];
+  await assert.rejects(
+    verifyTrialRuntime({
+      origin: "https://secret-origin.example",
+      requestTimeoutMs: 5,
+      retryDelaysMs: [],
+      fetchImpl: async (_url, options) => {
+        observedSignals.push(options.signal);
+        return await new Promise((_resolve, reject) => {
+          const keepAlive = setTimeout(
+            () => reject(new Error("fixture_timeout_signal_missing")), 100
+          );
+          options.signal.addEventListener("abort", () => {
+            clearTimeout(keepAlive);
+            reject(options.signal.reason);
+          }, { once: true });
+        });
+      }
+    }),
+    (error) => {
+      assert.equal(error.message, "TRIAL_PUBLIC_VERIFICATION_UNAVAILABLE");
+      assert.doesNotMatch(error.message, /secret-origin/u);
+      return true;
+    }
+  );
+  assert.equal(observedSignals.length, 1);
+  assert.equal(observedSignals[0].aborted, true);
+});
+
+test("verification reports exhausted unhealthy responses with a stable code", async () => {
+  let calls = 0;
+  await assert.rejects(
+    verifyTrialRuntime({
+      origin: "https://trial-fixture.example",
+      retryDelaysMs: [0],
+      fetchImpl: async () => {
+        calls += 1;
+        return { ok: false, status: 530 };
+      }
+    }),
+    { message: "TRIAL_GATEWAY_OR_BACKEND_UNHEALTHY" }
+  );
+  assert.equal(calls, 2);
+});
+
+test("verification fails closed without retry when the protected route is exposed", async () => {
+  const calls = [];
+  await assert.rejects(
+    verifyTrialRuntime({
+      origin: "https://trial-fixture.example",
+      retryDelaysMs: [0, 0],
+      fetchImpl: async (url) => {
+        calls.push(url);
+        if (url.endsWith("/api/auth/me")) return { ok: true, status: 200 };
+        return { ok: true, status: 200 };
+      }
+    }),
+    { message: "TRIAL_PROTECTED_ROUTE_NOT_AUTHENTICATED" }
+  );
+  assert.deepEqual(calls, [
+    "https://trial-fixture.example/healthz",
+    "https://trial-fixture.example/api/health",
+    "https://trial-fixture.example/api/auth/me"
+  ]);
+});
+
+test("verification fails closed without retry when an internal route is exposed", async () => {
+  const calls = [];
+  await assert.rejects(
+    verifyTrialRuntime({
+      origin: "https://trial-fixture.example",
+      retryDelaysMs: [0, 0],
+      fetchImpl: async (url) => {
+        calls.push(url);
+        return {
+          ok: true,
+          status: url.endsWith("/api/auth/me") ? 401 : 200
+        };
+      }
+    }),
+    { message: "TRIAL_INTERNAL_ROUTE_EXPOSED" }
+  );
+  assert.deepEqual(calls, [
+    "https://trial-fixture.example/healthz",
+    "https://trial-fixture.example/api/health",
+    "https://trial-fixture.example/api/auth/me",
+    "https://trial-fixture.example/internal/v1/health"
+  ]);
 });
 
 test("persisted lifecycle only signals a PID whose command and nonce still match", async () => {
@@ -476,7 +967,8 @@ test("start removes records for missing PIDs before the port preflight", async (
     nonce: "e".repeat(32)
   });
   await assert.rejects(startTrialRuntime(root, {
-    prepare: async () => ({ root, pidsDirectory }),
+    prepareCloudflared: fixturePrepareCloudflared,
+    prepare: async () => ({ root, pidsDirectory, environment: {} }),
     readProcessCommand: async () => null,
     isPortAvailable: async () => false
   }), /TRIAL_PORT_OCCUPIED/u);
@@ -493,7 +985,8 @@ test("start preserves a record when its PID belongs to another process", async (
   });
   const before = await readFile(stored.path, "utf8");
   await assert.rejects(startTrialRuntime(root, {
-    prepare: async () => ({ root, pidsDirectory }),
+    prepareCloudflared: fixturePrepareCloudflared,
+    prepare: async () => ({ root, pidsDirectory, environment: {} }),
     readProcessCommand: async () => "/different/process --runtime-nonce " + "f".repeat(32),
     isPortAvailable: async () => false
   }), /TRIAL_PID_RECORD_ACTIVE_OR_REUSED:backend/u);

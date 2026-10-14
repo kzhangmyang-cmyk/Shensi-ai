@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { parse as parseYaml } from "yaml";
 
 type AcquisitionHttpMethod =
   | "get"
@@ -650,11 +651,11 @@ const privateDomainHandoffRecoveryRequestSchema = {
   properties: {
     operationCode: {
       type: "string",
-      enum: ["handoff_acquisition_candidate_v1"]
+      enum: ["handoff_acquisition_candidate_v1", "handoff_acquisition_candidate_v2"]
     },
     runId: { type: "string", minLength: 1, maxLength: 255 },
     discoveredEventId: { type: "string", minLength: 1, maxLength: 255 },
-    decisionVersion: { type: "string", minLength: 1, maxLength: 100 },
+    decisionVersion: { type: "string", maxLength: 100 },
     mode: { type: "string", enum: ["create_new", "link_existing"] },
     existingCustomerId: { type: "string", maxLength: 255 },
     followUp: {
@@ -715,7 +716,7 @@ const privateDomainHandoffResponseSchema = {
     lead: { type: "object", additionalProperties: true },
     customer: { type: "object", additionalProperties: true },
     todo: { type: "object", additionalProperties: true },
-    intelligence: handoffIntelligenceResponseSchema,
+    intelligence: { ...handoffIntelligenceResponseSchema, nullable: true },
     recovery: {
       type: "object",
       additionalProperties: false,
@@ -1115,6 +1116,9 @@ function add(
 const acquisitionOperationIds: Record<string, string> = {
   "post /api/v1/acquisition/social-accounts/douyin/login-sessions": "createAcquisitionDouyinLoginSession",
   "get /api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}": "getAcquisitionDouyinLoginSession",
+  "delete /api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}": "cancelAcquisitionDouyinLoginSession",
+  "post /api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/live": "createAcquisitionDouyinLiveLoginSession",
+  "post /api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/interactions": "interactAcquisitionDouyinLoginSession",
   "get /api/v1/acquisition/social-accounts/douyin": "listAcquisitionDouyinSocialAccounts",
   "delete /api/v1/acquisition/social-accounts/{accountId}": "disconnectAcquisitionSocialAccount",
   "get /api/v1/acquisition/plans/{planId}/automation": "getAcquisitionDouyinAutomation",
@@ -1133,6 +1137,7 @@ const acquisitionOperationIds: Record<string, string> = {
   "post /api/v1/acquisition/outreach-batches/{batchId}/pause": "pauseAcquisitionOutreachBatch",
   "post /api/v1/acquisition/outreach-batches/{batchId}/resume": "resumeAcquisitionOutreachBatch",
   "get /api/v1/acquisition/outreach-batches/{batchId}/actions": "listAcquisitionOutreachActions",
+  "post /api/v1/acquisition/outreach-batches/{batchId}/actions/recover-account": "recoverAcquisitionOutreachActionAccount",
   "post /api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile": "reconcileAcquisitionOutreachAction",
   "get /api/v1/acquisition/providers": "listAcquisitionProviders",
   "get /api/v1/acquisition/provider-connections":
@@ -1299,7 +1304,60 @@ const socialAccountSchema = {
   required: ["id", "workspaceId", "platform", "displayName", "state", "loginStateVersion", "revision", "etag", "lastValidatedAt", "createdAt", "updatedAt"],
   properties: { id: { type: "string" }, workspaceId: { type: "string" }, platform: { type: "string", enum: ["douyin"] }, displayName: { type: "string", nullable: true }, state: { type: "string", enum: ["awaiting_scan", "active", "login_expired", "risk_paused", "disconnected"] }, loginStateVersion: { type: "integer", nullable: true }, revision: { type: "integer", minimum: 1 }, etag: { type: "string" }, lastValidatedAt: { type: "string", nullable: true }, createdAt: { type: "string" }, updatedAt: { type: "string" } }
 };
-const socialLoginSessionSchema = { type: "object", additionalProperties: false, required: ["id", "platform", "state", "qrImageDataUrl", "expiresAt", "account"], properties: { id: { type: "string" }, platform: { type: "string", enum: ["douyin"] }, state: { type: "string", enum: ["awaiting_scan", "active", "login_expired"] }, qrImageDataUrl: { type: "string", nullable: true, pattern: "^data:image/" }, expiresAt: { type: "string" }, account: { ...socialAccountSchema, nullable: true } } };
+const socialLoginPageSchema = {
+  type: "object", additionalProperties: false,
+  required: ["imageDataUrl", "width", "height"],
+  properties: {
+    imageDataUrl: { type: "string", pattern: "^data:image/" },
+    width: { type: "integer", minimum: 1 },
+    height: { type: "integer", minimum: 1 }
+  }
+};
+const socialLoginDiagnosticSchema = {
+  type: "object", nullable: true, additionalProperties: false,
+  required: ["code", "message", "recoverable", "occurredAt"],
+  properties: {
+    code: { type: "string", minLength: 1, maxLength: 100 },
+    message: { type: "string", minLength: 1, maxLength: 500 },
+    recoverable: { type: "boolean" },
+    occurredAt: { type: "string", format: "date-time" }
+  }
+};
+const socialLoginSessionSchema = { type: "object", additionalProperties: false, required: ["id", "platform", "state", "interactionSurface", "runtimeState", "authState", "taskState", "diagnostic", "screenshotAvailable", "qrAvailable", "qrImageDataUrl", "qrStatus", "loginPage", "failureCode", "expiresAt", "account"], properties: { id: { type: "string" }, platform: { type: "string", enum: ["douyin"] }, state: { type: "string", enum: ["awaiting_scan", "active", "login_expired"] }, interactionSurface: { type: "string", enum: ["external_window", "remote_canvas"] }, runtimeState: { type: "string", enum: ["stopped", "starting", "running", "crashed"] }, authState: { type: "string", enum: ["unknown", "logged_out", "waiting_for_user", "verification_required", "authenticated", "expired"] }, taskState: { type: "string", enum: ["idle", "preparing", "running", "cancelling", "completed", "failed"] }, diagnostic: socialLoginDiagnosticSchema, screenshotAvailable: { type: "boolean" }, qrAvailable: { type: "boolean" }, qrImageDataUrl: { type: "string", nullable: true, pattern: "^data:image/" }, qrStatus: { type: "string", nullable: true, enum: ["opening", "ready", "expired", "network_error", "verification_required", null] }, loginPage: { ...socialLoginPageSchema, nullable: true }, failureCode: { type: "string", nullable: true, enum: ["douyin_login_ui_unsupported", "douyin_verification_required", "douyin_login_page_unavailable", "douyin_login_page_not_allowed", "douyin_browser_unavailable", "douyin_browser_command_timeout", "douyin_login_open_failed", null] }, expiresAt: { type: "string" }, account: { ...socialAccountSchema, nullable: true } } };
+const socialLiveLoginSessionSchema = {
+  type: "object", additionalProperties: false,
+  required: ["socketPath", "expiresAt"],
+  properties: {
+    socketPath: {
+      type: "string", pattern: "^/douyin-live/[A-Za-z0-9_-]{43,128}$"
+    },
+    expiresAt: { type: "string", format: "date-time" }
+  }
+};
+const socialLoginInteractionSchema = {
+  discriminator: { propertyName: "type" },
+  oneOf: [
+    { type: "object", additionalProperties: false,
+      required: ["type"], properties: { type: { const: "refresh_qr" } } },
+    { type: "object", additionalProperties: false,
+      required: ["type", "normalizedX", "normalizedY"],
+      properties: { type: { const: "click" },
+        normalizedX: { type: "number", minimum: 0, maximum: 1 },
+        normalizedY: { type: "number", minimum: 0, maximum: 1 } } },
+    { type: "object", additionalProperties: false,
+      required: ["type", "text"], properties: { type: { const: "text" },
+        text: { type: "string", minLength: 1, maxLength: 200 } } },
+    { type: "object", additionalProperties: false,
+      required: ["type", "key"], properties: { type: { const: "key" },
+        key: { type: "string", enum: ["Enter", "Tab", "Backspace", "Escape",
+          "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] } } },
+    { type: "object", additionalProperties: false,
+      required: ["type", "deltaX", "deltaY"],
+      properties: { type: { const: "scroll" },
+        deltaX: { type: "number", minimum: -1, maximum: 1 },
+        deltaY: { type: "number", minimum: -1, maximum: 1 } } }
+  ]
+};
 const douyinAutomationScheduleSchema = {
   type: "object", additionalProperties: false,
   required: ["enabled", "localTime", "timeZone"],
@@ -1315,6 +1373,7 @@ const douyinAutomationLimitsSchema = {
   properties: {
     maxVideos: { type: "integer", minimum: 1, maximum: 200 },
     maxCommentsPerVideo: { type: "integer", minimum: 1, maximum: 200 },
+    maxComments: { type: "integer", minimum: 1, maximum: 10000 },
     maxPagesPerVideo: { type: "integer", minimum: 1, maximum: 20 },
     maxDurationSeconds: { type: "integer", minimum: 60, maximum: 14_400 }
   }
@@ -1322,7 +1381,7 @@ const douyinAutomationLimitsSchema = {
 const douyinAutomationPolicyProperties = {
   keywords: { type: "array", minItems: 1, maxItems: 20, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 100 } },
   schedule: douyinAutomationScheduleSchema,
-  dailyCandidateLimit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+  dailyCandidateLimit: { type: "integer", minimum: 1, maximum: 200, default: 50, description: "Legacy approval-budget compatibility field; does not limit candidate discovery." },
   collectCreators: { type: "boolean" },
   collectDemandComments: { type: "boolean" },
   limits: douyinAutomationLimitsSchema
@@ -1408,7 +1467,7 @@ const acquisitionCrawlerStatusSchema = {
     state: { type: "string", enum: ["scheduled", "queued", "running", "succeeded", "partial", "paused", "cancelled", "failed"] },
     attempt: { type: "integer", minimum: 0 }, cursorPersisted: { type: "boolean" },
     recordCount: { type: "integer", minimum: 0 }, candidateBudgetUsed: { type: "integer", minimum: 0 },
-    candidateBudgetLimit: { type: "integer", minimum: 1, maximum: 200 },
+    candidateBudgetLimit: { type: "integer", nullable: true, minimum: 1, maximum: 200, description: "Null means unlimited candidate discovery; numbers are historical limits." },
     candidateProjectionState: { type: "string", enum: ["pending", "ready", "failed"] },
     lastErrorCode: { type: "string", nullable: true, maxLength: 100 },
     createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
@@ -1432,6 +1491,12 @@ const acquisitionRunCandidatesSchema = {
       required: ["id", "status", "displayName", "evidence"], properties: {
         id: { type: "string" }, status: { type: "string" },
         displayName: { type: "string", maxLength: 200 },
+        avatarUrl: { type: "string", format: "uri", maxLength: 2_000,
+          pattern: "^[Hh][Tt][Tt][Pp][Ss]://",
+          description: "Optional display-only public avatar hint. It may be absent and never changes candidate, sender, approval, or action authority." },
+        coverUrl: { type: "string", format: "uri", maxLength: 2_000,
+          pattern: "^[Hh][Tt][Tt][Pp][Ss]://",
+          description: "Optional display-only public content-cover hint. It may be absent and never changes candidate, sender, approval, or action authority." },
         evidence: { type: "object", additionalProperties: false,
           required: ["sourceUrl", "excerpt"], properties: {
             sourceUrl: { type: "string", format: "uri",
@@ -1531,14 +1596,16 @@ const acquisitionOutreachActionSchema = {
     policyVersionId: { type: "string", minLength: 1, maxLength: 255 },
     localDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
     kind: { type: "string", enum: ["comment", "direct_message"] }, sequence: { type: "integer", enum: [1, 2] },
-    status: { type: "string", enum: ["queued", "blocked_by_predecessor", "executing", "succeeded", "failed", "risk_paused"] },
+    executionTarget: { type: "string", enum: ["desktop", "server"],
+      description: "Persisted execution authority. Omitted only by historical server responses." },
+    status: { type: "string", enum: ["queued", "blocked_by_predecessor", "claimed", "executing", "succeeded", "failed", "risk_paused", "reconciliation_required"] },
     predecessorActionId: { type: "string", nullable: true, maxLength: 255 },
     targetPublicUrl: { type: "string", format: "uri", maxLength: 2000 },
     content: { type: "string", minLength: 1, maxLength: 800 },
     contentHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
     approvalHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
-    authorizationVersion: { type: "integer", enum: [2],
-      description: "Version-2 direct-message authorization marker; omitted on historical actions." },
+    authorizationVersion: { type: "integer", enum: [2, 3],
+      description: "v3 independently confirmed direct message; v2 retains comment-linked authority; absent on historical actions." },
     approvedBy: { type: "string", minLength: 1, maxLength: 255 },
     approvedAt: { type: "string", format: "date-time" },
     directMessageDailyLimit: { type: "integer", minimum: 1, maximum: 100 },
@@ -1556,9 +1623,52 @@ const acquisitionOutreachActionSchema = {
       "douyin_action_receipt_ambiguous", "douyin_action_timeout", null] }
   }
 };
+const acquisitionOutreachUncertainActionSchema = {
+  type: "object", additionalProperties: false,
+  required: ["actionId", "failureCode"],
+  properties: {
+    actionId: { type: "string", minLength: 1, maxLength: 255 },
+    failureCode: { type: "string", enum: ["action_unavailable",
+      "douyin_action_timeout", "douyin_action_receipt_ambiguous"] }
+  }
+};
+const acquisitionOutreachExecutionGateSchema = {
+  type: "object", additionalProperties: false,
+  required: ["accountId", "accountLoginStateVersion", "riskPaused",
+    "pendingActionIds", "unresolvedActions"],
+  properties: {
+    accountId: { type: "string", minLength: 1, maxLength: 255 },
+    accountLoginStateVersion: { type: "integer", minimum: 1 },
+    riskPaused: { type: "boolean" },
+    pendingActionIds: { type: "array", maxItems: 200, uniqueItems: true,
+      items: { type: "string", minLength: 1, maxLength: 255 } },
+    unresolvedActions: { type: "array", maxItems: 200,
+      items: acquisitionOutreachUncertainActionSchema }
+  }
+};
+const acquisitionOutreachAccountRecoverySchema = {
+  type: "object", additionalProperties: false,
+  required: [...acquisitionOutreachExecutionGateSchema.required,
+    "enabledActionIds", "acknowledgedUncertainActionIds", "recoveredBy",
+    "recoveredAt"],
+  properties: {
+    ...acquisitionOutreachExecutionGateSchema.properties,
+    enabledActionIds: { type: "array", maxItems: 200,
+      uniqueItems: true,
+      items: { type: "string", minLength: 1, maxLength: 255 } },
+    acknowledgedUncertainActionIds: { type: "array", maxItems: 200,
+      uniqueItems: true,
+      items: { type: "string", minLength: 1, maxLength: 255 } },
+    recoveredBy: { type: "string", minLength: 1, maxLength: 255 },
+    recoveredAt: { type: "string", format: "date-time" }
+  }
+};
 function addSocialAccountPaths(paths: AcquisitionOpenApiPaths) {
-  add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions", "post", operation("post", "开始抖音二维码登录", { parameters: [idempotencyParameter(1)], requestBody: jsonBody({ type: "object", required: ["platform"], properties: { platform: { type: "string", enum: ["douyin"] } }, additionalProperties: false }), responses: { ...standardResponses(201, "二维码登录会话", socialLoginSessionSchema), "200": { ...response("幂等重放", socialLoginSessionSchema), headers: { "Idempotency-Replayed": { schema: { type: "string", enum: ["true"] } } } } } }));
-  add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}", "get", operation("get", "查询抖音二维码登录", { parameters: [idParameter(255, "sessionId")], responses: standardResponses(200, "二维码登录会话", socialLoginSessionSchema) }));
+  add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions", "post", operation("post", "开始抖音二维码登录", { parameters: [idempotencyParameter(1)], requestBody: jsonBody({ type: "object", required: ["platform"], properties: { platform: { type: "string", enum: ["douyin"] } }, additionalProperties: false }), responses: { ...standardResponses(201, "二维码登录会话", socialLoginSessionSchema), "200": { ...response("复用当前待登录会话或幂等重放", socialLoginSessionSchema), headers: { "Idempotency-Replayed": { schema: { type: "string", enum: ["true"] } } } }, "503": response("MediaCrawler 服务不可用", errorSchema) } }));
+  add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}", "get", operation("get", "查询抖音二维码登录", { parameters: [idParameter(255, "sessionId")], responses: { ...standardResponses(200, "二维码登录会话", socialLoginSessionSchema), "410": response("抖音登录会话已过期", errorSchema), "503": response("MediaCrawler 服务不可用", errorSchema) } }));
+  add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}", "delete", operation("delete", "取消抖音登录会话", { parameters: [idParameter(255, "sessionId")], responses: { ...standardResponses(204, "登录会话已取消"), "204": { description: "登录会话已取消" } } }));
+  add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/live", "post", operation("post", "创建抖音实时登录窗口", { parameters: [idParameter(255, "sessionId")], responses: { ...standardResponses(200, "实时登录窗口", socialLiveLoginSessionSchema), "409": response("外部浏览器登录模式不提供远程实时画面", errorSchema), "410": response("抖音登录会话已过期", errorSchema), "503": response("MediaCrawler 服务不可用", errorSchema) } }));
+  add(paths, "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/interactions", "post", operation("post", "操作抖音登录页面", { parameters: [idParameter(255, "sessionId")], requestBody: jsonBody(socialLoginInteractionSchema), responses: { ...standardResponses(200, "更新后的抖音登录会话", socialLoginSessionSchema), "410": response("抖音登录会话已过期", errorSchema), "503": response("MediaCrawler 服务不可用", errorSchema) } }));
   add(paths, "/api/v1/acquisition/social-accounts/douyin", "get", operation("get", "列出抖音账号", { responses: standardResponses(200, "抖音账号", { type: "object", additionalProperties: false, required: ["items"], properties: { items: { type: "array", items: socialAccountSchema } } }) }));
   add(paths, "/api/v1/acquisition/social-accounts/{accountId}", "delete", operation("delete", "断开抖音账号", { parameters: [idParameter(255, "accountId"), idempotencyParameter(1), ifMatchParameter()], responses: { ...standardResponses(200, "已断开账号", socialAccountSchema), "200": { ...response("已断开账号", socialAccountSchema), headers: { "Idempotency-Replayed": { schema: { type: "string", enum: ["true"] } } } }, "412": response("资源版本不匹配", errorSchema), "428": response("缺少 If-Match 版本条件", errorSchema) } }));
 }
@@ -1616,7 +1726,7 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
     responses: standardResponses(200, "采集状态", acquisitionCrawlerStatusSchema)
   }));
   add(paths, "/api/v1/acquisition/runs/{runId}/candidates", "get", operation("get", "读取运行的证据候选", {
-    description: "多条抖音证据优先投影可评论视频；仅主页证据作为只读查看回退。",
+    description: "多条抖音证据优先投影可评论视频；仅主页证据作为只读查看回退。可选公开 HTTPS 头像和封面只用于显示，不改变候选、审批或动作权限。",
     parameters: [idParameter(160, "runId"),
       { name: "status", in: "query", required: false, schema: { type: "string", minLength: 1, maxLength: 100 } },
       { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
@@ -1676,15 +1786,15 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
     } }), responses: { ...standardResponses(200, "已审批批次", acquisitionOutreachBatchSchema), "200": batchSuccess("已审批批次", true),
       "428": response("缺少 If-Match", errorSchema) }
   }));
-  add(paths, "/api/v1/acquisition/outreach-batches/{batchId}/direct-messages/approve", "post", operation("post", "确认并排队已成功评论后的真实私信", {
-    description: "Requires an exact succeeded comment receipt for every requested candidate. The command only authorizes durable direct-message actions; it never executes the browser action in this HTTP request.",
+  add(paths, "/api/v1/acquisition/outreach-batches/{batchId}/direct-messages/approve", "post", operation("post", "独立确认并排队真实私信", {
+    description: "Authorizes v3 direct-message actions using the current reviewed sender login, recipient and exact body. No comment or comment receipt is required. The batch and comment approval are unchanged; this HTTP request never executes a browser send. Historical v2 approvals retain their comment-linked authority.",
     parameters: [batchParameter, idempotencyParameter(8), ifMatchParameter()],
     requestBody: jsonBody({ type: "object", additionalProperties: false,
-      required: ["batchRevision", "batchHash", "commentApprovalHash", "dailyLimit",
+      required: ["batchRevision", "batchHash", "accountLoginStateVersion", "dailyLimit",
         "candidates", "confirm"], properties: {
         batchRevision: { type: "integer", minimum: 1 },
         batchHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
-        commentApprovalHash: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+        accountLoginStateVersion: { type: "integer", minimum: 1 },
         dailyLimit: { type: "integer", minimum: 1, maximum: 100, default: 20 },
         candidates: { type: "array", minItems: 1, maxItems: 100, items: {
           type: "object", additionalProperties: false,
@@ -1713,8 +1823,42 @@ function addDouyinAutomationPaths(paths: AcquisitionOpenApiPaths) {
   }));
   add(paths, "/api/v1/acquisition/outreach-batches/{batchId}/actions", "get", operation("get", "读取有序 outbox", {
     parameters: [batchParameter], responses: standardResponses(200, "有序 outbox", { type: "object", additionalProperties: false,
-      required: ["items"], properties: { items: { type: "array", items: acquisitionOutreachActionSchema } } })
+      required: ["items", "executionGate"], properties: {
+        items: { type: "array", items: acquisitionOutreachActionSchema },
+        executionGate: acquisitionOutreachExecutionGateSchema
+      } })
   }));
+  add(paths, "/api/v1/acquisition/outreach-batches/{batchId}/actions/recover-account", "post",
+    operation("post", "人工核验后恢复当前批次的安全评论队列或空队列账号", {
+      description: "仅在账号执行门风险暂停、抖音登录版本仍匹配且账号没有其他排队或执行动作时，原子核对并恢复当前批次的完整待执行集合。若传入与实际状态一致的空集合，只恢复账号执行门，不启用任何动作。结果不确定的历史动作始终保持冻结且不会重发。",
+      parameters: [batchParameter, idempotencyParameter(8), ifMatchParameter()],
+      requestBody: jsonBody({ type: "object", additionalProperties: false,
+        required: ["batchRevision", "accountLoginStateVersion", "pendingActionIds",
+          "acknowledgedUncertainActionIds", "reason", "confirm"],
+        properties: {
+          batchRevision: { type: "integer", minimum: 1 },
+          accountLoginStateVersion: { type: "integer", minimum: 1 },
+          pendingActionIds: { type: "array", maxItems: 200,
+            uniqueItems: true,
+            items: { type: "string", minLength: 1, maxLength: 255 } },
+          acknowledgedUncertainActionIds: { type: "array", maxItems: 200,
+            uniqueItems: true,
+            items: { type: "string", minLength: 1, maxLength: 255 } },
+          reason: { type: "string", minLength: 8, maxLength: 2_000 },
+          confirm: { type: "boolean", enum: [true] }
+        }
+      }),
+      responses: {
+        ...standardResponses(200, "已恢复安全评论队列",
+          acquisitionOutreachAccountRecoverySchema),
+        "200": { ...response("已恢复安全评论队列",
+          acquisitionOutreachAccountRecoverySchema), headers: {
+          "Idempotency-Replayed": { required: false,
+            schema: { type: "string", enum: ["true"] } }
+        } },
+        "428": response("缺少 If-Match", errorSchema)
+      }
+    }));
   add(paths, "/api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile", "post",
     operation("post", "人工确认后只读核验不确定平台回执", {
       parameters: [batchParameter, { name: "actionId", in: "path", required: true,
@@ -2636,13 +2780,12 @@ const privateDomainHandoffWriteSchema = {
     properties: {
       operationCode: {
         type: "string",
-        enum: ["handoff_acquisition_candidate_v1"]
+        enum: ["handoff_acquisition_candidate_v1", "handoff_acquisition_candidate_v2"]
       },
       runId: { type: "string", minLength: 1, maxLength: 255 },
       discoveredEventId: { type: "string", minLength: 1, maxLength: 255 },
       decisionVersion: {
         type: "string",
-        minLength: 1,
         maxLength: 100
       },
       mode: { type: "string", enum: [mode] },
@@ -4068,5 +4211,29 @@ AcquisitionOpenApiPaths {
   addVisualReaderPaths(paths);
   addCoreAgentPaths(paths);
   addAcquisitionOperationIds(paths);
+  addDesktopOutreachPaths(paths);
   return convertEmbeddedSchemasToOpenApi30(paths);
+}
+
+/** Keep the device transport DTOs at the same contract source as generated clients. */
+function addDesktopOutreachPaths(paths: AcquisitionOpenApiPaths) {
+  const contractUrl = new URL("../../contracts/openapi/ai-acquisition.v1.yaml", import.meta.url);
+  const source = parseYaml(readFileSync(contractUrl, "utf8"), {
+    merge: true, maxAliasCount: 1_000
+  }) as Record<string, any>;
+  for (const path of [
+    "/api/v1/acquisition/desktop-installations/enrollments",
+    "/api/v1/acquisition/desktop-installations/register",
+    "/api/v1/acquisition/social-accounts/{accountId}/desktop-binding",
+    "/api/v1/acquisition/desktop-outreach-actions/claim",
+    "/api/v1/acquisition/desktop-outreach-actions/{actionId}/complete",
+    "/api/v1/acquisition/desktop-outreach-actions/{actionId}/reconcile"
+  ]) {
+    const operation = source.paths?.[path]?.post;
+    if (!operation?.operationId) throw new Error(`Missing desktop outreach contract: ${path}`);
+    add(paths, path, "post", dereferenceContractSchema(operation, source, contractUrl));
+    if (source.paths?.[path]?.get) {
+      add(paths, path, "get", dereferenceContractSchema(source.paths[path].get, source, contractUrl));
+    }
+  }
 }

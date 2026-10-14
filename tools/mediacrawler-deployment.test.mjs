@@ -14,6 +14,11 @@ import { runDevelopment } from "../scripts/dev.mjs";
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("MediaCrawler image is a pinned, reproducible Python 3.11 Playwright runtime", () => {
+  const repositoryDockerignore = read(".dockerignore");
+  assert.match(repositoryDockerignore, /^\.runtime\/$/mu);
+  assert.match(repositoryDockerignore, /^\*\*\/\.runtime\/$/mu);
+  assert.match(repositoryDockerignore, /^\*\*\/\.venv\/$/mu);
+  assert.match(repositoryDockerignore, /^\*\*\/\.pytest_cache\/$/mu);
   const dockerfile = read("services/media-crawler/Dockerfile.shensi");
   for (const dockerignore of [read("services/media-crawler/.dockerignore.shensi"),
     read("services/media-crawler/Dockerfile.shensi.dockerignore")]) {
@@ -24,11 +29,20 @@ test("MediaCrawler image is a pinned, reproducible Python 3.11 Playwright runtim
   }
   assert.match(dockerfile, /^FROM ghcr\.io\/astral-sh\/uv:0\.12\.5 AS uv$/mu);
   assert.match(dockerfile, /^FROM python:3\.11\.[0-9]+-slim-bookworm AS (?:builder|runtime)$/mu);
+  assert.match(dockerfile, /FROM python:3\.11\.[0-9]+-slim-bookworm AS builder[\s\S]*?WORKDIR \/app/u);
+  assert.match(dockerfile, /sed -i 's\|http:\/\/deb\.debian\.org\|https:\/\/deb\.debian\.org\|g'/u);
+  assert.match(dockerfile, /apt-get install -y --no-install-recommends build-essential/u);
   assert.match(dockerfile, /uv sync --frozen --no-dev --no-editable/u);
   assert.match(dockerfile, /python -m playwright install --with-deps chromium/u);
+  assert.match(dockerfile, /apt-get install -y --no-install-recommends xauth/u);
+  assert.match(dockerfile, /HOME=\/tmp\/shensi-browser-home/u);
+  assert.match(dockerfile, /xvfb-run/u);
+  assert.match(dockerfile, /-nolisten tcp/u);
   assert.match(dockerfile, /^USER [1-9][0-9]*:[1-9][0-9]*$/mu);
+  assert.doesNotMatch(dockerfile, /COPY --from=builder \/build\/\.venv/u);
   assert.match(dockerfile, /"--timeout-graceful-shutdown", "20"/u);
   assert.doesNotMatch(dockerfile, /MEDIACRAWLER_SERVICE_SECRET\s*=/u);
+  assert.doesNotMatch(dockerfile, /EXPOSE\s+(?:5900|9222)/u);
 });
 
 test("production compose keeps MediaCrawler private, read-only, bounded, and secret-file based", () => {
@@ -39,6 +53,7 @@ test("production compose keeps MediaCrawler private, read-only, bounded, and sec
   assert.match(media, /read_only: true/u);
   assert.match(media, /MEDIACRAWLER_SERVICE_SECRET_FILE: \/run\/secrets\/mediacrawler_service_secret/u);
   assert.match(media, /MEDIACRAWLER_CRAWL_OUTPUT_ROOT: \/var\/lib\/shensi-mediacrawler\/crawl-output/u);
+  assert.match(media, /MEDIACRAWLER_BROWSER_DISPLAY: virtual/u);
   assert.match(media, /DOUYIN_OUTREACH_ACTIONS_ENABLED: \$\{DOUYIN_OUTREACH_ACTIONS_ENABLED:-false\}/u);
   assert.match(media, /DOUYIN_ACTION_VISUAL_LOCATOR: \$\{DOUYIN_ACTION_VISUAL_LOCATOR-disabled\}/u);
   assert.match(media, /args:\s*\n\s+DOUYIN_ACTION_VISUAL_LOCATOR: \$\{DOUYIN_ACTION_VISUAL_LOCATOR-disabled\}/u);
@@ -47,9 +62,10 @@ test("production compose keeps MediaCrawler private, read-only, bounded, and sec
   assert.match(media, /bind:\s*\n\s+create_host_path: false/u);
   assert.match(media, /healthcheck:/u);
   assert.match(media, /stop_grace_period: 25s/u);
-  assert.match(media, /cpus: ["']?1\.0["']?/u);
-  assert.match(media, /memory: 1536M/u);
+  assert.match(media, /cpus: ["']?1\.5["']?/u);
+  assert.match(media, /memory: 2048M/u);
   assert.match(media, /pids_limit: 256/u);
+  assert.match(media, /shm_size: ["']?1gb["']?/u);
   assert.match(media, /no-new-privileges:true/u);
   assert.match(media, /cap_drop:\s*\n\s+- ALL/u);
   assert.match(media, /networks: \[shensi_mediacrawler, shensi_egress\]/u);
@@ -63,7 +79,8 @@ test("production compose keeps MediaCrawler private, read-only, bounded, and sec
   assert.match(backend, /networks: \[shensi_internal, shensi_mediacrawler, shensi_egress\]/u);
 
   const gateway = compose.split("\n  gateway:\n")[1]?.split(/\n(?:secrets|volumes|networks):\n/u)[0] ?? "";
-  assert.doesNotMatch(gateway, /shensi_mediacrawler|media-crawler/u);
+  assert.match(gateway, /shensi_mediacrawler/u);
+  assert.doesNotMatch(gateway, /(?:ports|expose):[^\n]*(?:8899|5900|5901|9222)/u);
 });
 
 test("checked-in runtime examples keep external writes and optional OCR disabled", () => {
@@ -201,7 +218,7 @@ test("host prerequisite validation fails closed on missing, weak, linked, or exp
   }
 });
 
-test("rendered compose validation rejects a published or routed sidecar", () => {
+test("rendered compose validation rejects a published or gateway-disconnected sidecar", () => {
   const safe = {
     services: {
       backend: { networks: { shensi_internal: null, shensi_mediacrawler: null } },
@@ -210,7 +227,7 @@ test("rendered compose validation rejects a published or routed sidecar", () => 
         read_only: true,
         secrets: [{ source: "mediacrawler_service_secret", target: "/run/secrets/mediacrawler_service_secret" }]
       },
-      gateway: { networks: { shensi_internal: null } }
+      gateway: { networks: { shensi_internal: null, shensi_mediacrawler: null } }
     },
     networks: { shensi_mediacrawler: { internal: true } }
   };
@@ -225,8 +242,8 @@ test("rendered compose validation rejects a published or routed sidecar", () => 
   assert.throws(
     () => validateMediaCrawlerComposeConfig({
       ...safe,
-      services: { ...safe.services, gateway: { networks: { shensi_internal: null, shensi_mediacrawler: null } } }
+      services: { ...safe.services, gateway: { networks: { shensi_internal: null } } }
     }),
-    /GATEWAY_MUST_NOT_ROUTE_MEDIACRAWLER/u
+    /GATEWAY_MEDIACRAWLER_NETWORK_REQUIRED/u
   );
 });

@@ -18,6 +18,7 @@ import {
 } from "./runtime-model";
 import {
   renderPublicDouyinImportPanel,
+  renderRecentRunRows,
   renderRealTaskRows,
   type PublicDouyinImportPanelState
 } from "./runtime-presenter";
@@ -88,6 +89,40 @@ export function snapshotDisabledStates(
       element.disabled = disabled;
     });
   };
+}
+
+export function pagehideRequiresTeardown(
+  event: Pick<PageTransitionEvent, "persisted">
+): boolean {
+  return !event.persisted;
+}
+
+/**
+ * The full MediaCrawler editor is useful once a task exists, but it should not
+ * take over the first acquisition viewport in a workspace that has no real
+ * task yet. An explicit plan entry may still reveal it before a task exists.
+ */
+export function shouldShowAutomationWorkspace(
+  realTaskCount: number,
+  openedByOperator: boolean
+): boolean {
+  return realTaskCount > 0 || openedByOperator;
+}
+
+export function listenForAcquisitionPageTeardown(
+  target: EventTarget,
+  teardown: () => void
+): () => void {
+  let tornDown = false;
+  const onPagehide = (event: Event) => {
+    const transition = event as PageTransitionEvent;
+    if (tornDown || !pagehideRequiresTeardown(transition)) return;
+    tornDown = true;
+    target.removeEventListener("pagehide", onPagehide);
+    teardown();
+  };
+  target.addEventListener("pagehide", onPagehide);
+  return () => target.removeEventListener("pagehide", onPagehide);
 }
 
 function byId<T extends HTMLElement = HTMLElement>(id: string): T | null {
@@ -171,14 +206,21 @@ function initialiseRuntime(): void {
   const automationWorkspace = byId("douyinAutomationWorkspace");
   const automationHost = byId("douyinAutomationHost");
   const outreachHost = byId("douyinOutreachHost");
+  const recentRuns = byId("replicaRecentRuns");
   const automationController = createDouyinAutomationController({
     api: createDouyinAutomationApi(),
-    onPlanCreated() {
+    onPlanSaved() {
       document.dispatchEvent(new Event("goodjob:acquisition-refresh-requested"));
     }
   });
   const outreachController = createOutreachBatchController({
-    api: createOutreachBatchApi()
+    api: createOutreachBatchApi(),
+    currentSender() {
+      const account = automationController.getState().account;
+      return account?.state === "active" && account.loginStateVersion !== null
+        ? { accountId: account.id, accountLoginStateVersion: account.loginStateVersion }
+        : null;
+    }
   });
   const unmountOutreach = outreachHost
     ? mountOutreachBatchView(outreachHost, outreachController, {
@@ -217,6 +259,8 @@ function initialiseRuntime(): void {
   });
   const restoreActions: Array<() => void> = [];
   let mode: AcquisitionMode = defaultMode();
+  let knownRealTaskCount = 0;
+  let automationWorkspaceOpenedByOperator = false;
   let overviewRequestVersion = 0;
   let detailRequestVersion = 0;
   let importRequestVersion = 0;
@@ -357,6 +401,7 @@ function initialiseRuntime(): void {
   rememberHidden(runMetrics);
   rememberHidden(demoTimeline);
   rememberHidden(automationWorkspace);
+  rememberHidden(recentRuns);
   demoTaskGroups.forEach(rememberHidden);
   rememberClass(modeBadge);
   rememberClass(runtimeStatus);
@@ -398,6 +443,30 @@ function initialiseRuntime(): void {
 
   function restoreInitialDom(): void {
     for (const restore of restoreActions) restore();
+  }
+
+  function syncAutomationWorkspaceVisibility(): void {
+    if (!automationWorkspace) return;
+    automationWorkspace.hidden = !shouldShowAutomationWorkspace(
+      knownRealTaskCount,
+      automationWorkspaceOpenedByOperator
+    );
+  }
+
+  function openAutomationWorkspace(): void {
+    if (mode !== "real" || !automationHost) return;
+    automationWorkspaceOpenedByOperator = true;
+    syncAutomationWorkspaceVisibility();
+    automationHost.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.requestAnimationFrame(() => {
+      automationHost.querySelector<HTMLInputElement>('input[name="planName"]')
+        ?.focus({ preventScroll: true });
+    });
+    document.dispatchEvent(new CustomEvent("goodjob:acquisition-notify", {
+      detail: {
+        message: "已打开任务设置：填写计划名称和关键词即可，无需搜索 API 或 AI 模型。"
+      }
+    }));
   }
 
   function dispatchModeChanged(phase: ModeChangedDetail["phase"]): void {
@@ -480,7 +549,7 @@ function initialiseRuntime(): void {
     setText("replicaScopeAgentLabel", "智能体执行");
     setText("replicaScopeScriptLabel", "工作流任务");
     setText("replicaStatusLabel", "真实状态");
-    setText("replicaInspectorTitle", "抖音真实获客任务详情");
+    setText("replicaInspectorTitle", "任务概况");
     setText("replicaDetailOwnerLabel", "执行主体");
     setText("replicaDetailProjectLabel", "真实平台");
     setText("replicaDetailDueLabel", "更新时间");
@@ -520,6 +589,7 @@ function initialiseRuntime(): void {
     if (realTaskGroup?.hidden) realTaskGroup.hidden = false;
     if (runMetrics?.hidden) runMetrics.hidden = false;
     if (publicImportHost.hidden) publicImportHost.hidden = false;
+    if (recentRuns?.hidden) recentRuns.hidden = false;
   }
 
   function renderTaskListState(
@@ -569,13 +639,15 @@ function initialiseRuntime(): void {
       }
 
       card.classList.add("is-unavailable");
-      card.setAttribute("aria-disabled", "true");
+      // Pending execution is not disabled carousel navigation.
+      card.removeAttribute("aria-disabled");
       card.dataset.acquisitionPending = "true";
       card.dataset.flowTaskId = "";
       card.dataset.flowState = "待接入";
       if (count) count.textContent = "—";
       if (unit) unit.textContent = "待接入";
-      if (state) state.textContent = "待接入";
+      if (state) state.textContent = card.classList.contains("is-selected")
+        ? "当前浏览 · 待接入" : "待接入";
     });
   }
 
@@ -613,11 +685,18 @@ function initialiseRuntime(): void {
 
   function renderOverview(model: AcquisitionOverviewModel): void {
     const totalTaskCount = model.metrics[0]?.value ?? model.tasks.length;
+    knownRealTaskCount = model.tasks.length;
+    syncAutomationWorkspaceVisibility();
     setRealMetrics(model.metrics);
     setText("replicaRealTaskCount", model.tasks.length);
     if (realTaskList) {
       realTaskList.setAttribute("aria-busy", "false");
       realTaskList.innerHTML = renderRealTaskRows(model.tasks);
+    }
+    if (recentRuns) {
+      recentRuns.hidden = false;
+      recentRuns.setAttribute("aria-busy", "false");
+      recentRuns.innerHTML = renderRecentRunRows(model.tasks);
     }
     setFlowCardRealState(totalTaskCount, model.tasks[0]?.id ?? "");
     setRuntimeStatus(
@@ -630,13 +709,11 @@ function initialiseRuntime(): void {
     }
     const firstTask = model.tasks[0];
     const firstPlanId = firstTask?.planId;
-    const firstCandidateRunId = firstTask?.candidateRunId
-      ?? firstTask?.latestRunId
-      ?? null;
+    const firstCandidateRunId = firstTask?.latestRunId ?? null;
     const automationState = automationController.getState();
     if (firstPlanId && (automationState.planId !== firstPlanId
-      || (firstCandidateRunId !== null
-        && automationState.activeRunId !== firstCandidateRunId))) {
+      || (firstCandidateRunId !== null && automationState.activeRunId === null
+        && !["running", "saving", "error"].includes(automationState.phase)))) {
       void automationController.load(
         firstPlanId,
         firstTask.name,
@@ -662,6 +739,11 @@ function initialiseRuntime(): void {
     setRunMetricValues("—", "—", "—", "—");
     setFlowCardRealState("loading");
     if (realTaskList) realTaskList.setAttribute("aria-busy", "true");
+    if (recentRuns) {
+      recentRuns.hidden = false;
+      recentRuns.setAttribute("aria-busy", "true");
+      recentRuns.innerHTML = renderRecentRunRows([]);
+    }
     renderTaskListState(
       "ph-spinner-gap",
       "正在读取真实任务",
@@ -691,6 +773,11 @@ function initialiseRuntime(): void {
     setRunMetricValues("—", "—", "—", "—");
     setFlowCardRealState("error");
     if (realTaskList) realTaskList.setAttribute("aria-busy", "false");
+    if (recentRuns) {
+      recentRuns.hidden = false;
+      recentRuns.setAttribute("aria-busy", "false");
+      recentRuns.innerHTML = renderRecentRunRows([]);
+    }
     renderTaskListState(
       unauthorized ? "ph-lock-key" : "ph-warning-circle",
       title,
@@ -946,6 +1033,8 @@ function initialiseRuntime(): void {
   function applyRealMode(): void {
     restoreInitialDom();
     runtimeShell.dataset.acquisitionMode = "real";
+    knownRealTaskCount = 0;
+    automationWorkspaceOpenedByOperator = false;
     updateModeButtons();
     demoTaskGroups.forEach((group) => {
       group.hidden = true;
@@ -953,7 +1042,7 @@ function initialiseRuntime(): void {
     if (demoTimeline) demoTimeline.hidden = true;
     if (realTaskGroup) realTaskGroup.hidden = false;
     if (runMetrics) runMetrics.hidden = false;
-    if (automationWorkspace) automationWorkspace.hidden = false;
+    syncAutomationWorkspaceVisibility();
     dispatchModeChanged("selected");
     renderPublicImport();
     enforceRealVisibility();
@@ -975,6 +1064,8 @@ function initialiseRuntime(): void {
     outreachController.abort();
     restoreInitialDom();
     runtimeShell.dataset.acquisitionMode = "demo";
+    knownRealTaskCount = 0;
+    automationWorkspaceOpenedByOperator = false;
     updateModeButtons();
     publicImport = { ...publicImport, visible: false };
     if (automationWorkspace) automationWorkspace.hidden = true;
@@ -1021,17 +1112,15 @@ function initialiseRuntime(): void {
   });
 
   document.addEventListener("goodjob:acquisition-mediacrawler-create-requested", () => {
-    if (mode !== "real" || !automationHost) return;
-    automationHost.scrollIntoView({ behavior: "smooth", block: "start" });
-    window.requestAnimationFrame(() => {
-      automationHost.querySelector<HTMLInputElement>('input[name="planName"]')
-        ?.focus({ preventScroll: true });
-    });
-    document.dispatchEvent(new CustomEvent("goodjob:acquisition-notify", {
-      detail: {
-        message: "已进入 MediaCrawler 采集计划：填写计划名称和关键词即可，无需搜索 API 或 AI 模型。"
-      }
-    }));
+    openAutomationWorkspace();
+  });
+
+  realTaskList?.addEventListener("click", (event) => {
+    const trigger = (event.target as HTMLElement | null)
+      ?.closest<HTMLButtonElement>("[data-acquisition-open-settings]");
+    if (!trigger || !realTaskList.contains(trigger)) return;
+    event.preventDefault();
+    openAutomationWorkspace();
   });
 
   publicImportHost.addEventListener("input", (event) => {
@@ -1122,14 +1211,14 @@ function initialiseRuntime(): void {
     attributes: true,
     attributeFilter: ["class"]
   });
-  window.addEventListener("pagehide", () => {
+  listenForAcquisitionPageTeardown(window, () => {
     stopOverviewPolling();
     automationController.close();
     outreachController.close();
     unmountAutomation();
     unmountOutreach();
     unsubscribeBatchSelection();
-  }, { once: true });
+  });
 
   const visibilityObserver = new MutationObserver(enforceRealVisibility);
   [...demoTaskGroups, realTaskGroup, runMetrics, demoTimeline]

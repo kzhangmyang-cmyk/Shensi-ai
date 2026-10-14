@@ -1,17 +1,82 @@
 # AI Acquisition v1 contracts
 
+Platform account operations use the separate `openapi/platform-admin.v1.yaml`
+contract under `/api/platform/v1`. `pnpm generate:platform-types` generates
+`frontend/src/generated/platform-admin.ts`; `check:types` includes drift checks.
+This API uses aggregate revision/reason commands, customer authentication plus
+an independent MFA cookie, and existing cookie CSRF. It does not use Growth's
+Idempotency-Key response replay protocol. The separate contract-first system-library
+release commands use their own transactional Idempotency-Key/If-Match semantics
+and owner/MFA boundary; they are not implemented account-admin operations.
+The existing account API includes member creation and reset
+issuance; the same contract also defines anonymous, rate-limited
+`/api/auth/reset-password` consumption using a single-use token.
+See `../docs/modules/platform-administration.md`.
+
 This workspace is the normative, executable boundary for the AI acquisition
 agent. JSON Schemas use Draft 2020-12 and OpenAPI describes authenticated
 `/api/v1` operations.
 
-## Growth Financial Council 1.0.12
+## Growth CRM Quote and Financial Council 1.0.41
 
-Growth `1.0.12` publishes the closed council onboarding boundary: routing
+The system-default reference contract lives in `openapi/system-reference.v1.yaml`
+and `json-schema/system-reference.v1.schema.json`. Generate its frontend DTOs with
+`pnpm generate:system-reference-types`. Owner paths are also referenced by
+`platform-admin.v1.yaml`, so regenerate `pnpm generate:platform-types` when their
+operations or reachable schemas change. `check:types` checks both generated outputs.
+The independent specification also owns the local normal-session citation bridge,
+`GET /api/v1/reference-connection/grants/{id}/references/{referenceId}`. It returns
+SystemReference through trusted Backend binding, without exposing reader credentials
+to Renderer or adding whole-book access. Regenerate the independent types for this
+path; it does not rewrite any immutable Growth release.
+ConnectionStatus distinguishes client `ready` from central `session_ready`.
+The latter reuses normal central authentication, exposes only status refresh in
+the connection UI, and creates no client binding. Old strict clients reject this
+new enum safely as unavailable; this is not transparent backwards compatibility.
+LibraryStatus and immutable Growth releases are unchanged by this distinction.
+Source routes and runtime assembly exist; the library is not deployed or
+published. The new immutable Growth release is pinned normally; all older
+releases, including 1.0.39, keep their exact bytes.
+
+Text Input/Session Ask may opt into `referenceProtocol:system-v1`, with at most
+three unique fixed `referenceTopicIds`. No new field has a default. Topics require
+the protocol declaration; absent protocol stays private-only and knowledge mode
+off or omitted closes both libraries. Decision operating-memory questions reuse
+the same input. `libraryStatus` is a separate optional server-derived property on
+answers and assistant history, never a requested model field.
+
+Private `Citation` retains its existing fields with optional `sourceType:private`.
+`Answer.sources` is the private/system union. System references require
+`sourceType:system`, grant/release/reference IDs, namespaced referenceKey and exact
+source/chunk hashes and UTF-16 range. They have no private document/version/chunk
+IDs. Central requests accept only finance-topics.v1 IDs, role and request UUID;
+raw questions, company data, documents and history are not legal fields. Runtime
+enforces cross-field equality and shared 6-source/12000-character budgets.
+
+The Growth OpenAPI 3.0 projection lowers field dependencies without discarding
+validation. Type generation expands reused flat coordinate schemas in a loaded
+copy, avoiding optional/union schema-pointer indexing; wire artifacts are unchanged.
+
+Cash settlement response items include the server-issued `id` and owning
+`allocationSetId`. Refund requests use that `id` as
+`originalPaymentAllocationItemId`; item creation inputs do not accept an ID.
+
+Text answers and saved assistant turns may contain `research`: completed public
+query, provider, bounded sources, validated citation IDs and retrieval time.
+Old turns remain valid without it. Sources are saved with the same conversation
+revision as the answer; restoring history never starts another search.
+
+Chat attachments use `attachmentScope` with a conversation UUID and role and require
+`readWithModel:false`. A matching `conversationKey` accompanies the explicit document
+ID on text questions. The authenticated attachment-clear endpoint removes exactly
+that actor/workspace/conversation/role source; finance selections remain separate.
+
+Growth `1.0.35` includes closed original CSV/XLSX/PDF/DOCX inspection and explicit short-lived read-only material selection for six-role questions. PDF sources use page/item references; DOCX uses paragraph/table-cell references without fabricated spreadsheet coordinates. `documentId` binds the exact actor/workspace source; missing or expired selections do not silently read a verified package. Null or omitted IDs retain the verified-package question path. Inspection returns bounded raw text/source references, not a verified BusinessReport. It preserves read-only council history and collaboration/report projections, independently persisted six-role states, cursor-based events, verified Douyin crawler attribution, human CRM quotation assessment and the Finance import JSON envelope. The closed council onboarding boundary includes routing
 policy GET/PUT/POST-preview, statement package POST-preview/commit,
 run-from-statement-package, agent-center, and per-run agent reads. Reads and
 routing preview require `finance.council.run`; routing PUT requires
 `finance.council.policy.manage`; statement commands require
-`ledger.pending.create`. Every POST and the PUT require `Idempotency-Key`, the
+`ledger.pending.create`. Those onboarding POST operations and the PUT require `Idempotency-Key`, the
 PUT also requires `If-Match`, and the routing GET returns `ETag`. Exact replay
 alone returns `Idempotency-Replayed: true`.
 
@@ -28,9 +93,59 @@ of the public projection.
 All request and response DTOs reject unknown properties. Statement responses
 exclude workbook bytes, base64, raw cells, and normalized business reports;
 agent projections exclude credentials, prompts, provider bodies, and business
-data. The immutable `1.0.11` release remains byte-for-byte unchanged.
+data. Earlier immutable releases remain byte-for-byte unchanged.
+
+The read-only `POST /api/v1/finance/cfo-conversation` pilot accepts an actual
+question and at most ten recent turns. It requires `finance.council.run` and
+cookie CSRF, but no idempotency/ETag (it does not create a business command).
+Company data is resolved by the server, not accepted in the question body. The response
+has answer, model attribution, a closed verified-report or read-only-document provenance union (or null), and time. This route
+does not advertise realtime audio. Schema: `cfo-conversation.v1.schema.json`.
 
 ## Single-source workflow
+
+Outcome attribution has two closed source branches. `acquisition-run.v1`
+requires nonempty shard, operation, connection and provider IDs and forbids
+`jobId`. `douyin-crawler.v1` requires the real persisted `jobId`, explicit null
+values for those four provider-operation fields, at least one evidence ID,
+and empty `providerIds` and `queryIds`. Common run, plan version, discovery
+event and qualification fields remain required. The backend resolves the
+workspace/run/job/candidate/evidence chain; a syntactically valid attribution
+does not grant write authority. Existing crawler discoveries with a persisted
+job binding can be resolved without rewriting historical events or creating
+fake provider operations.
+
+`outcome-feedback.v1.schema.json#/$defs/runAttribution` describes the frozen
+source attribution used by handoffs. `liveAttribution` also requires the
+qualification decision's engine, rule and nullable model metadata. Quote,
+financial and cohort `snapshotAttribution` accepts either the base snapshot
+or the historical complete live snapshot. A crawler cohort member has
+`firstShardId: null`; a generic member still requires a nonempty shard ID.
+
+`POST /api/v1/finance/documents/inspect` accepts fileName/mediaType/contentBase64/readWithModel and optional analysisPurpose/attachmentScope. Attachment scope requires readWithModel=false and binds the temporary source to conversation and role.
+Pure inspection requires ledger creation or council-run permission; AI reading requires council-run permission.
+`DELETE /api/v1/finance/documents/selection` clears only the authenticated actor/workspace's selection and rejects body/query.
+These read/selection operations require cookie CSRF but no ledger idempotency/ETag headers.
+
+`GET /api/v1/finance/public-research` lists owned real search connections; POST accepts only query/connectionId/role and returns a source-backed model answer with up to five source snippets, URLs, timestamps and validated citation IDs. Both require council-run permission and no query parameters. POST applies cookie CSRF and a six-per-minute actor/workspace limit; it accepts no private chat or file context. The response identifies evidence as search_index_snippets, not verified full-page content.
+
+The current immutable Growth release is `releases/growth-advisor-quote-roi/1.0.41`.
+Text requests may explicitly set `webSearchMode:on|off`; omission retains the
+legacy automatic behavior independently of `knowledgeMode`. The approved central
+default-reference protocol is defined by 1.0.41 and the independent system-reference
+contract; this does not imply live service availability or publication of books.
+Owner-only bounded version/detail/command-status DTOs belong to that independent
+management contract and do not change the Growth reference-schema closure.
+Session GET negotiates reference-aware readers through the optional
+`X-Shensi-Reference-Protocol: system-v1` header. It accepts no query/body input.
+System-bearing history requires this capability (409
+`reference_client_upgrade_required` otherwise); unknown header values return422.
+The header grants no authorization and does not change private workspace/actor
+isolation. New session appends use the existing body referenceProtocol.
+After contract checks, publish with `pnpm build:growth-contract-release`, import
+it with `pnpm --filter ./frontend contract:import --release ../contracts/releases/growth-advisor-quote-roi/1.0.41`,
+then regenerate Growth types with `pnpm --filter ./frontend contract:generate`.
+Never overwrite an existing release directory with different bytes.
 
 During migration, every implemented operation must remain semantically equal
 to the production builder in `backend/src/acquisition-openapi.ts`. The
@@ -39,16 +154,30 @@ the implemented-path allowlist; a runtime-backed contract change is not
 complete while that parity check is red.
 
 After `pnpm check:acquisition-contracts` is green, the static OpenAPI 3.1
-document in `openapi/ai-acquisition.v1.yaml` is the release and frontend-type
+document in `openapi/ai-acquisition.v1.yaml` is the release and transport-type
 generation contract. Start release-contract changes there and regenerate the
-committed frontend transport types with
+committed frontend and Electron Main transport types with
 `pnpm generate:frontend-contract-types`. Runtime-backed operations update
 the production builder and routes in the same change. An implementation plan
 may explicitly reserve a contract-only route before its service lands; such a
 route stays outside the drift allowlist until implementation, while any
 already-implemented response it extends must retain parity. Run
 `pnpm check:generated-acquisition-types` to detect stale or absent generated
-output without modifying repository files.
+output without modifying repository files. Both commands include
+`frontend/src/generated/ai-acquisition.ts` and
+`desktop/src/generated/ai-acquisition.d.ts`; the desktop declaration uses the
+same generator and schema, not a separate protocol definition. The dedicated
+`pnpm --filter ./contracts generate:desktop-types` and `check:desktop-types`
+commands operate on the desktop output alone.
+
+Knowledge uses the separate `openapi/knowledge.v1.yaml` contract and shared
+`json-schema/knowledge.v1.schema.json`. CFO reference mode is optional; omitting
+it retains legacy text/voice behavior. Type generators normalize only their
+loaded copy so the optional `knowledgeMode` server default does not become a
+required caller field. Wire schemas, immutable releases, explicitly required
+fields and unrelated defaults are not changed by that normalization. Changes
+to CFO's referenced schemas also require `pnpm --filter ./contracts
+generate:decision-types`; `check:types` checks that transitive output.
 
 ## Acquisition plan execution modes
 
@@ -62,6 +191,22 @@ automation GET/PUT, and `/plans/{planId}/run-now`. The generic
 `/plans/{id}/runs` command is not valid for this mode. Manual automation
 keywords have no search-provider or model dependency; the optional
 `automation/keyword-suggestions` command retains its active-model requirement.
+
+## Desktop Douyin synchronization
+
+The desktop flow uses seven authenticated, active-workspace operations: one
+bounded login completion, one desktop Run Now preparation, and exact job claim,
+lease, page upload, completion, and cancellation operations. Cookie-authenticated
+writes require CSRF protection. Login completion, desktop Run Now, and page
+upload also require an `Idempotency-Key`.
+
+Desktop Run Now returns a bounded collection task and one opaque per-job
+capability. That capability is accepted only through the
+`X-Shensi-Desktop-Task-Token` request header on job operations; it is never a
+query parameter or request-body field. All request and success DTOs are closed.
+They permit only bounded public Douyin identity and normalized public-result
+data, and exclude cookies, browser/Profile paths, commands, executable names,
+and Sidecar connection material.
 
 The platform connection, capability, generic event envelope, Douyin comment
 event, action-policy, and action-receipt components are schema reservations
@@ -270,7 +415,43 @@ session instead of returning it to the pool. Memory completion and standalone
 individual ingestion use the same `CandidateDirectory -> Domain -> Events`
 lock order; nested repository transactions reuse their active context.
 
+### Desktop outreach bridge
+
+The canonical acquisition OpenAPI publishes installation enrollment and
+registration, account binding, device claim/completion/recovery and a read-only
+binding-status GET. The Backend OpenAPI builder consumes these six canonical
+mutations plus the scoped read; frontend and desktop types are generated from
+the same file. Do not maintain an independent
+Renderer DTO or a second abbreviated recovery request.
+
+All six mutations require the admitted build digest. Enrollment and binding use
+user authentication and cookie CSRF; registration uses its enrollment token;
+device operations use installation ID and device token. Completion additionally
+requires a task token; claim and recovery reject that header. Build admission
+does not grant any of these authorities. The recovery request is a strict
+phase union: only `sidecar_completed` requires and permits `receiptHash`.
+Device credentials and task tokens never appear in public action projections.
+
+Binding status requires user/workspace capability and that user's active
+installation. Its closed projection contains only `accountId`, `executorMode`,
+`bindingGeneration`, `leaseExpiresAt`, `ownedByInstallation` and
+`hasUnresolvedActions`; it never renews the lease or returns a device hash/handle.
+Public actions expose persisted `executionTarget` (optional for historical
+server responses) and the existing `claimed`/`reconciliation_required` states.
+
+The unreleased desktop bridge recovery response is the closed union
+`waiting | terminal | released | reconcile | not_authorized`. `released` carries
+the exact action ID, task request hash and original lease version; it proves
+only that this old claim never started and its authority was revoked. It has no
+receipt or task token and cannot authorize a platform write. Both generated
+consumers and the actual router projection must change together. Durable central
+start/receipt evidence can recover a lagging local `claimed` phase; it cannot
+restore the old write fence.
+
 Run `npm run check:acquisition-contracts` from the repository root before
 changing any producer or consumer.
 
-Only backwards-compatible optional fields may be added to v1 artifacts.
+Changes to v1 artifacts must preserve existing valid shapes. Additive optional
+fields or explicitly versioned source branches must retain each existing
+branch's validation and ship with regenerated consumers and a new immutable
+Growth release when shared Growth schemas change.

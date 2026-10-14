@@ -203,6 +203,9 @@ export interface AsyncPersistedStoreMutation<T> {
 }
 
 export interface CrmStore {
+  accountAuditEvents?: import('./account-command.js').AccountAuditEvent[];
+  platformAdminStates?: import('./platform-admin-domain.js').PlatformAdminState[];
+  readPlatformAdminState?(): Promise<import('./platform-admin-domain.js').PlatformAdminState>;
   mode: "memory" | "mysql";
   users: User[];
   companyProfiles: CompanyProfile[];
@@ -335,6 +338,12 @@ export interface CrmStore {
   commissionExports: CommissionExport[];
   persist(): Promise<void>;
   activateModelConnection?(
+    scope: ModelConnectionScope,
+    connectionId: string,
+    actorId: string,
+    reason: string
+  ): Promise<ModelConnection>;
+  deactivateModelConnection?(
     scope: ModelConnectionScope,
     connectionId: string,
     actorId: string,

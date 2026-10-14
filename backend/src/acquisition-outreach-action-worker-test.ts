@@ -2,19 +2,140 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import { InMemoryAcquisitionOutreachBatchRepository } from "./acquisition-outreach-batch-repository.js";
-import type { AcquisitionOutreachBatchRepository } from "./acquisition-outreach-batch-repository.js";
+import type { AcquisitionOutreachBatchRepository,
+  DesktopOutreachClaimAuthorizer } from "./acquisition-outreach-batch-repository.js";
 import { outreachContentHash, outreachDirectMessageApprovalHash,
   type AcquisitionOutreachAction,
   type AcquisitionOutreachBatch } from "./acquisition-outreach-batch.js";
 import {
   AcquisitionOutreachActionWorker,
+  classifyOutreachActionReceipt,
   douyinActionDeadlineMs,
+  type OutreachActionReceiptClassification,
+  type OutreachActionReceiptClassificationInput,
   type OutreachActionExecutionReceipt
 } from "./acquisition-outreach-action-worker.js";
 import { AcquisitionOutreachActionRecoverySweeper } from "./acquisition-outreach-action-recovery-sweeper.js";
+import { AcquisitionMemoryTransactionCoordinator } from
+  "./acquisition-memory-transaction-coordinator.js";
+import { InMemoryAcquisitionSocialAccountRepository } from
+  "./acquisition-social-account-repository.js";
+import { InMemoryDesktopInstallationRepository } from
+  "./acquisition-desktop-installation-repository.js";
+import { desktopOutreachRequestHash } from "./acquisition-outreach-target-url.js";
 
 const BASE = Date.parse("2026-08-25T00:00:00.000Z");
+test('platform freeze skips queued work and a freeze after claim releases only the unexecuted claim', async () => {
+  let allowed = false;
+  const access = async () => allowed;
+  const repository = await repositoryWith([action('comment-platform', 'candidate-1', 'comment')], access);
+  const now = () => new Date(BASE).toISOString();
+  assert.equal(await repository.claimNextAction({ workerId: 'worker-platform', now: now(), leaseDurationMs: 180_000 }), null);
+  assert.equal((await repository.listActions('workspace-1', 'batch-1'))![0]!.status, 'queued');
+  allowed = true;
+  let sends = 0;
+  const runtime = new AcquisitionOutreachActionWorker({ repository, workerId: 'worker-platform', now,
+    platformExecutionAccess: access,
+    accountAuthority: async () => { allowed = false; return { accountHandle: 'private' }; },
+    execute: async () => { sends++; throw new Error('must not send'); },
+    pauseAccount: async () => { throw new Error('must not pause'); } });
+  assert.equal(await runtime.runOnce(), false);
+  assert.equal(sends, 0);
+  const waiting = (await repository.listActions('workspace-1', 'batch-1'))![0]!;
+  assert.equal(waiting.status, 'queued');
+  assert.equal(waiting.failureCode, null);
+  allowed = true;
+  assert.ok(await repository.claimNextAction({ workerId: 'worker-recovered', now: new Date(BASE + 600_000).toISOString(), leaseDurationMs: 180_000 }));
+});
 const hash = (value: string) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+const authorizeDesktopClaim: DesktopOutreachClaimAuthorizer = async (snapshot) =>
+  snapshot.account.accountHandle
+    ? { accountHandle: snapshot.account.accountHandle } : null;
+
+test("receipt classification keeps target, start, and Sidecar-journal effects distinct", async (t) => {
+  const cases: Array<{
+    name: string;
+    input: OutreachActionReceiptClassificationInput;
+    expected: OutreachActionReceiptClassification;
+  }> = [
+    {
+      name: "success",
+      input: { executionTarget: "desktop", executionPhase: "started_post_journal",
+        receiptState: "succeeded", failureCode: null },
+      expected: { taxonomy: "success", stateEffect: "succeeded" }
+    },
+    ...["action_unavailable", "douyin_action_timeout",
+      "douyin_action_receipt_ambiguous"].flatMap((failureCode) => [
+      {
+        name: `server uncertainty remains risk paused: ${failureCode}`,
+        input: { executionTarget: "server" as const,
+          executionPhase: "started_post_journal" as const,
+          receiptState: "failed" as const, failureCode },
+        expected: { taxonomy: "uncertain" as const, stateEffect: "risk_paused" as const }
+      },
+      {
+        name: `desktop post-start uncertainty reconciles: ${failureCode}`,
+        input: { executionTarget: "desktop" as const,
+          executionPhase: "started_pre_journal" as const,
+          receiptState: "failed" as const, failureCode },
+        expected: { taxonomy: "uncertain" as const,
+          stateEffect: "reconciliation_required" as const }
+      },
+      {
+        name: `desktop pre-start uncertainty is a proven no-write failure: ${failureCode}`,
+        input: { executionTarget: "desktop" as const,
+          executionPhase: "pre_start" as const,
+          receiptState: "failed" as const, failureCode },
+        expected: { taxonomy: "uncertain" as const, stateEffect: "failed" as const }
+      }
+    ]),
+    {
+      name: "profile busy before the Sidecar started journal safely retries",
+      input: { executionTarget: "desktop", executionPhase: "started_pre_journal",
+        receiptState: "failed", failureCode: "douyin_profile_busy" },
+      expected: { taxonomy: "retryable_prewrite", stateEffect: "queued" }
+    },
+    {
+      name: "profile busy after the Sidecar started journal cannot retry",
+      input: { executionTarget: "desktop", executionPhase: "started_post_journal",
+        receiptState: "failed", failureCode: "douyin_profile_busy" },
+      expected: { taxonomy: "uncertain", stateEffect: "reconciliation_required" }
+    },
+    ...["douyin_verification_required", "douyin_rate_limited",
+      "douyin_account_warning", "douyin_account_identity_changed",
+      "douyin_login_expired"].map((failureCode) => ({
+      name: `explicit risk pauses: ${failureCode}`,
+      input: { executionTarget: "desktop" as const,
+        executionPhase: "pre_start" as const,
+        receiptState: "failed" as const, failureCode },
+      expected: { taxonomy: "explicit_risk" as const, stateEffect: "risk_paused" as const }
+    })),
+    ...["action_rejected", "deadline_exceeded",
+      "douyin_direct_message_unavailable", "douyin_action_control_missing",
+      "douyin_action_control_ambiguous", "douyin_action_content_mismatch"
+    ].map((failureCode) => ({
+      name: `proven pre-write rejection fails: ${failureCode}`,
+      input: { executionTarget: "desktop" as const,
+        executionPhase: "started_post_journal" as const,
+        receiptState: "failed" as const, failureCode },
+      expected: { taxonomy: "proven_prewrite_rejection" as const,
+        stateEffect: "failed" as const }
+    })),
+    ...(["pre_start", "started_pre_journal", "started_post_journal"] as const)
+      .map((executionPhase) => ({
+        name: `unknown desktop failure routes safely at ${executionPhase}`,
+        input: { executionTarget: "desktop" as const, executionPhase,
+          receiptState: "failed" as const, failureCode: "unknown_failure" },
+        expected: { taxonomy: "uncertain" as const,
+          stateEffect: executionPhase === "pre_start"
+            ? "failed" as const : "reconciliation_required" as const }
+      }))
+  ];
+
+  for (const value of cases) await t.test(value.name, () => {
+    assert.deepEqual(classifyOutreachActionReceipt(value.input), value.expected);
+  });
+});
 
 function batch(id = "batch-1"): AcquisitionOutreachBatch {
   return {
@@ -39,6 +160,7 @@ function action(id: string, candidateId: string, kind: "comment" | "direct_messa
     id, workspaceId: "workspace-1", batchId: "batch-1", batchRevision: 1,
     candidateId, accountId: "account-1", accountLoginStateVersion: 3,
     policyVersionId: "policy-v1", localDate: "2026-08-25", kind,
+    executionTarget: "server",
     sequence: kind === "comment" ? 1 : 2,
     status: kind === "comment" ? "queued" : "blocked_by_predecessor",
     predecessorActionId, targetPublicUrl: kind === "comment"
@@ -48,6 +170,38 @@ function action(id: string, candidateId: string, kind: "comment" | "direct_messa
     createdAt: new Date(BASE).toISOString()
   };
 }
+
+test("server worker requests and executes only server-target actions", async () => {
+  const desktop = { ...action("desktop-first", "candidate-1", "comment"),
+    executionTarget: "desktop" as const, createdAt: new Date(BASE - 1_000).toISOString() };
+  const server = action("server-second", "candidate-2", "comment");
+  const repository = await repositoryWith([desktop, server]);
+  const runtime = worker(repository);
+  assert.equal(await runtime.instance.runOnce(), true);
+  assert.deepEqual(runtime.calls.map((value) => value.actionId), ["server-second"]);
+  assert.equal(await runtime.instance.runOnce(), false);
+  assert.equal((await repository.listActions("workspace-1", "batch-1"))
+    ?.find((value) => value.id === "desktop-first")?.status, "queued");
+});
+
+test("server-action cutover query is workspace scoped and never exposes action content", async () => {
+  const repository = await repositoryWith([
+    action("server-pending", "candidate-1", "comment"),
+    { ...action("desktop-pending", "candidate-2", "comment"),
+      executionTarget: "desktop" }
+  ]);
+  const result = await repository.listNonTerminalServerActions({
+    workspaceId: "workspace-1", limit: 10
+  });
+  assert.equal(result.count, 1);
+  assert.deepEqual(result.items, [{ actionId: "server-pending", batchId: "batch-1",
+    accountId: "account-1", status: "queued", createdAt: new Date(BASE).toISOString() }]);
+  assert.equal("content" in result.items[0]!, false);
+  assert.equal("targetPublicUrl" in result.items[0]!, false);
+  assert.deepEqual(await repository.listNonTerminalServerActions({
+    workspaceId: "another-workspace", limit: 10
+  }), { count: 0, items: [] });
+});
 
 function authorizedDirectMessage(predecessor: AcquisitionOutreachAction,
   overrides: Partial<AcquisitionOutreachAction> = {}): AcquisitionOutreachAction {
@@ -83,8 +237,9 @@ function authorizedDirectMessage(predecessor: AcquisitionOutreachAction,
   return { ...value, ...overrides };
 }
 
-async function repositoryWith(actions: AcquisitionOutreachAction[]) {
-  const repository = new InMemoryAcquisitionOutreachBatchRepository();
+async function repositoryWith(actions: AcquisitionOutreachAction[],
+  platformExecutionAccess?: import('./platform-execution-access.js').PlatformExecutionAccess) {
+  const repository = new InMemoryAcquisitionOutreachBatchRepository({ platformExecutionAccess });
   const value = { ...batch(), state: "awaiting_approval" as const };
   await repository.create({ workspaceId: value.workspaceId, operation: "create",
     idempotencyKey: "create-key", requestHash: hash("create"), batch: value });
@@ -93,6 +248,340 @@ async function repositoryWith(actions: AcquisitionOutreachAction[]) {
     async build() { return { batch: batch(), actions }; } });
   return repository;
 }
+
+async function desktopClaimRepository(actions: AcquisitionOutreachAction[], options: {
+  installationState?: "active" | "revoked";
+  bindingGeneration?: number;
+  loginStateVersion?: number;
+  leaseExpiresAt?: string;
+  failDesktopClaimWriteAt?: number;
+} = {}) {
+  const memoryTransactions = new AcquisitionMemoryTransactionCoordinator();
+  const socialAccounts = new InMemoryAcquisitionSocialAccountRepository(memoryTransactions);
+  const installations = new InMemoryDesktopInstallationRepository({ memoryTransactions });
+  const repository = new InMemoryAcquisitionOutreachBatchRepository({
+    memoryTransactions, socialAccounts, desktopInstallations: installations,
+    desktopTaskTokenKey: Buffer.from("task-4-memory-token-key-is-at-least-32-bytes"),
+    failDesktopClaimWriteAt: options.failDesktopClaimWriteAt
+  });
+  const deviceIdHash = hash("desktop-device");
+  await installations.createEnrollment({ workspaceId: "workspace-1",
+    userId: "user-1", teamId: "team-1", deviceIdHash, protocolVersion: 1,
+    enrollmentTokenHash: hash("enrollment"), idempotencyKeyHash: "1".repeat(64),
+    requestHash: "2".repeat(64), expiresAt: "2026-08-25T00:01:00.000Z",
+    createdAt: "2026-08-25T00:00:00.000Z", consumedAt: null });
+  await installations.consumeEnrollment({ deviceIdHash,
+    enrollmentTokenHash: hash("enrollment"), deviceCredentialHash: hash("credential"),
+    protocolVersion: 1, consumedAt: "2026-08-25T00:00:00.001Z" });
+  if (options.installationState === "revoked") {
+    await installations.revoke("workspace-1", deviceIdHash,
+      "2026-08-25T00:00:00.002Z");
+  }
+  const accountHandle = `dyacct_${"a".repeat(64)}`;
+  const bindingGeneration = options.bindingGeneration ?? 4;
+  const loginStateVersion = options.loginStateVersion ?? 3;
+  await socialAccounts.upsert({ id: "account-1", workspaceId: "workspace-1",
+    platform: "douyin", accountHandle, upstreamSessionId: null, displayName: "Douyin",
+    state: "active", loginStateVersion, loginStateVersionHighWater: loginStateVersion,
+    executorMode: "desktop", executorDeviceIdHash: deviceIdHash,
+    executorBindingGeneration: bindingGeneration,
+    executorLeaseExpiresAt: options.leaseExpiresAt ?? "2026-08-25T00:02:00.000Z",
+    revision: 1, etag: '"account-v1"', lastValidatedAt: new Date(BASE).toISOString(),
+    createdAt: new Date(BASE).toISOString(), updatedAt: new Date(BASE).toISOString() });
+  const candidates = [...new Set(actions.map((item) => item.candidateId))].map((candidateId) => {
+    const comment = actions.find((item) => item.candidateId === candidateId
+      && item.kind === "comment");
+    const directMessage = actions.find((item) => item.candidateId === candidateId
+      && item.kind === "direct_message");
+    const commentText = comment?.content ?? `exact comment ${candidateId}`;
+    const directMessageText = directMessage?.content ?? `exact message ${candidateId}`;
+    return { candidateId, selected: true, candidateRevision: 1,
+      evidenceHashes: [hash(`evidence-${candidateId}`)], evidenceText: ["公开需求"],
+      publicActorKey: `actor-${candidateId}`,
+      publicProfileUrl: directMessage?.targetPublicUrl
+        ?? `https://www.douyin.com/user/${candidateId}`,
+      commentTargetPublicUrl: comment?.targetPublicUrl
+        ?? `https://www.douyin.com/video/${candidateId}`,
+      draftRevision: 1, comment: commentText,
+      commentHash: outreachContentHash(commentText), directMessage: directMessageText,
+      directMessageHash: outreachContentHash(directMessageText),
+      rationaleCodes: ["evidence_grounded"], modelSnapshotId: "model-1",
+      sourceModelSnapshotId: "model-1", contentHash: hash(`draft-${candidateId}`) };
+  });
+  const approvedBatch = { ...batch(), candidates };
+  const draft = { ...approvedBatch, state: "awaiting_approval" as const,
+    approvedBy: null, approvedAt: null, approvalHash: null };
+  await repository.create({ workspaceId: draft.workspaceId, operation: "create",
+    idempotencyKey: "desktop-create", requestHash: hash("desktop-create"), batch: draft });
+  await repository.approve({ workspaceId: draft.workspaceId, batchId: draft.id,
+    ifMatch: draft.etag, idempotencyKey: "desktop-approve",
+    requestHash: hash("desktop-approve"), async build() {
+      return { batch: approvedBatch, actions };
+    } });
+  return { repository, installations, socialAccounts, memoryTransactions, deviceIdHash,
+    accountHandle, bindingGeneration, loginStateVersion };
+}
+
+function desktopClaimInput(value: Awaited<ReturnType<typeof desktopClaimRepository>>,
+  overrides: Record<string, unknown> = {}) {
+  return {
+    workspaceId: "workspace-1", deviceIdHash: value.deviceIdHash,
+    processInstanceIdHash: hash("desktop-process"),
+    availableAccounts: [{ accountId: "account-1", accountHandle: value.accountHandle,
+      loginStateVersion: value.loginStateVersion,
+      bindingGeneration: value.bindingGeneration }],
+    idempotencyKeyHash: "3".repeat(64), claimRequestHash: "4".repeat(64),
+    now: new Date(BASE).toISOString(),
+    actionDeadlineAt: new Date(BASE + 150_000).toISOString(),
+    leaseDurationMs: 180_000, ...overrides
+  };
+}
+
+test("only the bound installation claims a desktop action and a lost response replays exactly", async () => {
+  const desktop = { ...action("desktop-claim", "candidate-1", "comment"),
+    executionTarget: "desktop" as const };
+  const server = { ...action("server-history", "candidate-2", "comment"),
+    createdAt: new Date(BASE - 1_000).toISOString() };
+  const value = await desktopClaimRepository([server, desktop]);
+  const input = desktopClaimInput(value);
+
+  const first = await value.repository.claimNextDesktopAction(input, authorizeDesktopClaim);
+  const replay = await value.repository.claimNextDesktopAction(input, authorizeDesktopClaim);
+
+  assert.equal(first.kind, "claimed");
+  assert.deepEqual(replay, { ...first, replayed: true });
+  if (first.kind !== "claimed") throw new Error("expected desktop claim");
+  assert.equal(first.task.actionId, "desktop-claim");
+  assert.equal(first.task.taskRequestHash, desktopOutreachRequestHash({
+    account_handle: value.accountHandle, action_id: desktop.id,
+    approved_content_hash: desktop.contentHash,
+    canonical_target_public_url: desktop.targetPublicUrl, content: desktop.content,
+    kind: desktop.kind, login_state_version: desktop.accountLoginStateVersion
+  }).hash);
+  assert.match(first.taskToken, /^[A-Za-z0-9_-]{43}$/u);
+  assert.equal(first.fence.taskTokenHash, hash(first.taskToken));
+  assert.equal(first.fence.platformWriteAttemptCount, 0);
+  assert.equal((await value.repository.listActions("workspace-1", "batch-1"))
+    ?.find((item) => item.id === "desktop-claim")?.status, "claimed");
+  await assert.rejects(value.repository.claimNextDesktopAction({ ...input,
+    claimRequestHash: "5".repeat(64) }, authorizeDesktopClaim),
+  /desktop_outreach_claim_idempotency_conflict/u);
+  const empty = await value.repository.claimNextDesktopAction({ ...input,
+    idempotencyKeyHash: "6".repeat(64), claimRequestHash: "7".repeat(64) },
+  authorizeDesktopClaim);
+  assert.deepEqual(empty, { kind: "empty", serverTime: input.now,
+    retryAfterMs: 3_000, replayed: false });
+  assert.deepEqual(await value.repository.claimNextDesktopAction({ ...input,
+    idempotencyKeyHash: "6".repeat(64), claimRequestHash: "7".repeat(64) },
+  authorizeDesktopClaim), {
+    ...empty, replayed: true
+  });
+});
+
+test("desktop claim is single-winner under concurrency and rolls back every reservation on failure", async () => {
+  const desktop = { ...action("desktop-race", "candidate-1", "comment"),
+    executionTarget: "desktop" as const };
+  const raced = await desktopClaimRepository([desktop]);
+  const input = desktopClaimInput(raced);
+  const outcomes = await Promise.all([
+    raced.repository.claimNextDesktopAction(input, authorizeDesktopClaim),
+    raced.repository.claimNextDesktopAction(input, authorizeDesktopClaim)
+  ]);
+  assert.equal(outcomes.filter((value) => value.kind === "claimed").length, 2);
+  assert.equal(outcomes.filter((value) => value.replayed).length, 1);
+  assert.deepEqual(outcomes[1], { ...outcomes[0], replayed: true });
+  if (outcomes[0]?.kind === "claimed") {
+    assert.equal(JSON.stringify(await raced.repository.listActions("workspace-1",
+      "batch-1")).includes(outcomes[0].taskToken), false,
+    "raw task token must not enter durable action state");
+  }
+
+  const failed = await desktopClaimRepository([{ ...desktop, id: "desktop-rollback" }], {
+    failDesktopClaimWriteAt: 1
+  });
+  const failedInput = desktopClaimInput(failed);
+  await assert.rejects(failed.repository.claimNextDesktopAction(failedInput,
+    authorizeDesktopClaim),
+    /desktop_outreach_claim_write_failed/u);
+  assert.equal((await failed.repository.listActions("workspace-1", "batch-1"))
+    ?.find((item) => item.id === "desktop-rollback")?.status, "queued");
+  const recovered = await failed.repository.claimNextDesktopAction(failedInput,
+    authorizeDesktopClaim);
+  assert.equal(recovered.kind, "claimed");
+  assert.equal(recovered.replayed, false);
+});
+
+test("desktop claim fails closed on installation binding and immutable action drift", async (t) => {
+  const valid = { ...action("desktop-authority", "candidate-1", "comment"),
+    executionTarget: "desktop" as const };
+  const cases: Array<{ name: string; options?: Parameters<typeof desktopClaimRepository>[1];
+    action?: AcquisitionOutreachAction; override?: Record<string, unknown>;
+    unauthorized?: boolean }> = [
+    { name: "wrong device", unauthorized: true,
+      override: { deviceIdHash: hash("wrong-device") } },
+    { name: "wrong generation", unauthorized: true, override: { availableAccounts: [{
+      accountId: "account-1", accountHandle: `dyacct_${"a".repeat(64)}`,
+      loginStateVersion: 3, bindingGeneration: 5 }] } },
+    { name: "wrong login", unauthorized: true, override: { availableAccounts: [{
+      accountId: "account-1", accountHandle: `dyacct_${"a".repeat(64)}`,
+      loginStateVersion: 4, bindingGeneration: 4 }] } },
+    { name: "expired lease", unauthorized: true,
+      options: { leaseExpiresAt: new Date(BASE).toISOString() } },
+    { name: "revoked installation", unauthorized: true,
+      options: { installationState: "revoked" } },
+    { name: "approval drift", action: { ...valid, approvalHash: hash("changed") } },
+    { name: "content drift", action: { ...valid, contentHash: hash("changed") } },
+    { name: "target drift", action: { ...valid,
+      targetPublicUrl: "https://www.douyin.com/video/candidate-1/" } }
+  ];
+  for (const value of cases) await t.test(value.name, async () => {
+    const fixture = await desktopClaimRepository([value.action ?? valid], value.options);
+    const claim = () => fixture.repository.claimNextDesktopAction(
+      desktopClaimInput(fixture, value.override), authorizeDesktopClaim);
+    if (value.unauthorized) {
+      await assert.rejects(claim(), /desktop_outreach_claim_not_authorized/u);
+    } else assert.equal((await claim()).kind, "empty");
+  });
+});
+
+test("desktop claim enforces the closed shape and the 90 through 360 second lease envelope", async () => {
+  const desktop = { ...action("desktop-bounds", "candidate-1", "comment"),
+    executionTarget: "desktop" as const };
+  for (const [leaseDurationMs, deadlineMs] of [[89_999, 60_000],
+    [360_001, 330_000]] as const) {
+    const value = await desktopClaimRepository([desktop]);
+    assert.throws(() => value.repository.claimNextDesktopAction(desktopClaimInput(value, {
+      leaseDurationMs, actionDeadlineAt: new Date(BASE + deadlineMs).toISOString()
+    }), authorizeDesktopClaim), /invalid_desktop_outreach_claim/u);
+  }
+  for (const [leaseDurationMs, deadlineMs] of [[90_000, 60_000],
+    [360_000, 330_000]] as const) {
+    const value = await desktopClaimRepository([desktop]);
+    assert.equal((await value.repository.claimNextDesktopAction(desktopClaimInput(value, {
+      leaseDurationMs, actionDeadlineAt: new Date(BASE + deadlineMs).toISOString()
+    }), authorizeDesktopClaim)).kind, "claimed");
+  }
+  const value = await desktopClaimRepository([desktop]);
+  assert.throws(() => value.repository.claimNextDesktopAction({
+    ...desktopClaimInput(value), unexpected: true
+  } as never, authorizeDesktopClaim), /invalid_desktop_outreach_claim/u);
+  const mixed = await desktopClaimRepository([desktop]);
+  await assert.rejects(mixed.repository.claimNextDesktopAction(desktopClaimInput(mixed, {
+    availableAccounts: [...desktopClaimInput(mixed).availableAccounts, {
+      accountId: "account-unbound", accountHandle: `dyacct_${"b".repeat(64)}`,
+      loginStateVersion: 1, bindingGeneration: 1
+    }]
+  }), authorizeDesktopClaim), /desktop_outreach_claim_not_authorized/u);
+});
+
+test("desktop claim replay rechecks installation and binding authority before returning a capability", async (t) => {
+  const desktop = { ...action("desktop-replay-fence", "candidate-1", "comment"),
+    executionTarget: "desktop" as const };
+  for (const invalidation of ["revoke", "generation", "login", "expiry"] as const) {
+    await t.test(invalidation, async () => {
+      const value = await desktopClaimRepository([desktop]);
+      const input = desktopClaimInput(value);
+      const first = await value.repository.claimNextDesktopAction(input,
+        authorizeDesktopClaim);
+      assert.equal(first.kind, "claimed");
+      if (invalidation === "revoke") {
+        await value.installations.revoke("workspace-1", value.deviceIdHash,
+          input.now);
+      } else {
+        const current = await value.socialAccounts.findById("workspace-1", "account-1");
+        assert.ok(current);
+        await value.memoryTransactions.transaction((token) => {
+          value.socialAccounts.setDesktopExecutorBindingRecord(token, { ...current,
+            ...(invalidation === "generation" ? {
+              executorBindingGeneration: current.executorBindingGeneration + 1
+            } : {}),
+            ...(invalidation === "login" ? {
+              loginStateVersion: current.loginStateVersion! + 1,
+              loginStateVersionHighWater: current.loginStateVersionHighWater + 1
+            } : {}),
+            ...(invalidation === "expiry" ? { executorLeaseExpiresAt: input.now } : {})
+          });
+        });
+      }
+      await assert.rejects(value.repository.claimNextDesktopAction(input,
+        authorizeDesktopClaim),
+        /desktop_outreach_claim_not_authorized/u);
+      assert.equal((await value.repository.listActions("workspace-1", "batch-1"))
+        ?.[0]?.status, "claimed", "failed replay authority must not rewrite the claim");
+    });
+  }
+});
+
+test("server and desktop claims enforce the same-account unresolved fence in both directions", async () => {
+  const server = action("server-fence", "candidate-1", "comment");
+  const desktop = { ...action("desktop-fence", "candidate-2", "comment"),
+    executionTarget: "desktop" as const };
+  const desktopFirst = await desktopClaimRepository([server, desktop]);
+  assert.equal((await desktopFirst.repository.claimNextDesktopAction(
+    desktopClaimInput(desktopFirst), authorizeDesktopClaim)).kind, "claimed");
+  assert.equal(await desktopFirst.repository.claimNextAction({
+    workerId: "server-after-desktop", executionTarget: "server",
+    now: new Date(BASE + 60_000).toISOString(), leaseDurationMs: 180_000
+  }), null);
+
+  const serverFirst = await desktopClaimRepository([server, desktop]);
+  assert.equal((await serverFirst.repository.claimNextAction({
+    workerId: "server-before-desktop", executionTarget: "server",
+    now: new Date(BASE).toISOString(), leaseDurationMs: 180_000
+  }))?.action.id, "server-fence");
+  assert.equal((await serverFirst.repository.claimNextDesktopAction(
+    desktopClaimInput(serverFirst, { idempotencyKeyHash: "8".repeat(64),
+      claimRequestHash: "9".repeat(64),
+      now: new Date(BASE + 60_000).toISOString(),
+      actionDeadlineAt: new Date(BASE + 210_000).toISOString() }),
+    authorizeDesktopClaim)).kind, "empty");
+});
+
+test("desktop Memory claim and replay are workspace and runtime fenced", async () => {
+  const desktop = { ...action("desktop-tenant-fence", "candidate-1", "comment"),
+    executionTarget: "desktop" as const };
+  const crossTenant = await desktopClaimRepository([desktop]);
+  const crossState = (crossTenant.repository as unknown as { state: {
+    actions: Map<string, AcquisitionOutreachAction[]> } }).state;
+  crossState.actions.values().next().value![0]!.workspaceId = "workspace-other";
+  assert.equal((await crossTenant.repository.claimNextDesktopAction(
+    desktopClaimInput(crossTenant), authorizeDesktopClaim)).kind, "empty");
+
+  const replay = await desktopClaimRepository([desktop]);
+  const input = desktopClaimInput(replay);
+  const first = await replay.repository.claimNextDesktopAction(input,
+    authorizeDesktopClaim);
+  assert.equal(first.kind, "claimed");
+  const replayState = (replay.repository as unknown as { state: {
+    actions: Map<string, AcquisitionOutreachAction[]> } }).state;
+  replayState.actions.values().next().value![0]!.status = "executing";
+  await assert.rejects(replay.repository.claimNextDesktopAction(input,
+    authorizeDesktopClaim),
+    /desktop_outreach_claim_replay_invalid/u);
+
+  for (const drift of ["content", "contentHash", "target", "login"] as const) {
+    const fixture = await desktopClaimRepository([desktop]);
+    const replayInput = desktopClaimInput(fixture, {
+      idempotencyKeyHash: hash(`replay-${drift}`).slice("sha256:".length),
+      claimRequestHash: hash(`request-${drift}`).slice("sha256:".length)
+    });
+    assert.equal((await fixture.repository.claimNextDesktopAction(replayInput,
+      authorizeDesktopClaim)).kind,
+      "claimed");
+    const state = (fixture.repository as unknown as { state: {
+      actions: Map<string, AcquisitionOutreachAction[]> } }).state;
+    const current = state.actions.values().next().value![0]!;
+    if (drift === "content") current.content = "drifted content";
+    if (drift === "contentHash") current.contentHash = hash("drifted hash");
+    if (drift === "target") {
+      current.targetPublicUrl = "https://www.douyin.com/video/drifted-target";
+    }
+    if (drift === "login") current.accountLoginStateVersion += 1;
+    await assert.rejects(fixture.repository.claimNextDesktopAction(replayInput,
+      authorizeDesktopClaim),
+      /desktop_outreach_claim_replay_invalid/u, drift);
+  }
+});
 
 type WorkerResponse =
   | { state: "succeeded" | "failed"; failureCode?: string }
@@ -378,7 +867,7 @@ test("memory claims only an exact version-2 direct message after its succeeded p
   assert.equal(claim?.action.authorizationVersion, 2);
 });
 
-test("memory direct-message claim counts attempts on the real claim day and resets only after local midnight", async () => {
+test("profile busy releases only the exact Memory direct-message daily claim", async () => {
   const predecessor = {
     ...action("comment-daily-claim", "candidate-1", "comment"),
     status: "succeeded" as const,
@@ -398,21 +887,24 @@ test("memory direct-message claim counts attempts on the real claim day and rese
     workerId: "worker-daily-first", now: firstAt, leaseDurationMs: 180_000
   });
   assert.equal(first?.action.id, "message-daily-claim");
+  const currentState = () => (repository as unknown as { state: { directMessageClaims: Array<{
+    workspaceId: string; accountId: string; localDate: string; actionId: string;
+    fencingToken: number;
+  }> } }).state;
+  const unrelatedClaim = { workspaceId: "workspace-1", accountId: "account-other",
+    localDate: "2026-08-25", actionId: "message-unrelated", fencingToken: 17 };
+  currentState().directMessageClaims.push(unrelatedClaim);
   assert.equal(await repository.completeActionRetry(first!.fence,
     "douyin_profile_busy", firstAt), true);
+  assert.deepEqual(currentState().directMessageClaims, [unrelatedClaim]);
 
-  assert.equal(await repository.claimNextAction({
+  const retry = await repository.claimNextAction({
     workerId: "worker-daily-same-day",
     now: "2026-08-25T01:10:00.000Z",
     leaseDurationMs: 180_000
-  }), null, "a retry cannot acquire a second same-day DM execution slot");
-
-  const nextDay = await repository.claimNextAction({
-    workerId: "worker-daily-next-day",
-    now: "2026-08-26T01:00:00.000Z",
-    leaseDurationMs: 180_000
   });
-  assert.equal(nextDay?.action.id, "message-daily-claim");
+  assert.equal(retry?.action.id, "message-daily-claim");
+  assert.equal(retry?.fence.fencingToken, first!.fence.fencingToken + 1);
 });
 
 test("memory direct-message claim fails closed on stale receipt, hash, account, batch, or predecessor authority", async (t) => {
@@ -448,7 +940,7 @@ test("memory direct-message claim fails closed on stale receipt, hash, account, 
   });
 });
 
-test("a direct-message claim reserves ten minutes while comment spacing remains sixty seconds", async () => {
+test("a completed direct message does not impose a product ten-minute cooldown", async () => {
   const predecessor = {
     ...action("comment-v2", "candidate-1", "comment"),
     status: "succeeded" as const,
@@ -467,10 +959,8 @@ test("a direct-message claim reserves ten minutes while comment spacing remains 
     platformReceiptReference: "douyin-message:sent",
     occurredAt: new Date(BASE).toISOString()
   });
-  assert.equal(await repository.claimNextAction({ workerId: "worker-too-soon",
-    now: new Date(BASE + 599_999).toISOString(), leaseDurationMs: 180_000 }), null);
-  assert.equal((await repository.claimNextAction({ workerId: "worker-after-ten-minutes",
-    now: new Date(BASE + 600_000).toISOString(),
+  assert.equal((await repository.claimNextAction({ workerId: "worker-after-completion",
+    now: new Date(BASE + 1).toISOString(),
     leaseDurationMs: 180_000 }))?.action.id, "zz-comment-after-message");
 });
 
@@ -561,11 +1051,14 @@ test("unavailable and uncertain execution failures pause the account immediately
   }
 });
 
-test("a deterministic comment failure closes its blocked direct message", async () => {
-  const repository = await repositoryWith([
-    action("comment-1", "candidate-1", "comment"),
-    action("message-1", "candidate-1", "direct_message", "comment-1")
-  ]);
+test("a deterministic server comment failure closes only a frozen-authority exact successor",
+  async (t) => {
+  const comment = { ...action("comment-1", "candidate-1", "comment"),
+    platformReceiptReference: "receipt-comment-1" };
+  const exact = authorizedDirectMessage(comment, {
+    id: "message-exact", status: "blocked_by_predecessor"
+  });
+  const repository = await repositoryWith([comment, exact]);
   const runtime = worker(repository, [{
     state: "failed",
     failureCode: "action_rejected"
@@ -581,12 +1074,36 @@ test("a deterministic comment failure closes its blocked direct message", async 
     ]
   );
   assert.equal(await runtime.instance.runOnce(), false);
+
+  const tampered = [
+    { name: "approval hash", change: { approvalHash: hash("tampered-approval") } },
+    { name: "content hash", change: { contentHash: hash("tampered-content") } },
+    { name: "target", change: {
+      targetPublicUrl: "https://www.douyin.com/user/tampered-candidate"
+    } },
+    { name: "login version", change: { accountLoginStateVersion: 4 } }
+  ] satisfies Array<{ name: string; change: Partial<AcquisitionOutreachAction> }>;
+  for (const value of tampered) await t.test(value.name, async () => {
+    const invalid = { ...authorizedDirectMessage(comment, {
+      id: `message-invalid-${value.name}`, status: "blocked_by_predecessor"
+    }), ...value.change };
+    const invalidRepository = await repositoryWith([comment, invalid]);
+    const invalidRuntime = worker(invalidRepository, [{ state: "failed",
+      failureCode: "action_rejected" }]);
+    assert.equal(await invalidRuntime.instance.runOnce(), true);
+    assert.equal((await invalidRepository.listActions("workspace-1", "batch-1"))!
+      .find((item) => item.id === invalid.id)?.status, "blocked_by_predecessor");
+  });
 });
 
 test("changed approval authority fails closed without being misreported as login expiry", async () => {
+  const comment = { ...action("comment-1", "candidate-1", "comment"),
+    platformReceiptReference: "receipt-comment-1" };
   const repository = await repositoryWith([
-    action("comment-1", "candidate-1", "comment"),
-    action("message-1", "candidate-1", "direct_message", "comment-1")
+    comment,
+    authorizedDirectMessage(comment, {
+      id: "message-1", status: "blocked_by_predecessor"
+    })
   ]);
   const runtime = worker(repository, [], "approval_authority_changed");
 
@@ -604,9 +1121,13 @@ test("changed approval authority fails closed without being misreported as login
 });
 
 test("a busy shared browser profile requeues the exact action without cancelling its successor", async () => {
+  const comment = { ...action("comment-1", "candidate-1", "comment"),
+    platformReceiptReference: "receipt-comment-1" };
   const repository = await repositoryWith([
-    action("comment-1", "candidate-1", "comment"),
-    action("message-1", "candidate-1", "direct_message", "comment-1")
+    comment,
+    authorizedDirectMessage(comment, {
+      id: "message-1", status: "blocked_by_predecessor"
+    })
   ]);
   const runtime = worker(repository, [
     { state: "failed", failureCode: "douyin_profile_busy" },
@@ -716,17 +1237,25 @@ test("server timestamps enforce 60 seconds while historical messages stay unclai
   ]);
 });
 
-test("comment receipt remains succeeded while its historical message stays unclaimed", async () => {
-  const repository = await repositoryWith([
-    action("comment-1", "candidate-1", "comment"),
-    action("message-1", "candidate-1", "direct_message", "comment-1")
-  ]);
+test("server comment success releases only a frozen-authority exact successor", async () => {
+  const comment = action("comment-1", "candidate-1", "comment");
+  const authorityPredecessor = { ...comment,
+    platformReceiptReference: "receipt-comment-1" };
+  const exact = authorizedDirectMessage(authorityPredecessor, {
+    id: "message-exact", status: "blocked_by_predecessor"
+  });
+  const invalid = { ...authorizedDirectMessage(authorityPredecessor, {
+    id: "message-invalid", status: "blocked_by_predecessor"
+  }), approvalHash: hash("tampered-approval") };
+  const repository = await repositoryWith([comment, exact, invalid]);
   const runtime = worker(repository, [{ state: "succeeded" }, { state: "failed" }]);
   await runtime.instance.runOnce();
   runtime.setNow(BASE + 180_000);
-  assert.equal(await runtime.instance.runOnce(), false);
+  assert.equal(await runtime.instance.runOnce(), true);
   const actions = await repository.listActions("workspace-1", "batch-1");
-  assert.deepEqual(actions!.map((value) => value.status), ["succeeded", "queued"]);
+  assert.deepEqual(actions!.map((value) => value.status), [
+    "succeeded", "failed", "blocked_by_predecessor"
+  ]);
   assert.equal(actions![0]!.platformReceiptReference, "receipt-comment-1");
 });
 

@@ -12,6 +12,7 @@ import type {
   DealCommercialDecisionPersistenceResult,
   QuoteRepository
 } from "./quote-repository.js";
+import { isCrmQuoteAuthoritySnapshot } from "./crm-quote-assessment.js";
 
 export interface DecideDealInput {
   readonly workspaceId: string;
@@ -148,7 +149,8 @@ export function createQuoteCrmCommand(options: {
         throw new Error("invalid_crm_projection_result");
       }
       const binding = input.quoteVersion.commercialBindingSnapshot;
-      if (!binding || typeof binding !== "object") {
+      if (!binding || typeof binding !== "object"
+        || isCrmQuoteAuthoritySnapshot(binding)) {
         return { dealEventId: result.event.id };
       }
       const snapshot = binding as import("./commercial-binding-snapshot.js")

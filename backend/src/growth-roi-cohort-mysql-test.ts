@@ -10,9 +10,10 @@ test("MySQL cohort schema is idempotent DDL with uniqueness guards", () => {
   const ddl = ACQUISITION_COHORT_MYSQL_SCHEMA_STATEMENTS.join("\n");
   assert.match(ddl, /uk_first_touch_membership/u);
   assert.match(ddl, /uk_membership_version_revision/u);
-  assert.match(ddl, /uk_member_source_event/u);
+  assert.match(ddl, /PRIMARY KEY \(cohort_member_id, event_id\)/u);
   assert.match(ddl, /uk_cohort_window/u);
   assert.match(ddl, /uk_cohort_catchup_request/u);
+  assert.match(ddl, /updated_at DATETIME\(3\) NOT NULL/u);
 });
 
 test("MySQL cohort repository persists cohorts and catches up", async () => {

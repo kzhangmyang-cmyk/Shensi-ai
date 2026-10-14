@@ -1,5 +1,7 @@
 import type { OutreachBatchState } from "../acquisition/outreach-batch-controller";
+import type { OutreachBatch } from "../acquisition/outreach-batch-api";
 import { renderOutreachBatchView } from "../acquisition/outreach-batch-view";
+import { patchStableView } from "../desktop/stable-view";
 import type {
   RealConversationsSnapshot,
   RealPublicInteraction
@@ -10,7 +12,11 @@ export interface RealConversationsViewState {
   snapshot: RealConversationsSnapshot | null;
   selectedInteractionKey: string | null;
   outreach: OutreachBatchState;
+  outreachHistory?: OutreachBatch[];
   error: string | null;
+  activeTab?: "direct_messages" | "comments" | "history";
+  candidateQuery?: string;
+  recipientKeys?: string[];
 }
 
 function escapeHtml(value: unknown): string {
@@ -21,6 +27,53 @@ function escapeHtml(value: unknown): string {
     '"': "&quot;",
     "'": "&#039;"
   })[character] ?? character);
+}
+
+const maxPublicMediaUrlLength = 2_000;
+
+function safePublicMediaUrl(value: string | undefined): string | null {
+  if (typeof value !== "string" || value.length === 0
+    || value.length > maxPublicMediaUrlLength
+    || !/^https:\/\/[^/\\?#]/iu.test(value)
+    || value.includes("\\")
+    || /[\p{White_Space}\p{Cc}\p{Cf}]/u.test(value)
+    || /%(?![0-9A-Fa-f]{2})/u.test(value)) return null;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:"
+      && parsed.hostname.length > 0
+      && parsed.username.length === 0
+      && parsed.password.length === 0 ? value : null;
+  } catch { return null; }
+}
+
+function renderCandidateAvatar(
+  item: RealPublicInteraction,
+  modifier = ""
+): string {
+  const url = safePublicMediaUrl(item.avatarUrl);
+  return `<span class="real-conversation-avatar${modifier}" aria-hidden="true"><i class="ph ph-user"></i>${url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-real-conversation-media="avatar">` : ""}</span>`;
+}
+
+function renderEvidenceCover(
+  item: RealPublicInteraction,
+  modifier = ""
+): string {
+  const url = safePublicMediaUrl(item.coverUrl);
+  return `<span class="real-conversation-evidence-media${modifier}" aria-hidden="true"><i class="ph ph-video-camera"></i>${url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-real-conversation-media="cover">` : ""}</span>`;
+}
+
+function bindPublicMediaFallbacks(root: ParentNode): void {
+  root.querySelectorAll<HTMLImageElement>("[data-real-conversation-media]").forEach((image) => {
+    if (image.dataset.realConversationMediaBound === "true") return;
+    image.dataset.realConversationMediaBound = "true";
+    image.addEventListener("error", () => {
+      image.hidden = true;
+      image.closest<HTMLElement>(
+        ".real-conversation-avatar, .real-conversation-evidence-media"
+      )?.classList.add("is-media-unavailable");
+    }, { once: true });
+  });
 }
 
 function formatTime(value: string): string {
@@ -49,11 +102,30 @@ function runStatusLabel(status: RealPublicInteraction["runStatus"]): string {
   return labels[status];
 }
 
+function candidateStatusLabel(status: string): string {
+  const labels: Readonly<Record<string, string>> = {
+    discovered: "新发现",
+    new: "新发现",
+    unresolvable: "身份待核对",
+    normalized: "资料已整理",
+    qualified: "符合条件",
+    pending_review: "待人工复核",
+    approved: "已批准",
+    rejected: "已拒绝",
+    do_not_contact: "不再联系",
+    needs_research: "需补充研究",
+    converted_to_lead: "已转为客户",
+    creator_candidate: "内容创作者"
+  };
+  return labels[status] ?? "状态待确认";
+}
+
 function renderInteractionRow(
   item: RealPublicInteraction,
   selected: boolean
 ): string {
   return `<button type="button" class="real-conversation-row ${selected ? "selected" : ""}" data-real-conversations-action="select" data-interaction-key="${escapeHtml(item.key)}">
+    ${renderCandidateAvatar(item)}
     <span class="real-conversation-row-heading"><b>${escapeHtml(item.displayName || "未命名公开主体")}</b><em>${item.outreachEligible ? "可审批外联" : "仅查看证据"}</em></span>
     <small>${escapeHtml(item.taskName)}</small>
     <p>${escapeHtml(item.excerpt || "公开证据未提供摘要")}</p>
@@ -67,22 +139,42 @@ function renderSelected(item: RealPublicInteraction | undefined): string {
   }
   return `<section class="demo-panel real-public-evidence" aria-label="选中的公开候选证据">
     <header><div><span class="demo-status">公开候选证据</span><h2>${escapeHtml(item.displayName || "未命名公开主体")}</h2><p>${escapeHtml(item.taskName)} · ${escapeHtml(runStatusLabel(item.runStatus))}</p></div><span class="demo-chip">${item.outreachEligible ? "精确公开视频" : "仅可阅读"}</span></header>
-    <article>
+    <article>${renderEvidenceCover(item, " real-public-evidence-cover")}
+      <div class="real-public-evidence-copy">
       <small>公开内容摘录</small>
       <blockquote>${escapeHtml(item.excerpt || "公开证据未提供摘要")}</blockquote>
       <dl>
-        <div><dt>候选状态</dt><dd>${escapeHtml(item.candidateStatus)}</dd></div>
+        <div><dt>候选状态</dt><dd>${escapeHtml(candidateStatusLabel(item.candidateStatus))}</dd></div>
         <div><dt>采集运行</dt><dd>${escapeHtml(item.runId)}</dd></div>
         <div><dt>最近运行时间</dt><dd>${escapeHtml(formatTime(item.runUpdatedAt))}</dd></div>
       </dl>
       <a href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener noreferrer">打开抖音公开来源</a>
+      ${renderPrivateDomainEntry(item)}
+      </div>
     </article>
+  </section>`;
+}
+
+function renderPrivateDomainEntry(item: RealPublicInteraction): string {
+  return `<div class="douyin-actions"><button type="button" class="secondary" data-real-conversations-action="review-candidate" ${item.planId.trim() ? "" : "disabled"}>核对并交接私域</button></div>`;
+}
+
+function renderRecipientContext(item: RealPublicInteraction | undefined): string {
+  if (!item) return "";
+  return `<section class="demo-panel real-conversation-recipient" aria-label="当前私信收件人">
+    <header>
+      <div class="real-conversation-recipient-person">${renderCandidateAvatar(item, " real-conversation-avatar--recipient")}<div><h2>${escapeHtml(item.displayName || "未命名公开主体")}</h2><p>${escapeHtml(item.taskName)}</p></div></div>
+      <dl><div><dt>来源</dt><dd>公开视频与评论</dd></div><div><dt>候选状态</dt><dd>${escapeHtml(candidateStatusLabel(item.candidateStatus))}</dd></div></dl>
+    </header>
+    ${renderPrivateDomainEntry(item)}
+    <details class="real-conversation-evidence"><summary>${renderEvidenceCover(item)}<div><strong>与当前任务相关的公开内容</strong><small>展开查看证据与公开来源</small></div><i class="ph ph-caret-down" aria-hidden="true"></i></summary><div class="real-conversation-evidence-body"><p>${escapeHtml(item.excerpt || "公开证据未提供摘要")}</p><time>${escapeHtml(formatTime(item.runUpdatedAt))}</time><a href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener noreferrer">查看来源 <i class="ph ph-arrow-square-out" aria-hidden="true"></i></a></div></details>
   </section>`;
 }
 
 function renderOutreachWorkspace(
   item: RealPublicInteraction | undefined,
-  outreach: OutreachBatchState
+  outreach: OutreachBatchState,
+  history: OutreachBatch[] = []
 ): string {
   if (!item) return "";
   if (outreach.phase === "loading") {
@@ -92,63 +184,95 @@ function renderOutreachWorkspace(
     return `<section class="demo-panel real-conversations-outreach-cta is-disabled" role="alert"><div><span class="demo-status">审批批次恢复失败</span><h3>无法确认当前候选人的最新审批状态</h3><p>${escapeHtml(outreach.error ?? "请刷新公开证据后重试")}</p></div><button type="button" disabled>暂不可创建或审批</button></section>`;
   }
   if (outreach.batch) {
-    return `<section class="real-conversations-outreach" aria-label="公开证据外联审批工作台"><div data-real-conversations-outreach-host></div></section>`;
+    const labels: Record<OutreachBatch["state"], string> = {
+      awaiting_approval: "待审批", approved: "已审批", rejected: "已拒绝", paused: "已暂停"
+    };
+    const picker = history.length > 1 ? `<details class="demo-panel"><summary>高级选项 · 查看历史审批记录</summary><label>历史记录（最近 50 个）
+      <select aria-label="历史审批批次" data-real-conversations-batch ${outreach.phase !== "ready" ? "disabled" : ""}>
+        ${history.map((batch, index) => `<option value="${escapeHtml(batch.id)}" ${batch.id === outreach.batch?.id ? "selected" : ""}>${index === 0 ? "最新 · " : ""}${escapeHtml(formatTime(batch.createdAt))} · ${labels[batch.state]} · ${batch.candidates.filter((candidate) => candidate.selected).length} 人 · 修订 ${batch.revision}</option>`).join("")}
+      </select></label></details>` : "";
+    return `<section class="real-conversations-outreach" aria-label="公开证据外联审批工作台">${picker}<div data-real-conversations-outreach-host data-stable-preserve-children></div></section>`;
   }
   if (!item.outreachEligible) {
     return `<section class="demo-panel real-conversations-outreach-cta is-disabled"><div><span class="demo-status">仅查看公开证据</span><h3>公开来源不符合精确评论条件</h3><p>只有精确的 https://www.douyin.com/video/{id} 公开证据可进入人工审批。</p></div><button type="button" disabled>无法创建待审批批次</button></section>`;
   }
-  return `<section class="demo-panel real-conversations-outreach-cta"><div><span class="demo-status">人工审批必需</span><h3>为当前候选人创建公开证据外联批次</h3><p>仅包含当前一名候选人；创建后仍需编辑、保存修订、逐条复核并二次确认。</p>${outreach.error ? `<small role="alert">${escapeHtml(outreach.error)}</small>` : ""}</div><button type="button" data-real-conversations-action="create-outreach">创建单候选待审批批次</button></section>`;
+  return `<section class="demo-panel real-conversations-outreach-cta"><div><span class="demo-status">准备私信</span><h3>为当前收件人准备私信草稿</h3><p>创建后可直接编辑并独立确认私信，不会批准或排队评论。</p>${outreach.error ? `<small role="alert">${escapeHtml(outreach.error)}</small>` : ""}</div><button type="button" data-real-conversations-action="create-outreach">准备私信草稿</button></section>`;
+}
+
+function renderOperationalHelp(state: RealConversationsViewState): string {
+  const failed = state.snapshot?.failedRuns ?? [];
+  const truncated = state.snapshot?.truncatedRunIds ?? [];
+  const summary = [
+    failed.length > 0 ? `${failed.length} 个运行未读到完整结果` : "",
+    truncated.length > 0 ? `${truncated.length} 个运行仍有后续候选` : ""
+  ].filter(Boolean).join(" · ") || "发送前核对与真实回执";
+  return `<details class="real-conversations-help" data-real-conversations-help>
+    <summary><span>发送与审批说明</span><small>${escapeHtml(summary)}</small><i class="ph ph-caret-down" aria-hidden="true"></i></summary>
+    <div class="real-conversations-help-body">
+      <section><b>发送前核对</b><p>提交前会核对发送账号、精确收件人与私信正文；完成勾选后才可排队。</p></section>
+      <section><b>公开来源</b><p>候选人与来源内容来自当前抖音获客任务，本页不伪造平台私信会话。</p></section>
+      <section><b>执行与回执</b><p>实际发送由桌面应用处理，结果以服务器动作状态与平台回执为准。</p></section>
+      ${failed.length > 0 ? `<section class="real-conversations-help-alert" role="alert"><b>部分运行需要重新读取</b><ul>${failed.map((item) => `<li>${escapeHtml(item.taskName)}：${escapeHtml(item.reason)}</li>`).join("")}</ul></section>` : ""}
+      ${truncated.length > 0 ? `<section><b>结果范围</b><p>${truncated.length} 个运行仍有后续分页；已读取部分候选，请刷新后重试。</p></section>` : ""}
+    </div>
+  </details>`;
 }
 
 function renderMain(state: RealConversationsViewState): string {
   const snapshot = state.snapshot;
   const interactions = snapshot?.interactions ?? [];
+  const query = state.candidateQuery?.trim().toLocaleLowerCase("zh-CN") ?? "";
+  const visibleInteractions = query ? interactions.filter((item) =>
+    [item.displayName, item.taskName, item.excerpt].some((value) =>
+      value.toLocaleLowerCase("zh-CN").includes(query))) : interactions;
+  const eligible = (item: RealPublicInteraction) => item.outreachEligible
+    && !["do_not_contact", "rejected", "unresolvable"].includes(item.candidateStatus);
+  const selectedRecipients = interactions.filter(item => eligible(item) && state.recipientKeys?.includes(item.key));
+  const selectionRun = selectedRecipients[0]?.runId ?? visibleInteractions.find(eligible)?.runId;
+  const selectable = visibleInteractions.filter(item => eligible(item) && item.runId === selectionRun);
+  const allSelected = selectable.every(item => state.recipientKeys?.includes(item.key));
   const selected = interactions.find((item) =>
     item.key === state.selectedInteractionKey) ?? interactions[0];
-  const heading = `<header class="real-conversations-heading">
-    <div><span class="demo-status">真实 · 抖音公开互动</span><h2>公开互动与候选证据</h2><p>读取 MediaCrawler 已采集的抖音公开内容和候选证据；这不是平台私信会话。</p></div>
-    <button type="button" data-real-conversations-action="retry">刷新公开证据</button>
-  </header>`;
+  const activeTab = state.activeTab ?? "direct_messages";
+  const tabs = `<nav class="real-conversations-tabs" aria-label="社媒对话工作区">${[
+    ["direct_messages", "私信"], ["comments", "公开评论"], ["history", "发送记录"]
+  ].map(([value, label]) => `<button type="button" data-real-conversations-action="tab" data-real-conversations-tab="${value}" aria-current="${activeTab === value ? "page" : "false"}">${label}</button>`).join("")}</nav>`;
+  const heading = activeTab === "direct_messages"
+    ? `<header class="real-conversations-heading">
+      <div><span class="demo-status">真实 · 抖音公开候选</span><h2>社媒对话</h2><p>选择收件人、编辑私信，确认后由桌面应用发送；私信无需先发表评论。</p></div>
+      <button type="button" data-real-conversations-action="retry">刷新公开证据</button>
+    </header>${tabs}`
+    : `<div class="real-conversations-secondary-toolbar">
+      ${tabs}
+      <button type="button" data-real-conversations-action="retry">刷新公开证据</button>
+    </div>`;
+  const accountStrip = `<div class="real-conversations-account-strip"><i class="ph ph-shield-check" aria-hidden="true"></i><span>当前平台：抖音 · 每次发送前都会核对发送账号、精确收件人与正文</span><button type="button" data-xhs-open>切换到小红书私信</button><a href="#acquisition">管理账号</a></div>`;
 
   if (state.status === "loading" && snapshot === null) {
-    return `<section class="real-conversations" aria-label="抖音公开互动">${heading}<section class="demo-panel demo-empty" role="status"><h2>正在读取真实公开互动…</h2><p>数据来自现有获客任务和候选证据接口。</p></section></section>`;
+    return `<section class="real-conversations" aria-label="抖音公开互动">${heading}${accountStrip}<section class="demo-panel demo-empty" role="status"><h2>正在读取真实公开互动…</h2><p>数据来自现有获客任务和候选证据接口。</p></section></section>`;
   }
   if (state.status === "error" && snapshot === null) {
-    return `<section class="real-conversations" aria-label="抖音公开互动">${heading}<section class="demo-panel demo-empty" role="alert"><h2>真实公开互动读取失败</h2><p>${escapeHtml(state.error)}</p><button type="button" data-real-conversations-action="retry">重新加载</button></section></section>`;
+    return `<section class="real-conversations" aria-label="抖音公开互动">${heading}${accountStrip}<section class="demo-panel demo-empty" role="alert"><h2>真实公开互动读取失败</h2><p>${escapeHtml(state.error)}</p><button type="button" data-real-conversations-action="retry">重新加载</button></section></section>`;
   }
 
   return `<section class="real-conversations" aria-label="抖音公开互动">
     ${heading}
+    ${accountStrip}
     ${state.error ? `<p class="real-conversations-warning" role="alert">${escapeHtml(state.error)}</p>` : ""}
-    <section class="real-conversations-grid">
+    <section class="real-conversations-grid" data-real-conversations-tab-panel="${activeTab}">
       <aside class="demo-panel real-conversation-list" aria-label="公开候选证据列表">
-        <div><b>${interactions.length} 条候选证据</b><small>${snapshot?.runsRead ?? 0} 个最新运行已读取</small></div>
-        <nav>${interactions.length > 0
-          ? interactions.map((item) => renderInteractionRow(item, item.key === selected?.key)).join("")
-          : "<p>当前没有候选证据。</p>"}</nav>
+        <div><b>选择收件人</b><small>${new Set(interactions.map(item => item.candidateId)).size} 位已载入真实候选 · ${snapshot?.runsRead ?? 0} 个运行</small></div>
+        <label><span class="sr-only">搜索候选人</span><input type="search" value="${escapeHtml(state.candidateQuery ?? "")}" placeholder="搜索候选人" data-real-conversations-candidate-search></label>
+        ${activeTab === "direct_messages" ? `<div class="real-conversation-bulk-controls"><p role="status">当前筛选 ${new Set(visibleInteractions.map(item => item.candidateId)).size} 人 · 已选 ${new Set(selectedRecipients.map(item => item.candidateId)).size} 人</p><div class="douyin-actions"><button type="button" class="secondary" data-real-conversations-action="select-recipients" ${allSelected ? "disabled" : ""}>全选当前运行</button><button type="button" class="secondary" data-real-conversations-action="clear-recipients" ${(state.recipientKeys ?? []).length ? "" : "disabled"}>全取消</button></div><small>全选范围：当前筛选已载入、同一采集运行的 ${selectable.length} 位可发候选；不同运行分别准备，不自动发送。</small><button type="button" class="primary" data-real-conversations-action="prepare-recipients" ${(state.recipientKeys ?? []).length && state.outreach.phase !== "loading" ? "" : "disabled"}>添加 ${(state.recipientKeys ?? []).length} 位到待发送列表</button></div>` : ""}
+        <nav>${visibleInteractions.length > 0
+          ? visibleInteractions.map((item) => `${activeTab === "direct_messages" ? `<label class="real-conversation-recipient-check"><input type="checkbox" data-real-conversations-recipient="${escapeHtml(item.key)}" ${(state.recipientKeys ?? []).includes(item.key) ? "checked" : ""} ${item.outreachEligible && !["do_not_contact", "rejected", "unresolvable"].includes(item.candidateStatus) ? "" : "disabled"}>选择 ${escapeHtml(item.displayName)}${item.outreachEligible ? "" : "（仅查看证据）"}</label>` : ""}${renderInteractionRow(item, item.key === selected?.key)}`).join("")
+          : "<p>没有匹配的真实候选人。</p>"}</nav>
       </aside>
-      ${renderSelected(selected)}
+      ${activeTab === "direct_messages"
+        ? `<div class="real-conversation-compose-pane">${renderRecipientContext(selected)}${renderOutreachWorkspace(selected, state.outreach)}${renderOperationalHelp(state)}</div>`
+        : renderSelected(selected)}
     </section>
-    ${renderOutreachWorkspace(selected, state.outreach)}
-  </section>`;
-}
-
-function renderInspector(state: RealConversationsViewState): string {
-  const snapshot = state.snapshot;
-  const failed = snapshot?.failedRuns ?? [];
-  const truncated = snapshot?.truncatedRunIds ?? [];
-  return `<section class="demo-panel real-conversations-inspector">
-    <header><span class="demo-status">能力与审批边界</span><h3>公开证据外联 · 非官方 inbox</h3></header>
-    <dl>
-      <div><dt>真实数据源</dt><dd>抖音获客任务的最新运行与公开候选证据</dd></div>
-      <div><dt>平台私信会话</dt><dd>这里不是官方 inbox，也不伪造会话线程</dd></div>
-      <div><dt>浏览器直接发送</dt><dd>不提供；必须经过服务器批次与人工二次确认</dd></div>
-    </dl>
-    <section><b>公开证据外联</b><p>仅精确公开视频 URL 可创建单候选批次；profile、查询、hash、HTTP 或其他主机证据仍可阅读但不可审批。</p></section>
-    <section><b>外联回执</b><p>审批后只展示服务器返回的动作状态与平台回执引用；不会根据本地选择伪造候选归属。</p></section>
-    ${failed.length > 0 ? `<section role="alert"><b>部分运行读取失败</b><ul>${failed.map((item) => `<li>${escapeHtml(item.taskName)}：${escapeHtml(item.reason)}</li>`).join("")}</ul></section>` : ""}
-    ${truncated.length > 0 ? `<section><b>结果范围</b><p>${truncated.length} 个运行仍有后续分页；当前仅展示接口首批结果。</p></section>` : ""}
-    <p class="real-conversations-safety-note">复核勾选前审批按钮保持禁用；本页没有绕过批次审批的直发入口。</p>
+    ${activeTab === "direct_messages" ? "" : `${renderOutreachWorkspace(selected, state.outreach, activeTab === "history" ? state.outreachHistory : [])}${renderOperationalHelp(state)}`}
   </section>`;
 }
 
@@ -157,25 +281,42 @@ export function renderRealConversationsView(
   main: HTMLElement,
   inspector: HTMLElement
 ): void {
-  main.innerHTML = renderMain(state);
+  const activeTab = state.activeTab ?? "direct_messages";
+  const directMessageTab = activeTab === "direct_messages";
+  main.classList.toggle("is-conversations-direct-message", directMessageTab);
+  inspector.hidden = true;
+  inspector.replaceChildren();
+  patchStableView(main, renderMain(state));
   const host = main.querySelector<HTMLElement>(
     "[data-real-conversations-outreach-host]"
   );
   const batch = state.outreach.batch;
+  const selectedInteraction = state.snapshot?.interactions.find((item) =>
+    item.key === state.selectedInteractionKey) ?? state.snapshot?.interactions[0];
   const account = batch ? state.snapshot?.accounts.find((item) =>
     item.id === batch.accountId
-    && item.loginStateVersion === batch.accountLoginStateVersion) : undefined;
+    && item.state === "active") : undefined;
   const candidates = batch?.candidates.flatMap((candidate) => {
+    if (!state.recipientKeys?.length && candidate.candidateId !== selectedInteraction?.candidateId) return [];
     const interaction = state.snapshot?.interactions.find((item) =>
       item.runId === batch.runId && item.candidateId === candidate.candidateId);
     return interaction ? [{
       candidateId: candidate.candidateId,
-      displayName: interaction.displayName
+      displayName: interaction.displayName,
+      evidenceExcerpt: interaction.excerpt,
+      evidenceSourceUrl: interaction.sourceUrl
     }] : [];
   }) ?? [];
   if (host) renderOutreachBatchView(host, state.outreach, {
     account: account ?? null,
-    candidates
+    candidates,
+    surface: activeTab,
+    compactDirectMessage: directMessageTab
+      && state.snapshot?.interactions.length === 1
   });
-  inspector.innerHTML = renderInspector(state);
+  const directMessageCompose = host?.querySelector("[data-outreach-direct-message-compose]");
+  directMessageCompose?.querySelector(
+    "[data-outreach-direct-message-account-summary]"
+  )?.insertAdjacentHTML("beforeend", '<a href="#acquisition" class="outreach-account-manage">管理或连接发送账号</a>');
+  bindPublicMediaFallbacks(main);
 }

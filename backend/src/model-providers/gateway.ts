@@ -85,6 +85,15 @@ export class ModelGatewayError extends Error {
   }
 }
 
+/** Retains both causes while distinguishing storage failure from provider failure. */
+export class ModelLedgerPersistenceError extends AggregateError {
+  constructor(persistenceError: unknown, primaryError?: unknown) {
+    super(primaryError === undefined ? [persistenceError] : [primaryError, persistenceError],
+      "Model call audit record could not be persisted");
+    this.name = "ModelLedgerPersistenceError";
+  }
+}
+
 class AttemptResponseFailure extends ModelGatewayError {
   readonly #resultForHash: unknown;
 
@@ -107,12 +116,14 @@ class AttemptResponseFailure extends ModelGatewayError {
 class SchemaValidationFailure extends AttemptResponseFailure {
   readonly #invalidOutput: string;
   readonly #validationErrors: string;
+  readonly #validationReasons: readonly string[];
 
   constructor(
     invalidOutput: string,
     validationErrors: string,
     usage: OpenAiCompatibleUsage,
-    providerRequestId: string | null
+    providerRequestId: string | null,
+    validationReasons: readonly string[]
   ) {
     super(
       "MODEL_SCHEMA_INVALID",
@@ -123,6 +134,7 @@ class SchemaValidationFailure extends AttemptResponseFailure {
     this.name = "SchemaValidationFailure";
     this.#invalidOutput = invalidOutput;
     this.#validationErrors = validationErrors;
+    this.#validationReasons = [...validationReasons];
   }
 
   repairInput() {
@@ -132,6 +144,69 @@ class SchemaValidationFailure extends AttemptResponseFailure {
   repairErrors() {
     return this.#validationErrors;
   }
+
+  validationReasons() { return [...this.#validationReasons]; }
+}
+
+/** Fixed categories only: never expose model output, document text, or arbitrary paths. */
+export function modelOutputFailureReasons(error: unknown): string[] {
+  if (!(error instanceof SchemaValidationFailure)) return [];
+  return error.validationReasons();
+}
+
+function schemaOutputFailureReasons(issues: z.ZodIssue[]): string[] {
+  const reasons = new Set<string>();
+  const details = new Set<string>();
+  for (const issue of issues) {
+    const path = issue.path.join('.');
+    if (/sourceRefs/u.test(path)) reasons.add('source_reference');
+    else if (/^observations\.\d+$/u.test(path) && issue.code === 'custom') reasons.add('reference_or_quantity');
+    else if (issue.code === 'too_big' || issue.code === 'too_small') reasons.add('output_limits');
+    else if (path === 'answer' && issue.code === 'custom') reasons.add('financial_answer_validation');
+    else if (path === 'knowledge' && issue.code === 'custom') {
+      const reason = issue.params?.modelOutputFailureReason;
+      reasons.add(typeof reason === 'string' && ['knowledge_reference', 'knowledge_company_text', 'output_limits'].includes(reason)
+        ? reason : 'knowledge_validation');
+    }
+    else if (path === 'knowledge.citationIds' && issue.code === 'custom') reasons.add('knowledge_reference');
+    else {
+      reasons.add(path === 'knowledge' || path.startsWith('knowledge.') ? 'knowledge_schema_shape' : 'schema_shape');
+      details.add(schemaShapeDetail(issue));
+    }
+  }
+  return [...reasons, ...[...details].slice(0, 32)];
+}
+
+/** Only closed labels enter the audit; never copy paths, keys, values or messages. */
+function schemaShapeDetail(issue: z.ZodIssue): string {
+  const path = issue.path;
+  const item = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+  let location = 'other';
+  if (path.length === 0) location = 'root';
+  else if (path.length === 1 && path[0] === 'answer') location = 'answer';
+  else if (path[0] === 'citationIds') {
+    if (path.length === 1) location = 'citation_ids';
+    else if (path.length === 2 && item(path[1])) location = 'citation_item';
+  } else if (path[0] === 'knowledge') {
+    if (path.length === 1) location = 'knowledge';
+    else if (path.length === 2 && path[1] === 'template') location = 'knowledge_template';
+    else if (path[1] === 'citationIds') {
+      if (path.length === 2) location = 'knowledge_citation_ids';
+      else if (path.length === 3 && item(path[2])) location = 'knowledge_citation_item';
+    }
+  }
+  let kind = 'other';
+  switch (issue.code) {
+    case 'invalid_type': kind = issue.received === 'undefined' ? 'missing' : 'wrong_type'; break;
+    case 'unrecognized_keys': kind = 'unknown_keys'; break;
+    case 'invalid_literal':
+    case 'invalid_enum_value':
+    case 'invalid_union':
+    case 'invalid_union_discriminator':
+    case 'invalid_string': kind = 'invalid_value'; break;
+    case 'custom': kind = 'custom'; break;
+  }
+  return `schema_detail:${location}:${kind}`;
 }
 
 export interface GatewayIdentity {
@@ -179,6 +254,8 @@ export interface ModelHealthResult {
 export interface StructuredGenerationRequest<T> {
   /** Server-owned release boundaries can prohibit another provider invocation. */
   repair?: boolean;
+  /** Server-owned opt-out, applied only by providers that support it. */
+  thinkingMode?: 'disabled';
   /** Trusted, server-owned policy/schema context sent with system priority. */
   systemPrompt?: string;
   /** User-priority dynamic context; callers must mark untrusted data explicitly. */
@@ -575,7 +652,8 @@ export class ActiveModelGateway {
       const first = await this.#generateAndValidate(
         request.prompt,
         request.schema,
-        request.systemPrompt
+        request.systemPrompt,
+        request.thinkingMode
       );
       return {
         value: first.value,
@@ -609,7 +687,8 @@ export class ActiveModelGateway {
       const repaired = await this.#generateAndValidate(
         repairPrompt,
         request.schema,
-        repairSystemPrompt
+        repairSystemPrompt,
+        request.thinkingMode
       );
       return {
         value: repaired.value,
@@ -853,13 +932,7 @@ export class ActiveModelGateway {
         try {
           await this.#persistAttempt();
         } catch (persistenceError) {
-          if (primaryError) {
-            throw new AggregateError(
-              [primaryError, persistenceError],
-              "Model stream failed and its audit record could not be persisted"
-            );
-          }
-          throw persistenceError;
+          throw new ModelLedgerPersistenceError(persistenceError, primaryError);
         }
       }
     }
@@ -869,12 +942,14 @@ export class ActiveModelGateway {
   async #generateAndValidate<T>(
     prompt: string,
     schema: z.ZodType<T>,
-    systemPrompt?: string
+    systemPrompt?: string,
+    thinkingMode?: 'disabled'
   ) {
     return this.#runAttempt(
       {
         operation: "generate_structured",
-        prompt
+        prompt,
+        ...(thinkingMode ? { thinkingMode } : {})
       },
       async (credential, requestId) => {
         const response = await this.#adapter.generateText({
@@ -883,6 +958,7 @@ export class ActiveModelGateway {
           requestId,
           systemPrompt,
           prompt,
+          thinkingMode,
           jsonMode: true
         });
         let parsedJson: unknown;
@@ -893,7 +969,8 @@ export class ActiveModelGateway {
             response.value,
             "<root>: invalid_json",
             response.usage,
-            response.providerRequestId
+            response.providerRequestId,
+            ['invalid_json']
           );
         }
         const parsed = schema.safeParse(parsedJson);
@@ -907,7 +984,8 @@ export class ActiveModelGateway {
             response.value,
             validationErrors,
             response.usage,
-            response.providerRequestId
+            response.providerRequestId,
+            schemaOutputFailureReasons(parsed.error.issues)
           );
         }
         return {
@@ -974,10 +1052,7 @@ export class ActiveModelGateway {
       try {
         await this.#persistAttempt();
       } catch (persistenceError) {
-        throw new AggregateError(
-          [error, persistenceError],
-          "Model preflight failed and its audit record could not be persisted"
-        );
+        throw new ModelLedgerPersistenceError(persistenceError, error);
       }
     }
     throw error;
@@ -1041,13 +1116,7 @@ export class ActiveModelGateway {
         try {
           await this.#persistAttempt();
         } catch (persistenceError) {
-          if (primaryError !== undefined) {
-            throw new AggregateError(
-              [primaryError, persistenceError],
-              "Model call failed and its audit record could not be persisted"
-            );
-          }
-          throw persistenceError;
+          throw new ModelLedgerPersistenceError(persistenceError, primaryError);
         }
       }
     }
@@ -1096,7 +1165,8 @@ export class ActiveModelGateway {
         code: error.code,
         status: error.status,
         retryable: error.retryable,
-        retryAfterMs: error.retryAfterMs
+        retryAfterMs: error.retryAfterMs,
+        ...(modelOutputFailureReasons(error).length ? { validationReasons: modelOutputFailureReasons(error) } : {})
       },
       resultHash: hashModelCallValue(resultForHash)
     }));

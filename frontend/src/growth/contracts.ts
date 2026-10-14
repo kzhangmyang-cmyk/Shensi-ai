@@ -5,7 +5,12 @@ import type {
 } from "../generated/growth-advisor-quote-roi.js";
 
 export const GROWTH_CONTRACT_NAME = "growth-advisor-quote-roi";
-export const GROWTH_CONTRACT_VERSION = "1.0.12";
+export const GROWTH_CONTRACT_VERSION = "1.0.16";
+export type CfoConversationInput = components['schemas']['CfoConversationInput'];
+export type CfoConversationAnswer = Omit<components['schemas']['CfoConversationAnswer'], '$defs'>;
+export type CfoSession = Omit<components['schemas']['CfoSession'], '$defs'>;
+export type CfoSessionSummary = components['schemas']['CfoSessionSummary'];
+export type CfoSessionReply = components['schemas']['CfoSessionReply'];
 
 export type GrowthPaths = paths;
 export type GrowthOperations = operations;
@@ -41,6 +46,9 @@ export type FinancialCouncilRun = Omit<
 >;
 export type FinancialCouncilRunEvent =
   components["schemas"]["FinancialCouncilRunEvent"];
+export type FinancialCouncilCollaboration = components["schemas"]["FinancialCouncilCollaboration"];
+export type FinancialCouncilRunHistory = components["schemas"]["FinancialCouncilRunHistory"];
+export type FinancialCouncilDetailedReport = components["schemas"]["FinancialCouncilDetailedReport"];
 export type FinancialCouncilRunEventPagedResult =
   components["schemas"]["FinancialCouncilRunEventPagedResult"];
 export type FinancialCouncilRunEventPage =

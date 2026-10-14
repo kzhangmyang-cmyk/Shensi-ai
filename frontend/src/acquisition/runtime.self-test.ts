@@ -1,5 +1,10 @@
 import { strict as assert } from "node:assert";
-import { snapshotDisabledStates } from "./runtime";
+import {
+  listenForAcquisitionPageTeardown,
+  pagehideRequiresTeardown,
+  shouldShowAutomationWorkspace,
+  snapshotDisabledStates
+} from "./runtime";
 import {
   importOutcomeFromOperation,
   publicDouyinUrl,
@@ -20,6 +25,38 @@ initiallyDisabled.disabled = false;
 restoreDisabledStates();
 
 assert.equal(
+  pagehideRequiresTeardown({ persisted: true }),
+  false,
+  "a BFCache pagehide must keep the acquisition controller and views alive for Back navigation"
+);
+assert.equal(
+  pagehideRequiresTeardown({ persisted: false }),
+  true,
+  "an ordinary pagehide must still tear down login sessions and remote RFB resources"
+);
+
+{
+  const lifecycle = new EventTarget();
+  let teardowns = 0;
+  const stopListening = listenForAcquisitionPageTeardown(
+    lifecycle,
+    () => { teardowns += 1; }
+  );
+  const pagehide = (persisted: boolean) => {
+    const event = new Event("pagehide");
+    Object.defineProperty(event, "persisted", { value: persisted });
+    lifecycle.dispatchEvent(event);
+  };
+  pagehide(true);
+  lifecycle.dispatchEvent(new Event("pageshow"));
+  pagehide(false);
+  pagehide(false);
+  assert.equal(teardowns, 1,
+    "BFCache restore must retain the listener and a later real departure must teardown exactly once");
+  stopListening();
+}
+
+assert.equal(
   initiallyEnabled.disabled,
   false,
   "leaving real acquisition mode must restore an initially enabled action"
@@ -28,6 +65,22 @@ assert.equal(
   initiallyDisabled.disabled,
   true,
   "leaving real acquisition mode must preserve an initially disabled action"
+);
+
+assert.equal(
+  shouldShowAutomationWorkspace(0, false),
+  false,
+  "an empty real workspace must keep the full configuration stack collapsed by default"
+);
+assert.equal(
+  shouldShowAutomationWorkspace(0, true),
+  true,
+  "an explicit task-settings entry must reveal configuration even before a task exists"
+);
+assert.equal(
+  shouldShowAutomationWorkspace(1, false),
+  true,
+  "a selected real task must keep its automation configuration reachable"
 );
 
 assert.deepEqual(

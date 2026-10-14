@@ -433,6 +433,49 @@ test("outcome feedback rejects untyped live parties and legacy individual partie
   assert.equal(validateCase("outcome-feedback", legacy).valid, false);
 });
 
+test("live outcome schemas distinguish crawler jobs from generic provider operations", async () => {
+  const { validateCase } = await loadContractHarness();
+  const live = {
+    id: "outcome-crawler", ownerId: "owner", teamId: "team", leadId: "lead", customerId: "customer",
+    eventType: "private_domain_entered", occurredAt: "2026-08-01T01:00:00.000Z", amount: null,
+    reasonCode: null, reasonText: null, idempotencyKey: "key", createdBy: "user",
+    createdAt: "2026-08-01T01:00:00.000Z", recordKind: "live",
+    partyRef: { partyType: "individual", individualPartyId: "party", demandSignalId: "candidate" },
+    candidateId: "candidate", attribution: {
+      attributionVersion: "douyin-crawler.v1", jobId: "crawler-job",
+      runId: "run", planId: "plan", planVersionId: "plan-version", planVersion: 1,
+      planSnapshotHash: "plan-hash", discoveredEventId: "event",
+      discoveredAt: "2026-08-01T00:00:00.000Z", shardId: null, operationId: null,
+      connectionId: null, providerId: null, evidenceIds: ["evidence"], providerIds: [], queryIds: [],
+      strategyVersion: "strategy-v1", qualificationDecisionId: "decision", decisionVersion: "v1",
+      decisionSnapshotHash: "decision-hash", decisionEngine: "rules", ruleVersion: "rules-v1",
+      modelProvider: null, model: null, promptVersion: null
+    }
+  };
+  assert.equal(validateCase("outcome-feedback", live).valid, true);
+  for (const change of [
+    { jobId: "" }, { jobId: undefined }, { shardId: "shard" }, { shardId: undefined },
+    { operationId: "operation" }, { connectionId: "connection" }, { providerId: "provider" },
+    { evidenceIds: [] }, { providerIds: ["provider"] }, { queryIds: ["query"] },
+    { extraSourceAuthority: "invented" }
+  ]) {
+    const invalid = JSON.parse(JSON.stringify({ ...live, attribution: { ...live.attribution, ...change } }));
+    assert.equal(validateCase("outcome-feedback", invalid).valid, false, JSON.stringify(change));
+  }
+  const { jobId: _jobId, ...common } = live.attribution;
+  const generic = { ...live, attribution: {
+    ...common, attributionVersion: "acquisition-run.v1", shardId: "shard", operationId: "operation",
+    connectionId: "connection", providerId: "provider", providerIds: ["provider"], queryIds: ["query"]
+  } };
+  assert.equal(validateCase("outcome-feedback", generic).valid, true);
+  assert.equal(validateCase("outcome-feedback", {
+    ...generic, attribution: { ...generic.attribution, jobId: "crawler-job" }
+  }).valid, false);
+  assert.equal(validateCase("outcome-feedback", {
+    ...generic, attribution: { ...generic.attribution, shardId: null }
+  }).valid, false);
+});
+
 test("rules decisions cannot claim model metadata and inference cards require support", async () => {
   const { validateCase } = await loadContractHarness();
   const decision = {

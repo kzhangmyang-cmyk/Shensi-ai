@@ -1,4 +1,20 @@
 import type express from "express";
+import { KNOWLEDGE_RETRIEVER } from './knowledge/module.js';
+import { REFERENCE_RETRIEVER, type ReferenceRetrievalPort } from './system-reference/composite-retrieval.js';
+import type { KnowledgeRetrievalPort } from './knowledge/retrieval.js';
+import type { CrmStore } from './store.js';
+import { createAgentWebResearchRuntime, createAgentConversationResearchRuntime } from './agent-web-research-runtime.js';
+import type { ActiveWorkspaceContext } from './growth-workspace-context.js';
+import { FINANCIAL_COUNCIL_MODEL_ROLES } from './financial-council-model-routing.js';
+import { createAgentWebResearchRouter } from './agent-web-research-router.js';
+import { InMemoryCfoConversationSessionRepository, MysqlCfoConversationSessionRepository,
+  CFO_CONVERSATION_SESSION_MYSQL_SCHEMA } from './cfo-conversation-session-repository.js';
+import { createCfoChatModel } from './cfo-conversation.js';
+import { FinanceDocumentService, type FinanceDocumentReadModel } from './finance-document-service.js';
+import { createFinanceDocumentRouter } from './finance-document-router.js';
+import { createFinanceDocumentModel } from './finance-document-model.js';
+import { selectFinancialCouncilModelRoute } from './financial-council-model-routing.js';
+import { GrowthHttpError } from './growth-command-context.js';
 import type mysql from "mysql2/promise";
 import { createBusinessAdvisorService } from "./business-advisor/service.js";
 import { FinancialCouncilAuthorityReader } from
@@ -116,6 +132,8 @@ extends GrowthFinancialCouncilServices {
   readonly modelRoutingRepository: FinancialCouncilModelRoutingRepository;
   readonly modelRoutingService: FinancialCouncilModelRoutingService;
   readonly agentCenter: FinancialCouncilAgentCenter;
+  readonly documents: FinanceDocumentService;
+  readonly webResearch?: ReturnType<typeof createAgentWebResearchRuntime>;
   readonly relay: Pick<FinancialCouncilWakeRelay, "start" | "sweep" | "close">;
   closeFinancialCouncilResources(): Promise<void>;
 }
@@ -282,6 +300,8 @@ export class FinancialCouncilWakeRelay {
 }
 
 export interface GrowthFinancialCouncilModuleOptions {
+  readonly webResearchStore?: CrmStore;
+  readonly documentModel?: FinanceDocumentReadModel;
   readonly mode?: "memory" | "mysql";
   readonly pool?: mysql.Pool;
   readonly wakeSink?: FinancialCouncilWakeSink;
@@ -358,7 +378,7 @@ function trustedResources(
     || Reflect.ownKeys(value).some((key) => typeof key !== "string")
     || (Reflect.ownKeys(value) as string[]).sort().join("\u0000")
       !== ["service", "modelRoutingRepository", "modelRoutingService",
-        "agentCenter", "relay",
+        "agentCenter", "documents", "webResearch", "relay",
         "closeFinancialCouncilResources"]
         .sort().join("\u0000")) {
     throw new Error("INVALID_GROWTH_FINANCIAL_COUNCIL_RESOURCES");
@@ -397,6 +417,13 @@ class IdempotentInProcessWakeSink implements FinancialCouncilWakeSink {
 const TRUSTED_FINANCIAL_COUNCIL_RESOURCES = new WeakSet<object>();
 
 export async function createGrowthFinancialCouncilResources(input: {
+  knowledge?: KnowledgeRetrievalPort;
+  references?: ReferenceRetrievalPort;
+  webResearchStore?: CrmStore;
+  modelFetch?: typeof fetch;
+  executeSearch?: NonNullable<Parameters<typeof createAgentWebResearchRuntime>[1]>['executeSearch'];
+  operatingMemory?:AgentOperatingMemoryService;
+  documentModel?: FinanceDocumentReadModel;
   mode: "memory" | "mysql";
   pool?: mysql.Pool;
   foundation: GrowthFoundationServices;
@@ -553,7 +580,43 @@ export async function createGrowthFinancialCouncilResources(input: {
   const modelRoutingService = new FinancialCouncilModelRoutingService({
     repository: modelRoutingRepository, runtimeState
   });
+  const documents = new FinanceDocumentService({
+    async reportResearch(context, industry, signal) {
+      if (!webResearch) throw new GrowthHttpError(409, 'agent_web_connection_unavailable');
+      const labels = {general:'企业经营',manufacturing:'制造业',retail:'零售业',services:'服务业',technology:'软件与信息技术服务业'};
+      const connections = await webResearch.connections(context);
+      if (!connections.length) throw new GrowthHttpError(409, 'agent_web_connection_unavailable');
+      // Only controlled public taxonomy is sent to search, never uploaded text.
+      return webResearch.retrieve(context, {query:`中国 ${labels[industry]} 收入 成本 现金流 管理 行业 可比口径`,connectionId:connections[0].id,role:'finance'}, signal);
+    },
+    model: input.documentModel ?? (input.modelStore ? createFinanceDocumentModel(input.modelStore,{fetch:input.modelFetch}) : undefined),
+    async connectionFor(context, role) {
+      const policy = await modelRoutingRepository.getCurrent(context);
+      if (!policy) return undefined;
+      const runtime = runtimeState();
+      const connection = selectFinancialCouncilModelRoute({ role, policy, connections: runtime.connections,
+        recentCalls: runtime.recentCalls, prices: [], activeWorkspace: context }).orderedConnectionIds[0];
+      if (!connection) throw new GrowthHttpError(409, 'cfo_conversation_model_not_ready');
+      return connection;
+    }
+  });
+  const researchOptions = {modelFetch:input.modelFetch,executeSearch:input.executeSearch,async connectionFor(context:ActiveWorkspaceContext,role:typeof FINANCIAL_COUNCIL_MODEL_ROLES[number]) {
+    const policy=await modelRoutingRepository.getCurrent(context);
+    if(!policy)return undefined;
+    const runtime=runtimeState();
+    const connection=selectFinancialCouncilModelRoute({role,policy,connections:runtime.connections,recentCalls:runtime.recentCalls,prices:[],activeWorkspace:context}).orderedConnectionIds[0];
+    if(!connection)throw new GrowthHttpError(409,'cfo_conversation_model_not_ready');
+    return connection;
+  }};
+  const webResearch=input.webResearchStore?createAgentWebResearchRuntime(input.webResearchStore,researchOptions):undefined;
   const agentCenter = new FinancialCouncilAgentCenter({
+    research:input.webResearchStore&&webResearch?createAgentConversationResearchRuntime(input.webResearchStore,researchOptions,webResearch):undefined,
+    operatingMemory:input.operatingMemory,
+    knowledge: input.knowledge,
+    references: input.references,
+    sessions: input.mode === 'mysql' ? new MysqlCfoConversationSessionRepository(input.pool!) : new InMemoryCfoConversationSessionRepository(),
+    documents,
+    chatModel: input.modelStore ? createCfoChatModel(input.modelStore,{fetch:input.modelFetch}) : undefined,
     latestPackage: Object.freeze({
       async getLatestVerified(workspaceId: string) {
         if (!input.finance.statementPackages) return null;
@@ -571,7 +634,9 @@ export async function createGrowthFinancialCouncilResources(input: {
     modelRoutingRepository,
     modelRoutingService,
     agentCenter,
+    documents,
     relay,
+    webResearch,
     async closeFinancialCouncilResources() {
       await dispatch.close();
       await sweeper?.close();
@@ -627,10 +692,14 @@ export function createGrowthFinancialCouncilModule(
           await ensureFinancialCouncilPolicyMysqlSchema(options.pool);
           await ensureFinancialCouncilDraftMysqlSchema(options.pool);
           await ensureFinancialCouncilModelRoutingMysqlSchema(options.pool);
+          await options.pool.execute(CFO_CONVERSATION_SESSION_MYSQL_SCHEMA);
         }
         const createdResources = options.createResources
           ? await options.createResources({ foundation, advisor, finance })
           : await createGrowthFinancialCouncilResources({
+              knowledge: input.privateServices.get(KNOWLEDGE_RETRIEVER) ?? undefined,
+              references: input.privateServices.get(REFERENCE_RETRIEVER) ?? undefined,
+              operatingMemory:input.privateServices.get(AGENT_OPERATING_MEMORY)??undefined,
               mode: options.mode ?? "memory",
               pool: options.pool,
               foundation,
@@ -638,6 +707,8 @@ export function createGrowthFinancialCouncilModule(
               finance,
               wakeSink: options.wakeSink,
               modelStore: options.modelStore,
+              webResearchStore: options.webResearchStore,
+              documentModel: options.documentModel,
               relayIntervalMs: options.relayIntervalMs,
               relayBatchSize: options.relayBatchSize,
               relayDeliveryTimeoutMs: options.relayDeliveryTimeoutMs
@@ -689,6 +760,12 @@ export function createGrowthFinancialCouncilModule(
           center: resources.agentCenter,
           workspaceContext: foundation.workspaceContext
         }));
+        input.router.use('/api/v1/finance', createFinanceDocumentRouter({
+          service: resources.documents, workspaceContext: foundation.workspaceContext
+        }));
+        if (resources.webResearch) {
+          input.router.use('/api/v1/finance', createAgentWebResearchRouter({ service: resources.webResearch, workspaceContext: foundation.workspaceContext }));
+        }
         const policyRouterFactory = options.createPolicyRouter
           ?? createFinancialCouncilPolicyRouter;
         input.router.use(
@@ -720,3 +797,4 @@ export function createGrowthFinancialCouncilModule(
     }
   });
 }
+import {AGENT_OPERATING_MEMORY,type AgentOperatingMemoryService} from './agent-operating-memory.js';

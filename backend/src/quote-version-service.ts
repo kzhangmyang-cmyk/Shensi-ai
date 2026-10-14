@@ -18,6 +18,10 @@ import {
   type ProbabilityAssessmentRepository
 } from "./probability-assessment.js";
 import type { CommercialBindingVerifier } from "./commercial-binding-snapshot.js";
+import {
+  isCrmQuoteAuthoritySnapshot,
+  type CrmQuoteAuthorityVerifier
+} from "./crm-quote-assessment.js";
 import type { ActiveWorkspaceContext } from "./growth-workspace-context.js";
 import type {
   QuoteApproval,
@@ -155,6 +159,7 @@ export interface QuoteVersionServiceOptions {
   readonly repository: QuoteRepository;
   readonly probabilityAssessments: ProbabilityAssessmentRepository;
   readonly bindingVerifier: CommercialBindingVerifier;
+  readonly crmAuthorityVerifier?: CrmQuoteAuthorityVerifier;
   readonly catalog: GrowthCatalogServices;
   readonly foundation: GrowthFoundationServices;
   readonly calculator?: QuoteCalculationService;
@@ -385,6 +390,17 @@ export class QuoteVersionService {
     context: ActiveWorkspaceContext,
     version: QuoteVersion
   ) {
+    const frozenAuthority = version.commercialBindingSnapshot;
+    if (isCrmQuoteAuthoritySnapshot(frozenAuthority)) {
+      if (!this.options.crmAuthorityVerifier) {
+        fail("crm_quote_authority_unavailable");
+      }
+      const verified = this.options.crmAuthorityVerifier.verify(
+        context,
+        frozenAuthority
+      );
+      return verified.assessment;
+    }
     const candidateId = version.subjectEvidence
       && typeof version.subjectEvidence === "object"
       ? (version.subjectEvidence as { candidateId?: unknown }).candidateId
@@ -396,7 +412,7 @@ export class QuoteVersionService {
     if (typeof candidateId !== "string" || typeof dealId !== "string") {
       fail("quote_deal_binding_required");
     }
-    const binding = version.commercialBindingSnapshot as
+    const binding = frozenAuthority as
       | QuoteVersion["commercialBindingSnapshot"]
       | null;
     if (!binding || typeof binding !== "object") fail("quote_deal_binding_required");

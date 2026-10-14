@@ -1,540 +1,236 @@
 # Project Status
 
-This file is the sole current progress ledger for the canonical `shensi`
-repository. Test results are evidence only for the commit and environment in
-which they were run; historical checkboxes and reports do not update this
-ledger.
-
-## Customer-visible runtime authority
-
-- The complete customer-visible local trial is
-  `http://127.0.0.1:5608`. The only current public origin is the value returned
-  by `pnpm trial:status` while it reports `running: true`.
-- The running local and public trial use one release snapshot, API, and MySQL
-  database. Editing source does not modify that snapshot; synchronization is
-  true only after `pnpm trial:publish` completes and its verification passes.
-- Ports `5188`, `5388`, and `5588`, and every Quick Tunnel URL copied from a
-  prior chat, screenshot, bookmark, log, or archived document, are not current
-  customer entry points or progress evidence.
-
-## Completed
-
-- The standalone repository was created on `main`; its imported source commit
-  and legacy repository are recorded in `docs/SOURCE_PROVENANCE.md`.
-- The root source boundaries remain `frontend/`, `backend/`, and `contracts/`.
-- The checked-in Growth contract release remains `1.0.12`.
-- Growth real mode propagates the bootstrap-selected concrete workspace to all
-  downstream requests. Product catalog, quote-case selection, finance cost
-  estimates, ROI cohorts, advisor, agent center, and financial council routes
-  therefore open inside the same authorized workspace; empty collections render
-  as empty states. Expected HTTP/capability failures keep their real status and
-  code instead of being collapsed into an internal error.
-- The current AI reading path, machine-checkable context contract, and five
-  module guides are present; older root `docs/superpowers/{plans,specs}` files
-  are archived outside the current reading path.
-- The obsolete unauthenticated surface has been replaced by the dark Shensi
-  account entry. Its empty account/password form switches between login and
-  registration. Login accepts an account or email. Public registration enforces
-  a 3–32 character account (letter/digit first, then letter/digit/`_`/`-`) and
-  an 8–128 character password, normalizes the account to lowercase, returns
-  `409` for duplicates, and permits five attempts per observed client IP per
-  hour. Success creates a new active workspace `admin` and immediately issues
-  the existing session and CSRF authority; restored sessions are still accepted
-  only after server validation. The new workspace exposes every module with
-  empty business state and never inherits another tenant's credentials,
-  candidates, tasks, CRM/Growth/finance rows, or outreach state.
-- The canonical production topology is `deploy/compose.yaml`: MySQL, backend,
-  frontend, and a single public gateway service use an internal Compose
-  network. Production backend persistence is MySQL only.
-- Canonical `./scripts/dev`, `./scripts/deploy`, and `./scripts/verify`
-  wrappers validate real MySQL/security configuration, fail closed for ports
-  and production secret-file permissions, use file-only production settings,
-  and keep verification output free of environment values.
-- Encrypted backup, empty-target restore, source-to-`shensi` orchestration, and
-  closed non-secret data-verification tooling are present. The tools stream
-  through explicit child-process argument arrays, authenticate the complete
-  anonymous ciphertext snapshot before restoring from that same FD, reject
-  unsupported source objects and every target schema-object type, and never
-  create a plaintext dump or provide a database-drop path. Verification uses
-  allowlisted non-sensitive digests and aggregate ciphertext-row identities;
-  password hashes and raw credential bytes are excluded.
-- The restore-boundary database-copy stage from `shensi_sales` into the
-  distinct `shensi` database completed at `a681c123`. Closed verification
-  matched 237 tables and 170 rows plus stable identities, model projections,
-  and aggregate encrypted-row identities. The first target-backend startup
-  added one deterministic `system_migration` model-activation audit row; a
-  second restart added nothing further. An operator-authorized target-only
-  identity binding then preserved the restored connection owner/team and
-  credential AAD while binding the supplied login to that owner. The bounded
-  Task 7 verifier logged in once, loaded the exact restored
-  `deepseek-v4-pro` connection, and made exactly one successful provider
-  health call. That call added one immutable job snapshot and one model-call
-  ledger row, leaving the current target at 237 tables and 173 rows while the
-  unchanged source remains at 237 and 170. The task-owned backend was stopped
-  and port `4192` released. Authenticated encrypted backups were retained and
-  temporary migration accounts were removed. Current non-secret evidence is in
-  `docs/migration/2026-08-24-live-migration-verification.md`.
-- Task 7 is complete: its encrypted backup, distinct-target restore, closed
-  restore-boundary comparison, isolated MySQL health, authenticated login,
-  restored-connection visibility, and single bounded DeepSeek health gates
-  all passed. No traffic cutover or legacy-process shutdown occurred.
-- Acquisition publishes workspace-bound Douyin automation policy `GET`/`PUT`
-  and idempotent run-now commands. Immutable policy versions sit behind a
-  compare-and-swap head. Each durable automation intent freezes the approved
-  plan, policy, active-account/login, local-date, and daily-budget identities
-  and is transactionally bound to a distinct authoritative `AcquisitionRun`.
-  The public result exposes both identities and never exposes the private
-  MediaCrawler account handle.
-- Douyin QR account binding validates active identity shape inside the
-  repository lock or transaction: canonical one-way account handle, non-empty
-  public nickname, and positive safe-integer login-state version. A
-  non-authoritative persisted active row can be replaced only by a structurally
-  valid QR result strictly newer than the durable high-water, preserving the
-  account ID and creation time while advancing revision/ETag. A valid active
-  identity with a different handle still conflicts, and equal or older sessions
-  remain fail-closed.
-- Acquisition plans now distinguish the compatible generic provider-operation
-  mode from `douyin_mediacrawler`. A MediaCrawler plan is Douyin-only, carries
-  no public-search provider, generic operation, model connection, or model
-  snapshot, and can run only through the approved automation-policy/run-now
-  path. Generic plans retain their existing provider, operation, trusted-model,
-  and shard-run requirements. Manual MediaCrawler keywords therefore require
-  neither a public-search API nor AI; server-generated keyword suggestions
-  remain an optional AI-backed convenience.
-- Authoritative Douyin runs feed one crawler job per workspace/plan/policy/day.
-  Every run alias is validated together with its bound automation-intent alias.
-  Exact pair replay performs no write, mixed or reused aliases fail closed, and
-  each genuinely new pair increments a private alias generation for the shared
-  daily job. Random fenced crawl and terminal-ingestion leases, transactional
-  non-cyclic opaque cursor history, frozen record-kind filters, and bounded
-  recovery have Memory/MySQL implementations. The sidecar publishes immutable
-  pages during the crawl; Node consumes the advertised page count, persists each
-  cursor/page first, and atomically projects evidence, candidates, identity
-  aliases, audits, a running run state, and run-candidate links before terminal
-  completion. A terminal startup snapshot is never written through the
-  nonterminal activity path; completed activity becomes durable only with the
-  advertised `done` page and terminal metadata transaction. Upstream interruption
-  after published records produces a durable partial job instead of resetting
-  the record count. Each runner invocation confines its request, activity, and
-  JSONL files to a random owner-only `0700` attempt directory. Resumed jobs seed
-  record de-duplication from IDs in persisted pages, so stale attempt files and
-  repeated records are not republished; acknowledgement cleanup removes the
-  whole job output root. Stable record edits supersede across jobs; content is
-  unique per workspace. Each record and evidence row retains its exact page
-  cursor and explicit creator/commenter discriminator.
-- Terminal ingestion replays all persisted records under a generation-bound
-  random fence. One serialized heartbeat renews the same lease through domain
-  projection and sidecar acknowledgement; generation and lease authority are
-  checked before projection, before acknowledgement, and after acknowledgement.
-  A new alias pair does not clear an active ingestion lease: the owner defers
-  the job to pending when it observes the changed generation, while the
-  completion transaction also prevents a post-ack race from marking stale work
-  ready. For a succeeded or partial crawl, candidate projection becomes ready
-  only after ingestion succeeds and the projected generation equals the current
-  alias generation. Late same-day pairs therefore project persisted facts into
-  the added authoritative run without recrawling. Fair cross-workspace claims
-  and alternating crawl/ingest lanes bound tenant and ingestion starvation.
-- The private sidecar keeps result pages until Node durably ingests them and
-  acknowledges the job. The acknowledgement timestamp survives restart and
-  starts the 24-hour page and bounded upstream-capture cleanup clock. Public
-  actor identity comes from the real author fields, never from the anonymous
-  upstream `creator_hash`. Unlinked evidence is retained for 90
-  days from backend ingestion; linked evidence, permanent one-way Douyin DNC
-  identities, and audit records are preserved. Default run candidate feeds
-  exclude DNC candidates; the same default exclusion applies to general and
-  priority candidate readers. Existing MySQL installs backfill bound legacy
-  intent JSON, separate old mixed aliases, widen run aliases to the core
-  160-character run-ID boundary, and fail closed on unmappable rows. Hydration
-  requires duplicate-free run/intent alias vectors of the same length, an
-  explicit alias generation equal to that length, and a projected generation
-  within it. A legacy single-pair succeeded job
-  may infer a ready `1/1` projection only when both generation fields are
-  absent. A half-migrated row with only one field, a multi-pair row missing
-  either field, or an explicitly under-projected succeeded row is
-  conservatively reopened for projection. Browsers
-  read only persisted Node projections at
-  `GET /api/v1/acquisition/runs/{runId}/crawler-status` and
-  `GET /api/v1/acquisition/runs/{runId}/candidates`. Crawler failure persistence
-  and public projection normalize unknown, legacy, or raw worker failures to a
-  closed stable code; credential-bearing exception text is never stored or
-  returned.
-- The backend and Shensi sidecar adapter are operated as one private protocol
-  unit. The crawler worker reads and adopts an existing deterministic sidecar
-  job before considering create, so retained pages are projected without a
-  repeated external crawl. Legacy compatibility is limited to terminal
-  `succeeded`/`partial` descriptors without activity, which become the closed
-  `completed` / `headless` / sequence `1` observation; live descriptors remain
-  strict. Health proves liveness, not gateway/adapter schema compatibility.
-  Backend jobs paused at their attempt limit require an audited explicit
-  requeue and are not silently recovered by restart. MySQL `DATETIME(3)` values
-  in this lifecycle use one UTC-derived, timezone-free driver binding format.
-- Douyin keyword suggestions now derive business and ICP context, workspace,
-  and the active official model snapshot on the server. Draft generation is a
-  private application-composed boundary backed by the real domain and DNC
-  repositories. It parses normalized refusal/minor phrases, binds candidate
-  revision/evidence hashes to the snapshot, rejects ICANN-recognized ASCII,
-  Unicode/IDN, and punycode domains while allowing grounded dotted product
-  names without a public TLD, and permits only fixed safe template clauses or
-  complete phrases grounded in one evidence row. Memory shares the DNC writer
-  coordinator; MySQL locks and reads candidate, exact evidence, and the DNC
-  key/gap on one connection. Custom domain/crawler repositories may inject the
-  same tenant-scoped atomic final-authority port; without one, application
-  startup remains compatible and only Task 6 draft generation fails closed
-  before model traffic. The service returns a deeply immutable authority
-  projection, recomputes immutable content hashes, and discards raw model
-  output. Draft persistence remains exclusively with the later outreach-batch
-  revision authority.
-- Outreach batches persist those Task 6 values as immutable candidate draft
-  revision 1 and append validated human edits as revision 2 without changing
-  source-model provenance. Public create/read/revise/approve/reject/pause/
-  resume/action routes enforce workspace, capability, CSRF, idempotency, and
-  ETag authority. The first human confirmation authorizes comments only and,
-  after account/login, DNC, candidate/evidence, and selected policy-limit
-  rechecks, atomically stores exactly one queued comment per candidate. A
-  separate `POST .../direct-messages/approve` command becomes available only
-  for a candidate whose same-batch comment is `succeeded` with a durable
-  receipt. Its second human confirmation freezes the exact profile target,
-  message, predecessor receipt, private-message daily limit/ordinal, approver,
-  account/login version, and stage-specific hash into one version-2 action.
-  The private-message default is 20 per day with a server range of 1–100,
-  separate from acquisition's default 50 and range 1–200. The batch freezes the
-  policy time zone; approval ordinals derive from `approvedAt` in that zone,
-  while claim quota counts actual attempts on the claim local day. Retries use
-  that day, reset occurs only on the next local day, and Memory/MySQL permanently
-  reject a second DM for the same batch revision/candidate across dates. They
-  also reject the same candidate from another batch on the same account-local
-  day; a later local day may use a new batch without reopening the old revision.
-  Candidates without
-  an exact Douyin video comment target or exact Douyin profile message target
-  are rejected before approval/action persistence; profile-only creator rows
-  remain clickable for evidence inspection while their outreach checkboxes are
-  disabled. Memory and MySQL roll back either approval transaction if any
-  action insert fails; MySQL reuses one locked authority connection. Existing
-  direct-message rows are not backfilled, and rows without version-2 authority
-  remain readable but unclaimable.
-  A legacy queued comment whose batch payload lacks `timeZone` is upgraded at
-  claim time only when the exact immutable policy version/hash, plan, account,
-  and login binding prove the frozen zone; the zone is persisted before attempt
-  consumption. Unprovable comments and their blocked successors are terminalized
-  without consuming another attempt. Version-2 private messages are never upgraded and require an
-  explicit frozen zone.
-  Pre-bound MySQL approval transactions restore the ingestion scope before
-  nested final-authority locks, preventing `douyin_ingestion_transaction_required`
-  from being hidden as `outreach_internal_error`.
-  When the action gate is disabled, final approval returns
-  `503 outreach_actions_disabled` before approval or action persistence.
-- Approved outreach actions execute through an application-owned fenced
-  worker and recovery sweeper only when the private MediaCrawler gateway is
-  configured and `DOUYIN_OUTREACH_ACTIONS_ENABLED` is case-insensitively
-  exactly `true` at both backend and sidecar. Every other value is disabled:
-  the backend starts neither action claimant nor recovery sweeper, the sidecar
-  returns a stable 503 before manager/executor lookup, and the crawler worker
-  continues normally. Real actions and reconciliation also require visible
-  browser mode; deployment preflight plus parent/child IPC reject headless
-  action commands before opening a page. Enabled claims serialize each account. Comment claims
-  retain at least 60 seconds of spacing; a private-message claim reserves the
-  account's next eligible time for ten minutes before its external call. The
-  worker revalidates active account/login, approval,
-  candidate/evidence, DNC, content, predecessor, policy/job/budget, and daily
-  allowance authority before each call. The sidecar reuses the encrypted
-  authenticated profile, submits the exact approved text once to the frozen
-  public target, and returns a sanitized receipt. Account execution holds one
-  authority lease across the complete browser command; login versions and
-  identity/session metadata use a process-locked, crash-durable global ledger.
-  The action `started` journal is file- and directory-`fsync`ed before the
-  executor is called. For a lazy-mounted comment editor, the adapter permits
-  exactly one reversible activation click only after uniquely matching the
-  visible comment-input container and exact `留下你的精彩评论吧` entry, with
-  risk/URL/sender/deadline revalidation. It performs no input or publish during
-  activation, and missing or ambiguous bindings fail closed. Editors/submits
-  are independently pinned and tagged; a
-  capture-phase guard synchronously rechecks exact approved editor content,
-  URL, sender, and recipient on dispatch and keeps the DM editor and submit in
-  the same exact-recipient panel. A guard rejection preserves the precise
-  content/control/sender/DM-recipient failure code; receipt ambiguity is used
-  only when a browser click failure may already have dispatched. DM
-  success is proven by one atomic snapshot of the same outgoing node, exact text,
-  stable ID, sender, and recipient. Fenced recovery prevents
-  stale writes. A deterministic comment failure may still close a linked
-  direct-message successor as `predecessor_failed`. Expired claims, malformed success receipts,
-  post-submit exceptions, and other uncertain outcomes move the exact action
-  plus related account work to `risk_paused` and are never automatically
-  retried. The operator may explicitly request a read-only reconciliation from
-  the page; it accepts only a unique post-start self/outgoing receipt for the
-  same hashes and leaves the account and successor paused. There is no explicit
-  account/successor recovery entry yet. Three consecutive
-  failures or an immediate platform-risk state pause the account and all queued
-  work. A real-Playwright regression covers the inactive placeholder, mounted
-  editor, post-input submit, and bound first-party receipt sequence; it also
-  verifies single activation, scoped matching, and ambiguous-entry rejection.
-  Focused fake-page, Memory, and live
-  MySQL 8.4 gates exercise this behavior without making a real Douyin action.
-  MediaCrawler upstream remains the collection/browser foundation; comment and
-  version-2 private-message execution are Shensi extensions, not upstream-
-  native or official Douyin API capabilities. In a visible browser, platform
-  verification detected immediately after initial target navigation is manual-
-  only: the adapter waits and rechecks the same action, current sender, target,
-  and deadline for a bounded 120-second window. A later challenge fails closed
-  immediately. The adapter never
-  solves a slider/CAPTCHA, injects a token, or calls a bypass service. Sender
-  identity is checked in place again before input, submit, and receipt proof.
-  Private-message editor/submit/receipt controls must remain inside one panel
-  with one exact canonical recipient marker matching the frozen profile; any
-  missing, ambiguous, or switched binding fails closed. The enclosing defaults
-  are a 150-second
-  Node action deadline, 175-second gateway HTTP timeout, 170-second browser IPC
-  timeout, and 180-second minimum claim lease.
-  A verified comment receipt or an ambiguous post-submit comment keeps the
-  visible target page in front for ten seconds before context close while the
-  same profile lease remains held. The review window performs no additional
-  read/write/click and is never treated as receipt proof. The action timeline
-  labels an ambiguous receipt as `结果待确认`, explains that it will not be
-  automatically resent, and retains the explicit read-only reconciliation
-  control.
-  DOM/ARIA is the primary locator. Optional local RapidOCR 3.9.2 with ONNX
-  Runtime 1.29.0 is disabled by default and may suggest only a missing exact
-  entry/send control before a verified DOM rebind. It never
-  chooses target/editor/content/receipt and never persists screenshots or OCR
-  text. Visual MCP is development diagnostics only; execution is independent
-  of OpenAI, DeepSeek, or any other model provider.
-- The authenticated `#acquisition` dashboard now makes controlled Douyin
-  collection the primary workflow. With no existing task it still loads the
-  workspace account and can create, approve, configure, and optionally run a
-  MediaCrawler-only plan from a plan name plus manual keywords. It connects or
-  reconnects a workspace account by expiring QR session, edits and enables
-  keywords/local schedule/timezone/daily candidate limit, starts one run-now
-  command, and renders only persisted crawler status, creator/commenter
-  candidates and public evidence. Task overview hydration preserves the latest
-  authoritative run ID; refresh or verified-session restoration uses it as an
-  independent `activeRunId` to reload crawler status and candidates. That run
-  ID also scopes creation of an editable pending-approval batch without
-  fabricating a new run-now intent. A duplicate run remains blocked until the
-  recovered persisted state is confirmed. Recovery itself creates or approves
-  no batch and sends no comment or private message. Comment execution still
-  requires its explicit confirmation, the backend/sidecar action gate, and the
-  fenced executor. A private message additionally requires the same candidate's
-  successful comment receipt and a distinct confirmation. Generated
-  real-customer trials default the shared action gate to false; an enabled
-  trial requires a
-  separate recorded authorization, the one-shot CLI flag, and a global all-zero
-  `queued`/
-  `blocked_by_predecessor`/`executing` audit. The
-  separate generic
-  public-search entry is labelled as an optional enhancement with its
-  search-API and AI dependencies.
-  The real-mode header action focuses the MediaCrawler form without requesting
-  those connections, and the optional wizard can return directly to that
-  no-API form. Missing optional connections disable AI-plan generation before
-  any request; the corresponding server race is translated into MediaCrawler
-  guidance instead of exposing its internal error code. Rejected plan payloads
-  preserve bounded backend validation details and show the first field path
-  and reason instead of only the generic contract-error message.
-  Candidate selection creates an editable outreach batch through one in-flight
-  browser command; the pending trigger is disabled and rapid repeated clicks
-  cannot create a second batch. Only declared stale-batch and ETag-precondition
-  failures reload current authority and show one conflict notice before another
-  review. Other 409 business outcomes preserve the current batch/revision and
-  show their localized operator action. The review workspace displays
-  the connected account, account ID/login version, candidate, exact frozen
-  public video target, exact frozen read-only public candidate profile,
-  300-character comment counter, unsaved-draft gate, remaining allowance, and
-  explicit comment-specific authorization. After a successful comment receipt, the
-  same candidate card unlocks an editable 800-character private-message draft,
-  a separate daily-limit control, confirmation, and queue command. The two
-  public targets are exposed by the batch DTO and participate in its hash;
-  crawler-private `evidenceText` and `publicActorKey` remain excluded. Final
-  confirmation stays disabled unless both targets are exact and the current
-  active account ID/login version matches the batch. Statuses and closed
-  platform failures are operator-readable Chinese; stable codes remain in
-  collapsed technical details. Approval action polling survives an initially
-  empty action page for a bounded window, and poll epochs prevent older loads
-  from overwriting a newer refresh or starting a competing polling chain.
-  Candidate-scoped MySQL reads validate and
-  embed only a bounded integer `LIMIT`, which is compatible with MySQL 8.4;
-  unknown batch-router exceptions also emit redacted request diagnostics while
-  the browser receives only the stable public error. In an action-enabled runtime,
-  explicit approvals, pause/resume, and sanitized comment/private-message
-  receipts survive page reload. Publishing or automated trial verification
-  crosses neither human confirmation. Authorized
-  public-link import remains a collapsed secondary fallback. The existing
-  Shensi shell, session/CSRF behavior and accessible navigation are preserved;
-  desktop uses a table with evidence inspector, while narrow viewports use
-  one-column candidate cards and normal body scrolling.
-- An authenticated real session routes `#conversations` to the Douyin public-
-  evidence controlled outreach workspace instead of the browser-local seeded
-  inbox. It is not an official Douyin inbox and does not present a two-party
-  message thread. The page reads the acquisition overview and each task's
-  latest-run candidates, then uses the shared server batch authority to list
-  the selected candidate's latest batch by `runId + candidateId`, load its
-  current revision, and recover drafts, approval state, actions, and receipts
-  after reload. An exact `https://www.douyin.com/video/{id}` candidate can
-  create one single-candidate pending batch, edit and save a new revision, and
-  enter the same review/final-approval flow used by `#acquisition`. Profile-only
-  evidence remains readable but its create CTA is disabled. Comment approval
-  queues exactly one comment per selected candidate when the shared action gate
-  is enabled. A successful comment then unlocks the same separate
-  private-message confirmation used by `#acquisition`; the browser never sends
-  directly. Demo sessions retain the deterministic local
-  conversation preview.
-- Visible local MediaCrawler observation is a dedicated standard-Playwright
-  Douyin window when `MEDIACRAWLER_BROWSER_HEADLESS=false`; Shensi disables CDP,
-  while collection-only production may set headless mode to `true` only with
-  external outreach disabled. Real comment/DM execution and reconciliation
-  require visible mode and fail closed at deployment plus both browser IPC
-  boundaries otherwise. Its visible tab is a
-  separate best-effort mirror of the approved keyword and public video, not the
-  collector page. It uses at most one unfinished observation task outside the
-  collector's critical path, so a hung mirror cannot block collection or create
-  an unbounded navigation backlog. The deterministic request client remains the
-  data authority, so observation navigation cannot create results. The manager
-  publishes truthful launch activity, deduplicates equivalent snapshots,
-  atomically persists a final-page descriptor with completed terminal activity,
-  and requeues safely paused sidecar work for a later resume. The persisted
-  public crawler status is closed to activity (phase, a null or exact approved
-  keyword of at most 100 Unicode code points, visible/headless mode, and
-  monotonic sequence) plus `candidateProjectionState` (`pending`, `ready`, or
-  `failed`); hydration and public projection revalidate the keyword, and the
-  response excludes raw ingestion state, leases, raw URLs, profile paths,
-  cookies, headers, selectors, CDP/WebSocket endpoints, browser identifiers, and
-  raw logs. Every dashboard refresh validates status before reading candidates,
-  so live candidates may appear before readiness; `ready` is the ordering
-  boundary for the final candidate read. Zero candidates with terminal `ready`
-  is valid, and a candidate-read failure does not discard a validated terminal
-  status; it receives at most three exponentially backed-off retries before the
-  poller stops. Paused, failed, and cancelled crawler jobs now project the same
-  recognizable state into active authoritative run aliases. Overview keeps the
-  newest run status while also publishing the latest run with persisted candidate
-  links, so a newer stopped zero-result run cannot hide prior candidates. The frontend rejects
-  non-primitive enum values and recursively accepts candidate pages only when
-  the page is exactly `{items,nextCursor}`, each candidate is exactly
-  `{id,status,displayName,evidence}`, and evidence is exactly
-  `{sourceUrl,excerpt}`. Pages contain at most 100 candidates; IDs and statuses
-  are nonempty, display/excerpt/cursor values obey their Unicode bounds, and a
-  non-null cursor is nonempty. Evidence URLs require a raw HTTP(S) authority and
-  hostname and reject credentials, backslashes, whitespace/control/format
-  characters, malformed percent escapes, and parser-repaired authority forms.
-  MediaCrawler creator capture now retains the exact source `aweme_id`, so its
-  evidence URL is the commentable `/video/{id}` while its public profile stays
-  `/user/{sec_uid}`. Run projection and frozen-batch authority share the same
-  deterministic preference for video evidence and the same sorted evidence-ID
-  order. Legacy profile-only rows remain viewable but disabled; operators must
-  run a fresh collection and create a new batch rather than mutate an older
-  frozen batch.
-  The pre-status queued placeholder announces once per outstanding run. The UI
-  prevents duplicate submission until the current intent is observed and no
-  longer pending. Manual automation keywords still require neither a public-
-  search API nor AI. Comment approval remains human confirmed; a private
-  message requires the same-candidate durable comment receipt and its separate
-  human confirmation. Historical non-v2 private-message actions remain read-
-  only and unclaimable.
-  Automated and fixture verification never clicks final approval against a
-  real batch, calls the sidecar action endpoint, or writes to Douyin.
-
-- The complete trial frontend surface is present. All nine primary entries are
-  visible: 自动营销总览、获客中心、社媒对话、私域客户池、成交工作台、智能体中心、
-  自动工作流、外贸营销、设置中心. The sidebar also exposes
-  `#growth/advisor`, `#growth/catalog`, `#growth/quotes`, `#growth/finance`,
-  `#growth/roi`, and `#financial-council`. Real API/MySQL pages retain their
-  authority; local-only and pending integrations remain visible with the exact
-  `预览 · 待接入` label and never present local fixture values as live results.
-  Trial-only exact aliases map the position-matched `test,test2` values to
-  `test@shensi.local,test2@shensi.local` only when both comma-separated lists
-  are complete and equal-length; unmatched identities and passwords remain
-  unchanged, and incomplete enabled configuration fails before login traffic.
-  Both are tenant admins in separate `trial-pilot-001` and `trial-pilot-002`
-  workspaces, so their business data remains isolated. `trial:showcase` gives
-  `test2` a deterministic independent read-only acquisition snapshot: one
-  archived task, one completed run, 40 candidates, 40 scoped identity aliases,
-  and 136 public evidence rows. The transaction regenerates IDs and ownership,
-  is replay-safe, refuses partial/non-empty targets, and excludes every API or
-  model credential, social account/login, crawler command, automation policy,
-  approval batch, comment/private-message action, CRM, deal, and finance row.
-  Frontend preview persistence is namespaced by authenticated workspace and
-  user rather than the former shared browser key, so account switching cannot
-  leak local demo edits across the two trial identities. Publicly registered
-  accounts follow the same workspace isolation but receive no `trial:showcase`
-  snapshot; their business surfaces intentionally begin empty.
-- Deployment MediaCrawler now requires an absolute, existing, non-symlinked,
-  current-user-owned `0700` `MEDIACRAWLER_CRAWL_OUTPUT_ROOT` strictly inside,
-  and not equal to, `MEDIACRAWLER_ENCRYPTED_VOLUME`. Runner creation and cleanup
-  use that one resolved root. Compose, development, and trial boundaries pass
-  the same root, default the shared action gate to false, and default
-  `DOUYIN_ACTION_VISUAL_LOCATOR` to `disabled`; only exact `disabled` or
-  `rapidocr` configuration is accepted.
-- The isolated trial tooling is available through `trial:prepare`,
-  `trial:start`, `trial:publish`, `trial:status`, `trial:verify`, and
-  `trial:stop`. `trial:publish` preserves trial state, rebuilds the current
-  worktree, restarts only recorded trial processes, and verifies the new
-  gateway. Local and public trial views therefore come from the same repository
-  source, but a worktree edit does not update the running trial until this
-  separate explicit publish operation succeeds. It uses the
-  ignored `.runtime/real-trial/` root and fixed loopback ports `3310`, `5608`,
-  `5610`, `5611`, and `5612`; only gateway `5608` is eligible for the temporary
-  Quick Tunnel. Runtime, secret/state, log, PID, MySQL, profile, and crawl-output
-  paths are owner-only. Each long-running service is launched under a detached
-  nonce-bearing wrapper; status and stop compare its exact macOS `ps` command
-  line before signalling the process group. Stop waits after TERM, revalidates
-  before any bounded KILL escalation, and does not repurpose the protected older
-  local services. `trial:verify` reads the owner-only runtime status origin by
-  default rather than requiring an additional environment value.
-- The acquisition platform carousel remains the first platform-specific
-  decision surface in real mode. Douyin is enabled; Kuaishou, Xiaohongshu,
-  Weibo, and WeChat remain visible as dark `待接入` cards and cannot be selected
-  as if they were live. The selector now owns a labelled, full-width decision
-  row in real mode; the task list and selected Douyin automation workspace
-  follow it instead of pushing the platform cards several screens down. The
-  901–1399px layout drops the secondary inspector column so the five-card stack
-  remains discoverable at common laptop widths.
-- The 2026-08-25 visible-Chrome QR login and later 305-record/13-candidate
-  ingestion recovery remain useful **pre-trial historical local evidence**.
-  They used an earlier local runtime, made no comment or direct-message action,
-  and are not acceptance evidence for the isolated trial ports or public link.
+更新日期：2026-10-09。本文件是当前进度与执行边界；历史记录只提供证据，不作为运行指令。
 
 ## Active
 
-- The isolated real-customer stack is running behind a temporary HTTPS origin
-  reported only by `pnpm trial:status`. Fresh source/build gates, six-process
-  lifecycle status, local/public route isolation, tenant-admin login, and a
-  MySQL-backed CRM write/restart/read/cleanup cycle passed on 2026-08-26. The
-  public browser shows the current Shensi login surface.
-- Authenticated full-page visual inspection and an authorized Douyin QR
-  scan/manual-keyword collection remain customer-interactive acceptance work;
-  they do not authorize an external comment or direct message.
-- Dedicated-account comment and private-message acceptance remain separate
-  action-time steps. Before enabling the shared action gate, the operator must
-  record user authorization and use the one-shot flag after a global all-zero audit of
-  `queued`, `blocked_by_predecessor`, and `executing`. Publishing and automated trial
-  verification stop before either user approval. A private-message acceptance
-  can begin only after the same candidate's accepted comment has a durable
-  receipt and the user gives the second confirmation. Historical rows without
-  version-2 authority remain read-only. If the later visible browser
-  presents CAPTCHA, slider, login verification, limits, or platform warnings,
-  only the user may complete verification; no bypass is permitted.
+- 当前交付目标是随应用内置21本默认参考资料，所有新老本地账号、六个文字智能体直接提问即默认检索；不需要导入、选书、绑定或中央服务器。用户明确要求服务器审批期间先交付内置版，后续再部署中央库；不再以D10云资源作为内置实施阻塞。私人上传/企业记录继续隔离，不带开发者密钥或原业务数据库。
+- embedded运行模式、只读hash校验、启动预热、默认Composite路径、本地身份授权及加密按题引用已实现；独立embedded_ready合同/前端状态隐藏绑定操作，双主题1440/390浏览器4/4通过。真实21书包已生成：77,177片段，4,742物理页/4,709可索引/33缺文本，3,819,097压缩字节；六角色真实书库离线检索均used且6条，冷索引10.7秒、热查询5–8ms，零网络/模型调用。冷索引已移到应用启动预热。
+- 最新源码已正常重启并保留kamran原会话；实际原生六角色均显示embedded_ready，无绑定要求，公网搜索默认off。隔离真实MySQL专项3/3通过，覆盖本地身份、加密引用持久化与隔离；platform状态零行沿既有emptyPlatformState兼容正常旧本地账号，disabled/expired仍拒绝。上述状态核验未新增真实模型调用。
+- 最终8步门禁通过：根1,283项/1,274通过/0失败/9条件跳过，以及build、类型、context/diff检查。9项跳过仍保留，不能由3项内置MySQL专项冒充覆盖。包装定点13/13、源码清单19/19和桌面类型检查通过；最终Mac arm64 standalone App的36,874个目录项通过资源/架构/内容校验。包内真实runtime以全新userdata完成13项正常登录、默认库ready、私有库空和停止/重启验证，两轮模型记录均空，测试进程和合成数据已清理。
+- `embedded-20261009-v2`旧包停止交付，其继承的Electron签名资源封印无效。替代产物为`dist/desktop/embedded-20261009-signed-test/Shensi-0.1.0-arm64-openfix-20261009.zip`：完整ad-hoc签名、strict完整性和36,904项包校验通过；当前Desktop114/Frontend43/Backend562文件逐字节一致，21书hash保持。新增签名/摘要/范围定点24项通过；根1283/1274/0fail/9skip、构建、桌面类型/context/diff通过。签名后独立runtime13项再次通过，正常停启/身份保持/书库ready、零模型调用，合成数据已清理。主代理隔离启动最终App，原生进程/Renderer/Backend/MySQL/Sidecar正常运行，用户在本聊天确认“能看到正常界面”；屏幕工具超时未另留截图，不把调试器隔离启动称下载后的Gatekeeper放行。没有Developer ID或公证，spctl仍rejected，客户首次可能需本人单独允许App。原资料/账号、旧包和guard保留，自动跟进PAUSED；未最终commit/taskdone/精选远端备份。
+
+## 已保留的知识库阶段验收记录（历史，不作当前执行指令）
+
+- D1–D9本地实现与验收完成，中央默认书库尚未部署/发布。源码已有disabled/central/client三模式、正常身份绑定、有限片段检索、六角色四条文字入口、精确引用、历史与双主题UI。中央session_ready沿当前正常会话授权且无绑定写操作，客户ready绑定可显式解除；私有资料仍按workspace＋actor隔离。fresh独立审查两项P2已按TDD修复并定点复核，无已确认未修复P0/P1。
+- 最新证据分两段闭合，不将失败整批改称成功：d9-final-fixed根32组1268项/1259通过/0失败/9条件跳过、根构建、Growth49、安全/类型/合同、reference浏览器14、知识浏览器7、双主题聊天10、theme及manifest18通过；桌面夹具受umask077影响失败。只给自建夹具显式chmod0755后，d9-remaining于2026-10-08T15:00:38.374Z exit0：桌面42/42、桌面types、实际SQL14/14零跳过、真实TLS/三个进程/三个隔离数据库正常登录与绑定、同版引用、中央会话直接引用、私有文档/历史隔离、断线、全部应用及自建MySQL真正停止重启读回六项通过，context/diff通过。原9跳过为crawlerSQL1/私有SQL3/reader4/showcase1，不由系统SQL14替代；MockTimers/Vite警告保留。两段被测源码围栏保持，自建MySQL停止且临时数据清理，无保留目录。产品源码在两段之间未变，只有桌面测试夹具权限一行变更。
+- 当前源码应用已正常退出、重建并启动：owned session95102，Backend47504:5638、Electron47529，实际renderer62575；Main/Preload/renderer43文件检查通过，原MySQL保持healthy、原账号保留。21份加密原件逐一摘要一致，原生两页20＋1均可检索；所选历史的672字符可见投影和4条引用与重启前一致（不是全库/全部历史字节比较）。默认库连接在实机蓝白/黑绿均正确显示尚未配置，原浅色主题已恢复。没有发送新问题、发布书籍或生成安装包。
+- 当前停在D10外部授权：需确切中央HTTPS目的地/数据库/存储与费用、维护owner、内容使用权及21份精确清单，再做真实两安装/新老账号与模型验收。旧Task8未done，未commit或精选远端备份；不把本地合成成功称所有客户已经可用。自动跟进仍PAUSED。
+
+- D8界面实现与新完整回归检查点已通过。四条文字聊天路径携带system-v1和最多3个固定主题，历史GET明确协商；保留聊天离页时取消引用读取，返回后仅手动复核，连接入口按点击加载。聊天/历史/保留生命周期相关20项合成检查通过。中央reference-approval.html复用正常登录，显示账号与匹配码、明确勾选批准，离页清除确认，10秒/256KiB读取上限且迟到结果丢弃，中央页及原批准组件9项通过。管理导航已接默认库owner面板，按确切候选编号展示质量/哈希/接收数，使用候选revision和独立命令键发布/撤回；operator不读维护元数据，不确定写只查询原命令状态。owner/API专项7项通过，含修订/权限变化隔离和精确命令结果核对。14项隔离浏览器覆盖黑绿/蓝白1440/1024/390、成功/禁用/失败/空态、键盘批准和精确历史引用；新控件文字经实际alpha合成测量达到4.5:1，代表截图已抽查，未做完整屏幕阅读器审计。修正仅涉及D8入口主题恢复、禁用样式覆盖、稳定状态区及无效字段关联；新独立33门禁于2026-10-08T13:17:53.783Z exit0，SYSTEM_REFERENCE_D8_UI_COMPLETE_CHECKPOINT_OK；终态、安全结果及全部33日志已核验：根31组1243项/1234通过/0失败/9条件跳过，前端reference50、renderer38、agent73、CFO120、composite47、合同125、Growth47、实际隔离SQL14/14零跳过、全部类型/浏览器/根构建/context/diff通过。175份受监测源码与不可变release hash保持，owned MySQL已停止、自建临时库清理。根9跳过仍为crawlerSQL1/私有SQL3/reader4/showcase1，不能由新SQL14替代；MockTimers/Vite大chunk警告保留。D9运行装配尚未完成，没有重启当前实例、发布书籍或调用真实模型。
+- D8先前UI-core独立29门禁于2026-10-08T12:11:52.979Z exit0，SYSTEM_REFERENCE_D8_UI_CORE_CHECKPOINT_OK，结果及全部日志已核验：根31组1220项/1211通过/0失败/9条件跳过、实际自建隔离MySQL14/14、renderer38及全部专项/类型/构建/context/diff通过。146份受监测源码和不可变release保持，owned MySQL已停止、自建临时目录清理；根9跳过仍为crawlerSQL1/私有SQL3/reader4/showcase1，不能由新SQL14替代。MockTimers/Vite大chunk警告保留。该门禁早于后续聊天与页面接线，不作为当前全部源码的完成证据。CPJ当前不可用，后续使用独立有界终端runner，不安装或重跑旧守卫。没有重启当前实例、上传书籍或调用真实模型。
+
+- D7四条文字问答/历史入口及两模型适配器已接通，73项合成专项全部通过，实际mock网关请求捕获覆盖28个角色/资料/入口适用组合及12个六角色双适配器公网+两库示例组合。保留严格数值/引用/长度校验；知识启用仅一次回答调用，模型后和历史保存前撤权均409且零新增turns，不重试。历史加密保存精确来源联合及独立libraryStatus，不把快照传入后续模型history或公网planner。Growth当前不可变release/pin/generated为1.0.41：session GET以可选X-Shensi-Reference-Protocol:system-v1协商读取，系统历史对旧客户端读取/追加返回409 reference_client_upgrade_required，未知header422，跨actor404，旧私人历史保持；1.0.39/1.0.40未改。D7完整26门禁已核验：job-muzfkzq9-a3fe2886于2026-10-08T11:11:18.727Z exit0、stderr空；根31组/1195项/1186通过/0失败/9条件跳过，实际隔离SQL14/14零跳过、根构建/context/diff及全部专项/类型通过。133份受监测源码和不可变release hash保持，自建MySQL已停止且临时目录已清理；根9跳过仍为crawlerSQL1/私有SQL3/reader4/showcase1，不由新SQL专项替代。MockTimers/Vite大chunk警告保留。此前旧acquisition-router首个fetch失败未在单例/整文件/10次定次数及全上下文诊断中复现；根因未知，未修改旧业务源码，不称已修复。D8检查点已通过，D9总验收/D10实机发布仍未完成；没有重启当前实例、发布21本书或调用真实模型。
+
+- D6已实现独立两库prepare与来源联合回答层，47项专项通过；合并/传输/原回答联合63/63零跳过。首轮32项实际RED→GREEN覆盖关闭/旧协议零中央请求、仅固定主题外传、共同6条/12000字符预算、原private WeakMap对象保留、撤权/删除/换绑/篡改拒绝；随后词表错误分类RED（unavailable而非vocabulary_mismatch）修正后47通过。原知识专项143项/136通过/0失败/7条件跳过（私有SQL3、受控reader4），后端及合成测试严格类型通过，context/diff通过。质量标记超100失败而非截断；HTTP400仅识别正式固定词表错误并丢弃远端message，保留响应大小/超时/不重试。D7已消费四条问答/历史路径，专项及完整26门禁通过，D6完整23门禁已核验：job-muze8a9w-caf42b0d于2026-10-08T10:32:45.400Z exit0、stderr空，SYSTEM_REFERENCE_D6_COMPOSITE_CHECKPOINT_OK；23份日志已检查，根30组/1119项/1110通过/0失败/9条件跳过，实际隔离SQL14/14零跳过，合同122、Growth46及全部类型/构建/context/diff通过。119份源码及不可变release hash保持；自建MySQL已停止、临时目录已清理；根9跳过不由新SQL专项替代，MockTimers/Vite大chunk警告保留。D7问答/历史接入专项已通过；不宣称已上线或真实21本可共享。
+
+- D5、D6和D7实现检查点均已核验，D8检查点已通过。读取HTTP完整21门禁通过：根29组/1072项/1063通过/0失败/9条件跳过，实际隔离MySQL14/14零跳过，全部类型/构建/context/diff通过；根跳过不由SQL专项替代。独立数据库进程重启验收job-muzdii8i-96a20a4d于2026-10-08T10:08:25.077Z完成exit0、stderr空；有界结果、私有结果和全部5份日志已读，SYSTEM_REFERENCE_D5_RESTART_PERSISTENCE_OK。新建合成库在正常stop/start后由新应用进程读回：加密表摘要、同版精确引用/完整warnings、撤权及跨账号拒绝、绑定/账号速率和跨绑定/同hash新版累计额度均保持；113份受监测源码和不可变release未变，自建MySQL已停止且其临时目录已清理。这不是业务数据库、当前应用或真实书籍验收，不证明硬崩溃恢复。读取HTTP默认未配置；D7问答接入完整26门禁已通过，D9总装配及D10真实发布仍未完成，未触碰21本资料或模型。
+
+- 21本书的系统默认参考库覆盖所有新老用户及不同电脑独立安装，只允许回答和精确引用片段，无全文浏览或原件下载。[设计](design/system-default-reference-library.md)与[实施计划D1–D10](design/system-default-reference-library-implementation.md)已获确认，主代理按Native顺序实施D1–D9本地合成范围。D1最终任务job-muz418hv-9e0d21c0已核验确切终态、有界结果和全部12份日志：2026-10-08T05:46:47.969Z exit0、stderr空，根24组/928项/919通过/0失败/9条件跳过；合同120、主题6、Growth46及类型/构建/context/diff通过。9跳过为crawler SQL1、私有知识SQL3、受控reader4和showcase1，本轮没有实际SQL/解析器配置。48个受监测源码hash与旧新不可变release保持；MockTimers/Ajv格式/Vite大chunk警告保留，不重跑该任务。
+
+- D2中央身份与一次性绑定通过完整14门禁。job-muz569p9-f594460c终态、有界结果、私有结果及全部日志已读：2026-10-08T06:18:47.699Z exit0、stderr空，根25组/953项/944通过/0失败/9条件跳过；binding23、accounts26、security、frontendbinding2、contracts120、Growth46、类型/构建/context/diff通过。70个监测源码及不可变release hash保持，既有MockTimers/Ajv/Vite警告和上述9跳过保留，不重跑该任务。D2严格中央资格、5分钟S256/正常Cookie+CSRF明确批准、事务一次性兑换、7天opaque reader hash、取消撤权及实际MFA owner门槛仍默认未装配。
+
+- D3可信后端连接通过全部17门禁：job-muz6s7cv-bb93e70e于2026-10-08T07:04:08.719Z exit0、stderr空；根25组/986项/977通过/0失败/9条件跳过，桌面运行时另1项实际MySQL生命周期跳过。绑定53、账号26、合同120、Growth46、前端绑定2、启动15+2及类型/构建/context/diff均通过；85份源码和不可变release hash保持。固定HTTPS、4KiB请求/256KiB响应/10秒、禁重试/redirect、独立加密和退出/换号fence已具备合成证据；不是实际数据库迁移或实机验收。
+- D4存储检查点job-muz7v10l-1449016e已核验终态、有界结果及全部8日志：2026-10-08T07:33:10.929Z exit0、stderr空；实际隔离MySQL5/5零跳过，根26组/997项/988通过/0失败/9条件跳过，存储11、原私有检索8及类型/构建/context/diff通过。53份受监测源码及不可变release保持；临时socket-only MySQL正常停止，仅其自建临时目录已清理，当前业务库未触碰。根9跳过仍是crawler1/私有SQL3/reader4/showcase1，不能由新发布SQL5项补齐；既有MockTimers/Vite警告保留。不重跑此检查点。
+- D4独立发布存储、管理HTTP与CLI通过全部18门禁。job-muz94wul-ae3fdbbe确切终态、有界结果、私有结果及18份日志已核验：2026-10-08T08:09:45.418Z exit0、stderr空；根26组/1019项/1010通过/0失败/9条件跳过，发布31、私有检索8、绑定53、账号26、安全、实际隔离MySQL5/5零跳过、合同122、Growth46、前端绑定2及全部类型/构建/context/diff通过。98份受监测源码和不可变release保持；自建临时MySQL停止、仅其目录已清理。根跳过仍为crawler1/私有SQL3/reader4/showcase1，不能由发布SQL5项替代；既有MockTimers/Ajv格式/Vite大chunk警告保留。平台元数据路径及生成类型已同步，首次完整门禁失败记录保留且不重跑。D5有限检索、累计预算与精确引用授权进入本地合成实现；21本仍私有，路由默认未配置，未重启当前应用，无真实登录/书籍/模型/云调用，不能声称客户可用。
+
+- 本计划独立ledger与本人源码前像在忽略目录`.superpowers/sdd/system-default-reference-library-implementation/`。保留非main分支全部既有dirty/untracked最新源码，不创建旧HEAD-only worktree、不装依赖、不认领共享旧文件。D10目的地/费用/维护身份/内容权利/精确清单仍须另行授权，Render/Aiven不是默认生产目的地。无真实登录凭据提取、模型调用、书籍复制、云部署或安装包；旧守卫与未用授权保持，旧Task8未完成/提交，最终独立审查/可分离提交/精选备份未进行。跟进自动化保持PAUSED。
+
+- 用户回复“登陆好了”后，实际Electron `127.0.0.1:60920`显示kamran/管理员；正常知识页刷新与返回页面均读回20张已有可检索卡片，没有退出或替换原生会话。原生登录使用HttpOnly Cookie，后台验收使用独立Bearer；源码确认原生登录不会刷新私有脚本会话，也没有会话导出桥或模型调用审计页面。本轮未读取/复制Cookie、Profile或新凭据，未另行发送脚本认证/API请求或任何模型请求。完整API引用与调用审计验收仍需后台脚本通过用户正常登录建立自身会话，不能仅凭原生页面恢复就重跑旧批次。三个角色的单次模型授权仍未使用；Task8未完成。
+
+- 本轮获批验收范围为成本/现金流/税务各一个新知识库问题及一个无私有资料的公开联网问题，不自动重试。三个知识问题已有独立一次性守卫与原财务成功门槛，静态转译、安全诊断投影和4项隔离重复触发阻断检查通过。后台任务job-muy6fofk-7fd0095e于2026-10-07T14:02:20.040Z结束exit1、stderr为空，终态/有界结果及私有结果已读取：成本角色第一次正常GET bootstrap返回401，stage为preconditions、attempted:false；批次随即停止，三个角色的模型请求守卫/答案/进度文件均未创建，现金流和税务未执行。没有新增模型请求，三个单次测试授权尚未使用。认证原因未细分，不能断言会话过期；保留本批guard/result，不重跑或改用其他凭据，需用户恢复正常登录授权。公开题未包含在本批任务：规划器与knowledgeMode:off回答可能默认追加结构修复调用，documentId:null仍会自动读取工作区最新已验证报表；须先获批收紧显式联网的修复行为并以正常API证明无私有报表上下文。原财务实测成功保持有效，Task8未完成。
+
+- 本地参考知识库按已批准的[设计](design/local-knowledge-base.md)与[实施计划](design/local-knowledge-base-implementation.md)采用 Native 顺序实施。Task1–5合同/领域、加密存储、认证HTTP、本地解析和中文检索已完成。最新联合门禁（job-muwtjvla-23ae7595）通过49项知识库、6项Python、55项原财务资料、45项Growth专项及类型/context/diff；3项MySQL配置测试明确跳过，存储阶段已独立验证MySQL8.4.11三项真实专项、零跳过。六格式、沙箱内扫描/可读加密/口令拒绝/缺页、取消、撤权、旧租约和阻断无关文件/网络有实际fixture证据。Growth引用协议为1.0.38；原合同与财务权威保持有效。
+
+- Task6最新DOM业务壳已添加`#knowledge`页面：本人资料分页、独立详情、原始字节上传、状态轮询、六角色/元数据编辑、版本替换、启停/删除、解析重试/取消及下载。完整前端、主题/浏览器重启、三套类型、协议一致性、5项隔离浏览器及37项桌面代理回归通过（job-muwva05d-6749034f，exit0）。包含13项状态/API测试、长预览轮询保留滚动、上传/就绪、失败重试、身份变化、路由和登出清理、角色/版本编辑及黑绿/蓝白1440/1024/390正常/选中/禁用/失败/成功，关键文字对比度至少4.5:1。没有把fixture验收冒充真实Electron端到端。
+- Task7六角色先检索后当前模型、一次结构化短摘要/详细投影、精确内部引用、CFO加密历史快照及模型后/历史写入前撤权和版本复核通过完整回归（job-muwwq8zl-20206976）：58项知识库/7项专用MySQL配置跳过、57项CFO、55项原财务资料、28项网关、完整前端、三套前端与后端类型、45项Growth、6项知识页浏览器及双主题五宽度长回答/引用/输入/滚动/context/diff。受控网关联调覆盖六角色的已验证报表与附件两路径；编造公司数值、未知引用、原文注入、资料停用/删除/撤权、取消、不自动重放、旧/语音默认off、历史快照与同版/hash/分页定位均有证据。实际Task8验收另列，不能由fixture门禁推断全部交付。
+
+- 21份PDF源身份及4,742个物理页覆盖已核验。前期首本881片段的内存抽查只证明三个问题命中精确原文/物理页，不替代后续真实入库和问答。所有书籍仅供具体情境参考，不是硬规则、企业事实或现行法规证明，OCR/表格/公式继承待核对标记。没有重复OCR或书籍全文日志；使用最新源码开发版，不生成新App/DMG。原PDF、已有提取和用户修改保留，资料不进入GitHub、公共搜索或客户安装包。
+
+- Task8正在实施，尚未提交或标记完成：私有运行时选择、按本人workspace/actor复用既有Docling成果、正常登录/HTTP批量导入及hash重复跳过已实现。21本已通过正常接口进入本人产品知识库，逐本核对ready、启用状态、有效版本/hash、物理页、质量标记和首片段通过：4,742个物理页中4,709页有可索引内容，既有预检共77,177片段；33页缺少可索引文本，OCR/表格/公式/章节待核对及短股权节税原件不完整标记保留。用户已批准退出旧实例，精确旧Backend/Electron正常退出，文件和数据库保留。原数据库属于`shensi-trial` Colima Engine，正常launcher显式选择既有socket，不重绑Engine或清空数据库。既有受控Python和本人范围21本私有manifest通过运行时选择。
+
+- 实际模型任务`job-muxprycs-5a5634c8`的终态已读取：六角色各一次当前配置`deepseek-v4-flash`回答调用，CFO与利润通过并精确验证7条内部引用，CFO两轮加密历史正常读回；财务、成本、现金流、税务返回502 `MODEL_SCHEMA_INVALID`，原审计仅有`schema_shape`，未保留无效正文，具体违规字段/真实根因尚不能确定。没有公网搜索、整批重跑、模型输出修复或自动重放。最小RED/GREEN增加固定安全诊断类别，51项知识/网关/旧财务专项与后端类型通过；不放宽公司数值、来源和长度校验。
+- 已批准的单次新财务诊断`job-muxv8g76-581f7881`于2026-10-07T08:49:28.096Z结束exit1、stderr为空。正常新版1.0.39、本人scope、knowledgeMode:auto/webSearchMode:off下，唯一新增当前active连接`deepseek-v4-flash`的`cfo-chat`记录，promptVersion为`finance-statement-analyst.v1`，其他模型调用为0。HTTP502 `MODEL_SCHEMA_INVALID`，固定诊断仍仅`schema_shape`；失败发生在模型结构验证而非引用分页验收。没有保留无效回答，不能推断具体缺失/额外/类型错误字段或已实际使用了哪些知识片段。新旧一次性守卫保留，不再发送该请求。用户随后回复“继续”，已批准更细的固定结构类别及仅一次新的财务诊断；不能用猜测修改校验或把诊断失败当作资料损坏。
+
+- 固定结构诊断已按RED/GREEN补充：沿现有审计字符串数组追加最多32条去重的固定位置/错误类型，不增加接口字段、不记录任意路径、键名、值或消息。12类实际问答模型边界合成测试区分根类型、answer缺失/类型、knowledge/template/引用形状、多余键及no_match/unavailable；伪造点号路径与恶意issue元数据不会泄露。与原网关/知识/财务校验合计66项通过（含32项上限）。新完整回归、正常源码重启和单次实测均已执行；实测明确为顶层多余字段拒绝，仍不能称实际模型故障已修复。
+
+- 最新诊断回归`job-muy117gp-8134be0e`于2026-10-07T11:34:50.323Z完成exit0、stderr为空，主代理读取终态及全部17项日志，并由只读协助独立核对。根测试24组TAP共865项、860通过、0失败、5跳过；知识库3项SQL配置跳过由独立实际MySQL3/3零跳过覆盖，另2项爬虫/演示图未运行。诊断66项、联网39项、运行时30项、六角色输入、导入类型、根构建、前端知识19+1/主题/类型/协议、7项知识浏览器、聊天双主题五宽度10组及代理37/context/diff全部通过，现有MockTimers和Vite大chunk警告保留。该门禁验证诊断实现，不代表四角色实际问答或Task8全部完成。
+
+- 正常源码重启后的新单次财务诊断`job-muy1f7hl-14e94837`于2026-10-07T11:42:35.330Z结束exit1、stderr为空，终态和私有安全结果均已读取。唯一当前active连接`deepseek-v4-flash`的`cfo-chat`记录、`finance-statement-analyst.v1`、其他调用0；HTTP502 `MODEL_SCHEMA_INVALID`，固定类别为`schema_shape`和`schema_detail:root:unknown_keys`。已确认合法JSON包含不允许的顶层字段，不知道具体键名及生成原因，也不能据此证明其他语义或引用验收通过。无效正文/任意键名未保存，answer文件不存在，三套单次守卫完整保留，不再重发。只读源码核对发现知识命中分支缺少闭合字段和完整对象示例；当前适配器使用JSON对象模式，严格形状由后端校验。该提示缺口不是已证实的真实生成根因。
+
+- 人类“确认”已批准有界提示修正、完整回归/正常源码重启后仅一次新的财务实测。六角色普通文字问答命中知识时，最终输出提示现明确列出全部根层字段和完整嵌套示例：无公开来源为answer/knowledge，有公开来源才增加根层citationIds；S公开引用与knowledge.citationIds内K引用不混用。服务端派生metadata不要求模型生成，不改schema、财务数值、引用或长度验证，附件/语音路径不变。真实网关请求捕获的48组合中12个used分支先复现缺完整示例，修正后全部通过；另3种引用跨层/额外根字段拒绝保留单调用，与知识/网关/旧财务合计119项通过。新完整回归job-muy53iiu-ec281f5b于2026-10-07T13:28:48.284Z结束exit0、stderr为空，主代理读取有界结果及全部17项日志：根24组TAP共918项、913通过/0失败/5跳过，独立MySQL3/3零跳过覆盖其中3知识SQLskip，另外2爬虫/演示图仍未跑；119专项、联网39、运行时30、输入/导入类型/根构建/前端19+1/主题/类型/合同/7知识browser/10聊天双主题宽度/代理37/context/diff全通过。现有MockTimers/大chunk警告保留。正常源码已再次重建重启，原账号与资料加载正常。新独立单次实测job-muy5horv-28bb155d于2026-10-07T13:36:34.336Z完成exit0、stderr为空，终态及私有安全结果已读取：HTTP200，唯一当前active配置deepseek-v4-flash的cfo-chat、finance-statement-analyst.v1、其他模型调用0；1725字符详细回答中的5条引用逐一核验同版/hash/chunk/locator/excerpt与完整warnings。四套守卫保留，批准的一次调用已使用完毕，不重发。该真实样本通过不证明重复稳定性或旧失败唯一原因；成本/现金流/税务、新开关真实联网问答和第二账号原生页面仍待验收，Task8未完成/提交。
+
+- 原生知识库验收通过：正常文件选择器上传独立合成TXT，6个精确行坐标可见，实际停用/启用后读回；完整退出源码Electron/Backend、停止原MySQL容器再正常启动后，21本、合成文件与CFO两轮历史的前后API快照完全一致，Engine/容器ID/持久卷保持不变。仅删除合成测试资料的库内副本后，4类读取均404，正常列表仍为原21本且版本/hash/质量标记未变；电脑上的测试原文件和所有PDF保留。
+
+- 正常独立测试账号隔离API通过：正常登录和bootstrap获取另一个实际workspace，知识库availability=200/true、列表200/空为正向控制；读取本人21本的文档、版本、片段及原件84次均404 `knowledge_not_found`，不是整体403冒充隔离。该账号的原生页面登录/隔离尚未验收。
+
+- 保存CFO历史的真实引用定位使用既有接口允许的100片段/页、最多500页、只保留目标页；普通预览仍20片段，鉴权和服务器限流不变。18项状态/API测试通过，实际生产控制器155次请求成功定位第447页、同版/hash/原文一致；最新版原生Electron从保存回答的K1链接打开该页、蓝白/黑绿截图均可见。请求预算及429不自动重试均纳入本轮完整回归。
+
+- Task8本轮完整回归`job-muxug2in-1032d574`已核对终态、全部17道门禁及逐项日志，exit0、stderr为空：根测试24组TAP共852项，847通过、0失败、5跳过；其中知识库3项SQL配置跳过已由独立实际MySQL专项3/3、零跳过覆盖，另2项爬虫/演示图测试仍为跳过。联网39项、六角色输入行为、根构建、运行时/清单30项、安全诊断/旧财务51项、导入类型、前端知识19+1项、主题/类型/合同、7项知识页浏览器、聊天双主题五宽度、桌面代理37项及context/diff全部通过。现有Vite大chunk与MockTimers警告保留。该结果不补足四角色真实模型或独立账号原生页面，Task8仍未完成/提交。
+
+- 用户已批准推荐的「联网搜索」按钮：六角色文本界面默认关闭，`knowledgeMode:auto`独立保留；Growth 1.0.39新增可选`webSearchMode:on|off`并生成正式前端和decision派生类型。显式off不调用规划/搜索，on必须安全公开检索或明确报错；省略保留旧自动规划，语音不变。普通问答、保存会话、经营记忆及记忆会话四路径已接通，39项后端专项与六角色前端行为、45项Growth回归、旧调用生成兼容测试及17道完整门禁通过。正常重建后的实际Electron逐一显示六角色默认关闭，经营总管开/关按钮交互正常，未发送问题；不把按钮交互或fixture搜索断言当作真实联网问答。
+
+- 用户已批准知识库横向排版：全宽响应式4/3/2/1列卡片，紧凑标题/角色/版本信息，点击才进入全宽详情，返回恢复卡片焦点与可见位置。新增测试先复现原空白详情占位，修改后7项知识库浏览器全通过；20份资料在双主题1440/1024/390、缩放/RTL检查通过。带联网按钮的聊天双主题五宽度/六角色、键盘、长回答滚动与引用测试及新增源码完整门禁通过。实际Electron已正常重建/重启，真实书籍在蓝白/黑绿主题均为四列，详情按需打开、返回原卡片焦点可见；不以合成截图替代实机结果。
+
+- 源码启动专项30项通过：调用方显式禁止pnpm自动安装的设置传到子构建，其他安装模式和外部密钥不继承；源身份清单精确排除Finder `.DS_Store`元数据，其他未知文件、secret与符号链接继续拒绝。最新输出提示门禁后，精确核对旧launcher59483、Backend59668/59672、Electron59684的父子和cwd，Cmd+Q正常退出并确认端口释放，再正常源码构建启动；Main、Preload和桌面Renderer构建及38文件验收通过。当前本人正常登录的源码Electron为`127.0.0.1:60920`，正常launcher session67304，Backend19301:5638，原shensi-trial Engine/MySQL与资料保留，原生知识页正常加载已有资料。实际导入任务`job-muxp9em8-f9fa8858`在21本均上传后退出1；私有验收脚本只保留通用异常标记，无法从日志确定首次异常类型。正常API对账证明全部21本已ready，随后无写入的逐本核验输出`KNOWLEDGE_ACTUAL_IMPORT_VERIFIED_21`，没有重复上传或自动重试。启动专项和首次导入对账不替代整个知识库交付。
+
+- Task8纠正后的完整预检`job-muwykoy4-2b4b1bd8`已确切读取全部通过：21份预检、28项运行时/清单、导入类型、3项实际MySQL零跳过、根测试（包括合同112/CFO57/原财务55/知识库72通过与3项独立SQL配置跳过）、根构建、6项双主题知识页面/context/diff。ESM核验入口、decision派生类型及仅生成副本中的可选knowledgeMode、保存确认前锁住替换入口均已验证；不改接口或不可变发布字节。现有构建大chunk警告保留。该预检不替代实际入库、模型问答或完整应用/数据库重启。
+
+- 最新测试DMG为`desktop/release/Shensi-0.1.0-arm64-test-20261001-172147.dmg`，854,850,577字节（约815 MiB），SHA-256 `f4503e93b2e8f594be79c9ca0aa0b89f7e4d59c345cc3f864581ada20aca9e4d`。直接封装稳定内部App，镜像CRC与只读挂载通过；包内Main、最新前端、ROI及Growth 1.0.36的指定文件逐文件核对一致，Applications快捷方式正确。没有重建产品、新增App/ZIP、覆盖旧DMG或复制用户资料目录；不以通用diff的软链接循环提示推断整树校验成功。封装任务`job-mupbrt6e-c3452002`完成，额外挂载版本核对通过；仍为macOS arm64内部测试包，未Developer ID签名或公证。
+
+- 原生收尾复核：稳定内部App登录`internal_acceptance`，获客任务/运行均0，社媒候选0且全选/取消禁用；委员会分析历史为空，PDF按钮禁用。选择事件代码只更新当前内存，不外发或改记录；没有安全既有数据可做非空实机验收，没有已生成报告可打开真实保存对话框。两项保留not_tested，最小输入为打开含候选运行和已生成合成报告的工作区。Library PDF及首页已由协调会话确认按原ID更新到版本1。App前端与dist-desktop一致，Growth 1.0.36协议资源一致。
+
+- 财务报告改版已获用户认可：生产模板包含摘要、原表金额图、七章解释与行动、完整来源附录。六项专项、双主题1440/390组件检查及最终4/2/4/9页PDF逐页检查通过；报告回归`job-mup80qc5-9457dc2b`通过。安装App财务经营页现已走通文件选择→只读预览→合成分析响应→实际HTML下载和PDF按钮保存，双主题截图无报告溢出、页面异常为0；使用测试进程拦截两个inspect请求，后端分析/模型/平台发送均0。HTML通过Electron真实下载，PDF通过生产发送者校验、静态白名单、隔离打印及写文件；只替代保存位置选择器，不代表原生对话框手动验收或真实模型端到端通过。测试退出即清除合成前端状态，未写业务库。
+
+- 安装包协议同步缺口已修复：前端固定Growth 1.0.36，但包内协议最高仅1.0.35，真实bootstrap因此触发`contract_mismatch`。对比确认对应后端实现已同步后，仅原地补齐不可变1.0.36协议目录；重启后真实bootstrap与前端的`sha256:b7b42a49c898b6a0641ca3a23220235266e9a19a2eae2c232c806bf8dedfafe6`一致，财务页正常加载。未绕过协议/权限校验，未变更数据库、生产代码或新增App。资源修复时间2026-10-01约08:19 UTC；前端index与ROI模块摘要未变。
+
+- 稳定内部App已实际展开“任务设置”并滚动到“04候选人与证据”：可见候选总数/已选/可选均0，全选与取消全选均禁用。非空隔离浏览器测试复用生产控制器和只读fixture API：两页交叠候选去重为3人、2人可选，全选/全取消及重复点击不扩大选择，未知写调用直接失败；双主题1440/1024/390通过。安装App非空候选交互为`not_tested`：当前无独立fixture入口，生产禁止直接候选写入；未改用户库、放宽权限或新增测试后门，不能以隔离浏览器结果替代安装版。
+
+- UI定点修正全项目回归通过：`job-mup6dbdo-b66438aa` 顺序执行 `pnpm test`、`pnpm build`、`./scripts/context-check`、`git diff --check`，exit 0。构建保留既有依赖配置不一致与大chunk警告；此次未更换依赖或扩展构建重构。
+
+- UI定点修正：社媒抖音页明确当前平台，小红书按钮为切换入口；候选人数去重，全选禁用态保持同运行边界。五角色的背景图层已实现18秒缓慢平移/呼吸，不移动文字和节点，复用手动减少动态、系统减少动态、后台/离页暂停与销毁。四项双主题宽窄背景测试及七项分析/星尘测试通过；实机背景矩阵随时间改变、节点位置不变、手动暂停后矩阵固定。没有新增逐帧JS或付费素材。最终回归`job-mup8wd8h-6de54a6b`的根测试和构建通过，任务在旧主题断言失败处停止：旧测试误把透明分析容器当成纯白侧栏。仅修正测试定位到真实侧栏，补半透明面板在黑/白底下的文字对比度断言；随后6项主题/动效测试、双主题三宽度候选交互测试全部通过。没有改生产样式来迎合旧断言，也不将该job整体标为成功。
+
+- 用户报告抖音获客流程通过：2026-10-01协调会话转达“抖音获客流程没问题”。此次版本、环境和逐项证据未提供；按用户反馈记录，不冒充助手独立验收，不重复要求同一流程。不能由此推断获客→成交→ROI整链、真实模型、发送或Windows通过。完整ROI剩余输入是既有成功流程对应的可用批次/候选及环境，再验证成交绑定与关账。
+
+- 包内ROI独立测试驱动收尾回归通过（`job-muoqhlg2-83716d20`）：根测试、构建、context及diff检查全部成功。稳定内部App位置与包内/安装验收边界见下述清单；此结果不补足完整Electron获客到关账、历史时间修复、真实平台或Windows验收。
+
+- 当前单机产物及验收矩阵见[单机内部验收](desktop/standalone-internal-acceptance.md)。已测App已移动至`/Users/mac/Applications/Shensi Internal Verified/Shensi.app`，没有复制大包；旧`Shensi Internal Test`副本未覆盖。独立驱动`desktop/scripts/packaged-roi-acceptance.mjs`校验58个包内生产模块及摘要，单独编译测试fixture，使用包内Node/MySQL和全新临时数据库，9项通过；数据库完全退出重启后快照相同。证据目录`/private/var/folders/8r/807dkr895rd328bk48vxnkfh0000gn/T/shensi-packaged-roi-1FoxsS`。HTTP身份使用fixture，不能替代完整生产认证与Electron全业务关账。未增加生产测试后门、修改历史数据或扩展真实平台权限。
+
+- 内部安装App `0.1.0` 位于 `/Users/mac/Applications/Shensi Internal Verified/Shensi.app`。前端于2026-10-01 07:45:30 UTC（北京时间15:45:30）原地同步；当前index SHA-256为`5a4d8b54f97a48380c52d0b19edd88d0688b03d99986e44a7874d12e06f6caaa`，ROI模块仍为`1560be63daf47225966fe25bc81e7a1a69993b7856c2051cf2d40a31de35db40`（文件摘要，不是整包摘要）。既有个人工作区HTTP来源报告/归因及重启读回、团队越权404证据保留；本次另复验背景时序/暂停、空候选控件及PDF桥。没有新安装副本、真实模型或平台发送。
+
+- 安装App完整数值关账的前置依赖：独立工作区需要可信获客发现及成交绑定。现有生产`acquisition-v1-router`对直接候选/证据写入返回`direct_domain_write_disabled`，应用装配未启用该权限；未为验收开启或绕过。隔离集成测试的发现/报价权威fixture不能代替安装App正常业务来源。在当前不调用真实平台、不直接写库的范围内，此项验收尚不能完成；需单独确定受控合成数据导入方案及授权，或提供可用的正常获客业务来源。原工作区历史时间问题仍未修复，个人工作区成功不替代原工作区验收。
+
+- 安装App的ROI批次创建、来源报告、归因生效及完整退出重启后的幂等读回在现有账号独立个人工作区通过，报告金额1000分，未调用模型或平台发送；完整数值关账仍未在安装App验收。原团队工作区报告被拒绝的直接原因是持久化时间屏障已超前：只读检查时应用/MySQL均为`2026-09-30T21:16:20Z`、数据库时区`+00:00`，但屏障及报告停在`22:12:09Z`。历史超前的写入来源尚未确认；未回拨屏障、修改历史凭证或放宽生效校验。独立工作区通过不代表原工作区已修复。
+
+- ROI批次MySQL持久化、POST创建/GET详情、重复请求同ID、缺少幂等键/非法输入/无权限分支的真实数据库与HTTP测试通过；完整根测试、构建、context/diff通过（`job-muo91152-f7db243a`）。
+
+- ROI结算仓库的时间转换、工作区过滤、命令映射、关账/重开状态条件更新及事件原子提交、证明读写和MySQL运行证据读取已通过完整回归（`job-muobhrkd-b394b182`）。
+
+- ROI关账服务将版本、快照、命令映射和关账状态放入同一MySQL事务；旧revision导致整笔回滚。绩效查询已接入发布事件截止时间/序号和精确版本选择、冻结快照及敏感金额权限投影。原生MySQL专项6项与关账/恢复/绩效内存专项8项通过：合成成本200分、收入1000分、销货成本200分得到30000基点（300%），模块重建读回一致；完整回归通过（`job-muobtgsy-fba21a15`）。
+
+- 预计ROI已接入现有正式审批报价读取器和同一批次成员的别名候选来源，携带原工作区上下文与封存截止；原生MySQL成员读取的JSON重复解析报错已修复。专项7项与完整回归通过（`job-muoc7y7s-64827816`）。
+
+- 预计成本读取直接绑定批次、币种且截止时已生效并在有效期内的预算，复用现有预算生命周期读取器。未分配的共享预算不自动计入单个计划；没有匹配成本仍返回`cost_missing`。原生MySQL专项7项通过，验证300分预算进入预计ROI、旧封存截止不读取新预算、其他批次/币种/计划不串用；完整测试、构建、context检查及diff检查通过（`job-muoclc9t-243b66d6`）。
+
+- 来源报告业务服务已复用现有MySQL仓库，接通创建及按ID读取API，保留工作区、能力和幂等要求。原生MySQL专项8项通过，包括HTTP创建、模块重建后重放与读回、越权拒绝；完整测试、构建、context及diff检查通过（`job-muodvtbu-4f769053`）。
+
+- ROI归因分配创建/读取/生效API已接入MySQL。集成测试复现并修正生效接口未保存计算金额的问题；金额、操作人及幂等映射与生命周期事件在同一事务写入。原生MySQL专项9项通过，覆盖200分成本归因、HTTP和仓库重复命令仅一条生效事件、旧revision拒绝；完整测试、构建及context/diff检查通过（`job-muol18kv-0bfaba76`）。
+
+- 现金核销创建/读取/生效API已接入MySQL，商业绑定由已核验账目读取，不接受客户端指定。隔离原生MySQL专项9项通过，HTTP验证1000分付款核销、100分退款关联原付款明细、重复生效仅一条事件；未核验、币种不符、无效明细引用及累计1050分退款拒绝，超额退款保持草稿且无生效事件。完整测试、构建及context/diff检查通过（`job-muolb8g5-465f4166`）。
+
+- 正向MySQL关账集成已通过：合成发现/报价权威fixture、真实账目服务创建核验，随后从HTTP创建归因、核销、六类报告及证明并关账。收入1000分、销货成本200分、退款100分、获客成本200分得到25000基点（250%）、净回款900分；重复关账同版本，模块重建后读取相同ROI且仅一个快照。此为隔离集成测试，不是安装App从发现到关账的完整业务验收。
+
+- ROI剩余范围：安装App完整数值关账业务验收、重开公开写入入口及共享预计成本分摊。现有内部App的后端及桌面前端资源已同步（`job-muolj7my-b7cefd94`），未新增App/DMG。客户、活动、待办、财务导入、报价审批与PI的完整退出重启回归通过，PI及报价事件各一份、29800分/CNY一致；该脚本仅检查ROI批次列表，未验收安装App数值ROI。隔离数据库集成结果不替代安装应用完整业务验收。
+
+- 核销明细ID合同已纳入本地不可变Growth 1.0.36并同步前端固定合同、生成类型及版本断言。公开投影保留仓库生成的明细ID及所属集合ID，创建输入不允许指定ID；合同专项、核销服务专项、前端合同一致性检查及完整测试/构建/context/diff检查均通过（`job-muojnx9o-f60a9318`）。现金核销路由使用该投影返回原付款明细ID。
+
+- 关账输入读取器已实现持久化凭证、审核事件、来源报告和生效分配记录解析。原生MySQL专项9项通过。金额聚合已接入MySQL运行模块的证明及关账API，金额/归因/核销缺项拒绝通过；3项聚合测试验证合成结果295%、重复引用不重复计数、退款关联原付款和缺项拒绝，HTTP验证签署201、缺少revision为428及不完整证明为422。完整测试、构建、context及diff检查通过（`job-muog7yix-41ec416a`）；正向MySQL关账、安装App及重启验收仍未完成，重开入口仍未接通。
+
+- 报价发布内存同步已通过内部包业务API验收（`job-muo7rcf3-8d63892a`）：首次审批后无需重启即可读到PI；完整退出重启后恰好一份PI和一条报价事件，金额29800分、币种CNY一致。MySQL发布事务提交后同步当前Store，原权限和租约校验保留。CRM、财务导入、报价审批回归及完整根测试/构建、context/diff通过；真实模型调用和平台发送均为0。最新编译后端已同步原暂存包及内部App，未额外生成应用副本；`/Users/mac/Applications/Shensi Internal Test/Shensi.app`旧副本未更新。本轮不包含安装App的ROI计算及UI表单逐项鼠标验收，未签名/公证，非客户发行包。
+
+- UTC修复后只读检查 `job-muo6xzl1-0a35ae0b` 显示PI=1、报价事件=1，完整重启仍为1，发布扫描为0；临时诊断恢复完成。`job-muo6rkxm-16a15998` 的原生UTC/SQL专项、全量测试与构建通过，但安装API在同进程中仍读不到新PI。代码证据：`createMysqlQuoteCrmCommand` 直接写SQL，列表路由读取 `store.tradeDocuments/dealEvents`；`mysql-store` 原有 `mutateAuthoritativeQuoteProjection` 的内存同步未由该发布路径调用。下一修改建议是在事务成功后同步对应内存投影，保留租约/权限和事务边界，并验证无需重启即可读回；尚未实施该修改，整链仍未验收。
+
+- 内部包发布诊断 `job-muo6p68a-fbbfb569` 显示扫描运行、任务领取持续busy、未生成PI或事件，临时诊断文件已恢复。真实原生数据库时钟断言复现CURRENT_TIMESTAMP相对UTC偏移28800秒；本地MySQL继承系统+08时区，而发布租约按UTC比较。启动参数已固定 `--default-time-zone=+00:00`，不改权限或历史数据；时钟回归及重建内部包完整链路待验证。此前SQL时间/币种修复根测试与构建通过，但未独自解决安装包发布链。
+
+- PI真实MySQL写入专项已复现并修正：ISO时间直接进入DATETIME导致 `ER_TRUNCATED_WRONG_VALUE`，PI币种固定USD导致CNY断言失败；后续CRM事件的时间写入存在相同问题。`quote-crm-command-mysql.ts` 统一复用 `growthMysqlDate`，PI使用审批版本币种；真实隔离MySQL中PI与报价事件的29800分/CNY断言通过（3项、0跳过）。不改变审批、租约或权限规则；安装包完整发布链及全量回归仍待本轮验证。
+
+- 私有socket直连原生MySQL专项 `job-muo6b32x-08ccef81` 11项通过、0失败、0跳过，覆盖ROI cohort/结算持久化及并发约束、报价物理连接争用；完整根测试、构建、context及diff通过。确认临时TCP/socket转发方式导致先前测试认证失败，数据库权限未放宽。该证据仍不等于安装App端到端ROI计算或PI发布通过；PI真实SQL写入正在单独复现。
+
+- ROI/报价MySQL测试夹具支持 `MYSQL_TEST_ADMIN_URL` 的 `socketPath` 查询参数，可直接连接本机私有Unix socket；无该参数时保留原TCP连接。临时诊断脚本已移除TCP/socket转发，使用新建隔离数据库的原认证信息重测，不修改产品权限。当前内部产物为上方稳定目录的App，arm64/0.1.0，约2.3G；原暂存构建时间为2026-09-30 21:47（北京时间）。报价读取编译文件已核对一致；未签名、公证。
+
+- 隔离原生MySQL诊断 `job-muo5yw6e-087c66ba` 为5项通过、6项失败、0跳过；六项均在测试管理员建立连接时返回 `ER_ACCESS_DENIED_ERROR`，未进入ROI/报价业务断言。测试运行时已停止，未连接现有业务库。该结果是测试连接阻塞，不能作为六处产品缺陷或原生数据库验收通过的证据；不放宽数据库权限或读取现有应用凭据绕过。
+
+- 最新内部包本地发布验收 `job-muo5w7d7-1010214d` 未通过：合成正式报价审批与重启读取通过，但审批后PI列表中对应版本为0条（预期1条），因此未达到发布金额/币种与事件一致性验收。发布任务失败和读取投影不同步尚未区分，不据此修改审批规则。
+
+- 内部暂存Mac包已从最新Backend、Main和桌面前端重建（`job-muo5su3r-358ee022`），包含正式报价状态读取修复；复用原输出目录，未替换日常开发App。实际暂存包启动、已有合成会话恢复及设置页可见检查通过，页面脚本错误为零。ROI计算/结算快照及本地报价发布/故障恢复18项内存逻辑测试无跳过通过；不等同原生数据库ROI或发布记录验收。后端/桌面构建、context及diff通过，依赖布局和Vite大包警告仍在；包未签名、公证或对外发布。
+
+- 正式报价MySQL当前读取已合并version-transition状态与revision，冻结金额不改。`job-muo513yg-3b1aeba2` 根测试、构建、context及diff通过；报价专项7项通过、1项物理连接争用测试因未配置专用数据库跳过。实际内部安装App仅更新对应编译后端文件后，合成商品/价格策略、报价金额29800分、毛利18800分、贡献17900分、独立审核员批准及完整重启读回approved通过；CRM、财务回归通过，无模型调用或外发。未生成新发行包，暂存原包未自动同步此修复；自审禁止保留，发布操作完成及ROI计算仍未验收。
+
+- 安装版报价案件在同工作区合成sales成员下创建、关闭、完整重启读回及列表可见性通过（`job-muo4kli6-d9c344f7`），正式报价后续证据见上项。ROI仅验证cohort列表接口，不代表ROI计算通过。新单机admin直接作为报价负责人返回409 `quote_assignee_invalid`，这是现有sales-only规则；未放宽权限，单人管理员自用报价的产品流程仍需明确。
+
+- 安装后的Mac内部包业务API验收通过（`job-muo4faju-dc496c1e`）：通过实际Renderer同源网关创建合成客户、跟进记录、关联并完成待办、CSV财务预览与提交；完整退出重启后，客户跟进、待办完成状态、导入成功状态和财务金额/币种/pending状态均读回。调用随包后端及私有原生数据库，无真实模型调用或平台发送。这是安装版业务API验收，不等同这些表单的逐项鼠标操作验收；报价、ROI及其余业务模块仍未完成安装版验收。
+
+- Mac本机内部目录包已生成并复制至 `/Users/mac/Applications/Shensi Internal Test/Shensi.app`（0.1.0/arm64，约2.1GiB），不作为客户发行包。`job-muo483p2-a5169c61` 验证随包Node/后端/MySQL、独立首次建号、登录、完整退出重启后会话恢复通过；使用最小PATH及仓库外工作目录，无开发数据库连接。`job-muo4bh59-aa258531` 补充实际设置页导航与可见截图确认，页面脚本错误为零，不代表所有模块业务已验收。资源路径/外链和部分私钥格式检查通过，不等同完整秘密审计。未Developer ID签名或公证，仅继承可执行文件adhoc标记。app.asar SHA256为 `27963c4928641d7a029f00441ddb9a4c0035d991e0091d5c149fb04f11ee7be3`（不是完整应用摘要）。临时打包脚本修复Builder漏拷后端node_modules，尚未固化到正式打包入口。
+
+- 财务列表已接入现有工作区账本与审核状态投影，保留权限及游标分页。两项接口专项通过；独立暂存后端与真实MySQL的导入、完整重启、列表金额及币种读回三项无跳过通过（`job-muo3qj60-2db57952`），无模型调用。根全量测试、构建、桌面类型、context及diff检查通过（`job-muo3s7u3-85e062bf`）；pnpm以显式warn模式保留依赖，仍提示enableGlobalVirtualStore设置与安装状态不同，未执行自动重装。Vite大包提示为非阻断警告。此结果覆盖源码及隔离后端，不代表正在运行的客户应用已更新，也不作为财务页面交互或安装包验收完成。
+
+- 独立暂存后端的CRM链路验收通过（`job-muo3enbe-da96bf6a`）：真实MySQL中创建合成客户、追加跟进记录、创建关联待办并完成；退出并重启数据库/后端后，客户、跟进记录、待办客户绑定与完成状态均读回。三项测试无跳过，桌面类型、context及diff通过。未调用模型或平台；该结果不包含报价、财务导入及安装包验收。
+
+- 独立后端暂存实测通过（`job-muo3b3rz-cfcff8d0`）：使用pnpm标准deploy生成的生产依赖、暂存Node与合同目录，真实MySQL初始化、客户登录、Growth工作区、todo写入和数据库/后端重启读回三项无跳过通过。资源目录 `/tmp/shensi-backend-package.xlhwSv` 含28,876个文件且依赖链接不逃逸，Node原始LICENSE已复制；尚未形成可交付安装包。测试支持显式 `SHENSI_TEST_BACKEND_ENTRYPOINT` 与 `SHENSI_TEST_NODE_EXECUTABLE` 指向暂存资源，不改变生产路径。
+
+- 单机打包配置入口支持显式 `SHENSI_DESKTOP_MODE=standalone`，拒绝混入远程地址；release签名与公证要求保留。13项相关专项及实际配置生成测试通过；`job-muo2y3o6-2c9174e7` 桌面/根测试与构建通过，末尾类型检查发现遗漏声明，补齐 `.d.mts` 后类型、context和diff检查通过。后端/Node/MySQL资源暂存及成品白名单仍未完成，不生成或交付缺少业务服务的旧式安装包。
+
+- 单机首次账号使用独立 `admin/workspace_*`，不转换旧账号。真实数据库专项三项无跳过、完整桌面/根测试、构建、类型、context及diff通过（`job-muo2jys9-df5b72e4`）。实际 Main 首次建号、登录、完整退出重开及15个主导航复验通过（`job-muo2pnik-312a5c28`）：零页面脚本错误，观察期间零失败API，Growth六页正常初始化，语音显示“未配置”。此结果仅覆盖新账号页面加载，不替代业务写入、模型调用、平台发送与安装包验收。
+
+
+- 单机真实 Main 模型配置持久化验收通过（`job-muo2e2nx-9f8c476e`）：在隔离账号中保存未启用的合成模型凭据，完整退出 Electron 再启动后登录会话自动恢复、同一连接ID仍在、密钥输入框为空；context与diff检查通过。未执行真实模型连通性或付费调用。
+
+- 单机底座使用 macOS arm64 原生 MySQL 8.4.11 与现有编译后端，不依赖Docker；Main 管理独立数据目录、自有进程和每安装凭据，不改变现有remote入口。原生初始化、schema权限隔离、错误凭据拒绝、长路径私有短socket、退出清理、真实登录/todo写入与完整重启读回已通过（`job-muo0gjoz-7582a35e`），系统safeStorage亦已实测。Windows适配与两平台安装包未完成。
+- 原生 Electron safeStorage 加密落盘、重新创建运行工厂及数据库/后端重启后登录通过（`job-muo0xu4p-ec5c7767`），平台外发为零；同批 Main 构建、桌面/根测试、构建、类型、context与diff全部通过。该验收在隔离 Electron 测试进程内执行，不代表 Main 业务窗口和首次客户设置已验收。
+- 客户首次账号参数与校验已接入本地运行时，复用后端空库初始化，不修改云端注册。`job-muo19gs9-90d7c734` 四项测试无跳过通过：客户账号登录、业务写入、重新创建运行时后登录及读回成功，隐藏 bootstrap 登录返回401；类型与diff检查通过。该批为运行时测试，不能替代设置窗口验收。
+- 首次设置窗口与后端组合验收通过（`job-muo1twz5-7423ecfc`）：真实 Electron 填表、双主题620/390布局、密码不一致提示、提交建号、系统加密及重建运行时后登录成功，页面脚本错误与平台外发均为零；同批 Main 构建、桌面/根测试、构建、类型、context和diff通过。保持运行策略在 bootstrap 注册，设置窗口关闭不会提前退出。真实 Main 登录与设置导航另经上述独立验收；逐模块业务、客户模型API实配及安装包未完成。
+
+- 已授权本轮生成最新 Mac/Windows 单机开发安装包：内置业务后端与独立 MySQL、免 Docker/开发工具、客户自行配置模型 API，不依赖尚未部署的云 API；不推送源码、不恢复外发。MySQL 随客户包再分发授权路径尚未确认，不擅自购买或公开源码。当前 macOS arm64 有远程客户端打包链，尚不是完整单机包；Windows 平台路径、启动权限/握手及原生构建环境尚未齐备。冻结启动器的 Windows `node.exe` 分支已补齐，八项启动器单测通过，未修改平台业务核心。详见 [单机设计](desktop/standalone-development-design.md) 和 [Windows 开发包实施状态](desktop/windows-development-packaging.md)。
+
+- 财务报告模型内部正文块采用数组，复用原严格引用/数字校验；公开接口不变。25项模型/服务专项通过，带合成公开来源的真实模型复验`job-mugolwg0-2da2f16f`单调用生成七章、零校验错误，无格式修正。最新精选源码完整测试、财务资料专项、构建、桌面前端、context和diff检查通过（`job-mugonlun-4f56f49c`）。54958开发实例用合成CSV、真实模型及公开检索成功生成七章、26项文件来源和3条公开来源；原生导出14页A4 PDF，全文提取包含七章及末项来源，首末页目视无裁切。
+
+- 财务经营详细报告包含七章结构化模型生成、闭合来源校验、页面/HTML/PDF同正文及受控行业公开检索；当前Growth契约为1.0.36。已有双主题1440/390及历史合成来源检查，最新确定性金额图表与报告模板验收见顶部；任意格式金额提取、正文措辞和建议质量仍需完善，单次模型成功不代表稳定。ROI和委员会通用资料入口保留既有导出，其他用途的详细报告增强尚未完整验收。
+- 六角色聊天偏好面板收起方案已明确为移除面板而非默认折叠：保留后台已确认记忆及人工复盘，待核查角色/身份/工作区隔离和自动读取发送链路后实施；不改星盘业务表单，不自动把聊天推断写成事实。
+- 报告内容验收目前仅使用合成资料；已有收入/成本/运费/工资/余额引用未编造利润或经营现金流的样本。建议仍偏重补齐三表，未达到完整质量目标；无效输出保留文件并禁止导出，不自动重试。
+
+- 日常开发使用最新前后端的 Electron 源码实例，不为每次修复生成 App/DMG。当前最后实测入口为 `http://127.0.0.1:54958/#growth/finance`，Backend5638；纯合成CSV只读预览成功。受控重启前后外发队列计数不变。端口随启动变化，不是固定发布地址。
+- 最近已核对的产品代码基线为私有 `Shensi-ai/main` 的 `640398d68a64cb19b3d159ecd45b51ad5328919b`；该版本包含联网分流修复及六角色实测记录。文档收尾提交不改变产品代码，最新源码备份状态以远端Git记录为准。
+- 只从精选源码同步运行实例；保留开发仓库全部未提交修改，不把尚未验收的冻结抖音改动一起部署。
+- 抖音登录、采集、绑定及发送核心保持冻结；旧8条任务所在批次保持暂停，真实外发关闭。最近受控重启前后任务状态、尝试与平台写入计数不变。历史真实发送证据不代表当前版本已完整验收。
+- 小红书模块由 `XHS_MODULE_ENABLED=true` 显式启用，当前关闭且不建表；桌面和后端发送开关均关闭。没有启动业务schema迁移。
+
+## Completed
+
+这里的“完成”仅指下列明确范围，不代表整个产品或正式发布完成。
+
+| 模块 | 当前实现与已验证范围 | 未覆盖范围 |
+| --- | --- | --- |
+| 六角色文字聊天 | 当前文本界面独立联网按钮默认关闭，知识库按需检索；开启后仅检索安全公开主题，省略协议字段保留旧自动语义。配置搜索连接优先、无连接时使用锁定DDGS免Key后备。已有六角色真实公开回答记录，经营总管普通问候与加密历史/引用恢复通过；新按钮六角色原生状态与完整回归通过 | 新开关未做新增真实联网问答；当前知识增强输出CFO/利润及提示修正后的单次财务问题已通过，成本/现金流/税务仍待修正后实测，不能用旧公开回答样本代替 |
+| 聊天跨页会话 | 当前Renderer内按身份及角色保留回答、引用、草稿和进行中的文字请求；返回不重放模型。新对话隔离，退出/身份变化清理。50923原生验证CFO回答/4条来源/草稿跨设置返回及财务草稿跨首页返回；专项包含离页后完成、角色隔离和退出取消。51674复验财务角色跨页返回与支持面板一致；全量测试、构建、desktop构建、context和diff检查通过（`job-mugmdxpp-facb804e`） | 不提供其余五角色关闭应用后的历史恢复；财务报告模板及导出已有顶部所列实现，其余报告增强按用途分别验收 |
+| 联网分流 | 明确要求联网优先于一般知识捷径，仍提取并校验公开主题；财务原失败问题实机复测成功。利润一次结构修正后成功，未放宽schema | 搜索摘要不等于完整网页核验或政策现行有效性确认 |
+| 聊天布局 | 六角色空态头像/标题/长说明已移除，输入、附件、语音和历史保留；双主题1440/1024/390共36角色布局通过，开发窗口已加载 | 不将局部布局检查扩为全产品所有页面视觉验收 |
+| 零散资料与附件 | 单份流水/收支/缺失金额可进入六角色问答，不要求三表齐全；18次受控角色问答通过。聊天附件支持最多10份/5MB、角色/会话/身份隔离、一小时有效期，上传仅解析。当前开发构建包含这些入口 | 本轮公开模型问题不携带附件，不能替代真实企业附件回答质量验收；正式财务委员会仍有独立三表条件 |
+| 星盘决策模拟 | 选定蓝白/黑绿四步框架、宝蓝三臂星系、中文参数表单及真实角色状态已加载开发版。双主题1440/390和完整五角色→100情景→报告合成视图验证通过；已有合成CSV经真实五角色模型→100路径→导出→历史重开记录 | 不是客户真实企业整链、多格式原生混合上传或创业模式交付 |
+| 语音 | 开发版包含默认Ethan男声与显式音色配置。已有31项服务/配置/IPC生命周期回归；真实loopback WebSocket＋生产service/provider合成PCM断连结束、保留配置及显式重连通过 | 男声实际听感、麦克风连续对话、回声/打断/真实弱网体验尚需人机验收 |
+| 小红书独立适配 | 独立路由、Main/Preload、stdio worker和UI已接通；隔离原生整页、批准/编辑/禁发/回收及双主题测试通过。实际隔离MySQL的schema、加密/AAD、并发CAS、unknown不重发、重启、备份恢复通过 | 当前模块关闭；真实平台登录、关联ACK与单条实际发送未验收，不等于可向真实账号发送 |
+| 资料、偏好与知识 | 只读多文件资料、明确确认的个人经营偏好、保存建议及人工复盘已实现；CFO文本历史加密持久化。独立本地版本化参考库已实际导入21本并完成原生上传/引用及整应用/数据库重启；横向卡片与联网开关已加载开发版并通过完整回归 | 临时附件、历史和个人偏好与持久知识库分开；知识库Task8成本/现金流/税务、新开关真实联网问答及账号原生页面仍待验收，其他五角色持久聊天历史及自动训练未交付 |
+| 其他业务模块 | 企业查询及增长顾问、客户目录、报价、财务、ROI、财务委员会仍保留现有前后端和入口 | 企业数据源筛选能力各异；未提交入账队列/报价草稿不承诺跨页恢复；本轮未复验全部真实业务 |
+
+### 检查证据
+
+- 最新产品修复：14项规划/隐私/网关专项及根 `pnpm test`、`pnpm build`、context、diff通过，任务 `job-mugihlq9-f453d8b6`。Vite大包提示为非阻断警告。
+- 数据库/语音测试批次：`job-mugi2tse-17418a56` 根检查通过；12项语音专项通过，测试夹具类型修正后桌面类型检查通过。
+- 隔离实际MySQL：`job-mughp0r5-f29f205b`，仅本机新建合成容器/卷；测试后容器、卷和私有临时备份已清理，不接触业务库。
+- 双主题聊天布局、原生窗口和模型账本证据详见 [六角色真实模型验收](operations/six-role-model-acceptance.md)。该文档逐角色区分首次成功、结构修正和未测项目。
+- 当前能力定义：[聊天与语音](modules/cfo-conversation.md)、[文件与附件](modules/file-upload-inventory.md)、[资料读取](modules/finance-document-reading.md)、[共享能力](modules/shared-agent-capabilities.md)、[星盘](modules/decision-simulation.md)、[小红书](../services/xiaohongshu/README.md)。
 
 ## Blocked
 
-- Docker Engine and Docker Compose are unavailable in the current execution
-  environment (`docker` is absent from `PATH`; Colima is installed but reports
-  `colima is not running`), so Compose rendering and image builds remain an
-  exact production-deployment blocker requiring a Docker-equipped environment.
-  This does not block the separate non-Docker local trial supervisor.
+以下为真正未完成或需要外部条件的范围，不再把已有免Key搜索、隔离MySQL或已加载星盘写成阻塞。
+
+1. **真实平台验收**：抖音跨休眠执行租约恢复仍未修复，核心被冻结；小红书真实登录/回执未验收。重新进入这些流程需单独安排，不恢复旧队列。
+2. **真实语音**：需要用户开麦并实际听说，验证连续轮次、打断、回声和弱网；合成音频/连接检查不能替代听感。
+3. **真实企业资料与知识库**：本地版本化参考库的21本与原生文件生命周期、整应用/数据库持久化已有实际证据，横向布局/联网开关已获批准、实现并正常加载开发版，17道完整回归通过；CFO/利润与单次财务真实引用问答已通过；成本/现金流/税务、新开关真实联网问答、账号原生页面及最终交付审查仍待完成。企业资料/附件/星盘整链、纠正流程和其余角色持久会话仍有缺口；不把参考观点、方法技能或临时附件当作已核实企业事实。
+4. **公开产品与运营**：静态官网在2026-09-23已有Cloudflare Pages部署证据，但产品API、客户账号服务、运营后台、咨询提交和安装包没有随之正式公开。旧Render/Aiven只是联调记录，不是当前生产可用性证明。本轮未重新探测公网在线状态。
+5. **正式发布**：固定HTTPS/API/持久数据库、正式运营者/套餐规则、备份告警及目标云恢复演练、跨设备验收、macOS签名/公证和发行包仍需独立完成。当前不购买资源、不迁移业务库、不生成发行包。见 [上线缺口](operations/account-admin-launch-readiness.md) 与 [官网边界](../website/README.md)。
 
 ## Next
 
-1. Have the customer log in through the current `trial:status` origin and finish
-   the authenticated all-module visual walk-through.
-2. Stop at QR-ready if the customer is not present. After an authorized scan,
-   verify one manual-keyword collection and persisted candidates. Keep external
-   actions disabled unless the separate explicit authorization and empty-queue
-   activation checks are both recorded.
-3. Publish verified source only through the explicit trial refresh command;
-   local and public builds use this repository, but a source edit alone does
-   not update the currently running temporary origin.
-4. Only after those checks pass may the operator retire the old static link;
-   `trial:stop` must stop only validated trial process groups and retain data
-   until the documented export/profile retention decision is complete.
-5. Separately, in a Docker-equipped environment, render and build production
-   Compose and inspect its private networks and health/shutdown behavior.
+当前默认参考库的下一项是内置版实际交付：完成真实MySQL/默认检索、源码正常重启、当前standalone资源和安装版验收。中央服务器部署留待用户后续安排，不阻塞这21本书在应用内默认使用；不把旧模型成功或旧安装包当作本次交付。
 
-The two executing design/plan documents are retained under
-`docs/superpowers/` until final acceptance, but they are not progress authority.
+1. 星盘角色空态/动效、附件授权焦点刷新和来源显示已完成。聊天滚动修复解除无界消息列表的滚动拦截，桌面聊天与inspector独立占列，901–999px侧栏下排；双主题1440/1024/980/873/390合成长回复滚轮上下、PageDown、引用与输入可达回归通过。49867原生开发实例只读重开CFO既有回答，双主题宽/窄窗连续阅读头/中/尾及输入可达通过，无新增模型请求。两次受控更新队列计数不变、外发关闭。原双附件财务回答在接续时应用已切到获客页、返回后清空，仅附件保留；不能补验已丢失回答的5000/1800及运费措辞，也不把其他历史回答当作该金额验收。正式企业资料质量仍独立验收。完整首轮检查`job-mugl7zga-d481c8fd`通过，980px补充修复专项及桌面构建通过；收尾全量测试、构建、context与diff检查`job-muglkzr7-f0334d78`通过。
+2. 下一轮由用户选择真实附件/星盘业务验收、物理语音或平台账号验收；按该范围准备实际数据和确认，不同时扩大所有模块。
+3. 正式公开上线按 [账号服务部署与恢复](operations/account-admin-cloud-runbook.md) 单独安排；本地合成恢复成功不能替代目标云验收。
+4. 日常开发继续同步当前模块README和本状态文件。产品代码变动按AGENTS执行验证与精选私有备份；纯文档整理只验证文档、链接与diff。
+
+## Historical evidence
+
+- [截至2026-09-25的完整历史状态快照](archive/project-status-through-2026-09-25.md)：保留原2591行记录；旧端口、Next/Blocked、noVNC/Trial步骤与“尚未接通/同步”等仅代表当时状态，不是当前执行依据。
+- [9月25日智能体/小红书逐轮记录](archive/2026-09-25-agent-xhs-progress.md)：保留中间失败和修复证据。
+- [跨模块状态验收](operations/module-state-acceptance.md)：区分内存草稿、只读资料与持久业务命令。
+- 历史设计位于 `docs/superpowers/`；不从历史聊天、旧公网隧道URL或旧安装包推断当前运行版本。

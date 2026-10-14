@@ -1,4 +1,4 @@
-import type { OutcomeAttributionInput } from "./acquisition-domain.js";
+import { isOutcomeAttributionShape } from "./acquisition-outcome-attribution.js";
 import type { CrmStore } from "./store.js";
 import type { AcquisitionCustomerHandoff, Lead } from "./types.js";
 
@@ -50,31 +50,6 @@ export type AcquisitionDealBindingLookup = {
   dealId: string;
 };
 
-function isTrustedAcquisitionAttribution(
-  value: unknown
-): value is OutcomeAttributionInput {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const attribution = value as Record<string, unknown>;
-  const requiredTextFields = [
-    "runId", "planId", "planVersionId", "planSnapshotHash",
-    "discoveredEventId", "discoveredAt", "shardId", "operationId",
-    "connectionId", "providerId", "strategyVersion",
-    "qualificationDecisionId", "decisionVersion", "decisionSnapshotHash"
-  ];
-  const stringListFields = ["evidenceIds", "providerIds", "queryIds"];
-  return attribution.attributionVersion === "acquisition-run.v1"
-    && requiredTextFields.every((field) =>
-      typeof attribution[field] === "string"
-      && Boolean(String(attribution[field]).trim()))
-    && Number.isSafeInteger(attribution.planVersion)
-    && Number(attribution.planVersion) > 0
-    && Number.isFinite(Date.parse(String(attribution.discoveredAt)))
-    && stringListFields.every((field) =>
-      Array.isArray(attribution[field])
-      && (attribution[field] as unknown[]).every((item) =>
-        typeof item === "string" && Boolean(item.trim())));
-}
-
 export function resolveTrustedAcquisitionDealBinding(
   store: Pick<CrmStore, "acquisitionCustomerHandoffs" | "leads">,
   lookup: AcquisitionDealBindingLookup
@@ -103,7 +78,7 @@ export function resolveTrustedAcquisitionDealBinding<
         && handoff.customerId === lookup.customerId);
   if (handoffs.length !== 1) return null;
   const handoff = handoffs[0]!;
-  if (!isTrustedAcquisitionAttribution(handoff.acquisitionAttribution)
+  if (!isOutcomeAttributionShape(handoff.acquisitionAttribution)
     || handoff.acquisitionAttribution.decisionVersion
       !== handoff.decisionVersion) return null;
   const leads = store.leads.filter((lead) =>

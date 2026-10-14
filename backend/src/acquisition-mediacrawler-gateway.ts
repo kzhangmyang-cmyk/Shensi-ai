@@ -1,9 +1,15 @@
 import { z } from "zod";
 import { douyinActionDeadlineMs } from "./acquisition-outreach-action-worker.js";
+import type {
+  AcquisitionSocialAccountLoginFailureCode,
+  AcquisitionSocialAccountLoginInteraction,
+  AcquisitionSocialAccountQrStatus
+} from "./acquisition-social-account.js";
 
 const MAX_RESPONSE_BYTES = 64 * 1024;
+const MAX_LOGIN_SESSION_RESPONSE_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 5_000;
-const DEFAULT_LOGIN_CREATION_TIMEOUT_MS = 35_000;
+const DEFAULT_LOGIN_COMMAND_TIMEOUT_MS = 70_000;
 const ACTION_RESULT_REVIEW_TRANSPORT_OVERHEAD_MS = 25_000;
 export const MEDIACRAWLER_PINNED_UPSTREAM_COMMIT = "d6f7c5bb906b6dac40ddf343ef9e26438a3de092" as const;
 
@@ -12,14 +18,67 @@ const healthResponseSchema = z.object({
   service: z.literal("shensi-mediacrawler"),
   upstream_commit: z.literal(MEDIACRAWLER_PINNED_UPSTREAM_COMMIT)
 }).strict();
-const loginSessionResponseSchema = z.object({
+const loginPageResponseSchema = z.object({
+  image_data_url: z.string().startsWith("data:image/"),
+  width: z.number().int().positive(),
+  height: z.number().int().positive()
+}).strict();
+const loginFailureCodeResponseSchema = z.enum([
+  "douyin_login_ui_unsupported",
+  "douyin_verification_required",
+  "douyin_login_page_unavailable",
+  "douyin_login_page_not_allowed",
+  "douyin_browser_unavailable",
+  "douyin_browser_command_timeout",
+  "douyin_login_open_failed"
+]);
+const loginDiagnosticResponseSchema = z.object({
+  code: z.string().min(1).max(100),
+  message: z.string().min(1).max(500),
+  recoverable: z.boolean(),
+  occurred_at: z.string().datetime()
+}).strict();
+const loginSessionResponseShape = {
   session_id: z.string().min(1),
   state: z.enum(["awaiting_scan", "active", "expired", "failed"]),
   qr_image_data_url: z.string().startsWith("data:image/").nullable(),
+  qr_status: z.enum([
+    "opening", "ready", "expired", "network_error", "verification_required"
+  ]).nullable(),
+  login_page: loginPageResponseSchema.nullable(),
+  failure_code: loginFailureCodeResponseSchema.nullable().optional().default(null),
   expires_at: z.string().datetime(),
   account_handle: z.string().min(1).nullable(),
   account_display_name: z.string().nullable(),
   login_state_version: z.number().int().positive().nullable()
+} as const;
+const loginSessionRuntimeResponseShape = {
+  interaction_surface: z.enum(["external_window", "remote_canvas"]),
+  runtime_state: z.enum(["stopped", "starting", "running", "crashed"]),
+  auth_state: z.enum([
+    "unknown", "logged_out", "waiting_for_user", "verification_required",
+    "authenticated", "expired"
+  ]),
+  task_state: z.enum([
+    "idle", "preparing", "running", "cancelling", "completed", "failed"
+  ]),
+  diagnostic: loginDiagnosticResponseSchema.nullable(),
+  screenshot_available: z.boolean(),
+  qr_available: z.boolean()
+} as const;
+const loginSessionResponseSchema = z.union([
+  z.object({ ...loginSessionResponseShape, ...loginSessionRuntimeResponseShape }).strict(),
+  z.object(loginSessionResponseShape).strict()
+]);
+const liveLoginSessionResponseSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/u),
+  expires_at: z.string().datetime()
+}).strict();
+const loginSessionNotReadyResponseSchema = z.object({
+  detail: z.literal("douyin_login_session_not_interactive")
+}).strict();
+const loginSessionNotFoundResponseSchema = z.object({
+  detail: z.literal("login_session_not_found")
 }).strict();
 const crawlJobStateSchema = z.enum(["queued", "running", "succeeded", "partial", "paused", "cancelled", "failed"]);
 const crawlerActivitySchema = z.object({
@@ -90,7 +149,8 @@ const actionReceiptResponseSchema = z.object({
   if (!valid) context.addIssue({ code: "custom", message: "invalid_action_receipt" });
 });
 
-type GatewayCode = "mediacrawler_unavailable" | "mediacrawler_invalid_response";
+type GatewayCode = "mediacrawler_unavailable" | "mediacrawler_invalid_response"
+  | "douyin_login_session_not_ready" | "douyin_login_session_expired";
 
 class MediaCrawlerGatewayError extends Error {
   readonly code: GatewayCode;
@@ -102,14 +162,27 @@ class MediaCrawlerGatewayError extends Error {
   }
 }
 
+export function isMediaCrawlerGatewayError(
+  error: unknown
+): error is Error & { readonly code: GatewayCode } {
+  return error instanceof MediaCrawlerGatewayError;
+}
+
 export interface DouyinMediaCrawlerGateway {
   health(signal?: AbortSignal): Promise<Readonly<{
     ok: true;
     service: "shensi-mediacrawler";
     upstreamCommit: typeof MEDIACRAWLER_PINNED_UPSTREAM_COMMIT;
   }>>;
-  createLoginSession(signal?: AbortSignal): Promise<DouyinLoginSession>;
+  createLoginSession(input?: DouyinLoginSessionCreateInput,
+    signal?: AbortSignal): Promise<DouyinLoginSession>;
+  createLiveLoginSession(sessionId: string, signal?: AbortSignal): Promise<Readonly<{
+    token: string;
+    expiresAt: string;
+  }>>;
   getLoginSession(sessionId: string, signal?: AbortSignal): Promise<DouyinLoginSession>;
+  interactLoginSession(sessionId: string, interaction: AcquisitionSocialAccountLoginInteraction,
+    signal?: AbortSignal): Promise<DouyinLoginSession>;
   disconnectLoginSession(sessionId: string, signal?: AbortSignal): Promise<void>;
   startCrawlJob(input: DouyinCrawlJobInput, signal?: AbortSignal): Promise<DouyinCrawlJob>;
   findCrawlJob(jobId: string, signal?: AbortSignal): Promise<DouyinCrawlJob | null>;
@@ -128,8 +201,11 @@ export interface DouyinMediaCrawlerGateway {
 
 export interface DouyinCrawlJobInput {
   jobId: string; accountHandle: string; loginStateVersion: number; keywords: string[];
-  maxVideos: number; maxCommentsPerVideo: number; maxPagesPerVideo: number; deadlineAt: string;
+  maxVideos: number; maxCommentsPerVideo: number; maxComments?: number; maxPagesPerVideo: number; deadlineAt: string;
   collectCreators: boolean; collectDemandComments: boolean;
+}
+export interface DouyinLoginSessionCreateInput {
+  accountKey: string;
 }
 export interface DouyinCrawlJob {
   jobId: string;
@@ -147,7 +223,28 @@ export interface DouyinCrawlJobPage {
 export interface DouyinLoginSession {
   sessionId: string;
   state: "awaiting_scan" | "active" | "expired" | "failed";
+  interactionSurface: "external_window" | "remote_canvas";
+  runtimeState: "stopped" | "starting" | "running" | "crashed";
+  authState: "unknown" | "logged_out" | "waiting_for_user"
+    | "verification_required" | "authenticated" | "expired";
+  taskState: "idle" | "preparing" | "running" | "cancelling"
+    | "completed" | "failed";
+  diagnostic: Readonly<{
+    code: string;
+    message: string;
+    recoverable: boolean;
+    occurredAt: string;
+  }> | null;
+  screenshotAvailable: boolean;
+  qrAvailable: boolean;
   qrImageDataUrl: string | null;
+  qrStatus: AcquisitionSocialAccountQrStatus;
+  loginPage: Readonly<{
+    imageDataUrl: string;
+    width: number;
+    height: number;
+  }> | null;
+  failureCode?: AcquisitionSocialAccountLoginFailureCode | null;
   expiresAt: string;
   accountHandle: string | null;
   accountDisplayName: string | null;
@@ -160,6 +257,7 @@ export interface DouyinMediaCrawlerGatewayOptions {
   timeoutMs?: number;
   loginCreationTimeoutMs?: number;
   actionTimeoutMs?: number;
+  runtimeMode?: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -205,7 +303,10 @@ function requestAbortSignal(signal: AbortSignal | undefined, timeoutMs: number) 
   };
 }
 
-async function responseText(response: Response): Promise<string> {
+async function responseText(
+  response: Response,
+  maxResponseBytes = MAX_RESPONSE_BYTES,
+): Promise<string> {
   const reader = response.body?.getReader();
   if (!reader) return "";
   const chunks: Uint8Array[] = [];
@@ -215,7 +316,7 @@ async function responseText(response: Response): Promise<string> {
       const { done, value } = await reader.read();
       if (done) break;
       byteLength += value.byteLength;
-      if (byteLength > MAX_RESPONSE_BYTES) {
+      if (byteLength > maxResponseBytes) {
         await reader.cancel();
         throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
       }
@@ -227,14 +328,35 @@ async function responseText(response: Response): Promise<string> {
   return new TextDecoder().decode(Buffer.concat(chunks));
 }
 
+async function loginSessionHttpError(response: Response) {
+  let body: unknown;
+  try {
+    body = JSON.parse(await responseText(response));
+  } catch {
+    return new MediaCrawlerGatewayError("mediacrawler_unavailable");
+  }
+  if (response.status === 404
+    && loginSessionNotFoundResponseSchema.safeParse(body).success) {
+    return new MediaCrawlerGatewayError("douyin_login_session_expired");
+  }
+  if (response.status === 409
+    && loginSessionNotReadyResponseSchema.safeParse(body).success) {
+    return new MediaCrawlerGatewayError("douyin_login_session_not_ready");
+  }
+  return new MediaCrawlerGatewayError("mediacrawler_unavailable");
+}
+
 export function createDouyinMediaCrawlerGateway(
   options: DouyinMediaCrawlerGatewayOptions
 ): DouyinMediaCrawlerGateway {
+  if (options.runtimeMode !== undefined
+    && options.runtimeMode !== "desktop" && options.runtimeMode !== "web") {
+    throw new TypeError("invalid_mediacrawler_runtime_mode");
+  }
   const baseUrl = isPrivateHttpUrl(options.baseUrl);
   const serviceSecret = normalizedSecret(options.serviceSecret);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const loginCreationTimeoutMs = options.loginCreationTimeoutMs
-    ?? DEFAULT_LOGIN_CREATION_TIMEOUT_MS;
+  const loginCreationTimeoutMs = options.loginCreationTimeoutMs ?? timeoutMs;
   const actionTimeoutMs = options.actionTimeoutMs
     ?? douyinActionDeadlineMs() + ACTION_RESULT_REVIEW_TRANSPORT_OVERHEAD_MS;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0
@@ -246,30 +368,79 @@ export function createDouyinMediaCrawlerGateway(
   const fetchImpl = options.fetchImpl ?? fetch;
 
   async function loginSessionRequest(
-    method: "GET" | "POST", path: string, signal?: AbortSignal
+    method: "GET" | "POST", path: string, signal?: AbortSignal,
+    body?: unknown, requestTimeoutMs = timeoutMs, expectedSessionId?: string
   ): Promise<DouyinLoginSession> {
-    const request = requestAbortSignal(
-      signal,
-      method === "POST" ? loginCreationTimeoutMs : timeoutMs,
-    );
+    const request = requestAbortSignal(signal, requestTimeoutMs);
     try {
       if (request.signal.aborted) throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
       const response = await fetchImpl(new URL(path, baseUrl), {
         method,
-        headers: { authorization: `Bearer ${serviceSecret}` },
+        headers: {
+          authorization: `Bearer ${serviceSecret}`,
+          ...(body === undefined ? {} : { "content-type": "application/json" })
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
         signal: request.signal
       });
-      if (!response.ok) throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
-      let body: unknown;
-      try { body = JSON.parse(await responseText(response)); } catch (error) {
+      if (!response.ok) throw await loginSessionHttpError(response);
+      let responseBody: unknown;
+      try {
+        responseBody = JSON.parse(await responseText(
+          response,
+          MAX_LOGIN_SESSION_RESPONSE_BYTES,
+        ));
+      } catch (error) {
         if (error instanceof MediaCrawlerGatewayError) throw error;
         throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
       }
-      const parsed = loginSessionResponseSchema.safeParse(body);
+      const parsed = loginSessionResponseSchema.safeParse(responseBody);
       if (!parsed.success) throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
+      if (expectedSessionId !== undefined && parsed.data.session_id !== expectedSessionId) {
+        throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
+      }
+      if (!("interaction_surface" in parsed.data) && options.runtimeMode === "desktop") {
+        throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
+      }
+      const runtime = "interaction_surface" in parsed.data ? {
+          interactionSurface: parsed.data.interaction_surface,
+          runtimeState: parsed.data.runtime_state,
+          authState: parsed.data.auth_state,
+          taskState: parsed.data.task_state,
+          diagnostic: parsed.data.diagnostic === null ? null : Object.freeze({
+            code: parsed.data.diagnostic.code,
+            message: parsed.data.diagnostic.message,
+            recoverable: parsed.data.diagnostic.recoverable,
+            occurredAt: parsed.data.diagnostic.occurred_at
+          }),
+          screenshotAvailable: parsed.data.screenshot_available,
+          qrAvailable: parsed.data.qr_available
+        } : {
+          interactionSurface: "remote_canvas" as const,
+          runtimeState: parsed.data.state === "expired" ? "stopped" as const
+            : parsed.data.state === "failed" ? "crashed" as const : "running" as const,
+          authState: parsed.data.state === "active" ? "authenticated" as const
+            : parsed.data.state === "expired" ? "expired" as const
+              : parsed.data.failure_code === "douyin_verification_required"
+                ? "verification_required" as const : "waiting_for_user" as const,
+          taskState: parsed.data.state === "failed" ? "failed" as const
+            : parsed.data.state === "active" || parsed.data.state === "expired"
+              ? "completed" as const : "idle" as const,
+          diagnostic: null,
+          screenshotAvailable: parsed.data.login_page !== null,
+          qrAvailable: parsed.data.qr_image_data_url !== null
+        };
       return Object.freeze({
         sessionId: parsed.data.session_id, state: parsed.data.state,
+        ...runtime,
         qrImageDataUrl: parsed.data.qr_image_data_url, expiresAt: parsed.data.expires_at,
+        qrStatus: parsed.data.qr_status,
+        loginPage: parsed.data.login_page === null ? null : Object.freeze({
+          imageDataUrl: parsed.data.login_page.image_data_url,
+          width: parsed.data.login_page.width,
+          height: parsed.data.login_page.height
+        }),
+        failureCode: parsed.data.failure_code,
         accountHandle: parsed.data.account_handle,
         accountDisplayName: parsed.data.account_display_name,
         loginStateVersion: parsed.data.login_state_version
@@ -282,7 +453,8 @@ export function createDouyinMediaCrawlerGateway(
 
   async function jsonRequest(method: "GET" | "POST", path: string, body: unknown,
                              signal?: AbortSignal, allowNotFound = false,
-                             requestTimeoutMs = timeoutMs) {
+                             requestTimeoutMs = timeoutMs,
+                             preserveLoginSessionNotReady = false) {
     const request = requestAbortSignal(signal, requestTimeoutMs);
     try {
       const response = await fetchImpl(new URL(path, baseUrl), {
@@ -290,6 +462,9 @@ export function createDouyinMediaCrawlerGateway(
         body: body ? JSON.stringify(body) : undefined, signal: request.signal
       });
       if (allowNotFound && response.status === 404) return null;
+      if (preserveLoginSessionNotReady && !response.ok) {
+        throw await loginSessionHttpError(response);
+      }
       if (!response.ok) throw new MediaCrawlerGatewayError("mediacrawler_unavailable");
       try { return JSON.parse(await responseText(response)) as unknown; }
       catch (error) { if (error instanceof MediaCrawlerGatewayError) throw error; throw new MediaCrawlerGatewayError("mediacrawler_invalid_response"); }
@@ -322,11 +497,56 @@ export function createDouyinMediaCrawlerGateway(
   }
 
   return Object.freeze({
-    createLoginSession(signal?: AbortSignal) {
-      return loginSessionRequest("POST", "/internal/v1/douyin/login-sessions", signal);
+    createLoginSession(input?: DouyinLoginSessionCreateInput, signal?: AbortSignal) {
+      const accountKey = input?.accountKey;
+      if (accountKey !== undefined && !/^[0-9a-f]{64}$/u.test(accountKey)) {
+        throw new TypeError("invalid_douyin_account_key");
+      }
+      return loginSessionRequest("POST", "/internal/v1/douyin/login-sessions", signal,
+        accountKey === undefined ? undefined : { account_key: accountKey },
+        loginCreationTimeoutMs);
+    },
+    async createLiveLoginSession(sessionId: string, signal?: AbortSignal) {
+      const parsed = liveLoginSessionResponseSchema.safeParse(await jsonRequest(
+        "POST",
+        `/internal/v1/douyin/login-sessions/${encodeURIComponent(sessionId)}/live-sessions`,
+        null,
+        signal,
+        false,
+        timeoutMs,
+        true
+      ));
+      if (!parsed.success) {
+        throw new MediaCrawlerGatewayError("mediacrawler_invalid_response");
+      }
+      return Object.freeze({
+        token: parsed.data.token,
+        expiresAt: parsed.data.expires_at
+      });
     },
     getLoginSession(sessionId: string, signal?: AbortSignal) {
-      return loginSessionRequest("GET", `/internal/v1/douyin/login-sessions/${encodeURIComponent(sessionId)}`, signal);
+      return loginSessionRequest(
+        "GET",
+        `/internal/v1/douyin/login-sessions/${encodeURIComponent(sessionId)}`,
+        signal,
+        undefined,
+        DEFAULT_LOGIN_COMMAND_TIMEOUT_MS,
+        sessionId
+      );
+    },
+    interactLoginSession(sessionId: string,
+                         interaction: AcquisitionSocialAccountLoginInteraction,
+                         signal?: AbortSignal) {
+      const body = interaction.type === "click"
+        ? { type: interaction.type, normalized_x: interaction.normalizedX,
+          normalized_y: interaction.normalizedY }
+        : interaction.type === "scroll"
+          ? { type: interaction.type, delta_x: interaction.deltaX,
+            delta_y: interaction.deltaY }
+          : interaction;
+      return loginSessionRequest("POST",
+        `/internal/v1/douyin/login-sessions/${encodeURIComponent(sessionId)}/interactions`,
+        signal, body, DEFAULT_LOGIN_COMMAND_TIMEOUT_MS, sessionId);
     },
     async disconnectLoginSession(sessionId: string, signal?: AbortSignal) {
       const request = requestAbortSignal(signal, timeoutMs);
@@ -340,6 +560,7 @@ export function createDouyinMediaCrawlerGateway(
         job_id: input.jobId, account_handle: input.accountHandle,
         login_state_version: input.loginStateVersion, keywords: input.keywords,
         max_videos: input.maxVideos, max_comments_per_video: input.maxCommentsPerVideo,
+        ...(input.maxComments === undefined ? {} : { max_comments: input.maxComments }),
         max_pages_per_video: input.maxPagesPerVideo,
         collect_creators: input.collectCreators,
         collect_demand_comments: input.collectDemandComments,

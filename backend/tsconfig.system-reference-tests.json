@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true },
+  "files": [
+    "src/system-reference/embedded-mysql-test.ts",
+    "src/system-reference/embedded-reference-test.ts",
+    "src/system-reference/embedded-pack-test.ts",
+    "src/system-reference/runtime-integration-test.ts",
+    "src/system-reference/runtime-cross-install-test.ts",
+    "src/system-reference/runtime-process-fixture-test.ts",
+    "src/system-reference/central-session-test.ts",
+    "src/system-reference/connection-test.ts",
+    "src/system-reference/connection-citation-test.ts",
+    "src/system-reference/agent-integration-test.ts",
+    "src/system-reference/composite-retrieval-test.ts",
+    "src/runtime-env-test.ts",
+    "src/growth-commercial-composition-test.ts",
+    "src/growth-commercial-runtime-bridge-test.ts"
+  ]
+}

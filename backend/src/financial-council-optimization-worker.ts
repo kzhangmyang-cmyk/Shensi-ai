@@ -5,6 +5,7 @@ import {
   type FinancialActionOptimizerInput
 } from "./financial-action-optimizer.js";
 import { buildConsensus } from "./financial-council-consensus.js";
+import { collaborationEvent } from "./financial-council-collaboration-record.js";
 import {
   synthesizeFinancialCfoNarrative,
   type FinancialCfoNarrativePort
@@ -327,6 +328,10 @@ implements FinancialCouncilOptimizationWorkerLike {
     try {
       await this.#runWithLease(lease);
     } catch (error) {
+      await this.options.repository.appendCollaborationEvent(lease, collaborationEvent(lease, {
+        role: null, phase: "synthesis", state: "failed", occurredAt: this.#now(),
+        key: `failed:${lease.attempt}`, reasonCode: "synthesis_pipeline_failed", message: "综合分析流程暂未完成"
+      })).catch(() => undefined);
       if (!integrityFailure(error)) throw error;
       await this.options.repository.transitionRunWithLease(lease, {
         kind: "failed",
@@ -379,11 +384,23 @@ implements FinancialCouncilOptimizationWorkerLike {
           dataGaps: verified.snapshot.dataGaps,
           createdAt: this.#now()
         });
-        const narrative = await synthesizeFinancialCfoNarrative(
+        const recorded = (await this.options.repository.listCollaborationEvents(context, run.runId))
+          .find(event => event.role === "cfo" && event.narrative !== null);
+        if (!recorded) await this.options.repository.appendCollaborationEvent(lease, collaborationEvent(lease, {
+          role: "cfo", phase: "synthesis", state: "running", occurredAt: this.#now(), message: "CFO 正在综合已审计意见"
+        }));
+        const narrative = recorded?.narrative ?? await synthesizeFinancialCfoNarrative(
           this.options.cfo,
           cfoInput({ control, run, consensus: deterministic,
             auditHash: graph.graphHash }), context
         );
+        if (!recorded) await this.options.repository.appendCollaborationEvent(lease, collaborationEvent(lease, {
+          role: "cfo", phase: "synthesis", state: narrative.narrativeStatus === "model_valid" ? "completed" : "degraded",
+          occurredAt: this.#now(), key: "narrative", narrative,
+          findingIds: [...narrative.priorityFindingIds, ...narrative.minorityFindingIds],
+          reasonCode: narrative.narrativeStatus === "model_valid" ? null : narrative.narrativeStatus,
+          message: narrative.narrativeStatus === "model_valid" ? "CFO 综合意见已保存" : "CFO 使用已审计结果生成保底综合意见"
+        }));
         consensus = withNarrative(deterministic, narrative.overallDiagnosis);
         await this.options.repository.storeConsensus(context, consensus, {
           lease,

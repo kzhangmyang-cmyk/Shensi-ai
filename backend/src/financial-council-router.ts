@@ -54,7 +54,7 @@ export interface FinancialCouncilRouterDependencies {
   readonly service: Pick<FinancialCouncilService,
     "createRun" | "createRunFromStatementPackage" | "getRun" | "listEvents" | "revisePortfolio"
     | "getPortfolioRevision" | "approve" | "reject" | "getApproval"
-    | "listDispatches">;
+    | "listDispatches" | "listRunHistory" | "getCollaboration">;
   readonly workspaceContext: GrowthWorkspaceContextResolver;
   readonly commandContextFactory: GrowthCommandContextFactory;
   readonly httpIdempotency: GrowthHttpIdempotencyRepository;
@@ -65,6 +65,21 @@ function route(action: (req: Request, res: Response) => Promise<void> | void) {
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(action(req, res)).catch(next);
   };
+}
+
+function readPageQuery(req: Request, defaultLimit: number) {
+  if (Object.keys(req.query).some(key => key !== "after" && key !== "limit")
+    || (req.query.after !== undefined && (typeof req.query.after !== "string"
+      || req.query.after.length < 1 || req.query.after.length > 255))
+    || (req.query.limit !== undefined && (typeof req.query.limit !== "string"
+      || !/^[1-9]\d?0?$/u.test(req.query.limit)))) {
+    throw new GrowthHttpError(422, "financial_council_input_invalid");
+  }
+  const limit = req.query.limit === undefined ? defaultLimit : Number(req.query.limit);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new GrowthHttpError(422, "financial_council_input_invalid");
+  }
+  return { limit, ...(typeof req.query.after === "string" ? { after: req.query.after } : {}) };
 }
 
 function exactCreateInput(raw: unknown): FinancialCouncilCreateInput {
@@ -358,7 +373,8 @@ function trustedError(error: unknown): {
           || error.code === "financial_council_portfolio_state_invalid"
           || error.code === "financial_council_policy_stale"
           || error.code === "financial_council_source_stale"
-          || error.code === "financial_council_workspace_stale" ? 409
+          || error.code === "financial_council_workspace_stale"
+          || error.code === "financial_council_read_retry" ? 409
         : error.code === "financial_council_input_invalid"
             || error.code === "financial_council_policy_input_invalid"
             || error.code === "financial_council_policy_context_invalid"
@@ -492,6 +508,18 @@ export function createFinancialCouncilRouter(
     res.status(202).json(result.value);
   }));
 
+  router.get("/", route(async (req, res) => {
+    const query = readPageQuery(req, 20);
+    res.status(200).json(await dependencies.service.listRunHistory(
+      dependencies.workspaceContext(req), query));
+  }));
+
+  router.get("/:runId/collaboration", route(async (req, res) => {
+    if (Object.keys(req.query).length) throw new GrowthHttpError(422, "financial_council_input_invalid");
+    res.status(200).json(await dependencies.service.getCollaboration(
+      dependencies.workspaceContext(req), runId(req)));
+  }));
+
   router.get("/:runId", route(async (req, res) => {
     const id = runId(req);
     const run = await dependencies.service.getRun(
@@ -502,17 +530,19 @@ export function createFinancialCouncilRouter(
   }));
 
   router.get("/:runId/events", route(async (req, res) => {
-    if (Object.keys(req.query).length !== 0) {
-      throw new GrowthHttpError(422, "financial_council_input_invalid");
-    }
+    const query = readPageQuery(req, 100);
     const id = runId(req);
     const events = await dependencies.service.listEvents(
       dependencies.workspaceContext(req), id
     );
+    const cursor = query.after ? events.findIndex(event => event.eventId === query.after) : -1;
+    if (query.after && cursor < 0) throw new GrowthHttpError(422, "financial_council_input_invalid");
+    const page = events.slice(cursor + 1, cursor + 1 + query.limit);
+    const hasMore = cursor + 1 + page.length < events.length;
     res.status(200).json(Object.freeze({
-      items: Object.freeze(events.map(projectEvent)),
-      nextAfter: null,
-      hasMore: false
+      items: Object.freeze(page.map(projectEvent)),
+      nextAfter: hasMore ? page.at(-1)!.eventId : null,
+      hasMore
     }));
   }));
 

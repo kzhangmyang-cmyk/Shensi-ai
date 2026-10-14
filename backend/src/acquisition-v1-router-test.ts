@@ -14,6 +14,7 @@ import {
   InMemoryAcquisitionDomainRepository
 } from "./acquisition-domain-repository.js";
 import {
+  AcquisitionDomainError,
   AcquisitionDomainService
 } from "./acquisition-domain-service.js";
 import type {
@@ -291,6 +292,63 @@ function write(body: unknown, key?: string): RequestInit {
   };
 }
 
+test("outcome route accepts the closed crawler source shape and rejects mixed source authority", async () => {
+  const fixture = await createFixture();
+  let domainCalls = 0;
+  // This is a transport-shape test. The real domain authority tests own run/job validation.
+  fixture.domainService.recordOutcome = async () => {
+    domainCalls += 1;
+    throw new AcquisitionDomainError("resource_not_found", "domain-shape-boundary-reached", 404);
+  };
+  const body = {
+    candidateId: "candidate-crawler", leadId: "lead-crawler", customerId: null,
+    eventType: "contacted", occurredAt: "2026-08-25T02:00:00.000Z", amount: null,
+    reasonCode: null, reasonText: null,
+    attribution: {
+      attributionVersion: "douyin-crawler.v1", jobId: "crawler-job-1",
+      runId: "run-1", planId: "plan-1", planVersionId: "plan-version-1", planVersion: 1,
+      planSnapshotHash: "plan-hash", discoveredEventId: "event-1",
+      discoveredAt: "2026-08-25T01:00:00.000Z", shardId: null, operationId: null,
+      connectionId: null, providerId: null, evidenceIds: ["evidence-1"], providerIds: [], queryIds: [],
+      strategyVersion: "acquisition-plan-v1", qualificationDecisionId: "decision-1",
+      decisionVersion: "decision-v1", decisionSnapshotHash: "decision-hash"
+    }
+  };
+  try {
+    const valid = await fixture.request("/api/v1/acquisition/outcomes", write(body, "shape-valid"));
+    assert.equal(valid.response.status, 404);
+    assert.equal(domainCalls, 1);
+    for (const [index, invalid] of [
+      { jobId: undefined }, { jobId: "" }, { shardId: undefined }, { shardId: "shard-1" },
+      { operationId: "operation-1" }, { connectionId: "connection-1" }, { providerId: "provider-1" },
+      { providerIds: ["provider-1"] }, { queryIds: ["query-1"] }, { evidenceIds: [] },
+      { extraSourceAuthority: "invented" }
+    ].entries()) {
+      const rejected = await fixture.request("/api/v1/acquisition/outcomes", write({
+        ...body, attribution: { ...body.attribution, ...invalid }
+      }, `shape-invalid-${index}`));
+      assert.equal(rejected.response.status, 400, JSON.stringify(invalid));
+      assert.equal(domainCalls, 1);
+    }
+    const { jobId: _jobId, ...common } = body.attribution;
+    const generic = { ...common, attributionVersion: "acquisition-run.v1",
+      shardId: "shard-1", operationId: "operation-1", connectionId: "connection-1",
+      providerId: "provider-1", providerIds: ["provider-1"], queryIds: ["query-1"] };
+    const oldValid = await fixture.request("/api/v1/acquisition/outcomes", write({
+      ...body, attribution: generic
+    }, "shape-generic-valid"));
+    assert.equal(oldValid.response.status, 404);
+    assert.equal(domainCalls, 2);
+    const mixed = await fixture.request("/api/v1/acquisition/outcomes", write({
+      ...body, attribution: { ...generic, jobId: "crawler-job-1" }
+    }, "shape-generic-mixed"));
+    assert.equal(mixed.response.status, 400);
+    assert.equal(domainCalls, 2);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("private-domain handoff route enforces server-owned input and supports replay recovery", async () => {
   const completed: AcquisitionPrivateDomainHandoffResult = {
     replayed: false,
@@ -422,6 +480,7 @@ test("private-domain handoff route enforces server-owned input and supports repl
         createCalls += 1;
         return {
           ...structuredClone(completed),
+          intelligence: _request.operationCode === "handoff_acquisition_candidate_v2" ? null : completed.intelligence,
           replayed: createCalls > 1
         };
       },
@@ -524,6 +583,13 @@ test("private-domain handoff route enforces server-owned input and supports repl
       replayed.response.headers.get("Idempotency-Replayed"),
       "true"
     );
+
+    const direct = await fixture.request(
+      "/api/v1/acquisition/candidates/candidate-router/private-domain-handoffs",
+      write({ ...body, operationCode: "handoff_acquisition_candidate_v2", decisionVersion: "" }, "handoff-direct-valid")
+    );
+    assert.equal(direct.response.status, 200);
+    assert.equal(direct.json.intelligence, null);
 
     const refreshed = await fixture.request(
       "/api/v1/acquisition/candidates/candidate-router/private-domain-handoff"

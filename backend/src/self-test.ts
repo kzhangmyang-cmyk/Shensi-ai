@@ -345,7 +345,7 @@ try {
   const customersAfterExistingConversion = await request("/api/customers", { headers: { authorization: `Bearer ${salesToken}` } });
   if (customersAfterExistingConversion.json.customers.length !== customersBeforeExistingConversion.json.customers.length) throw new Error("existing conversion must not duplicate customer");
   const aggregatedCustomer = customersAfterExistingConversion.json.customers.find((customer: { id: string }) => customer.id === matchingCustomer.json.customer.id);
-  if (aggregatedCustomer?.pipelineAmount !== 88000 || aggregatedCustomer?.pipelineStage !== "询盘" || aggregatedCustomer?.activeDealCount !== 1) {
+  if (aggregatedCustomer?.pipelineAmount !== 88000 || aggregatedCustomer?.pipelineStage !== "询盘" || aggregatedCustomer?.activeDealCount !== 1 || aggregatedCustomer?.activeDealId !== existingConversion.json.deal.id || aggregatedCustomer?.quoteEligibleDealId) {
     throw new Error("customer pipeline fields must be deal-derived");
   }
   const repeatedConversion = await request(`/api/leads/${externalLeadFirst.json.lead.id}/convert`, {
@@ -1940,6 +1940,44 @@ try {
       throw new Error("dashboard period briefing missing");
     }
   }
+  if (dashboard.json.history?.period !== "3m"
+    || !Array.isArray(dashboard.json.history?.buckets)
+    || dashboard.json.history.buckets.length !== 3) {
+    throw new Error("dashboard three-month history window missing");
+  }
+  if (dashboard.json.history.buckets.some((bucket: {
+    start: string;
+    end: string;
+    newLeads: number;
+    expectedDeals: number;
+    expectedAmounts: Array<{ currency: string; amount: number }>;
+  }) => !bucket.start || !bucket.end || bucket.start > bucket.end
+    || typeof bucket.newLeads !== "number"
+    || typeof bucket.expectedDeals !== "number"
+    || bucket.expectedAmounts.some((row) => !row.currency || typeof row.amount !== "number"))) {
+    throw new Error("dashboard history buckets must retain bounded dates and currencies");
+  }
+  const scopedHistoryLeads = salesLeadScope.json.leads.filter((lead: { createdAt: string; status: string }) => {
+    const created = lead.createdAt.slice(0, 10);
+    return lead.status !== "invalid"
+      && created >= dashboard.json.history.start && created <= dashboard.json.history.end;
+  });
+  const historyLeadCount = dashboard.json.history.buckets.reduce(
+    (sum: number, bucket: { newLeads: number }) => sum + bucket.newLeads,
+    0
+  );
+  const historySourceCount = dashboard.json.history.leadSources.reduce(
+    (sum: number, source: { count: number }) => sum + source.count,
+    0
+  );
+  if (historyLeadCount !== scopedHistoryLeads.length || historySourceCount !== scopedHistoryLeads.length) {
+    throw new Error("dashboard history must stay inside the authenticated lead scope");
+  }
+  const monthDashboard = await request("/api/dashboard/summary?period=month", { headers: { authorization: `Bearer ${salesToken}` } });
+  if (!monthDashboard.response.ok || monthDashboard.json.history?.period !== "month"
+    || monthDashboard.json.history?.buckets?.length !== 1) {
+    throw new Error("dashboard month filter failed");
+  }
   const salesVisibleDealIds = new Set(salesDeals.json.deals.map((deal: { id: string }) => deal.id));
   const expectedSalesMonthDeals = salesDeals.json.deals.filter((deal: { expectedCloseAt?: string; stage: string; archivedAt?: string }) =>
     !deal.archivedAt &&
@@ -1963,8 +2001,18 @@ try {
   }
   if (expectedSalesMonthDeals.some((deal: { id: string }) => !salesVisibleDealIds.has(deal.id))) throw new Error("dashboard period forecast leaks another salesperson");
   if (typeof dashboard.json.metrics?.riskCustomers !== "number") throw new Error("dashboard risk customer metric failed");
+  if (!Array.isArray(dashboard.json.metrics?.forecastAmounts)
+    || dashboard.json.metrics.forecastAmounts.some((row: { currency: string; amount: number }) =>
+      !row.currency || typeof row.amount !== "number")) {
+    throw new Error("dashboard forecast must retain currency instead of exposing only a mixed total");
+  }
   if (typeof dashboard.json.metrics?.wecomBoundRate !== "number" || typeof dashboard.json.todoInsights?.completionRate !== "number") throw new Error("dashboard metrics aggregation failed");
   if (!Array.isArray(dashboard.json.pipelineHealth) || typeof dashboard.json.pipelineHealth[0]?.count !== "number") throw new Error("pipeline health aggregation failed");
+  if (dashboard.json.pipelineHealth.some((item: { amounts: Array<{ currency: string; amount: number }> }) =>
+    !Array.isArray(item.amounts)
+    || item.amounts.some((row) => !row.currency || typeof row.amount !== "number"))) {
+    throw new Error("pipeline health amounts must retain currency");
+  }
   if (dashboard.json.pipelineHealth.some((item: { stage: string }) => item.stage === "丢单")) throw new Error("pipeline health should exclude lost deals");
   if (dashboard.json.pipelineHealth.some((item: { stage: string }) => item.stage === "成交")) throw new Error("pipeline health should exclude won deals");
   if (dashboard.json.pipelineHealth.some((item: { count: number; width: number }) => item.count === 0 && item.width !== 0)) throw new Error("empty pipeline stages should have zero width");

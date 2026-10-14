@@ -583,6 +583,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/finance/cfo-conversation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Read-only specialist question with at most ten recent turns. Optional role selects cfo, finance, profit, cost, cashflow or tax; omission preserves CFO behavior. Server resolves verified company material and the selected role model in the authenticated workspace. No fan-out or business actions. */
+        post: operations["askCfoConversation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/cfo-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Recent fifty conversations belonging to the authenticated actor and workspace. History is not verified company material. */
+        get: operations["listCfoSessions"];
+        put?: never;
+        /** @description Create an empty CFO conversation. No model or business action is executed; clients do not retry automatically. */
+        post: operations["createCfoSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/cfo-sessions/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description Read saved turns without regenerating answers. Clients supporting system references send X-Shensi-Reference-Protocol system-v1. If system reference snapshots exist and this header is omitted, return 409 reference_client_upgrade_required without returning or dropping those snapshots. This header is a compatibility signal, not authorization; private legacy history remains readable without it. */
+        get: operations["getCfoSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/cfo-sessions/{sessionId}/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Answer using ten saved recent turns and persist the completed pair with revision compare-and-swap. A stale revision returns 409. Interrupted requests are never automatically replayed. */
+        post: operations["askCfoSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/finance/council-agent-center": {
         parameters: {
             query?: never;
@@ -654,7 +727,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["listFinancialCouncilRunHistory"];
         put?: never;
         post: operations["createFinancialCouncilRun"];
         delete?: never;
@@ -707,6 +780,25 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getFinancialCouncilRunAgents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/council-runs/{runId}/collaboration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: components["parameters"]["runId"];
+            };
+            cookie?: never;
+        };
+        /** @description Read-only projection of persisted role events, public evidence, bounded review and the same-version detailed report. Never exposes raw prompts or private reasoning. */
+        get: operations["getFinancialCouncilCollaboration"];
         put?: never;
         post?: never;
         delete?: never;
@@ -801,6 +893,56 @@ export interface paths {
         put?: never;
         post: operations["rejectFinancialCouncilRun"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/documents/attachments/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Remove only the authenticated actor and workspace's exact conversation and role attachment. Does not alter the finance page selection. */
+        post: operations["clearFinanceChatAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/documents/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Read CSV/XLSX sources or extract text from PDF/DOCX. PDF sources use page/item references and DOCX sources use paragraph/table-cell references. Image-only or encrypted documents require conversion; this operation never commits a ledger or runs OCR. */
+        post: operations["inspectFinanceDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/documents/selection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["clearFinanceDocumentSelection"];
         options?: never;
         head?: never;
         patch?: never;
@@ -976,6 +1118,23 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["commitFinanceImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/public-research": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAgentWebResearchConnections"];
+        put?: never;
+        /** @description Search explicitly supplied public keywords and answer using indexed snippets. Does not accept files, conversation history or private company records. Missing sources or provider failures do not become fabricated answers. */
+        post: operations["runAgentWebResearch"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1436,13 +1595,25 @@ export interface components {
                     firstDiscoveredAt: components["schemas"]["AcquisitionCohort_dateTime"];
                     firstPlanId: components["schemas"]["AcquisitionCohort_nonempty"];
                     firstRunId: components["schemas"]["AcquisitionCohort_nonempty"];
-                    firstShardId: components["schemas"]["AcquisitionCohort_nonempty"];
+                    firstShardId: string | null;
                     id: components["schemas"]["AcquisitionCohort_nonempty"];
                     platform: components["schemas"]["AcquisitionCohort_nonempty"];
                     primaryCandidateId: components["schemas"]["AcquisitionCohort_nonempty"];
                     subjectStableKey: components["schemas"]["AcquisitionCohort_nonempty"];
                     workspaceId: string;
-                };
+                } & ({
+                    attributionSnapshot?: {
+                        /** @constant */
+                        attributionVersion?: "douyin-crawler.v1";
+                    };
+                    firstShardId?: null;
+                } | {
+                    attributionSnapshot?: {
+                        /** @constant */
+                        attributionVersion?: "acquisition-run.v1";
+                    };
+                    firstShardId?: components["schemas"]["AcquisitionCohort_nonempty"];
+                });
                 ClosureAttestation: {
                     asOf: components["schemas"]["AcquisitionCohort_dateTime"];
                     /** @enum {unknown} */
@@ -1901,6 +2072,47 @@ export interface components {
                 nullableId: string | null;
             };
         };
+        /** AgentWebResearch */
+        AgentWebResearch: {
+            answer: string;
+            citationIds: string[];
+            /** @constant */
+            evidenceKind: "search_index_snippets";
+            model: string;
+            provider: string;
+            query: string;
+            /** Format: date-time */
+            retrievedAt: string;
+            searchProvider: string;
+            sources: components["schemas"]["AgentWebResearch_Source"][];
+            $defs: {
+                Connections: {
+                    connections: {
+                        id: string;
+                        name: string;
+                        provider: string;
+                    }[];
+                };
+                Input: {
+                    connectionId: string;
+                    /** @description Explicit public keywords only; never automatically append attachments, history or company records. */
+                    query: string;
+                    /** @enum {unknown} */
+                    role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+                };
+                Source: {
+                    /** Format: date-time */
+                    fetchedAt: string;
+                    id: string;
+                    snippet: string;
+                    title: string;
+                    /** Format: uri */
+                    url: string;
+                };
+            };
+        };
+        AgentWebResearchConnections: components["schemas"]["AgentWebResearch_Connections"];
+        AgentWebResearchInput: components["schemas"]["AgentWebResearch_Input"];
         /** ApiError */
         ApiError: {
             code: string;
@@ -2006,6 +2218,7 @@ export interface components {
                     commercialBindingSnapshot: components["schemas"]["QuoteCase_CommercialBindingSnapshot"];
                     currency: components["schemas"]["AttributionAllocationSet_currency"];
                     dealId: components["schemas"]["AttributionAllocationSet_nonempty"];
+                    id: components["schemas"]["AttributionAllocationSet_nonempty"];
                     originalPaymentAllocationItemId: components["schemas"]["AttributionAllocationSet_nullableId"];
                     originalPaymentAllocationSetId: components["schemas"]["AttributionAllocationSet_nullableId"];
                     originalPaymentFactId: components["schemas"]["AttributionAllocationSet_nullableId"];
@@ -2101,6 +2314,244 @@ export interface components {
             items: components["schemas"]["CatalogItem"][];
             nextAfter: string | null;
         };
+        /** CfoConversationAnswer */
+        CfoConversationAnswer: {
+            answer: string;
+            /** Format: date-time */
+            answeredAt: string;
+            knowledge?: {
+                detailedText: string;
+                sources: ({
+                    /** Format: uuid */
+                    chunkId: string;
+                    /** Format: uuid */
+                    documentId: string;
+                    excerpt: string;
+                    locator: {
+                        chapter?: string;
+                        column?: number;
+                        endLine?: number;
+                        endOffset?: number;
+                        page?: number;
+                        paragraph?: number;
+                        row?: number;
+                        sheet?: string;
+                        startLine?: number;
+                        startOffset?: number;
+                        table?: number;
+                    };
+                    sourceHash: string;
+                    sourceId: string;
+                    sourceLabel: string;
+                    /**
+                     * @description Omitted is legacy private; never infer system ownership from UUID or K alias.
+                     * @constant
+                     */
+                    sourceType?: "private";
+                    /** Format: uuid */
+                    versionId: string;
+                    warnings: string[];
+                } | {
+                    chunkHash: string;
+                    /** Format: uuid */
+                    corpusId: string;
+                    excerpt: string;
+                    /** @description Server-selected UTF-16 half-open offsets in the immutable chunk. Runtime also checks exact length/source equality and intact surrogate pairs. */
+                    excerptRange: {
+                        end: number;
+                        start: number;
+                    };
+                    locator: {
+                        chapter?: string;
+                        column?: number;
+                        endLine?: number;
+                        endOffset?: number;
+                        page?: number;
+                        paragraph?: number;
+                        row?: number;
+                        sheet?: string;
+                        startLine?: number;
+                        startOffset?: number;
+                        table?: number;
+                    };
+                    /** Format: uuid */
+                    queryGrantId: string;
+                    /** Format: uuid */
+                    referenceId: string;
+                    referenceKey: string;
+                    /** Format: uuid */
+                    releaseId: string;
+                    sourceHash: string;
+                    sourceId: string;
+                    sourceLabel: string;
+                    /** @constant */
+                    sourceType: "system";
+                    warnings: string[];
+                })[];
+                /** @enum {unknown} */
+                status: "used" | "no_match" | "unavailable";
+                warnings: string[];
+            };
+            libraryStatus?: {
+                /** @enum {unknown} */
+                private: "off" | "used" | "no_match" | "unavailable";
+                /** @enum {unknown} */
+                system: "off" | "unconfigured" | "unbound" | "ready" | "no_match" | "unavailable" | "auth_required" | "forbidden" | "rate_limited" | "vocabulary_mismatch";
+            };
+            material: null | components["schemas"]["CfoConversationAnswer_MaterialSource"] | components["schemas"]["FinanceDocumentInspection_MaterialSource"];
+            model: string;
+            provider: string;
+            research?: components["schemas"]["CfoConversationAnswer_Research"];
+            $defs: {
+                Input: {
+                    /**
+                     * Format: uuid
+                     * @description Required for a chat attachment: must match the conversation used when parsing it, together with the selected role.
+                     */
+                    conversationKey?: string;
+                    /** @description Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics. */
+                    documentId?: string | null;
+                    history: components["schemas"]["CfoConversationAnswer_Turn"][];
+                    /**
+                     * @description Bounded private reference retrieval for text; omitted preserves legacy and voice behavior.
+                     * @enum {unknown}
+                     */
+                    knowledgeMode?: "auto" | "off";
+                    question: string;
+                    /**
+                     * @description Explicit negotiated text protocol. Omitted is private-only; knowledgeMode off or omitted closes both libraries.
+                     * @constant
+                     */
+                    referenceProtocol?: "system-v1";
+                    referenceTopicIds?: components["schemas"]["CfoSessionAsk"]["referenceTopicIds"];
+                    /**
+                     * @description Selected specialist; omitted means CFO. One role/model per question.
+                     * @default cfo
+                     * @enum {unknown}
+                     */
+                    role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+                    /**
+                     * @description Explicit text search preference: off skips planning and public search; on requires safe public retrieval or an explicit error. Omitted preserves legacy automatic planning. Independent from knowledgeMode.
+                     * @enum {unknown}
+                     */
+                    webSearchMode?: "on" | "off";
+                };
+                MaterialSource: {
+                    companyName: string;
+                    currency: string;
+                    packageId: string;
+                    period: string;
+                };
+                Research: {
+                    citationIds: string[];
+                    /** @constant */
+                    evidenceKind: "search_index_snippets";
+                    query: string;
+                    /** Format: date-time */
+                    retrievedAt: string;
+                    searchProvider: string;
+                    sources: {
+                        /** Format: date-time */
+                        fetchedAt: string;
+                        id: string;
+                        snippet: string;
+                        title: string;
+                        /** Format: uri */
+                        url: string;
+                    }[];
+                    /** @constant */
+                    status: "completed";
+                };
+                Turn: {
+                    /** @enum {unknown} */
+                    role: "user" | "assistant";
+                    text: string;
+                };
+            };
+        };
+        CfoConversationInput: components["schemas"]["CfoConversationAnswer_Input"];
+        /** CfoSession */
+        CfoSession: {
+            /** Format: date-time */
+            createdAt: string;
+            documentId: string | null;
+            revision: number;
+            /** Format: uuid */
+            sessionId: string;
+            title: string;
+            turns: {
+                knowledge?: components["schemas"]["CfoConversationAnswer"]["knowledge"];
+                libraryStatus?: components["schemas"]["CfoConversationAnswer"]["libraryStatus"];
+                model?: string;
+                research?: components["schemas"]["CfoConversationAnswer_Research"];
+                /** @enum {unknown} */
+                role: "user" | "assistant";
+                sourceLabel?: string;
+                text: string;
+            }[];
+            /** Format: date-time */
+            updatedAt: string;
+            $defs: {
+                Ask: {
+                    documentId: string | null;
+                    history?: components["schemas"]["CfoConversationAnswer_Turn"][];
+                    /** @enum {unknown} */
+                    knowledgeMode?: "auto" | "off";
+                    question: string;
+                    /**
+                     * @description Explicit negotiated protocol; knowledgeMode off or omitted closes both libraries.
+                     * @constant
+                     */
+                    referenceProtocol?: "system-v1";
+                    referenceTopicIds?: ("budget_variance" | "budget_planning" | "cost_driver" | "cost_structure" | "cashflow_forecast" | "working_capital" | "profitability_analysis" | "break_even" | "statement_analysis" | "ratio_analysis" | "tax_document_review" | "tax_risk_review")[];
+                    revision: number;
+                    /**
+                     * @description Explicit public search preference for this turn; omitted retains legacy automatic planning.
+                     * @enum {unknown}
+                     */
+                    webSearchMode?: "on" | "off";
+                };
+                Create: {
+                    documentId: string | null;
+                };
+                Event: {
+                    /** @enum {unknown} */
+                    stage: "material_ready" | "skill_ready" | "model_started" | "answer_validated";
+                    /** @constant */
+                    type: "stage";
+                } | {
+                    result: components["schemas"]["CfoSession_Reply"];
+                    /** @constant */
+                    type: "result";
+                } | {
+                    code: string;
+                    status: number;
+                    /** @constant */
+                    type: "error";
+                };
+                Reply: {
+                    answer: components["schemas"]["CfoConversationAnswer"];
+                    session: components["schemas"]["CfoSession"];
+                };
+                Summary: {
+                    /** Format: date-time */
+                    createdAt: string;
+                    documentId: string | null;
+                    revision: number;
+                    /** Format: uuid */
+                    sessionId: string;
+                    title: string;
+                    turnCount: number;
+                    /** Format: date-time */
+                    updatedAt: string;
+                };
+            };
+        };
+        CfoSessionAsk: components["schemas"]["CfoSession_Ask"];
+        CfoSessionCreate: components["schemas"]["CfoSession_Create"];
+        CfoSessionEvent: components["schemas"]["CfoSession_Event"];
+        CfoSessionReply: components["schemas"]["CfoSession_Reply"];
+        CfoSessionSummary: components["schemas"]["CfoSession_Summary"];
         ClosureAttestation: components["schemas"]["AcquisitionCohort_ClosureAttestation"];
         ClosureAttestationPagedResult: {
             hasMore: boolean;
@@ -2263,6 +2714,174 @@ export interface components {
             type: "pre_quote_disqualified";
         };
         ExpectedRoiCurrencyView: components["schemas"]["GrowthPerformanceResponse_ExpectedRoiCurrencyView"];
+        FinanceDocumentAttachmentClear: components["schemas"]["FinanceDocumentInspection_AttachmentClear"];
+        /** FinanceDocumentInspection */
+        FinanceDocumentInspection: {
+            cells: components["schemas"]["FinanceDocumentInspection_Cell"][];
+            classification: components["schemas"]["FinanceDocumentInspection_Classification"];
+            detailedReport?: components["schemas"]["FinanceDocumentInspection_DetailedReport"];
+            documentId: string;
+            /** Format: date-time */
+            expiresAt: string;
+            fileHash: components["schemas"]["FinanceDocumentInspection_FileHash"];
+            fileName: string;
+            files?: {
+                fileHash: components["schemas"]["FinanceDocumentInspection_FileHash"];
+                fileName: string;
+                prefix: string;
+            }[];
+            missingStatements: components["schemas"]["FinanceDocumentInspection_StatementKind"][];
+            /** @enum {unknown} */
+            modelStatus: "not_requested" | "consent_required" | "completed" | "unavailable" | "invalid_output";
+            observations: components["schemas"]["FinanceDocumentInspection_Observation"][];
+            regions: components["schemas"]["FinanceDocumentInspection_Region"][];
+            selectedForConversation: boolean;
+            uncertain: components["schemas"]["FinanceDocumentInspection_Uncertain"];
+            $defs: {
+                AttachmentClear: {
+                    /** Format: uuid */
+                    conversationKey: string;
+                    /** Format: uuid */
+                    documentId: string;
+                    /** @enum {unknown} */
+                    role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+                };
+                BatchFile: {
+                    contentBase64: components["schemas"]["FinanceDocumentInspection"]["$defs"]["Input"]["contentBase64"];
+                    fileName: components["schemas"]["FinanceDocumentInspection"]["$defs"]["Input"]["fileName"];
+                    mediaType: components["schemas"]["FinanceDocumentInspection"]["$defs"]["Input"]["mediaType"];
+                };
+                /** @description An original spreadsheet cell, PDF text item, Word paragraph or Word table cell. Non-spreadsheet sources never contain fabricated sheet coordinates. */
+                Cell: components["schemas"]["FinanceDocumentInspection_SpreadsheetCell"] | components["schemas"]["FinanceDocumentInspection_PdfText"] | components["schemas"]["FinanceDocumentInspection_WordParagraph"] | components["schemas"]["FinanceDocumentInspection_WordTableCell"];
+                /** @enum {unknown} */
+                Classification: "financial_statements" | "ledger" | "unknown";
+                DetailedReport: {
+                    /** @enum {unknown} */
+                    publicResearchStatus?: "completed" | "unavailable" | "not_requested";
+                    research?: components["schemas"]["CfoConversationAnswer_Research"];
+                    sections: {
+                        action: components["schemas"]["FinanceDocumentInspection_ReportBlock"];
+                        /** @enum {unknown} */
+                        coverage: "supported" | "partial" | "insufficient";
+                        evidence: components["schemas"]["FinanceDocumentInspection_ReportBlock"];
+                        /** @enum {unknown} */
+                        id: "overview" | "income" | "cost" | "profit" | "cashflow" | "comparison" | "actions";
+                        interpretation: components["schemas"]["FinanceDocumentInspection_ReportBlock"];
+                    }[];
+                    /** @constant */
+                    version: "finance-detailed.v1";
+                };
+                FileHash: string;
+                Input: {
+                    /** @description Other selected successful files; decoded batch at most 5 MiB. Original references receive unique file prefixes. */
+                    additionalFiles?: components["schemas"]["FinanceDocumentInspection_BatchFile"][];
+                    /**
+                     * @description Optional read-only question purpose. None requires three statements or creates ledger facts. Missing ROI inputs cannot be invented.
+                     * @enum {unknown}
+                     */
+                    analysisPurpose?: "finance" | "roi" | "management";
+                    /** @description Parse and retain a temporary chat attachment without model calls. Requires readWithModel=false; isolated by actor/workspace/conversation/role; expires after one hour. */
+                    attachmentScope?: {
+                        /** Format: uuid */
+                        conversationKey: string;
+                        /** @enum {unknown} */
+                        role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+                    };
+                    /** @description Canonical Base64-encoded original file; decoded content is bounded to 5 MiB by the server. */
+                    contentBase64: string;
+                    fileName: string;
+                    /** @enum {unknown} */
+                    mediaType: "text/csv" | "application/vnd.ms-excel" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" | "application/pdf" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                    /**
+                     * @description Controlled public industry label for report context search; no file text is sent to search.
+                     * @enum {unknown}
+                     */
+                    publicIndustry?: "general" | "manufacturing" | "retail" | "services" | "technology";
+                    /** @description True is the informed read action: use the configured model and select this read-only source for the current workspace/actor conversation. False only inspects locally. */
+                    readWithModel: boolean;
+                };
+                MaterialSource: {
+                    classification: components["schemas"]["FinanceDocumentInspection_Classification"];
+                    documentId: string;
+                    /** Format: date-time */
+                    expiresAt: string;
+                    fileHash: components["schemas"]["FinanceDocumentInspection_FileHash"];
+                    fileName: string;
+                    /** @constant */
+                    kind: "readonly_document";
+                    missingStatements: components["schemas"]["FinanceDocumentInspection_StatementKind"][];
+                };
+                Observation: {
+                    sourceRefs: components["schemas"]["FinanceDocumentInspection_Refs"];
+                    text: string;
+                };
+                PdfText: {
+                    endOffset?: number;
+                    item: number;
+                    page: number;
+                    segment?: number;
+                    sourceRef: string;
+                    startOffset?: number;
+                    text: string;
+                } & WithRequired<components["schemas"]["FinanceDocumentInspection_SegmentMetadata"], "sourceRef">;
+                Refs: components["schemas"]["FinanceDocumentInspection_SourceRef"][];
+                Region: {
+                    endRow: number;
+                    headerRow: number | null;
+                    /** @enum {unknown} */
+                    kind: "balance_sheet" | "income_statement" | "cash_flow_statement" | "ledger" | "unknown";
+                    regionId: string;
+                    sheetName: string;
+                    sourceRefs: components["schemas"]["FinanceDocumentInspection_Refs"];
+                    startRow: number;
+                    uncertain: components["schemas"]["FinanceDocumentInspection_Uncertain"];
+                };
+                ReportBlock: components["schemas"]["FinanceDocumentInspection_Observation"][];
+                /** @description Long PDF/Word text is preserved as segments. Offsets are zero-based UTF-16 indexes into the complete original text; endOffset is exclusive. */
+                SegmentMetadata: {
+                    endOffset?: unknown;
+                    segment?: unknown;
+                    sourceRef?: unknown;
+                    startOffset?: unknown;
+                };
+                SourceRef: string;
+                SpreadsheetCell: {
+                    column: number;
+                    row: number;
+                    sheetName: string;
+                    sourceRef: string;
+                    text: string;
+                    /**
+                     * @description Cached formulas are workbook display evidence only; never recalculated or verified.
+                     * @enum {unknown}
+                     */
+                    valueStatus?: "original" | "cached_formula";
+                };
+                /** @enum {unknown} */
+                StatementKind: "balance_sheet" | "income_statement" | "cash_flow_statement";
+                Uncertain: string[];
+                WordParagraph: {
+                    endOffset?: number;
+                    paragraph: number;
+                    segment?: number;
+                    sourceRef: string;
+                    startOffset?: number;
+                    text: string;
+                } & WithRequired<components["schemas"]["FinanceDocumentInspection_SegmentMetadata"], "sourceRef">;
+                WordTableCell: {
+                    column: number;
+                    endOffset?: number;
+                    row: number;
+                    segment?: number;
+                    sourceRef: string;
+                    startOffset?: number;
+                    table: number;
+                    text: string;
+                } & WithRequired<components["schemas"]["FinanceDocumentInspection_SegmentMetadata"], "sourceRef">;
+            };
+        };
+        FinanceDocumentInspectionInput: components["schemas"]["FinanceDocumentInspection_Input"];
+        FinanceDocumentMaterialSource: components["schemas"]["FinanceDocumentInspection_MaterialSource"];
         /** FinanceImportOperation */
         FinanceImportOperation: {
             acceptedRows: number;
@@ -2289,6 +2908,17 @@ export interface components {
                     previewId: string;
                     rejectedRows: number;
                     totalRows: number;
+                };
+                FinanceImportPreviewInput: {
+                    contentBase64: string;
+                    fileName: string;
+                    /** @enum {unknown} */
+                    kind: "acquisition_cost" | "financial_fact";
+                    mapping: {
+                        [key: string]: string;
+                    };
+                    /** @enum {unknown} */
+                    mediaType: "text/csv" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
                 };
                 FinanceImportRowError: {
                     code: components["schemas"]["FinanceImportOperation_FinanceImportRowErrorCode"];
@@ -2417,6 +3047,7 @@ export interface components {
             };
         };
         FinanceImportPreview: components["schemas"]["FinanceImportOperation_FinanceImportPreview"];
+        FinanceImportPreviewInput: components["schemas"]["FinanceImportOperation_FinanceImportPreviewInput"];
         FinanceImportRowError: components["schemas"]["FinanceImportOperation_FinanceImportRowError"];
         FinanceImportRowErrorPagedResult: {
             hasMore: boolean;
@@ -2428,6 +3059,8 @@ export interface components {
         FinancialCashForecastSupplementInput: components["schemas"]["FinanceImportOperation_FinancialCashForecastSupplementInput"];
         FinancialCouncilAgentCenterView: components["schemas"]["FinancialCouncilRun_FinancialCouncilAgentCenterView"];
         FinancialCouncilApproval: components["schemas"]["FinancialCouncilRun_FinancialCouncilApproval"];
+        FinancialCouncilCollaboration: components["schemas"]["FinancialCouncilRun_FinancialCouncilCollaboration"];
+        FinancialCouncilDetailedReport: components["schemas"]["FinancialCouncilRun_FinancialCouncilDetailedReport"];
         FinancialCouncilDispatchPagedResult: components["schemas"]["FinancialCouncilRun_FinancialCouncilDispatchPagedResult"];
         FinancialCouncilDispatchView: components["schemas"]["FinancialCouncilRun_FinancialCouncilDispatchView"];
         FinancialCouncilModelRoutePreviewResponse: components["schemas"]["FinancialCouncilRun_FinancialCouncilModelRoutePreviewResponse"];
@@ -2643,11 +3276,75 @@ export interface components {
                 FinancialCouncilAttemptErrorCode: "MODEL_RATE_LIMITED" | "MODEL_TIMEOUT" | "MODEL_UNAVAILABLE" | "MODEL_AUTH_FAILED" | "MODEL_OUTPUT_INVALID" | "MODEL_POLICY_CONFLICT" | "MODEL_ERROR";
                 /** @enum {unknown} */
                 FinancialCouncilCenterStatus: "not_connected" | "ready" | "running" | "waiting" | "completed" | "manual_review" | "model_error";
+                FinancialCouncilCollaboration: {
+                    currency: components["schemas"]["FinancialCouncilRun_currency"];
+                    dataAsOf: components["schemas"]["FinancialCouncilRun_dateTime"];
+                    events: components["schemas"]["FinancialCouncilRun_FinancialCouncilCollaborationEvent"][];
+                    /** @constant */
+                    executionMode: "sequential";
+                    narrative: null | components["schemas"]["FinancialCouncilRun_FinancialCouncilNarrative"];
+                    policyVersionId: components["schemas"]["FinancialCouncilRun_nonempty"];
+                    report: components["schemas"]["FinancialCouncilRun_FinancialCouncilDetailedReport"];
+                    /** @constant */
+                    reviewRoundLimit: 1;
+                    reviews: components["schemas"]["FinancialCouncilRun_FinancialCouncilCollaborationReview"][];
+                    revision: components["schemas"]["FinancialCouncilRun_revision"];
+                    roles: components["schemas"]["FinancialCouncilRun_FinancialCouncilCollaborationRole"][];
+                    runId: components["schemas"]["FinancialCouncilRun_nonempty"];
+                    snapshotHash: components["schemas"]["FinancialCouncilRun_hash"];
+                    snapshotId: components["schemas"]["FinancialCouncilRun_nonempty"];
+                    statementPackageId: components["schemas"]["FinancialCouncilRun_nonempty"];
+                    workspaceId: components["schemas"]["FinancialCouncilRun_workspace"];
+                };
+                FinancialCouncilCollaborationEvent: {
+                    eventId: components["schemas"]["FinancialCouncilRun_nonempty"];
+                    findingIds: string[];
+                    message: string;
+                    occurredAt: components["schemas"]["FinancialCouncilRun_dateTime"];
+                    /** @enum {string} */
+                    phase: "analysis" | "review" | "synthesis" | "run";
+                    reasonCode: string | null;
+                    role: null | components["schemas"]["FinancialCouncilRun_FinancialCouncilModelRole"];
+                    /** @enum {string} */
+                    state: "waiting" | "running" | "completed" | "missing_data" | "failed" | "degraded";
+                };
+                FinancialCouncilCollaborationReview: {
+                    findingId: string;
+                    occurredAt: components["schemas"]["FinancialCouncilRun_dateTime"];
+                    peerFindingId: string;
+                    role: components["schemas"]["FinancialCouncilRun_FinancialCouncilModelRole"];
+                    /** @constant */
+                    round: 1;
+                    /** @enum {string} */
+                    state: "pending" | "upheld" | "revised" | "withdrawn";
+                    summary: string;
+                };
+                FinancialCouncilCollaborationRole: {
+                    actions: components["schemas"]["FinancialCouncilRun_CandidateAction"][];
+                    findings: components["schemas"]["FinancialCouncilRun_FinancialFinding"][];
+                    message: string;
+                    /** @enum {string} */
+                    phase: "analysis" | "review" | "synthesis" | "run";
+                    reasonCode: string | null;
+                    role: components["schemas"]["FinancialCouncilRun_FinancialCouncilModelRole"];
+                    /** @enum {string} */
+                    state: "waiting" | "running" | "completed" | "missing_data" | "failed" | "degraded";
+                    updatedAt: string | null;
+                };
                 FinancialCouncilCreateInput: {
                     businessReport: components["schemas"]["FinancialCouncilRun_BusinessReportInput"];
                     currency: components["schemas"]["FinancialCouncilRun_currency"];
                     dataAsOf: components["schemas"]["FinancialCouncilRun_dateTime"];
                     policyVersionId: components["schemas"]["FinancialCouncilRun_identifier"];
+                };
+                FinancialCouncilDetailedReport: {
+                    complete: boolean;
+                    generatedAt: components["schemas"]["FinancialCouncilRun_dateTime"];
+                    reportId: components["schemas"]["FinancialCouncilRun_nonempty"];
+                    sections: components["schemas"]["FinancialCouncilRun_FinancialCouncilReportSection"][];
+                    title: string;
+                    /** @constant */
+                    version: "financial-council-report.v1";
                 };
                 FinancialCouncilDispatchPagedResult: {
                     hasMore: boolean;
@@ -2722,6 +3419,14 @@ export interface components {
                     profit: components["schemas"]["FinancialCouncilRun_FinancialCouncilModelRoleRoute"];
                     tax: components["schemas"]["FinancialCouncilRun_FinancialCouncilModelRoleRoute"];
                 };
+                FinancialCouncilNarrative: {
+                    minorityFindingIds: string[];
+                    /** @enum {string} */
+                    narrativeStatus: "model_valid" | "model_invalid" | "model_unavailable";
+                    overallDiagnosis: string;
+                    priorityFindingIds: string[];
+                    riskNotes: string[];
+                };
                 FinancialCouncilPolicyInput: {
                     actionCoefficientVersion: components["schemas"]["FinancialCouncilRun_nonempty"];
                     balancedWeightsBps: components["schemas"]["FinancialCouncilRun_ObjectiveWeights"];
@@ -2775,6 +3480,16 @@ export interface components {
                     portfolioRevision: components["schemas"]["FinancialCouncilRun_revision"];
                     reason: components["schemas"]["FinancialCouncilRun_nonempty"];
                 };
+                FinancialCouncilReportSection: {
+                    id: components["schemas"]["FinancialCouncilRun_nonempty"];
+                    items: {
+                        evidenceRefs: string[];
+                        label: string;
+                        value: string;
+                    }[];
+                    paragraphs: string[];
+                    title: components["schemas"]["FinancialCouncilRun_nonempty"];
+                };
                 FinancialCouncilRunAgentView: {
                     attempts: components["schemas"]["FinancialCouncilRun_FinancialCouncilModelAttemptView"][];
                     /** @enum {unknown} */
@@ -2801,6 +3516,18 @@ export interface components {
                 FinancialCouncilRunEventPagedResult: {
                     hasMore: boolean;
                     items: components["schemas"]["FinancialCouncilRun_FinancialCouncilRunEvent"][];
+                    nextAfter: string | null;
+                };
+                FinancialCouncilRunHistory: {
+                    hasMore: boolean;
+                    items: {
+                        createdAt: components["schemas"]["FinancialCouncilRun_dateTime"];
+                        currency: components["schemas"]["FinancialCouncilRun_currency"];
+                        dataAsOf: components["schemas"]["FinancialCouncilRun_dateTime"];
+                        runId: components["schemas"]["FinancialCouncilRun_nonempty"];
+                        status: components["schemas"]["FinancialCouncilRun_publicRunStatus"];
+                        updatedAt: components["schemas"]["FinancialCouncilRun_dateTime"];
+                    }[];
                     nextAfter: string | null;
                 };
                 FinancialFinding: {
@@ -2949,6 +3676,7 @@ export interface components {
         FinancialCouncilRunAgentsView: components["schemas"]["FinancialCouncilRun_FinancialCouncilRunAgentsView"];
         FinancialCouncilRunEvent: components["schemas"]["FinancialCouncilRun_FinancialCouncilRunEvent"];
         FinancialCouncilRunEventPagedResult: components["schemas"]["FinancialCouncilRun_FinancialCouncilRunEventPagedResult"];
+        FinancialCouncilRunHistory: components["schemas"]["FinancialCouncilRun_FinancialCouncilRunHistory"];
         FinancialDataGapView: components["schemas"]["AdvisorTodayResponse_FinancialDataGapView"];
         /** FinancialFact */
         FinancialFact: {
@@ -3077,7 +3805,7 @@ export interface components {
         GrowthBootstrapResponse: {
             $defs: {
                 /** @enum {unknown} */
-                capability: "catalog.read" | "catalog.manage" | "pricing.sensitive.read" | "quote.draft.create" | "quote.confirm" | "quote.exception.discount.approve" | "quote.exception.margin.approve" | "quote.exception.payment_terms.approve" | "quote.exception.gift.approve" | "quote.exception.credit.approve" | "quote.exception.manual.approve" | "ledger.pending.create" | "ledger.verify" | "finance.council.run" | "finance.council.approve" | "finance.council.policy.manage" | "roi.close" | "growth.performance.team.read" | "growth.performance.workspace.read";
+                capability: "catalog.read" | "catalog.manage" | "pricing.sensitive.read" | "quote.draft.create" | "quote.confirm" | "quote.exception.discount.approve" | "quote.exception.margin.approve" | "quote.exception.payment_terms.approve" | "quote.exception.gift.approve" | "quote.exception.credit.approve" | "quote.exception.manual.approve" | "ledger.pending.create" | "ledger.verify" | "finance.council.run" | "finance.council.approve" | "finance.council.policy.manage" | "roi.close" | "growth.performance.team.read" | "growth.performance.workspace.read" | "knowledge.read" | "knowledge.upload" | "knowledge.manage_own" | "acquisition.outreach.approve";
                 contractFields: {
                     capabilities: components["schemas"]["GrowthBootstrapResponse_capability"][];
                     capabilityRegistryVersion: string;
@@ -3525,7 +4253,7 @@ export interface components {
         QuoteCase: {
             assignedTo: components["schemas"]["QuoteCase_nonempty"];
             candidateId: components["schemas"]["QuoteCase_nullableId"];
-            commercialBindingSnapshot: null | components["schemas"]["QuoteCase_CommercialBindingSnapshot"];
+            commercialBindingSnapshot: null | components["schemas"]["QuoteCase_QuoteCommercialAuthoritySnapshot"];
             createdAt: components["schemas"]["QuoteCase_dateTime"];
             currentDraftVersionId: components["schemas"]["QuoteCase_nullableId"];
             customerId: components["schemas"]["QuoteCase_nullableId"];
@@ -3541,7 +4269,52 @@ export interface components {
                     dealId: components["schemas"]["QuoteCase_nonempty"];
                 };
                 CommercialBindingSnapshot: {
-                    attributionSnapshot: {
+                    attributionSnapshot: ({
+                        /** @constant */
+                        attributionVersion: "acquisition-run.v1";
+                        connectionId: string;
+                        decisionSnapshotHash: string;
+                        decisionVersion: string;
+                        /** Format: date-time */
+                        discoveredAt: string;
+                        discoveredEventId: string;
+                        evidenceIds: string[];
+                        operationId: string;
+                        planId: string;
+                        planSnapshotHash: string;
+                        planVersion: number;
+                        planVersionId: string;
+                        providerId: string;
+                        providerIds: string[];
+                        qualificationDecisionId: string;
+                        queryIds: string[];
+                        runId: string;
+                        shardId: string;
+                        strategyVersion: string;
+                    } | {
+                        /** @constant */
+                        attributionVersion: "douyin-crawler.v1";
+                        connectionId: null;
+                        decisionSnapshotHash: string;
+                        decisionVersion: string;
+                        /** Format: date-time */
+                        discoveredAt: string;
+                        discoveredEventId: string;
+                        evidenceIds: string[];
+                        jobId: string;
+                        operationId: null;
+                        planId: string;
+                        planSnapshotHash: string;
+                        planVersion: number;
+                        planVersionId: string;
+                        providerId: null;
+                        providerIds: string[];
+                        qualificationDecisionId: string;
+                        queryIds: string[];
+                        runId: string;
+                        shardId: null;
+                        strategyVersion: string;
+                    }) | ({
                         /** @constant */
                         attributionVersion: "acquisition-run.v1";
                         connectionId: string;
@@ -3569,7 +4342,36 @@ export interface components {
                         runId: string;
                         shardId: string;
                         strategyVersion: string;
-                    };
+                    } | {
+                        /** @constant */
+                        attributionVersion: "douyin-crawler.v1";
+                        connectionId: null;
+                        /** @enum {unknown} */
+                        decisionEngine: "model" | "rules";
+                        decisionSnapshotHash: string;
+                        decisionVersion: string;
+                        /** Format: date-time */
+                        discoveredAt: string;
+                        discoveredEventId: string;
+                        evidenceIds: string[];
+                        jobId: string;
+                        model: string | null;
+                        modelProvider: string | null;
+                        operationId: null;
+                        planId: string;
+                        planSnapshotHash: string;
+                        planVersion: number;
+                        planVersionId: string;
+                        promptVersion: string | null;
+                        providerId: null;
+                        providerIds: string[];
+                        qualificationDecisionId: string;
+                        queryIds: string[];
+                        ruleVersion: string;
+                        runId: string;
+                        shardId: null;
+                        strategyVersion: string;
+                    });
                     bindingHash: components["schemas"]["QuoteCase_hash"];
                     bindingHashSchemaVersion: components["schemas"]["QuoteCase_nonempty"];
                     candidateId: components["schemas"]["QuoteCase_nonempty"];
@@ -3582,9 +4384,49 @@ export interface components {
                     leadId: components["schemas"]["QuoteCase_nullableId"];
                     verifiedAt: components["schemas"]["QuoteCase_dateTime"];
                 };
+                CrmQuoteAssessmentInput: {
+                    budgetConfirmed: boolean;
+                    closeProbabilityBps: components["schemas"]["QuoteCase_bps"];
+                    decisionMakerConfirmed: boolean;
+                    demandConfirmed: boolean;
+                    evidenceSummary: string;
+                };
+                CrmQuoteAssessmentSnapshot: {
+                    assessedAt: components["schemas"]["QuoteCase_dateTime"];
+                    assessedBy: components["schemas"]["QuoteCase_nonempty"];
+                    /** @constant */
+                    assessmentVersion: "crm-quote-assessment.v1";
+                    budgetConfirmed: boolean;
+                    closeProbabilityBps: components["schemas"]["QuoteCase_bps"];
+                    customerId: components["schemas"]["QuoteCase_nonempty"];
+                    dealId: components["schemas"]["QuoteCase_nonempty"];
+                    decisionMakerConfirmed: boolean;
+                    demandConfirmed: boolean;
+                    evidenceSummary: string;
+                    inputSnapshotHash: components["schemas"]["QuoteCase_hash"];
+                    /** @constant */
+                    precision: "bps";
+                    /** @constant */
+                    sourceKind: "crm";
+                    workspaceId: components["schemas"]["QuoteCase_workspaceId"];
+                };
+                CrmQuoteAuthoritySnapshot: {
+                    assessment: components["schemas"]["QuoteCase_CrmQuoteAssessmentSnapshot"];
+                    bindingHash: components["schemas"]["QuoteCase_hash"];
+                    /** @constant */
+                    bindingHashSchemaVersion: "crm-quote-authority.v1";
+                    customerId: components["schemas"]["QuoteCase_nonempty"];
+                    dealContentHash: components["schemas"]["QuoteCase_hash"];
+                    dealId: components["schemas"]["QuoteCase_nonempty"];
+                    /** @constant */
+                    sourceKind: "crm";
+                    verifiedAt: components["schemas"]["QuoteCase_dateTime"];
+                    workspaceId: components["schemas"]["QuoteCase_workspaceId"];
+                };
                 QuoteCaseCreateInput: {
                     assignedTo: components["schemas"]["QuoteCase_nonempty"];
                     candidateId?: components["schemas"]["QuoteCase_nullableId"];
+                    crmAssessment?: components["schemas"]["QuoteCase_CrmQuoteAssessmentInput"];
                     customerId?: components["schemas"]["QuoteCase_nullableId"];
                     dealId?: components["schemas"]["QuoteCase_nullableId"];
                 } | {
@@ -3594,6 +4436,7 @@ export interface components {
                 } | {
                     dealId: string;
                 };
+                QuoteCommercialAuthoritySnapshot: components["schemas"]["QuoteCase_CommercialBindingSnapshot"] | components["schemas"]["QuoteCase_CrmQuoteAuthoritySnapshot"];
                 QuoteDecisionInput: {
                     reason: string;
                 };
@@ -3765,7 +4608,7 @@ export interface components {
                     paymentTerms: components["schemas"]["QuoteVersion_PaymentTerms"];
                     previewIdentity: components["schemas"]["QuoteCase_QuotePreviewIdentity"];
                     pricingPolicySnapshot: components["schemas"]["PricingPolicyVersion_FullProjection"];
-                    probabilityAssessmentSnapshot: null | components["schemas"]["QuoteVersion_ProbabilityAssessmentSnapshot"];
+                    probabilityAssessmentSnapshot: null | components["schemas"]["QuoteVersion_QuoteAssessmentSnapshot"];
                     quoteCaseId: components["schemas"]["QuoteVersion_nonempty"];
                     quotedAmountMinor: number;
                     requiredSurchargeMinor: components["schemas"]["QuoteVersion_money"];
@@ -3801,6 +4644,7 @@ export interface components {
                     qualificationDecisionVersion: components["schemas"]["QuoteVersion_nonempty"];
                     ruleVersion: components["schemas"]["QuoteVersion_nonempty"];
                 };
+                QuoteAssessmentSnapshot: components["schemas"]["QuoteVersion_ProbabilityAssessmentSnapshot"] | components["schemas"]["QuoteCase_CrmQuoteAssessmentSnapshot"];
                 RedactedGiftItem: {
                     catalogItemId: components["schemas"]["QuoteVersion_nonempty"];
                     quantityMicros: number;
@@ -3825,7 +4669,7 @@ export interface components {
                     netProductAmountMinor: components["schemas"]["QuoteVersion_money"];
                     paymentTerms: components["schemas"]["QuoteVersion_PaymentTerms"];
                     previewIdentity: components["schemas"]["QuoteCase_QuotePreviewIdentity"];
-                    probabilityAssessmentSnapshot: null | components["schemas"]["QuoteVersion_ProbabilityAssessmentSnapshot"];
+                    probabilityAssessmentSnapshot: null | components["schemas"]["QuoteVersion_QuoteAssessmentSnapshot"];
                     quoteCaseId: components["schemas"]["QuoteVersion_nonempty"];
                     quotedAmountMinor: number;
                     requiredSurchargeMinor: components["schemas"]["QuoteVersion_money"];
@@ -3921,13 +4765,25 @@ export interface components {
             firstDiscoveredAt: components["schemas"]["AcquisitionCohort_dateTime"];
             firstPlanId: components["schemas"]["AcquisitionCohort_nonempty"];
             firstRunId: components["schemas"]["AcquisitionCohort_nonempty"];
-            firstShardId: components["schemas"]["AcquisitionCohort_nonempty"];
+            firstShardId: string | null;
             id: components["schemas"]["AcquisitionCohort_nonempty"];
             platform: components["schemas"]["AcquisitionCohort_nonempty"];
             primaryCandidateId: components["schemas"]["AcquisitionCohort_nonempty"];
             subjectStableKey: components["schemas"]["AcquisitionCohort_nonempty"];
             workspaceId: string;
-        };
+        } & ({
+            attributionSnapshot?: {
+                /** @constant */
+                attributionVersion?: "douyin-crawler.v1";
+            };
+            firstShardId?: null;
+        } | {
+            attributionSnapshot?: {
+                /** @constant */
+                attributionVersion?: "acquisition-run.v1";
+            };
+            firstShardId?: components["schemas"]["AcquisitionCohort_nonempty"];
+        });
         AcquisitionCohort_ClosureAttestation: {
             asOf: components["schemas"]["AcquisitionCohort_dateTime"];
             /** @enum {unknown} */
@@ -4278,6 +5134,29 @@ export interface components {
         AdvisorTodayResponse_hash: string;
         AdvisorTodayResponse_nonempty: string;
         AdvisorTodayResponse_nullableId: string | null;
+        AgentWebResearch_Connections: {
+            connections: {
+                id: string;
+                name: string;
+                provider: string;
+            }[];
+        };
+        AgentWebResearch_Input: {
+            connectionId: string;
+            /** @description Explicit public keywords only; never automatically append attachments, history or company records. */
+            query: string;
+            /** @enum {unknown} */
+            role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+        };
+        AgentWebResearch_Source: {
+            /** Format: date-time */
+            fetchedAt: string;
+            id: string;
+            snippet: string;
+            title: string;
+            /** Format: uri */
+            url: string;
+        };
         AttributionAllocationSet_AttributionAllocationItem: {
             allocationBps: number;
             /** @enum {unknown} */
@@ -4337,6 +5216,7 @@ export interface components {
             commercialBindingSnapshot: components["schemas"]["QuoteCase_CommercialBindingSnapshot"];
             currency: components["schemas"]["AttributionAllocationSet_currency"];
             dealId: components["schemas"]["AttributionAllocationSet_nonempty"];
+            id: components["schemas"]["AttributionAllocationSet_nonempty"];
             originalPaymentAllocationItemId: components["schemas"]["AttributionAllocationSet_nullableId"];
             originalPaymentAllocationSetId: components["schemas"]["AttributionAllocationSet_nullableId"];
             originalPaymentFactId: components["schemas"]["AttributionAllocationSet_nullableId"];
@@ -4392,6 +5272,123 @@ export interface components {
             name?: string;
             unit?: string;
         };
+        CfoConversationAnswer_Input: {
+            /**
+             * Format: uuid
+             * @description Required for a chat attachment: must match the conversation used when parsing it, together with the selected role.
+             */
+            conversationKey?: string;
+            /** @description Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics. */
+            documentId?: string | null;
+            history: components["schemas"]["CfoConversationAnswer_Turn"][];
+            /**
+             * @description Bounded private reference retrieval for text; omitted preserves legacy and voice behavior.
+             * @enum {unknown}
+             */
+            knowledgeMode?: "auto" | "off";
+            question: string;
+            /**
+             * @description Explicit negotiated text protocol. Omitted is private-only; knowledgeMode off or omitted closes both libraries.
+             * @constant
+             */
+            referenceProtocol?: "system-v1";
+            referenceTopicIds?: components["schemas"]["CfoSessionAsk"]["referenceTopicIds"];
+            /**
+             * @description Selected specialist; omitted means CFO. One role/model per question.
+             * @default cfo
+             * @enum {unknown}
+             */
+            role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+            /**
+             * @description Explicit text search preference: off skips planning and public search; on requires safe public retrieval or an explicit error. Omitted preserves legacy automatic planning. Independent from knowledgeMode.
+             * @enum {unknown}
+             */
+            webSearchMode?: "on" | "off";
+        };
+        CfoConversationAnswer_MaterialSource: {
+            companyName: string;
+            currency: string;
+            packageId: string;
+            period: string;
+        };
+        CfoConversationAnswer_Research: {
+            citationIds: string[];
+            /** @constant */
+            evidenceKind: "search_index_snippets";
+            query: string;
+            /** Format: date-time */
+            retrievedAt: string;
+            searchProvider: string;
+            sources: {
+                /** Format: date-time */
+                fetchedAt: string;
+                id: string;
+                snippet: string;
+                title: string;
+                /** Format: uri */
+                url: string;
+            }[];
+            /** @constant */
+            status: "completed";
+        };
+        CfoConversationAnswer_Turn: {
+            /** @enum {unknown} */
+            role: "user" | "assistant";
+            text: string;
+        };
+        CfoSession_Ask: {
+            documentId: string | null;
+            history?: components["schemas"]["CfoConversationAnswer_Turn"][];
+            /** @enum {unknown} */
+            knowledgeMode?: "auto" | "off";
+            question: string;
+            /**
+             * @description Explicit negotiated protocol; knowledgeMode off or omitted closes both libraries.
+             * @constant
+             */
+            referenceProtocol?: "system-v1";
+            referenceTopicIds?: ("budget_variance" | "budget_planning" | "cost_driver" | "cost_structure" | "cashflow_forecast" | "working_capital" | "profitability_analysis" | "break_even" | "statement_analysis" | "ratio_analysis" | "tax_document_review" | "tax_risk_review")[];
+            revision: number;
+            /**
+             * @description Explicit public search preference for this turn; omitted retains legacy automatic planning.
+             * @enum {unknown}
+             */
+            webSearchMode?: "on" | "off";
+        };
+        CfoSession_Create: {
+            documentId: string | null;
+        };
+        CfoSession_Event: {
+            /** @enum {unknown} */
+            stage: "material_ready" | "skill_ready" | "model_started" | "answer_validated";
+            /** @constant */
+            type: "stage";
+        } | {
+            result: components["schemas"]["CfoSession_Reply"];
+            /** @constant */
+            type: "result";
+        } | {
+            code: string;
+            status: number;
+            /** @constant */
+            type: "error";
+        };
+        CfoSession_Reply: {
+            answer: components["schemas"]["CfoConversationAnswer"];
+            session: components["schemas"]["CfoSession"];
+        };
+        CfoSession_Summary: {
+            /** Format: date-time */
+            createdAt: string;
+            documentId: string | null;
+            revision: number;
+            /** Format: uuid */
+            sessionId: string;
+            title: string;
+            turnCount: number;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         CopilotMessage_assistantContent: components["schemas"]["CopilotMessage_textContent"] | components["schemas"]["CopilotMessage_thinkingContent"] | components["schemas"]["CopilotMessage_toolCall"];
         CopilotMessage_imageContent: {
             data: string;
@@ -4439,6 +5436,146 @@ export interface components {
             reasoning?: number;
             totalTokens: number;
         };
+        FinanceDocumentInspection_AttachmentClear: {
+            /** Format: uuid */
+            conversationKey: string;
+            /** Format: uuid */
+            documentId: string;
+            /** @enum {unknown} */
+            role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+        };
+        FinanceDocumentInspection_BatchFile: {
+            contentBase64: components["schemas"]["FinanceDocumentInspection"]["$defs"]["Input"]["contentBase64"];
+            fileName: components["schemas"]["FinanceDocumentInspection"]["$defs"]["Input"]["fileName"];
+            mediaType: components["schemas"]["FinanceDocumentInspection"]["$defs"]["Input"]["mediaType"];
+        };
+        /** @description An original spreadsheet cell, PDF text item, Word paragraph or Word table cell. Non-spreadsheet sources never contain fabricated sheet coordinates. */
+        FinanceDocumentInspection_Cell: components["schemas"]["FinanceDocumentInspection_SpreadsheetCell"] | components["schemas"]["FinanceDocumentInspection_PdfText"] | components["schemas"]["FinanceDocumentInspection_WordParagraph"] | components["schemas"]["FinanceDocumentInspection_WordTableCell"];
+        /** @enum {unknown} */
+        FinanceDocumentInspection_Classification: "financial_statements" | "ledger" | "unknown";
+        FinanceDocumentInspection_DetailedReport: {
+            /** @enum {unknown} */
+            publicResearchStatus?: "completed" | "unavailable" | "not_requested";
+            research?: components["schemas"]["CfoConversationAnswer_Research"];
+            sections: {
+                action: components["schemas"]["FinanceDocumentInspection_ReportBlock"];
+                /** @enum {unknown} */
+                coverage: "supported" | "partial" | "insufficient";
+                evidence: components["schemas"]["FinanceDocumentInspection_ReportBlock"];
+                /** @enum {unknown} */
+                id: "overview" | "income" | "cost" | "profit" | "cashflow" | "comparison" | "actions";
+                interpretation: components["schemas"]["FinanceDocumentInspection_ReportBlock"];
+            }[];
+            /** @constant */
+            version: "finance-detailed.v1";
+        };
+        FinanceDocumentInspection_FileHash: string;
+        FinanceDocumentInspection_Input: {
+            /** @description Other selected successful files; decoded batch at most 5 MiB. Original references receive unique file prefixes. */
+            additionalFiles?: components["schemas"]["FinanceDocumentInspection_BatchFile"][];
+            /**
+             * @description Optional read-only question purpose. None requires three statements or creates ledger facts. Missing ROI inputs cannot be invented.
+             * @enum {unknown}
+             */
+            analysisPurpose?: "finance" | "roi" | "management";
+            /** @description Parse and retain a temporary chat attachment without model calls. Requires readWithModel=false; isolated by actor/workspace/conversation/role; expires after one hour. */
+            attachmentScope?: {
+                /** Format: uuid */
+                conversationKey: string;
+                /** @enum {unknown} */
+                role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+            };
+            /** @description Canonical Base64-encoded original file; decoded content is bounded to 5 MiB by the server. */
+            contentBase64: string;
+            fileName: string;
+            /** @enum {unknown} */
+            mediaType: "text/csv" | "application/vnd.ms-excel" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" | "application/pdf" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            /**
+             * @description Controlled public industry label for report context search; no file text is sent to search.
+             * @enum {unknown}
+             */
+            publicIndustry?: "general" | "manufacturing" | "retail" | "services" | "technology";
+            /** @description True is the informed read action: use the configured model and select this read-only source for the current workspace/actor conversation. False only inspects locally. */
+            readWithModel: boolean;
+        };
+        FinanceDocumentInspection_MaterialSource: {
+            classification: components["schemas"]["FinanceDocumentInspection_Classification"];
+            documentId: string;
+            /** Format: date-time */
+            expiresAt: string;
+            fileHash: components["schemas"]["FinanceDocumentInspection_FileHash"];
+            fileName: string;
+            /** @constant */
+            kind: "readonly_document";
+            missingStatements: components["schemas"]["FinanceDocumentInspection_StatementKind"][];
+        };
+        FinanceDocumentInspection_Observation: {
+            sourceRefs: components["schemas"]["FinanceDocumentInspection_Refs"];
+            text: string;
+        };
+        FinanceDocumentInspection_PdfText: {
+            endOffset?: number;
+            item: number;
+            page: number;
+            segment?: number;
+            sourceRef: string;
+            startOffset?: number;
+            text: string;
+        } & WithRequired<components["schemas"]["FinanceDocumentInspection_SegmentMetadata"], "sourceRef">;
+        FinanceDocumentInspection_Refs: components["schemas"]["FinanceDocumentInspection_SourceRef"][];
+        FinanceDocumentInspection_Region: {
+            endRow: number;
+            headerRow: number | null;
+            /** @enum {unknown} */
+            kind: "balance_sheet" | "income_statement" | "cash_flow_statement" | "ledger" | "unknown";
+            regionId: string;
+            sheetName: string;
+            sourceRefs: components["schemas"]["FinanceDocumentInspection_Refs"];
+            startRow: number;
+            uncertain: components["schemas"]["FinanceDocumentInspection_Uncertain"];
+        };
+        FinanceDocumentInspection_ReportBlock: components["schemas"]["FinanceDocumentInspection_Observation"][];
+        /** @description Long PDF/Word text is preserved as segments. Offsets are zero-based UTF-16 indexes into the complete original text; endOffset is exclusive. */
+        FinanceDocumentInspection_SegmentMetadata: {
+            endOffset?: unknown;
+            segment?: unknown;
+            sourceRef?: unknown;
+            startOffset?: unknown;
+        };
+        FinanceDocumentInspection_SourceRef: string;
+        FinanceDocumentInspection_SpreadsheetCell: {
+            column: number;
+            row: number;
+            sheetName: string;
+            sourceRef: string;
+            text: string;
+            /**
+             * @description Cached formulas are workbook display evidence only; never recalculated or verified.
+             * @enum {unknown}
+             */
+            valueStatus?: "original" | "cached_formula";
+        };
+        /** @enum {unknown} */
+        FinanceDocumentInspection_StatementKind: "balance_sheet" | "income_statement" | "cash_flow_statement";
+        FinanceDocumentInspection_Uncertain: string[];
+        FinanceDocumentInspection_WordParagraph: {
+            endOffset?: number;
+            paragraph: number;
+            segment?: number;
+            sourceRef: string;
+            startOffset?: number;
+            text: string;
+        } & WithRequired<components["schemas"]["FinanceDocumentInspection_SegmentMetadata"], "sourceRef">;
+        FinanceDocumentInspection_WordTableCell: {
+            column: number;
+            endOffset?: number;
+            row: number;
+            segment?: number;
+            sourceRef: string;
+            startOffset?: number;
+            table: number;
+            text: string;
+        } & WithRequired<components["schemas"]["FinanceDocumentInspection_SegmentMetadata"], "sourceRef">;
         FinanceImportOperation_FinanceImportPreview: {
             acceptedRows: number;
             errors: components["schemas"]["FinanceImportOperation_FinanceImportRowError"][];
@@ -4449,6 +5586,17 @@ export interface components {
             previewId: string;
             rejectedRows: number;
             totalRows: number;
+        };
+        FinanceImportOperation_FinanceImportPreviewInput: {
+            contentBase64: string;
+            fileName: string;
+            /** @enum {unknown} */
+            kind: "acquisition_cost" | "financial_fact";
+            mapping: {
+                [key: string]: string;
+            };
+            /** @enum {unknown} */
+            mediaType: "text/csv" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         };
         FinanceImportOperation_FinanceImportRowError: {
             code: components["schemas"]["FinanceImportOperation_FinanceImportRowErrorCode"];
@@ -4760,11 +5908,75 @@ export interface components {
         FinancialCouncilRun_FinancialCouncilAttemptErrorCode: "MODEL_RATE_LIMITED" | "MODEL_TIMEOUT" | "MODEL_UNAVAILABLE" | "MODEL_AUTH_FAILED" | "MODEL_OUTPUT_INVALID" | "MODEL_POLICY_CONFLICT" | "MODEL_ERROR";
         /** @enum {unknown} */
         FinancialCouncilRun_FinancialCouncilCenterStatus: "not_connected" | "ready" | "running" | "waiting" | "completed" | "manual_review" | "model_error";
+        FinancialCouncilRun_FinancialCouncilCollaboration: {
+            currency: components["schemas"]["FinancialCouncilRun_currency"];
+            dataAsOf: components["schemas"]["FinancialCouncilRun_dateTime"];
+            events: components["schemas"]["FinancialCouncilRun_FinancialCouncilCollaborationEvent"][];
+            /** @constant */
+            executionMode: "sequential";
+            narrative: null | components["schemas"]["FinancialCouncilRun_FinancialCouncilNarrative"];
+            policyVersionId: components["schemas"]["FinancialCouncilRun_nonempty"];
+            report: components["schemas"]["FinancialCouncilRun_FinancialCouncilDetailedReport"];
+            /** @constant */
+            reviewRoundLimit: 1;
+            reviews: components["schemas"]["FinancialCouncilRun_FinancialCouncilCollaborationReview"][];
+            revision: components["schemas"]["FinancialCouncilRun_revision"];
+            roles: components["schemas"]["FinancialCouncilRun_FinancialCouncilCollaborationRole"][];
+            runId: components["schemas"]["FinancialCouncilRun_nonempty"];
+            snapshotHash: components["schemas"]["FinancialCouncilRun_hash"];
+            snapshotId: components["schemas"]["FinancialCouncilRun_nonempty"];
+            statementPackageId: components["schemas"]["FinancialCouncilRun_nonempty"];
+            workspaceId: components["schemas"]["FinancialCouncilRun_workspace"];
+        };
+        FinancialCouncilRun_FinancialCouncilCollaborationEvent: {
+            eventId: components["schemas"]["FinancialCouncilRun_nonempty"];
+            findingIds: string[];
+            message: string;
+            occurredAt: components["schemas"]["FinancialCouncilRun_dateTime"];
+            /** @enum {string} */
+            phase: "analysis" | "review" | "synthesis" | "run";
+            reasonCode: string | null;
+            role: null | components["schemas"]["FinancialCouncilRun_FinancialCouncilModelRole"];
+            /** @enum {string} */
+            state: "waiting" | "running" | "completed" | "missing_data" | "failed" | "degraded";
+        };
+        FinancialCouncilRun_FinancialCouncilCollaborationReview: {
+            findingId: string;
+            occurredAt: components["schemas"]["FinancialCouncilRun_dateTime"];
+            peerFindingId: string;
+            role: components["schemas"]["FinancialCouncilRun_FinancialCouncilModelRole"];
+            /** @constant */
+            round: 1;
+            /** @enum {string} */
+            state: "pending" | "upheld" | "revised" | "withdrawn";
+            summary: string;
+        };
+        FinancialCouncilRun_FinancialCouncilCollaborationRole: {
+            actions: components["schemas"]["FinancialCouncilRun_CandidateAction"][];
+            findings: components["schemas"]["FinancialCouncilRun_FinancialFinding"][];
+            message: string;
+            /** @enum {string} */
+            phase: "analysis" | "review" | "synthesis" | "run";
+            reasonCode: string | null;
+            role: components["schemas"]["FinancialCouncilRun_FinancialCouncilModelRole"];
+            /** @enum {string} */
+            state: "waiting" | "running" | "completed" | "missing_data" | "failed" | "degraded";
+            updatedAt: string | null;
+        };
         FinancialCouncilRun_FinancialCouncilCreateInput: {
             businessReport: components["schemas"]["FinancialCouncilRun_BusinessReportInput"];
             currency: components["schemas"]["FinancialCouncilRun_currency"];
             dataAsOf: components["schemas"]["FinancialCouncilRun_dateTime"];
             policyVersionId: components["schemas"]["FinancialCouncilRun_identifier"];
+        };
+        FinancialCouncilRun_FinancialCouncilDetailedReport: {
+            complete: boolean;
+            generatedAt: components["schemas"]["FinancialCouncilRun_dateTime"];
+            reportId: components["schemas"]["FinancialCouncilRun_nonempty"];
+            sections: components["schemas"]["FinancialCouncilRun_FinancialCouncilReportSection"][];
+            title: string;
+            /** @constant */
+            version: "financial-council-report.v1";
         };
         FinancialCouncilRun_FinancialCouncilDispatchPagedResult: {
             hasMore: boolean;
@@ -4839,6 +6051,14 @@ export interface components {
             profit: components["schemas"]["FinancialCouncilRun_FinancialCouncilModelRoleRoute"];
             tax: components["schemas"]["FinancialCouncilRun_FinancialCouncilModelRoleRoute"];
         };
+        FinancialCouncilRun_FinancialCouncilNarrative: {
+            minorityFindingIds: string[];
+            /** @enum {string} */
+            narrativeStatus: "model_valid" | "model_invalid" | "model_unavailable";
+            overallDiagnosis: string;
+            priorityFindingIds: string[];
+            riskNotes: string[];
+        };
         FinancialCouncilRun_FinancialCouncilPolicyInput: {
             actionCoefficientVersion: components["schemas"]["FinancialCouncilRun_nonempty"];
             balancedWeightsBps: components["schemas"]["FinancialCouncilRun_ObjectiveWeights"];
@@ -4892,6 +6112,16 @@ export interface components {
             portfolioRevision: components["schemas"]["FinancialCouncilRun_revision"];
             reason: components["schemas"]["FinancialCouncilRun_nonempty"];
         };
+        FinancialCouncilRun_FinancialCouncilReportSection: {
+            id: components["schemas"]["FinancialCouncilRun_nonempty"];
+            items: {
+                evidenceRefs: string[];
+                label: string;
+                value: string;
+            }[];
+            paragraphs: string[];
+            title: components["schemas"]["FinancialCouncilRun_nonempty"];
+        };
         FinancialCouncilRun_FinancialCouncilRunAgentView: {
             attempts: components["schemas"]["FinancialCouncilRun_FinancialCouncilModelAttemptView"][];
             /** @enum {unknown} */
@@ -4918,6 +6148,18 @@ export interface components {
         FinancialCouncilRun_FinancialCouncilRunEventPagedResult: {
             hasMore: boolean;
             items: components["schemas"]["FinancialCouncilRun_FinancialCouncilRunEvent"][];
+            nextAfter: string | null;
+        };
+        FinancialCouncilRun_FinancialCouncilRunHistory: {
+            hasMore: boolean;
+            items: {
+                createdAt: components["schemas"]["FinancialCouncilRun_dateTime"];
+                currency: components["schemas"]["FinancialCouncilRun_currency"];
+                dataAsOf: components["schemas"]["FinancialCouncilRun_dateTime"];
+                runId: components["schemas"]["FinancialCouncilRun_nonempty"];
+                status: components["schemas"]["FinancialCouncilRun_publicRunStatus"];
+                updatedAt: components["schemas"]["FinancialCouncilRun_dateTime"];
+            }[];
             nextAfter: string | null;
         };
         FinancialCouncilRun_FinancialFinding: {
@@ -5134,7 +6376,7 @@ export interface components {
         FinancialFact_positiveMoney: number;
         FinancialFact_workspace: string;
         /** @enum {unknown} */
-        GrowthBootstrapResponse_capability: "catalog.read" | "catalog.manage" | "pricing.sensitive.read" | "quote.draft.create" | "quote.confirm" | "quote.exception.discount.approve" | "quote.exception.margin.approve" | "quote.exception.payment_terms.approve" | "quote.exception.gift.approve" | "quote.exception.credit.approve" | "quote.exception.manual.approve" | "ledger.pending.create" | "ledger.verify" | "finance.council.run" | "finance.council.approve" | "finance.council.policy.manage" | "roi.close" | "growth.performance.team.read" | "growth.performance.workspace.read";
+        GrowthBootstrapResponse_capability: "catalog.read" | "catalog.manage" | "pricing.sensitive.read" | "quote.draft.create" | "quote.confirm" | "quote.exception.discount.approve" | "quote.exception.margin.approve" | "quote.exception.payment_terms.approve" | "quote.exception.gift.approve" | "quote.exception.credit.approve" | "quote.exception.manual.approve" | "ledger.pending.create" | "ledger.verify" | "finance.council.run" | "finance.council.approve" | "finance.council.policy.manage" | "roi.close" | "growth.performance.team.read" | "growth.performance.workspace.read" | "knowledge.read" | "knowledge.upload" | "knowledge.manage_own" | "acquisition.outreach.approve";
         GrowthBootstrapResponse_contractFields: {
             capabilities: components["schemas"]["GrowthBootstrapResponse_capability"][];
             capabilityRegistryVersion: string;
@@ -5482,7 +6724,52 @@ export interface components {
             dealId: components["schemas"]["QuoteCase_nonempty"];
         };
         QuoteCase_CommercialBindingSnapshot: {
-            attributionSnapshot: {
+            attributionSnapshot: ({
+                /** @constant */
+                attributionVersion: "acquisition-run.v1";
+                connectionId: string;
+                decisionSnapshotHash: string;
+                decisionVersion: string;
+                /** Format: date-time */
+                discoveredAt: string;
+                discoveredEventId: string;
+                evidenceIds: string[];
+                operationId: string;
+                planId: string;
+                planSnapshotHash: string;
+                planVersion: number;
+                planVersionId: string;
+                providerId: string;
+                providerIds: string[];
+                qualificationDecisionId: string;
+                queryIds: string[];
+                runId: string;
+                shardId: string;
+                strategyVersion: string;
+            } | {
+                /** @constant */
+                attributionVersion: "douyin-crawler.v1";
+                connectionId: null;
+                decisionSnapshotHash: string;
+                decisionVersion: string;
+                /** Format: date-time */
+                discoveredAt: string;
+                discoveredEventId: string;
+                evidenceIds: string[];
+                jobId: string;
+                operationId: null;
+                planId: string;
+                planSnapshotHash: string;
+                planVersion: number;
+                planVersionId: string;
+                providerId: null;
+                providerIds: string[];
+                qualificationDecisionId: string;
+                queryIds: string[];
+                runId: string;
+                shardId: null;
+                strategyVersion: string;
+            }) | ({
                 /** @constant */
                 attributionVersion: "acquisition-run.v1";
                 connectionId: string;
@@ -5510,7 +6797,36 @@ export interface components {
                 runId: string;
                 shardId: string;
                 strategyVersion: string;
-            };
+            } | {
+                /** @constant */
+                attributionVersion: "douyin-crawler.v1";
+                connectionId: null;
+                /** @enum {unknown} */
+                decisionEngine: "model" | "rules";
+                decisionSnapshotHash: string;
+                decisionVersion: string;
+                /** Format: date-time */
+                discoveredAt: string;
+                discoveredEventId: string;
+                evidenceIds: string[];
+                jobId: string;
+                model: string | null;
+                modelProvider: string | null;
+                operationId: null;
+                planId: string;
+                planSnapshotHash: string;
+                planVersion: number;
+                planVersionId: string;
+                promptVersion: string | null;
+                providerId: null;
+                providerIds: string[];
+                qualificationDecisionId: string;
+                queryIds: string[];
+                ruleVersion: string;
+                runId: string;
+                shardId: null;
+                strategyVersion: string;
+            });
             bindingHash: components["schemas"]["QuoteCase_hash"];
             bindingHashSchemaVersion: components["schemas"]["QuoteCase_nonempty"];
             candidateId: components["schemas"]["QuoteCase_nonempty"];
@@ -5523,9 +6839,49 @@ export interface components {
             leadId: components["schemas"]["QuoteCase_nullableId"];
             verifiedAt: components["schemas"]["QuoteCase_dateTime"];
         };
+        QuoteCase_CrmQuoteAssessmentInput: {
+            budgetConfirmed: boolean;
+            closeProbabilityBps: components["schemas"]["QuoteCase_bps"];
+            decisionMakerConfirmed: boolean;
+            demandConfirmed: boolean;
+            evidenceSummary: string;
+        };
+        QuoteCase_CrmQuoteAssessmentSnapshot: {
+            assessedAt: components["schemas"]["QuoteCase_dateTime"];
+            assessedBy: components["schemas"]["QuoteCase_nonempty"];
+            /** @constant */
+            assessmentVersion: "crm-quote-assessment.v1";
+            budgetConfirmed: boolean;
+            closeProbabilityBps: components["schemas"]["QuoteCase_bps"];
+            customerId: components["schemas"]["QuoteCase_nonempty"];
+            dealId: components["schemas"]["QuoteCase_nonempty"];
+            decisionMakerConfirmed: boolean;
+            demandConfirmed: boolean;
+            evidenceSummary: string;
+            inputSnapshotHash: components["schemas"]["QuoteCase_hash"];
+            /** @constant */
+            precision: "bps";
+            /** @constant */
+            sourceKind: "crm";
+            workspaceId: components["schemas"]["QuoteCase_workspaceId"];
+        };
+        QuoteCase_CrmQuoteAuthoritySnapshot: {
+            assessment: components["schemas"]["QuoteCase_CrmQuoteAssessmentSnapshot"];
+            bindingHash: components["schemas"]["QuoteCase_hash"];
+            /** @constant */
+            bindingHashSchemaVersion: "crm-quote-authority.v1";
+            customerId: components["schemas"]["QuoteCase_nonempty"];
+            dealContentHash: components["schemas"]["QuoteCase_hash"];
+            dealId: components["schemas"]["QuoteCase_nonempty"];
+            /** @constant */
+            sourceKind: "crm";
+            verifiedAt: components["schemas"]["QuoteCase_dateTime"];
+            workspaceId: components["schemas"]["QuoteCase_workspaceId"];
+        };
         QuoteCase_QuoteCaseCreateInput: {
             assignedTo: components["schemas"]["QuoteCase_nonempty"];
             candidateId?: components["schemas"]["QuoteCase_nullableId"];
+            crmAssessment?: components["schemas"]["QuoteCase_CrmQuoteAssessmentInput"];
             customerId?: components["schemas"]["QuoteCase_nullableId"];
             dealId?: components["schemas"]["QuoteCase_nullableId"];
         } | {
@@ -5535,6 +6891,7 @@ export interface components {
         } | {
             dealId: string;
         };
+        QuoteCase_QuoteCommercialAuthoritySnapshot: components["schemas"]["QuoteCase_CommercialBindingSnapshot"] | components["schemas"]["QuoteCase_CrmQuoteAuthoritySnapshot"];
         QuoteCase_QuoteDecisionInput: {
             reason: string;
         };
@@ -5664,7 +7021,7 @@ export interface components {
             paymentTerms: components["schemas"]["QuoteVersion_PaymentTerms"];
             previewIdentity: components["schemas"]["QuoteCase_QuotePreviewIdentity"];
             pricingPolicySnapshot: components["schemas"]["PricingPolicyVersion_FullProjection"];
-            probabilityAssessmentSnapshot: null | components["schemas"]["QuoteVersion_ProbabilityAssessmentSnapshot"];
+            probabilityAssessmentSnapshot: null | components["schemas"]["QuoteVersion_QuoteAssessmentSnapshot"];
             quoteCaseId: components["schemas"]["QuoteVersion_nonempty"];
             quotedAmountMinor: number;
             requiredSurchargeMinor: components["schemas"]["QuoteVersion_money"];
@@ -5700,6 +7057,7 @@ export interface components {
             qualificationDecisionVersion: components["schemas"]["QuoteVersion_nonempty"];
             ruleVersion: components["schemas"]["QuoteVersion_nonempty"];
         };
+        QuoteVersion_QuoteAssessmentSnapshot: components["schemas"]["QuoteVersion_ProbabilityAssessmentSnapshot"] | components["schemas"]["QuoteCase_CrmQuoteAssessmentSnapshot"];
         QuoteVersion_RedactedGiftItem: {
             catalogItemId: components["schemas"]["QuoteVersion_nonempty"];
             quantityMicros: number;
@@ -5724,7 +7082,7 @@ export interface components {
             netProductAmountMinor: components["schemas"]["QuoteVersion_money"];
             paymentTerms: components["schemas"]["QuoteVersion_PaymentTerms"];
             previewIdentity: components["schemas"]["QuoteCase_QuotePreviewIdentity"];
-            probabilityAssessmentSnapshot: null | components["schemas"]["QuoteVersion_ProbabilityAssessmentSnapshot"];
+            probabilityAssessmentSnapshot: null | components["schemas"]["QuoteVersion_QuoteAssessmentSnapshot"];
             quoteCaseId: components["schemas"]["QuoteVersion_nonempty"];
             quotedAmountMinor: number;
             requiredSurchargeMinor: components["schemas"]["QuoteVersion_money"];
@@ -9193,6 +10551,422 @@ export interface operations {
             };
         };
     };
+    askCfoConversation: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: components["parameters"]["optionalWorkspaceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CfoConversationAnswer_Input"];
+            };
+        };
+        responses: {
+            /** @description CFO answer with verified material provenance or null when no report is available */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CfoConversationAnswer"];
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listCfoSessions: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: components["parameters"]["optionalWorkspaceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recent conversations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CfoSession_Summary"][];
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createCfoSession: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: components["parameters"]["optionalWorkspaceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CfoSession_Create"];
+            };
+        };
+        responses: {
+            /** @description Empty conversation */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CfoSession"];
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getCfoSession: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: components["parameters"]["optionalWorkspaceHeader"];
+                "X-Shensi-Reference-Protocol"?: "system-v1";
+            };
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completed conversation turns */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CfoSession"];
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    askCfoSession: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: components["parameters"]["optionalWorkspaceHeader"];
+            };
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CfoSession_Ask"];
+            };
+        };
+        responses: {
+            /** @description Saved completed answer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CfoSession_Reply"];
+                    "application/x-ndjson": string;
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     getFinancialCouncilAgentCenter: {
         parameters: {
             query?: never;
@@ -9528,6 +11302,56 @@ export interface operations {
             };
         };
     };
+    listFinancialCouncilRunHistory: {
+        parameters: {
+            query?: {
+                after?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace-scoped most recent frozen council runs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinancialCouncilRun_FinancialCouncilRunHistory"];
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     createFinancialCouncilRun: {
         parameters: {
             query?: never;
@@ -9745,6 +11569,55 @@ export interface operations {
             };
         };
     };
+    getFinancialCouncilCollaboration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: components["parameters"]["runId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recoverable collaboration and detailed report for the frozen run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinancialCouncilRun_FinancialCouncilCollaboration"];
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     listFinancialCouncilDispatches: {
         parameters: {
             query?: never;
@@ -9788,7 +11661,10 @@ export interface operations {
     };
     listFinancialCouncilRunEvents: {
         parameters: {
-            query?: never;
+            query?: {
+                after?: string;
+                limit?: number;
+            };
             header?: never;
             path: {
                 runId: components["parameters"]["runId"];
@@ -10098,6 +11974,220 @@ export interface operations {
             };
             /** @description API error */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    clearFinanceChatAttachment: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": components["parameters"]["workspaceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinanceDocumentInspection_AttachmentClear"];
+            };
+        };
+        responses: {
+            /** @description Attachment removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    inspectFinanceDocument: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": components["parameters"]["workspaceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinanceDocumentInspection_Input"];
+            };
+        };
+        responses: {
+            /** @description Bounded original-source inspection and optional read-only model understanding; never a ledger commit */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinanceDocumentInspection"];
+                };
+            };
+            /** @description API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    clearFinanceDocumentSelection: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": components["parameters"]["workspaceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cleared this actor and workspace's read-only source; subsequent questions explicitly use documentId null for verified material */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10545,8 +12635,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
-                "text/csv": string;
+                "application/json": components["schemas"]["FinanceImportOperation_FinanceImportPreviewInput"];
             };
         };
         responses: {
@@ -10768,6 +12857,157 @@ export interface operations {
             };
             /** @description API error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listAgentWebResearchConnections: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["cursor"];
+                limit?: components["parameters"]["limit"];
+                sort?: components["parameters"]["sort"];
+            };
+            header: {
+                "X-Workspace-Id": components["parameters"]["workspaceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current actor's enabled real public-search connections, without credentials */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentWebResearch_Connections"];
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    runAgentWebResearch: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": components["parameters"]["workspaceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentWebResearch_Input"];
+            };
+        };
+        responses: {
+            /** @description Answer with provider-sourced URLs, retrieval times and validated citation IDs; not a full-page verification */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentWebResearch"];
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12675,3 +14915,6 @@ export interface operations {
         };
     };
 }
+type WithRequired<T, K extends keyof T> = T & {
+    [P in K]-?: T[P];
+};

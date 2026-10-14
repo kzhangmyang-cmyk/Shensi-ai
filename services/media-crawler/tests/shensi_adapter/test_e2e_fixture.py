@@ -16,9 +16,15 @@ def test_deterministic_fixture_uses_the_actual_private_service_contract(tmp_path
 
         login = client.post("/internal/v1/douyin/login-sessions", headers=headers).json()
         assert login["state"] == "awaiting_scan"
-        active = client.get(
-            f"/internal/v1/douyin/login-sessions/{login['session_id']}", headers=headers
-        ).json()
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            active = client.get(
+                f"/internal/v1/douyin/login-sessions/{login['session_id']}",
+                headers=headers,
+            ).json()
+            if active["state"] == "active":
+                break
+            time.sleep(0.01)
         assert active["state"] == "active"
         assert active["account_display_name"] == "Task 10 Deterministic Account"
 
@@ -42,6 +48,11 @@ def test_deterministic_fixture_uses_the_actual_private_service_contract(tmp_path
                 break
             time.sleep(0.01)
         assert status["state"] == "succeeded"
+        control_url = "/internal/v1/douyin/crawl-jobs/fixture-job-1/control/"
+        assert client.post(control_url + "pause").status_code == 401
+        assert client.post(control_url + "restart", headers=headers).status_code == 422
+        assert client.post(control_url + "resume", headers=headers).status_code == 409
+        assert client.post("/internal/v1/douyin/crawl-jobs/missing/control/stop", headers=headers).status_code == 404
         records = client.get("/internal/v1/douyin/crawl-jobs/fixture-job-1/results", headers=headers).json()["records"]
         assert [record["kind"] for record in records] == ["video", "creator", "comment"]
         assert all("cookie" not in json.dumps(record).lower() for record in records)

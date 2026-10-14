@@ -1,4 +1,5 @@
 import type mysql from "mysql2/promise";
+import { createHash } from "node:crypto";
 import type { OutcomeAttributionInput } from "./acquisition-domain.js";
 import type {
   AcquisitionCohort,
@@ -18,6 +19,8 @@ import {
 import type { CanonicalSubjectResolution } from "./acquisition-canonical-subject.js";
 import type { GrowthTemporalBarrier } from "./growth-temporal-barrier.js";
 import {
+  growthMysqlDate,
+  growthMysqlInstant,
   MysqlGrowthTemporalTransaction
 } from "./growth-temporal-barrier-mysql-repository.js";
 
@@ -66,6 +69,7 @@ export const ACQUISITION_COHORT_MYSQL_SCHEMA_STATEMENTS = Object.freeze([
     lease_expires_at DATETIME(3) NULL,
     fencing_token BIGINT UNSIGNED NOT NULL,
     error_code VARCHAR(64) NULL,
+    updated_at DATETIME(3) NOT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uk_cohort_catchup_request
       (workspace_id, authority_kind, request_identity_hash),
@@ -170,12 +174,12 @@ function cohort(row: MysqlRow): AcquisitionCohort {
     id: String(row.id),
     workspaceId: String(row.workspace_id),
     platform: String(row.platform),
-    cohortFrom: String(row.cohort_from),
-    cohortTo: String(row.cohort_to),
+    cohortFrom: growthMysqlInstant(row.cohort_from),
+    cohortTo: growthMysqlInstant(row.cohort_to),
     definitionVersion: String(row.definition_version),
     firstTouchRuleVersion: String(row.first_touch_rule_version),
     status: String(row.status) as AcquisitionCohort["status"],
-    createdAt: String(row.created_at),
+    createdAt: growthMysqlInstant(row.created_at),
     temporalSequence: Number(row.temporal_sequence),
     domainCommandHash: String(row.domain_command_hash) as `sha256:${string}`,
     requestHash: String(row.request_hash),
@@ -261,9 +265,10 @@ implements AcquisitionCohortRepository {
           created_at, temporal_sequence, domain_command_hash,
           request_hash, requested_by
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
-        [input.id, input.workspaceId, input.platform, input.cohortFrom,
-          input.cohortTo, input.definitionVersion,
-          input.firstTouchRuleVersion, stamp.recordedAt,
+        [input.id, input.workspaceId, input.platform,
+          growthMysqlDate(input.cohortFrom), growthMysqlDate(input.cohortTo),
+          input.definitionVersion, input.firstTouchRuleVersion,
+          growthMysqlDate(stamp.recordedAt),
           stamp.temporalSequence, input.domainCommandHash,
           input.requestHash, input.requestedBy]
       );
@@ -317,7 +322,8 @@ implements AcquisitionCohortRepository {
         [`subject-${input.resolution.subjectStableKey}`,
           input.cohort.workspaceId, input.cohort.platform,
           input.resolution.subjectStableKey,
-          input.resolution.canonicalProfileUrl, stamp.recordedAt]
+          input.resolution.canonicalProfileUrl,
+          growthMysqlDate(stamp.recordedAt)]
       );
       await connection.query(
         `INSERT INTO acquisition_cohort_membership_heads (
@@ -351,8 +357,8 @@ implements AcquisitionCohortRepository {
         const previous = (versionRows as MysqlRow[])[0];
         if (previous) {
           previousOrder = discoveryOrder({
-            discoveredAt: String(previous.discovered_at),
-            sourceRecordedAt: String(previous.source_recorded_at),
+            discoveredAt: growthMysqlInstant(previous.discovered_at),
+            sourceRecordedAt: growthMysqlInstant(previous.source_recorded_at),
             eventId: String(previous.event_id)
           });
           appendRevision = Number(previous.append_revision);
@@ -394,11 +400,12 @@ implements AcquisitionCohortRepository {
             input.cohort.platform, input.resolution.subjectStableKey,
             input.cohort.id, (appendRevision) + 1, input.event.eventId,
             input.event.candidateId, input.event.planId, input.event.runId,
-            input.event.discoveredAt, input.event.sourceRecordedAt,
+            growthMysqlDate(input.event.discoveredAt),
+            growthMysqlDate(input.event.sourceRecordedAt),
             input.event.sourceTemporalSequence,
             JSON.stringify(input.event.attribution),
             becameHead ? 1 : 0, previousHeadVersionId,
-            stamp.recordedAt, stamp.temporalSequence]
+            growthMysqlDate(stamp.recordedAt), stamp.temporalSequence]
         );
         await connection.query(
           `INSERT INTO acquisition_cohort_membership_heads (
@@ -432,10 +439,11 @@ implements AcquisitionCohortRepository {
           input.cohort.platform, input.resolution.subjectStableKey,
           input.cohort.id, appendRevision + 1, input.event.eventId,
           input.event.candidateId, input.event.planId, input.event.runId,
-          input.event.discoveredAt, input.event.sourceRecordedAt,
+          growthMysqlDate(input.event.discoveredAt),
+          growthMysqlDate(input.event.sourceRecordedAt),
           input.event.sourceTemporalSequence,
           JSON.stringify(input.event.attribution),
-          stamp.recordedAt, stamp.temporalSequence]
+          growthMysqlDate(stamp.recordedAt), stamp.temporalSequence]
       );
       await this.appendSource(connection, memberId, input.event, stamp);
       await connection.commit();
@@ -461,8 +469,9 @@ implements AcquisitionCohortRepository {
         projection_recorded_at, projection_temporal_sequence
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [memberId, event.eventId, event.candidateId, event.evidenceId,
-        event.ownerId, event.discoveredAt, event.sourceRecordedAt,
-        event.sourceTemporalSequence, stamp.recordedAt,
+        event.ownerId, growthMysqlDate(event.discoveredAt),
+        growthMysqlDate(event.sourceRecordedAt), event.sourceTemporalSequence,
+        growthMysqlDate(stamp.recordedAt),
         stamp.temporalSequence]
     );
   }
@@ -487,14 +496,16 @@ implements AcquisitionCohortRepository {
          AND CONCAT_WS('\u0000', v.discovered_at, v.source_recorded_at,
            v.event_id) = best.min_order
        WHERE v.workspace_id = ? AND v.cohort_id = ?`,
-      [workspaceId, cutoff.effectiveAsOf, workspaceId, cohortId]
+      [workspaceId, growthMysqlDate(cutoff.effectiveAsOf), workspaceId, cohortId]
     );
     return Promise.all((rows as MysqlRow[]).map(async (row) => {
+      const attributionSnapshot = (typeof row.attribution_snapshot === "string"
+        ? JSON.parse(row.attribution_snapshot) : row.attribution_snapshot) as OutcomeAttributionInput;
       const [sourceRows] = await this.pool.query(
         `SELECT * FROM acquisition_cohort_member_sources
          WHERE cohort_member_id = ? AND source_recorded_at <= ?
          ORDER BY source_recorded_at ASC, event_id ASC`,
-        [String(row.cohort_member_id), cutoff.effectiveAsOf]
+        [String(row.cohort_member_id), growthMysqlDate(cutoff.effectiveAsOf)]
       );
       return {
         id: String(row.cohort_member_id),
@@ -505,18 +516,16 @@ implements AcquisitionCohortRepository {
         subjectStableKey: String(row.subject_stable_key),
         primaryCandidateId: String(row.candidate_id),
         firstEventId: String(row.event_id),
-        firstDiscoveredAt: String(row.discovered_at),
-        firstSourceRecordedAt: String(row.source_recorded_at),
+        firstDiscoveredAt: growthMysqlInstant(row.discovered_at),
+        firstSourceRecordedAt: growthMysqlInstant(row.source_recorded_at),
         firstSourceTemporalSequence: Number(row.source_temporal_sequence),
         firstPlanId: String(row.plan_id),
         firstRunId: String(row.run_id),
-        firstShardId: String(row.attribution_snapshot),
-        attributionSnapshot: JSON.parse(
-          String(row.attribution_snapshot)
-        ) as OutcomeAttributionInput,
+        firstShardId: attributionSnapshot.shardId,
+        attributionSnapshot,
         ownershipVersionId: String(row.id),
         appendRevision: Number(row.append_revision),
-        projectionRecordedAt: String(row.projection_recorded_at),
+        projectionRecordedAt: growthMysqlInstant(row.projection_recorded_at),
         projectionTemporalSequence: Number(
           row.projection_temporal_sequence
         ),
@@ -527,10 +536,12 @@ implements AcquisitionCohortRepository {
           evidenceId: source.evidence_id === null
             ? null : String(source.evidence_id),
           ownerId: String(source.owner_id),
-          discoveredAt: String(source.discovered_at),
-          sourceRecordedAt: String(source.source_recorded_at),
+          discoveredAt: growthMysqlInstant(source.discovered_at),
+          sourceRecordedAt: growthMysqlInstant(source.source_recorded_at),
           sourceTemporalSequence: Number(source.source_temporal_sequence),
-          projectionRecordedAt: String(source.projection_recorded_at),
+          projectionRecordedAt: growthMysqlInstant(
+            source.projection_recorded_at
+          ),
           projectionTemporalSequence: Number(
             source.projection_temporal_sequence
           )
@@ -559,8 +570,8 @@ implements AcquisitionCohortRepository {
       candidateId: String(row.candidate_id),
       planId: String(row.plan_id),
       runId: String(row.run_id),
-      discoveredAt: String(row.discovered_at),
-      sourceRecordedAt: String(row.source_recorded_at),
+      discoveredAt: growthMysqlInstant(row.discovered_at),
+      sourceRecordedAt: growthMysqlInstant(row.source_recorded_at),
       sourceTemporalSequence: Number(row.source_temporal_sequence),
       attributionSnapshot: JSON.parse(
         String(row.attribution_snapshot)
@@ -568,7 +579,7 @@ implements AcquisitionCohortRepository {
       becameHead: Boolean(row.became_head),
       previousHeadVersionId: row.previous_head_version_id === null
         ? null : String(row.previous_head_version_id),
-      projectionRecordedAt: String(row.projection_recorded_at),
+      projectionRecordedAt: growthMysqlInstant(row.projection_recorded_at),
       projectionTemporalSequence: Number(
         row.projection_temporal_sequence
       )
@@ -592,10 +603,10 @@ implements AcquisitionCohortRepository {
       candidateId: String(row.candidate_id),
       evidenceId: row.evidence_id === null ? null : String(row.evidence_id),
       ownerId: String(row.owner_id),
-      discoveredAt: String(row.discovered_at),
-      sourceRecordedAt: String(row.source_recorded_at),
+      discoveredAt: growthMysqlInstant(row.discovered_at),
+      sourceRecordedAt: growthMysqlInstant(row.source_recorded_at),
       sourceTemporalSequence: Number(row.source_temporal_sequence),
-      projectionRecordedAt: String(row.projection_recorded_at),
+      projectionRecordedAt: growthMysqlInstant(row.projection_recorded_at),
       projectionTemporalSequence: Number(
         row.projection_temporal_sequence
       )
@@ -611,9 +622,9 @@ implements AcquisitionCohortRepository {
     parentClosureOperationId: string | null;
     requestIdentity: string;
   }): Promise<AcquisitionCohortCatchUpOperation> {
-    const requestIdentityHash = `sha256:${Buffer.from(
-      input.requestIdentity
-    ).toString("hex")}`;
+    const requestIdentityHash = `sha256:${createHash("sha256")
+      .update(input.requestIdentity)
+      .digest("hex")}`;
     const [rows] = await this.pool.query(
       `SELECT * FROM acquisition_cohort_catch_up_operations
        WHERE workspace_id = ? AND authority_kind = ?
@@ -630,10 +641,11 @@ implements AcquisitionCohortRepository {
         parent_closure_operation_id, request_identity_hash, status,
         fencing_token, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?)`,
-      [id, input.workspaceId, input.cohortId, input.cutoff.effectiveAsOf,
+      [id, input.workspaceId, input.cohortId,
+        growthMysqlDate(input.cutoff.effectiveAsOf),
         input.cutoff.temporalSequence, input.requestedBy,
         input.authorityKind, input.parentClosureOperationId,
-        requestIdentityHash, input.cutoff.effectiveAsOf]
+        requestIdentityHash, growthMysqlDate(input.cutoff.effectiveAsOf)]
     );
     return (await this.catchUpOperationById(id))!;
   }
@@ -652,8 +664,9 @@ implements AcquisitionCohortRepository {
        WHERE id = ? AND (status = 'queued'
          OR (status = 'running' AND lease_expires_at IS NOT NULL
            AND lease_expires_at <= ?))`,
-      [workerId, new Date(Date.parse(now) + leaseDurationMs).toISOString(),
-        now, operationId, now]
+      [workerId,
+        growthMysqlDate(new Date(Date.parse(now) + leaseDurationMs).toISOString()),
+        growthMysqlDate(now), operationId, growthMysqlDate(now)]
     );
     if (Number((result as { affectedRows?: unknown }).affectedRows ?? 0) !== 1) {
       return null;
@@ -681,8 +694,11 @@ implements AcquisitionCohortRepository {
        SET checkpoint_source_recorded_at = ?,
          checkpoint_event_id = ?, updated_at = ?
        WHERE id = ?`,
-      [checkpoint?.sourceRecordedAt ?? null, checkpoint?.eventId ?? null,
-        lease.leaseExpiresAt, operationId]
+      [checkpoint?.sourceRecordedAt
+        ? growthMysqlDate(checkpoint.sourceRecordedAt) : null,
+        checkpoint?.eventId ?? null,
+        lease.leaseExpiresAt ? growthMysqlDate(lease.leaseExpiresAt) : null,
+        operationId]
     );
   }
 
@@ -697,7 +713,8 @@ implements AcquisitionCohortRepository {
        SET lease_expires_at = ?, updated_at = ?
        WHERE id = ? AND lease_owner = ? AND fencing_token = ?
          AND status = 'running'`,
-      [new Date(Date.parse(now) + leaseDurationMs).toISOString(), now,
+      [growthMysqlDate(new Date(Date.parse(now) + leaseDurationMs).toISOString()),
+        growthMysqlDate(now),
         lease.id, lease.leaseOwner, lease.fencingToken]
     );
   }
@@ -722,7 +739,8 @@ implements AcquisitionCohortRepository {
        SET status = 'succeeded', lease_owner = NULL,
          lease_expires_at = NULL, updated_at = ?
        WHERE id = ?`,
-      [lease.leaseExpiresAt, operationId]
+      [lease.leaseExpiresAt ? growthMysqlDate(lease.leaseExpiresAt) : null,
+        operationId]
     );
     void result;
   }
@@ -743,7 +761,7 @@ implements AcquisitionCohortRepository {
       id: String(row.id),
       workspaceId: String(row.workspace_id),
       cohortId: String(row.cohort_id),
-      cutoffEffectiveAsOf: String(row.cutoff_effective_as_of),
+      cutoffEffectiveAsOf: growthMysqlInstant(row.cutoff_effective_as_of),
       initialCutoffTemporalSequence: Number(
         row.initial_cutoff_temporal_sequence
       ),
@@ -759,12 +777,14 @@ implements AcquisitionCohortRepository {
       checkpoint: row.checkpoint_source_recorded_at === null
         ? null
         : {
-            sourceRecordedAt: String(row.checkpoint_source_recorded_at),
+            sourceRecordedAt: growthMysqlInstant(
+              row.checkpoint_source_recorded_at
+            ),
             eventId: String(row.checkpoint_event_id)
           },
       leaseOwner: row.lease_owner === null ? null : String(row.lease_owner),
       leaseExpiresAt: row.lease_expires_at === null
-        ? null : String(row.lease_expires_at),
+        ? null : growthMysqlInstant(row.lease_expires_at),
       fencingToken: Number(row.fencing_token),
       errorCode: row.error_code === null
         ? null

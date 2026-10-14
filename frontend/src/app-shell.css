@@ -3,319 +3,319 @@
     "Microsoft YaHei", sans-serif;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-html {
-  min-width: 320px;
-  min-height: 100%;
-  background: #020303;
-}
-
-body {
-  min-width: 320px;
-  min-height: 100vh;
-  margin: 0;
-  background: #020303;
-}
-
-button,
-input {
-  font: inherit;
-}
+* { box-sizing: border-box; }
+html { min-width: 320px; min-height: 100%; background: var(--appearance-bg-surface, #020303); }
+body { min-width: 320px; min-height: 100vh; margin: 0; background: var(--appearance-bg-surface, #020303); }
+button, input { font: inherit; }
 
 .login-screen {
   position: fixed;
   inset: 0;
   z-index: 100;
   display: grid;
-  grid-template-columns: minmax(0, 1.16fr) minmax(360px, 0.84fr);
+  grid-template-columns: minmax(0, 58.5fr) minmax(0, 41.5fr);
   min-height: 100dvh;
   overflow-y: auto;
-  color: #f4f7f4;
-  background:
-    radial-gradient(circle at 18% 18%, rgba(121, 255, 152, 0.08), transparent 28%),
-    radial-gradient(circle at 82% 78%, rgba(57, 217, 103, 0.05), transparent 24%),
-    #050806;
+  color: var(--appearance-text-primary, #f1f3f0);
+  background: var(--appearance-bg-surface, #020303);
 }
-
-body.is-authenticated .login-screen {
-  display: none;
-}
+body.is-authenticated .login-screen { display: none; }
 
 .shensi-login-story {
   position: relative;
-  display: grid;
-  align-content: center;
-  justify-items: start;
-  padding: clamp(48px, 7vw, 112px);
+  display: flex;
+  flex-direction: column;
+  min-height: max(680px, 100dvh);
+  padding: 54px clamp(40px, 6.6vw, 108px) 38px;
+  overflow: hidden;
 }
-
-.shensi-login-story::after {
-  position: absolute;
-  top: 13%;
-  right: 8%;
-  width: 104px;
-  height: 104px;
-  border: 1px solid rgba(121, 255, 152, 0.12);
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 24px rgba(121, 255, 152, 0.018);
-  content: "";
-  pointer-events: none;
-}
-
 .shensi-login-brand {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-bottom: clamp(56px, 8vh, 88px);
-  color: #f4f7f4;
+  align-self: flex-start;
+  gap: 15px;
+  color: var(--appearance-text-primary, #f1f3f0);
   text-decoration: none;
 }
-
-.shensi-login-mark {
-  display: grid;
-  width: 46px;
-  height: 46px;
-  place-items: center;
-  border: 1px solid rgba(121, 255, 152, 0.28);
-  border-radius: 16px;
-  background: #0d1510;
-  color: #79ff98;
-  font-weight: 800;
-  font-size: 20px;
-}
-
+.shensi-login-mark { display: block; width: 48px; height: 46px; flex: 0 0 48px; }
 .shensi-login-brand > span:last-child,
 .shensi-login-brand strong,
-.shensi-login-brand small {
-  display: block;
-}
+.shensi-login-brand small { display: block; }
+.shensi-login-brand strong { font-size: 26px; line-height: 1.15; letter-spacing: .15em; font-weight: 680; }
+.shensi-login-brand small { margin-top: 6px; color: var(--appearance-text-secondary, #b0bcb7); font-size: 10px; line-height: 1; letter-spacing: .42em; }
 
-.shensi-login-brand strong {
-  font-size: 17px;
-  letter-spacing: 0.02em;
+.shensi-login-art {
+  position: absolute;
+  top: 92px;
+  left: 0;
+  width: 100%;
+  height: calc(100% - 285px);
+  min-height: 330px;
+  max-height: 560px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
 }
-
-.shensi-login-brand small {
-  margin-top: 4px;
-  color: #8e9b91;
-  font-size: 11px;
-  letter-spacing: 0.08em;
+.shensi-login-light-art { display: none; }
+.shensi-login .login-theme-toggle {
+  position: absolute; top: 0; right: 32px; width: auto; min-height: 40px;
+  padding: 8px 14px; margin: 0; border: 1px solid var(--appearance-border, #35483d);
+  background: transparent; color: var(--appearance-text-secondary, #a5b3ab);
+  font-size: 12px; font-weight: 500;
 }
-
-.shensi-login-kicker,
-.shensi-login-eyebrow {
-  margin: 0;
-  color: #79ff98;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-}
-
-.shensi-login-story h1 {
-  max-width: 680px;
-  margin: 20px 0 22px;
-  color: #f4f7f4;
-  font-size: clamp(38px, 3.5vw, 52px);
+.shensi-login .login-theme-toggle:hover:not(:disabled) { background: var(--appearance-bg-raised, #18201c); }
+.shensi-login-intro { position: relative; z-index: 1; margin-top: auto; padding-top: 370px; }
+.shensi-login-intro h1 {
+  margin: 0 0 14px;
+  font-size: clamp(30px, 3.3vw, 48px);
   font-weight: 650;
-  letter-spacing: -0.045em;
-  line-height: 1.12;
+  letter-spacing: -.03em;
+  line-height: 1.25;
 }
-
-.shensi-login-story > p:not(.shensi-login-kicker) {
-  max-width: 600px;
-  margin: 0;
-  color: #aab5ac;
-  font-size: 15px;
-  line-height: 1.8;
-}
-
+.shensi-login-intro > p { margin: 0; color: var(--appearance-text-secondary, #acb7b2); font-size: clamp(14px, 1.65vw, 22px); line-height: 1.65; }
 .shensi-login-capabilities {
-  display: grid;
-  grid-template-columns: repeat(4, auto);
+  display: flex;
+  flex-wrap: wrap;
   gap: 0;
-  margin: 38px 0 0;
+  margin: 28px 0 0;
   padding: 0;
-  color: #d8dfd9;
   list-style: none;
+  color: var(--appearance-text-secondary, #a4b0aa);
+  font-size: 16px;
 }
-
-.shensi-login-capabilities li {
-  padding: 0 18px;
-  border-left: 1px solid rgba(121, 255, 152, 0.18);
-  font-size: 12px;
-  letter-spacing: 0.04em;
+.shensi-login-capabilities li + li::before { content: "·"; margin: 0 18px; color: var(--appearance-text-secondary, #58675f); }
+.shensi-login-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin: 72px 0 0;
+  color: var(--appearance-text-secondary, #85968b);
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: .1em;
 }
-
-.shensi-login-capabilities li:first-child {
-  padding-left: 0;
-  border-left: 0;
-}
+.shensi-login-footer::before { content: ""; width: 28px; border-top: 1px solid var(--appearance-accent-border, #9bcab0); }
 
 .shensi-login-panel {
-  align-self: center;
-  width: min(430px, calc(100% - 56px));
-  margin: 28px 28px 28px auto;
-  padding: clamp(30px, 4vw, 44px);
-  border: 1px solid rgba(120, 255, 154, 0.16);
-  border-radius: 16px;
-  background: rgba(13, 18, 15, 0.92);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.035),
-    0 28px 80px rgba(1, 5, 2, 0.42);
-  color: #f4f7f4;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  margin: 54px 0 20px;
+  padding: 36px clamp(32px, 5.5vw, 72px);
+  border-left: 1px solid var(--appearance-border, #19332a);
 }
-
-.shensi-login-panel h2 {
-  margin: 14px 0 10px;
-  color: #f4f7f4;
-  font-size: 28px;
-  letter-spacing: -0.025em;
-}
-
-.shensi-login-panel form > p:not(.shensi-login-eyebrow, .login-error) {
-  margin: 0 0 28px;
-  color: #9eaaa0;
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.login-field {
-  display: grid;
-  gap: 9px;
-  margin-bottom: 18px;
-}
-
-.login-field span {
-  color: #cad4cc;
-  font-size: 12px;
-  font-weight: 700;
-}
-
+.shensi-login-panel form { width: 100%; max-width: 424px; }
+.shensi-login-eyebrow { margin: 0; color: var(--appearance-accent-text, #45f391); font-size: 12px; font-weight: 600; line-height: 1.5; letter-spacing: .3em; }
+.shensi-login-panel h2 { margin: 16px 0 10px; font-size: 36px; font-weight: 650; letter-spacing: -.025em; line-height: 1.3; }
+.shensi-login-panel form > p:not(.shensi-login-eyebrow, .login-error) { margin: 0 0 32px; color: var(--appearance-text-secondary, #a3afa8); font-size: 16px; line-height: 1.7; }
+.login-field { display: grid; gap: 10px; margin-bottom: 24px; }
+.login-field span { color: var(--appearance-text-primary, #d8dfda); font-size: 13px; font-weight: 500; }
 .login-field input {
   width: 100%;
-  min-height: 48px;
-  padding: 0 14px;
-  border: 1px solid rgba(244, 247, 244, 0.14);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #f4f7f4;
-  caret-color: #79ff98;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid var(--appearance-border, #35413c);
+  border-radius: 9px;
+  background: var(--appearance-bg-surface, #0c1210);
+  color: var(--appearance-text-primary, #f1f3f0);
+  font-size: 15px;
+  caret-color: #18ed78;
+  transition: border-color 140ms ease, background 140ms ease;
 }
-
-.shensi-login :focus-visible {
-  outline: 3px solid rgba(121, 255, 152, 0.74);
-  outline-offset: 3px;
-}
-
+.login-field input::placeholder { color: var(--appearance-text-secondary, #78857e); opacity: 1; }
+.login-field input:hover { border-color: var(--appearance-border, #61796b); }
+.login-field input:focus { border-color: var(--appearance-accent-border, #18ed78); background: var(--appearance-bg-surface, #101a14); }
+.shensi-login :focus-visible { outline: 2px solid var(--appearance-accent-border, #18ed78); outline-offset: 3px; }
 .shensi-login button {
   width: 100%;
-  min-height: 46px;
-  margin-top: 4px;
+  min-height: 48px;
+  margin-top: 3px;
   border: 0;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #79ff98, #39d967);
-  box-shadow: 0 12px 32px rgba(57, 217, 103, 0.16);
-  color: #06200d;
+  border-radius: 9px;
+  background: var(--appearance-accent-solid, #29ef83);
+  color: var(--appearance-on-accent, #051a0d);
   cursor: pointer;
-  font-weight: 800;
-  transition: transform 140ms ease, filter 140ms ease;
+  font-size: 15px;
+  font-weight: 650;
+  transition: transform 140ms ease, background 140ms ease;
 }
-
-.shensi-login button:hover:not(:disabled) {
-  filter: brightness(1.05);
-}
-
-.shensi-login button:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.shensi-login button:disabled {
-  cursor: wait;
-  filter: saturate(0.45) brightness(0.72);
-}
-
+.shensi-login button:hover:not(:disabled) { background: var(--appearance-accent-solid, #55f39d); }
+.shensi-login button:active:not(:disabled) { transform: translateY(1px); }
+.shensi-login button:disabled { cursor: wait; opacity: .6; }
 .shensi-login .login-mode-toggle {
   min-height: 36px;
-  margin-top: 6px;
+  margin-top: 8px;
   padding: 6px;
-  border-radius: 10px;
+  border-radius: 6px;
   background: transparent;
-  box-shadow: none;
-  color: #9eaaa0;
+  color: var(--appearance-accent-text, #78d9a3);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 500;
 }
+.shensi-login .login-mode-toggle:hover:not(:disabled) { background: transparent; color: var(--appearance-accent-text, #b2f5ce); }
+.shensi-login .login-mode-toggle[hidden] { display: none; }
+.login-error { min-height: 18px; margin: 10px 0 0; color: var(--appearance-danger-text, #ff9e9e); font-size: 12px; line-height: 1.55; }
 
-.shensi-login .login-mode-toggle:hover:not(:disabled) {
-  color: #79ff98;
-  filter: none;
+@media (min-width: 1600px) {
+  .shensi-login-story { padding-top: 64px; padding-bottom: 52px; }
+  .shensi-login-intro { padding-top: 440px; }
+  .shensi-login-art { top: 112px; }
+  .shensi-login-footer { margin-top: 72px; }
 }
-
-.shensi-login .login-mode-toggle[hidden] {
-  display: none;
+@media (max-width: 1050px) and (min-width: 761px) {
+  .shensi-login-story { padding-inline: 38px; }
+  .shensi-login-panel { padding-inline: 30px; }
+  .shensi-login-intro h1 { font-size: 30px; }
+  .shensi-login-capabilities li + li::before { margin-inline: 10px; }
 }
-
-.login-error {
-  min-height: 20px;
-  margin: 12px 0 0;
-  color: #ff9e9e;
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .shensi-login-panel {
-    background: #0d120f;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .shensi-login button {
-    transition: none;
-  }
-}
-
 @media (max-width: 760px) {
-  .login-screen {
-    grid-template-columns: 1fr;
-    overflow: auto;
-  }
+  .login-screen { grid-template-columns: 1fr; align-content: start; }
+  .shensi-login-story { min-height: 0; padding: 30px 26px 24px; overflow: visible; }
+  .shensi-login-brand { gap: 12px; }
+  .shensi-login-mark { width: 38px; height: 36px; flex-basis: 38px; }
+  .shensi-login-brand strong { font-size: 22px; }
+  .shensi-login-brand small { font-size: 9px; margin-top: 4px; }
+  .shensi-login-art, .shensi-login-capabilities, .shensi-login-footer { display: none; }
+  .shensi-login-intro { padding-top: 26px; }
+  .shensi-login-intro h1 { font-size: 26px; margin-bottom: 10px; }
+  .shensi-login-intro > p { font-size: 13px; }
+  .shensi-login-panel { margin: 0 26px 30px; padding: 26px 0 0; border-left: 0; border-top: 1px solid var(--appearance-border, #19332a); }
+  .shensi-login-panel form { max-width: none; }
+  .shensi-login-panel h2 { font-size: 28px; margin-top: 10px; }
+  .shensi-login-panel form > p:not(.shensi-login-eyebrow, .login-error) { margin-bottom: 24px; font-size: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shensi-login button, .login-field input { transition: none; }
+}
 
-  .shensi-login-story {
-    padding: 32px 22px 12px;
-  }
+/* The light login is a complete blue/white composition, including brand artwork. */
+html[data-theme="light"] .shensi-login {
+  grid-template-columns: minmax(0, 55fr) minmax(0, 45fr);
+  padding: 24px; gap: 24px; background: #fff;
+}
+html[data-theme="light"] .shensi-login-story {
+  min-height: max(660px, calc(100dvh - 48px));
+  padding: 40px clamp(32px, 4.5vw, 76px) 32px;
+  border: 1px solid #e1ebf8; border-radius: 28px;
+  color: #17365e;
+  background: radial-gradient(ellipse at 54% 38%, #ffffff 0%, #e8f3ff 48%, #f3f7fd 85%);
+}
+html[data-theme="light"] .shensi-login-brand { color: #17365e; }
+html[data-theme="light"] .shensi-login-brand small { color: #526d90; }
+html[data-theme="light"] .shensi-login-mark image { filter: url(#login-brand-on-light); }
+html[data-theme="light"] .shensi-login-art { display: none; }
+html[data-theme="light"] .shensi-login-light-art {
+  display: grid; place-items: center; position: absolute;
+  width: clamp(260px, 29vw, 420px); aspect-ratio: 1;
+  top: 120px; left: 50%; transform: translateX(-50%); pointer-events: none;
+}
+.login-orbit { position: absolute; border: 1px solid #9bbde04d; border-radius: 50%; }
+.login-orbit-outer { inset: 0; }
+.login-orbit-inner { inset: 10%; border-style: dashed; border-color: #a9c8e66b; }
+.login-brand-disc {
+  width: 66%; aspect-ratio: 1; display: grid; place-items: center; border-radius: 50%;
+  background: linear-gradient(145deg, #ffffffed, #d5e9feab);
+  border: 1px solid #fff; box-shadow: 0 24px 48px #23599a14, inset 0 2px 6px #fff;
+  transform: rotate(-8deg);
+}
+.login-brand-disc svg { width: 64%; height: 64%; overflow: hidden; transform: rotate(8deg); }
+.login-orbit-node {
+  position: absolute; width: 13px; height: 13px; border-radius: 50%;
+  background: linear-gradient(135deg, #a4d5ff, #2864ce); border: 2px solid #fff;
+  box-shadow: 0 4px 12px #175cd326;
+}
+.login-orbit-node-one { top: 3%; left: 29%; }
+.login-orbit-node-two { right: 2%; top: 60%; width: 18px; height: 18px; }
+.login-orbit-node-three { left: 15%; bottom: 11%; width: 9px; height: 9px; }
+html[data-theme="light"] .shensi-login-intro { padding-top: clamp(340px, 31vw, 430px); }
+html[data-theme="light"] .shensi-login-intro h1 { color: #17365e; font-size: clamp(28px, 2.6vw, 42px); letter-spacing: -.035em; }
+html[data-theme="light"] .shensi-login-intro > p { color: #526d90; font-size: clamp(14px, 1.25vw, 18px); }
+html[data-theme="light"] .shensi-login-capabilities { color: #3d608a; font-size: 13px; margin-top: 22px; }
+html[data-theme="light"] .shensi-login-capabilities li + li::before { color: #90accd; margin-inline: 14px; }
+html[data-theme="light"] .shensi-login-footer { color: #526d90; margin-top: 40px; font-size: 11px; letter-spacing: .04em; }
+html[data-theme="light"] .shensi-login-panel { border: 0; margin: 16px 0; padding: 72px clamp(24px, 4vw, 64px); }
+html[data-theme="light"] .shensi-login-panel form { max-width: 390px; }
+html[data-theme="light"] .shensi-login-panel h2 { font-size: 34px; color: #142d50; margin-top: 14px; }
+html[data-theme="light"] .shensi-login-panel .login-field { margin-bottom: 22px; }
+html[data-theme="light"] .login-field input { min-height: 52px; background: #f8fafd; border-color: #d6e1ef; caret-color: #175cd3; }
+html[data-theme="light"] .login-field input:hover { border-color: #9bb6dc; }
+html[data-theme="light"] .login-field input:focus { background: #fff; border-color: #175cd3; outline-color: #9cbef4; }
+html[data-theme="light"] .shensi-login #loginButton { min-height: 52px; box-shadow: 0 5px 12px #175cd318; }
+html[data-theme="light"] .shensi-login #loginButton:hover:not(:disabled) { background: #124caf; }
+html[data-theme="light"] .shensi-login .login-mode-toggle { font-size: 13px; min-height: 44px; }
+@media (max-width: 1050px) and (min-width: 761px) {
+  html[data-theme="light"] .shensi-login { padding: 16px; gap: 8px; }
+  html[data-theme="light"] .shensi-login-story { padding-inline: 28px; }
+  html[data-theme="light"] .shensi-login-panel { padding-inline: 20px; }
+  html[data-theme="light"] .shensi-login-intro h1 { font-size: 28px; }
+}
+@media (max-width: 760px) {
+  .shensi-login .login-theme-toggle { top: 18px; right: 24px; }
+  .shensi-login-panel { padding-top: 80px; }
+  html[data-theme="light"] .shensi-login { grid-template-columns: 1fr; padding: 16px; gap: 0; }
+  html[data-theme="light"] .shensi-login-story { min-height: 0; padding: 26px 24px; border-radius: 20px; }
+  html[data-theme="light"] .shensi-login-light-art { display: none; }
+  html[data-theme="light"] .shensi-login-intro { padding-top: 32px; }
+  html[data-theme="light"] .shensi-login-intro h1 { font-size: 27px; }
+  html[data-theme="light"] .shensi-login-panel { margin: 0; padding: 80px 20px 24px; }
+  html[data-theme="light"] .shensi-login-panel form { max-width: 440px; }
+  html[data-theme="light"] .shensi-login-footer { display: none; }
+}
 
-  .shensi-login-story::after {
-    display: none;
-  }
-
-  .shensi-login-brand {
-    margin-bottom: 48px;
-  }
-
-  .shensi-login-story h1 {
-    margin-top: 16px;
-    font-size: clamp(30px, 9vw, 38px);
-  }
-
-  .shensi-login-capabilities {
-    grid-template-columns: repeat(2, 1fr);
-    row-gap: 14px;
-    width: 100%;
-    margin-top: 28px;
-  }
-
-  .shensi-login-capabilities li:nth-child(odd) {
-    padding-left: 0;
-    border-left: 0;
-  }
-
-  .shensi-login-panel {
-    width: auto;
-    margin: 12px 16px 28px;
-    padding: 28px 22px;
-  }
+/* Forms backed by the existing CRM and catalog commands. */
+.real-private-editor, .catalog-editor {
+  margin-block: 14px;
+  padding: 18px;
+  border: 1px solid var(--replica-border, #293c33);
+  border-radius: 12px;
+  background: var(--replica-panel, #101914);
+}
+:is(.real-private-editor, .catalog-editor) fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+  margin: 12px 0;
+  padding: 0;
+  border: 0;
+}
+:is(.real-private-editor, .catalog-editor) label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--appearance-text-primary, #c3d0c8);
+}
+:is(.real-private-editor, .catalog-editor) :is(input, select, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--appearance-border, #354a3f);
+  border-radius: 7px;
+  padding: 9px 11px;
+  background: var(--appearance-bg-surface, #0c1510);
+  color: var(--appearance-text-primary, #e2ece5);
+  font: inherit;
+}
+:is(.real-private-editor, .catalog-editor) textarea { min-height: 86px; resize: vertical; }
+:is(.real-private-editor, .catalog-editor) :is(input, select, textarea):focus-visible {
+  outline: 2px solid var(--appearance-accent-border, #61c992);
+  outline-offset: 2px;
+}
+:is(.real-private-editor, .catalog-editor) fieldset:disabled { opacity: .65; }
+.catalog-form-wide, .real-private-editor label:has(textarea) { grid-column: 1 / -1; }
+.catalog-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.catalog-editor p, [data-catalog-feedback] { font-size: 13px; line-height: 1.6; color: var(--appearance-text-primary, #b7cec0); }
+.catalog-page button { min-height: 34px; padding: 7px 13px; cursor: pointer; border-radius: 7px; border: 1px solid var(--appearance-border, #42604c); background: var(--appearance-bg-raised, #153524); color: var(--appearance-text-primary, #cfefda); }
+.catalog-page button:disabled { opacity: .5; cursor: default; }
+#inspector .real-private-editor fieldset { grid-template-columns: 1fr; }
+@media (max-width: 760px) {
+  :is(.real-private-editor, .catalog-editor) fieldset { grid-template-columns: 1fr; }
 }

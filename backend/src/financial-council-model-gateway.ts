@@ -23,7 +23,8 @@ import type {
   FinancialCouncilRebutOutput
 } from "./financial-council-model-port.js";
 import {
-  ModelGatewayError
+  ModelGatewayError,
+  ModelLedgerPersistenceError
 } from "./model-providers/gateway.js";
 import { hashModelCallValue } from "./model-providers/call-ledger.js";
 import {
@@ -83,6 +84,9 @@ function fail(
 
 function modelGatewayFailure(error: unknown): never {
   if (error instanceof FinancialCouncilModelError) throw error;
+  if (error instanceof ModelLedgerPersistenceError) {
+    return fail("financial_council_model_ledger_persistence_failed", false, null, error);
+  }
   if (!(error instanceof ModelGatewayError)) {
     return fail("financial_council_model_provider_failed", false, null, error);
   }
@@ -398,7 +402,6 @@ implements FinancialCouncilAttemptModelPort {
     });
     let generated: Awaited<ReturnType<typeof gateway.generateStructured>>
       | undefined;
-    let providerError: unknown;
     try {
       generated = await gateway.generateStructured({
         systemPrompt: content.systemPrompt,
@@ -407,22 +410,8 @@ implements FinancialCouncilAttemptModelPort {
         schema: content.schema
       });
     } catch (error) {
-      providerError = error;
+      return modelGatewayFailure(error);
     }
-
-    try {
-      await this.#store.persist();
-    } catch (error) {
-      return fail(
-        "financial_council_model_ledger_persistence_failed",
-        false,
-        null,
-        providerError === undefined
-          ? error
-          : new AggregateError([providerError, error])
-      );
-    }
-    if (providerError !== undefined) return modelGatewayFailure(providerError);
     if (!generated) {
       return fail("financial_council_model_output_invalid", false);
     }

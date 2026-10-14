@@ -58,3 +58,39 @@ test("a case requires a subject and trusted references cannot cross workspaces",
     (error: unknown) => (error as { code?: string }).code === "quote_subject_not_found"
   );
 });
+
+test("ordinary CRM deal requires and freezes a human commercial assessment", async () => {
+  const state = quoteCaseFixture({ ordinaryDeal: true });
+  await assert.rejects(
+    state.service.create(state.command({ idempotencyKey: "crm-missing" }), {
+      dealId: "deal-1", assignedTo: "sales-a"
+    }),
+    (error: unknown) => (error as { code?: string }).code
+      === "crm_quote_assessment_required"
+  );
+
+  const created = await state.service.create(
+    state.command({ idempotencyKey: "crm-assessed" }),
+    {
+      dealId: "deal-1",
+      assignedTo: "sales-a",
+      crmAssessment: {
+        demandConfirmed: true,
+        budgetConfirmed: true,
+        decisionMakerConfirmed: true,
+        closeProbabilityBps: 6500,
+        evidenceSummary: "客户预算、需求和决策人均已由销售人工确认。"
+      }
+    }
+  );
+
+  assert.equal(created.value.candidateId, null);
+  assert.equal(created.value.customerId, "customer-1");
+  assert.equal(created.value.dealId, "deal-1");
+  assert.equal(created.value.commercialBindingSnapshot?.sourceKind, "crm");
+  assert.equal(await state.repository.boundProbabilityAssessmentId(
+    "team-a", created.value.id
+  ), created.value.commercialBindingSnapshot?.sourceKind === "crm"
+    ? created.value.commercialBindingSnapshot.assessment.inputSnapshotHash
+    : null);
+});

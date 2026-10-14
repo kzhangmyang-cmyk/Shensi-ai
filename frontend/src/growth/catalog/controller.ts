@@ -8,6 +8,7 @@ import type {
 
 export interface CatalogPolicyRow {
   id: string;
+  catalogItemId?: string;
   status: string;
   revision: number;
   currency?: string;
@@ -20,6 +21,7 @@ function toPolicyRow(policy: PricingPolicyVersion): CatalogPolicyRow {
   const record = policy as unknown as Record<string, unknown>;
   return Object.freeze({
     id: String(record.id),
+    catalogItemId: typeof record.catalogItemId === "string" ? record.catalogItemId : undefined,
     status: String(record.status),
     revision: Number(record.revision),
     currency: typeof record.currency === "string"
@@ -36,7 +38,7 @@ function toPolicyRow(policy: PricingPolicyVersion): CatalogPolicyRow {
 export type CatalogPageState =
   | { kind: "loading" }
   | { kind: "forbidden" }
-  | { kind: "empty"; reason: string }
+  | { kind: "empty"; reason: string; canManage?: boolean }
   | { kind: "conflict"; message: string }
   | { kind: "error"; message: string }
   | {
@@ -98,7 +100,7 @@ export function createCatalogController(
           signal
         });
         if (itemRows.length === 0) {
-          return { kind: "empty", reason: "catalog_empty" };
+          return { kind: "empty", reason: "catalog_empty", canManage: options.hasCapability("catalog.manage") };
         }
         return {
           kind: "ready",

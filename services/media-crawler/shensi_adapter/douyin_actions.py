@@ -8,8 +8,9 @@ and never logs page text, cookies, storage, or approved content.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import logging
 import math
-from typing import Callable, Mapping
+from typing import Callable, Mapping, NoReturn
 from urllib.parse import parse_qs, urlsplit
 import re
 
@@ -47,6 +48,16 @@ _COMMENT_PUBLISH_PATHS = {
     "/aweme/v1/web/comment/publish/",
 }
 _PLATFORM_RECEIPT_ID = re.compile(r"[A-Za-z0-9_-]{1,200}")
+_LOGGER = logging.getLogger(__name__)
+
+
+def _ambiguous_official_comment_receipt(reason: str) -> NoReturn:
+    """Record only a closed, non-content diagnostic before failing closed."""
+    _LOGGER.warning(
+        "douyin_comment_receipt_ambiguous reason=%s",
+        reason,
+    )
+    raise DouyinActionFailure("douyin_action_receipt_ambiguous")
 
 
 def _is_comment_publish_response(response: object) -> bool:
@@ -84,53 +95,136 @@ def _official_comment_receipt(
     response: object,
     request: ActionRequest,
     target_video_id: str,
+    *,
+    sender_reference: str | None = None,
 ) -> str:
-    """Bind one successful publish response to the frozen click and content."""
+    """Bind one successful publish response to the frozen click and sender."""
     try:
+        finish = getattr(response, "finished", None)
+        if callable(finish):
+            finish()
         status = response.status  # type: ignore[attr-defined]
         post_data = response.request.post_data  # type: ignore[attr-defined]
         payload = response.json()  # type: ignore[attr-defined]
     except Exception:
-        raise DouyinActionFailure("douyin_action_receipt_ambiguous") from None
+        _ambiguous_official_comment_receipt("response_unreadable")
     if (type(status) is not int or not 200 <= status < 300
             or not isinstance(post_data, str)
             or not isinstance(payload, Mapping)):
-        raise DouyinActionFailure("douyin_action_receipt_ambiguous")
+        _ambiguous_official_comment_receipt("response_envelope_invalid")
     try:
         form = parse_qs(post_data, keep_blank_values=True)
     except ValueError:
-        raise DouyinActionFailure("douyin_action_receipt_ambiguous") from None
+        _ambiguous_official_comment_receipt("request_form_invalid")
     if (form.get("text") != [request.content]
-            or form.get("aweme_id") != [target_video_id]
-            or type(payload.get("status_code")) is not int
-            or payload.get("status_code") != 0):
-        raise DouyinActionFailure("douyin_action_receipt_ambiguous")
+            or form.get("aweme_id") != [target_video_id]):
+        _ambiguous_official_comment_receipt("request_binding_mismatch")
+    platform_status = payload.get("status_code")
+    if type(platform_status) is not int:
+        _ambiguous_official_comment_receipt("platform_status_missing")
+    if platform_status != 0:
+        _ambiguous_official_comment_receipt(
+            f"platform_status_{platform_status}"
+        )
     comment = payload.get("comment")
     if not isinstance(comment, Mapping):
-        raise DouyinActionFailure("douyin_action_receipt_ambiguous")
+        _ambiguous_official_comment_receipt("comment_object_missing")
     cid = _stable_response_id(comment.get("cid"))
-    aweme_id = _stable_response_id(comment.get("aweme_id"))
-    user = comment.get("user")
-    raw_sec_uid = (
-        _stable_response_id(user.get("sec_uid"))
-        if isinstance(user, Mapping) else None
+    response_aweme_id = comment.get("aweme_id")
+    aweme_id = (
+        _stable_response_id(response_aweme_id)
+        if response_aweme_id is not None else None
     )
-    if (cid is None or aweme_id != target_video_id
-            or comment.get("text") != request.content
-            or not isinstance(user, Mapping)
-            or raw_sec_uid is None):
-        raise DouyinActionFailure("douyin_action_receipt_ambiguous")
+    user = comment.get("user")
+    if user is not None and not isinstance(user, Mapping):
+        _ambiguous_official_comment_receipt("response_author_invalid")
+    response_sec_uid = user.get("sec_uid") if isinstance(user, Mapping) else None
+    raw_sec_uid = (
+        _stable_response_id(response_sec_uid)
+        if response_sec_uid is not None else None
+    )
+    if cid is None:
+        _ambiguous_official_comment_receipt("stable_comment_id_missing")
+    if (("aweme_id" in comment and aweme_id != target_video_id)
+            or ("text" in comment and comment.get("text") != request.content)
+            or (response_sec_uid is not None and raw_sec_uid is None)):
+        _ambiguous_official_comment_receipt("response_binding_mismatch")
+    identity_reference = raw_sec_uid or sender_reference
+    if identity_reference is None:
+        _ambiguous_official_comment_receipt("sender_binding_missing")
     try:
         response_account_handle = account_handle_for_raw_sec_uid(
-            raw_sec_uid
+            identity_reference
         )
     except Exception:
-        raise DouyinActionFailure(
-            "douyin_action_receipt_ambiguous"
-        ) from None
+        _ambiguous_official_comment_receipt("sender_binding_invalid")
     if response_account_handle != request.account_handle:
-        raise DouyinActionFailure("douyin_action_receipt_ambiguous")
+        _ambiguous_official_comment_receipt("sender_binding_mismatch")
     return f"douyin-comment:{cid}"
+
+
+def _comment_list_receipts(
+    response: object,
+    request: ActionReconciliationRequest,
+    observed_at: datetime,
+    diagnostics: dict[str, int] | None = None,
+) -> set[str]:
+    """Read first-party list evidence, using the vendored Douyin client schema.
+
+    Unlike comment-card DOM, this response supplies an author and an absolute
+    creation time. Never make an API request, reconstruct a signature, or accept
+    a matching text without all the frozen action bindings.
+    """
+    try:
+        target = urlsplit(response.url)  # type: ignore[attr-defined]
+        if (target.scheme != "https" or target.hostname != "www.douyin.com"
+                or target.port not in {None, 443}
+                or target.username is not None or target.password is not None
+                or target.path not in {
+                    "/aweme/v1/web/comment/list", "/aweme/v1/web/comment/list/",
+                }
+                or response.request.method != "GET"  # type: ignore[attr-defined]
+                or response.status != 200):  # type: ignore[attr-defined]
+            return set()
+        video_id = str(request.target_public_url).rsplit("/", 1)[1]
+        if parse_qs(target.query, max_num_fields=128).get("aweme_id") != [video_id]:
+            return set()
+        payload = response.json()  # type: ignore[attr-defined]
+    except Exception:
+        return set()
+    if (not isinstance(payload, Mapping)
+            or type(payload.get("status_code")) is not int
+            or payload["status_code"] != 0
+            or not isinstance(payload.get("comments"), list)
+            or len(payload["comments"]) > 200):
+        return set()
+    references: set[str] = set()
+    for comment in payload["comments"]:
+        if diagnostics is not None:
+            diagnostics["comments"] += 1
+            if isinstance(comment, Mapping) and comment.get("text") == request.content:
+                diagnostics["same_text"] += 1
+        if (not isinstance(comment, Mapping)
+                or comment.get("text") != request.content
+                or str(comment.get("aweme_id")) != video_id
+                or type(comment.get("reply_id")) not in {str, int}
+                or comment.get("reply_id") not in ("0", 0)):
+            continue
+        user = comment.get("user")
+        sender = user.get("sec_uid") if isinstance(user, Mapping) else None
+        cid = _stable_response_id(comment.get("cid"))
+        created = comment.get("create_time")
+        if (cid is None or not isinstance(sender, str)
+                or _stable_response_id(sender) is None
+                or account_handle_for_raw_sec_uid(sender) != request.account_handle):
+            continue
+        if diagnostics is not None:
+            diagnostics["same_author_target"] += 1
+        if (type(created) is not int
+                or not request.not_before.timestamp() <= created <= observed_at.timestamp()):
+            continue
+        references.add(f"douyin-comment:{cid}")
+    return references
 
 
 class DouyinActionExecutor:
@@ -272,6 +366,31 @@ class DouyinActionExecutor:
             if failure != "douyin_verification_required":
                 raise DouyinActionFailure(failure)
 
+    def _require_receipt_ready(
+        self, page: object, request: ActionRequest, target_url: str,
+    ) -> str | None:
+        """After a comment click, hand verification to the human, never resend."""
+        try:
+            return self._require_action_ready(page, request, target_url)
+        except DouyinActionFailure as error:
+            if (request.kind != "comment"
+                    or error.code != "douyin_verification_required"):
+                raise
+        _LOGGER.warning("douyin_comment_manual_verification state=waiting")
+        try:
+            self._wait_for_manual_verification(page, request, target_url)
+            sender_reference = self._require_action_ready(page, request, target_url)
+        except DouyinActionFailure as error:
+            # Submission already happened: verification timeout, a closed
+            # window or changed authority cannot mean a safe-to-retry failure.
+            _LOGGER.warning(
+                "douyin_comment_manual_verification state=unresolved reason=%s",
+                error.code,
+            )
+            raise DouyinActionFailure("douyin_action_receipt_ambiguous") from None
+        _LOGGER.warning("douyin_comment_manual_verification state=cleared")
+        return sender_reference
+
     def _wait_for_control(
         self,
         page: object,
@@ -345,6 +464,7 @@ class DouyinActionExecutor:
                 raise DouyinActionFailure(error.code) from None
             self._require_action_ready(page, request, target_url)
         submit = None
+        comment_submit_trigger = "click"
         if request.kind == "direct_message":
             def locate_bound_composer(current_page: object, kind: str) -> object:
                 candidate = pin_action_control(
@@ -448,9 +568,21 @@ class DouyinActionExecutor:
                         locate_action_submit(current_page, kind)
                     )
 
-                submit = self._wait_for_control(
-                    page, request, target_url, locate_pinned_submit,
-                )
+                try:
+                    submit = self._wait_for_control(
+                        page, request, target_url, locate_pinned_submit,
+                    )
+                except DouyinActionFailure as error:
+                    if (error.code != "douyin_action_control_missing"
+                            or baseline_sender_reference is None):
+                        raise
+                    # Current Douyin video pages submit the focused comment
+                    # composer with an unmodified Enter key and no longer
+                    # expose a semantic send button. The same exact composer,
+                    # content, URL and sender guards are bound below before the
+                    # single keypress is allowed to reach the platform.
+                    submit = composer
+                    comment_submit_trigger = "enter"
             else:
                 def locate_bound_submit(current_page: object, kind: str) -> object:
                     candidate = pin_action_control(
@@ -507,6 +639,7 @@ class DouyinActionExecutor:
                     kind=request.kind,
                     target_public_url=target_url,
                     sender_reference=sender_reference,
+                    trigger=comment_submit_trigger,
                 )
             except ActionControlsFailure as error:
                 raise DouyinActionFailure(error.code) from None
@@ -550,21 +683,29 @@ class DouyinActionExecutor:
             # observer timed out or detached. Continue to the existing DOM
             # receipt proof; do not click a second time.
             publish_response = None
+        official_receipt_failure = None
         if publish_response is not None:
-            reference = _official_comment_receipt(
-                publish_response,
-                request,
-                target.path.rsplit("/", 1)[-1],
-            )
-            return ActionReceipt(
-                action_id=request.action_id,
-                state="succeeded",
-                platform_receipt_reference=reference,
-                occurred_at=self._now(),
-                failure_code=None,
-            )
+            self._require_receipt_ready(page, request, target_url)
+            try:
+                reference = _official_comment_receipt(
+                    publish_response,
+                    request,
+                    target.path.rsplit("/", 1)[-1],
+                    sender_reference=sender_reference,
+                )
+            except DouyinActionFailure as error:
+                official_receipt_failure = error
+            else:
+                self._require_receipt_ready(page, request, target_url)
+                return ActionReceipt(
+                    action_id=request.action_id,
+                    state="succeeded",
+                    platform_receipt_reference=reference,
+                    occurred_at=self._now(),
+                    failure_code=None,
+                )
         for attempt in range(self._receipt_attempts):
-            receipt_sender_reference = self._require_action_ready(
+            receipt_sender_reference = self._require_receipt_ready(
                 page, request, target_url,
             )
             try:
@@ -599,6 +740,8 @@ class DouyinActionExecutor:
                     ) from None
         # The final read above is the only late-success recovery path.  We
         # never submit again after an ambiguous timeout.
+        if official_receipt_failure is not None:
+            raise official_receipt_failure
         raise DouyinActionFailure("douyin_action_timeout")
 
 
@@ -606,10 +749,14 @@ class DouyinActionReconciler:
     """Read-only proof for one uncertain action; never locates a send control."""
 
     def __init__(self, *, now: Callable[[], datetime] | None = None,
+                 receipt_wait_ms: int = 10_000,
                  visual_locator: VisualLocator | None = None,
                  account_identity_revalidator: Callable[[], str | None] | None = None,
                  require_account_identity_binding: bool = False,
                  ) -> None:
+        if type(receipt_wait_ms) is not int or not 0 <= receipt_wait_ms <= 30_000:
+            raise ValueError("invalid_reconciliation_wait")
+        self._receipt_wait_ms = receipt_wait_ms
         self._now = now or (lambda: datetime.now(UTC))
         self._visual_locator = visual_locator
         self._account_identity_revalidator = account_identity_revalidator
@@ -654,6 +801,35 @@ class DouyinActionReconciler:
 
     def reconcile(self, page: object,
                   request: ActionReconciliationRequest) -> ActionReceipt:
+        # Observe before navigation; a DOMContentLoaded event precedes the
+        # asynchronously loaded comments. requestfinished avoids reading a body
+        # while it is still streaming. Only retain a bounded set in this call.
+        completed: list[object] = []
+
+        def capture(finished_request: object) -> None:
+            try:
+                path = urlsplit(finished_request.url).path  # type: ignore[attr-defined]
+                if (len(completed) < 20 and path.rstrip("/") == "/aweme/v1/web/comment/list"
+                        and finished_request.method == "GET"):  # type: ignore[attr-defined]
+                    response = finished_request.response()  # type: ignore[attr-defined]
+                    if response is not None:
+                        completed.append(response)
+            except Exception:
+                pass
+
+        observing = (request.kind == "comment"
+                     and callable(getattr(page, "on", None))
+                     and callable(getattr(page, "remove_listener", None)))
+        if observing:
+            page.on("requestfinished", capture)  # type: ignore[attr-defined]
+        try:
+            return self._reconcile(page, request, completed, observing=observing)
+        finally:
+            if observing:
+                page.remove_listener("requestfinished", capture)  # type: ignore[attr-defined]
+
+    def _reconcile(self, page: object, request: ActionReconciliationRequest,
+                   completed: list[object], *, observing: bool) -> ActionReceipt:
         target_url = str(request.target_public_url)
         expected = (
             r"https://www\.douyin\.com/video/[A-Za-z0-9_-]{1,300}"
@@ -714,7 +890,41 @@ class DouyinActionReconciler:
         except ActionControlsFailure as error:
             raise DouyinActionFailure(error.code) from None
         if reference is None:
-            raise DouyinActionFailure("douyin_action_receipt_ambiguous")
+            references: set[str] = set()
+            processed = 0
+            diagnostics = {"comments": 0, "same_text": 0, "same_author_target": 0}
+            attempts = math.ceil(self._receipt_wait_ms / 250) if observing else 0
+            for attempt in range(attempts + 1):
+                if self._now() >= request.deadline_at:
+                    raise DouyinActionFailure("deadline_exceeded")
+                failure = detect_page_failure(page)
+                if failure is not None:
+                    raise DouyinActionFailure(failure)
+                DouyinActionExecutor._require_exact_target(page, target_url)
+                while processed < len(completed):
+                    response = completed[processed]
+                    processed += 1
+                    references.update(_comment_list_receipts(response, request, self._now(), diagnostics))
+                if len(references) > 1:
+                    raise DouyinActionFailure("douyin_action_receipt_ambiguous")
+                if references:
+                    self._require_account_identity(request)
+                    reference = next(iter(references))
+                    break
+                if attempt < attempts:
+                    remaining = math.ceil((request.deadline_at - self._now()).total_seconds() * 1000)
+                    if remaining <= 0:
+                        raise DouyinActionFailure("deadline_exceeded")
+                    page.wait_for_timeout(min(250, remaining))  # type: ignore[attr-defined]
+            if reference is None:
+                if request.kind == "comment":
+                    _LOGGER.warning(
+                        "douyin_comment_reconciliation_unproven observed_lists=%d "
+                        "comments=%d same_text=%d same_author_target=%d",
+                        processed, diagnostics["comments"], diagnostics["same_text"],
+                        diagnostics["same_author_target"],
+                    )
+                raise DouyinActionFailure("douyin_action_receipt_ambiguous")
         return ActionReceipt(
             action_id=request.action_id,
             state="succeeded",

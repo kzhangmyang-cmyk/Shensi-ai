@@ -197,6 +197,7 @@ export const FINANCIAL_LEDGER_MYSQL_SCHEMA_STATEMENTS = [
     current_ledger_entry_id VARCHAR(191) NOT NULL,
     current_source_version BIGINT UNSIGNED NOT NULL,
     revision BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (workspace_id, ledger_type, source_identity_root),
     UNIQUE KEY uk_ledger_source_head
       (workspace_id, ledger_type, source_identity_root)
   ) ENGINE=InnoDB`

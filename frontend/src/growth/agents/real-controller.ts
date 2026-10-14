@@ -70,6 +70,7 @@ export interface RealAgentCenterController {
   getState(): RealAgentCenterControllerState;
   subscribe(listener: (state: RealAgentCenterControllerState) => void): () => void;
   selectStatement(kind: FinancialStatementKind, file: File): Promise<void>;
+  clearStatement?(kind: FinancialStatementKind): void;
   previewStatements(): Promise<void>;
   acceptModelDataNotice(accepted: boolean): void;
   commitStatements(input?: FinancialCashForecastSupplementInput): Promise<void>;
@@ -407,6 +408,10 @@ export function createRealAgentCenterController(
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    clearStatement(kind) {
+      if (destroyed || !STATEMENT_KINDS.includes(kind)) return;
+      selectionRevisions[kind]++; selected[kind] = null; invalidateDownstreamFromFiles(); publish({ files: publicFiles() });
     },
     async selectStatement(kind, file) {
       if (destroyed || !STATEMENT_KINDS.includes(kind)) return;

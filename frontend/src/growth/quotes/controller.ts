@@ -1,8 +1,10 @@
 import { GrowthApiError } from "../http";
 import type {
   QuoteApi,
+  QuoteCaseCreateInput,
   QuotePreviewInput,
   QuotePreviewResult,
+  QuoteApproval,
   QuoteVersion
 } from "./api";
 
@@ -13,6 +15,7 @@ export interface QuoteCaseRow {
   candidateId: string | null;
   customerId: string | null;
   dealId: string | null;
+  authorityKind: "acquisition" | "crm" | null;
 }
 
 export interface QuoteVersionRow {
@@ -23,8 +26,24 @@ export interface QuoteVersionRow {
   quotedAmountMinor?: number;
 }
 
+export interface QuoteApprovalRow {
+  id: string;
+  quoteVersionId: string;
+  status: string;
+  approvalKind: string;
+}
+
 function toCaseRow(value: QuoteCaseRow | unknown): QuoteCaseRow {
   const record = value as unknown as Record<string, unknown>;
+  const authority = record.commercialBindingSnapshot as
+    | Record<string, unknown>
+    | null
+    | undefined;
+  const authorityKind = authority?.sourceKind === "crm"
+    ? "crm"
+    : authority
+      ? "acquisition"
+      : null;
   return Object.freeze({
     id: String(record.id),
     revision: Number(record.revision),
@@ -33,7 +52,8 @@ function toCaseRow(value: QuoteCaseRow | unknown): QuoteCaseRow {
       ? null : String(record.candidateId ?? ""),
     customerId: record.customerId === null
       ? null : String(record.customerId ?? ""),
-    dealId: record.dealId === null ? null : String(record.dealId ?? "")
+    dealId: record.dealId === null ? null : String(record.dealId ?? ""),
+    authorityKind
   });
 }
 
@@ -49,12 +69,29 @@ function toVersionRow(version: QuoteVersion): QuoteVersionRow {
   });
 }
 
+function toApprovalRow(approval: QuoteApproval): QuoteApprovalRow {
+  const record = approval as unknown as Record<string, unknown>;
+  return Object.freeze({
+    id: String(record.id ?? ""),
+    quoteVersionId: String(record.quoteVersionId ?? ""),
+    status: String(record.status ?? ""),
+    approvalKind: String(record.approvalKind ?? "")
+  });
+}
+
 export type QuoteWorkbenchState =
   | { kind: "loading_case" }
+  | {
+      kind: "assessment_required";
+      customerId: string | null;
+      dealId: string;
+      assignedTo: string;
+    }
   | {
       kind: "case_selection";
       cases: readonly QuoteCaseRow[];
     }
+  | { kind: "case_created"; case: QuoteCaseRow }
   | {
       kind: "editing";
       case: QuoteCaseRow;
@@ -78,7 +115,9 @@ export type QuoteWorkbenchState =
   | { kind: "saving" }
   | { kind: "draft_saved"; version: QuoteVersionRow }
   | { kind: "submitting" }
-  | { kind: "submitted"; version: QuoteVersionRow }
+  | { kind: "submitted"; approval: QuoteApprovalRow }
+  | { kind: "approved"; version: QuoteVersionRow }
+  | { kind: "rejected"; approval: QuoteApprovalRow }
   | {
       kind: "hard_blocked";
       diagnostic: Extract<
@@ -111,9 +150,20 @@ export interface QuoteController {
     caseId: string,
     signal?: AbortSignal
   ): Promise<QuoteWorkbenchState>;
+  createCase(
+    input: QuoteCaseCreateInput,
+    signal?: AbortSignal
+  ): Promise<QuoteWorkbenchState>;
   preview(
     caseId: string,
     input: QuotePreviewInput,
+    etag: string,
+    signal?: AbortSignal
+  ): Promise<QuoteWorkbenchState>;
+  saveDraft(
+    caseId: string,
+    input: QuotePreviewInput,
+    preview: Extract<QuotePreviewResult, { amountState: "actionable" }>,
     etag: string,
     signal?: AbortSignal
   ): Promise<QuoteWorkbenchState>;
@@ -123,11 +173,13 @@ export interface QuoteController {
   ): Promise<QuoteWorkbenchState>;
   approve(
     versionId: string,
-    etag: string
+    etag: string,
+    reason: string
   ): Promise<QuoteWorkbenchState>;
   reject(
     versionId: string,
-    etag: string
+    etag: string,
+    reason: string
   ): Promise<QuoteWorkbenchState>;
   nextIdempotencyKey(action: string): string;
 }
@@ -210,6 +262,20 @@ export function createQuoteController(
         return asError(error, "error");
       }
     },
+    async createCase(input, signal) {
+      if (!options.hasFeature("quotes")
+        || !options.hasCapability("quote.draft.create")) {
+        return { kind: "error", message: "quote_forbidden" };
+      }
+      try {
+        const response = await options.api.createCase(
+          input, `quote-case-create:${idFactory()}`, signal
+        );
+        return { kind: "case_created", case: toCaseRow(response.body) };
+      } catch (error) {
+        return asError(error, "error");
+      }
+    },
     async preview(caseId, input, etag, signal) {
       const sequence = ++previewSequence;
       try {
@@ -247,35 +313,46 @@ export function createQuoteController(
         return asError(error, "error");
       }
     },
+    async saveDraft(caseId, input, preview, etag, signal) {
+      try {
+        const response = await options.api.createVersion(
+          caseId,
+          { previewIdentity: preview.previewIdentity, quoteInput: input },
+          etag,
+          `quote-version-create:${idFactory()}`,
+          signal
+        );
+        return { kind: "draft_saved", version: toVersionRow(response.body) };
+      } catch (error) {
+        return asError(error, "error");
+      }
+    },
     async submit(versionId, etag) {
       try {
         const response = await options.api.submitVersion(
           versionId, etag, `quote-submit:${idFactory()}`
         );
-        return { kind: "submitted", version: toVersionRow(response.body) };
+        return { kind: "submitted", approval: toApprovalRow(response.body) };
       } catch (error) {
         return asError(error, "error");
       }
     },
-    async approve(versionId, etag) {
+    async approve(versionId, etag, reason) {
       try {
-        await options.api.approveVersion(
-          versionId, etag, `quote-approve:${idFactory()}`
+        const response = await options.api.approveVersion(
+          versionId, etag, `quote-approve:${idFactory()}`, reason
         );
-        return {
-          kind: "publication_pending",
-          operationId: versionId
-        };
+        return { kind: "approved", version: toVersionRow(response.body) };
       } catch (error) {
         return asError(error, "error");
       }
     },
-    async reject(versionId, etag) {
+    async reject(versionId, etag, reason) {
       try {
-        await options.api.rejectVersion(
-          versionId, etag, `quote-reject:${idFactory()}`
+        const response = await options.api.rejectVersion(
+          versionId, etag, `quote-reject:${idFactory()}`, reason
         );
-        return { kind: "conflict", message: "quote_rejected" };
+        return { kind: "rejected", approval: toApprovalRow(response.body) };
       } catch (error) {
         return asError(error, "error");
       }

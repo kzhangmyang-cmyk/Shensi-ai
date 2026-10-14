@@ -1,0 +1,10 @@
+import { build } from 'esbuild';
+import { mkdir, cp } from 'node:fs/promises';
+import path from 'node:path';
+const root = import.meta.dirname;
+const out = path.join(root, 'dist');
+await mkdir(out, { recursive: true });
+await build({ entryPoints: [path.join(root, 'native-host.ts')], outfile: path.join(out, 'native-host.cjs'), bundle: true, platform: 'node', format: 'cjs', target: 'node22' });
+await cp(path.join(root, 'extension'), path.join(out, 'extension'), { recursive: true });
+await cp(path.join(root, 'install.mjs'), path.join(out, 'install.mjs'));
+console.log(`Prepared ${out}; no installation or browser permissions changed.`);

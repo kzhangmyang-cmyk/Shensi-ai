@@ -15,7 +15,7 @@
     "status": { "enum": ["open", "closed", "cancelled"] },
     "currentDraftVersionId": { "$ref": "#/$defs/nullableId" },
     "revision": { "type": "integer", "minimum": 1 },
-    "commercialBindingSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/CommercialBindingSnapshot" }] },
+    "commercialBindingSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/QuoteCommercialAuthoritySnapshot" }] },
     "createdAt": { "$ref": "#/$defs/dateTime" },
     "updatedAt": { "$ref": "#/$defs/dateTime" }
   },
@@ -40,7 +40,8 @@
         "candidateId": { "$ref": "#/$defs/nullableId" },
         "customerId": { "$ref": "#/$defs/nullableId" },
         "dealId": { "$ref": "#/$defs/nullableId" },
-        "assignedTo": { "$ref": "#/$defs/nonempty" }
+        "assignedTo": { "$ref": "#/$defs/nonempty" },
+        "crmAssessment": { "$ref": "#/$defs/CrmQuoteAssessmentInput" }
       },
       "anyOf": [
         { "required": ["candidateId"], "properties": { "candidateId": { "type": "string", "minLength": 1 } } },
@@ -72,10 +73,65 @@
         "handoffContentHash": { "$ref": "#/$defs/hash" },
         "dealContentHash": { "$ref": "#/$defs/hash" },
         "bindingHashSchemaVersion": { "$ref": "#/$defs/nonempty" },
-        "attributionSnapshot": { "$ref": "outcome-feedback.v1.schema.json#/$defs/liveAttribution" },
+        "attributionSnapshot": { "$ref": "outcome-feedback.v1.schema.json#/$defs/snapshotAttribution" },
         "bindingHash": { "$ref": "#/$defs/hash" },
         "verifiedAt": { "$ref": "#/$defs/dateTime" }
       }
+    },
+    "CrmQuoteAssessmentInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["demandConfirmed", "budgetConfirmed", "decisionMakerConfirmed", "closeProbabilityBps", "evidenceSummary"],
+      "properties": {
+        "demandConfirmed": { "type": "boolean" },
+        "budgetConfirmed": { "type": "boolean" },
+        "decisionMakerConfirmed": { "type": "boolean" },
+        "closeProbabilityBps": { "$ref": "#/$defs/bps" },
+        "evidenceSummary": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
+    "CrmQuoteAssessmentSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceKind", "assessmentVersion", "workspaceId", "customerId", "dealId", "assessedBy", "assessedAt", "inputSnapshotHash", "precision", "demandConfirmed", "budgetConfirmed", "decisionMakerConfirmed", "closeProbabilityBps", "evidenceSummary"],
+      "properties": {
+        "sourceKind": { "const": "crm" },
+        "assessmentVersion": { "const": "crm-quote-assessment.v1" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "customerId": { "$ref": "#/$defs/nonempty" },
+        "dealId": { "$ref": "#/$defs/nonempty" },
+        "assessedBy": { "$ref": "#/$defs/nonempty" },
+        "assessedAt": { "$ref": "#/$defs/dateTime" },
+        "inputSnapshotHash": { "$ref": "#/$defs/hash" },
+        "precision": { "const": "bps" },
+        "demandConfirmed": { "type": "boolean" },
+        "budgetConfirmed": { "type": "boolean" },
+        "decisionMakerConfirmed": { "type": "boolean" },
+        "closeProbabilityBps": { "$ref": "#/$defs/bps" },
+        "evidenceSummary": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
+    "CrmQuoteAuthoritySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceKind", "workspaceId", "customerId", "dealId", "dealContentHash", "bindingHashSchemaVersion", "bindingHash", "assessment", "verifiedAt"],
+      "properties": {
+        "sourceKind": { "const": "crm" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "customerId": { "$ref": "#/$defs/nonempty" },
+        "dealId": { "$ref": "#/$defs/nonempty" },
+        "dealContentHash": { "$ref": "#/$defs/hash" },
+        "bindingHashSchemaVersion": { "const": "crm-quote-authority.v1" },
+        "bindingHash": { "$ref": "#/$defs/hash" },
+        "assessment": { "$ref": "#/$defs/CrmQuoteAssessmentSnapshot" },
+        "verifiedAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "QuoteCommercialAuthoritySnapshot": {
+      "oneOf": [
+        { "$ref": "#/$defs/CommercialBindingSnapshot" },
+        { "$ref": "#/$defs/CrmQuoteAuthoritySnapshot" }
+      ]
     },
     "QuotePreviewInput": {
       "type": "object",

@@ -110,6 +110,7 @@ function gatewayForContentBundle(
   const completeStore = requireCompleteModelRuntimeStore(store);
   const client = createAiHttpClient(snapshot.baseUrl);
   return createActiveModelGatewayForSnapshot(completeStore, {
+    platformFeature: "acquisition",
     storedSnapshot: snapshot,
     contentBundle,
     fetch: ((url: string | URL | Request, init?: RequestInit) =>

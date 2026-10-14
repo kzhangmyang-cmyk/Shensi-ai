@@ -752,6 +752,12 @@ assert.equal(
 );
 assert.equal(intelligenceWriteHeaders.get("x-csrf-token"), "csrf/candidate");
 
+await intelligenceWriteApi.retryIntelligenceOperation("failed/op", "retry-key");
+assert.equal(intelligenceWriteCalls[1]?.input,
+  "/api/v1/acquisition/candidate-intelligence-operations/failed%2Fop/retry");
+assert.equal(intelligenceWriteCalls[1]?.init?.method, "POST");
+assert.equal(new Headers(intelligenceWriteCalls[1]?.init?.headers).get("idempotency-key"), "retry-key");
+
 const contentFetchResponse = {
   id: "content-fetch-1",
   ownerId: "user-1",

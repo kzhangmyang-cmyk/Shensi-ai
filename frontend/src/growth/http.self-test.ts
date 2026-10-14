@@ -66,3 +66,21 @@ await assert.rejects(
     && error.code === "invalid_as_of"
     && error.requestId === "req-1"
 );
+
+const events: unknown[] = [];
+const streamClient = createGrowthHttpClient({ csrf: () => 'test-csrf', workspaceId: () => 'ws-stream',
+  fetchImpl: async (_url, init) => {
+    assert.equal((init?.headers as any).Accept, 'application/x-ndjson');
+    assert.equal((init?.headers as any)['x-csrf-token'], 'test-csrf');
+    assert.equal((init?.headers as any)['X-Workspace-Id'], 'ws-stream');
+    const bytes = new TextEncoder().encode('{"type":"stage","stage":"model_started"}\n{"type":"result","result":{"answer":"已完成"}}\n');
+    return new Response(new ReadableStream({ start(controller) {
+      for (let i = 0; i < bytes.length; i += 7) controller.enqueue(bytes.slice(i, i + 7)); controller.close();
+    } }), { headers: { 'content-type': 'application/x-ndjson' } });
+  } });
+assert.deepEqual((await streamClient.request('/stream', { method: 'POST', onProgress: event => events.push(event) })).body, { answer: '已完成' });
+assert.deepEqual(events, [{ type: 'stage', stage: 'model_started' }]);
+for (const body of ['{"type":"stage","stage":"model_started"}\n', '{"type":"error","status":409,"code":"cfo_session_revision_conflict"}\n']) {
+  const broken = createGrowthHttpClient({ fetchImpl: async () => new Response(body, { headers: { 'content-type': 'application/x-ndjson' } }) });
+  await assert.rejects(broken.request('/stream', { onProgress() {} }));
+}

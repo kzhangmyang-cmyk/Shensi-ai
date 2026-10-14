@@ -63,6 +63,8 @@ test("acquisition OpenAPI publishes the complete agent control surface", () => {
   const required = [
     "/api/v1/acquisition/social-accounts/douyin/login-sessions",
     "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}",
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/live",
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/interactions",
     "/api/v1/acquisition/social-accounts/douyin",
     "/api/v1/acquisition/social-accounts/{accountId}",
     "/api/v1/acquisition/plans/{planId}/automation",
@@ -165,6 +167,12 @@ test("run candidates OpenAPI publishes only bounded public evidence", () => {
   assert.equal(schema.additionalProperties, false);
   const item = schema.properties.items.items;
   assert.equal(item.additionalProperties, false);
+  assert.equal(item.required.includes("avatarUrl"), false);
+  assert.equal(item.required.includes("coverUrl"), false);
+  assert.equal(item.properties.avatarUrl.maxLength, 2_000);
+  assert.equal(item.properties.coverUrl.maxLength, 2_000);
+  assert.equal(item.properties.avatarUrl.pattern, "^[Hh][Tt][Tt][Pp][Ss]://");
+  assert.equal(item.properties.coverUrl.pattern, "^[Hh][Tt][Tt][Pp][Ss]://");
   assert.equal(item.properties.evidence.properties.excerpt.maxLength, 500);
   for (const privateField of ["cookie", "rawResponse", "handle", "cursor", "upstreamCommit"]) {
     assert.equal(item.properties[privateField], undefined);
@@ -183,6 +191,78 @@ test("social-account create and disconnect publish exact replay headers", () => 
       ["true"]
     );
   }
+});
+
+test("social login runtime contract publishes QR lifecycle and transport errors", () => {
+  const paths = createAcquisitionOpenApiPaths();
+  const create = paths[
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions"
+  ]!.post as Record<string, any>;
+  const poll = paths[
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}"
+  ]!.get as Record<string, any>;
+  const interaction = paths[
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/interactions"
+  ]!.post as Record<string, any>;
+  const session = create.responses["201"].content["application/json"].schema;
+
+  assert.ok(session.required.includes("qrStatus"));
+  assert.deepEqual(session.properties.qrStatus.enum, [
+    "opening", "ready", "expired", "network_error",
+    "verification_required", null
+  ]);
+  assert.deepEqual(
+    interaction.requestBody.content["application/json"].schema.oneOf
+      .map((variant: Record<string, any>) => variant.properties.type.enum[0]),
+    ["refresh_qr", "click", "text", "key", "scroll"]
+  );
+  assert.ok(create.responses["503"]);
+  assert.ok(poll.responses["410"]);
+  assert.ok(poll.responses["503"]);
+  assert.ok(interaction.responses["410"]);
+  assert.ok(interaction.responses["503"]);
+});
+
+test("social login runtime contract separates interaction, runtime, authentication and task state", () => {
+  const paths = createAcquisitionOpenApiPaths();
+  const create = paths[
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions"
+  ]!.post as Record<string, any>;
+  const session = create.responses["201"].content["application/json"].schema;
+
+  for (const field of [
+    "interactionSurface",
+    "runtimeState",
+    "authState",
+    "taskState",
+    "diagnostic",
+    "screenshotAvailable",
+    "qrAvailable"
+  ]) assert.ok(session.required.includes(field), field);
+  assert.deepEqual(session.properties.interactionSurface.enum,
+    ["external_window", "remote_canvas"]);
+  assert.deepEqual(session.properties.runtimeState.enum,
+    ["stopped", "starting", "running", "crashed"]);
+  assert.deepEqual(session.properties.authState.enum, [
+    "unknown", "logged_out", "waiting_for_user", "verification_required",
+    "authenticated", "expired"
+  ]);
+  assert.deepEqual(session.properties.taskState.enum,
+    ["idle", "preparing", "running", "cancelling", "completed", "failed"]);
+  assert.equal(session.properties.diagnostic.nullable, true);
+  assert.equal(session.properties.diagnostic.additionalProperties, false);
+  assert.deepEqual(session.properties.diagnostic.required,
+    ["code", "message", "recoverable", "occurredAt"]);
+  assert.equal(session.properties.diagnostic.properties.code.maxLength, 100);
+  assert.equal(session.properties.diagnostic.properties.message.maxLength, 500);
+  assert.equal(session.properties.screenshotAvailable.type, "boolean");
+  assert.equal(session.properties.qrAvailable.type, "boolean");
+  assert.equal(session.properties.accountKey, undefined,
+    "the private profile selector must not be published in the browser contract");
+
+  assert.ok(paths[
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/live"
+  ]?.post, "the remote/noVNC compatibility endpoint must remain available");
 });
 
 test("acquisition OpenAPI exposes only the safe Douyin identity operation DTO", () => {
@@ -231,7 +311,7 @@ test("every published acquisition operation has a unique stable camelCase id", (
     }
   }
 
-  assert.equal(ids.length, 79);
+  assert.equal(ids.length, 90);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(
     paths["/api/v1/acquisition/plans/{id}/approval"]?.post?.operationId,
@@ -286,7 +366,7 @@ test("outreach batch OpenAPI publishes secure revision and outbox operations", (
     { bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }
   ]);
   assert.deepEqual(directMessageApproval.requestBody.content["application/json"]
-    .schema.required, ["batchRevision", "batchHash", "commentApprovalHash",
+    .schema.required, ["batchRevision", "batchHash", "accountLoginStateVersion",
       "dailyLimit", "candidates", "confirm"]);
   assert.deepEqual(directMessageApproval.requestBody.content["application/json"]
     .schema.properties.dailyLimit, { type: "integer", minimum: 1, maximum: 100,
@@ -299,15 +379,20 @@ test("outreach batch OpenAPI publishes secure revision and outbox operations", (
     ["Idempotency-Replayed"].schema.enum, ["true"]);
   const actions = paths["/api/v1/acquisition/outreach-batches/{batchId}/actions"]!.get as Record<string, any>;
   const item = actions.responses["200"].content["application/json"].schema.properties.items.items;
+  const executionGate = actions.responses["200"].content["application/json"].schema
+    .properties.executionGate;
+  assert.deepEqual(executionGate.required, ["accountId", "accountLoginStateVersion",
+    "riskPaused", "pendingActionIds", "unresolvedActions"]);
   assert.deepEqual(item.properties.kind.enum, ["comment", "direct_message"]);
   assert.deepEqual(item.properties.status.enum, ["queued", "blocked_by_predecessor",
-    "executing", "succeeded", "failed", "risk_paused"]);
+    "claimed", "executing", "succeeded", "failed", "risk_paused", "reconciliation_required"]);
+  assert.deepEqual(item.properties.executionTarget.enum, ["desktop", "server"]);
   assert.equal(item.properties.platformReceiptReference.nullable, true);
   for (const property of ["authorizationVersion", "approvedBy", "approvedAt",
     "directMessageDailyLimit", "directMessageDailyOrdinal"]) {
     assert.equal(item.required.includes(property), false);
   }
-  assert.deepEqual(item.properties.authorizationVersion.enum, [2]);
+  assert.deepEqual(item.properties.authorizationVersion.enum, [2, 3]);
   const batchCandidate = paths["/api/v1/acquisition/outreach-batches/{batchId}"]!
     .get.responses["200"].content["application/json"].schema.properties
     .candidates.items;
@@ -336,6 +421,15 @@ test("outreach batch OpenAPI publishes secure revision and outbox operations", (
   ]);
   assert.deepEqual(reconciliation.requestBody.content["application/json"]
     .schema.properties.confirm.enum, [true]);
+  const recovery = paths[
+    "/api/v1/acquisition/outreach-batches/{batchId}/actions/recover-account"
+  ]!.post as Record<string, any>;
+  assert.equal(recovery.operationId, "recoverAcquisitionOutreachActionAccount");
+  assert.deepEqual(recovery.requestBody.content["application/json"].schema.required,
+    ["batchRevision", "accountLoginStateVersion", "pendingActionIds",
+      "acknowledgedUncertainActionIds", "reason", "confirm"]);
+  assert.equal(recovery.parameters.some((parameter: Record<string, unknown>) =>
+    parameter.name === "If-Match" && parameter.required === true), true);
 });
 
 test("Douyin automation OpenAPI closes policy and run-now inputs and outputs", () => {

@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { canonicalJsonStringify } from "./canonical-json.js";
 import { BINDING_HASH_SCHEMA_VERSION,
   type CommercialBindingSnapshot } from "./commercial-binding-snapshot.js";
+import {
+  isCrmQuoteAssessmentSnapshot,
+  isCrmQuoteAuthoritySnapshot
+} from "./crm-quote-assessment.js";
 import type { ActiveWorkspaceContext } from "./growth-workspace-context.js";
 import {
   assertGrowthSealedReadCutoff,
@@ -168,6 +172,7 @@ export class DealAuthoritativeQuoteReader {
     if (!event.quoteVersionId || !event.currency
       || !Number.isSafeInteger(event.quotedAmountMinor)
       || !event.commercialAmountHash || !snapshot || !evidence
+      || isCrmQuoteAuthoritySnapshot(snapshot)
       || snapshot.dealId !== dealId || evidence.dealId !== dealId) {
       throw authorityError("commercial_binding_authority_mismatch");
     }
@@ -258,9 +263,10 @@ export class AuthoritativeQuoteAsOfReader {
         || versionStatusAt(version, lifecycleEvents,
           trusted.effectiveAsOf) !== "approved") continue;
       const assessment = version.probabilityAssessmentSnapshot;
-      const binding = version.commercialBindingSnapshot as
-        CommercialBindingSnapshot | null;
-      if (!assessment || assessment.precision !== "bps" || !binding) continue;
+      const authority = version.commercialBindingSnapshot;
+      const binding = authority as CommercialBindingSnapshot | null;
+      if (!assessment || assessment.precision !== "bps" || !binding
+        || isCrmQuoteAuthoritySnapshot(authority)) continue;
       assertFrozenCommercialBinding(binding);
       if (!candidateIds.has(binding.candidateId)
         || version.currency !== input.currency) continue;
@@ -271,7 +277,8 @@ export class AuthoritativeQuoteAsOfReader {
           version.estimatedGrossProfitMinor
         ),
         closeProbabilityBps: assessment.closeProbabilityBps,
-        probabilityAssessmentId: assessment.id,
+        probabilityAssessmentId: isCrmQuoteAssessmentSnapshot(assessment)
+          ? assessment.inputSnapshotHash : assessment.id,
         commercialAmountHash: current.commercialAmountHash
       }));
     }
@@ -353,7 +360,8 @@ export class QuoteApprovalAsOfReader {
         estimatedGrossProfitMinor: Number(version.estimatedGrossProfitMinor),
         estimatedContributionMinor: Number(version.estimatedContributionMinor),
         grossMarginBps: Number(version.grossMarginBps),
-        probabilityAssessmentId: assessment.id,
+        probabilityAssessmentId: isCrmQuoteAssessmentSnapshot(assessment)
+          ? assessment.inputSnapshotHash : assessment.id,
         closeProbabilityBps: assessment.closeProbabilityBps,
         commercialAmountHash: String(version.commercialAmountHash) as
           `sha256:${string}`,
@@ -412,14 +420,15 @@ export class QuoteVersionEvidenceReader {
       event.recordedAt <= trusted.effectiveAsOf)
       .sort((left, right) => right.revision - left.revision)[0];
     if (!lifecycle) return null;
-    const binding = version.commercialBindingSnapshot as
-      CommercialBindingSnapshot | null;
+    const authority = version.commercialBindingSnapshot;
+    const binding = authority as CommercialBindingSnapshot | null;
     const subject = version.subjectEvidence as {
       candidateId?: unknown; customerId?: unknown; dealId?: unknown
     } | undefined;
     const owner = version.salesOwnerActorId;
     const assessment = version.probabilityAssessmentSnapshot;
-    if (!binding || typeof owner !== "string" || !assessment
+    if (!binding || isCrmQuoteAuthoritySnapshot(authority)
+      || typeof owner !== "string" || !assessment
       || assessment.precision !== "bps"
       || subject?.candidateId !== binding.candidateId
       || subject.customerId !== binding.customerId
@@ -432,7 +441,8 @@ export class QuoteVersionEvidenceReader {
       salesOwnerActorId: owner, versionKind: version.versionKind,
       sourceDraftVersionId: version.sourceDraftVersionId,
       commercialBindingEvidence: evidence,
-      probabilityAssessmentId: assessment.id,
+      probabilityAssessmentId: isCrmQuoteAssessmentSnapshot(assessment)
+        ? assessment.inputSnapshotHash : assessment.id,
       closeProbabilityBps: assessment.closeProbabilityBps,
       lifecycleRevision: lifecycle.revision,
       status: lifecycle.toStatus as QuoteVersion["status"],

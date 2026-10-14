@@ -8,6 +8,8 @@ import type { CatalogApi } from "./api";
 
 function apiFixture(overrides: Partial<CatalogApi> = {}): CatalogApi {
   return {
+    async createItem() { throw new Error("unused"); },
+    async createPricingPolicy() { throw new Error("unused"); },
     async listItems() {
       return {
         status: 200,

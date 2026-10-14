@@ -11,6 +11,9 @@ import pytest
 import shensi_adapter.crawl_jobs as crawl_jobs_module
 from shensi_adapter.action_jobs import ActionJobManager
 from shensi_adapter.crawl_jobs import CrawlJobManager
+from shensi_adapter.local_browser_session_manager import (
+    LocalBrowserSessionManager,
+)
 from shensi_adapter.schemas import ActionRequest, CrawlJobRequest
 
 
@@ -48,6 +51,38 @@ def _comment_request() -> ActionRequest:
         deadline_at=NOW + timedelta(minutes=1),
         approved_content_hash=f"sha256:{approved_hash}",
     )
+
+
+class _OpenLoginWorker:
+    def __init__(self) -> None:
+        self.opened = threading.Event()
+        self.closed = 0
+
+    def open_douyin_login(self, profile):
+        self.opened.set()
+        return {"handle": "lease-login-context"}
+
+    def poll_douyin_login(self, _context):
+        return {"active": False}
+
+    def close(self, _context):
+        self.closed += 1
+
+    def abort_browser(self):
+        return None
+
+    def close_browser(self):
+        return None
+
+
+def _wait_for_running_login(manager, session_id: str):
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        status = manager.get_status(session_id)
+        if status.runtime_state == "running":
+            return status
+        time.sleep(0.01)
+    pytest.fail("login did not reach running state")
 
 
 def test_running_crawl_blocks_comment_before_a_second_persistent_context_starts(
@@ -112,6 +147,62 @@ def test_running_crawl_blocks_comment_before_a_second_persistent_context_starts(
         assert browser_starts == ["crawl", "comment"]
     finally:
         release_crawl.set()
+        crawl.close()
+
+
+def test_open_login_context_blocks_crawl_and_action_for_the_same_profile(
+    tmp_path,
+):
+    worker = _OpenLoginWorker()
+    login = LocalBrowserSessionManager(
+        tmp_path / "profiles",
+        lease_root=tmp_path,
+        browser_factory=lambda: worker,
+    )
+    launched: list[str] = []
+    started = login.start_login("shared-account")
+    running = _wait_for_running_login(login, started.session_id)
+    crawl = CrawlJobManager(
+        tmp_path,
+        account_resolver=lambda *_: running.profile_path,
+        runner=lambda *_: launched.append("crawl") or [],
+        now=lambda: NOW,
+    )
+    actions = ActionJobManager(
+        tmp_path,
+        account_resolver=lambda *_: running.profile_path,
+        executor=lambda _profile, request: {
+            "action_id": request.action_id,
+            "state": launched.append("action") or "succeeded",
+            "platform_receipt_reference": "must-not-run-while-login-open",
+            "occurred_at": NOW,
+            "failure_code": None,
+        },
+        now=lambda: NOW,
+    )
+    try:
+        with pytest.raises(ValueError, match="^douyin_profile_busy$"):
+            crawl.start(_crawl_request())
+        busy_action = actions.execute(_comment_request())
+
+        assert busy_action.state == "failed"
+        assert busy_action.failure_code == "douyin_profile_busy"
+        assert launched == []
+
+        login.cancel_login(started.session_id)
+        crawl.start(_crawl_request())
+        deadline = time.monotonic() + 1
+        while crawl.get("profile-lease-crawl").state not in {
+            "succeeded", "failed", "partial",
+        }:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        completed_action = actions.execute(_comment_request())
+
+        assert completed_action.state == "succeeded"
+        assert launched == ["crawl", "action"]
+    finally:
+        login.shutdown()
         crawl.close()
 
 

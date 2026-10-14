@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GoodJob Growth Advisor, Quote and ROI API
-  version: 1.0.12
+  version: 1.0.41
 servers:
   - url: /
 
@@ -949,6 +949,113 @@ paths:
         '401': *apiErrorResponse
         '403': *apiErrorResponse
         '404': *apiErrorResponse
+  /api/v1/finance/public-research:
+    get:
+      <<: *read
+      operationId: listAgentWebResearchConnections
+      responses:
+        '200':
+          description: Current actor's enabled real public-search connections, without credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentWebResearchConnections' }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '422': *apiErrorResponse
+        '503': *apiErrorResponse
+    post:
+      operationId: runAgentWebResearch
+      description: Search explicitly supplied public keywords and answer using indexed snippets. Does not accept files, conversation history or private company records. Missing sources or provider failures do not become fabricated answers.
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/workspaceHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AgentWebResearchInput' }
+      responses:
+        '200':
+          description: Answer with provider-sourced URLs, retrieval times and validated citation IDs; not a full-page verification
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentWebResearch' }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
+        '429': *apiErrorResponse
+        '502': *apiErrorResponse
+        '503': *apiErrorResponse
+  /api/v1/finance/documents/attachments/clear:
+    post:
+      operationId: clearFinanceChatAttachment
+      description: Remove only the authenticated actor and workspace's exact conversation and role attachment. Does not alter the finance page selection.
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/workspaceHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinanceDocumentAttachmentClear' }
+      responses:
+        '204': { description: Attachment removed }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
+  /api/v1/finance/documents/selection:
+    delete:
+      operationId: clearFinanceDocumentSelection
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/workspaceHeader'
+      responses:
+        '204':
+          description: Cleared this actor and workspace's read-only source; subsequent questions explicitly use documentId null for verified material
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '422': *apiErrorResponse
+  /api/v1/finance/documents/inspect:
+    post:
+      operationId: inspectFinanceDocument
+      description: Read CSV/XLSX sources or extract text from PDF/DOCX. PDF sources use page/item references and DOCX sources use paragraph/table-cell references. Image-only or encrypted documents require conversion; this operation never commits a ledger or runs OCR.
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/workspaceHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinanceDocumentInspectionInput' }
+      responses:
+        '200':
+          description: Bounded original-source inspection and optional read-only model understanding; never a ledger commit
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FinanceDocumentInspection' }
+        '400': *apiErrorResponse
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '413': *apiErrorResponse
+        '415': *apiErrorResponse
+        '422': *apiErrorResponse
+        '429': *apiErrorResponse
+        '409': *apiErrorResponse
+        '503': *apiErrorResponse
   /api/v1/finance/imports/preview:
     post:
       <<: *write
@@ -956,10 +1063,8 @@ paths:
       requestBody:
         required: true
         content:
-          text/csv:
-            schema: { type: string, format: binary }
-          application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
-            schema: { type: string, format: binary }
+          application/json:
+            schema: { $ref: '#/components/schemas/FinanceImportPreviewInput' }
       responses:
         '200': { $ref: '#/components/responses/FinanceImportPreview' }
         '400': *apiErrorResponse
@@ -1197,6 +1302,19 @@ paths:
       responses: *recommendationTransitionResponses
 
   /api/v1/finance/council-runs:
+    get:
+      <<: *read
+      operationId: listFinancialCouncilRunHistory
+      parameters:
+        - { name: after, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Workspace-scoped most recent frozen council runs.
+          content: { application/json: { schema: { $ref: '#/components/schemas/FinancialCouncilRunHistory' } } }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '422': *apiErrorResponse
     post:
       operationId: createFinancialCouncilRun
       security:
@@ -1235,9 +1353,26 @@ paths:
     get:
       <<: *read
       operationId: listFinancialCouncilRunEvents
-      parameters: []
+      parameters:
+        - { name: after, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 100 } }
       responses:
         '200': { $ref: '#/components/responses/FinancialCouncilRunEvents' }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '404': *apiErrorResponse
+
+  /api/v1/finance/council-runs/{runId}/collaboration:
+    parameters: [{ $ref: '#/components/parameters/runId' }]
+    get:
+      <<: *read
+      operationId: getFinancialCouncilCollaboration
+      parameters: []
+      description: Read-only projection of persisted role events, public evidence, bounded review and the same-version detailed report. Never exposes raw prompts or private reasoning.
+      responses:
+        '200':
+          description: Recoverable collaboration and detailed report for the frozen run.
+          content: { application/json: { schema: { $ref: '#/components/schemas/FinancialCouncilCollaboration' } } }
         '401': *apiErrorResponse
         '403': *apiErrorResponse
         '404': *apiErrorResponse
@@ -1486,6 +1621,125 @@ paths:
         '409': *apiErrorResponse
         '422': *apiErrorResponse
 
+  /api/v1/finance/cfo-sessions:
+    get:
+      operationId: listCfoSessions
+      description: Recent fifty conversations belonging to the authenticated actor and workspace. History is not verified company material.
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/optionalWorkspaceHeader' }]
+      responses:
+        '200':
+          description: Recent conversations
+          content:
+            application/json:
+              schema: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/CfoSessionSummary' } }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '503': *apiErrorResponse
+    post:
+      operationId: createCfoSession
+      description: Create an empty CFO conversation. No model or business action is executed; clients do not retry automatically.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/optionalWorkspaceHeader' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CfoSessionCreate' }
+      responses:
+        '201':
+          description: Empty conversation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CfoSession' }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
+        '429': *apiErrorResponse
+        '503': *apiErrorResponse
+  /api/v1/finance/cfo-sessions/{sessionId}:
+    parameters:
+      - { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getCfoSession
+      description: Read saved turns without regenerating answers. Clients supporting system references send X-Shensi-Reference-Protocol system-v1. If system reference snapshots exist and this header is omitted, return 409 reference_client_upgrade_required without returning or dropping those snapshots. This header is a compatibility signal, not authorization; private legacy history remains readable without it.
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/optionalWorkspaceHeader' }
+        - { name: X-Shensi-Reference-Protocol, in: header, required: false, schema: { type: string, enum: [system-v1] } }
+      responses:
+        '200':
+          description: Completed conversation turns
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CfoSession' }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '404': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
+        '503': *apiErrorResponse
+  /api/v1/finance/cfo-sessions/{sessionId}/turns:
+    parameters:
+      - { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: askCfoSession
+      description: Answer using ten saved recent turns and persist the completed pair with revision compare-and-swap. A stale revision returns 409. Interrupted requests are never automatically replayed.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/optionalWorkspaceHeader' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CfoSessionAsk' }
+      responses:
+        '200':
+          description: Saved completed answer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CfoSessionReply' }
+            application/x-ndjson:
+              schema: { type: string, description: 'Newline-delimited CfoSessionEvent objects. Exactly one terminal result or error; disconnect is incomplete, never automatically replayed.' }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '404': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
+        '429': *apiErrorResponse
+        '500': *apiErrorResponse
+        '502': *apiErrorResponse
+        '503': *apiErrorResponse
+  /api/v1/finance/cfo-conversation:
+    post:
+      operationId: askCfoConversation
+      description: Read-only specialist question with at most ten recent turns. Optional role selects cfo, finance, profit, cost, cashflow or tax; omission preserves CFO behavior. Server resolves verified company material and the selected role model in the authenticated workspace. No fan-out or business actions.
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/optionalWorkspaceHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CfoConversationInput' }
+      responses:
+        '200':
+          description: CFO answer with verified material provenance or null when no report is available
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CfoConversationAnswer' }
+        '401': *apiErrorResponse
+        '403': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
+        '429': *apiErrorResponse
+        '500': *apiErrorResponse
+        '502': *apiErrorResponse
+        '503': *apiErrorResponse
+
   /api/v1/finance/council-agent-center:
     get:
       operationId: getFinancialCouncilAgentCenter
@@ -1552,10 +1806,21 @@ components:
       required: false
       schema: { type: string, enum: ["true"] }
   schemas:
+    CfoConversationInput: { $ref: '../json-schema/cfo-conversation.v1.schema.json#/$defs/Input' }
+    CfoSession: { $ref: '../json-schema/cfo-session.v1.schema.json' }
+    CfoSessionSummary: { $ref: '../json-schema/cfo-session.v1.schema.json#/$defs/Summary' }
+    CfoSessionCreate: { $ref: '../json-schema/cfo-session.v1.schema.json#/$defs/Create' }
+    CfoSessionAsk: { $ref: '../json-schema/cfo-session.v1.schema.json#/$defs/Ask' }
+    CfoSessionReply: { $ref: '../json-schema/cfo-session.v1.schema.json#/$defs/Reply' }
+    CfoSessionEvent: { $ref: '../json-schema/cfo-session.v1.schema.json#/$defs/Event' }
+    CfoConversationAnswer: { $ref: '../json-schema/cfo-conversation.v1.schema.json' }
     ApiError: { $ref: ../json-schema/api-error.v1.schema.json }
     FinancialCouncilRun: { $ref: ../json-schema/financial-council.v1.schema.json }
     FinancialCouncilRunEvent: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilRunEvent' }
     FinancialCouncilRunEventPagedResult: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilRunEventPagedResult' }
+    FinancialCouncilCollaboration: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilCollaboration' }
+    FinancialCouncilRunHistory: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilRunHistory' }
+    FinancialCouncilDetailedReport: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialCouncilDetailedReport' }
     FinancialSnapshotView: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialSnapshotView' }
     FinancialFinding: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/FinancialFinding' }
     CandidateAction: { $ref: '../json-schema/financial-council.v1.schema.json#/$defs/CandidateAction' }
@@ -1718,7 +1983,15 @@ components:
         items: { type: array, items: { $ref: '#/components/schemas/CashSettlementAllocationSet' } }
         nextAfter: { type: [string, 'null'] }
         hasMore: { type: boolean }
+    FinanceDocumentInspection: { $ref: '../json-schema/finance-document.v1.schema.json' }
+    FinanceDocumentInspectionInput: { $ref: '../json-schema/finance-document.v1.schema.json#/$defs/Input' }
+    FinanceDocumentAttachmentClear: { $ref: '../json-schema/finance-document.v1.schema.json#/$defs/AttachmentClear' }
+    AgentWebResearch: { $ref: '../json-schema/agent-web-research.v1.schema.json' }
+    AgentWebResearchInput: { $ref: '../json-schema/agent-web-research.v1.schema.json#/$defs/Input' }
+    AgentWebResearchConnections: { $ref: '../json-schema/agent-web-research.v1.schema.json#/$defs/Connections' }
+    FinanceDocumentMaterialSource: { $ref: '../json-schema/finance-document.v1.schema.json#/$defs/MaterialSource' }
     FinanceImportPreview: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinanceImportPreview' }
+    FinanceImportPreviewInput: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinanceImportPreviewInput' }
     FinanceImportOperation: { $ref: ../json-schema/finance-import-operation.v1.schema.json }
     FinanceImportRowError: { $ref: '../json-schema/finance-import-operation.v1.schema.json#/$defs/FinanceImportRowError' }
     FinanceImportRowErrorPagedResult:

@@ -44,3 +44,19 @@ covered by the byte-length and SHA-256 inventory in `ocr-assets.json`.
 - Usage: English, Latin-letter, and numeric OCR language data used alongside Simplified Chinese
 - Distribution: the pinned `4.0.0_best_int/eng.traineddata.gz` is decompressed at build time and shipped as `ocr/lang/eng.traineddata`
 - Modifications: compression is removed without changing the traineddata payload; the shipped bytes are recorded in `ocr-assets.json`. Runtime decompression is deliberately disabled so the browser worker does not include a Node `Buffer` compatibility path.
+# Administrative-divisions-of-China
+
+Enterprise region directory derived from https://github.com/modood/Administrative-divisions-of-China
+commit c49d495b40ac73eb1a66f6eeae5f8fd10696f035 (2023-06-30 data snapshot).
+
+DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+Version 2, December 2004
+
+Copyright (C) 2004 Sam Hocevar <sam@hocevar.net>
+
+Everyone is permitted to copy and distribute verbatim or modified copies of this license document, and changing it is allowed as long as the name is changed.
+
+DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
+
+0. You just DO WHAT THE FUCK YOU WANT TO.

@@ -83,7 +83,7 @@ test("profile-only evidence remains inspectable but cannot become a comment targ
 test("mixed and malformed evidence selects the same exact video regardless of input order", () => {
   const malformed = evidence({
     id: "evidence-malformed",
-    sourceUrl: "https://www.douyin.com/video/7350000000000000000?share=1"
+    sourceUrl: "https://www.douyin.com/video/7350000000000000000?share=%0A"
   });
   const laterVideo = evidence({
     id: "evidence-video-z",
@@ -110,6 +110,20 @@ test("mixed and malformed evidence selects the same exact video regardless of in
   );
 });
 
+test("canonical share-query evidence remains eligible with stable video selection", () => {
+  const sharedVideo = evidence({
+    id: "evidence-shared-video",
+    sourceUrl: "https://www.douyin.com/video/7350000000000000000?share=1"
+  });
+  const laterVideo = evidence({
+    id: "evidence-later-video",
+    sourceUrl: "https://www.douyin.com/video/7350000000000000001"
+  });
+  for (const items of [[sharedVideo, laterVideo], [laterVideo, sharedVideo]]) {
+    assert.equal(selectDouyinCandidateEvidence(items, { requireVideo: true }), sharedVideo);
+  }
+});
+
 test("profile-only selection ignores non-canonical variants and is deterministic", () => {
   const profileZ = evidence({
     id: "evidence-profile-z",
@@ -119,21 +133,21 @@ test("profile-only selection ignores non-canonical variants and is deterministic
     id: "evidence-profile-a",
     sourceUrl: "https://www.douyin.com/user/A_profile"
   });
-  const queryVariant = evidence({
-    id: "evidence-profile-query",
-    sourceUrl: "https://www.douyin.com/user/A_profile?from=video"
+  const fragmentVariant = evidence({
+    id: "evidence-profile-fragment",
+    sourceUrl: "https://www.douyin.com/user/A_profile#from-video"
   });
 
   assert.equal(
     selectDouyinCandidateEvidence(
-      [profileZ, queryVariant, profileA],
+      [profileZ, fragmentVariant, profileA],
       { requireVideo: false }
     )?.id,
     profileA.id
   );
   assert.equal(
     selectDouyinCandidateEvidence(
-      [profileA, queryVariant, profileZ],
+      [profileA, fragmentVariant, profileZ],
       { requireVideo: false }
     )?.id,
     profileA.id

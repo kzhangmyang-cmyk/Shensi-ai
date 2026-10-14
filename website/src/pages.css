@@ -1,0 +1,21 @@
+.page-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-top:36px}
+.page-card{display:block;position:relative;overflow:hidden;padding:36px;border:1px solid #d8e6f6;border-radius:24px;background:linear-gradient(135deg,#f6faff,#e9f3ff);transition:transform .25s,box-shadow .25s}
+.page-card:hover{transform:translateY(-5px);box-shadow:0 16px 40px #1c5ca51a}
+.page-card h3{font-size:26px;line-height:1.4;color:#123957;margin:20px 0 14px}.page-card h3 span{float:right;color:#2963e9}.page-card p{max-width:440px;line-height:1.9;color:#496581}.card-action{display:inline-block;margin-top:26px;color:#2963e9;font-size:13px}.page-card.compact h3{margin-top:0}
+.product-glyph{height:120px;position:relative;margin:22px 0;background:radial-gradient(ellipse,#abcfff66,transparent 68%)}
+.motion-active .product-glyph{animation:product-float 6s ease-in-out infinite}
+@keyframes product-float{50%{transform:translateY(-7px)}}
+.product-glyph i{position:absolute;width:90px;height:90px;border:1px solid #6296da;left:calc(50% - 45px);top:15px;border-radius:50%;transform:rotateX(55deg) rotateZ(-30deg)}
+.product-glyph i:nth-child(2){transform:rotateZ(55deg) rotateX(55deg)}.product-glyph i:nth-child(3){transform:rotateZ(-55deg) rotateX(55deg)}
+.product-acquisition .product-glyph i{border-radius:18px;transform:translateX(-60px) scale(.65)}.product-acquisition .product-glyph i:nth-child(2){transform:scale(.8)}.product-acquisition .product-glyph i:nth-child(3){transform:translateX(60px) scale(.65)}
+.product-finance .product-glyph i{border-radius:6px;transform:translateX(-50px) scaleY(.45);transform-origin:bottom}.product-finance .product-glyph i:nth-child(2){transform:scaleY(.7)}.product-finance .product-glyph i:nth-child(3){transform:translateX(50px)}
+.product-simulation .product-glyph i{border-radius:50% 50% 0 0;transform:rotate(-18deg) scaleX(1.6)}.product-simulation .product-glyph i:nth-child(2){transform:rotate(0deg) scaleX(1.6)}.product-simulation .product-glyph i:nth-child(3){transform:rotate(18deg) scaleX(1.6)}
+.workflow-line{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:42px 0;gap:30px}.workflow-line article{position:relative;border-top:1px solid #a8c5e7;padding:24px 4px}.step-number{font-size:13px;font-weight:600;color:#2963e9;letter-spacing:.12em}.workflow-line h3{font-size:23px;line-height:1.5;margin:22px 0 12px;color:#123957}.workflow-line p{line-height:1.9;color:#496581}
+.business-path{background:#edf5ff;position:relative;overflow:hidden}.business-path-simulation{background:repeating-linear-gradient(0deg,transparent,transparent 39px,#2462b508 40px),#f0f7ff}.business-path-academy{background:linear-gradient(110deg,#f5faff,#e4efff)}.business-path-advisory{background:#f3f7fc}.business-path-global{background:radial-gradient(ellipse at right top,#b6dcf8,transparent 65%),#f0f7ff}
+.output-panel{padding:32px;border:1px solid #cadcf0;background:#ffffffbf;border-radius:20px}.output-panel h3{font-size:24px;margin:12px 0 18px}.output-panel ul{padding-left:20px;line-height:2.2;color:#315579}.output-panel p{color:#496581;line-height:1.9;max-width:850px}.page-actions{display:flex;flex-wrap:wrap;gap:28px;margin-top:30px}.concept-tag{display:inline-block;border:1px solid #c6dcf3;border-radius:30px;padding:7px 13px;font-size:12px;color:#315c8b}
+.faq{max-width:1000px}.faq h2{margin-bottom:30px}.faq details{border-bottom:1px solid #d6e3f2;padding:23px 0}.faq summary{font-size:18px;font-weight:500;cursor:pointer;color:#153953}.faq details p{line-height:1.9;color:#496581;max-width:750px;margin-top:18px}
+.insight-grid article{position:relative}.insight-grid .text-link{margin-top:20px}.preview-row{color:#315579}.preview-row:hover{background:#e1efff}.business-list h2 a:hover{color:#2963e9}
+@media(max-width:800px){.page-card-grid,.workflow-line{grid-template-columns:1fr;gap:20px}.page-card{padding:26px}.page-card h3{font-size:23px}.workflow-line{margin:28px 0}.workflow-line article{padding:20px 0}.workflow-line h3{margin-top:14px}.output-panel{padding:24px}.page-actions{gap:18px}.concept-tag{margin-top:12px}}
+@media(prefers-reduced-motion:reduce){.page-card{transition:none}.page-card:hover{transform:none}.product-glyph{animation:none!important}}
+.page-hero{background-image:linear-gradient(90deg,#f2f7fff2,#f2f7ff80),url('/assets/mountains-v2.png')}
+.page-hero p{color:#315579}

@@ -4,19 +4,25 @@ function contrast(a:string,b:string){
   const luminance=(color:string)=>{const channels=color.match(/[\d.]+/gu)!.slice(0,3).map(Number).map(value=>{const channel=value/255;return channel<=.04045?channel/12.92:((channel+.055)/1.055)**2.4;});return .2126*channels[0]+.7152*channels[1]+.0722*channels[2];};
   const levels=[luminance(a),luminance(b)].sort((x,y)=>y-x);return(levels[0]+.05)/(levels[1]+.05);
 }
-async function boundary(page:Page,options:{longPreview?:boolean;citationPages?:boolean}={}){
+async function boundary(page:Page,options:{longPreview?:boolean;citationPages?:boolean;listCount?:number;patchResponse?:()=>Promise<void>}={}){
   let enabled=true,ready=false,failed=false,removed=false,uploaded=false,title='全面预算参考';let revision=1,latestId=vid;let activeId:string|null=null,roles=['cfo','finance'];
   const oldVersions=new Map<string,ReturnType<typeof version>>();
   const writes:{method:string;path:string;body:string|null}[]=[];let reads=0;
   const document=()=>({id,revision,title,sourceKind:'book',roles,enabled,activeVersionId:activeId,latestVersionId:latestId,updatedAt:'2026-10-06T00:00:00Z'});
   const version=()=>({id:latestId,documentId:id,revision:uploaded?2:1,jobId:'33333333-3333-4333-8333-333333333333',filename:'budget.txt',format:'txt',bytes:6,sourceHash:uploaded?'a'.repeat(64):null,uploadComplete:uploaded,status:failed?'failed':ready?'ready':uploaded?'indexing':'queued',coverage:ready?{totalPages:2,extractedPages:1,missingPages:[2]}:null,warnings:ready?['ocr_unverified','table_unverified']:[],failureCode:failed?'reader_unavailable':null});
+  const documents=()=>Array.from({length:options.listCount??1},(_,index)=>index===0?document():{
+    ...document(),id:`11111111-1111-4111-8111-${String(index+1).padStart(12,'0')}`,
+    title:`企业经营与财务管理参考资料 ${index+1} · 结合具体情况分析`,
+    latestVersionId:`22222222-2222-4222-8222-${String(index+1).padStart(12,'0')}`,
+    activeVersionId:ready?`22222222-2222-4222-8222-${String(index+1).padStart(12,'0')}`:null
+  });
   await page.route('**/api/**',async route=>{
     const request=route.request(),url=new URL(request.url()),path=url.pathname,method=request.method();
     if(!path.startsWith('/api/v1/knowledge/')){expect(method).toBe('GET');return route.fulfill({status:503,json:{code:'isolated_unavailable'}});}
     expect(request.headers()['x-workspace-id']).toBe('personal-fixture');
     if(method!=='GET'){expect(request.headers()['x-csrf-token']).toBe('fixture-csrf');writes.push({method,path,body:request.postData()});}
     if(path.endsWith('/availability'))return route.fulfill({json:{available:true,reason:null}});
-    if(path.endsWith('/documents')&&method==='GET'){reads++;return route.fulfill({json:{items:removed?[]:[document()],nextCursor:null}});}
+    if(path.endsWith('/documents')&&method==='GET'){reads++;return route.fulfill({json:{items:removed?[]:documents(),nextCursor:null}});}
     if(path.endsWith('/documents')&&method==='POST')return route.fulfill({status:201,json:{document:document(),version:version()}});
     if(path.endsWith(`/documents/${id}/versions`)&&method==='POST'){
       expect(request.headers()['if-match']).toBe(`"${revision}"`);oldVersions.set(latestId,version());latestId='55555555-5555-4555-8555-555555555555';ready=false;failed=false;uploaded=false;revision++;
@@ -24,13 +30,14 @@ async function boundary(page:Page,options:{longPreview?:boolean;citationPages?:b
     }
     if(method==='PUT'&&path.endsWith('/content')){expect(request.headers()['content-type']).toBe('application/octet-stream');uploaded=true;return route.fulfill({json:version()});}
     if(path.endsWith('/chunks')){
+      if(options.citationPages)expect(url.searchParams.get('limit')).toBe('100');
       if(options.citationPages&&url.searchParams.get('cursor'))return route.fulfill({json:{items:[{id:'66666666-6666-4666-8666-666666666666',versionId:vid,order:20,text:'第二页精确引用',locator:{page:17,chapter:'预算方法'},warnings:[]}],nextCursor:null}});
       return route.fulfill({json:{items:[{id:'44444444-4444-4444-8444-444444444444',versionId:vid,order:0,text:'预算差异需要结合实际经营情况判断，不构成企业已核实财务事实。'.repeat(options.longPreview?75:1),locator:{page:1,chapter:'预算编制'},warnings:['ocr_unverified']}],nextCursor:options.citationPages?'second-page':null}});
     }
-    const exactVersion=/\/versions\/([a-f0-9-]+)$/u.exec(path);if(exactVersion)return route.fulfill({json:oldVersions.get(exactVersion[1])??version()});
+    const exactVersion=/\/versions\/([a-f0-9-]+)$/u.exec(path);if(exactVersion){const owner=documents().find(doc=>doc.latestVersionId===exactVersion[1]);return route.fulfill({json:oldVersions.get(exactVersion[1])??{...version(),id:exactVersion[1],documentId:owner?.id??id}});}
     if(path.endsWith('/retry')){failed=false;return route.fulfill({json:version()});}
     if(path.endsWith(`/documents/${id}`)){
-      if(method==='PATCH'){const body=request.postDataJSON();if(body.enabled!==undefined)enabled=body.enabled;if(body.title)title=body.title;if(body.roles)roles=body.roles;revision++;}
+      if(method==='PATCH'){const body=request.postDataJSON();if(body.enabled!==undefined)enabled=body.enabled;if(body.title)title=body.title;if(body.roles)roles=body.roles;revision++;await options.patchResponse?.();}
       if(method==='DELETE'){removed=true;return route.fulfill({status:204});}
       return route.fulfill({json:document()});
     }
@@ -38,6 +45,27 @@ async function boundary(page:Page,options:{longPreview?:boolean;citationPages?:b
   });
   return {writes,get reads(){return reads;},publish(){uploaded=true;ready=true;failed=false;activeId=latestId;},fail(){uploaded=true;failed=true;}};
 }
+test('a full library uses horizontal cards and opens details without an empty pane or losing keyboard position',async({page})=>{
+  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  const api=await boundary(page,{listCount:20});api.publish();await page.goto('/tests/knowledge-library.html');
+  const cards=page.locator('[data-document]');await expect(cards).toHaveCount(20);
+  for(const theme of ['light','dark'])for(const width of [1440,1024,390]){
+    await page.setViewportSize({width,height:900});await page.evaluate(value=>{document.documentElement.dataset.theme=value;},theme);
+    await expect(page.locator('[data-knowledge-detail]')).toBeHidden();
+    const layout=await cards.evaluateAll(nodes=>({columns:new Set(nodes.map(node=>Math.round(node.getBoundingClientRect().x))).size,overflow:document.documentElement.scrollWidth>innerWidth}));
+    expect(layout.overflow).toBe(false);expect(layout.columns).toBeGreaterThanOrEqual(width===1440?3:width===1024?2:1);
+    if(width===390)expect(layout.columns).toBe(1);
+    await page.screenshot({path:`/tmp/shensi-knowledge-cards-${theme}-${width}.png`,fullPage:false});
+  }
+  await page.setViewportSize({width:1440,height:900});
+  const first=page.getByRole('button',{name:'查看 全面预算参考'});await first.click();
+  const back=page.getByRole('button',{name:'返回列表',exact:true});await expect(back).toBeVisible();await expect(back).toBeFocused();
+  await expect(page.getByLabel('资料标题')).toHaveValue('全面预算参考');await back.click();
+  await expect(page.locator('[data-knowledge-detail]')).toBeHidden();await expect(first).toBeFocused();
+  await page.evaluate(()=>{document.documentElement.dir='rtl';document.body.style.zoom='2';});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+  expect(errors).toEqual([]);expect(api.writes).toHaveLength(0);
+});
 test('upload, indexing, cited preview and current-version management use the real page',async({page})=>{
   const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));const api=await boundary(page,{longPreview:true});
   await page.goto('/tests/knowledge-library.html');await expect(page.getByRole('heading',{name:'知识库',exact:true})).toBeVisible();
@@ -106,14 +134,17 @@ test('same knowledge route opens exact version/hash/chunk once, preserving unsen
   await expect(page.locator('[data-error]')).toContainText('未自动切换到最新版本');await expect(page.locator('[data-preview]')).not.toContainText('第二页精确引用');
 });
 test('role edits and replacement keep the prior effective version until the new file is ready',async({page})=>{
-  const api=await boundary(page);api.publish();await page.goto('/tests/knowledge-library.html');await page.getByRole('button',{name:'查看 全面预算参考'}).click();
+  let acknowledge!:()=>void;const saved=new Promise<void>(resolve=>{acknowledge=resolve;});
+  const api=await boundary(page,{patchResponse:()=>saved});api.publish();await page.goto('/tests/knowledge-library.html');await page.getByRole('button',{name:'查看 全面预算参考'}).click();
   await expect(page.locator('input[name="edit-role"][value="cfo"]').locator('..')).toContainText('AI 经营总管');
   await expect(page.locator('input[name="edit-role"][value="profit"]').locator('..')).toContainText('利润分析');
   await expect(page.locator('input[name="edit-role"][value="tax"]').locator('..')).toContainText('税务健康');
   await page.locator('input[name="edit-role"][value="finance"]').uncheck();await page.getByRole('button',{name:'保存资料信息'}).click();
   await expect.poll(()=>api.writes.filter(write=>write.method==='PATCH').length).toBe(1);
   expect(JSON.parse(api.writes.find(write=>write.method==='PATCH')!.body!).roles).toEqual(['cfo']);
-  await page.locator('[data-replacement]').setInputFiles({name:'budget-v2.txt',mimeType:'text/plain',buffer:Buffer.from('budget')});
+  const replace=page.getByRole('button',{name:'替换文件'});await expect(replace).toBeDisabled();await expect(page.locator('[data-replacement]')).toBeDisabled();
+  expect(api.writes.filter(write=>write.path.endsWith('/versions'))).toHaveLength(0);acknowledge();await expect(replace).toBeEnabled();
+  const chooser=page.waitForEvent('filechooser');await replace.click();await (await chooser).setFiles({name:'budget-v2.txt',mimeType:'text/plain',buffer:Buffer.from('budget')});
   await expect(page.locator('[data-version-state]')).toContainText('正在建立索引');await expect(page.locator('[data-active-note]')).toContainText('上一有效版本仍可参考');
   await expect(page.getByLabel('查看资料版本').locator('option')).toHaveCount(2);await expect(page.locator('[data-version-id]')).toContainText('55555555-5555-4555-8555-555555555555');
   await page.getByLabel('查看资料版本').selectOption(vid);await expect(page.locator('[data-version-state]')).toContainText('可检索');

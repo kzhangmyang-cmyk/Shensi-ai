@@ -141,7 +141,7 @@ function projectRedacted(policy: PricingPolicyVersion): object {
 
 test("canonical catalog persisted fixtures compile and old union variants stay closed", () => {
   execFileSync(fileURLToPath(new URL(
-    "../../node_modules/.bin/tsc",
+    "../node_modules/.bin/tsc",
     import.meta.url
   )), [
     "--noEmit",

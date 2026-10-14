@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "canonicalizerVersion": "douyin-target-url-v1",
+  "vectors": [
+    {
+      "name": "unicode-comment",
+      "rawTargetPublicUrl": "https://www.douyin.com:443/video/Az_9-xy/?tag=%e4%bd%a0%e5%a5%bd&tag=二&=&empty=&trail&&#fragment",
+      "canonicalTargetPublicUrl": "https://www.douyin.com/video/Az_9-xy?tag=%E4%BD%A0%E5%A5%BD&tag=%E4%BA%8C&=&empty=&trail&&",
+      "request": {
+        "account_handle": "dyacct_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "action_id": "action-comment-001",
+        "approved_content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "canonical_target_public_url": "https://www.douyin.com/video/Az_9-xy?tag=%E4%BD%A0%E5%A5%BD&tag=%E4%BA%8C&=&empty=&trail&&",
+        "content": "你好，想了解一下你们的海外增长计划 🚀",
+        "kind": "comment",
+        "login_state_version": 7
+      },
+      "requestCanonicalJson": "{\"account_handle\":\"dyacct_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"action_id\":\"action-comment-001\",\"approved_content_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"canonical_target_public_url\":\"https://www.douyin.com/video/Az_9-xy?tag=%E4%BD%A0%E5%A5%BD&tag=%E4%BA%8C&=&empty=&trail&&\",\"content\":\"你好，想了解一下你们的海外增长计划 🚀\",\"kind\":\"comment\",\"login_state_version\":7}",
+      "requestHash": "76481a9a6bab55714564005fec633ca7f1b05ec323073b8badf3f63bfdc070d9",
+      "receipt": {
+        "action_id": "action-comment-001",
+        "failure_code": null,
+        "occurred_at": "2026-09-03T08:09:10.123Z",
+        "platform_receipt_reference": "douyin-comment:receipt-你好",
+        "state": "succeeded"
+      },
+      "receiptCanonicalJson": "{\"action_id\":\"action-comment-001\",\"failure_code\":null,\"occurred_at\":\"2026-09-03T08:09:10.123Z\",\"platform_receipt_reference\":\"douyin-comment:receipt-你好\",\"state\":\"succeeded\"}",
+      "receiptHash": "c05a502bd41a0cb098d5e0474fefd6abd51987f0717e5949defd5dabec754006"
+    },
+    {
+      "name": "unicode-private-message",
+      "rawTargetPublicUrl": "https://www.douyin.com/user/sec_uid-ABC_123/?#discarded",
+      "canonicalTargetPublicUrl": "https://www.douyin.com/user/sec_uid-ABC_123?",
+      "request": {
+        "account_handle": "dyacct_fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+        "action_id": "action-dm-001",
+        "approved_content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "canonical_target_public_url": "https://www.douyin.com/user/sec_uid-ABC_123?",
+        "content": "您好！这是第二次独立确认的私信内容。",
+        "kind": "direct_message",
+        "login_state_version": 11
+      },
+      "requestCanonicalJson": "{\"account_handle\":\"dyacct_fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210\",\"action_id\":\"action-dm-001\",\"approved_content_hash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"canonical_target_public_url\":\"https://www.douyin.com/user/sec_uid-ABC_123?\",\"content\":\"您好！这是第二次独立确认的私信内容。\",\"kind\":\"direct_message\",\"login_state_version\":11}",
+      "requestHash": "ee7e696c3e9e3e0d36119009836f04494d0b47152f7c4314f03785e4c70586e3",
+      "receipt": {
+        "action_id": "action-dm-001",
+        "failure_code": "douyin_verification_required",
+        "occurred_at": "2026-09-03T09:10:11.456Z",
+        "platform_receipt_reference": null,
+        "state": "failed"
+      },
+      "receiptCanonicalJson": "{\"action_id\":\"action-dm-001\",\"failure_code\":\"douyin_verification_required\",\"occurred_at\":\"2026-09-03T09:10:11.456Z\",\"platform_receipt_reference\":null,\"state\":\"failed\"}",
+      "receiptHash": "68ce0e23e1bf29ecc7f9d1c93345efb18c211fc1232dc61f5d8171b803a95f10"
+    }
+  ],
+  "acceptedTargets": [
+    { "kind": "comment", "raw": "HTTPS://www.douyin.com/video/abc", "canonical": "https://www.douyin.com/video/abc" },
+    { "kind": "comment", "raw": "https://www.douyin.com/video/abc/", "canonical": "https://www.douyin.com/video/abc" },
+    { "kind": "comment", "raw": "https://www.douyin.com:443/video/abc?x=%e4%bd%a0&x=2&&=", "canonical": "https://www.douyin.com/video/abc?x=%E4%BD%A0&x=2&&=" },
+    { "kind": "direct_message", "raw": "https://www.douyin.com/user/abc?", "canonical": "https://www.douyin.com/user/abc?" },
+    { "kind": "direct_message", "raw": "https://www.douyin.com/user/abc#fragment", "canonical": "https://www.douyin.com/user/abc" }
+  ],
+  "rejectedTargets": [
+    { "kind": "comment", "raw": "https://user:pass@www.douyin.com/video/abc", "reason": "credentials" },
+    { "kind": "comment", "raw": "https://ｗｗｗ.douyin.com/video/abc", "reason": "unicode-host" },
+    { "kind": "comment", "raw": "https://www.douyin.com.evil.example/video/abc", "reason": "lookalike-host" },
+    { "kind": "comment", "raw": "https://www.douyin.com:444/video/abc", "reason": "non-default-port" },
+    { "kind": "comment", "raw": "https://www.douyin.com/video/abc/extra", "reason": "raw-slash" },
+    { "kind": "comment", "raw": "https://www.douyin.com/video%2fabc", "reason": "encoded-slash" },
+    { "kind": "comment", "raw": "https://www.douyin.com/video%5cabc", "reason": "encoded-backslash" },
+    { "kind": "comment", "raw": "https://www.douyin.com\\video\\abc", "reason": "raw-backslash" },
+    { "kind": "comment", "raw": "https://www.douyin.com/video/abc?x=%zz", "reason": "malformed-percent" },
+    { "kind": "comment", "raw": "https://www.douyin.com/video/abc%00", "reason": "encoded-nul" },
+    { "kind": "comment", "raw": "https://www.douyin.com/video/abc?x=\u0001", "reason": "raw-c0" },
+    { "kind": "comment", "raw": "https://www.douyin.com/video/../abc", "reason": "raw-dot-segment" },
+    { "kind": "comment", "raw": "https://www.douyin.com/video/%2e%2e/abc", "reason": "encoded-dot-segment" },
+    { "kind": "comment", "raw": "https://www.douyin.com/video/abc?x=%252f", "reason": "double-decode" },
+    { "kind": "comment", "raw": "https://www.douyin.com/user/abc", "reason": "wrong-kind" },
+    { "kind": "direct_message", "raw": "https://www.douyin.com/video/abc", "reason": "wrong-kind" }
+  ],
+  "rejectedTimestamps": [
+    "2026-09-03T08:09:10.123+00:00",
+    "2026-09-03T08:09:10Z",
+    "2026-09-03T08:09:10.12Z",
+    "2026-09-03T08:09:10.1230Z"
+  ]
+}

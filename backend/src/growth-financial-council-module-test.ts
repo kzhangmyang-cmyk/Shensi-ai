@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type express from "express";
+import express from "express";
+import type { AddressInfo } from 'node:net';
+import type { CrmStore } from './store.js';
+import { createDefaultProviderCatalog } from './provider-catalog.js';
 import {
   FinancialCouncilWakeRelay,
   GROWTH_FINANCIAL_COUNCIL_SERVICES,
@@ -368,10 +371,10 @@ test("wake relay advances a composite cursor so persistent first-page facts do n
   await relay.close();
 });
 
-async function moduleFixture() {
+async function moduleFixture(documentModel?: import('./finance-document-service.js').FinanceDocumentReadModel, webResearchStore?: CrmStore) {
   const registry = createGrowthPrivateServiceRegistry();
   const foundation = {
-    workspaceContext: (() => { throw new Error("unused"); }) as never,
+    workspaceContext: (() => { if (webResearchStore) return policyWorkspace(); throw new Error("unused"); }) as never,
     commandContextFactory: (() => { throw new Error("unused"); }) as never,
     httpIdempotency: {} as never
   } as never;
@@ -394,6 +397,8 @@ async function moduleFixture() {
   }) as never;
   registry.provide(GROWTH_FINANCE_SERVICES, finance);
   const resources = await createGrowthFinancialCouncilResources({
+    webResearchStore,
+    documentModel,
     mode: "memory",
     foundation,
     advisor: { today },
@@ -407,11 +412,25 @@ async function moduleFixture() {
     use() { mounts += 1; events.push("route:mount"); }
   } as unknown as express.Router);
   const module = createGrowthFinancialCouncilModule({
+    webResearchStore,
     async initializeSchema() { events.push("schema"); },
     async createResources() { events.push("resources:create"); return resources; }
   });
   return { registry, events, resources, router, module, mounts: () => mounts };
 }
+
+test('council module exposes real scoped public research connection discovery without starting a search', async () => {
+  const fixture = await moduleFixture(undefined, { providerConnections: [{ id: 'owned-search', providerId: 'tavily', ownerId: 'admin-1', teamId: 'ws-1', scope: 'personal', status: 'active' }],
+    providerCatalog: createDefaultProviderCatalog() } as CrmStore);
+  const app = express(); app.use(express.json());
+  const installation = await fixture.module.install({ router: app, toolPorts: {} as never, privateServices: fixture.registry });
+  const server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
+  try {
+    const result = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/finance/public-research`);
+    assert.equal(result.status, 200); assert.equal(result.headers.get('cache-control'), 'no-store');
+    assert.equal((await result.json()).connections[0].id, 'owned-search');
+  } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await installation.close(); }
+});
 
 test("constructed resources own a workspace policy repository", async () => {
   const fixture = await moduleFixture();
@@ -420,11 +439,34 @@ test("constructed resources own a workspace policy repository", async () => {
   assert.equal(fixture.resources.modelRoutingRepository instanceof
     InMemoryFinancialCouncilModelRoutingRepository, true);
   assert.deepEqual(Reflect.ownKeys(fixture.resources).sort(), [
-    "agentCenter", "closeFinancialCouncilResources", "modelRoutingRepository",
-    "modelRoutingService", "relay", "service"
+    "agentCenter", "closeFinancialCouncilResources", "documents", "modelRoutingRepository",
+    "modelRoutingService", "relay", "service", "webResearch"
   ]);
   await fixture.resources.relay.close();
   await fixture.resources.closeFinancialCouncilResources();
+});
+
+test('production council composition shares explicit readonly document selection with all six ask roles without a package', async () => {
+  const calls: string[] = [];
+  const fixture = await moduleFixture(async input => {
+    calls.push(input.role ?? 'cfo');
+    return { inspection: { ...input.inspection, modelStatus: 'completed',
+      observations: [{ text: '仅依据当前资料说明，资料仍待核对。', sourceRefs: [input.inspection.cells[0]!.sourceRef] }] }, provider: 'stub', model: 'stub-model' };
+  });
+  const context = { ...policyWorkspace(), capabilities: ['finance.council.run'] as const };
+  try {
+    const inspected = await fixture.resources.documents.inspect(context, { fileName: '部分资料.csv', mediaType: 'text/csv',
+      contentBase64: Buffer.from('项目,内容\n备注,仅供阅读').toString('base64'), readWithModel: true });
+    for (const role of ['cfo', 'finance', 'profit', 'cost', 'cashflow', 'tax'] as const) {
+      const result = await fixture.resources.agentCenter.ask(context, { documentId: inspected.documentId, role, question: '请说明这份资料', history: [] });
+      assert.equal(result.material && 'kind' in result.material ? result.material.kind : null, 'readonly_document');
+      assert.equal(result.material && 'documentId' in result.material ? result.material.documentId : null, inspected.documentId);
+      assert.equal(result.provider, 'stub');
+    }
+    assert.deepEqual(calls, ['cfo', 'cfo', 'finance', 'profit', 'cost', 'cashflow', 'tax']);
+    await assert.rejects(fixture.resources.agentCenter.ask({ ...context, actorId: 'other' },
+      { question: '请说明资料', history: [] }), /cfo_conversation_model_not_ready/);
+  } finally { await fixture.resources.relay.close(); await fixture.resources.closeFinancialCouncilResources(); }
 });
 
 test("module rejects untrusted service, relay, and close resources before mount", async () => {
@@ -527,9 +569,9 @@ test("financial council module initializes schema before routes and closes once"
   });
   assert.deepEqual(fixture.events, [
     "schema", "resources:create", "route:mount", "route:mount",
-    "route:mount", "route:mount"
+    "route:mount", "route:mount", "route:mount"
   ]);
-  assert.equal(fixture.mounts(), 4);
+  assert.equal(fixture.mounts(), 5);
   assert.equal(
     fixture.registry.require(GROWTH_FINANCIAL_COUNCIL_SERVICES).service,
     fixture.resources.service

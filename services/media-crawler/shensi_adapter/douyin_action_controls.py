@@ -55,11 +55,15 @@ _FIXTURE_MESSAGE_ENTRY = '[data-e2e="message-entry"]'
 _PAGE_FAILURES = (
     ("#captcha-verify-image", "douyin_verification_required"),
     ("#captcha_container", "douyin_verification_required"),
+    ('text="接收短信验证码"', "douyin_verification_required"),
     ('text="操作频繁，请稍后再试"', "douyin_rate_limited"),
     ('text="请稍后再试"', "douyin_rate_limited"),
     ('text="当前操作存在风险"', "douyin_account_warning"),
     ('iframe[src^="https://passport.douyin.com/login"]', "douyin_login_expired"),
     ('form[action^="https://passport.douyin.com/login"]', "douyin_login_expired"),
+    ("#login-panel-new", "douyin_login_expired"),
+    ("#login-pannel", "douyin_login_expired"),
+    ('[id^="login-full-panel-"]', "douyin_login_expired"),
     ('[data-e2e="verification"]', "douyin_verification_required"),
     ('[data-e2e="rate-limit"]', "douyin_rate_limited"),
     ('[data-e2e="account-warning"]', "douyin_account_warning"),
@@ -79,7 +83,9 @@ _MESSAGE_ITEMS = (
     '[aria-label="我发送的消息"][data-message-id], '
     '[aria-label="我发送的消息"][data-msg-id]'
 )
-_EDITOR_DESCENDANTS = '[contenteditable], textarea, input, [role="textbox"]'
+_EDITOR_DESCENDANTS = (
+    '[contenteditable], textarea, input, select, [role="textbox"]'
+)
 _FIXTURE_RECEIPT = '[data-e2e-receipt-id]'
 _PLATFORM_ID = re.compile(r"[A-Za-z0-9_-]{1,200}")
 _RECIPIENT_ID = re.compile(r"[A-Za-z0-9_-]{1,300}")
@@ -87,6 +93,16 @@ _FIXTURE_ID = re.compile(r"[A-Za-z0-9:_-]{1,255}")
 _MAX_MATCHES = 100
 _BOUND_ACTION_ATTRIBUTE = "data-shensi-bound-action"
 _BOUND_COMPOSER_ATTRIBUTE = "data-shensi-bound-composer"
+
+_COMMENT_ITEM_EDITOR_STATE_SCRIPT = r"""
+(element) => {
+  // __shensiCommentItemEditorState
+  return {
+    tagName: element.tagName.toLowerCase(),
+    isContentEditable: element.isContentEditable === true,
+  };
+}
+"""
 
 _DIRECT_MESSAGE_RECIPIENT_BINDING_SCRIPT = r"""
 (element) => {
@@ -158,9 +174,14 @@ _TAG_BOUND_ACTION_CONTROL_SCRIPT = r"""
       const parsed = new URL(href, 'https://www.douyin.com/');
       if (parsed.protocol !== 'https:' || parsed.hostname !== 'www.douyin.com'
           || (parsed.port !== '' && parsed.port !== '443')
-          || parsed.username || parsed.password || parsed.search || parsed.hash) {
+          || parsed.username || parsed.password || parsed.hash) {
         return null;
       }
+      const query = Array.from(parsed.searchParams.entries());
+      const validQuery = query.length === 0 || (query.length === 1
+        && query[0][0] === 'from_nav'
+        && /^[A-Za-z0-9_-]{1,100}$/.test(query[0][1]));
+      if (!validQuery || parsed.search.length > 201) return null;
       const match = parsed.pathname.match(/^\/user\/([A-Za-z0-9_-]{1,300})$/);
       return match ? match[1] : null;
     } catch (_error) {
@@ -211,10 +232,16 @@ _TAG_BOUND_ACTION_CONTROL_SCRIPT = r"""
         || content !== binding.content) {
       return 'douyin_action_content_mismatch';
     }
-    const senderLinks = Array.from(document.querySelectorAll([
-      'header a[href]', 'nav a[href]', '[role="navigation"] a[href]',
-      '[data-e2e="douyin-header"] a[href]', '#douyin-header a[href]'
+    let senderLinks = Array.from(document.querySelectorAll([
+      '[class~="tab-user_self"] a[href]',
+      'a[class~="tab-user_self"][href]'
     ].join(','))).filter(visible);
+    if (senderLinks.length === 0) {
+      senderLinks = Array.from(document.querySelectorAll([
+        'header a[href]', 'nav a[href]', '[role="navigation"] a[href]',
+        '[data-e2e="douyin-header"] a[href]', '#douyin-header a[href]'
+      ].join(','))).filter(visible);
+    }
     const senderReferences = new Set();
     for (const link of senderLinks) {
       const reference = profileReference(link.getAttribute('href'));
@@ -259,7 +286,13 @@ _TAG_BOUND_ACTION_CONTROL_SCRIPT = r"""
   if (initialFailure !== null) return initialFailure;
   element.setAttribute(binding.attribute, binding.nonce);
   if (element.getAttribute(binding.attribute) !== binding.nonce) return false;
-  element.addEventListener('click', (event) => {
+  const eventType = binding.trigger === 'enter' ? 'keydown' : 'click';
+  element.addEventListener(eventType, (event) => {
+    if (binding.trigger === 'enter'
+        && (event.key !== 'Enter' || event.shiftKey || event.ctrlKey
+            || event.metaKey || event.altKey)) {
+      return;
+    }
     const failure = failureCode();
     if (failure === null) {
       window[binding.resultKey] = 'allowed';
@@ -325,9 +358,14 @@ _DIRECT_MESSAGE_RECEIPT_SNAPSHOT_SCRIPT = r"""
       const parsed = new URL(href, 'https://www.douyin.com/');
       if (parsed.protocol !== 'https:' || parsed.hostname !== 'www.douyin.com'
           || (parsed.port !== '' && parsed.port !== '443')
-          || parsed.username || parsed.password || parsed.search || parsed.hash) {
+          || parsed.username || parsed.password || parsed.hash) {
         return null;
       }
+      const query = Array.from(parsed.searchParams.entries());
+      const validQuery = query.length === 0 || (query.length === 1
+        && query[0][0] === 'from_nav'
+        && /^[A-Za-z0-9_-]{1,100}$/.test(query[0][1]));
+      if (!validQuery || parsed.search.length > 201) return null;
       const match = parsed.pathname.match(/^\/user\/([A-Za-z0-9_-]{1,300})$/);
       return match ? match[1] : null;
     } catch (_error) {
@@ -405,10 +443,16 @@ _DIRECT_MESSAGE_RECEIPT_SNAPSHOT_SCRIPT = r"""
   }
 
   if (binding.senderReference !== null) {
-    const senderLinks = Array.from(document.querySelectorAll([
-      'header a[href]', 'nav a[href]', '[role="navigation"] a[href]',
-      '[data-e2e="douyin-header"] a[href]', '#douyin-header a[href]'
+    let senderLinks = Array.from(document.querySelectorAll([
+      '[class~="tab-user_self"] a[href]',
+      'a[class~="tab-user_self"][href]'
     ].join(','))).filter(visible);
+    if (senderLinks.length === 0) {
+      senderLinks = Array.from(document.querySelectorAll([
+        'header a[href]', 'nav a[href]', '[role="navigation"] a[href]',
+        '[data-e2e="douyin-header"] a[href]', '#douyin-header a[href]'
+      ].join(','))).filter(visible);
+    }
     const senderReferences = new Set();
     for (const link of senderLinks) {
       const reference = profileReference(link.getAttribute('href'));
@@ -489,6 +533,9 @@ class _GuardedActionSubmit:
 
     def click(self, **kwargs: object) -> None:
         self._locator.click(**kwargs)  # type: ignore[attr-defined]
+        self._require_allowed()
+
+    def _require_allowed(self) -> None:
         try:
             result = self._page.evaluate(  # type: ignore[attr-defined]
                 _READ_GUARDED_ACTION_RESULT_SCRIPT,
@@ -508,6 +555,14 @@ class _GuardedActionSubmit:
             raise ActionControlsFailure(result)
         if result != "allowed":
             raise ActionControlsFailure("douyin_action_receipt_ambiguous")
+
+
+class _GuardedActionEnter(_GuardedActionSubmit):
+    """Press one guarded Enter key on the exact frozen comment composer."""
+
+    def click(self, **kwargs: object) -> None:
+        self._locator.press("Enter", **kwargs)  # type: ignore[attr-defined]
+        self._require_allowed()
 
 
 def _evaluate_control(
@@ -560,13 +615,16 @@ def prepare_guarded_action_submit(
     kind: str,
     target_public_url: str,
     sender_reference: str,
+    trigger: str = "click",
 ) -> object:
-    """Return one live selector whose guards are re-evaluated at dispatch.
+    """Return one live control whose guards are re-evaluated at dispatch.
 
-    The concrete editor and submit nodes receive independent one-use random DOM
-    tags. The returned locator resolves only the tagged submit; its synchronous
-    capture listener rechecks the exact editor/content, URL, sender, and (for
-    private messages) recipient panel immediately before platform dispatch.
+    The concrete editor and dispatch nodes receive independent one-use random
+    DOM tags. For current comment pages those tags may share the same editor
+    node and dispatch one unmodified Enter keypress. The returned wrapper
+    resolves only the tagged control; its synchronous capture listener rechecks
+    the exact editor/content, URL, sender, and (for private messages) recipient
+    panel immediately before platform dispatch.
     """
     if _RECIPIENT_ID.fullmatch(sender_reference) is None:
         raise ActionControlsFailure("douyin_account_identity_changed")
@@ -574,6 +632,10 @@ def prepare_guarded_action_submit(
     if kind == "direct_message" and recipient is None:
         raise ActionControlsFailure("douyin_direct_message_unavailable")
     if kind not in {"comment", "direct_message"}:
+        raise ActionControlsFailure("douyin_action_control_missing")
+    if trigger not in {"click", "enter"}:
+        raise ActionControlsFailure("douyin_action_control_missing")
+    if trigger == "enter" and kind != "comment":
         raise ActionControlsFailure("douyin_action_control_missing")
 
     concrete = pin_action_control(concrete_submit)
@@ -606,6 +668,7 @@ def prepare_guarded_action_submit(
             "composerAttribute": _BOUND_COMPOSER_ATTRIBUTE,
             "composerNonce": composer_nonce,
             "content": approved_content,
+            "trigger": trigger,
         },
     )
     if tagged in {
@@ -620,7 +683,7 @@ def prepare_guarded_action_submit(
 
     control_marker = f'[{_BOUND_ACTION_ATTRIBUTE}="{nonce}"]:visible'
     try:
-        # The random one-use marker alone resolves the exact concrete submit
+        # The random one-use marker alone resolves the exact concrete dispatch
         # node. Authorization state remains entirely in the synchronous
         # capture listener so drift produces its precise closed failure code
         # instead of causing Playwright selector re-resolution to time out.
@@ -637,7 +700,10 @@ def prepare_guarded_action_submit(
         ) from error
     if len(matches) != 1:
         raise ActionControlsFailure("douyin_action_control_missing")
-    return _GuardedActionSubmit(page, matches[0], result_key)
+    wrapper = (
+        _GuardedActionEnter if trigger == "enter" else _GuardedActionSubmit
+    )
+    return wrapper(page, matches[0], result_key)
 
 
 def _recipient_from_profile_reference(value: object) -> str | None:
@@ -1127,20 +1193,30 @@ def _is_editor(item: object) -> bool:
     if isinstance(role, str) and role.strip().lower() == "textbox":
         return True
     try:
+        state = _evaluate_control(item, _COMMENT_ITEM_EDITOR_STATE_SCRIPT)
         descendants = item.locator(_EDITOR_DESCENDANTS)  # type: ignore[attr-defined]
         descendant_count = descendants.count()  # type: ignore[attr-defined]
-        editable = item.is_editable(timeout=250)  # type: ignore[attr-defined]
         textboxes = item.get_by_role("textbox")  # type: ignore[attr-defined]
         textbox_count = textboxes.count()  # type: ignore[attr-defined]
     except Exception as error:
         raise ActionControlsFailure("douyin_action_receipt_ambiguous") from error
+    if (not isinstance(state, Mapping)
+            or set(state) != {"tagName", "isContentEditable"}
+            or not isinstance(state.get("tagName"), str)
+            or not isinstance(state.get("isContentEditable"), bool)):
+        raise ActionControlsFailure("douyin_action_receipt_ambiguous")
     if not isinstance(descendant_count, int) or descendant_count < 0:
         raise ActionControlsFailure("douyin_action_receipt_ambiguous")
     if (not isinstance(textbox_count, int) or textbox_count < 0
             or descendant_count > _MAX_MATCHES
             or textbox_count > _MAX_MATCHES):
         raise ActionControlsFailure("douyin_action_receipt_ambiguous")
-    return descendant_count > 0 or textbox_count > 0 or bool(editable)
+    return (
+        state["tagName"].strip().lower() in {"input", "textarea", "select"}
+        or state["isContentEditable"]
+        or descendant_count > 0
+        or textbox_count > 0
+    )
 
 
 def _match_comment_item(item: object, request: ActionRequest) -> _CommentMatch | None:

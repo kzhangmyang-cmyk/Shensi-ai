@@ -8,6 +8,19 @@
     "createdAt": { "type": "string", "format": "date-time" }, "completedAt": { "type": ["string", "null"], "format": "date-time" }
   },
   "$defs": {
+    "FinanceImportPreviewInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "fileName", "mediaType", "contentBase64", "mapping"],
+      "properties": {
+        "kind": { "enum": ["acquisition_cost", "financial_fact"] },
+        "fileName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "mediaType": { "enum": ["text/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"] },
+        "contentBase64": { "type": "string", "minLength": 1 },
+        "mapping": {
+          "type": "object", "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      }
+    },
     "FinancialStatementUpload": {
       "type": "object", "additionalProperties": false,
       "required": ["kind", "fileName", "mediaType", "contentBase64"],

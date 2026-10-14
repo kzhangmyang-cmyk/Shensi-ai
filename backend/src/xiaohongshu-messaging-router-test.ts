@@ -1,0 +1,77 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import express from 'express';
+import type { AddressInfo } from 'node:net';
+import { capabilitiesForHumanRole } from './growth-capabilities.js';
+import { desktopInstallationIdHash } from './acquisition-desktop-installation.js';
+import { readFileSync } from 'node:fs';
+import YAML from 'yaml';
+import Ajv2020 from 'ajv/dist/2020.js';
+import addFormats from 'ajv-formats';
+
+test('XHS HTTP uses authenticated user scope plus registered device before issuing one exact command',async()=>{
+  assert.ok(existsSync(new URL('./xiaohongshu-messaging-router.ts',import.meta.url)), 'independent HTTP boundary exists');
+  assert.ok(existsSync(new URL('./xiaohongshu-application.ts',import.meta.url)), 'production XHS composition exists');
+  const { createXhsApplication }=await import('./xiaohongshu-application.js');
+  const installationId='i'.repeat(43), token='t'.repeat(43), deviceId=desktopInstallationIdHash(installationId);
+  const contract=YAML.parse(readFileSync(new URL('../../contracts/openapi/xiaohongshu-messaging.v1.yaml',import.meta.url),'utf8'));
+  const ajv=new Ajv2020({strict:false}); addFormats(ajv);
+  const conforms=(schema:string,value:unknown)=>{
+    const validate=ajv.compile({components:contract.components,$ref:`#/components/schemas/${schema}`});
+    assert.equal(validate(value),true,JSON.stringify(validate.errors));
+  };
+  let wrongDeviceScope=false;
+  const context={workspaceId:'workspace',actorId:'actor',teamId:'team',kind:'personal' as const,role:'admin' as const,
+    capabilities:capabilitiesForHumanRole('admin'),capabilityRegistryVersion:'growth-capabilities.v1'};
+  const app=express(); app.use(express.json());
+  app.use((req,_res,next)=>{
+    if(req.header('X-Test-User')==='yes') {req.user={id:'actor',teamId:'team'} as never;req.activeWorkspace=context;}
+    next();
+  });
+  app.use('/api/v1/acquisition/xiaohongshu',await createXhsApplication({moduleEnabled:true,pool:null,enabled:true,installationService:{authenticateDevice:async input=>
+    input.installationId===installationId && input.deviceToken===token
+      ? {workspaceId:wrongDeviceScope?'other':'workspace',userId:'actor',teamId:'team',deviceIdHash:deviceId,protocolVersion:1} : null}}));
+  const server=app.listen(0,'127.0.0.1'); await new Promise<void>(resolve=>server.once('listening',resolve));
+  const base=`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/acquisition/xiaohongshu`;
+  const headers={'Content-Type':'application/json','X-Test-User':'yes'};
+  const send=(path:string,body:unknown,extra:Record<string,string>={})=>fetch(base+path,{method:'POST',headers:{...headers,...extra},body:JSON.stringify(body)});
+  try {
+    assert.equal((await fetch(base+'/drafts')).status,401);
+    const device={'X-Shensi-Desktop-Installation-Id':installationId,'X-Shensi-Desktop-Device-Token':token};
+    const account={accountId:'00000000-0000-4000-8000-000000000003',platformUserId:'platform-user',displayName:'Synthetic account',generation:'00000000-0000-4000-8000-000000000002',state:'ready',revision:0};
+    assert.equal((await send('/accounts/bind',account)).status,401);
+    const bound=await send('/accounts/bind',account,device);assert.equal(bound.status,200);
+    conforms('XhsAccount',await bound.json());
+    const accountList=await fetch(base+'/accounts',{headers});conforms('XhsAccountList',await accountList.json());
+    const draft={id:'00000000-0000-4000-8000-000000000001',accountId:account.accountId,deviceId,recipientId:'recipient',body:'synthetic text'};
+    assert.equal((await send('/drafts',{...draft,actorId:'forged'})).status,422);
+    const create=await send('/drafts',draft); assert.equal(create.status,201); assert.equal(create.headers.get('cache-control'),'no-store');
+    conforms('XhsDraft',await create.json());
+    const approve=await send(`/drafts/${draft.id}/approve`,{revision:1});assert.equal(approve.status,200);
+    const path=`/drafts/${draft.id}/claim`;
+    assert.equal((await send(path,{revision:2})).status,401);
+    wrongDeviceScope=true;
+    assert.equal((await send(path,{revision:2},device)).status,403);
+    wrongDeviceScope=false;
+    assert.equal((await send(path,{revision:2},{...device,'X-Shensi-Desktop-Device-Token':token+','+token})).status,401);
+    assert.equal((await send(path,{revision:2,body:'replacement'},device)).status,422);
+    const result=await send(path,{revision:2},device);assert.equal(result.status,200);
+    const command=await result.json();assert.equal(command.body,'synthetic text');assert.equal(command.deviceId,deviceId);
+    conforms('XhsCommand',command);
+    assert.equal(JSON.stringify(command).includes(token),false);
+    assert.equal((await send(path,{revision:2},device)).status,409);
+    const done=await send(`/drafts/${draft.id}/receipt`,{clientMessageId:command.clientMessageId,generation:account.generation,receipt:{status:'confirmed',serverMessageId:'server'}},device);
+    assert.equal(done.status,200);
+    conforms('XhsDraft',await done.json());
+    const list=await fetch(base+'/drafts',{headers});const items=await list.json();assert.equal(items.items[0].status,'confirmed');
+    conforms('XhsDraftList',items);
+  } finally {await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
+});
+test('disabled XHS module does not initialize database schema',async()=>{
+  const {createXhsApplication}=await import('./xiaohongshu-application.js');
+  let calls=0;
+  await createXhsApplication({moduleEnabled:false,pool:{execute:async()=>{calls++;throw new Error('unexpected schema');}} as never,
+    installationService:{authenticateDevice:async()=>{throw new Error('unused');}}});
+  assert.equal(calls,0);
+});

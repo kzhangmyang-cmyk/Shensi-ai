@@ -55,3 +55,18 @@ test("exception approval requires every frozen capability", async () => {
       === "capability_forbidden"
   );
 });
+
+test("manager can approve an ordinary CRM formal quote without Douyin evidence", async () => {
+  const state = approvalFixture({ ordinaryDeal: true });
+  const result = await state.service.approve(
+    managerDecisionContext(),
+    state.formalVersion.id,
+    { reason: "客户资质和商务条款已复核" }
+  );
+
+  assert.equal(result.value.quoteVersion.status, "approved");
+  assert.equal(result.value.quoteVersion.commercialBindingSnapshot?.sourceKind,
+    "crm");
+  assert.equal(result.value.authorityEvent.commercialBindingEvidence, undefined);
+  assert.equal(result.value.publicationOperation.status, "queued");
+});

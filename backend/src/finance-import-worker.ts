@@ -381,6 +381,16 @@ export class FinanceImportWorker implements FinanceImportWorkerLike {
         }
       }
       for (const derivedFact of derivedFacts) {
+        const factContext: CommandContext = Object.freeze({
+          ...rowContext,
+          idempotencyKey: `${rowContext.idempotencyKey}:${derivedFact.factType}`,
+          requestHash: canonicalGrowthRequestHash({
+            operationId: operation.id,
+            rowId: row.id,
+            sourceIdentityRoot: row.sourceIdentityRoot,
+            factType: derivedFact.factType
+          })
+        });
         const factInput = {
           candidateId: normalized.candidateId,
           customerId: normalized.customerId,
@@ -402,7 +412,7 @@ export class FinanceImportWorker implements FinanceImportWorkerLike {
           })
         } as const;
         const created = await this.financialFactLedger.createPendingAt(
-          rowContext, input.cutoff, factInput
+          factContext, input.cutoff, factInput
         );
         if (created.replayed) replayed = true;
         createdLedgerIds.push(created.fact.id);

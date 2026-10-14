@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
 import {
   createGrowthOpenApiComponents,
   createGrowthOpenApiPaths,
@@ -10,7 +12,7 @@ import {
 test("released Growth OpenAPI loader verifies and exposes the immutable release", () => {
   const release = loadGrowthContractRelease();
   assert.equal(release.manifest.name, "growth-advisor-quote-roi");
-  assert.equal(release.manifest.contractVersion, "1.0.12");
+  assert.equal(release.manifest.contractVersion, "1.0.41");
   assert.equal(
     selectGrowthContractReleaseVersion([release.manifest.contractVersion]),
     release.manifest.contractVersion
@@ -112,4 +114,29 @@ test("Growth production paths retain valid component references for the 3.0 docu
   assert.equal(statements["x-json-schema-items"], false);
   assert.match(JSON.stringify(paths), /#\/components\/schemas\/GrowthBootstrapResponse/u);
   assert.equal(JSON.stringify(components).includes('"const"'), false);
+});
+
+test('Growth production history advertises the optional reference reader and explicit upgrade error', () => {
+  const get = createGrowthOpenApiPaths()['/api/v1/finance/cfo-sessions/{sessionId}'].get;
+  const reader = get.parameters.find((parameter: any) => parameter.name === 'X-Shensi-Reference-Protocol');
+  assert.deepEqual(reader, { name: 'X-Shensi-Reference-Protocol', in: 'header', required: false,
+    schema: { type: 'string', enum: ['system-v1'] } });
+  assert.ok(get.responses['409']); assert.ok(get.responses['422']);
+  assert.equal(get.requestBody, undefined);
+});
+
+test('Growth 3.0 projection retains the topic-to-protocol dependency without mutating release bytes', () => {
+  const release = loadGrowthContractRelease();
+  const before = JSON.stringify(release.document);
+  const components = createGrowthOpenApiComponents();
+  const ajv = new Ajv({ strict: false }); addFormats(ajv);
+  const validate = ajv.compile({ components, $ref: '#/components/schemas/CfoConversationInput' });
+  const legacy = { question: '预算偏差', history: [] };
+  assert.equal(validate(legacy), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...legacy, referenceTopicIds: ['budget_variance'] }), false);
+  assert.equal(validate({ ...legacy, referenceProtocol: 'system-v1', referenceTopicIds: ['budget_variance'] }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...legacy, referenceProtocol: 'private', referenceTopicIds: ['budget_variance'] }), false);
+  assert.equal(validate({ ...legacy, referenceProtocol: 'system-v1', referenceTopicIds: ['budget_variance', 'budget_variance'] }), false);
+  assert.equal(JSON.stringify(components).includes('"dependentRequired"'), false);
+  assert.equal(JSON.stringify(release.document), before);
 });

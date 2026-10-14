@@ -152,8 +152,11 @@ export interface GrowthPerformanceDataSource {
 }
 
 export interface ExpectedRoiContributionSource {
+  readEstimatedCost?(context: ActiveWorkspaceContext,
+    query: Omit<GrowthPerformanceQuery, "asOf">, cutoff: GrowthSealedReadCutoff
+  ): Promise<{ amountMinor: number; estimateIds: string[] } | null>;
   listQuoteContributions(
-    workspaceId: string,
+    context: ActiveWorkspaceContext,
     candidateIds: string[],
     currency: string,
     cutoff: GrowthSealedReadCutoff
@@ -206,7 +209,7 @@ implements AcquisitionGrowthPerformanceQueryService {
       ])
     ];
     const contributions = await this.contributions.listQuoteContributions(
-      context.workspaceId, candidateIds, query.currency, cutoff
+      context, candidateIds, query.currency, cutoff
     );
     const quoteVersionIds = contributions.map(
       (contribution) => contribution.quoteVersionId
@@ -214,16 +217,17 @@ implements AcquisitionGrowthPerformanceQueryService {
     const probabilityAssessmentIds = contributions.map(
       (contribution) => contribution.probabilityAssessmentId
     );
+    const estimatedCost = await this.contributions.readEstimatedCost?.(context, query, cutoff) ?? null;
     const expected = calculateExpectedRoi({
       contributions: contributions.map((contribution) => ({
         dealId: contribution.dealId,
         approvedGrossProfitMinor: contribution.approvedGrossProfitMinor,
         closeProbabilityBps: contribution.closeProbabilityBps
       })),
-      attributedEstimatedCostMinor: null,
-      costCoverageBps: 0
+      attributedEstimatedCostMinor: estimatedCost?.amountMinor ?? null,
+      costCoverageBps: estimatedCost ? 10000 : 0
     });
-    const expectedView: ExpectedRoiCurrencyView = {
+    let expectedView: ExpectedRoiCurrencyView = {
       currency: query.currency,
       status: expected.status,
       reason: expected.status === "not_computable" ? expected.reason : null,
@@ -231,7 +235,7 @@ implements AcquisitionGrowthPerformanceQueryService {
       formulaVersion: "expected-gross-profit-roi.v1",
       quoteVersionIds,
       probabilityAssessmentIds,
-      costEstimateIds: [],
+      costEstimateIds: estimatedCost?.estimateIds ?? [],
       amountVisibility: "full",
       probabilityWeightedGrossProfitMinor:
         expected.status === "computed"
@@ -335,6 +339,22 @@ implements AcquisitionGrowthPerformanceQueryService {
       actualView,
       cashView
     });
+    if (!context.capabilities.includes("pricing.sensitive.read")) {
+      const { probabilityWeightedGrossProfitMinor: _profit,
+        attributedEstimatedCostMinor: _cost, ...expectedPublic } = expectedView;
+      expectedView = { ...expectedPublic, amountVisibility: "redacted" };
+      if (actualView.status === "computed" && actualView.amountVisibility === "full") {
+        const { verifiedGrossProfitMinor: _actualProfit,
+          verifiedAcquisitionCostMinor: _actualCost, ...actualPublic } = actualView;
+        actualView = { ...actualPublic, amountVisibility: "redacted" };
+      }
+      if (cashView?.amountVisibility === "full") {
+        const { verifiedContractWonMinor: _won, verifiedAcquisitionCostMinor: _cashCost,
+          allocatedPaymentMinor: _payment, allocatedRefundMinor: _refund,
+          allocatedBadDebtMinor: _badDebt, netCashMinor: _net, ...cashPublic } = cashView;
+        cashView = { ...cashPublic, amountVisibility: "redacted" };
+      }
+    }
     return {
       cohortId: query.cohortId,
       currency: query.currency,

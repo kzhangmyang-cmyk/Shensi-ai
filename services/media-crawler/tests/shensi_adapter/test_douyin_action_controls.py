@@ -21,6 +21,7 @@ from shensi_adapter.douyin_actions import (
     DouyinActionExecutor,
     DouyinActionFailure,
     DouyinActionReconciler,
+    _official_comment_receipt,
 )
 from shensi_adapter.douyin_account_identity import (
     account_handle_for_raw_sec_uid,
@@ -198,7 +199,9 @@ class FakeLocator:
                 item for item in self.elements
                 if item.contains_editor or item.attributes.get("contenteditable") == "true"
             ])
-        if selector == '[contenteditable], textarea, input, [role="textbox"]':
+        if selector == (
+            '[contenteditable], textarea, input, select, [role="textbox"]'
+        ):
             descendants = []
             for item in self.elements:
                 for index, editor_kind in enumerate(sorted(item.descendant_editors)):
@@ -211,6 +214,19 @@ class FakeLocator:
         return FakeLocator(self.page, [])
 
     def evaluate(self, _expression: str, arg=None, **_kwargs):
+        if "__shensiCommentItemEditorState" in _expression:
+            element = self._one()
+            contenteditable = element.attributes.get("contenteditable")
+            return {
+                "tagName": element.tag_name.lower(),
+                "isContentEditable": (
+                    element.editable
+                    or (
+                        contenteditable is not None
+                        and contenteditable.strip().lower() != "false"
+                    )
+                ),
+            }
         if "__shensiDirectMessageRecipientBinding" in _expression:
             element = self._one()
             markers = (
@@ -331,6 +347,7 @@ class FakePage:
         self.clock = clock
         self.after_wait = after_wait
         self.waits: list[int] = []
+        self.brought_to_front = 0
         self.keyboard = FakeKeyboard(self)
 
     def goto(self, url: str, **_kwargs):
@@ -370,6 +387,9 @@ class FakePage:
     def title(self):
         return self.page_title
 
+    def bring_to_front(self):
+        self.brought_to_front += 1
+
 
 class FakeVisualLocator:
     def __init__(self, controls: dict[str, FakeElement] | None = None,
@@ -405,6 +425,29 @@ class FakeResponse:
 
     def json(self):
         return self._payload
+
+
+class FinishRequiredFakeResponse(FakeResponse):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.finished_called = False
+
+    def finished(self):
+        self.finished_called = True
+        return None
+
+    def json(self):
+        if not self.finished_called:
+            raise RuntimeError("response_body_not_finished")
+        return super().json()
+
+
+class UnreadableFakeResponse(FakeResponse):
+    def finished(self):
+        return "response_body_unavailable"
+
+    def json(self):
+        raise RuntimeError("response_body_unavailable")
 
 
 @dataclass(frozen=True)
@@ -815,6 +858,52 @@ def test_real_playwright_guard_blocks_a_visible_sender_switch():
             browser.close()
 
 
+def test_real_playwright_guard_uses_authenticated_account_control_not_author_links():
+    from playwright.sync_api import sync_playwright
+
+    target = "https://www.douyin.com/video/7350000000000000001"
+    html = """
+      <div class="tab-user_self">
+        <a href="/user/MS4wLjABCurrentAccount?from_nav=main">个人主页</a>
+      </div>
+      <nav><a href="/user/MS4wLjABVideoAuthor">视频作者</a></nav>
+      <div id="composer" contenteditable="true">冻结的批准文本</div>
+      <button id="send"
+              onclick="window.platformClicks = (window.platformClicks || 0) + 1">
+        发送
+      </button>
+    """
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.route(target, lambda route: route.fulfill(
+                status=200,
+                content_type="text/html; charset=utf-8",
+                body=html,
+            ))
+            page.goto(target)
+            guarded_submit = prepare_guarded_action_submit(
+                page,
+                pin_action_control(page.locator("#send")),
+                concrete_composer=pin_action_control(
+                    page.locator("#composer")
+                ),
+                approved_content="冻结的批准文本",
+                kind="comment",
+                target_public_url=target,
+                sender_reference="MS4wLjABCurrentAccount",
+            )
+
+            guarded_submit.click(timeout=100)
+
+            assert page.evaluate(
+                "() => window.platformClicks || 0"
+            ) == 1
+        finally:
+            browser.close()
+
+
 def test_real_playwright_comment_guard_rechecks_content_at_click_dispatch():
     from playwright.sync_api import sync_playwright
 
@@ -1108,6 +1197,152 @@ def test_real_playwright_executor_activates_lazy_comment_composer_before_typing(
             )
             assert page.evaluate("() => window.activationClicks") == 1
             assert page.evaluate("() => window.platformClicks") == 1
+        finally:
+            browser.close()
+
+
+def test_real_playwright_executor_uses_guarded_enter_when_comment_has_no_submit_button():
+    from playwright.sync_api import sync_playwright
+
+    target = "https://www.douyin.com/video/7350000000000000001"
+    publish = "https://www.douyin.com/aweme/v1/web/comment/publish/"
+    html = """
+      <!doctype html><html><head><meta charset="utf-8"></head><body>
+        <header><a href="/user/MS4wLjABCurrentAccount">账号</a></header>
+        <div class="comment-input-inner-container">
+          <button id="activate" type="button">留下你的精彩评论吧</button>
+          <div id="editor-host"></div>
+        </div>
+        <section data-e2e="comment-list"></section>
+        <script>
+          window.activationClicks = 0;
+          window.keyboardSubmits = 0;
+          document.querySelector('#activate').addEventListener('click', () => {
+            window.activationClicks += 1;
+            document.querySelector('#activate').remove();
+            document.querySelector('#editor-host').innerHTML = `
+              <div id="composer" class="public-DraftEditor-content"
+                   role="combobox" contenteditable="true"></div>
+            `;
+            const composer = document.querySelector('#composer');
+            composer.addEventListener('keydown', (event) => {
+              if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey
+                  || event.metaKey || event.altKey) return;
+              event.preventDefault();
+              window.keyboardSubmits += 1;
+              const body = new URLSearchParams({
+                text: composer.textContent,
+                aweme_id: '7350000000000000001',
+                is_self_see: '0',
+              });
+              fetch('/aweme/v1/web/comment/publish/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body,
+              });
+            });
+          });
+        </script>
+      </body></html>
+    """
+    response_body = json.dumps({
+        "status_code": 0,
+        "comment": {
+            "cid": "comment-enter-1",
+            "text": "冻结的批准文本",
+            "aweme_id": "7350000000000000001",
+            "user": {"sec_uid": "MS4wLjABCurrentAccount"},
+        },
+    }, ensure_ascii=False)
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.route(target, lambda route: route.fulfill(
+                status=200,
+                content_type="text/html; charset=utf-8",
+                body=html,
+            ))
+            page.route(publish, lambda route: route.fulfill(
+                status=200,
+                content_type="application/json; charset=utf-8",
+                body=response_body,
+            ))
+
+            receipt = DouyinActionExecutor(
+                now=lambda: NOW,
+                receipt_attempts=1,
+                receipt_poll_ms=0,
+                control_wait_ms=3,
+                control_poll_ms=1,
+                account_identity_revalidator=(
+                    lambda: "MS4wLjABCurrentAccount"
+                ),
+                require_account_identity_binding=True,
+            ).execute(page, action_request())
+
+            assert receipt.platform_receipt_reference == (
+                "douyin-comment:comment-enter-1"
+            )
+            assert page.evaluate("() => window.activationClicks") == 1
+            assert page.evaluate("() => window.keyboardSubmits") == 1
+        finally:
+            browser.close()
+
+
+def test_real_playwright_guarded_enter_blocks_content_changed_at_dispatch():
+    from playwright.sync_api import sync_playwright
+
+    target = "https://www.douyin.com/video/7350000000000000001"
+    html = """
+      <!doctype html><html><head><meta charset="utf-8"></head><body>
+        <header><a href="/user/MS4wLjABCurrentAccount">账号</a></header>
+        <div class="comment-input-inner-container">
+          <div id="composer" class="public-DraftEditor-content"
+               role="combobox" contenteditable="true"></div>
+        </div>
+        <section data-e2e="comment-list"></section>
+        <script>
+          window.platformSubmits = 0;
+          const composer = document.querySelector('#composer');
+          composer.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') composer.textContent = '未审批的更改';
+          }, {capture: true});
+          composer.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') window.platformSubmits += 1;
+          });
+        </script>
+      </body></html>
+    """
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.route(target, lambda route: route.fulfill(
+                status=200,
+                content_type="text/html; charset=utf-8",
+                body=html,
+            ))
+
+            with pytest.raises(
+                DouyinActionFailure,
+                match="^douyin_action_content_mismatch$",
+            ):
+                DouyinActionExecutor(
+                    now=lambda: NOW,
+                    receipt_attempts=1,
+                    receipt_poll_ms=0,
+                    control_wait_ms=3,
+                    control_poll_ms=1,
+                    account_identity_revalidator=(
+                        lambda: "MS4wLjABCurrentAccount"
+                    ),
+                    require_account_identity_binding=True,
+                ).execute(page, action_request())
+
+            assert page.evaluate("() => window.platformSubmits") == 0
         finally:
             browser.close()
 
@@ -2069,8 +2304,12 @@ def test_real_direct_message_fails_closed_when_distinct_entry_selectors_both_mat
      "抖音", None, "douyin_verification_required"),
     ([FakeElement(name="captcha-container", selectors={"#captcha_container"})],
      "抖音", None, "douyin_verification_required"),
+    ([FakeElement(name="sms-verification", selectors={'text="接收短信验证码"'})],
+     "抖音", None, "douyin_verification_required"),
     ([], "验证码中间页 - 抖音", None, "douyin_verification_required"),
     ([], "抖音", "https://passport.douyin.com/login/", "douyin_login_expired"),
+    ([FakeElement(name="login-panel", selectors={"#login-panel-new"})],
+     "抖音", None, "douyin_login_expired"),
     ([FakeElement(name="rate-limit", selectors={'text="操作频繁，请稍后再试"'})],
      "抖音", None, "douyin_rate_limited"),
 ])
@@ -2220,6 +2459,130 @@ def test_real_page_binds_comment_to_exact_official_publish_response():
         "independent-video-submit",
     ]
     assert page.response_wait_timeouts == [5_000]
+
+
+@pytest.mark.parametrize("unreadable", [False, True])
+def test_official_response_during_sms_wait_does_not_close_or_resubmit(unreadable):
+    base = official_comment_response()
+    sms = FakeElement(
+        name="sms-verification", selectors={'text="接收短信验证码"'},
+        visible_after_submit=True,
+    )
+    page = ResponseCapturingPage(
+        [independent_video_composer(), independent_video_submit(),
+         independent_video_comment(), sms],
+        response=UnreadableFakeResponse(
+            url=base.url, post_data=base.request.post_data, payload=base._payload,
+        ) if unreadable else base,
+    )
+    clock = FakeClock()
+    page.clock = clock
+
+    def human_finishes(_page):
+        if sum(page.waits) >= 15_000:
+            sms.visible = False
+
+    page.after_wait = human_finishes
+    receipt = DouyinActionExecutor(now=clock.now).execute(page, action_request())
+
+    assert page.brought_to_front == 1
+    assert sum(page.waits) == 15_000
+    assert page.clicks == ["independent-video-composer", "independent-video-submit"]
+    assert receipt.platform_receipt_reference == (
+        "douyin-comment:comment-789" if unreadable
+        else "douyin-comment:official-comment-789"
+    )
+
+
+def test_official_response_is_finished_before_reading_its_body():
+    base = official_comment_response()
+    response = FinishRequiredFakeResponse(
+        url=base.url,
+        post_data=base.request.post_data,
+        payload=base._payload,
+    )
+    page = ResponseCapturingPage(
+        [independent_video_composer(), independent_video_submit()],
+        response=response,
+    )
+
+    receipt = DouyinActionExecutor(now=lambda: NOW).execute(
+        page,
+        action_request(),
+    )
+
+    assert response.finished_called is True
+    assert receipt.platform_receipt_reference == (
+        "douyin-comment:official-comment-789"
+    )
+
+
+def test_unreadable_official_response_falls_back_to_bound_dom_receipt():
+    base = official_comment_response()
+    page = ResponseCapturingPage(
+        [
+            independent_video_composer(),
+            independent_video_submit(),
+            independent_video_comment(),
+        ],
+        response=UnreadableFakeResponse(
+            url=base.url,
+            post_data=base.request.post_data,
+            payload=base._payload,
+        ),
+    )
+
+    receipt = DouyinActionExecutor(now=lambda: NOW).execute(
+        page,
+        action_request(),
+    )
+
+    assert receipt.platform_receipt_reference == (
+        "douyin-comment:comment-789"
+    )
+
+
+def test_bound_sender_accepts_official_publish_response_without_user_identity():
+    receipt = _official_comment_receipt(
+        official_comment_response(user={}),
+        action_request(),
+        "7350000000000000001",
+        sender_reference="MS4wLjABCurrentAccount",
+    )
+
+    assert receipt == "douyin-comment:official-comment-789"
+
+
+@pytest.mark.parametrize("optional_field", ["text", "aweme_id"])
+def test_bound_sender_accepts_official_response_without_optional_echo_fields(
+    optional_field,
+):
+    response = official_comment_response(user={"uid": "123456789"})
+    del response._payload["comment"][optional_field]
+
+    receipt = _official_comment_receipt(
+        response,
+        action_request(),
+        "7350000000000000001",
+        sender_reference="MS4wLjABCurrentAccount",
+    )
+
+    assert receipt == "douyin-comment:official-comment-789"
+
+
+def test_response_sender_mismatch_overrides_bound_session_identity():
+    with pytest.raises(
+        DouyinActionFailure,
+        match="^douyin_action_receipt_ambiguous$",
+    ):
+        _official_comment_receipt(
+            official_comment_response(user={
+                "sec_uid": "MS4wLjABDifferentAccount",
+            }),
+            action_request(),
+            "7350000000000000001",
+            sender_reference="MS4wLjABCurrentAccount",
+        )
 
 
 def test_missing_publish_response_after_completed_click_uses_dom_receipt_proof():
@@ -2644,6 +3007,28 @@ def test_playwright_normalized_whitespace_match_is_not_a_byte_exact_receipt():
         page, action_request(content), ReceiptBaseline(),
     ) is None
     assert page.clicks == []
+
+
+def test_real_playwright_plain_comment_item_is_not_treated_as_an_editor():
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content("""
+              <div data-e2e="comment-item" data-comment-id="comment-plain">
+                <span>一条无关的普通评论</span>
+              </div>
+            """)
+
+            assert find_visible_receipt(
+                page,
+                action_request(),
+                ReceiptBaseline(),
+            ) is None
+        finally:
+            browser.close()
 
 
 def test_multiple_exact_receipts_fail_ambiguous_without_click():

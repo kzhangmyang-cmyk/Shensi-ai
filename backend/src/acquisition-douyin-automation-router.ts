@@ -32,6 +32,7 @@ const policySchema = z.object({
   collectCreators: z.boolean(),
   collectDemandComments: z.boolean(),
   limits: z.object({
+    maxComments: z.number().int().min(1).max(10000).optional(),
     maxVideos: z.number().int(),
     maxCommentsPerVideo: z.number().int(),
     maxPagesPerVideo: z.number().int(),

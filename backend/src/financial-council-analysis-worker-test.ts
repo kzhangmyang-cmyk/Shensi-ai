@@ -123,6 +123,24 @@ test("duplicate wake has one winner and restart reuses durable role outcomes", a
   await worker.close();
 });
 
+test("recovery from analyzing skips saved specialist and repairs its public completion evidence", async () => {
+  const { repository, run, snapshot } = await setup();
+  const result = authorizeSpecialistResultFixture(run, snapshot);
+  await repository.storeSpecialistResult(workspace(), result);
+  const execution = pipeline();
+  const worker = new FinancialCouncilAnalysisWorker({ repository, pipeline: execution.value,
+    workerId: "recovery", now: () => T0, leaseDurationMs: 60_000,
+    leaseTokenFactory: () => "7".repeat(64) });
+  await worker.wake(run);
+  assert.equal(execution.analyzed.includes(result.role), false);
+  const events = await repository.listCollaborationEvents(workspace(), run.runId);
+  const roleEvents = events.filter(event => event.role === result.role);
+  assert.deepEqual(roleEvents.map(event => event.state), ["completed"]);
+  assert.deepEqual(roleEvents[0]?.findingIds, result.findings.map(finding => finding.findingId));
+  assert.equal(events.some(event => event.state === "completed" && event.role !== result.role), false,
+    "a stub pipeline with no persisted result must not claim completion");
+});
+
 test("process restart resumes auditing without replaying the five analyze jobs", async () => {
   const { repository, run } = await setup();
   const first = pipeline();

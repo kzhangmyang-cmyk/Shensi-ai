@@ -1,14 +1,35 @@
-import { startAcquisitionRuntime } from "./acquisition/runtime";
-import { startAcquisitionTaskCreation } from "./acquisition/task-creation-controller";
-import { startAcquisitionDetailCenter } from "./acquisition/detail-center-controller";
 import { acquisitionDetailRequestForAction } from "./acquisition/detail-center-entry";
-import { startAcquisitionPerformance } from "./acquisition/performance-controller";
-import { startConnectionCenter } from "./connections/connection-controller";
 import {
   getFlowCardSpacing,
   isSelectableFlowCard,
   nextSelectableFlowIndex
 } from "./replica-flow-selection";
+
+/** Defer heavy acquisition/connection controllers so they are not in the initial JS graph. */
+let acquisitionControllersStarted = false;
+function startAcquisitionControllers(): void {
+  if (acquisitionControllersStarted) return;
+  acquisitionControllersStarted = true;
+  void Promise.all([
+    import("./acquisition/runtime"),
+    import("./acquisition/task-creation-controller"),
+    import("./acquisition/detail-center-controller"),
+    import("./acquisition/performance-controller"),
+    import("./connections/connection-controller")
+  ]).then(([
+    { startAcquisitionRuntime },
+    { startAcquisitionTaskCreation },
+    { startAcquisitionDetailCenter },
+    { startAcquisitionPerformance },
+    { startConnectionCenter }
+  ]) => {
+    startAcquisitionRuntime();
+    startAcquisitionTaskCreation();
+    startAcquisitionDetailCenter();
+    startAcquisitionPerformance();
+    startConnectionCenter();
+  });
+}
 
 type ReplicaTaskRow = HTMLButtonElement & {
   dataset: DOMStringMap & {
@@ -43,6 +64,12 @@ if (replica) {
   const searchInput = document.querySelector<HTMLInputElement>("#replicaSearchInput");
   const toast = document.querySelector<HTMLElement>("#replicaToast");
   const flow = document.querySelector<HTMLElement>("#replicaFlowStage");
+  const board = document.querySelector<HTMLElement>(".replica-board");
+  const boardbar = document.querySelector<HTMLElement>(".replica-boardbar");
+  const taskGroups = document.querySelector<HTMLElement>(".replica-task-groups");
+  if (board && flow && boardbar && taskGroups) {
+    board.insertBefore(boardbar, taskGroups);
+  }
   const modal = document.querySelector<HTMLDialogElement>("#replicaTaskModal");
   const taskForm = document.querySelector<HTMLFormElement>("#replicaTaskForm");
   const flowPosition = document.querySelector<HTMLElement>("#replicaFlowPosition");
@@ -139,7 +166,9 @@ if (replica) {
       card.setAttribute("aria-selected", String(selected));
       card.tabIndex = selected ? 0 : -1;
       const state = card.querySelector<HTMLElement>(".replica-flow-card-state");
-      if (state) state.textContent = selected ? "当前选择" : card.dataset.flowState || "";
+      if (state) state.textContent = selected
+        ? card.dataset.acquisitionPending === "true" ? "当前浏览 · 待接入" : "当前选择"
+        : card.dataset.flowState || "";
     });
 
     const selectedCard = cards[selectedFlowIndex];
@@ -174,9 +203,11 @@ if (replica) {
     }
     updateFlowLayout(normalizedIndex);
     const selectedCard = cards[selectedFlowIndex];
+    if (focusCard) selectedCard.focus({ preventScroll: true });
+    // Browsing a pending integration must never select its hidden demo task.
+    if (selectedCard.dataset.acquisitionPending === "true") return;
     const row = taskRows().find((task) => task.dataset.taskId === selectedCard.dataset.flowTaskId);
     if (row) renderTaskDetail(row, false);
-    if (focusCard) selectedCard.focus({ preventScroll: true });
   }
 
   function moveFlowProject(direction: number, focusCard = false) {
@@ -336,11 +367,13 @@ if (replica) {
   });
 
   searchInput?.addEventListener("input", () => {
+    if (!isAcquisitionActive()) return;
     searchQuery = searchInput.value;
     applyFilters();
   });
 
   searchInput?.addEventListener("keydown", (event) => {
+    if (!isAcquisitionActive()) return;
     if (event.key === "Escape") {
       searchInput.value = "";
       searchQuery = "";
@@ -591,16 +624,15 @@ if (replica) {
 
   document.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      const currentSearch = isAcquisitionActive() ? searchInput
+        : document.querySelector<HTMLInputElement>('#demoModuleMain:not([hidden]) input[type="search"]:not([hidden]):not(:disabled)');
+      if (!currentSearch) return;
       event.preventDefault();
-      searchInput?.focus();
+      currentSearch.focus();
     }
   });
 
   updateFlowLayout(selectedFlowIndex);
 }
 
-startAcquisitionRuntime();
-startAcquisitionTaskCreation();
-startAcquisitionDetailCenter();
-startAcquisitionPerformance();
-startConnectionCenter();
+startAcquisitionControllers();

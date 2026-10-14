@@ -160,6 +160,25 @@ test("growth hash navigation dispatches one catalog load", async ({ page }) => {
   await installed.dispose();
 });
 
+test("growth finance restores the settings action without an unsupported global search", async ({ page }) => {
+  const scenario = growthContractScenario("happy_path");
+  const installed = await installGrowthContractScenario(page, scenario);
+  await enterRealGrowth(page, "finance");
+
+  await expect(page.locator(".replica-search")).toBeHidden();
+  await expect(page.locator("#replicaNewTaskButton")).toBeHidden();
+
+  await page.evaluate(() => {
+    window.location.hash = "#settings";
+  });
+
+  await expect(page.locator(".replica-search")).toBeHidden();
+  await expect(page.locator("#replicaNewTaskButton span"))
+    .toHaveText("查看今日待办");
+  await expect(page.getByRole("heading", { name: "设置中心" })).toBeVisible();
+  await installed.dispose();
+});
+
 test("a slow page load cannot block a newer growth route", async ({ page }) => {
   const scenario = growthContractScenario("happy_path");
   const installed = await installGrowthContractScenario(page, scenario);

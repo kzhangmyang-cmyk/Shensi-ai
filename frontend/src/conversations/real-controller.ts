@@ -4,6 +4,7 @@ import {
 } from "../acquisition/outreach-batch-api";
 import {
   createOutreachBatchController,
+  type OutreachBatchController,
   type OutreachBatchState
 } from "../acquisition/outreach-batch-controller";
 import {
@@ -11,6 +12,8 @@ import {
   type OutreachBatchSelectionStore
 } from "../acquisition/outreach-batch-selection";
 import { bindOutreachBatchActions } from "../acquisition/outreach-batch-view";
+import { acquisitionCandidateDetailRequest } from "../acquisition/detail-center-entry";
+import { desktopOutreachCopy, getInstalledDesktopRuntime } from "../desktop/desktop-runtime";
 import {
   createRealConversationsApi,
   type RealConversationsApi,
@@ -28,6 +31,7 @@ export interface RealConversationsControllerOptions {
   batchSelection?: OutreachBatchSelectionStore;
   main?: HTMLElement | null;
   inspector?: HTMLElement | null;
+  captureFixture?: RealConversationsViewState | null;
 }
 
 export interface RealConversationsController {
@@ -67,12 +71,47 @@ function emptyOutreachState(
   };
 }
 
+function createCaptureOutreachBatchController(
+  state: OutreachBatchState
+): OutreachBatchController {
+  const snapshot = structuredClone(state);
+  const noop = async () => undefined;
+  return {
+    getState() {
+      return snapshot;
+    },
+    subscribe(listener) {
+      listener(snapshot);
+      return () => undefined;
+    },
+    create: noop,
+    load: noop,
+    editMessage() { return undefined; },
+    setDirectMessageDailyLimit() { return undefined; },
+    setDirectMessageCandidateSelected() { return undefined; },
+    setDirectMessageConfirmed() { return undefined; },
+    refreshDirectMessageSender() { return undefined; },
+    setRecoveryConfirmed() { return undefined; },
+    saveRevision: noop,
+    approve: noop,
+    approveDirectMessages: noop,
+    pause: noop,
+    resume: noop,
+    refreshActions: noop,
+    recoverAccountActions: noop,
+    reconcileAction: noop,
+    abort() { return undefined; },
+    close() { return undefined; }
+  };
+}
+
 export function createRealConversationsController(
   options: RealConversationsControllerOptions = {}
 ): RealConversationsController {
   const api = options.api ?? createRealConversationsApi();
   const batchApi = options.outreachApi ?? createOutreachBatchApi();
   const batchSelection = options.batchSelection ?? outreachBatchSelection;
+  const captureFixture = options.captureFixture ?? null;
   const main = options.main ?? (typeof document === "undefined"
     ? null
     : document.getElementById("demoModuleMain"));
@@ -84,12 +123,31 @@ export function createRealConversationsController(
     snapshot: null,
     selectedInteractionKey: null,
     outreach: emptyOutreachState(),
-    error: null
+    error: null,
+    activeTab: "direct_messages",
+    candidateQuery: ""
   };
-  const batchController = createOutreachBatchController({
-    api: batchApi,
-    pollDelayMs: options.outreachPollDelayMs
-  });
+  const batchController = captureFixture
+    ? createCaptureOutreachBatchController(captureFixture.outreach)
+    : createOutreachBatchController({
+        api: batchApi,
+        pollDelayMs: options.outreachPollDelayMs,
+        currentSender() {
+          const batch = state.outreach.batch;
+          const account = batch && state.snapshot?.accounts.find((item) =>
+            item.id === batch.accountId && item.state === "active"
+            && item.loginStateVersion !== null);
+          return account ? {
+            accountId: account.id,
+            accountLoginStateVersion: account.loginStateVersion!
+          } : null;
+        },
+        directMessageCandidateScope() {
+          if (state.recipientKeys?.length) return recipientItems().map((item) => item.candidateId);
+          const interaction = selectedInteraction();
+          return interaction ? [interaction.candidateId] : [];
+        }
+      });
   let active = false;
   let disposed = false;
   let requestSerial = 0;
@@ -107,6 +165,36 @@ export function createRealConversationsController(
       ?? interactions[0];
   }
 
+  function recipientItems(): RealPublicInteraction[] {
+    return (state.snapshot?.interactions ?? []).filter((item) =>
+      state.recipientKeys?.includes(item.key) && item.outreachEligible
+      && !["do_not_contact", "rejected", "unresolvable"].includes(item.candidateStatus));
+  }
+  function updateRecipients(keys: string[]) {
+    state.recipientKeys = [...new Set(keys)];
+    const items = recipientItems();
+    state.recipientKeys = items.filter((item) => item.runId === items[0]?.runId).map((item) => item.key);
+    batchController.setDirectMessageConfirmed(false);
+    for (const candidate of batchController.getState().batch?.candidates ?? []) {
+      batchController.setDirectMessageCandidateSelected(candidate.candidateId,
+        items.some((item) => item.candidateId === candidate.candidateId));
+    }
+    render();
+  }
+  async function prepareRecipients() {
+    await idlePromise;
+    const items = recipientItems();
+    if (!active || disposed || !items.length || state.outreach.phase === "loading") return;
+    state.selectedInteractionKey = items[0].key;
+    await batchController.create(items[0].runId, items.map((item) => item.candidateId));
+    if (latestBatchState.batch && latestBatchState.phase === "ready") {
+      effectiveBatchId = latestBatchState.batch.id;
+      state.outreach = latestBatchState;
+      rememberBatch(effectiveBatchId);
+    }
+    render();
+  }
+
   function batchBelongsTo(
     outreach: OutreachBatchState,
     interaction: RealPublicInteraction | undefined
@@ -118,9 +206,11 @@ export function createRealConversationsController(
   }
 
   function projectBatchState(outreach: OutreachBatchState): OutreachBatchState {
+    if (captureFixture) return outreach;
     if (effectiveBatchId !== null
       && outreach.batch?.id === effectiveBatchId
-      && batchBelongsTo(outreach, selectedInteraction())) {
+      && (batchBelongsTo(outreach, selectedInteraction())
+        || (state.activeTab === "direct_messages" && Boolean(state.recipientKeys?.length)))) {
       return outreach;
     }
     return {
@@ -133,6 +223,11 @@ export function createRealConversationsController(
 
   function render(): void {
     if (active && main && inspector) {
+      // Editing is intentionally silent to preserve the caret. Parent-only
+      // renders (search/tabs) must still project the current local drafts.
+      if (effectiveBatchId !== null) {
+        state.outreach = projectBatchState(batchController.getState());
+      }
       renderRealConversationsView(state, main, inspector);
     }
   }
@@ -157,13 +252,19 @@ export function createRealConversationsController(
     }
   }
 
-  async function recoverSelectedBatch(): Promise<void> {
+  async function recoverSelectedBatch(selectedBatchId?: string): Promise<void> {
+    if (captureFixture) {
+      state.outreach = batchController.getState();
+      render();
+      return;
+    }
     recoverySerial += 1;
     const own = recoverySerial;
     recoveryAbort?.abort();
     recoveryAbort = new AbortController();
     batchController.abort();
     effectiveBatchId = null;
+    state.outreachHistory = [];
     clearRememberedBatch();
     const interaction = selectedInteraction();
     if (!interaction?.outreachEligible || !active || disposed) {
@@ -177,12 +278,20 @@ export function createRealConversationsController(
       const listed = await batchApi.listBatches(
         interaction.runId,
         interaction.candidateId,
-        1,
+        50,
         null,
         recoveryAbort.signal
       );
       if (disposed || !active || own !== recoverySerial) return;
-      const latest = listed.items[0];
+      if (listed.items.some((batch) => batch.runId !== interaction.runId
+        || !batch.candidates.some((candidate) => candidate.candidateId === interaction.candidateId))) {
+        throw new Error("审批批次与当前候选人不一致");
+      }
+      state.outreachHistory = listed.items;
+      const latest = selectedBatchId
+        ? listed.items.find((batch) => batch.id === selectedBatchId)
+        : listed.items[0];
+      if (selectedBatchId && !latest) throw new Error("所选批次已不在当前候选人的批次列表中");
       if (!latest) {
         clearRememberedBatch();
         state.outreach = emptyOutreachState();
@@ -224,6 +333,15 @@ export function createRealConversationsController(
     state.outreach = projectBatchState(next);
     render();
   });
+  const desktop = getInstalledDesktopRuntime();
+  let lastDesktopGate = "";
+  const unsubscribeDesktop = desktop?.subscribeOutreach(() => {
+    const current = desktop.outreachStatus();
+    const gate = `${["idle", "claiming", "claimed", "executing", "reconciling"].includes(current?.state ?? "")}:${current?.diagnostic ?? ""}`;
+    if (gate !== lastDesktopGate) { lastDesktopGate = gate; batchController.setDirectMessageConfirmed(false); render(); }
+    const status = main?.querySelector<HTMLElement>("[data-outreach-desktop-status]");
+    if (status) status.textContent = desktopOutreachCopy(desktop.outreachStatus());
+  }) ?? (() => undefined);
 
   const controller: RealConversationsController = {
     getState() { return state; },
@@ -233,6 +351,24 @@ export function createRealConversationsController(
       requestAbort?.abort();
       requestAbort = new AbortController();
       const serial = ++requestSerial;
+      if (captureFixture) {
+        const fixture = structuredClone(captureFixture);
+        const snapshot = fixture.snapshot!;
+        state.snapshot = snapshot;
+        state.selectedInteractionKey = snapshot.interactions.some((item) =>
+          item.key === fixture.selectedInteractionKey)
+          ? fixture.selectedInteractionKey
+          : snapshot.interactions[0]?.key ?? null;
+        state.status = fixture.status;
+        state.error = fixture.error;
+        state.outreach = fixture.outreach;
+        state.outreachHistory = fixture.outreachHistory;
+        state.activeTab = fixture.activeTab;
+        state.candidateQuery = fixture.candidateQuery;
+        render();
+        idlePromise = Promise.resolve();
+        return idlePromise;
+      }
       state.status = "loading";
       state.error = null;
       effectiveBatchId = null;
@@ -245,6 +381,7 @@ export function createRealConversationsController(
           const snapshot = await api.load(requestAbort?.signal);
           if (disposed || serial !== requestSerial) return;
           state.snapshot = snapshot;
+          state.recipientKeys = recipientItems().map((item) => item.key);
           state.selectedInteractionKey = snapshot.interactions.some((item) =>
             item.key === state.selectedInteractionKey)
             ? state.selectedInteractionKey
@@ -280,6 +417,7 @@ export function createRealConversationsController(
         return;
       }
       state.selectedInteractionKey = normalized;
+      if (state.activeTab === "direct_messages" && state.recipientKeys?.length && effectiveBatchId) { render(); return; }
       const operation = recoverSelectedBatch();
       idlePromise = operation.then(() => undefined, () => undefined);
     },
@@ -305,10 +443,13 @@ export function createRealConversationsController(
       disposed = true;
       controller.deactivate();
       main?.removeEventListener("click", onClick);
+      main?.removeEventListener("change", onBatchChange);
+      main?.removeEventListener("input", onBatchChange);
       inspector?.removeEventListener("click", onClick);
       unbindBatchActions();
       unsubscribeSelection();
       unsubscribeBatch();
+      unsubscribeDesktop();
       batchController.close();
     }
   };
@@ -321,11 +462,64 @@ export function createRealConversationsController(
     const action = target.dataset.realConversationsAction;
     if (action === "select") {
       controller.selectInteraction(target.dataset.interactionKey ?? "");
+    } else if (action === "clear-recipients") {
+      updateRecipients([]);
+    } else if (action === "select-recipients") {
+      const query = state.candidateQuery?.trim().toLocaleLowerCase("zh-CN") ?? "";
+      const visible = (state.snapshot?.interactions ?? []).filter((item) => item.outreachEligible
+        && !["do_not_contact", "rejected", "unresolvable"].includes(item.candidateStatus)
+        && [item.displayName, item.taskName, item.excerpt].some((value) => value.toLocaleLowerCase("zh-CN").includes(query)));
+      const runId = recipientItems()[0]?.runId ?? visible[0]?.runId;
+      updateRecipients([...(state.recipientKeys ?? []), ...visible.filter((item) => item.runId === runId).map((item) => item.key)]);
+    } else if (action === "prepare-recipients") {
+      const operation = prepareRecipients();
+      idlePromise = operation.then(() => undefined, () => undefined);
     } else if (action === "retry") {
       void controller.open().catch(() => undefined);
     } else if (action === "create-outreach") {
       void controller.createOutreachForSelected();
+    } else if (action === "review-candidate") {
+      if (!active || disposed || captureFixture) return;
+      const interaction = selectedInteraction();
+      if (!interaction?.planId.trim()) return;
+      const detail = acquisitionCandidateDetailRequest(interaction.candidateId, interaction.planId, interaction.runId);
+      const document = main?.ownerDocument ?? inspector?.ownerDocument;
+      if (!detail || !document) return;
+      const DetailEvent = document.defaultView?.CustomEvent ?? CustomEvent;
+      document.dispatchEvent(new DetailEvent("goodjob:acquisition-detail-open-requested", { detail }));
+    } else if (action === "tab") {
+      const tab = target.dataset.realConversationsTab;
+      if (tab === "direct_messages" || tab === "comments" || tab === "history") {
+        state.activeTab = tab;
+        render();
+      }
     }
+  }
+
+  function onBatchChange(event: Event): void {
+    const target = event.target as HTMLInputElement | HTMLSelectElement | null;
+    if (target?.matches("[data-real-conversations-recipient]") && main?.contains(target)) {
+      const key = target.dataset.realConversationsRecipient!;
+      const item = state.snapshot?.interactions.find((candidate) => candidate.key === key);
+      if ((target as HTMLInputElement).checked && recipientItems()[0] && item?.runId !== recipientItems()[0].runId) {
+        state.error = "请先清空选择；不同采集运行分别准备私信。";
+        render(); return;
+      }
+      state.error = null;
+      updateRecipients((target as HTMLInputElement).checked ? [...(state.recipientKeys ?? []), key]
+        : (state.recipientKeys ?? []).filter((value) => value !== key));
+      return;
+    }
+    if (target?.matches("[data-real-conversations-candidate-search]") && main?.contains(target)) {
+      state.candidateQuery = target.value.slice(0, 100);
+      render();
+      return;
+    }
+    if (!target?.matches("[data-real-conversations-batch]") || !main?.contains(target)
+      || !active || disposed || state.outreach.phase !== "ready"
+      || !state.outreachHistory?.some((batch) => batch.id === target.value)) return;
+    const operation = recoverSelectedBatch(target.value);
+    idlePromise = operation.then(() => undefined, () => undefined);
   }
 
   const unbindBatchActions = main
@@ -337,6 +531,8 @@ export function createRealConversationsController(
     idlePromise = operation.then(() => undefined, () => undefined);
   });
   main?.addEventListener("click", onClick);
+  main?.addEventListener("change", onBatchChange);
+  main?.addEventListener("input", onBatchChange);
   inspector?.addEventListener("click", onClick);
   return controller;
 }

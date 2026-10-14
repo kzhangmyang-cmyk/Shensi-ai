@@ -20,12 +20,27 @@ const section16 = {
   "/api/v1/acquisition/provider-connections/{id}": ["get", "patch", "delete"],
   "/api/v1/acquisition/provider-connections/{id}/test": ["post"],
   "/api/v1/acquisition/social-accounts/douyin/login-sessions": ["post"],
-  "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}": ["get"],
+  "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}": ["get", "delete"],
+  "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/live": ["post"],
+  "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/interactions": ["post"],
+  "/api/v1/acquisition/social-accounts/douyin/desktop-login-completions": ["post"],
   "/api/v1/acquisition/social-accounts/douyin": ["get"],
   "/api/v1/acquisition/social-accounts/{accountId}": ["delete"],
   "/api/v1/acquisition/plans/{planId}/automation": ["get", "put"],
   "/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions": ["post"],
   "/api/v1/acquisition/plans/{planId}/run-now": ["post"],
+  "/api/v1/acquisition/plans/{planId}/desktop-run-now": ["post"],
+  "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/claim": ["post"],
+  "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/lease": ["put"],
+  "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/pages": ["put"],
+  "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/complete": ["post"],
+  "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/cancel": ["post"],
+  "/api/v1/acquisition/desktop-installations/enrollments": ["post"],
+  "/api/v1/acquisition/desktop-installations/register": ["post"],
+  "/api/v1/acquisition/social-accounts/{accountId}/desktop-binding": ["get", "post"],
+  "/api/v1/acquisition/desktop-outreach-actions/claim": ["post"],
+  "/api/v1/acquisition/desktop-outreach-actions/{actionId}/complete": ["post"],
+  "/api/v1/acquisition/desktop-outreach-actions/{actionId}/reconcile": ["post"],
   "/api/v1/acquisition/content-fetch-operations": ["get", "post"],
   "/api/v1/acquisition/content-fetch-operations/{id}": ["get"],
   "/api/v1/acquisition/import-operations": ["get", "post"],
@@ -53,6 +68,7 @@ const section16 = {
   "/api/v1/acquisition/outreach-batches/{batchId}/pause": ["post"],
   "/api/v1/acquisition/outreach-batches/{batchId}/resume": ["post"],
   "/api/v1/acquisition/outreach-batches/{batchId}/actions": ["get"],
+  "/api/v1/acquisition/outreach-batches/{batchId}/actions/recover-account": ["post"],
   "/api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile": ["post"],
   "/api/v1/acquisition/visual-reader-sessions": ["post"],
   "/api/v1/acquisition/visual-reader-sessions/{sessionId}": ["get"],
@@ -76,6 +92,13 @@ const section16 = {
   "/api/v1/acquisition/candidates/{id}/reviews": ["get"],
   "/api/v1/acquisition/candidates/{id}/review": ["post"],
   "/api/v1/acquisition/candidates/{id}/convert": ["post"],
+  "/api/v1/acquisition/cfo-workflows": ["post"],
+  "/api/v1/acquisition/cfo-workflows/latest": ["get"],
+  "/api/v1/acquisition/cfo-workflows/{id}": ["get"],
+  "/api/v1/acquisition/cfo-workflows/{id}/approval": ["post"],
+  "/api/v1/acquisition/cfo-workflows/{id}/candidate-decisions": ["post"],
+  "/api/v1/acquisition/cfo-workflows/{id}/candidate-decisions/batch": ["post"],
+  "/api/v1/acquisition/cfo-workflows/{id}/cancel": ["post"],
   "/api/v1/acquisition/outcomes": ["get"],
   "/api/v1/acquisition/performance": ["get"],
   "/api/v1/acquisition/copilot/sessions": ["post"],
@@ -84,6 +107,273 @@ const section16 = {
   "/api/v1/acquisition/copilot/tasks/{id}": ["get"],
   "/api/v1/acquisition/audit-events": ["get"]
 };
+
+test("Douyin login sessions expose a bounded interactive page contract", async () => {
+  const document = await loadOpenApiSource();
+  const session = document["x-social-login-session-schema"];
+  assert.ok(session.required.includes("loginPage"));
+  assert.ok(session.required.includes("qrStatus"));
+  assert.deepEqual(session.properties.qrStatus, {
+    type: "string",
+    nullable: true,
+    enum: ["opening", "ready", "expired", "network_error",
+      "verification_required", null]
+  });
+  assert.deepEqual(session.properties.loginPage.oneOf[1], { type: "null" });
+  const page = session.properties.loginPage.oneOf[0];
+  assert.equal(page.additionalProperties, false);
+  assert.deepEqual(page.required, ["imageDataUrl", "width", "height"]);
+
+  const operation = document.paths[
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/interactions"
+  ].post;
+  assert.equal(operation.operationId, "interactAcquisitionDouyinLoginSession");
+  assert.deepEqual(operation.security,
+    [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]);
+  const schema = operation.requestBody.content["application/json"].schema;
+  assert.equal(schema.discriminator.propertyName, "type");
+  assert.equal(schema.oneOf.length, 5);
+  assert.deepEqual(schema.oneOf.map((variant) => variant.properties.type.const),
+    ["refresh_qr", "click", "text", "key", "scroll"]);
+  assert.deepEqual(schema.oneOf[3].properties.key.enum,
+    ["Enter", "Tab", "Backspace", "Escape", "ArrowUp", "ArrowDown",
+      "ArrowLeft", "ArrowRight"]);
+  assert.deepEqual(schema.oneOf[1].properties.normalizedX,
+    { type: "number", minimum: 0, maximum: 1 });
+  assert.deepEqual(schema.oneOf[4].properties.deltaY,
+    { type: "number", minimum: -1, maximum: 1 });
+  assert.equal(operation.responses["200"].content["application/json"].schema,
+    session);
+  assert.ok(document.paths[
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions"
+  ].post.responses["503"]);
+  const pollResponses = document.paths[
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}"
+  ].get.responses;
+  assert.ok(pollResponses["410"]);
+  assert.ok(pollResponses["503"]);
+  assert.ok(operation.responses["410"]);
+  assert.ok(operation.responses["503"]);
+});
+
+test("Douyin login sessions publish split desktop runtime state without a profile key", async () => {
+  const document = await loadOpenApiSource();
+  const session = document["x-social-login-session-schema"];
+  for (const field of [
+    "interactionSurface",
+    "runtimeState",
+    "authState",
+    "taskState",
+    "diagnostic",
+    "screenshotAvailable",
+    "qrAvailable"
+  ]) assert.ok(session.required.includes(field), field);
+  assert.deepEqual(session.properties.interactionSurface.enum,
+    ["external_window", "remote_canvas"]);
+  assert.deepEqual(session.properties.runtimeState.enum,
+    ["stopped", "starting", "running", "crashed"]);
+  assert.deepEqual(session.properties.authState.enum, [
+    "unknown", "logged_out", "waiting_for_user", "verification_required",
+    "authenticated", "expired"
+  ]);
+  assert.deepEqual(session.properties.taskState.enum,
+    ["idle", "preparing", "running", "cancelling", "completed", "failed"]);
+  assert.deepEqual(session.properties.diagnostic.oneOf[1], { type: "null" });
+  assert.deepEqual(session.properties.diagnostic.oneOf[0].required,
+    ["code", "message", "recoverable", "occurredAt"]);
+  assert.equal(session.properties.diagnostic.oneOf[0].properties.code.maxLength, 100);
+  assert.equal(session.properties.diagnostic.oneOf[0].properties.message.maxLength, 500);
+  assert.equal(session.properties.screenshotAvailable.type, "boolean");
+  assert.equal(session.properties.qrAvailable.type, "boolean");
+  assert.equal(session.properties.accountKey, undefined);
+
+  assert.ok(document.paths[
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/live"
+  ].post, "remote mode must retain the live login endpoint");
+});
+
+test("Douyin live login exposes only a same-origin socket path and expiry", async () => {
+  const document = await loadOpenApiSource();
+  const operation = document.paths[
+    "/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}/live"
+  ].post;
+  assert.equal(operation.operationId, "createAcquisitionDouyinLiveLoginSession");
+  assert.deepEqual(operation.security,
+    [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]);
+  const schema = operation.responses["200"].content["application/json"].schema;
+  assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(schema.required, ["socketPath", "expiresAt"]);
+  assert.equal(schema.properties.socketPath.pattern, "^/douyin-live/[A-Za-z0-9_-]{43,128}$");
+  assert.equal(schema.properties.expiresAt.format, "date-time");
+  assert.ok(operation.responses["409"]);
+  assert.ok(operation.responses["410"]);
+  assert.ok(operation.responses["503"]);
+});
+
+test("desktop Douyin synchronization is strict and keeps its task capability header-only", async () => {
+  const document = await loadOpenApiSource();
+  const operations = {
+    login: document.paths[
+      "/api/v1/acquisition/social-accounts/douyin/desktop-login-completions"
+    ]?.post,
+    prepare: document.paths[
+      "/api/v1/acquisition/plans/{planId}/desktop-run-now"
+    ]?.post,
+    claim: document.paths[
+      "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/claim"
+    ]?.post,
+    lease: document.paths[
+      "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/lease"
+    ]?.put,
+    page: document.paths[
+      "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/pages"
+    ]?.put,
+    complete: document.paths[
+      "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/complete"
+    ]?.post,
+    cancel: document.paths[
+      "/api/v1/acquisition/desktop-crawler-jobs/{jobId}/cancel"
+    ]?.post
+  };
+  assert.deepEqual(Object.values(operations).map((operation) => operation?.operationId), [
+    "completeAcquisitionDouyinDesktopLogin",
+    "prepareAcquisitionDouyinDesktopRun",
+    "claimAcquisitionDesktopCrawlerJob",
+    "renewAcquisitionDesktopCrawlerJobLease",
+    "uploadAcquisitionDesktopCrawlerJobPage",
+    "completeAcquisitionDesktopCrawlerJob",
+    "cancelAcquisitionDesktopCrawlerJob"
+  ]);
+
+  for (const operation of Object.values(operations)) {
+    assert.deepEqual(operation.security,
+      [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]);
+    const success = operation.responses[operation === operations.prepare ? "202" : "200"];
+    assert.equal(success.headers["X-Request-Id"].required, true);
+    assert.equal(success.headers["Cache-Control"].required, true);
+    assert.deepEqual(success.headers["Cache-Control"].schema.enum, ["no-store"]);
+    for (const status of ["400", "401", "403", "409", "500"]) {
+      assert.ok(operation.responses[status], `${operation.operationId} ${status}`);
+    }
+  }
+
+  const capability = document.components.parameters.desktopTaskToken;
+  assert.deepEqual(capability, {
+    name: "X-Shensi-Desktop-Task-Token",
+    in: "header",
+    required: true,
+    description: "Opaque capability scoped to one workspace and desktop crawler job; never place it in a URL or request body.",
+    schema: {
+      type: "string",
+      minLength: 32,
+      maxLength: 512,
+      pattern: "^[A-Za-z0-9_-]+$"
+    }
+  });
+  for (const operation of [operations.claim, operations.lease, operations.page,
+    operations.complete, operations.cancel]) {
+    assert.equal(operation.parameters.some((parameter) =>
+      parameter.$ref === "#/components/parameters/desktopTaskToken"), true);
+    assert.equal((operation.parameters ?? []).some((parameter) =>
+      parameter.in === "query" && /token/iu.test(parameter.name ?? "")), false);
+    assert.doesNotMatch(JSON.stringify(operation.requestBody ?? {}),
+      /taskToken|desktopTaskToken|X-Shensi-Desktop-Task-Token/u);
+  }
+  for (const operation of [operations.login, operations.prepare, operations.page]) {
+    assert.equal(operation.parameters.some((parameter) =>
+      parameter.$ref === "#/components/parameters/planIdempotencyKey"), true);
+  }
+
+  const schemas = document.components.schemas;
+  for (const name of [
+    "DesktopDouyinLoginCompletionInput", "DesktopDouyinAccountResource",
+    "DesktopDouyinRunNowInput", "DesktopDouyinCollectionTask",
+    "DesktopDouyinRunPreparation", "DesktopCrawlerLeaseInput",
+    "DesktopCrawlerActivity", "DesktopDouyinNormalizedRecord",
+    "DesktopCrawlerTerminal", "DesktopCrawlerPageInput",
+    "DesktopCrawlerJobResource", "DesktopCrawlerPageResource"
+  ]) {
+    assert.equal(schemas[name].additionalProperties, false, name);
+  }
+  assert.deepEqual(schemas.DesktopDouyinLoginCompletionInput.required,
+    ["accountHandle", "displayName", "loginStateVersion"]);
+  assert.equal(schemas.DesktopDouyinLoginCompletionInput.properties.accountHandle.pattern,
+    "^dyacct_[0-9a-f]{64}$");
+  assert.deepEqual(schemas.DesktopCrawlerPageInput.required,
+    ["leaseVersion", "cursor", "nextCursor", "done", "records"]);
+  assert.equal(schemas.DesktopCrawlerPageInput.properties.records.maxItems, 200);
+  assert.equal(schemas.DesktopDouyinNormalizedRecord.properties.contentHash.pattern,
+    "^sha256:[0-9a-f]{64}$");
+  assert.deepEqual(schemas.DesktopCrawlerTerminal.properties.activity.allOf, [
+    { $ref: "#/components/schemas/DesktopCrawlerActivity" },
+    {
+      type: "object",
+      properties: {
+        phase: { const: "completed" },
+        currentKeyword: { type: "null" },
+        browserMode: { const: "visible" }
+      }
+    }
+  ]);
+
+  assert.equal(operations.login.requestBody.content["application/json"].schema.$ref,
+    "#/components/schemas/DesktopDouyinLoginCompletionInput");
+  assert.equal(operations.login.responses["200"].content["application/json"].schema.$ref,
+    "#/components/schemas/DesktopDouyinAccountResource");
+  assert.equal(operations.prepare.responses["202"].content["application/json"].schema.$ref,
+    "#/components/schemas/DesktopDouyinRunPreparation");
+  assert.equal(operations.page.responses["200"].content["application/json"].schema.$ref,
+    "#/components/schemas/DesktopCrawlerPageResource");
+
+  const serializedResponses = JSON.stringify(Object.values(operations)
+    .map((operation) => operation.responses));
+  assert.doesNotMatch(serializedResponses,
+    /cookie|profilePath|userDataDir|sidecarOrigin|sidecarToken|sidecarPort|desktopTaskTokenHash/iu);
+
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  addFormats(ajv);
+  const validator = (name) => ajv.compile({
+    components: { schemas },
+    $ref: `#/components/schemas/${name}`
+  });
+  const validateLogin = validator("DesktopDouyinLoginCompletionInput");
+  const login = {
+    accountHandle: `dyacct_${"a".repeat(64)}`,
+    displayName: "专用获客账号",
+    loginStateVersion: 7
+  };
+  assert.equal(validateLogin(login), true, JSON.stringify(validateLogin.errors));
+  assert.equal(validateLogin({ ...login, profilePath: "/private/profile" }), false);
+
+  const validatePage = validator("DesktopCrawlerPageInput");
+  const terminalPage = {
+    leaseVersion: 1,
+    cursor: null,
+    nextCursor: null,
+    done: true,
+    records: [],
+    terminal: {
+      state: "succeeded",
+      failureCode: null,
+      activity: {
+        phase: "completed",
+        currentKeyword: null,
+        browserMode: "visible",
+        sequence: 9
+      }
+    }
+  };
+  assert.equal(validatePage(terminalPage), true, JSON.stringify(validatePage.errors));
+  assert.equal(validatePage({ ...terminalPage, taskToken: "secret" }), false);
+  assert.equal(validatePage({ ...terminalPage, done: false }), false);
+  assert.equal(validatePage({
+    ...terminalPage,
+    terminal: {
+      ...terminalPage.terminal,
+      activity: { ...terminalPage.terminal.activity, phase: "finalizing" }
+    }
+  }), false);
+});
 
 test("candidate-scoped outreach batch discovery is bounded and bodyless", async () => {
   const document = await loadOpenApiSource();
@@ -318,29 +608,51 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
       const isAcquisitionOperation = path.startsWith(
         "/api/v1/acquisition/"
       );
+      const isDesktopDeviceOperation = path.startsWith("/api/v1/acquisition/desktop-outreach-actions/");
+      const isDesktopRegistration = path === "/api/v1/acquisition/desktop-installations/register";
+      const isDesktopUserOperation = path === "/api/v1/acquisition/desktop-installations/enrollments"
+        || path === "/api/v1/acquisition/social-accounts/{accountId}/desktop-binding";
       assert.deepEqual(
         operation.security,
-        isAcquisitionOperation
+        isDesktopRegistration ? []
+          : isDesktopDeviceOperation ? [{ desktopInstallationId: [], desktopDeviceToken: [] }]
+          : isAcquisitionOperation
           ? method === "get"
             ? [{ bearerAuth: [] }, { cookieAuth: [] }]
             : [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
           : [{ bearerAuth: [] }],
         `${method.toUpperCase()} ${path}`
       );
-      assert.equal(operation.responses["401"].content["application/json"].schema.$ref, "#/components/schemas/ApiError");
+      if (isDesktopRegistration) assert.equal(operation.responses["401"], undefined);
+      else if (isDesktopDeviceOperation) {
+        assert.equal(operation.responses["401"].content["application/json"].schema.$ref,
+          "#/components/schemas/DesktopOutreachError");
+      } else if (isDesktopUserOperation) {
+        assert.deepEqual(operation.responses["401"].content["application/json"].schema.oneOf,
+          [{ $ref: "#/components/schemas/DesktopOutreachError" }, { $ref: "#/components/schemas/ApiError" }]);
+      } else assert.equal(operation.responses["401"].content["application/json"].schema.$ref, "#/components/schemas/ApiError");
       if (["put", "post", "patch", "delete"].includes(method)) {
         const requiresDiscoveryIdempotency = path === "/api/v1/acquisition/provider-connections"
           || path === "/api/v1/acquisition/content-fetch-operations"
           || path === "/api/v1/acquisition/import-operations";
+        const isDesktopTaskOperation = path.startsWith(
+          "/api/v1/acquisition/desktop-crawler-jobs/"
+        );
         assert.equal(
           (operation.parameters ?? []).some((parameter) => [
             "#/components/parameters/idempotencyKey",
-            "#/components/parameters/planIdempotencyKey"
+            "#/components/parameters/planIdempotencyKey",
+            "#/components/parameters/desktopOutreachIdempotencyKey"
           ].includes(parameter.$ref) || (parameter.name === "Idempotency-Key" && parameter.in === "header" && parameter.required)),
-          isDiscoveryOperation
+          path.startsWith("/api/v1/acquisition/social-accounts/douyin/login-sessions/{sessionId}")
+            ? false
+          : isDesktopTaskOperation
+            ? path.endsWith("/pages")
+          : isDiscoveryOperation
             ? requiresDiscoveryIdempotency
             : path === "/api/v1/acquisition/plans/{planId}/automation"
               || path === "/api/v1/acquisition/plans/{planId}/run-now"
+              || path === "/api/v1/acquisition/plans/{planId}/desktop-run-now"
               || path === "/api/v1/acquisition/plans/{planId}/automation/keyword-suggestions"
               || !isPlanRunOperation
               || path === "/api/v1/acquisition/plans"
@@ -616,9 +928,13 @@ test("outreach approval is a closed human confirmation that publishes exact orde
   ].schema;
   assert.equal(directMessageSchema.additionalProperties, false);
   assert.deepEqual(directMessageSchema.required, [
-    "batchRevision", "batchHash", "commentApprovalHash", "dailyLimit",
+    "batchRevision", "batchHash", "accountLoginStateVersion", "dailyLimit",
     "candidates", "confirm"
   ]);
+  assert.deepEqual(directMessageSchema.properties.accountLoginStateVersion,
+    { type: "integer", minimum: 1 });
+  assert.equal(directMessageSchema.properties.commentApprovalHash, undefined);
+  assert.equal(directMessageSchema.properties.confirm.const, true);
   assert.deepEqual(directMessageSchema.properties.dailyLimit, {
     type: "integer", minimum: 1, maximum: 100, default: 20
   });
@@ -636,7 +952,9 @@ test("outreach approval is a closed human confirmation that publishes exact orde
   assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.properties.kind.enum,
     ["comment", "direct_message"]);
   assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.properties.status.enum,
-    ["queued", "blocked_by_predecessor", "executing", "succeeded", "failed", "risk_paused"]);
+    ["queued", "blocked_by_predecessor", "claimed", "executing", "succeeded", "failed", "risk_paused", "reconciliation_required"]);
+  assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.properties.executionTarget.enum,
+    ["desktop", "server"]);
   assert.deepEqual(
     document.components.schemas.AcquisitionOutreachBatchCandidate.required.slice(4, 6),
     ["publicProfileUrl", "commentTargetPublicUrl"]
@@ -661,7 +979,7 @@ test("outreach approval is a closed human confirmation that publishes exact orde
       .includes(property), false);
   }
   assert.deepEqual(document.components.schemas.AcquisitionOutreachAction.properties
-    .authorizationVersion.enum, [2]);
+    .authorizationVersion.enum, [2, 3]);
   const reconciliation = document.paths[
     "/api/v1/acquisition/outreach-batches/{batchId}/actions/{actionId}/reconcile"
   ].post;

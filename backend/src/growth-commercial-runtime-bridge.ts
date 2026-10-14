@@ -24,6 +24,12 @@ function hasPathPrefix(path: string, prefix: string) {
 
 function isGrowthPath(path: string) {
   return [
+    "/api/v1/knowledge",
+    "/api/v1/reference-connection",
+    "/api/v1/system-reference",
+    "/api/platform/v1/system-reference",
+    "/api/v1/decision-simulations",
+    "/api/v1/agent-memory/operating",
     "/api/v1/growth",
     "/api/v1/catalog",
     "/api/v1/quotes",

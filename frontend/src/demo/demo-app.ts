@@ -1,4 +1,5 @@
 import { createDemoRouter, demoModuleMeta } from "./demo-router";
+import { createXhsController } from '../conversations/xiaohongshu';
 import { renderConversationsView, resetConversationViewState, setConversationFilter } from "./demo-conversations-view";
 import { renderCapabilityDemoView } from "./demo-capabilities-view";
 import { isOpportunityStage, lossReasons, renderConversionView } from "./demo-conversion-view";
@@ -15,21 +16,43 @@ import {
 import { createDemoStore, type DemoStorageScope } from "./demo-store";
 import type { DemoModule, DemoState } from "./demo-types";
 import { showDemoToast } from "./demo-ui";
+import { renderDashboardView } from "./demo-dashboard-view";
 import { createPrivateDomainController } from "../private-domain/controller";
 import { createDealCreateController } from "../private-domain/deal-create-controller";
-import { startGrowthWhenRequested } from "../growth/entry";
-import { createAgentsController } from "../growth/agents/controller";
 import { parseGrowthHash } from "../growth/router";
-import { createGrowthHttpClient } from "../growth/http";
-import { createRealAgentCenterApi } from "../growth/agents/real-api";
-import { createRealAgentCenterController } from "../growth/agents/real-controller";
 import {
   createRealConversationsController,
   shouldUseRealConversations
 } from "../conversations/real-controller";
+import { createConversationCaptureFixture } from "../conversations/real-capture-fixture";
+import {
+  createRealDashboardController,
+  shouldUseRealDashboard
+} from "../dashboard/real-controller";
+import { normalizeAppHash } from "../app-route";
 
-let agentsDemoController: ReturnType<typeof createAgentsController> | null = null;
+/** Lazy-mounted agent controller surface (keeps Growth/agents out of the initial chunk). */
+type AgentsDemoController = { render(): void; dispose(): void };
+/** Lazy-mounted knowledge library surface. */
+type KnowledgeLibraryHandle = { dispose(): void; openUpload(): void };
+
+let agentsDemoController: AgentsDemoController | null = null;
 let agentsAuthority: "demo" | "real" | null = null;
+
+function renderAgentConversationInspector(
+  inspector: HTMLElement,
+  roleName = "经营总管"
+): void {
+  inspector.innerHTML = `<section class="cfo-chat-inspector" aria-label="本次对话信息">
+    <header><h2>本次对话</h2></header>
+    <dl>
+      <div><dt>当前角色</dt><dd data-cfo-inspector-role>${roleName}</dd></div>
+      <div><dt>工作范围</dt><dd>当前工作区</dd></div>
+      <div><dt>已使用资料</dt><dd>暂无</dd></div>
+    </dl>
+    <section><div><h3>相关待办</h3><i class="ph ph-caret-down" aria-hidden="true"></i></div><p>查询完成后显示</p></section>
+  </section>`;
+}
 
 function currentDemoStorageScope(): DemoStorageScope | null {
   const workspaceId = document.body.dataset.sessionWorkspaceId?.trim();
@@ -37,35 +60,42 @@ function currentDemoStorageScope(): DemoStorageScope | null {
   return workspaceId && userId ? { workspaceId, userId } : null;
 }
 
-export function renderDashboardView(
-  state: DemoState,
-  main: HTMLElement,
-  inspector: HTMLElement
-): void {
-  const activeConversations = state.conversations.filter((item) => item.mode !== "paused").length;
-  const activeOpportunities = state.opportunities.filter((item) => item.stage !== "won" && item.stage !== "lost");
-  const expectedAmount = activeOpportunities.reduce(
-    (total, item) => total + item.amount * item.probability / 100,
-    0
-  );
-  const openTasks = state.tasks.filter((item) => !item.done).length;
-  main.innerHTML = `
-    <section class="demo-dashboard" aria-label="自动营销总览">
-      <header class="demo-capabilities-header">
-        <div><span class="demo-status">预览 · 待接入</span><h2>自动营销总览</h2><p>以下为当前浏览器内的演示数据汇总，不代表真实经营结果。</p></div>
-      </header>
-      <section class="demo-dashboard-metrics" aria-label="本地演示数据概览">
-        <article class="demo-metric"><small>活跃会话</small><strong>${activeConversations}</strong><span>本地演示数据</span></article>
-        <article class="demo-metric"><small>进行中商机</small><strong>${activeOpportunities.length}</strong><span>本地演示数据</span></article>
-        <article class="demo-metric"><small>预计成交金额</small><strong>¥${Math.round(expectedAmount).toLocaleString("zh-CN")}</strong><span>按演示概率估算</span></article>
-        <article class="demo-metric"><small>待办事项</small><strong>${openTasks}</strong><span>本地演示数据</span></article>
-      </section>
-      <section class="demo-panel demo-dashboard-actions"><div><span class="demo-chip">今日工作台</span><h3>继续处理演示业务</h3><p>可进入已接入的获客、客户经营与成交模块查看详细演示流程。</p></div><div><button type="button" class="demo-primary" data-demo-action="open-module" data-demo-module="conversations">查看社媒对话</button><button type="button" class="demo-primary" data-demo-action="open-module" data-demo-module="conversion">查看成交工作台</button></div></section>
-    </section>`;
-  inspector.innerHTML = `<section class="demo-panel demo-capability-inspector"><span class="demo-chip">预览说明</span><h3>本地演示数据概览</h3><p>总览从当前 DemoState 的会话、商机和待办确定性汇总；真实经营数据接入后会替换此预览。</p></section>`;
+export function readConversationCaptureFixture(locationLike: Pick<Location, "hostname" | "search">):
+  ReturnType<typeof createConversationCaptureFixture> | null {
+  if (locationLike.hostname !== "localhost"
+    && locationLike.hostname !== "127.0.0.1"
+    && locationLike.hostname !== "::1") {
+    return null;
+  }
+  const search = new URLSearchParams(locationLike.search);
+  return search.get("captureFixture") === "conversations"
+    ? createConversationCaptureFixture()
+    : null;
 }
 
-function renderModule(module: DemoModule, state: DemoState, host: HTMLElement, inspector: HTMLElement): void {
+export { renderDashboardView } from "./demo-dashboard-view";
+
+async function renderModule(module: DemoModule, state: DemoState, host: HTMLElement, inspector: HTMLElement): Promise<void> {
+  if(module==='home'){
+    inspector.replaceChildren();const scope=JSON.stringify(currentDemoStorageScope());
+    const [{ mountHome }, { createAcquisitionApi }] = await Promise.all([
+      import("../home/view"),
+      import("../acquisition/runtime-api")
+    ]);
+    mountHome(host,document.body.dataset.sessionMode==='real'?createAcquisitionApi():undefined,()=>JSON.stringify(currentDemoStorageScope())===scope);return;
+  }
+  if(module==='decision-simulation') {
+    inspector.replaceChildren();
+    const { mountDecisionSimulation } = await import("../decision-simulation/view");
+    mountDecisionSimulation(host);
+    return;
+  }
+  if (module === "enterprise-query") {
+    inspector.replaceChildren();
+    const { mountEnterpriseQuery } = await import("../enterprise-query/view");
+    mountEnterpriseQuery(host);
+    return;
+  }
   if (module === "dashboard") {
     renderDashboardView(state, host, inspector);
     return;
@@ -79,14 +109,34 @@ function renderModule(module: DemoModule, state: DemoState, host: HTMLElement, i
       inspector.replaceChildren();
     }
     agentsAuthority = authority;
-    agentsDemoController ??= authority === "real"
-      ? createAgentsController({
-          host,
-          real: createRealAgentCenterController({
-            api: createRealAgentCenterApi(createGrowthHttpClient())
+    renderAgentConversationInspector(inspector);
+    if (!agentsDemoController) {
+      const [
+        { createAgentsController },
+        { createGrowthHttpClient },
+        { createRealAgentCenterApi },
+        { createRealAgentCenterController },
+        { mountRetainedCfoConversation }
+      ] = await Promise.all([
+        import("../growth/agents/controller"),
+        import("../growth/http"),
+        import("../growth/agents/real-api"),
+        import("../growth/agents/real-controller"),
+        import("../growth/agents/cfo-session-view")
+      ]);
+      agentsDemoController = authority === "real"
+        ? createAgentsController({
+            host,
+            supportHost: inspector,
+            conversation: chatHost => mountRetainedCfoConversation({ host: chatHost,
+              scope: () => { const scope = currentDemoStorageScope(); return scope ? JSON.stringify(scope) : null; },
+              http: createGrowthHttpClient({ workspaceId: () => document.body.dataset.sessionWorkspaceId ?? null }) }),
+            real: createRealAgentCenterController({
+              api: createRealAgentCenterApi(createGrowthHttpClient())
+            })
           })
-        })
-      : createAgentsController({ host, demo: true });
+        : createAgentsController({ host, demo: true });
+    }
     agentsDemoController.render();
     return;
   }
@@ -113,6 +163,15 @@ export function parseFollowUpAt(value: string): string | null {
   return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
 }
 
+export function handOffDemoSurfaceToGrowth(
+  host: HTMLElement,
+  inspector: HTMLElement
+): void {
+  host.hidden = false;
+  inspector.replaceChildren();
+  inspector.hidden = true;
+}
+
 export function startDemoApp(): void {
   const shell = document.querySelector<HTMLElement>(".replica-shell");
   const host = document.querySelector<HTMLElement>("#demoModuleMain");
@@ -122,21 +181,91 @@ export function startDemoApp(): void {
 
   const store = createDemoStore({ scope: currentDemoStorageScope() });
   const router = createDemoRouter();
-  startGrowthWhenRequested();
+  void import("../growth/entry").then(({ startGrowthWhenRequested }) => startGrowthWhenRequested());
+  const conversationCaptureFixture = readConversationCaptureFixture(window.location);
+  if (conversationCaptureFixture) {
+    document.body.dataset.captureFixture = "conversations";
+  }
   const privateDomainController = createPrivateDomainController({
     main: host,
     inspector
   });
   const realConversationsController = createRealConversationsController({
     main: host,
+    inspector,
+    captureFixture: conversationCaptureFixture
+  });
+  const realDashboardController = createRealDashboardController({
+    main: host,
     inspector
   });
   createDealCreateController();
   let realPrivateDomainActive = false;
   let realConversationsActive = false;
+  const xhsController = createXhsController(host);
+  let xhsSelected = false;
+  let realDashboardActive = false;
   let requestedRealCustomerId = "";
+  let greetingSettings: { dispose(): void } | null = null;
+  let knowledgeLibrary: KnowledgeLibraryHandle | null = null;
+  let knowledgeScope: string | null = null;
+  let pendingAgentEntry: { kind: "voice" | "question"; scope: string } | null = null;
+  let pendingTodos = 0;
+  const currentScope = () => JSON.stringify(currentDemoStorageScope());
+  const currentRoute = () => normalizeAppHash(window.location.hash);
+  function openAgentEntry(kind: "voice" | "question"): void {
+    pendingAgentEntry = { kind, scope: currentScope() };
+    router.navigate("agents");
+  }
+  const completeAgentEntry = (): void => {
+    const entry = pendingAgentEntry;
+    if (!entry || currentRoute() !== "#agents") return;
+    pendingAgentEntry = null;
+    if (document.body.dataset.sessionMode !== "real" || entry.scope !== currentScope()) return;
+    if (entry.kind === "voice") {
+      host.querySelector<HTMLButtonElement>("[data-voice-settings]")?.click();
+    } else {
+      host.querySelector<HTMLTextAreaElement>("#cfoQuestion")?.focus();
+    }
+  };
+  const openTodayTodos = async (): Promise<void> => {
+    const request = ++pendingTodos;
+    const scope = currentScope();
+    router.navigate("dashboard");
+    await realDashboardController.whenIdle();
+    if (request !== pendingTodos || currentRoute() !== "#dashboard"
+      || document.body.dataset.sessionMode !== "real" || scope !== currentScope()) return;
+    const section = host.querySelector<HTMLElement>("[data-dashboard-todos]");
+    section?.focus({ preventScroll: true });
+    section?.scrollIntoView({ block: "start", behavior: "smooth" });
+  };
+  const updateAgentInspector = (event: Event) => {
+    if (router.current() !== "agents") return;
+    const detail = (event as CustomEvent<{ roleName?: string }>).detail;
+    const role = inspector.querySelector<HTMLElement>("[data-cfo-inspector-role]");
+    if (role && detail?.roleName) role.textContent = detail.roleName;
+  };
+  document.addEventListener("goodjob:cfo-role-changed", updateAgentInspector);
+  let renderGeneration = 0;
   const render = () => {
+    const generation = ++renderGeneration;
+    if (router.current() !== 'knowledge' || parseGrowthHash(window.location.hash) || knowledgeScope !== currentScope()) {
+      knowledgeLibrary?.dispose();
+      knowledgeLibrary = null;
+      knowledgeScope = null;
+    }
+    if (router.current() !== 'conversations' || document.body.dataset.sessionMode !== 'real' || parseGrowthHash(window.location.hash)) { xhsSelected = false; xhsController.deactivate(); }
+    if (currentRoute() !== "#agents") pendingAgentEntry = null;
+    greetingSettings?.dispose();
+    greetingSettings = null;
+    if (currentRoute() !== '#agents') {
+      agentsDemoController?.dispose();
+      agentsDemoController = null;
+      agentsAuthority = null;
+    }
     if (parseGrowthHash(window.location.hash)) {
+      if (realDashboardActive) realDashboardController.deactivate();
+      realDashboardActive = false;
       if (realPrivateDomainActive) privateDomainController.deactivate();
       realPrivateDomainActive = false;
       if (realConversationsActive) realConversationsController.deactivate();
@@ -144,12 +273,13 @@ export function startDemoApp(): void {
       agentsDemoController?.dispose();
       agentsDemoController = null;
       agentsAuthority = null;
-      host.replaceChildren();
-      inspector.replaceChildren();
+      handOffDemoSurfaceToGrowth(host, inspector);
       return;
     }
     if (router.current() === "private-domain"
       && shell.dataset.acquisitionMode !== "demo") {
+      if (realDashboardActive) realDashboardController.deactivate();
+      realDashboardActive = false;
       if (realConversationsActive) realConversationsController.deactivate();
       realConversationsActive = false;
       if (!realPrivateDomainActive || requestedRealCustomerId) {
@@ -164,25 +294,81 @@ export function startDemoApp(): void {
       router.current(),
       document.body.dataset.sessionMode
     )) {
+      if (realDashboardActive) realDashboardController.deactivate();
+      realDashboardActive = false;
       if (realPrivateDomainActive) privateDomainController.deactivate();
       realPrivateDomainActive = false;
       agentsDemoController?.dispose();
       agentsDemoController = null;
       agentsAuthority = null;
+      if (xhsSelected) {
+        if (realConversationsActive) realConversationsController.deactivate();
+        realConversationsActive = false;
+        void xhsController.open();
+        return;
+      }
+      xhsController.deactivate();
       if (!realConversationsActive) {
         realConversationsActive = true;
         void realConversationsController.open().catch(() => undefined);
       }
       return;
     }
+    if (shouldUseRealDashboard(
+      router.current(),
+      document.body.dataset.sessionMode
+    )) {
+      if (realPrivateDomainActive) privateDomainController.deactivate();
+      realPrivateDomainActive = false;
+      if (realConversationsActive) realConversationsController.deactivate();
+      realConversationsActive = false;
+      agentsDemoController?.dispose();
+      agentsDemoController = null;
+      agentsAuthority = null;
+      if (!realDashboardActive) {
+        realDashboardActive = true;
+        void realDashboardController.open().catch(() => undefined);
+      }
+      return;
+    }
+    if (realDashboardActive) realDashboardController.deactivate();
+    realDashboardActive = false;
     if (realPrivateDomainActive) privateDomainController.deactivate();
     realPrivateDomainActive = false;
     if (realConversationsActive) realConversationsController.deactivate();
     realConversationsActive = false;
-    agentsDemoController?.dispose();
-    agentsDemoController = null;
-    agentsAuthority = null;
-    renderModule(router.current(), store.getState(), host, inspector);
+    // A same-route hash notification must not discard the conversation or a
+    // settings dialog just opened by the header/navigation action.
+    if (router.current() !== "agents") {
+      agentsDemoController?.dispose();
+      agentsDemoController = null;
+      agentsAuthority = null;
+    }
+    if (router.current() === 'knowledge') {
+      inspector.replaceChildren();
+      inspector.hidden = true;
+      host.hidden = false;
+      knowledgeScope = currentScope();
+      void import("../knowledge/view").then(({ mountKnowledgeLibrary }) => {
+        if (generation !== renderGeneration || router.current() !== "knowledge") return;
+        knowledgeLibrary ??= mountKnowledgeLibrary(host);
+      });
+      return;
+    }
+    const moduleName = router.current();
+    void renderModule(moduleName, store.getState(), host, inspector).then(async () => {
+      if (generation !== renderGeneration) return;
+      completeAgentEntry();
+      if (router.current() === "settings") {
+        const { mountSettingsPage } = await import("../desktop/settings-page");
+        if (generation !== renderGeneration || router.current() !== "settings") return;
+        greetingSettings = mountSettingsPage(host, {
+          voiceBridge: window.shensiCfoVoice,
+          realtimeBridge: window.shensiCfoRealtime,
+          workspaceId: document.body.dataset.sessionWorkspaceId
+        });
+      }
+    });
   };
   let draggedOpportunityId = "";
   let resetInProgress = false;
@@ -201,7 +387,50 @@ export function startDemoApp(): void {
   }
 
   shell.addEventListener("click", (event) => {
+    const xhsTarget = event.target as HTMLElement;
+    if (router.current() === 'conversations' && xhsTarget.closest('[data-xhs-open], [data-xhs-back]')) {
+      xhsSelected = Boolean(xhsTarget.closest('[data-xhs-open]'));
+      render();
+      return;
+    }
     const target = event.target as HTMLElement;
+    if (target.closest("#replicaNewTaskButton") && document.body.dataset.sessionMode === "real") {
+      event.preventDefault();
+      event.stopPropagation();
+      const route = currentRoute();
+      if(route==='#home'){router.navigate('acquisition');return;}
+      if (route === "#decision-simulation") {
+        shell.querySelector<HTMLInputElement>('.decision-simulation input[name="title"]')?.focus();
+      } else if (route === "#enterprise-query") {
+        shell.querySelector<HTMLInputElement>('.enterprise-query input[name="keyword"]')?.focus();
+      } else if (route.split('?',1)[0] === '#knowledge') {
+        knowledgeLibrary?.openUpload();
+      } else if (route === "#private-domain") {
+        document.dispatchEvent(new CustomEvent("goodjob:customer-create-requested"));
+      } else if (route === "#agents") {
+        openAgentEntry("question");
+      } else if (route === "#conversations") {
+        const state = realConversationsController.getState();
+        const interaction = state.snapshot?.interactions.find(item => item.key === state.selectedInteractionKey)
+          ?? state.snapshot?.interactions[0];
+        if (interaction?.outreachEligible) {
+          void realConversationsController.createOutreachForSelected();
+        } else {
+          const toast = document.querySelector<HTMLElement>("#replicaToast span");
+          if (toast) toast.textContent = "请先选择具备公开证据、可准备私信的候选人。";
+          document.querySelector<HTMLElement>("#replicaToast")?.classList.add("show");
+        }
+      } else if (route !== "#acquisition" && route !== "#growth/finance") {
+        void openTodayTodos();
+      }
+      return;
+    }
+    if (target.closest("[data-settings-voice-configure]")) {
+      event.preventDefault();
+      if (document.body.dataset.sessionMode === "real") openAgentEntry("voice");
+      else router.navigate("agents");
+      return;
+    }
     const realCustomerLink = target.closest<HTMLElement>(
       "[data-private-domain-customer-id]"
     );
@@ -421,6 +650,11 @@ export function startDemoApp(): void {
     if (target.closest("#replicaNewTaskButton") && router.current() !== "acquisition") {
       event.preventDefault();
       event.stopPropagation();
+      if (router.current() === "enterprise-query") {
+        shell.querySelector<HTMLInputElement>('.enterprise-query input[name="keyword"]')?.focus();
+        return;
+      }
+      if(router.current()==='decision-simulation') {shell.querySelector<HTMLInputElement>('.decision-simulation input[name="title"]')?.focus();return;}
       showDemoToast(`${demoModuleMeta[router.current()].primaryAction}已模拟完成`);
     }
   });
@@ -460,9 +694,11 @@ export function startDemoApp(): void {
     showDemoToast("已拖动更新演示阶段");
   });
   shell.addEventListener("submit", (event) => {
-    if (router.current() === "acquisition") return;
+    if (router.current() === "acquisition" || router.current() === "enterprise-query" || router.current() === "decision-simulation") return;
     const form = event.target as HTMLFormElement;
     const action = form.dataset.demoAction;
+    // Real modules own their submissions; only explicitly marked demo forms belong here.
+    if (!action || event.defaultPrevented) return;
     const conversationId = form.dataset.conversationId;
     if (action === "send-message" && conversationId) {
       event.preventDefault();
@@ -588,6 +824,14 @@ export function startDemoApp(): void {
     router.navigate(router.current());
   });
   document.addEventListener("goodjob:auth-state-changed", (event) => {
+    knowledgeLibrary?.dispose();
+    knowledgeLibrary = null;
+    knowledgeScope = null;
+    void import("../growth/agents/cfo-session-view").then(({ clearRetainedCfoConversation }) => clearRetainedCfoConversation(document));
+    pendingAgentEntry = null;
+    pendingTodos += 1;
+    if (realDashboardActive) realDashboardController.deactivate();
+    realDashboardActive = false;
     if (realConversationsActive) realConversationsController.deactivate();
     realConversationsActive = false;
     agentsDemoController?.dispose();

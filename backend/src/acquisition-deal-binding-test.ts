@@ -146,3 +146,47 @@ test("malformed or decision-mismatched attribution is never trusted", () => {
     dealId: "deal-1"
   }), null);
 });
+
+test("crawler deal binding preserves the real job without inventing provider authority", () => {
+  const store = bindingFixture();
+  const handoff = store.acquisitionCustomerHandoffs[0]!;
+  assert.ok(handoff.acquisitionAttribution);
+  handoff.acquisitionAttribution = {
+    ...handoff.acquisitionAttribution,
+    attributionVersion: "douyin-crawler.v1",
+    jobId: "crawler-job-1",
+    shardId: null,
+    operationId: null,
+    connectionId: null,
+    providerId: null,
+    providerIds: [],
+    queryIds: []
+  };
+  const expected = structuredClone(handoff.acquisitionAttribution);
+  const binding = resolveTrustedAcquisitionDealBinding(store, { dealId: "deal-1" });
+  assert.ok(binding);
+  assert.deepEqual(binding.handoff.acquisitionAttribution, expected);
+  for (const invalid of [
+    { jobId: "" }, { jobId: undefined }, { shardId: "invented-shard" },
+    { operationId: "invented-operation" }, { connectionId: "invented-connection" },
+    { providerId: "invented-provider" }, { providerIds: ["provider-1"] },
+    { queryIds: ["query-1"] }, { evidenceIds: [] },
+    { discoveredAt: "invalid-date" }, { planVersion: 0 }
+  ]) {
+    handoff.acquisitionAttribution = structuredClone(expected);
+    Object.assign(handoff.acquisitionAttribution, invalid);
+    assert.equal(resolveTrustedAcquisitionDealBinding(store, { dealId: "deal-1" }), null,
+      JSON.stringify(invalid));
+  }
+  handoff.acquisitionAttribution = structuredClone(expected);
+  store.leads[0]!.externalId = "other-candidate";
+  assert.equal(resolveTrustedAcquisitionDealBinding(store, { dealId: "deal-1" }), null);
+});
+
+test("generic deal binding does not accept a crawler job on the old source branch", () => {
+  const store = bindingFixture();
+  Object.assign(store.acquisitionCustomerHandoffs[0]!.acquisitionAttribution!, {
+    jobId: "crawler-job-1"
+  });
+  assert.equal(resolveTrustedAcquisitionDealBinding(store, { dealId: "deal-1" }), null);
+});

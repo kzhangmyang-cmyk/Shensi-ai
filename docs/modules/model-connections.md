@@ -48,6 +48,17 @@ expose fingerprints/capabilities rather than raw credentials. Financial-council
 routing policy references connection IDs and snapshots through the Growth
 contract.
 
+Connection lifecycle commands keep their in-memory mutation, replay record,
+persistence, and rollback inside the shared store queue. Model-backed Douyin
+keyword commands use the explicit `persistenceScope: "result"` boundary instead:
+snapshot resolution and model/audit persistence finish outside that queue,
+then a short queued mutation stores the replay result. Both boundaries retain
+the same command serialization, owner/team scope, fingerprint conflict check,
+and durable replay. A failed result write removes its replay record; it cannot
+undo a provider attempt that already completed, so retry may invoke the model
+again. Never hold the store queue while awaiting `readBarrier()` or `persist()`
+on the same store.
+
 ## Tests
 
 - Connection, endpoint, gateway, and acquisition integration:
@@ -55,6 +66,10 @@ contract.
 - Published endpoint-profile contract and generated transport types:
   `pnpm check:acquisition-contracts`
 - Focused gateway: `pnpm --filter ./backend test:model-gateway`
+- Keyword serialization and replay: from `backend`, run
+  `NODE_ENV=test node --import tsx --test src/acquisition-douyin-keyword-idempotency-test.ts src/model-connection-idempotency-test.ts`;
+  the serialized-store application route cases are also in
+  `src/acquisition-application-test.ts` and the acquisition aggregate.
 - Backend security aggregate: `pnpm --filter ./backend test:security`
 - Frontend connection UI: `pnpm --filter ./frontend test`
 
@@ -90,3 +105,8 @@ the gateway returns to business code. A later outreach-draft validation failure
 therefore does not erase the provider attempt from the audit trail. If both the
 provider call and audit persistence fail, both causes are retained rather than
 replacing the provider error with a generic persistence error.
+Storage failures use the internal `ModelLedgerPersistenceError` aggregate for
+preflight, streaming and non-streaming attempts. Consumers can distinguish
+them from provider availability errors without discarding either cause. The
+financial council maps this to its existing non-retryable ledger-persistence
+failure and does not perform a second flush that could hide the first failure.

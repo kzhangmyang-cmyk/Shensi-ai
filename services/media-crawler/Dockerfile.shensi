@@ -4,7 +4,11 @@ FROM python:3.11.13-slim-bookworm AS builder
 COPY --from=uv /uv /uvx /bin/
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 ARG DOUYIN_ACTION_VISUAL_LOCATOR=disabled
-WORKDIR /build
+WORKDIR /app
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
 COPY services/media-crawler/pyproject.toml services/media-crawler/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     case "$DOUYIN_ACTION_VISUAL_LOCATOR" in \
@@ -19,13 +23,18 @@ ENV PATH=/app/.venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 WORKDIR /app
-COPY --from=builder /build/.venv /app/.venv
-RUN python -m playwright install --with-deps chromium \
+COPY --from=builder /app/.venv /app/.venv
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && python -m playwright install --with-deps chromium \
     && groupadd --gid 10001 shensi \
     && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin shensi \
     && chmod -R a-w /app /ms-playwright
+RUN apt-get install -y --no-install-recommends xauth xvfb x11vnc \
+    && rm -rf /var/lib/apt/lists/*
+ENV HOME=/tmp/shensi-browser-home
 COPY --chown=0:0 services/media-crawler/shensi_adapter /app/shensi_adapter
 USER 10001:10001
 EXPOSE 8899
 STOPSIGNAL SIGTERM
+ENTRYPOINT ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1920x1080x24 -nolisten tcp"]
 CMD ["uvicorn", "shensi_adapter.app:app", "--host", "0.0.0.0", "--port", "8899", "--workers", "1", "--timeout-graceful-shutdown", "20"]

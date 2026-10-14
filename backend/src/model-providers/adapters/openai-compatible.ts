@@ -77,6 +77,7 @@ export interface OpenAiCompatibleChatRequest
   systemPrompt?: string;
   prompt: string;
   jsonMode?: boolean;
+  thinkingMode?: 'disabled';
   signal?: AbortSignal;
   tools?: Array<{
     name: string;
@@ -288,6 +289,7 @@ export class OpenAiCompatibleAdapter {
     if (request.jsonMode) {
       body.response_format = { type: "json_object" };
     }
+    if (request.snapshot.provider === 'deepseek' && request.thinkingMode === 'disabled') body.thinking = { type: 'disabled' };
     if (request.tools) {
       body.tools = request.tools.map((tool) => ({
         type: "function",

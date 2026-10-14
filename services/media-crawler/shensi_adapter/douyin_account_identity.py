@@ -10,9 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import re
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qsl, urljoin, urlsplit
 
 
+_CURRENT_ACCOUNT_PROFILE_LINKS = (
+    '[class~="tab-user_self"] a[href], '
+    'a[class~="tab-user_self"][href]'
+)
 _HEADER_PROFILE_LINKS = (
     'header a[href], nav a[href], [role="navigation"] a[href], '
     '[data-e2e="douyin-header"] a[href], #douyin-header a[href]'
@@ -60,8 +64,22 @@ def _raw_sec_uid_from_href(value: object) -> str | None:
         if (target.scheme != "https" or target.hostname != "www.douyin.com"
                 or target.port not in {None, 443}
                 or target.username is not None or target.password is not None
-                or target.query or target.fragment):
+                or target.fragment):
             return None
+        if target.query:
+            if len(target.query) > 200:
+                return None
+            query = parse_qsl(
+                target.query,
+                keep_blank_values=True,
+                strict_parsing=True,
+                max_num_fields=2,
+            )
+            if (len(query) != 1 or query[0][0] != "from_nav"
+                    or re.fullmatch(
+                        r"[A-Za-z0-9_-]{1,100}", query[0][1]
+                    ) is None):
+                return None
     except ValueError:
         return None
     matched = _PROFILE_PATH.fullmatch(target.path)
@@ -106,21 +124,23 @@ def _visible_text(element: object) -> str | None:
         return None
 
 
-def _header_identity_candidates(page: object) -> tuple[set[str], set[str]]:
+def _identity_candidates_for_selector(
+    page: object, selector: str,
+) -> tuple[set[str], set[str], int]:
     raw_ids: set[str] = set()
     names: set[str] = set()
     try:
-        anchors = page.locator(_HEADER_PROFILE_LINKS)  # type: ignore[attr-defined]
+        anchors = page.locator(selector)  # type: ignore[attr-defined]
         count = min(anchors.count(), 50)
     except Exception:
-        raise DouyinAccountIdentityFailure(
-            "douyin_account_identity_missing"
-        ) from None
+        return raw_ids, names, 0
+    visible_count = 0
     for index in range(count):
         anchor = anchors.nth(index)
         try:
             if not anchor.is_visible(timeout=500):
                 continue
+            visible_count += 1
             raw_sec_uid = _raw_sec_uid_from_href(
                 anchor.get_attribute("href")
             )
@@ -155,6 +175,20 @@ def _header_identity_candidates(page: object) -> tuple[set[str], set[str]]:
                 image_name = None
             if image_name:
                 names.add(image_name)
+    return raw_ids, names, visible_count
+
+
+def _header_identity_candidates(page: object) -> tuple[set[str], set[str]]:
+    current_ids, current_names, current_visible = (
+        _identity_candidates_for_selector(
+            page, _CURRENT_ACCOUNT_PROFILE_LINKS
+        )
+    )
+    if current_visible:
+        return current_ids, current_names
+    raw_ids, names, _visible = _identity_candidates_for_selector(
+        page, _HEADER_PROFILE_LINKS
+    )
     return raw_ids, names
 
 

@@ -5,6 +5,7 @@ import type {
   OrganizationPartyRef,
   OutcomeFeedbackEvent
 } from "./acquisition-domain.js";
+import { isOutcomeAttributionShape } from "./acquisition-outcome-attribution.js";
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -60,10 +61,9 @@ export function isFullLiveOutcome(
 ): value is LiveOutcomeFeedbackEvent {
   const item = record(value);
   const attribution = record(item.attribution);
-  return item.recordKind === "live"
-    && livePartyRef(item.partyRef)
-    && Boolean(text(item.candidateId))
-    && attribution.attributionVersion === "acquisition-run.v1"
+  // Persisted generic outcomes retain their historical readable shape.
+  const genericAttribution = attribution.attributionVersion === "acquisition-run.v1"
+    && !("jobId" in attribution)
     && [
       "runId",
       "planId",
@@ -78,6 +78,16 @@ export function isFullLiveOutcome(
     ].every((field) => text(attribution[field]))
     && Number.isSafeInteger(attribution.planVersion)
     && Number(attribution.planVersion) > 0
+    && ["strategyVersion", "qualificationDecisionId", "decisionVersion",
+      "decisionSnapshotHash"].every((field) => typeof attribution[field] === "string")
+    && ["evidenceIds", "providerIds", "queryIds"].every((field) =>
+      stringList(attribution[field]));
+  const crawlerAttribution = attribution.attributionVersion === "douyin-crawler.v1"
+    && isOutcomeAttributionShape(attribution);
+  return item.recordKind === "live"
+    && livePartyRef(item.partyRef)
+    && Boolean(text(item.candidateId))
+    && (genericAttribution || crawlerAttribution)
     && ["strategyVersion", "qualificationDecisionId", "decisionVersion",
       "decisionSnapshotHash", "ruleVersion"].every((field) =>
       typeof attribution[field] === "string")

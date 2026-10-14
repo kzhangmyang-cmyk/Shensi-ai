@@ -34,6 +34,7 @@ import {
 } from "./quote-version-service.js";
 import type { CommercialBindingAuthoritySource } from "./commercial-binding-snapshot.js";
 import { CommercialBindingVerifier } from "./commercial-binding-snapshot.js";
+import { CrmQuoteAuthorityVerifier } from "./crm-quote-assessment.js";
 import type { GrowthWorkspaceMemberAssignabilityReader } from "./growth-workspace-member-assignability.js";
 import type { GrowthHttpIdempotencyRepository } from "./growth-http-idempotency-repository.js";
 import type {
@@ -363,8 +364,12 @@ async function defaultResources(
   const bindingVerifier = trusted
     ? new CommercialBindingVerifier(trusted.commercialBindings)
     : null;
+  const crmAuthorityVerifier = trusted
+    ? new CrmQuoteAuthorityVerifier(trusted.commercialBindings)
+    : null;
   const crm = options.store ? (options.mode === "mysql"
     ? createMysqlQuoteCrmCommand({ pool: options.pool,
+        store: options.store,
         temporalBarrier: input.temporalBarrier, repository })
     : createQuoteCrmCommand({ store: options.store,
         temporalTransactions: input.temporalTransactions,
@@ -393,18 +398,21 @@ async function defaultResources(
         assignments: trusted.assignments,
         subjects: trusted.subjects,
         bindingVerifier: bindingVerifier!,
+        crmAuthorityVerifier: crmAuthorityVerifier!,
         probabilityAssessments
       }),
       quoteVersions: new QuoteVersionService({
         repository,
         probabilityAssessments,
         bindingVerifier: bindingVerifier!,
+        crmAuthorityVerifier: crmAuthorityVerifier!,
         catalog: input.catalog,
         foundation: input.foundation,
         qualificationAuthority: trusted.qualificationAuthority
       }),
       quoteApprovals: new QuoteApprovalService({
         repository, bindingVerifier: bindingVerifier!,
+        crmAuthorityVerifier: crmAuthorityVerifier!,
         foundation: input.foundation, catalog: input.catalog
       }),
       ...(publicationWorker ? { publicationWorker } : {}),

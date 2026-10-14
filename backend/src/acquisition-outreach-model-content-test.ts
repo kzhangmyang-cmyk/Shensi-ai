@@ -24,6 +24,10 @@ test("publishes the exact evidence-grounding contract required by draft validati
   assert.match(request.systemPrompt, /原样复制[^\n]*连续片段/u);
   assert.match(request.systemPrompt, /看到你公开提到/u);
   assert.match(request.systemPrompt, /方便的话/u);
+  assert.match(request.systemPrompt, /两三句/u);
+  assert.match(request.systemPrompt, /评论者/u);
+  assert.match(request.systemPrompt, /搜索关键词/u);
+  assert.match(request.systemPrompt, /咱们简单聊两句呗/u);
   for (const code of [
     "evidence_grounded",
     "public_need_signal",

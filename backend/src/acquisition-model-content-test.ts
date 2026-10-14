@@ -41,11 +41,11 @@ const judgmentTools =
 
 assert.equal(
   ACQUISITION_MODEL_PROMPT_VERSION,
-  "acquisition-model-prompt-bundle.v7"
+  "acquisition-model-prompt-bundle.v8"
 );
 assert.equal(
   ACQUISITION_MODEL_SCHEMA_VERSION,
-  "acquisition-model-schema-bundle.v8"
+  "acquisition-model-schema-bundle.v9"
 );
 assert.equal(
   ACQUISITION_OUTREACH_V1_MODEL_PROMPT_VERSION,
@@ -129,6 +129,14 @@ assert.equal(acquisitionModelContentForSnapshot({
   promptVersion: "acquisition-model-prompt-bundle.v5", schemaVersion: "acquisition-model-schema-bundle.v5",
   ...ACQUISITION_RETIRED_MODEL_CONTENT_HASHES
 }), ACQUISITION_RETIRED_MODEL_CONTENT_BUNDLE);
+const oldOutreachBundle = acquisitionModelContentForSnapshot({
+  promptVersion: "acquisition-model-prompt-bundle.v7", schemaVersion: "acquisition-model-schema-bundle.v8",
+  promptHash: "sha256:b259b32e12c8a15c8f06103cbf05a7b8339891e15654cf81398200c7c2a37c76",
+  schemaHash: "sha256:6c09e1547a1baf30868c40486484f6d8afbf2c6b372af777192624e6983096f6"
+});
+assert.match(oldOutreachBundle.promptTemplates["acquisition.douyin.outreach-draft.v1"] ?? "", /不得改写/u);
+assert.equal(oldOutreachBundle.promptTemplates["acquisition.douyin.direct-message-review.v1"], undefined);
+assert.match(ACQUISITION_MODEL_CONTENT_BUNDLE.promptTemplates["acquisition.douyin.outreach-draft.v1"] ?? "", /自然改写/u);
 const judgmentParameters = judgmentTools?.[0]?.parameters as {
   oneOf: Array<any>;
 } | undefined;

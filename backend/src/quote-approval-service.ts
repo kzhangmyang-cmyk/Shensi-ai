@@ -3,6 +3,10 @@ import { canonicalJsonStringify } from "./canonical-json.js";
 import type { CommercialBindingSnapshot,
   CommercialBindingVerifier } from "./commercial-binding-snapshot.js";
 import {
+  isCrmQuoteAuthoritySnapshot,
+  type CrmQuoteAuthorityVerifier
+} from "./crm-quote-assessment.js";
+import {
   GROWTH_CAPABILITIES,
   GROWTH_CAPABILITY_REGISTRY_VERSION,
   requireGrowthCapabilities,
@@ -18,6 +22,7 @@ import type { QuoteCommandExecution } from "./quote-case-service.js";
 import type {
   QuoteApproval,
   QuoteApprovalDecisionPersistenceResult,
+  QuoteCommercialAuthoritySnapshot,
   QuoteRepository,
   QuoteVersion
 } from "./quote-repository.js";
@@ -43,10 +48,10 @@ function stableHash(value: unknown): `sha256:${string}` {
     .digest("hex")}`;
 }
 
-function bindingFrom(version: QuoteVersion): CommercialBindingSnapshot {
+function bindingFrom(version: QuoteVersion): QuoteCommercialAuthoritySnapshot {
   const binding = version.commercialBindingSnapshot;
   if (!binding || typeof binding !== "object") fail("quote_deal_binding_required");
-  return binding as CommercialBindingSnapshot;
+  return binding as QuoteCommercialAuthoritySnapshot;
 }
 
 function authorizeApproval(
@@ -71,6 +76,7 @@ function authorizeApproval(
 export interface QuoteApprovalServiceOptions {
   readonly repository: QuoteRepository;
   readonly bindingVerifier: CommercialBindingVerifier;
+  readonly crmAuthorityVerifier?: CrmQuoteAuthorityVerifier;
   readonly foundation: GrowthFoundationServices;
   readonly catalog?: GrowthCatalogServices;
   readonly calculator?: QuoteCalculationService;
@@ -172,11 +178,21 @@ export class QuoteApprovalService {
         fail("quote_authority_revalidation_failed");
       }
     }
-    const verified = await this.options.bindingVerifier.verify(
-      command.workspace,
-      { candidateId: binding.candidateId, customerId: binding.customerId,
-        dealId: binding.dealId }
-    );
+    const verified = isCrmQuoteAuthoritySnapshot(binding)
+      ? (() => {
+          if (!this.options.crmAuthorityVerifier) {
+            fail("crm_quote_authority_unavailable");
+          }
+          return this.options.crmAuthorityVerifier.verify(
+            command.workspace,
+            binding
+          );
+        })()
+      : await this.options.bindingVerifier.verify(
+          command.workspace,
+          { candidateId: binding.candidateId, customerId: binding.customerId,
+            dealId: binding.dealId }
+        );
     const commandHash = stableHash({
       schemaVersion: "quote-approval-command.v1",
       workspaceId: command.workspace.workspaceId,

@@ -2,13 +2,13 @@ import { expect, test } from "@playwright/test";
 import { createServer, type Server } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import manifest from "../contracts/pinned/growth-advisor-quote-roi.manifest.json";
+import manifest from "../contracts/pinned/growth-advisor-quote-roi.manifest.json" with { type: "json" };
 import {
   financialCouncilFixture,
   financialCouncilPolicyFixture
 } from "./fixtures/growth-contract";
 
-const FRONTEND_ORIGIN = "http://127.0.0.1:5488";
+const FRONTEND_ORIGIN = "http://127.0.0.1:5188";
 const BACKEND_PORT = 4388;
 const roles = ["cfo", "finance", "profit", "cost", "cashflow", "tax"] as const;
 const connection = {
@@ -166,7 +166,7 @@ test.beforeAll(async () => {
   await new Promise<void>((resolve) => fixtureServer.listen(BACKEND_PORT, "127.0.0.1", resolve));
   const frontendDir = fileURLToPath(new URL("..", import.meta.url));
   vite = spawn(process.execPath,
-    ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "5488"], {
+    ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "5188", "--strictPort", "--mode", "desktop"], {
       cwd: frontendDir,
       env: { ...process.env, VITE_API_TARGET: `http://127.0.0.1:${BACKEND_PORT}` },
       stdio: "ignore"
@@ -183,6 +183,72 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   vite?.kill("SIGTERM");
   await new Promise<void>((resolve) => fixtureServer?.close(() => resolve()));
+});
+
+test("council preparation anchors restore the complete agent center shell", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.addInitScript(() => {
+    localStorage.setItem("gj_user", JSON.stringify({
+      id: "admin-real", name: "真实管理员", email: "admin@goodjob.test",
+      role: "admin", teamId: "team-real", avatar: "RA"
+    }));
+  });
+  await page.route("**/api/v1/finance/council-runs?*", route => route.fulfill({
+    json: { items: [], nextAfter: null, hasMore: false }
+  }));
+  const assertAgentSurface = async () => {
+    await expect(page).toHaveURL(/#agents$/u);
+    await expect(page.locator("#replicaHeaderTitle")).toHaveText("智能体中心");
+    await expect(page.locator('.replica-shell')).toHaveClass(/\bis-agents-route\b/u);
+    await expect(page.locator('[data-replica-view="agents"]')).toHaveClass(/\bactive\b/u);
+    await expect(page.locator('#demoModuleInspector')).toBeVisible();
+    await expect(page.getByRole("button", { name: "准备财务分析", exact: true })).toBeVisible();
+    await expect(page.locator('#growthWorkspace')).toBeHidden();
+    await expect(page.getByRole("heading", { name: "和经营总管聊聊", exact: true })).toBeVisible();
+  };
+
+  // A direct council deep link also leaves the standalone router's default at agents.
+  await page.goto(`${FRONTEND_ORIGIN}/#financial-council`);
+  await expect(page.locator("body")).toHaveAttribute("data-session-mode", "real");
+  for (const index of [0, 1, 2]) {
+    await expect(page.locator("#replicaHeaderTitle")).toHaveText("财务委员会");
+    await page.locator('.council-preparation-table a').nth(index).click();
+    await assertAgentSurface();
+    await page.getByRole("button", { name: "准备财务分析", exact: true }).click();
+    await expect(page.locator('.real-agent-card')).toHaveCount(6);
+    await expect(page.locator('.real-agent-card').first()).toContainText("等待运行");
+    await page.getByRole("button", { name: "关闭财务准备" }).click();
+    await page.locator('[data-growth-nav][href="#financial-council"]').click();
+  }
+  await page.locator('[data-replica-view="agents"]').click();
+  await assertAgentSurface();
+  await page.goBack();
+  await expect(page.locator("#replicaHeaderTitle")).toHaveText("财务委员会");
+  await page.goForward();
+  await assertAgentSurface();
+  await page.screenshot({ path: testInfo.outputPath("agents-preparation-restored.png") });
+
+  // Leaving while a council mount is still reading must not replace the new page.
+  let releasePolicy!: () => void;
+  const policyReleased = new Promise<void>(resolve => { releasePolicy = resolve; });
+  let policyRequested!: () => void;
+  const policyStarted = new Promise<void>(resolve => { policyRequested = resolve; });
+  await page.route("**/api/v1/finance/council-policy", async route => {
+    policyRequested();
+    await policyReleased;
+    await route.fulfill({ json: financialCouncilPolicyFixture,
+      headers: { etag: '"council-policy-v1:1"' } });
+  });
+  await page.locator('[data-growth-nav][href="#financial-council"]').click();
+  await policyStarted;
+  await page.locator('[data-replica-view="agents"]').click();
+  await assertAgentSurface();
+  releasePolicy();
+  await expect(page.locator('.agent-preparation-support')).toContainText("模型路由已就绪");
+  await assertAgentSurface();
+  await expect(page.locator('.cfo-conversation')).toHaveCount(1);
+  expect(errors).toEqual([]);
 });
 
 test("runs real three-report onboarding and Council inside one black shell", async ({ page }) => {

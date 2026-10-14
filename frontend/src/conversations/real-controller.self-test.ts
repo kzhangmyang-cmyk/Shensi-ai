@@ -1,12 +1,13 @@
 import { strict as assert } from "node:assert";
 import { parseHTML } from "linkedom";
-import type { OutreachBatch, OutreachBatchApi } from "../acquisition/outreach-batch-api";
+import type { OutreachAction, OutreachBatch, OutreachBatchApi } from "../acquisition/outreach-batch-api";
 import { createOutreachBatchSelectionStore } from "../acquisition/outreach-batch-selection";
 import {
   createRealConversationsController,
   shouldUseRealConversations
 } from "./real-controller";
-import type { RealConversationsApi, RealConversationsSnapshot } from "./real-api";
+import { createConversationCaptureFixture } from "./real-capture-fixture";
+import { createRealConversationsApi, type RealConversationsApi, type RealConversationsSnapshot } from "./real-api";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -122,6 +123,7 @@ const snapshot: RealConversationsSnapshot = {
     candidateId: "candidate-1",
     runId: "run-1",
     taskId: "task-1",
+    planId: "plan-1",
     taskName: "展厅公开需求",
     runStatus: "succeeded",
     runUpdatedAt: "2026-08-26T07:50:00.000Z",
@@ -136,6 +138,260 @@ const snapshot: RealConversationsSnapshot = {
 assert.equal(shouldUseRealConversations("conversations", "real"), true);
 assert.equal(shouldUseRealConversations("conversations", "demo"), false);
 assert.equal(shouldUseRealConversations("dashboard", "real"), false);
+
+{
+  const { main, inspector, window } = domFixture();
+  const retainedBatch = batch("candidate-1", "approved");
+  const receipts: OutreachAction[] = (["comment", "direct_message"] as const).map((kind) => ({
+    id: `retained-${kind}`, workspaceId: retainedBatch.workspaceId,
+    batchId: retainedBatch.id, batchRevision: retainedBatch.revision,
+    candidateId: "candidate-1", accountId: retainedBatch.accountId,
+    accountLoginStateVersion: retainedBatch.accountLoginStateVersion,
+    policyVersionId: retainedBatch.policyVersionId, localDate: retainedBatch.localDate,
+    kind, sequence: kind === "comment" ? 1 : 2, status: "succeeded", predecessorActionId: null,
+    targetPublicUrl: kind === "comment" ? retainedBatch.candidates[0]!.commentTargetPublicUrl
+      : retainedBatch.candidates[0]!.publicProfileUrl,
+    content: kind === "comment" ? retainedBatch.candidates[0]!.comment : retainedBatch.candidates[0]!.directMessage,
+    contentHash: kind === "comment" ? retainedBatch.candidates[0]!.commentHash : retainedBatch.candidates[0]!.directMessageHash,
+    approvalHash: retainedBatch.approvalHash!, createdAt: retainedBatch.createdAt,
+    attemptCount: 1, platformReceiptReference: `douyin:retained-${kind}`,
+    occurredAt: retainedBatch.createdAt, failureCode: null
+  }));
+  const reads: string[] = [];
+  const detailRequests: unknown[] = [];
+  const captureDetailRequest = (event: Event) => {
+    detailRequests.push((event as CustomEvent).detail);
+  };
+  main.ownerDocument.addEventListener("goodjob:acquisition-detail-open-requested", captureDetailRequest);
+  const profileCandidates = Array.from({ length: 49 }, (_, index) => ({
+    id: index === 0 ? "candidate-profile" : `candidate-profile-${index + 1}`,
+    status: "creator_candidate",
+    displayName: `公开主页 ${index + 1}`,
+    evidence: { sourceUrl: `https://www.douyin.com/user/actor-${index + 2}`, excerpt: "公开资料" }
+  }));
+  const controller = createRealConversationsController({
+    api: createRealConversationsApi(async (input, init) => {
+      const path = String(input);
+      reads.push(path);
+      assert.equal(init?.method, "GET");
+      assert.equal(init?.credentials, "same-origin");
+      assert.equal(init?.body, undefined);
+      let body: unknown;
+      if (path.includes("/overview?")) body = {
+        generatedAt: snapshot.generatedAt, platform: "douyin", totals: { tasks: 1 },
+        statusCounts: { cancelled: 1 }, discoveryMethodCounts: { public_search: 1 },
+        tasks: [{ id: "task-social-retained", planId: "plan-1", name: "保留采集结果", platform: "douyin",
+          discoveryMethods: ["public_search"], latestResultRunId: "run-1",
+          latestRun: { id: "run-later-cancelled", status: "cancelled", updatedAt: snapshot.generatedAt,
+            consumedBudget: { requests: 0, results: 0, durationSeconds: 0 } } }]
+      };
+      else if (path.endsWith("/social-accounts/douyin")) body = { items: [] };
+      else if (path.endsWith("/runs/run-1")) body = { id: "run-1", planId: "plan-1",
+        status: "succeeded", updatedAt: "2026-08-25T08:00:00.000Z" };
+      else if (path.endsWith("/runs/run-1/candidates")) body = {
+        items: profileCandidates.slice(0, 25), nextCursor: "second-page"
+      };
+      else if (path.endsWith("/candidates?cursor=second-page")) body = { items: [
+        { ...profileCandidates[0]!, evidence: {
+          ...profileCandidates[0]!.evidence, excerpt: "最终公开资料"
+        } },
+        ...profileCandidates.slice(25),
+        {
+          id: "candidate-1", status: "new", displayName: "第二页已联系候选",
+          evidence: { sourceUrl: "https://www.douyin.com/video/123", excerpt: "保留公开需求" }
+        }
+      ], nextCursor: null };
+      else throw new Error(`Unexpected request ${path}`);
+      return new Response(JSON.stringify(body), { status: 200 });
+    }),
+    outreachApi: outreachApi({
+      async listBatches(runId, candidateId, limit) {
+        reads.push(`batches:${runId}:${candidateId}`);
+        assert.equal(runId, "run-1");
+        assert.equal(candidateId, "candidate-1");
+        assert.equal(limit, 50);
+        return { items: [retainedBatch], nextCursor: null };
+      },
+      async getBatch(id) { reads.push(`batch:${id}`); return retainedBatch; },
+      async listActions(id) { reads.push(`receipts:${id}`); return { items: receipts }; },
+      async createBatch() { throw new Error("Opening retained data must never create a batch"); },
+      async approveBatch() { throw new Error("Opening retained data must never approve outreach"); }
+    }),
+    main, inspector, batchSelection: selectionFixture(), outreachPollDelayMs: 60_000
+  });
+  try {
+    await controller.open();
+    const loaded = controller.getState().snapshot!;
+    assert.equal(loaded.interactions.length, 50,
+      "Social must retain all 50 persisted candidates across pages without counting an overlapping candidate twice");
+    assert.equal(new Set(loaded.interactions.map((item) => item.key)).size, 50);
+    assert.equal(loaded.interactions[0]?.excerpt, "最终公开资料",
+      "a continuation page must update duplicate evidence without shifting the candidate's position");
+    assert.ok(loaded.interactions.every((item) => item.runId === "run-1"));
+    assert.deepEqual(loaded.failedRuns, []);
+    assert.deepEqual(loaded.truncatedRunIds, []);
+    assert.deepEqual(reads.filter((path) => path.includes("/candidates")), [
+      "/api/v1/acquisition/runs/run-1/candidates",
+      "/api/v1/acquisition/runs/run-1/candidates?cursor=second-page"
+    ]);
+    assert.deepEqual(detailRequests, [],
+      "loading Social candidates must not implicitly open candidate review or hand off to CRM");
+    const profileReviewEntry = main.querySelector<HTMLButtonElement>("[data-real-conversations-action=review-candidate]");
+    assert.ok(profileReviewEntry, "a profile-only recipient needs a review/private-domain entry without sending outreach");
+    assert.equal(profileReviewEntry.disabled, false);
+    const readsBeforeProfileReview = reads.length;
+    profileReviewEntry.click();
+    assert.deepEqual(detailRequests, [{
+      mode: "candidates", planId: "plan-1", candidateId: "candidate-profile",
+      candidateRunId: "run-1"
+    }], "Social must forward the real planId, not its distinct taskId");
+    assert.equal(reads.length, readsBeforeProfileReview,
+      "the entry must only dispatch the existing detail route, never start another acquisition or outreach command");
+    const recipients = main.querySelectorAll<HTMLElement>("[data-real-conversations-action=select]");
+    assert.equal(recipients.length, 50);
+    assert.equal(recipients[49]?.dataset.interactionKey, "run-1:candidate-1");
+    assert.match(main.textContent ?? "", /第二页已联系候选/u);
+    recipients[49]!.dispatchEvent(new window.Event("click", { bubbles: true }));
+    await controller.whenIdle();
+    assert.equal(controller.getState().selectedInteractionKey, "run-1:candidate-1");
+    assert.ok(reads.includes("batches:run-1:candidate-1"));
+    assert.ok(reads.includes(`receipts:${retainedBatch.id}`));
+    assert.equal(controller.getState().outreach.batch?.id, retainedBatch.id);
+    assert.ok(main.querySelector("[data-real-conversations-outreach-host]"));
+    assert.match(main.textContent ?? "", /douyin:retained-direct_message/u);
+    const search = main.querySelector<HTMLInputElement>("[data-real-conversations-candidate-search]")!;
+    search.value = "第二页已联系候选";
+    search.dispatchEvent(new window.Event("input", { bubbles: true }));
+    assert.equal(main.querySelectorAll("[data-real-conversations-action=select]").length, 1);
+    assert.match(main.querySelector(".real-conversation-list")?.textContent ?? "", /50 位已载入真实候选/u);
+    assert.equal(controller.getState().selectedInteractionKey, "run-1:candidate-1");
+    const currentSearch = main.querySelector<HTMLInputElement>("[data-real-conversations-candidate-search]")!;
+    currentSearch.value = "";
+    currentSearch.dispatchEvent(new window.Event("input", { bubbles: true }));
+    for (const tab of ["comments", "history"] as const) {
+      main.querySelector<HTMLElement>(`[data-real-conversations-tab="${tab}"]`)!
+        .dispatchEvent(new window.Event("click", { bubbles: true }));
+      assert.match(main.textContent ?? "", /第二页已联系候选/u);
+      assert.ok(main.querySelector("[data-real-conversations-outreach-host]"));
+      assert.equal(main.querySelectorAll("[data-real-conversations-action=select]").length, 50);
+      assert.equal(controller.getState().selectedInteractionKey, "run-1:candidate-1");
+      const readsBeforeReview = reads.length;
+      main.querySelector<HTMLButtonElement>("[data-real-conversations-action=review-candidate]")!.click();
+      assert.deepEqual(detailRequests.at(-1), {
+        mode: "candidates", planId: "plan-1", candidateId: "candidate-1",
+        candidateRunId: "run-1"
+      }, `${tab} must route the current recipient through the same review entry`);
+      assert.equal(reads.length, readsBeforeReview);
+    }
+    assert.ok(main.querySelector("[data-outreach-receipts]"));
+    assert.match(main.textContent ?? "", /douyin:retained-comment/u);
+    assert.match(main.textContent ?? "", /douyin:retained-direct_message/u);
+    main.querySelector<HTMLElement>('[data-interaction-key="run-1:candidate-profile"]')!
+      .dispatchEvent(new window.Event("click", { bubbles: true }));
+    await controller.whenIdle();
+    assert.equal(controller.getState().selectedInteractionKey, "run-1:candidate-profile");
+    assert.equal(controller.getState().outreach.batch, null);
+    assert.equal(reads.filter((path) => path.startsWith("batches:")).length, 1,
+      "switching to a profile-only candidate must not issue outreach discovery");
+    main.querySelector<HTMLElement>('[data-interaction-key="run-1:candidate-1"]')!
+      .dispatchEvent(new window.Event("click", { bubbles: true }));
+    await controller.whenIdle();
+    assert.equal(controller.getState().selectedInteractionKey, "run-1:candidate-1");
+    assert.equal(controller.getState().outreach.batch?.id, retainedBatch.id);
+    const staleReviewEntry = main.querySelector<HTMLButtonElement>("[data-real-conversations-action=review-candidate]")!;
+    const requestsBeforeDeactivation = detailRequests.length;
+    controller.deactivate();
+    staleReviewEntry.click();
+    assert.equal(detailRequests.length, requestsBeforeDeactivation,
+      "a deactivated Social route must not open a candidate from its stale DOM");
+  } finally {
+    controller.destroy();
+    main.ownerDocument.removeEventListener("goodjob:acquisition-detail-open-requested", captureDetailRequest);
+  }
+}
+
+{
+  const { main, inspector, window } = domFixture();
+  let loadCount = 0;
+  let listCount = 0;
+  const controller = createRealConversationsController({
+    api: {
+      async load() {
+        loadCount += 1;
+        throw new Error("capture fixture must not call the real conversations API");
+      }
+    },
+    outreachApi: outreachApi({
+      async listBatches() {
+        listCount += 1;
+        throw new Error("capture fixture must not recover outreach batches");
+      }
+    }),
+    batchSelection: selectionFixture(),
+    captureFixture: createConversationCaptureFixture(),
+    main,
+    inspector
+  });
+  await controller.open();
+  assert.equal(loadCount, 0);
+  assert.equal(listCount, 0);
+  assert.match(main.innerHTML, /天选财税人/u);
+  assert.match(main.innerHTML, /当前私信收件人/u);
+  assert.match(main.innerHTML, /data-outreach-direct-message-compose/u);
+  assert.match(main.innerHTML, /批准并发送 \d+ 条私信/u);
+  for (const tab of ["comments", "history"] as const) {
+    inspector.hidden = false;
+    inspector.innerHTML = "<section>旧路由技术详情</section>";
+    main.querySelector<HTMLElement>(`[data-real-conversations-tab="${tab}"]`)!
+      .dispatchEvent(new window.Event("click", { bubbles: true }));
+    assert.equal(main.querySelector<HTMLElement>(
+      `[data-real-conversations-tab="${tab}"]`
+    )?.getAttribute("aria-current"), "page");
+    assert.equal(main.querySelector("[data-outreach-direct-message-compose]"), null,
+      `${tab} must retain its own workspace instead of the private-message composer`);
+    assert.ok(main.querySelector("[data-real-conversations-help]"),
+      `${tab} must keep the operational guidance inside the main workspace`);
+    assert.equal(main.querySelector("[data-real-conversations-help]")?.hasAttribute("open"), false,
+      `${tab} must keep operational guidance collapsed by default`);
+    assert.equal(inspector.hidden, true,
+      `${tab} must hide the shared technical inspector after a tab transition`);
+    assert.equal(inspector.innerHTML, "",
+      `${tab} must clear stale technical inspector content after a tab transition`);
+  }
+  controller.destroy();
+}
+
+{
+  const { main, inspector, window } = domFixture();
+  const history = [batch(), batch("candidate-1", "approved", "batch-older")];
+  const gets: string[] = [];
+  let writes = 0;
+  const controller = createRealConversationsController({
+    api: { async load() { return snapshot; } },
+    outreachApi: outreachApi({
+      async listBatches() { return { items: history, nextCursor: null }; },
+      async getBatch(id) { gets.push(id); return history.find((item) => item.id === id)!; },
+      async createBatch() { writes++; return batch(); },
+      async approveBatch() { writes++; return history[1]!; }
+    }),
+    batchSelection: selectionFixture(), main, inspector, outreachPollDelayMs: 60_000
+  });
+  await controller.open();
+  assert.equal(main.querySelector("[data-real-conversations-batch]"), null,
+    "the private-message editor must not contain historical approval controls");
+  main.querySelector<HTMLElement>('[data-real-conversations-tab="history"]')!
+    .dispatchEvent(new window.Event("click", { bubbles: true }));
+  const picker = main.querySelector<HTMLSelectElement>("[data-real-conversations-batch]");
+  assert.ok(picker, "older actions must remain accessible when a newer draft exists");
+  picker.querySelector<HTMLOptionElement>('[value="batch-older"]')!.selected = true;
+  picker.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await controller.whenIdle();
+  assert.equal(controller.getState().outreach.batch?.id, "batch-older");
+  assert.deepEqual(gets, ["batch-1", "batch-older"]);
+  assert.equal(writes, 0, "history selection must never create, approve or resend");
+  assert.equal(main.querySelector<HTMLInputElement>("[data-outreach-confirm]")?.checked ?? false, false);
+  controller.destroy();
+}
 
 {
   const { main, inspector } = domFixture();
@@ -169,13 +425,13 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
   assert.deepEqual(listCalls, [{
     runId: "run-1",
     candidateId: "candidate-1",
-    limit: 1,
+    limit: 50,
     cursor: null
   }]);
   await controller.createOutreachForSelected();
   assert.deepEqual(createCalls, [{ runId: "run-1", candidateIds: ["candidate-1"] }]);
   assert.equal(selection.read(), "batch-1");
-  assert.match(main.innerHTML, /精确公开评论/u);
+  assert.match(main.innerHTML, /私信独立授权/u);
   assert.doesNotMatch(main.innerHTML, /发送不可用|平台回复（未接入）/u);
   controller.destroy();
 }
@@ -232,7 +488,7 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
     inspector
   });
   await controller.open();
-  assert.deepEqual(listCalls, [["run-1", "candidate-1", 1, null]]);
+  assert.deepEqual(listCalls, [["run-1", "candidate-1", 50, null]]);
   assert.deepEqual(getCalls, ["batch-1"]);
   assert.equal(controller.getState().outreach.batch?.id, "batch-1");
   assert.equal(selection.read(), "batch-1");
@@ -430,6 +686,52 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
 }
 
 {
+  const { main, inspector, window } = domFixture();
+  const controller = createRealConversationsController({
+    api: { async load() { return snapshot; } },
+    outreachApi: outreachApi({
+      async listBatches() { return { items: [batch()], nextCursor: null }; }
+    }),
+    batchSelection: selectionFixture(), main, inspector
+  });
+  await controller.open();
+  const editor = main.querySelector<HTMLTextAreaElement>(
+    '[data-outreach-field="directMessage"]'
+  )!;
+  editor.value = "搜索和切换标签时必须保留的本地私信";
+  editor.dispatchEvent(new window.Event("input", { bubbles: true }));
+  const limit = main.querySelector<HTMLInputElement>(
+    "[data-outreach-direct-message-limit]"
+  )!;
+  limit.value = "100";
+  limit.dispatchEvent(new window.Event("input", { bubbles: true }));
+  const query = main.querySelector<HTMLInputElement>(
+    "[data-real-conversations-candidate-search]"
+  )!;
+  query.value = "公开用户";
+  query.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.equal(editor.value, "搜索和切换标签时必须保留的本地私信",
+    "search rendering must read silently updated drafts, not a stale subscriber snapshot");
+  assert.equal(limit.value, "100");
+  assert.equal(controller.getState().selectedInteractionKey, "run-1:candidate-1");
+  for (const tab of ["history", "direct_messages"]) {
+    main.querySelector<HTMLElement>(`[data-real-conversations-tab="${tab}"]`)!
+      .dispatchEvent(new window.Event("click", { bubbles: true }));
+  }
+  assert.equal(main.querySelector<HTMLTextAreaElement>(
+    '[data-outreach-field="directMessage"]'
+  )?.value, "搜索和切换标签时必须保留的本地私信");
+  assert.equal(main.querySelector<HTMLInputElement>(
+    "[data-outreach-direct-message-limit]"
+  )?.value, "100");
+  assert.equal(main.querySelector<HTMLInputElement>(
+    "[data-outreach-direct-message-confirm]"
+  )?.hasAttribute("checked"), false);
+  assert.equal(controller.getState().outreach.directMessageConfirmed, false);
+  controller.destroy();
+}
+
+{
   const pending = deferred<RealConversationsSnapshot>();
   const { main, inspector } = domFixture();
   const controller = createRealConversationsController({
@@ -566,7 +868,7 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
   approvalButton.dispatchEvent(new window.Event("click", { bubbles: true }));
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(approvals, [{
-    dailyLimit: 20,
+    dailyLimit: 50,
     candidates: [{
       candidateId: "candidate-1",
       directMessage: "社媒对话中人工修订的精确私信"
@@ -575,4 +877,70 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
   controller.destroy();
 }
 
+{
+  const { main, inspector } = domFixture();
+  const multi = batch("candidate-1", "awaiting_approval");
+  multi.candidates.push({
+    ...multi.candidates[0]!,
+    candidateId: "candidate-2",
+    publicProfileUrl: "https://www.douyin.com/user/actor-2",
+    commentTargetPublicUrl: "https://www.douyin.com/video/456"
+  });
+  const controller = createRealConversationsController({
+    api: { async load() { return snapshot; } },
+    outreachApi: outreachApi({
+      async listBatches() { return { items: [multi], nextCursor: null }; },
+      async getBatch() { return multi; }
+    }),
+    batchSelection: selectionFixture(),
+    main,
+    inspector
+  });
+  await controller.open();
+  assert.deepEqual(controller.getState().outreach.directMessageSelectedCandidateIds,
+    ["candidate-1"],
+    "a recovered multi-candidate batch must scope DM approval to the current left-side recipient");
+  assert.equal(main.querySelectorAll("[data-outreach-direct-message-state]").length, 1,
+    "the single-recipient composer must not render other batch candidates");
+  assert.match(main.textContent ?? "", /公开用户 A/u);
+  controller.destroy();
+}
+
+{
+  const { main, inspector, window } = domFixture();
+  const items = [snapshot.interactions[0], { ...snapshot.interactions[0], key: "run-1:candidate-2", candidateId: "candidate-2", displayName: "公开用户 B" },
+    { ...snapshot.interactions[0], key: "run-1:blocked", candidateId: "blocked", candidateStatus: "do_not_contact" }];
+  let createdIds: string[] = [];
+  let approvals = 0;
+  const controller = createRealConversationsController({ main, inspector, batchSelection: selectionFixture(),
+    api: { async load() { return { ...snapshot, interactions: items }; } },
+    outreachApi: outreachApi({ async createBatch(_run, ids) {
+      createdIds = ids;
+      return { ...batch(), candidates: ids.map((id) => batch(id).candidates[0]) };
+    }, async approveDirectMessages(_id, command) {
+      approvals += 1;
+      assert.deepEqual(command.candidates.map((candidate) => candidate.candidateId), ["candidate-1", "candidate-2"]);
+      return { ...batch(), candidates: createdIds.map((id) => batch(id).candidates[0]) };
+    } }) });
+  await controller.open();
+  main.querySelector<HTMLElement>("[data-real-conversations-action=select-recipients]")!.click();
+  assert.deepEqual(controller.getState().recipientKeys, ["run-1:candidate-1", "run-1:candidate-2"]);
+  main.querySelector<HTMLElement>("[data-real-conversations-action=select-recipients]")!.click();
+  assert.deepEqual(controller.getState().recipientKeys, ["run-1:candidate-1", "run-1:candidate-2"], "repeat selection stays idempotent");
+  assert.equal(main.querySelector<HTMLInputElement>('[data-real-conversations-recipient="run-1:blocked"]')!.disabled, true);
+  assert.equal(approvals, 0);
+  main.querySelector<HTMLElement>("[data-real-conversations-action=prepare-recipients]")!.click();
+  await controller.whenIdle();
+  assert.deepEqual(createdIds, ["candidate-1", "candidate-2"]);
+  assert.equal(main.querySelectorAll("[data-outreach-direct-message-state]").length, 2);
+  assert.match(main.textContent ?? "", /批准并发送 2 条私信/u);
+  const confirmation = main.querySelector<HTMLInputElement>("[data-outreach-direct-message-confirm]")!;
+  confirmation.checked = true;
+  confirmation.dispatchEvent(new window.Event("change", { bubbles: true }));
+  main.querySelector<HTMLElement>("[data-real-conversations-action=clear-recipients]")!.click();
+  assert.equal(controller.getState().outreach.directMessageConfirmed, false, "recipient edits invalidate approval");
+  assert.equal(approvals, 0, "selection and preparation never authorize real sending");
+  assert.equal(controller.getState().snapshot?.interactions.length, 3);
+  controller.destroy();
+}
 console.log(JSON.stringify({ ok: true, suite: "real-conversations-controller" }));

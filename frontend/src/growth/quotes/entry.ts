@@ -5,6 +5,7 @@ export interface QuoteEntryContext {
   candidateId?: string;
   customerId?: string;
   dealId?: string;
+  assignedTo?: string;
 }
 
 export function quoteEntryHash(context: QuoteEntryContext): string {
@@ -12,7 +13,9 @@ export function quoteEntryHash(context: QuoteEntryContext): string {
     name: "quote",
     quoteCaseId: context.quoteCaseId,
     candidateId: context.candidateId,
-    dealId: context.dealId
+    customerId: context.customerId,
+    dealId: context.dealId,
+    assignedTo: context.assignedTo
   });
 }
 

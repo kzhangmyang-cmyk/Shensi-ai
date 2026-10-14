@@ -27,6 +27,22 @@ test("runtime images are non-root and pinned", () => {
   assert.match(frontend, /nginxinc\/nginx-unprivileged:1\.27-alpine/u);
 });
 
+test("backend image copies both generated contract targets before checking contract drift", () => {
+  const backend = read("deploy/docker/backend.Dockerfile");
+  const generatedContracts = [
+    "COPY frontend/src/generated/xiaohongshu-messaging.ts frontend/src/generated/xiaohongshu-messaging.ts",
+    "COPY desktop/src/generated/xiaohongshu-messaging.d.ts desktop/src/generated/xiaohongshu-messaging.d.ts",
+    "COPY frontend/src/generated/decision-simulation.ts frontend/src/generated/decision-simulation.ts",
+    "COPY frontend/src/generated/ai-acquisition.ts frontend/src/generated/ai-acquisition.ts",
+    "COPY desktop/src/generated/ai-acquisition.d.ts desktop/src/generated/ai-acquisition.d.ts"
+  ];
+  const driftCheck = "RUN pnpm --filter ./contracts check:types && pnpm --filter ./backend build";
+  for (const generatedContract of generatedContracts) {
+    assert.notEqual(backend.indexOf(generatedContract), -1);
+    assert.equal(backend.indexOf(generatedContract) < backend.indexOf(driftCheck), true);
+  }
+});
+
 test("deployment secrets stay out of build context", () => {
   const dockerignore = read(".dockerignore");
   assert.match(dockerignore, /^deploy\/secrets\/$/mu);

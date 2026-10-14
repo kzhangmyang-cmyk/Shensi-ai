@@ -14,6 +14,7 @@ import {
   immutableQuoteValue,
   quoteSubjectEvidence,
   snapshotQuoteCalculation,
+  assertCrmQuoteCaseAuthority,
   type BindQuoteCaseDealCommand,
   type AppendQuotePreviewEvidenceCommand,
   type AppendQuoteVersionCommand,
@@ -46,6 +47,10 @@ import { requireGrowthCapabilities } from "./growth-capabilities.js";
 import { createHash } from "node:crypto";
 import { canonicalJsonStringify } from "./canonical-json.js";
 import type { CommercialBindingSnapshot } from "./commercial-binding-snapshot.js";
+import {
+  isCrmQuoteAuthoritySnapshot,
+  type CrmQuoteAuthoritySnapshot
+} from "./crm-quote-assessment.js";
 import type { OutcomeAttributionInput } from "./acquisition-domain.js";
 import type { Deal, DealEvent } from "./types.js";
 
@@ -63,6 +68,7 @@ export const QUOTE_MYSQL_SCHEMA_STATEMENTS = [
     current_draft_version_id VARCHAR(191) NULL,
     revision BIGINT UNSIGNED NOT NULL,
     binding_snapshot_id VARCHAR(191) NULL,
+    crm_authority_snapshot_json JSON NULL,
     created_at DATETIME(3) NOT NULL,
     updated_at DATETIME(3) NOT NULL,
     open_deal_id VARCHAR(191) GENERATED ALWAYS AS (
@@ -295,6 +301,9 @@ export const QUOTE_MYSQL_SCHEMA_STATEMENTS = [
 ] as const;
 
 const QUOTE_MYSQL_COLUMN_UPGRADES = Object.freeze({
+  quote_cases: Object.freeze([
+    ["crm_authority_snapshot_json", "JSON NULL"]
+  ] as const),
   deal_events: Object.freeze([
     ["commercial_binding_evidence_json", "JSON NULL"],
     ["commercial_binding_snapshot_json", "JSON NULL"],
@@ -353,6 +362,7 @@ export async function ensureQuoteMysqlSchema(pool: mysql.Pool): Promise<void> {
     await pool.query(statement);
   }
   await ensureQuoteMysqlColumns(pool, "deal_events");
+  await ensureQuoteMysqlColumns(pool, "quote_cases");
   await ensureQuoteMysqlColumns(pool, "quote_publication_operations");
   await pool.query(QUOTE_PUBLICATION_OPERATION_BACKFILL);
 }
@@ -492,7 +502,10 @@ function parseCase(row: MysqlRow): QuoteCase {
     status: String(row.status) as QuoteCase["status"],
     currentDraftVersionId: row.current_draft_version_id === null
       ? null : String(row.current_draft_version_id),
-    revision, commercialBindingSnapshot: bindingFromRow(row),
+    revision, commercialBindingSnapshot:
+      row.crm_authority_snapshot_json
+        ? json<CrmQuoteAuthoritySnapshot>(row.crm_authority_snapshot_json)
+        : bindingFromRow(row),
     createdAt: growthMysqlInstant(row.created_at),
     updatedAt: growthMysqlInstant(row.updated_at)
   });
@@ -696,9 +709,20 @@ export class MysqlQuoteRepository implements QuoteRepository {
     return row ? parseVersionRow(row) : null;
   }
 
-  getVersion(workspaceId: string, id: string) {
-    return this.loadVersion(this.pool,
+  private async currentVersion(version: QuoteVersion): Promise<QuoteVersion> {
+    const events = await this.listLifecycleEvents(version.workspaceId, version.id);
+    const latest = events.filter(event => event.quoteVersionId === version.id
+      && event.eventType === "version_transition"
+      && event.revision > version.lifecycleRevision)
+      .sort((a, b) => b.revision - a.revision)[0];
+    return latest ? immutableQuoteValue({ ...version,
+      status: latest.toStatus as QuoteVersion["status"], lifecycleRevision: latest.revision }) : version;
+  }
+
+  async getVersion(workspaceId: string, id: string) {
+    const version = await this.loadVersion(this.pool,
       assertConcreteGrowthWorkspaceId(workspaceId), id);
+    return version ? this.currentVersion(version) : null;
   }
 
   async listVersions(workspaceId: string, quoteCaseId: string) {
@@ -708,7 +732,8 @@ export class MysqlQuoteRepository implements QuoteRepository {
        WHERE workspace_id = ? AND quote_case_id = ? ORDER BY version`,
       [workspace, quoteCaseId]
     );
-    return Object.freeze((rows as MysqlRow[]).map(parseVersionRow));
+    return Object.freeze(await Promise.all((rows as MysqlRow[])
+      .map(row => this.currentVersion(parseVersionRow(row)))));
   }
 
   async listApprovals(workspaceId: string) {
@@ -1538,16 +1563,22 @@ export class MysqlQuoteRepository implements QuoteRepository {
         if (gate?.status === "hard_blocked") {
           throw quoteError("quote_hard_blocked");
         }
-        const binding = version.commercialBindingSnapshot as
-          CommercialBindingSnapshot | null;
-        if (!binding || binding.dealId !== quoteCase.dealId
-          || binding.customerId !== quoteCase.customerId
-          || binding.candidateId !== quoteCase.candidateId
-          || command.verifiedBindingSnapshot.bindingHash !== binding.bindingHash
-          || command.verifiedBindingSnapshot.dealContentHash
-            !== binding.dealContentHash
-          || command.verifiedBindingSnapshot.handoffContentHash
-            !== binding.handoffContentHash) {
+        const binding = version.commercialBindingSnapshot;
+        const verified = command.verifiedBindingSnapshot;
+        const authorityMatches = binding
+          && binding.dealId === quoteCase.dealId
+          && binding.customerId === quoteCase.customerId
+          && verified.bindingHash === binding.bindingHash
+          && verified.dealContentHash === binding.dealContentHash
+          && (isCrmQuoteAuthoritySnapshot(binding)
+            ? isCrmQuoteAuthoritySnapshot(verified)
+              && quoteCase.candidateId === null
+              && verified.assessment.inputSnapshotHash
+                === binding.assessment.inputSnapshotHash
+            : !isCrmQuoteAuthoritySnapshot(verified)
+              && binding.candidateId === quoteCase.candidateId
+              && verified.handoffContentHash === binding.handoffContentHash);
+        if (!authorityMatches || !binding) {
           throw quoteError("commercial_binding_authority_mismatch");
         }
 
@@ -1657,14 +1688,16 @@ export class MysqlQuoteRepository implements QuoteRepository {
         const authorityRevision = Number(guardRow.authority_revision) + 1;
         const commercialAmountHash = String(version.commercialAmountHash) as
           `sha256:${string}`;
-        const evidence = immutableQuoteValue({
-          candidateId: binding.candidateId, customerId: binding.customerId,
-          dealId: binding.dealId,
-          handoffContentHash: binding.handoffContentHash,
-          dealContentHash: binding.dealContentHash,
-          bindingHashSchemaVersion: binding.bindingHashSchemaVersion,
-          bindingHash: binding.bindingHash
-        });
+        const evidence: CommercialBindingEvidenceSnapshot | undefined =
+          isCrmQuoteAuthoritySnapshot(binding) ? undefined : immutableQuoteValue({
+                candidateId: binding.candidateId,
+                customerId: binding.customerId,
+                dealId: binding.dealId,
+                handoffContentHash: binding.handoffContentHash,
+                dealContentHash: binding.dealContentHash,
+                bindingHashSchemaVersion: binding.bindingHashSchemaVersion,
+                bindingHash: binding.bindingHash
+              });
         const authorityEvent = immutableQuoteValue({
           id: `deal-authority-${workspace}-${authorityStamp.temporalSequence}`,
           workspaceId: workspace, dealId: quoteCase.dealId, authorityRevision,
@@ -1675,7 +1708,8 @@ export class MysqlQuoteRepository implements QuoteRepository {
               : "expired" as const,
           currency: String(version.currency),
           quotedAmountMinor: Number(version.quotedAmountMinor),
-          commercialAmountHash, commercialBindingEvidence: evidence,
+          commercialAmountHash,
+          ...(evidence ? { commercialBindingEvidence: evidence } : {}),
           commercialBindingSnapshot: immutableQuoteValue(
             structuredClone(binding)
           ),
@@ -1796,6 +1830,7 @@ export class MysqlQuoteRepository implements QuoteRepository {
           if (!command.bindingSnapshot || !command.probabilityAssessment) {
             throw quoteError("commercial_binding_required");
           }
+          assertCrmQuoteCaseAuthority(command);
           await connection.query(
             `INSERT INTO deal_authoritative_quotes
              (workspace_id,deal_id,open_quote_case_id,quote_version_id,
@@ -1812,13 +1847,15 @@ export class MysqlQuoteRepository implements QuoteRepository {
           if ((guardRows as MysqlRow[])[0]?.open_quote_case_id) {
             throw quoteError("deal_open_quote_case_conflict");
           }
-          bindingId = `binding-${value.id}`;
-          const bindingStamp = await this.temporalBarrier.allocateAppend(
-            temporal,
-            workspace
-          );
-          await this.insertBinding(connection, workspace, value.id, bindingId,
-            command.bindingSnapshot, bindingStamp);
+          if (!isCrmQuoteAuthoritySnapshot(command.bindingSnapshot)) {
+            bindingId = `binding-${value.id}`;
+            const bindingStamp = await this.temporalBarrier.allocateAppend(
+              temporal,
+              workspace
+            );
+            await this.insertBinding(connection, workspace, value.id, bindingId,
+              command.bindingSnapshot, bindingStamp);
+          }
           await connection.query(
             `UPDATE deal_authoritative_quotes SET open_quote_case_id = ?,
              authority_revision = authority_revision + 1,updated_at = ?
@@ -1829,10 +1866,13 @@ export class MysqlQuoteRepository implements QuoteRepository {
         await connection.query(
           `INSERT INTO quote_cases
            (workspace_id,id,candidate_id,customer_id,deal_id,assigned_to,status,
-            current_draft_version_id,revision,binding_snapshot_id,created_at,updated_at)
-           VALUES (?,?,?,?,?,?, 'open',NULL,1,?,?,?)`,
+            current_draft_version_id,revision,binding_snapshot_id,
+            crm_authority_snapshot_json,created_at,updated_at)
+           VALUES (?,?,?,?,?,?, 'open',NULL,1,?,?,?,?)`,
           [workspace, value.id, value.candidateId, value.customerId,
             value.dealId, value.assignedTo, bindingId,
+            isCrmQuoteAuthoritySnapshot(command.bindingSnapshot)
+              ? JSON.stringify(command.bindingSnapshot) : null,
             growthMysqlDate(stamp.recordedAt), growthMysqlDate(stamp.recordedAt)]
         );
         const lifecycleStamp = await this.temporalBarrier.allocateAppend(

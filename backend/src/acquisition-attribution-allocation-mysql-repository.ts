@@ -7,6 +7,8 @@ import type {
 import type { FinancialSourceReport } from "./financial-source-report.js";
 import type { GrowthTemporalBarrier } from "./growth-temporal-barrier.js";
 import {
+  growthMysqlDate,
+  growthMysqlInstant,
   MysqlGrowthTemporalTransaction
 } from "./growth-temporal-barrier-mysql-repository.js";
 
@@ -125,10 +127,10 @@ function report(row: MysqlRow): FinancialSourceReport {
     sourceCursor: row.source_cursor === null ? null : String(row.source_cursor),
     reportHash: String(row.report_hash),
     declaredTotalMinor: Number(row.declared_total_minor),
-    periodFrom: String(row.period_from),
-    periodTo: String(row.period_to),
+    periodFrom: growthMysqlInstant(row.period_from),
+    periodTo: growthMysqlInstant(row.period_to),
     createdBy: String(row.created_by),
-    createdAt: String(row.created_at)
+    createdAt: growthMysqlInstant(row.created_at)
   });
 }
 
@@ -143,9 +145,10 @@ function allocationSet(row: MysqlRow): AttributionAllocationSet {
     revision: Number(row.revision),
     items: [],
     createdBy: String(row.created_by),
-    createdAt: String(row.created_at),
+    createdAt: growthMysqlInstant(row.created_at),
     activatedBy: row.activated_by === null ? null : String(row.activated_by),
-    activatedAt: row.activated_at === null ? null : String(row.activated_at)
+    activatedAt: row.activated_at === null
+      ? null : growthMysqlInstant(row.activated_at)
   });
 }
 
@@ -160,11 +163,11 @@ function lifecycleEvent(row: MysqlRow): AttributionAllocationLifecycleEvent {
       AttributionAllocationLifecycleEvent["eventType"],
     eventSequence: Number(row.event_sequence),
     revision: Number(row.revision),
-    effectiveAt: String(row.effective_at),
+    effectiveAt: growthMysqlInstant(row.effective_at),
     supersedesAllocationSetId: row.supersedes_allocation_set_id === null
       ? null : String(row.supersedes_allocation_set_id),
     actorId: String(row.actor_id),
-    recordedAt: String(row.recorded_at),
+    recordedAt: growthMysqlInstant(row.recorded_at),
     temporalSequence: Number(row.temporal_sequence)
   });
 }
@@ -225,8 +228,9 @@ export class MysqlAttributionAllocationRepository {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [input.id, input.workspaceId, input.currency, input.sourceSystem,
           input.sourceCursor, input.reportHash, input.declaredTotalMinor,
-          input.periodFrom, input.periodTo, input.createdBy,
-          stamp.recordedAt, input.domainCommandHash, input.requestHash,
+          growthMysqlDate(input.periodFrom), growthMysqlDate(input.periodTo),
+          input.createdBy, growthMysqlDate(stamp.recordedAt),
+          input.domainCommandHash, input.requestHash,
           input.requestedBy]
       );
     });
@@ -259,6 +263,15 @@ export class MysqlAttributionAllocationRepository {
     return row ? report(row) : null;
   }
 
+  async findReportByHash(workspaceId: string, hash: string): Promise<FinancialSourceReport | null> {
+    const [rows] = await this.pool.query(
+      "SELECT * FROM financial_source_reports WHERE workspace_id = ? AND report_hash = ?",
+      [workspaceId, hash]
+    );
+    const row = (rows as MysqlRow[])[0];
+    return row ? report(row) : null;
+  }
+
   async createDraft(input: {
     id: string;
     workspaceId: string;
@@ -275,13 +288,36 @@ export class MysqlAttributionAllocationRepository {
     await this.transaction(async ({ connection, temporal }) => {
       await this.barrier.allocateAppend(temporal, input.workspaceId);
       await connection.query(
+        `INSERT INTO attribution_allocation_source_heads (
+          workspace_id, source_type, source_id, active_allocation_set_id,
+          revision, last_event_sequence
+        ) VALUES (?, ?, ?, NULL, 1, 0)
+        ON DUPLICATE KEY UPDATE workspace_id = VALUES(workspace_id)`,
+        [input.workspaceId, input.sourceType, input.sourceId]
+      );
+      await connection.query(
+        `SELECT revision FROM attribution_allocation_source_heads
+         WHERE workspace_id = ? AND source_type = ? AND source_id = ?
+         FOR UPDATE`,
+        [input.workspaceId, input.sourceType, input.sourceId]
+      );
+      const [versionRows] = await connection.query(
+        `SELECT COALESCE(MAX(version), 0) AS max_version
+         FROM attribution_allocation_sets
+         WHERE workspace_id = ? AND source_type = ? AND source_id = ?`,
+        [input.workspaceId, input.sourceType, input.sourceId]
+      );
+      const version = Math.max(input.version, Number(
+        (versionRows as MysqlRow[])[0]?.max_version ?? 0
+      ) + 1);
+      await connection.query(
         `INSERT INTO attribution_allocation_sets (
           id, workspace_id, source_type, source_id, version, status,
           revision, created_by, created_at, activated_by, activated_at,
           create_domain_command_hash, create_request_hash, requested_by
         ) VALUES (?, ?, ?, ?, ?, 'draft', 1, ?, ?, NULL, NULL, ?, ?, ?)`,
         [input.id, input.workspaceId, input.sourceType, input.sourceId,
-          input.version, input.createdBy, input.createdAt,
+          version, input.createdBy, growthMysqlDate(input.createdAt),
           input.domainCommandHash, input.requestHash, input.requestedBy]
       );
       for (const item of input.items) {
@@ -353,15 +389,26 @@ export class MysqlAttributionAllocationRepository {
     return Object.freeze({ ...set, items });
   }
 
-  async publishActiveSet(
-    workspaceId: string,
-    setId: string,
-    expectedHeadRevision: number
+  private async publishActiveSet(
+    input: Parameters<MysqlAttributionAllocationRepository["activate"]>[0]
   ): Promise<AttributionAllocationSet> {
-    return this.transaction(async ({ connection, temporal }) => {
+    const { workspaceId, allocationSetId: setId, expectedRevision: expectedHeadRevision } = input;
+    await this.transaction(async ({ connection, temporal }) => {
       const firstStamp = await this.barrier.allocateAppend(
         temporal, workspaceId
       );
+      const [replays] = await connection.query(
+        `SELECT allocation_set_id, activation_request_hash FROM attribution_allocation_lifecycle_events
+         WHERE workspace_id = ? AND activation_domain_command_hash = ?`,
+        [workspaceId, input.domainCommandHash]
+      );
+      const replay = (replays as MysqlRow[])[0];
+      if (replay) {
+        if (String(replay.allocation_set_id) !== setId || String(replay.activation_request_hash) !== input.requestHash) {
+          throw Object.assign(new Error("idempotency_conflict"), { code: "idempotency_conflict", status: 409 });
+        }
+        return;
+      }
       const [draftRows] = await connection.query(
         `SELECT * FROM attribution_allocation_sets
          WHERE workspace_id = ? AND id = ? FOR UPDATE`,
@@ -412,6 +459,19 @@ export class MysqlAttributionAllocationRepository {
           code: "allocation_bps_incomplete", status: 422
         });
       }
+      const amounts = new Map(input.amounts.map(item => [item.targetStableKey, item.amountMinor]));
+      if (amounts.size !== input.amounts.length || amounts.size !== items.length ||
+          items.some(item => !amounts.has(String(item.target_stable_key))) ||
+          input.amounts.some(item => !Number.isSafeInteger(item.amountMinor) || item.amountMinor < 0)) {
+        throw Object.assign(new Error("allocation_amounts_invalid"), { code: "allocation_amounts_invalid", status: 422 });
+      }
+      for (const [key, amount] of amounts) {
+        await connection.query(
+          `UPDATE attribution_allocation_items SET effective_amount_minor = ?
+           WHERE allocation_set_id = ? AND target_stable_key = ?`,
+          [amount, setId, key]
+        );
+      }
       let nextSequence = head.lastEventSequence;
       let activationStamp = firstStamp;
       if (head.activeAllocationSetId !== null) {
@@ -426,9 +486,13 @@ export class MysqlAttributionAllocationRepository {
           ) VALUES (?, ?, ?, ?, ?, 'superseded', ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, NULL)`,
           [`${setId}-superseded-${nextSequence}`, workspaceId,
             draft.sourceType, draft.sourceId, head.activeAllocationSetId,
-            nextSequence, nextSequence, firstStamp.recordedAt,
-            draft.createdBy, firstStamp.recordedAt,
+            nextSequence, nextSequence, growthMysqlDate(firstStamp.recordedAt),
+            input.activatedBy, growthMysqlDate(firstStamp.recordedAt),
             firstStamp.temporalSequence]
+        );
+        await connection.query(
+          `UPDATE attribution_allocation_sets SET status = 'superseded' WHERE workspace_id = ? AND id = ?`,
+          [workspaceId, head.activeAllocationSetId]
         );
         activationStamp = await this.barrier.allocateAppend(
           temporal, workspaceId
@@ -445,10 +509,12 @@ export class MysqlAttributionAllocationRepository {
         ) VALUES (?, ?, ?, ?, ?, 'activated', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [`${setId}-activated-${nextSequence}`, workspaceId,
           draft.sourceType, draft.sourceId, setId,
-          nextSequence, nextSequence, activationStamp.recordedAt,
-          head.activeAllocationSetId, draft.createdBy,
-          activationStamp.recordedAt, activationStamp.temporalSequence,
-          null, null, null]
+          nextSequence, nextSequence,
+          growthMysqlDate(activationStamp.recordedAt),
+          head.activeAllocationSetId, input.activatedBy,
+          growthMysqlDate(activationStamp.recordedAt),
+          activationStamp.temporalSequence,
+          input.domainCommandHash, input.requestHash, input.activatedBy]
       );
       await connection.query(
         `INSERT INTO attribution_allocation_source_heads (
@@ -467,11 +533,12 @@ export class MysqlAttributionAllocationRepository {
          SET status = 'active', revision = ?, activated_by = ?,
            activated_at = ?
          WHERE workspace_id = ? AND id = ?`,
-        [head.revision + 1, draft.createdBy, activationStamp.recordedAt,
+        [head.revision + 1, input.activatedBy,
+          growthMysqlDate(activationStamp.recordedAt),
           workspaceId, setId]
       );
-      return (await this.getSet(workspaceId, setId))!;
     });
+    return (await this.getSet(workspaceId, setId))!;
   }
 
   async findActivationByDomainCommandHash(
@@ -536,15 +603,8 @@ export class MysqlAttributionAllocationRepository {
     domainCommandHash: `sha256:${string}`;
     requestHash: string;
   }): Promise<AttributionAllocationSet> {
-    void input.amounts;
-    void input.activatedBy;
-    void input.activatedAt;
-    void input.temporalSequence;
-    void input.domainCommandHash;
-    void input.requestHash;
-    return this.publishActiveSet(
-      input.workspaceId, input.allocationSetId, input.expectedRevision
-    );
+    // MySQL allocates the authoritative timestamp/sequence inside the transaction.
+    return this.publishActiveSet(input);
   }
 
   async activationCount(allocationSetId: string): Promise<number> {

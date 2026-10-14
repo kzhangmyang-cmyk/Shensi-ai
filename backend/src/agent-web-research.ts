@@ -42,6 +42,7 @@ export class AgentWebResearchService {
     signal?.throwIfAborted();
     const connection = (await this.connections(context)).find(value => value.id === parsed.data.connectionId);
     if (!connection) throw new GrowthHttpError(409, 'agent_web_connection_unavailable');
+    signal?.throwIfAborted();
     const result = await this.options.search({ context, connectionId: connection.id, query: parsed.data.query, signal });
     signal?.throwIfAborted();
     const seen = new Set<string>(); const sources: AgentWebCitation[] = [];

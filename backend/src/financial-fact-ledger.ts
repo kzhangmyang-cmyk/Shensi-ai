@@ -554,6 +554,22 @@ implements FinancialFactLedgerCommands, FinancialFactLedgerAuthorityCommands {
     return projectFinancialFact(fact, events);
   }
 
+  async list(
+    workspace: ActiveWorkspaceContext,
+    options: { cursor?: string; limit?: number } = {}
+  ): Promise<{ items: FinancialFactProjection[]; nextAfter: string | null; hasMore: boolean }> {
+    requireGrowthCapabilities(workspace, ["ledger.pending.create"]);
+    const limit = options.limit ?? 50;
+    const facts = (await this.repository.listFinancialFacts(workspace.workspaceId))
+      .filter((fact) => !options.cursor || fact.id > options.cursor)
+      .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    const page = facts.slice(0, limit);
+    const items = await Promise.all(page.map(async (fact) =>
+      projectFinancialFact(fact, await this.events(workspace.workspaceId, fact.id))));
+    const hasMore = facts.length > limit;
+    return { items, nextAfter: hasMore ? page[page.length - 1]!.id : null, hasMore };
+  }
+
   async get(
     workspace: ActiveWorkspaceContext,
     factId: string

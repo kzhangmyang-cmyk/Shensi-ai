@@ -1,0 +1,71 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {parseHTML} from 'linkedom';
+import {mountDecisionMemory,type DecisionMemoryApi} from './memory';
+import type {components} from '../generated/decision-simulation';
+import {operatingExample,type SimulationRecord} from './samples';
+type Memory=components['schemas']['DecisionMemory'];
+const preferences={priority:'cash' as const,pilotFirst:true,reviewCadence:'weekly' as const,learningEnabled:true,confirmedFrom:'self_report' as const};
+const snapshot=():Memory=>({revision:1,updatedAt:'2026-09-20T00:00:00.000Z',profile:{enabled:true,preferences},reviews:[]});
+const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
+const unused=async():Promise<Memory>=>{throw new Error('Unexpected API operation');};
+const apiDefaults:DecisionMemoryApi={get:unused,saveProfile:unused,deleteProfile:unused,saveReview:unused,adopt:unused,export:unused};
+test('reading personal preferences never silently adopts them; explicit use and save are separate',async()=>{
+ const {document}=parseHTML('<html><body><div id="host"></div></body></html>');const host=document.querySelector<HTMLElement>('#host')!;
+ let applied=0,saves=0;let exported='';
+ const api:DecisionMemoryApi={get:async()=>snapshot(),saveProfile:async input=>{saves++;assert.equal(input.expectedRevision,1);return {...snapshot(),revision:2};},deleteProfile:async()=>({...snapshot(),revision:2,profile:null}),saveReview:async()=>snapshot(),adopt:async()=>snapshot(),export:async()=>snapshot()};
+ mountDecisionMemory(host,api,{read:()=>preferences,set:()=>{applied++;}},()=>true,(_name,content)=>{exported=content;});
+ await tick();assert.equal(applied,0);assert.equal(saves,0);
+ host.querySelector<HTMLButtonElement>('[data-memory-use]')!.click();assert.equal(applied,1);assert.equal(saves,0);
+ host.querySelector<HTMLButtonElement>('[data-memory-save]')!.click();await tick();assert.equal(saves,1);
+ host.querySelector<HTMLButtonElement>('[data-memory-export]')!.click();await tick();assert.match(exported,/cash/);
+ host.querySelector<HTMLButtonElement>('[data-memory-delete]')!.click();await tick();assert.match(host.textContent!,/没有保存/);assert.match(host.textContent!,/历史报告/);
+});
+test('late profile read does not update detached or switched account surface',async()=>{
+ const {document}=parseHTML('<html><body><div id="host"></div></body></html>');const host=document.querySelector<HTMLElement>('#host')!;
+ let resolve!:(value:Memory)=>void;let live=true;
+ const api:DecisionMemoryApi={...apiDefaults,get:()=>new Promise<Memory>(done=>{resolve=done;})};
+ mountDecisionMemory(host,api,{read:()=>undefined,set:()=>assert.fail('must not apply')},()=>live,()=>{});
+ const original=host.innerHTML;live=false;resolve(snapshot());await tick();assert.equal(host.innerHTML,original);
+});
+const reportFixture=():SimulationRecord=>({runId:'7707614e-521a-479e-9e3d-b8da6d76eab1',createdAt:'2026-09-20T00:00:00Z',recordVersion:'decision-simulation.v1',input:operatingExample('normal'),paths:[],report:{modelVersion:'test',plans:[],replays:[],sensitivity:[],threshold:{unitsForMonthlyOperatingBreakEven:1,withinBaselineCapacity:true,conditions:'test'},recommendations:[{id:'procurement',title:'采购试点',priority:'normal',evidenceKind:'simulation_signal',evidence:'cost sensitivity',evidenceRefs:['input.baseline'],action:'test one batch',mechanism:'verify cost',costAndPrerequisites:'quality unchanged',ownerRole:'buyer',timeframe:'30 days',reviewMetric:'unit cost',validation:'pilot_required'}]}});
+test('claim plan and manual result are separate writes with original target and explicit candidate adoption',async()=>{
+ const {document}=parseHTML('<html><body><div id="host"></div><div id="review"></div></body></html>');const host=document.querySelector<HTMLElement>('#host')!,target=document.querySelector<HTMLElement>('#review')!;
+ let state=snapshot();let writes=0,adoptions=0;
+ const api:DecisionMemoryApi={get:async()=>structuredClone(state),saveProfile:async()=>state,deleteProfile:async()=>state,export:async()=>state,adopt:async input=>{adoptions++;assert.equal(input.expectedRevision,3);state={...state,revision:4,profile:{enabled:true,preferences:{...preferences,priority:'profit'}},reviews:state.reviews.map(item=>({...item,candidate:null}))};return state;},saveReview:async input=>{writes++;assert.equal(input.plan.target,80);assert.equal(input.expectedRevision,writes);state={...state,revision:state.revision+1,reviews:[{runId:input.runId,recommendationId:input.recommendationId,recommendationTitle:'采购试点',originalAction:'test one batch',originalEvidence:'cost sensitivity',claimedAt:'2026-09-20T00:00:00Z',recordedAt:'2026-09-20T00:00:00Z',sourceKind:'manual_observation',state:input.result?'reviewed':'planned',plan:input.plan,...(input.result?{result:input.result}:{}),comparison:input.result?{actualMinusBaseline:-10,actualMinusTarget:10}:null,candidate:input.result?'profit':null}]};return state;}};
+ const view=mountDecisionMemory(host,api,{read:()=>preferences,set:()=>{}},()=>true,()=>{});await tick();view.showReport(target,reportFixture());await tick();assert.equal(writes,0);
+ const set=(key:string,value:string)=>{target.querySelector<HTMLInputElement>(`[data-review-field=${key}]`)!.value=value;};
+ set('metric','unit cost');set('unit','yuan/unit');set('baseline','100');set('target','80');set('dueDate','2026-10-01');set('planSource','quote');
+ target.querySelector<HTMLButtonElement>('[data-save-plan]')!.click();await tick();assert.equal(writes,1);assert.ok(target.querySelector('[data-save-result]'));
+ set('actual','90');set('observedDate','2026-09-20');set('resultSource','invoice');set('attribution','mixed effects');
+ target.querySelector<HTMLButtonElement>('[data-save-result]')!.click();await tick();assert.equal(writes,2);assert.match(target.textContent!,/实际−目标：10/);assert.equal(adoptions,0);
+ target.querySelector<HTMLButtonElement>('[data-adopt-review]')!.click();await tick();assert.equal(adoptions,1);assert.equal(target.querySelector('[data-adopt-review]'),null);
+});
+test('a stale report read must not downgrade a newly saved profile revision',async()=>{
+ const {document}=parseHTML('<html><body><div id="host"></div><div id="review"></div></body></html>');const host=document.querySelector<HTMLElement>('#host')!;
+ let reads=0,finish!:(memory:Memory)=>void;
+ const api:DecisionMemoryApi={...apiDefaults,get:async()=>{if(++reads===1)return snapshot();return new Promise<Memory>(resolve=>{finish=resolve;});},saveProfile:async()=>({...snapshot(),revision:2,profile:{enabled:true,preferences:{...preferences,priority:'profit' as const}}})};
+ const view=mountDecisionMemory(host,api,{read:()=>preferences,set:()=>{}},()=>true,()=>{});await tick();view.showReport(document.querySelector<HTMLElement>('#review')!,reportFixture());
+ host.querySelector<HTMLButtonElement>('[data-memory-save]')!.click();await tick();finish(snapshot());await tick();assert.match(host.querySelector('[data-memory-summary]')!.textContent!,/经营利润/);
+});
+test('refreshing personal revision does not authorize a stale review or candidate write',async()=>{
+ const {document}=parseHTML('<html><body><div id="host"></div><div id="review"></div></body></html>');const host=document.querySelector<HTMLElement>('#host')!,target=document.querySelector<HTMLElement>('#review')!;
+ let revision=1,submitted=-1;
+ const api:DecisionMemoryApi={...apiDefaults,get:async()=>({...snapshot(),revision}),saveReview:async(input)=>{submitted=input.expectedRevision;throw new Error('decision_memory_revision_conflict');}};
+ const view=mountDecisionMemory(host,api,{read:()=>preferences,set:()=>{}},()=>true,()=>{});await tick();view.showReport(target,reportFixture());await tick();
+ for(const [key,value]of Object.entries({metric:'cost',unit:'yuan',baseline:'100',target:'80',dueDate:'2026-10-01',planSource:'quote'}))target.querySelector<HTMLInputElement>(`[data-review-field=${key}]`)!.value=value;
+ revision=2;host.querySelector<HTMLButtonElement>('[data-memory-refresh]')!.click();await tick();target.querySelector<HTMLButtonElement>('[data-save-plan]')!.click();await tick();
+ assert.equal(submitted,1);assert.match(target.querySelector('[data-review-status]')!.textContent!,/当前编辑未提交/);
+});
+test('saving one card retains another draft and safely allows its subsequent save',async()=>{
+ const {document}=parseHTML('<html><body><div id="host"></div><div id="review"></div></body></html>');const host=document.querySelector<HTMLElement>('#host')!,target=document.querySelector<HTMLElement>('#review')!;
+ const record=reportFixture();record.report.recommendations!.push({...record.report.recommendations![0],id:'delivery',title:'交付试点'});
+ let writes=0;const api:DecisionMemoryApi={...apiDefaults,get:async()=>snapshot(),saveReview:async input=>{writes++;assert.equal(input.expectedRevision,writes);return {...snapshot(),revision:writes+1};}};
+ const view=mountDecisionMemory(host,api,{read:()=>preferences,set:()=>{}},()=>true,()=>{});await tick();view.showReport(target,record);await tick();
+ const first=target.querySelector('[data-review-id=procurement]')!,second=target.querySelector('[data-review-id=delivery]')!;
+ second.querySelector<HTMLInputElement>('[data-review-field=action]')!.value='unsaved delivery plan';
+ for(const card of [first,second])for(const [key,value]of Object.entries({metric:'cost',unit:'yuan',baseline:'100',target:'80',dueDate:'2026-10-01',planSource:'quote'}))card.querySelector<HTMLInputElement>(`[data-review-field=${key}]`)!.value=value;
+ first.querySelector<HTMLButtonElement>('[data-save-plan]')!.click();await tick();
+ assert.equal(target.querySelector('[data-review-id=delivery]'),second);assert.equal(second.querySelector<HTMLInputElement>('[data-review-field=action]')!.value,'unsaved delivery plan');
+ second.querySelector<HTMLButtonElement>('[data-save-plan]')!.click();await tick();assert.equal(writes,2);assert.equal(second.querySelector('[data-review-status]')!.textContent,'');
+});

@@ -695,7 +695,7 @@ export interface CandidateReviewResult {
 }
 
 export interface AcquisitionPrivateDomainHandoffInput {
-  operationCode: "handoff_acquisition_candidate_v1";
+  operationCode: "handoff_acquisition_candidate_v1" | "handoff_acquisition_candidate_v2";
   runId: string;
   discoveredEventId: string;
   decisionVersion: string;
@@ -745,7 +745,7 @@ export interface AcquisitionPrivateDomainHandoffResult {
     expectedRevenueMinor: number;
     expectedGrossProfitMinor: number;
     expectedContributionMinor: number;
-  };
+  } | null;
   recovery?: {
     request: AcquisitionPrivateDomainHandoffStoredRequest;
   };
@@ -835,6 +835,10 @@ export interface AcquisitionDetailApi {
   ): Promise<CandidateIdentityConfirmationResult>;
   startIntelligenceOperation(
     candidateId: string,
+    idempotencyKey: string
+  ): Promise<CandidateIntelligenceOperation>;
+  retryIntelligenceOperation(
+    operationId: string,
     idempotencyKey: string
   ): Promise<CandidateIntelligenceOperation>;
   reviewCandidate(
@@ -1194,6 +1198,13 @@ export function createAcquisitionDetailApi(
       return post<CandidateIntelligenceOperation>(
         `/api/v1/acquisition/candidates/${pathSegment(candidateId)}`
         + "/intelligence-operations",
+        {},
+        idempotencyKey
+      );
+    },
+    retryIntelligenceOperation(operationId: string, idempotencyKey: string) {
+      return post<CandidateIntelligenceOperation>(
+        `/api/v1/acquisition/candidate-intelligence-operations/${pathSegment(operationId)}/retry`,
         {},
         idempotencyKey
       );

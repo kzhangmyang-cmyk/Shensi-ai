@@ -1,0 +1,65 @@
+# Single API instance; immutable images and external persistent MySQL.
+# See docs/operations/account-admin-cloud-runbook.md before first startup.
+name: shensi-cloud
+services:
+  backend:
+    image: ${SHENSI_CLOUD_BACKEND_IMAGE:?required immutable backend image}
+    restart: unless-stopped
+    env_file: ${SHENSI_CLOUD_BACKEND_ENV_FILE:?required private backend environment}
+    environment:
+      NODE_ENV: production
+      CRM_STORE: mysql
+      CRM_SEED_DEVELOPMENT_DATA: "false"
+      SHENSI_SKIP_LOCAL_ENV: "true"
+      SHENSI_REQUIRE_PLATFORM_OWNER: "true"
+      SESSION_COOKIE_SECURE: "true"
+      BACKEND_HOST: 0.0.0.0
+      PORT: "4188"
+      CORS_ORIGINS: https://${SHENSI_CLOUD_HOSTNAME:?required fixed hostname}
+      TRUSTED_PROXY_CIDRS: ${SHENSI_CLOUD_GATEWAY_IP:?required}/32
+      DOUYIN_OUTREACH_ACTIONS_ENABLED: "false"
+      DOUYIN_OUTREACH_APPROVALS_ENABLED: "false"
+      DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED: "false"
+      DOUYIN_OUTREACH_DESKTOP_EXECUTION_ENABLED: "false"
+      PROSPECT_WORKER_ENABLED: "false"
+      PROSPECT_SCHEDULER_ENABLED: "false"
+      ENABLE_API_DOCS: "false"
+    networks: [internal, egress]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:4188/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    stop_grace_period: 45s
+  frontend:
+    image: ${SHENSI_CLOUD_FRONTEND_IMAGE:?required immutable frontend image}
+    restart: unless-stopped
+    networks: [internal]
+  gateway:
+    image: ${SHENSI_CLOUD_GATEWAY_IMAGE:?required approved nginx unprivileged image}
+    restart: unless-stopped
+    environment:
+      SHENSI_CLOUD_HOSTNAME: ${SHENSI_CLOUD_HOSTNAME:?required}
+      NGINX_ENVSUBST_FILTER: ^SHENSI_CLOUD_HOSTNAME$$
+    ports: ["${SHENSI_CLOUD_BIND_ADDRESS:-127.0.0.1}:443:8443"]
+    volumes:
+      - ./nginx/cloud.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${SHENSI_CLOUD_TLS_CERT_FILE:?required certificate chain}:/etc/nginx/tls/fullchain.pem:ro
+      - ${SHENSI_CLOUD_TLS_KEY_FILE:?required private TLS key}:/etc/nginx/tls/privkey.pem:ro
+      - ${SHENSI_CLOUD_ADMIN_ALLOW_FILE:?required operator network allowlist}:/etc/nginx/admin-allow.conf:ro
+    depends_on:
+      backend: {condition: service_healthy}
+      frontend: {condition: service_started}
+    networks:
+      internal:
+        ipv4_address: ${SHENSI_CLOUD_GATEWAY_IP:?required}
+      ingress:
+networks:
+  internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${SHENSI_CLOUD_INTERNAL_SUBNET:?required nonconflicting subnet}
+  egress: {}
+  ingress: {}

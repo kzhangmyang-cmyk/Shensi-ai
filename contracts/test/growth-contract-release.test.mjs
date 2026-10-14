@@ -19,7 +19,7 @@ test("growth release derives the version directory and never overwrites differen
     const second = path.join(secondRoot, secondManifest.contractVersion);
     const bytes = await readFile(path.join(first, "openapi.json"));
     const expectedHash = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-    assert.equal(firstManifest.contractVersion, "1.0.12");
+    assert.equal(firstManifest.contractVersion, "1.0.41");
     assert.equal(firstManifest.contractHash, expectedHash);
     assert.deepEqual(firstManifest, secondManifest);
     assert.deepEqual(bytes, await readFile(path.join(second, "openapi.json")));
@@ -33,13 +33,13 @@ test("growth release derives the version directory and never overwrites differen
     );
     await assert.rejects(
       buildGrowthContractRelease({ input, releasesRoot: firstRoot }),
-      /immutable growth contract release collision for 1\.0\.12/u
+      { message: `immutable growth contract release collision for ${firstManifest.contractVersion}` }
     );
     await writeFile(path.join(first, "manifest.json"), committedManifestBytes);
     await writeFile(path.join(first, "openapi.json"), "{}\n", "utf8");
     await assert.rejects(
       buildGrowthContractRelease({ input, releasesRoot: firstRoot }),
-      /immutable growth contract release collision for 1\.0\.12/u
+      { message: `immutable growth contract release collision for ${firstManifest.contractVersion}` }
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -52,6 +52,22 @@ test("the committed council releases discard invalid intermediates and retain th
   assert.equal(versions.includes("1.0.4"), false);
   assert.equal(versions.includes("1.0.5"), false);
   assert.equal(versions.includes("1.0.6"), true);
+});
+
+test("read-only document successor preserves the immutable 1.0.19 release", async () => {
+  const release = new URL("../releases/growth-advisor-quote-roi/1.0.19/", import.meta.url);
+  assert.equal(createHash("sha256").update(await readFile(new URL("openapi.json", release))).digest("hex"),
+    "c74544b493484924769bb8879a9ab2122522e5af55244d74a93b336369252d63");
+  assert.equal(createHash("sha256").update(await readFile(new URL("manifest.json", release))).digest("hex"),
+    "1930704f07c7f58e5fc4f449a1a5ac64cc12d9bda5d93efac93f57ebdb290125");
+});
+
+test("PDF and Word source expansion preserves the immutable 1.0.21 spreadsheet release", async () => {
+  const release = new URL("../releases/growth-advisor-quote-roi/1.0.21/", import.meta.url);
+  assert.equal(createHash("sha256").update(await readFile(new URL("openapi.json", release))).digest("hex"),
+    "1b2736d4db1240eb2b796585556cea96221de4f79db9737a5fcb58b723019b1b");
+  assert.equal(createHash("sha256").update(await readFile(new URL("manifest.json", release))).digest("hex"),
+    "8d8725a7d5df50021f76728c77be2642024db38f15fede2f1bf95a65d86d11eb");
 });
 
 test("publishing a successor preserves the immutable 1.0.0 release bytes", async () => {

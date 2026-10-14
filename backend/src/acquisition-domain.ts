@@ -611,8 +611,7 @@ export type OutcomeEventType =
   | "lost"
   | "payment_received";
 
-export interface OutcomeAttributionInput {
-  attributionVersion: "acquisition-run.v1";
+interface OutcomeAttributionCommon {
   runId: string;
   planId: string;
   planVersionId: string;
@@ -620,10 +619,6 @@ export interface OutcomeAttributionInput {
   planSnapshotHash: string;
   discoveredEventId: string;
   discoveredAt: string;
-  shardId: string;
-  operationId: string;
-  connectionId: string;
-  providerId: string;
   evidenceIds: string[];
   providerIds: string[];
   queryIds: string[];
@@ -632,6 +627,24 @@ export interface OutcomeAttributionInput {
   decisionVersion: string;
   decisionSnapshotHash: string;
 }
+
+export type OutcomeAttributionInput = OutcomeAttributionCommon & (
+  | {
+      attributionVersion: "acquisition-run.v1";
+      shardId: string;
+      operationId: string;
+      connectionId: string;
+      providerId: string;
+    }
+  | {
+      attributionVersion: "douyin-crawler.v1";
+      jobId: string;
+      shardId: null;
+      operationId: null;
+      connectionId: null;
+      providerId: null;
+    }
+);
 
 export interface OutcomeInput {
   leadId: string | null;

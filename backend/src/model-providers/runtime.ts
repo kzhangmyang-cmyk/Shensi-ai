@@ -1,4 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { emptyPlatformState, type PlatformAdminState, type PlatformFeature } from "../platform-admin-domain.js";
+import { createPlatformExecutionAccess } from "../platform-execution-access.js";
+import { isPlatformMutationPending } from "../account-mutation-state.js";
 import { decryptAiModelApiKey } from "../credential-security.js";
 import type { AiModelConfig } from "../types.js";
 import {
@@ -29,6 +32,8 @@ import {
 } from "./types.js";
 
 export interface ModelRuntimeStore {
+  platformAdminStates?: PlatformAdminState[];
+  readPlatformAdminState?(): Promise<PlatformAdminState>;
   aiModelConfigs: AiModelConfig[];
   modelCredentialVersions: ModelCredentialVersion[];
   aiJobModelSnapshots: StoredAiJobModelSnapshot[];
@@ -312,6 +317,7 @@ export function createStoreModelCallLedger(
 }
 
 export interface CreateActiveModelGatewayForSnapshotOptions {
+  platformFeature?: PlatformFeature;
   storedSnapshot: StoredAiJobModelSnapshot;
   fetch: typeof fetch;
   attemptIdFactory?: () => string;
@@ -337,6 +343,13 @@ export function createActiveModelGatewayForSnapshot(
   const capabilitySnapshotHash = sha256(
     JSON.stringify(options.storedSnapshot.capabilitySnapshot)
   );
+  const executionAccess = createPlatformExecutionAccess({
+    feature: options.platformFeature ?? "agents",
+    isMutationPending: () => isPlatformMutationPending(store),
+    readState: () => store.readPlatformAdminState
+      ? store.readPlatformAdminState()
+      : Promise.resolve(store.platformAdminStates?.[0] ?? emptyPlatformState())
+  });
   return new ActiveModelGateway({
     snapshot: options.storedSnapshot,
     identity: {
@@ -349,7 +362,15 @@ export function createActiveModelGatewayForSnapshot(
     baseUrlFingerprint: options.storedSnapshot.baseUrlFingerprint,
     credentialResolver: () =>
       resolveSnapshottedModelCredential(store, options.storedSnapshot),
-    fetch: options.fetch,
+    fetch: async (url, init) => {
+      // Each provider attempt (including repairs/retries) reads current authority.
+      // An immutable model snapshot is not a subscription grant.
+      const now = new Date(options.now?.() ?? Date.now()).toISOString();
+      if (!await executionAccess(options.storedSnapshot.teamId, now)) {
+        throw new Error("platform_execution_forbidden");
+      }
+      return options.fetch(url, init);
+    },
     ledger: createStoreModelCallLedger(store),
     persistAttempt: store.persist
       ? () => store.persist!()

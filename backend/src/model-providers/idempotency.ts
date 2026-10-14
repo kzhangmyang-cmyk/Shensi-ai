@@ -96,7 +96,8 @@ export function requireModelConnectionIdempotencyKey(rawKey: string) {
 export async function executeModelConnectionWriteIdempotently(
   store: ModelConnectionIdempotencyStore,
   request: ModelConnectionWriteRequest,
-  operation: () => Promise<ModelConnectionWriteResponse>
+  operation: () => Promise<ModelConnectionWriteResponse>,
+  options: { persistenceScope?: "mutation" | "result" } = {}
 ) {
   const idempotencyKey = requireModelConnectionIdempotencyKey(
     request.idempotencyKey
@@ -106,7 +107,7 @@ export async function executeModelConnectionWriteIdempotently(
   );
   const requestFingerprint = modelConnectionRequestFingerprint(request);
   return runExclusive(store, async () => {
-    const apply = async () => {
+    const findReplay = () => {
       const existing = store.modelConnectionIdempotencyRecords.find(
         (item) => item.ownerId === request.ownerId
           && item.teamId === request.teamId
@@ -121,17 +122,26 @@ export async function executeModelConnectionWriteIdempotently(
             `req_idem_${idempotencyKeyHash.slice(0, 24)}`
           );
         }
-        return {
-          value: {
-            status: existing.responseStatus,
-            body: structuredClone(existing.responseBody),
-            replayed: true
-          },
-          async rollback() {}
-        };
+        return { status: existing.responseStatus,
+          body: structuredClone(existing.responseBody), replayed: true };
       }
+      return null;
+    };
 
-      const response = await operation();
+    // Model commands durably bind snapshots and flush their own call ledger.
+    // They must not hold the store queue while awaiting those queued writes.
+    // Connection CRUD keeps the default atomic mutation/rollback boundary.
+    let completedOperation: ModelConnectionWriteResponse | undefined;
+    if (options.persistenceScope === "result") {
+      const replay = findReplay();
+      if (replay) return replay;
+      completedOperation = await operation();
+    }
+
+    const apply = async () => {
+      const replay = findReplay();
+      if (replay) return { value: replay, async rollback() {} };
+      const response = completedOperation ?? await operation();
       const record: ModelConnectionIdempotencyRecord = {
         ownerId: request.ownerId,
         teamId: request.teamId,

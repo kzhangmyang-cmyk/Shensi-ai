@@ -124,6 +124,19 @@ const api: ConnectionCenterApi = {
       capabilitySnapshot: { toolCalling: true }
     };
   },
+  async deactivateModelConnection(id, reason) {
+    assert.equal(id, "model-1");
+    assert.match(reason, /停用/);
+    activeModel = false;
+    return {
+      id: "model-1",
+      provider: "moonshot",
+      model: "kimi-k3",
+      status: "inactive",
+      credentialVersion: 1,
+      capabilitySnapshot: { toolCalling: true }
+    };
+  },
   async deleteModelConnection() {}
 };
 
@@ -179,6 +192,9 @@ await assert.rejects(
   () => controller.deleteModel("model-1"),
   /正在启用的模型不能删除/
 );
+await controller.deactivateModel("model-1");
+assert.equal(controller.getState().modelConnections[0]?.status, "inactive");
+assert.match(controller.getState().message, /已停用/);
 
 controller.destroy();
 

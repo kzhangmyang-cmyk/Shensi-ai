@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { emptyPlatformState } from "./platform-admin-domain.js";
 import { createHash } from "node:crypto";
 import { encryptAiModelApiKey } from "./credential-security.js";
 import {
@@ -14,8 +15,10 @@ import type {
 } from "./model-providers/runtime.js";
 import type { AiModelConfig } from "./types.js";
 import {
+  callAiModel,
   callAiModelWithRuntime
 } from "./ai-model-runtime.js";
+import { getStore } from "./store.js";
 import {
   setProviderHttpTestTransport
 } from "./provider-http-client.js";
@@ -23,6 +26,51 @@ import {
 const createdAt = "2026-07-23T10:00:00.000Z";
 const ownerId = "u_runtime";
 const teamId = "t_runtime";
+
+test("legacy custom model protocols enforce their caller-selected feature before HTTP", async () => {
+  const store = getStore();
+  const previous = store.platformAdminStates;
+  const state = emptyPlatformState();
+  state.workspaces.push({ id: teamId, name: "synthetic", contact: "", status: "suspended", planVersionId: null,
+    startsAt: null, expiresAt: null, revision: 1 });
+  store.platformAdminStates = [state];
+  let calls = 0;
+  try {
+    await assert.rejects(callAiModel({ ...config("custom", true, 1), provider: "custom" }, "synthetic", 100,
+      async () => { calls++; throw new Error("unexpected network"); }, "crm"), /platform_execution_forbidden/);
+    assert.equal(calls, 0);
+  } finally { store.platformAdminStates = previous; }
+});
+
+test("model attempts recheck durable workspace status, expiry and selected feature", async () => {
+  for (const feature of ["agents", "decision", "acquisition"] as const) {
+    const store = runtimeStore();
+    const state = emptyPlatformState();
+    state.plans[0] = { ...state.plans[0], published: true, features: [feature], durationDays: 30, seatLimit: 1 };
+    state.workspaces.push({ id: teamId, name: "synthetic", contact: "", status: "active", planVersionId: state.plans[0].id,
+      startsAt: "2026-07-01T00:00:00Z", expiresAt: "2026-08-01T00:00:00Z", revision: 1 });
+    let reads = 0, calls = 0;
+    store.readPlatformAdminState = async () => { reads++; return state; };
+    const snapshot = bindActiveModelSnapshot(store, { jobId: `entitlement-${feature}`, ownerId, teamId,
+      promptVersion: "test.v1", schemaVersion: "test.v1", promptHash: contentHash("test"), schemaHash: companiesSchemaHash });
+    const gateway = createActiveModelGatewayForSnapshot(store, { storedSnapshot: snapshot, platformFeature: feature,
+      now: () => Date.parse(createdAt), fetch: async () => { calls++; return new Response(JSON.stringify({ data: [] }), { status: 200 }); } });
+    await gateway.listModels();
+    assert.equal(calls, 1);
+    state.workspaces[0].status = "suspended";
+    await assert.rejects(gateway.listModels());
+    state.workspaces[0].status = "active";
+    state.workspaces[0].expiresAt = createdAt;
+    await assert.rejects(gateway.listModels());
+    state.workspaces[0].expiresAt = "2026-08-01T00:00:00Z";
+    state.plans[0].features = [];
+    await assert.rejects(gateway.listModels());
+    store.readPlatformAdminState = async () => { throw new Error("synthetic durable read failure"); };
+    await assert.rejects(gateway.listModels());
+    assert.equal(calls, 1, "revoked or unreadable authority must never reach the provider");
+    assert.equal(reads, 4);
+  }
+});
 const companiesSchemaHash =
   `sha256:${createHash("sha256")
     .update("companies-schema.v1")

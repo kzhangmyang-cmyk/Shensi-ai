@@ -1,4 +1,5 @@
 import { csrfFromCookie } from "../acquisition/csrf";
+import { quoteEntryHash } from "../growth/quotes/entry";
 import {
   pendingAcquisitionBindings,
   type PrivateDomainAcquisitionBinding,
@@ -324,7 +325,10 @@ export function createDealCreateController(
         || !documentRef.body.classList.contains("is-authenticated")) return;
       dispatchDealCreated(documentRef, result.deal.id, input);
       dialog.close();
-      locationRef.hash = "#conversion";
+      locationRef.hash = quoteEntryHash({
+        customerId: input.customerId,
+        dealId: result.deal.id
+      });
       showToast("商机已新增");
     } catch {
       if (serial === requestSerial && !requestAbort.signal.aborted) {

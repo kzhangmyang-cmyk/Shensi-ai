@@ -46,6 +46,7 @@ import type {
   FinancialCouncilFinding
 } from "./growth-contract-types.js";
 import { buildConsensus } from "./financial-council-consensus.js";
+import { validateCollaborationEvent, type FinancialCouncilCollaborationEvent } from "./financial-council-collaboration-record.js";
 import { FINANCIAL_PORTFOLIO_HARD_CONSTRAINT_KINDS } from
   "./financial-portfolio-constraints.js";
 import type { GrowthTemporalTransactionRunner } from
@@ -378,6 +379,9 @@ export interface CompleteFinancialCouncilRebuttalInput {
 }
 
 export interface FinancialCouncilRepository {
+  appendCollaborationEvent(lease: FinancialCouncilAnalysisLease, event: FinancialCouncilCollaborationEvent): Promise<void>;
+  listCollaborationEvents(context: ActiveWorkspaceContext, runId: string): Promise<readonly FinancialCouncilCollaborationEvent[]>;
+  listRunHistory(context: ActiveWorkspaceContext, input: { readonly limit: number; readonly after?: string }): Promise<{ readonly items: readonly FinancialCouncilRun[]; readonly nextCursor: string | null }>;
   createAndFreezeRun(
     command: CommandContext,
     input: CreateAndFreezeFinancialCouncilRunInput
@@ -1489,6 +1493,30 @@ export function validateFinancialCouncilConsensusReport(
 
 export class InMemoryFinancialCouncilRepository
 implements FinancialCouncilRepository {
+  private readonly collaborationEvents = new Map<string, FinancialCouncilCollaborationEvent>();
+
+  async appendCollaborationEvent(lease: FinancialCouncilAnalysisLease, raw: FinancialCouncilCollaborationEvent): Promise<void> {
+    const event = validateCollaborationEvent(lease, raw);
+    this.requireLiveAnalysisLease(lease, event.occurredAt);
+    const eventKey = key(event.workspaceId, `${event.runId}\u0000${event.eventId}`);
+    if (!this.collaborationEvents.has(eventKey)) this.collaborationEvents.set(eventKey, immutableFinancialCouncilValue(event));
+  }
+
+  async listCollaborationEvents(context: ActiveWorkspaceContext, runId: string): Promise<readonly FinancialCouncilCollaborationEvent[]> {
+    return Object.freeze([...this.collaborationEvents.values()].filter(event =>
+      event.workspaceId === context.workspaceId && event.runId === runId));
+  }
+
+  async listRunHistory(context: ActiveWorkspaceContext, input: { readonly limit: number; readonly after?: string }) {
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw financialCouncilError("financial_council_input_invalid");
+    const rows = [...this.runs.values()].filter(run => run.workspaceId === context.workspaceId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || -utf8ByteCompare(a.runId, b.runId));
+    const start = input.after === undefined ? 0 : rows.findIndex(run => run.runId === input.after) + 1;
+    if (input.after !== undefined && start === 0) throw financialCouncilError("financial_council_input_invalid");
+    const items = rows.slice(start, start + input.limit);
+    items.forEach(run => this.assertStoredRun(run));
+    return { items: Object.freeze(items), nextCursor: start + items.length < rows.length ? items.at(-1)!.runId : null };
+  }
   constructor(private readonly temporalTransactions?:
   GrowthTemporalTransactionRunner) {}
 

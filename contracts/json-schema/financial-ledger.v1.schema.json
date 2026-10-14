@@ -11,7 +11,7 @@
     "businessOccurredAt": { "$ref": "#/$defs/dateTime" }, "recordedAt": { "$ref": "#/$defs/dateTime" }, "provenance": { "$ref": "#/$defs/nonempty" },
     "sourceRef": { "$ref": "#/$defs/nullableId" }, "evidenceHash": { "$ref": "#/$defs/hash" }, "externalId": { "$ref": "#/$defs/nullableId" },
     "sourceIdentityRoot": { "$ref": "#/$defs/nonempty" }, "sourceVersion": { "type": "integer", "minimum": 1 },
-    "attributionSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "outcome-feedback.v1.schema.json#/$defs/liveAttribution" }] },
+    "attributionSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "outcome-feedback.v1.schema.json#/$defs/snapshotAttribution" }] },
     "commercialBindingSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "quote-case.v1.schema.json#/$defs/CommercialBindingSnapshot" }] },
     "commercialAmountHash": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/hash" }] }, "dealAuthorityRevision": { "type": ["integer", "null"], "minimum": 0 },
     "correctsFactId": { "$ref": "#/$defs/nullableId" }, "correctionGroupId": { "$ref": "#/$defs/nullableId" },

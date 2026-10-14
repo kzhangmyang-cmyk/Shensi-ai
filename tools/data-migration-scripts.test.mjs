@@ -757,6 +757,189 @@ test("migration preflights, backs up, creates shensi, restores, then verifies wi
   assert.equal(result.targetDatabase, "shensi");
 });
 
+test("migration accepts the canonical shensi_trial:3310 to shensi:3311 endpoints without argv secrets", async (context) => {
+  const directory = mkdtempSync(join(tmpdir(), "shensi-canonical-migration-"));
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  const dump = join(directory, "mysqldump");
+  const openssl = join(directory, "openssl");
+  const mysql = join(directory, "mysql");
+  const dumpCapture = join(directory, "dump.json");
+  const opensslCapture = join(directory, "openssl.jsonl");
+  const mysqlCapture = join(directory, "mysql.json");
+  const restored = join(directory, "restored.sql");
+  writeExecutable(dump, `
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(dumpCapture)}, JSON.stringify({
+  argv: process.argv.slice(2), env: process.env
+}));
+process.stdout.write("CREATE TABLE canonical_fixture (id INT);\\n");
+`);
+  writeExecutable(openssl, `
+const fs = require("node:fs");
+fs.appendFileSync(${JSON.stringify(opensslCapture)}, JSON.stringify({
+  argv: process.argv.slice(2), env: process.env
+}) + "\\n");
+process.stdin.pipe(process.stdout);
+`);
+  writeExecutable(mysql, `
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(mysqlCapture)}, JSON.stringify({
+  argv: process.argv.slice(2), env: process.env
+}));
+const chunks = [];
+process.stdin.on("data", (chunk) => chunks.push(chunk));
+process.stdin.on("end", () => {
+  fs.writeFileSync(${JSON.stringify(restored)}, Buffer.concat(chunks));
+});
+`);
+
+  const sourcePassword = "reader-password-must-not-enter-argv";
+  const targetPassword = "target-password-must-not-enter-argv";
+  const adminPassword = "admin-password-must-not-enter-argv";
+  const backupPassphrase = "backup-passphrase-must-not-enter-argv";
+  const sourceUrl = `mysql://reader:${sourcePassword}@127.0.0.1:3310/shensi_trial`;
+  const targetUrl = `mysql://shensi_app:${targetPassword}@127.0.0.1:3311/shensi`;
+  const adminUrl = `mysql://root:${adminPassword}@127.0.0.1:3311/mysql`;
+  const adminQueries = [];
+  const connection = {
+    async query(sql) {
+      const normalized = sql.replace(/\s+/gu, " ").trim();
+      adminQueries.push(normalized);
+      if (normalized.includes("information_schema.schemata")) return [[]];
+      if (normalized.startsWith("CREATE DATABASE")) return [[]];
+      throw new Error("UNEXPECTED_ADMIN_QUERY");
+    },
+    async end() {}
+  };
+  const env = {
+    ...process.env,
+    SOURCE_DATABASE_URL: sourceUrl,
+    TARGET_DATABASE_URL: targetUrl,
+    MYSQL_LOCAL_ADMIN_URL: adminUrl,
+    SHENSI_BACKUP_PASSPHRASE: backupPassphrase,
+    MYSQLDUMP_BIN: dump,
+    OPENSSL_BIN: openssl,
+    MYSQL_BIN: mysql,
+    BACKUP_DIRECTORY: directory
+  };
+  const result = await migrateData({
+    env,
+    adminConnectionFactory: async (admin) => {
+      assert.deepEqual(admin, {
+        host: "127.0.0.1", port: 3311, user: "root",
+        password: adminPassword, database: "mysql"
+      });
+      return connection;
+    },
+    backup: async ({ env: migrationEnv }) => backupDatabase({
+      env: migrationEnv,
+      sourceCommit: "a".repeat(40),
+      databaseSnapshot: async (source) => {
+        assert.deepEqual(source, {
+          host: "127.0.0.1", port: 3310, user: "reader",
+          password: sourcePassword, database: "shensi_trial"
+        });
+        return { mysqlVersion: "8.4.11", tableCounts: { canonical_fixture: 1 } };
+      }
+    }),
+    restore: async ({ env: migrationEnv, createdByMigration }) => {
+      assert.equal(createdByMigration, true);
+      return restoreDatabase({
+        env: migrationEnv,
+        targetState: async (target) => {
+          assert.deepEqual(target, {
+            host: "127.0.0.1", port: 3311, user: "shensi_app",
+            password: targetPassword, database: "shensi"
+          });
+          return { objectCount: 0 };
+        }
+      });
+    },
+    verify: async ({ env: migrationEnv }) => {
+      assert.equal(migrationEnv.SOURCE_DATABASE_URL, sourceUrl);
+      assert.equal(migrationEnv.TARGET_DATABASE_URL, targetUrl);
+      return {
+        report: { passed: true, codes: ["VERIFICATION_PASSED"] },
+        reportPath: join(directory, "verification.json")
+      };
+    }
+  });
+
+  assert.equal(result.targetDatabase, "shensi");
+  assert.match(readFileSync(restored, "utf8"), /CREATE TABLE canonical_fixture/u);
+  assert.equal(adminQueries.filter((sql) => sql.includes("information_schema.schemata")).length, 2);
+  assert.equal(adminQueries.filter((sql) => sql.startsWith("CREATE DATABASE")).length, 1);
+
+  const dumpProcess = JSON.parse(readFileSync(dumpCapture, "utf8"));
+  const opensslProcesses = readFileSync(opensslCapture, "utf8").trim().split("\n").map(JSON.parse);
+  const mysqlProcess = JSON.parse(readFileSync(mysqlCapture, "utf8"));
+  assert.ok(dumpProcess.argv.includes("3310"));
+  assert.ok(dumpProcess.argv.includes("shensi_trial"));
+  assert.ok(mysqlProcess.argv.includes("3311"));
+  assert.ok(mysqlProcess.argv.includes("shensi"));
+  assert.equal(dumpProcess.env.MYSQL_PWD, sourcePassword);
+  assert.equal(mysqlProcess.env.MYSQL_PWD, targetPassword);
+  assert.ok(opensslProcesses.every(({ env: childEnv }) => (
+    childEnv.SHENSI_BACKUP_PASSPHRASE === backupPassphrase
+  )));
+  const allArgv = [
+    dumpProcess.argv,
+    ...opensslProcesses.map(({ argv }) => argv),
+    mysqlProcess.argv,
+    [
+      "--source-env", "SOURCE_DATABASE_URL",
+      "--target-env", "TARGET_DATABASE_URL",
+      "--target-database", "shensi"
+    ]
+  ];
+  const serializedArgv = JSON.stringify(allArgv);
+  for (const secret of [sourcePassword, targetPassword, adminPassword, backupPassphrase]) {
+    assert.doesNotMatch(serializedArgv, new RegExp(secret, "u"));
+  }
+  assert.doesNotMatch(serializedArgv, /mysql:\/\//u);
+});
+
+test("migration rejects a non-shensi target, an identical endpoint tuple, and admin target mismatch before I/O", async () => {
+  const baseEnv = {
+    SOURCE_DATABASE_URL: "mysql://reader:source-secret@127.0.0.1:3310/shensi_trial",
+    TARGET_DATABASE_URL: "mysql://shensi_app:target-secret@127.0.0.1:3311/shensi",
+    MYSQL_LOCAL_ADMIN_URL: "mysql://root:admin-secret@127.0.0.1:3311/mysql",
+    SHENSI_BACKUP_PASSPHRASE: "backup-secret"
+  };
+  const rejectBeforeIo = async (env, code) => {
+    let touchedIo = false;
+    await assert.rejects(migrateData({
+      env,
+      adminConnectionFactory: async () => {
+        touchedIo = true;
+        throw new Error("ADMIN_CONNECTION_MUST_NOT_OPEN");
+      },
+      backup: async () => {
+        touchedIo = true;
+        throw new Error("BACKUP_MUST_NOT_START");
+      }
+    }), new RegExp(code, "u"));
+    assert.equal(touchedIo, false, code);
+  };
+
+  await rejectBeforeIo({
+    ...baseEnv,
+    TARGET_DATABASE_URL: "mysql://shensi_app:target-secret@127.0.0.1:3311/shensi_next"
+  }, "TARGET_DATABASE_MUST_BE_SHENSI");
+  await rejectBeforeIo({
+    ...baseEnv,
+    SOURCE_DATABASE_URL: "mysql://reader:source-secret@127.0.0.1:3311/shensi"
+  }, "SOURCE_TARGET_DATABASE_MATCH");
+  await rejectBeforeIo({
+    ...baseEnv,
+    MYSQL_LOCAL_ADMIN_URL: "mysql://root:admin-secret@127.0.0.2:3311/mysql"
+  }, "ADMIN_TARGET_SERVER_MISMATCH");
+  await rejectBeforeIo({
+    ...baseEnv,
+    MYSQL_LOCAL_ADMIN_URL: "mysql://root:admin-secret@127.0.0.1:3310/mysql"
+  }, "ADMIN_TARGET_SERVER_MISMATCH");
+});
+
 test("migration rejects every target schema-object category before backup", async () => {
   let objectQuery = "";
   const connection = {

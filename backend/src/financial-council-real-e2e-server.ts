@@ -319,6 +319,8 @@ Promise<FinancialCouncilRealE2eServer> {
       }
     },
     getRun: service.getRun.bind(service),
+    listRunHistory: service.listRunHistory.bind(service),
+    getCollaboration: service.getCollaboration.bind(service),
     listEvents: service.listEvents.bind(service),
     revisePortfolio: service.revisePortfolio.bind(service),
     getPortfolioRevision: service.getPortfolioRevision.bind(service),

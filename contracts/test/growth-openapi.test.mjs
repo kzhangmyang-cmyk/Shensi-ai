@@ -59,6 +59,10 @@ const operations = {
   "/api/v1/finance/settlement-allocation-sets/{id}": ["get"],
   "/api/v1/finance/settlement-allocation-sets/{id}/activate": ["post"],
   "/api/v1/finance/import-templates/{kind}": ["get"],
+  "/api/v1/finance/documents/inspect": ["post"],
+  "/api/v1/finance/documents/selection": ["delete"],
+  "/api/v1/finance/documents/attachments/clear": ["post"],
+  "/api/v1/finance/public-research": ["get", "post"],
   "/api/v1/finance/imports/preview": ["post"],
   "/api/v1/finance/imports/{previewId}/commit": ["post"],
   "/api/v1/finance/imports/{id}": ["get"],
@@ -74,9 +78,10 @@ const operations = {
   "/api/v1/acquisition/advisor/recommendations/{id}/accept": ["post"],
   "/api/v1/acquisition/advisor/recommendations/{id}/ignore": ["post"],
   "/api/v1/acquisition/advisor/recommendations/{id}/complete": ["post"],
-  "/api/v1/finance/council-runs": ["post"],
+  "/api/v1/finance/council-runs": ["get", "post"],
   "/api/v1/finance/council-runs/{runId}": ["get"],
   "/api/v1/finance/council-runs/{runId}/events": ["get"],
+  "/api/v1/finance/council-runs/{runId}/collaboration": ["get"],
   "/api/v1/finance/council-policy": ["get", "put"],
   "/api/v1/finance/council-runs/{runId}/portfolio-revisions": ["post"],
   "/api/v1/finance/council-runs/{runId}/portfolio-revisions/{revision}/approve": ["post"],
@@ -89,14 +94,18 @@ const operations = {
   "/api/v1/finance/statement-packages/{previewId}/commit": ["post"],
   "/api/v1/finance/council-runs/from-statement-package": ["post"],
   "/api/v1/finance/council-agent-center": ["get"],
+  "/api/v1/finance/cfo-conversation": ["post"],
+  "/api/v1/finance/cfo-sessions": ["get", "post"],
+  "/api/v1/finance/cfo-sessions/{sessionId}": ["get"],
+  "/api/v1/finance/cfo-sessions/{sessionId}/turns": ["post"],
   "/api/v1/finance/council-runs/{runId}/agents": ["get"]
 };
 
-test("1.0.12 exposes closed real council onboarding routes", async () => {
+test("1.0.19 exposes closed real council onboarding routes", async () => {
   const document = await loadNamedOpenApiSource(
     "growth-advisor-quote-roi.v1.yaml"
   );
-  assert.equal(document.info.version, "1.0.12");
+  assert.equal(document.info.version, "1.0.41");
   for (const path of [
     "/api/v1/finance/council-model-routing-policy",
     "/api/v1/finance/council-model-routing-policy/preview",
@@ -214,6 +223,22 @@ function effectiveParameters(document, pathItem, operation) {
   }
   return [...parameters.values()];
 }
+
+test("CFO history formally negotiates reference readers without query or body input", async () => {
+  const document = await loadNamedOpenApiSource("growth-advisor-quote-roi.v1.yaml");
+  const path = document.paths["/api/v1/finance/cfo-sessions/{sessionId}"], operation = path.get;
+  const parameters = effectiveParameters(document, path, operation);
+  const readers = parameters.filter(parameter => parameter.name === "X-Shensi-Reference-Protocol");
+  assert.equal(readers.length, 1);
+  assert.equal(readers[0].in, "header"); assert.equal(readers[0].required, false);
+  assert.deepEqual(readers[0].schema, { type: "string", enum: ["system-v1"] });
+  assert.equal(parameters.some(parameter => parameter.in === "query"), false);
+  assert.equal(operation.requestBody, undefined);
+  assert.deepEqual(operation.security, [{ bearerAuth: [] }, { cookieAuth: [] }]);
+  for (const status of ["401", "403", "404", "409", "422", "503"])
+    assert.ok(operation.responses[status]?.content?.["application/json"]?.schema);
+  assert.match(operation.description, /reference_client_upgrade_required/u);
+});
 
 function resolveInternalResponse(document, response) {
   if (!response?.$ref) return response;
@@ -867,6 +892,11 @@ test("fix round 1 every operation has a concrete closed success response", async
     assert.ok(successes.length > 0, `${method.toUpperCase()} ${path}`);
     for (const [status, unresolved] of successes) {
       const response = resolveInternalResponse(document, unresolved);
+      if (((method === "delete" && path === "/api/v1/finance/documents/selection")
+        || (method === "post" && path === "/api/v1/finance/documents/attachments/clear")) && status === "204") {
+        assert.equal(response.content, undefined, "clearing a document selection returns no body");
+        continue;
+      }
       const media = response.content ?? {};
       assert.ok(Object.keys(media).length > 0, `${method.toUpperCase()} ${path} ${status}`);
       for (const content of Object.values(media)) {
@@ -893,11 +923,16 @@ test("fix round 1 every operation has a concrete closed success response", async
   assert.deepEqual(genericOperations, []);
 });
 
-// Production break caught: accepting a mutation without an explicit closed command body or accepting Finance imports through JSON/multipart parsing.
-test("fix round 1 every mutation has a strict body and Finance preview accepts only raw CSV or XLSX", async () => {
+// Production break caught: the public contract advertising raw binary while the
+// implemented router only accepts the JSON envelope used by desktop clients.
+test("every mutation has a strict body and Finance preview matches the router envelope", async () => {
   const document = await loadNamedOpenApiSource("growth-advisor-quote-roi.v1.yaml");
   for (const { path, method, operation } of allPublishedOperations(document)) {
     if (!["post", "put", "patch", "delete"].includes(method)) continue;
+    if (operation.operationId === 'clearFinanceDocumentSelection') {
+      assert.equal(operation.requestBody, undefined, 'selection deletion rejects any body');
+      continue;
+    }
     assert.equal(operation.requestBody?.required, true, `${method.toUpperCase()} ${path}`);
     const contents = operation.requestBody.content;
     assert.ok(contents && Object.keys(contents).length > 0, `${method.toUpperCase()} ${path}`);
@@ -914,13 +949,30 @@ test("fix round 1 every mutation has a strict body and Finance preview accepts o
   }
 
   const preview = document.paths["/api/v1/finance/imports/preview"].post;
-  assert.deepEqual(Object.keys(preview.requestBody.content).sort(), [
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "text/csv"
-  ]);
-  for (const body of Object.values(preview.requestBody.content)) {
-    assert.deepEqual(body.schema, { type: "string", format: "binary" });
-  }
+  assert.deepEqual(Object.keys(preview.requestBody.content), ["application/json"]);
+  assert.equal(
+    preview.requestBody.content["application/json"].schema.$ref,
+    "#/components/schemas/FinanceImportPreviewInput"
+  );
+  const validatePreview = await loadDefinitionValidator(
+    "finance-import-operation.v1.schema.json",
+    "FinanceImportPreviewInput"
+  );
+  assert.equal(validatePreview({
+    kind: "acquisition_cost",
+    fileName: "costs.csv",
+    mediaType: "text/csv",
+    contentBase64: "YWJj",
+    mapping: {}
+  }), true, JSON.stringify(validatePreview.errors));
+  assert.equal(validatePreview({
+    kind: "acquisition_cost",
+    fileName: "costs.csv",
+    mediaType: "text/csv",
+    contentBase64: "YWJj",
+    mapping: {},
+    contentLength: 3
+  }), false);
   assert.ok(preview.responses["415"]);
 });
 
@@ -940,7 +992,7 @@ test("fix round 1 non-council operations use the canonical concrete workspace he
     assert.equal(workspaceHeaders.length, 1, `${method.toUpperCase()} ${path}`);
     assert.equal(
       workspaceHeaders[0].required,
-      path === "/api/v1/growth/bootstrap" ? false : true,
+      (["/api/v1/growth/bootstrap", "/api/v1/finance/cfo-conversation"].includes(path) || path.startsWith('/api/v1/finance/cfo-sessions')) ? false : true,
       `${method.toUpperCase()} ${path}`
     );
     assert.deepEqual(workspaceHeaders[0].schema.not, { const: "all" });
@@ -970,6 +1022,13 @@ test("fix round 1 mutations require auth guards and versioned responses publish 
     if (!["post", "put", "patch", "delete"].includes(method)) continue;
     assert.deepEqual(operation.security, [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }], `${method.toUpperCase()} ${path}`);
     const parameters = effectiveParameters(document, pathItem, operation);
+    if (['/api/v1/finance/cfo-conversation', '/api/v1/finance/documents/inspect', '/api/v1/finance/documents/attachments/clear', '/api/v1/finance/public-research',
+      '/api/v1/finance/documents/selection', '/api/v1/finance/cfo-sessions', '/api/v1/finance/cfo-sessions/{sessionId}/turns'].includes(path)) {
+      assert.equal(parameters.some(p => ['Idempotency-Key', 'If-Match'].includes(p.name)), false);
+      assert.ok(['askCfoConversation', 'inspectFinanceDocument', 'clearFinanceDocumentSelection', 'clearFinanceChatAttachment', 'runAgentWebResearch', 'createCfoSession', 'askCfoSession'].includes(operation.operationId));
+      if (method === 'post' && operation.operationId !== 'clearFinanceChatAttachment') assert.ok(operation.responses['429']);
+      continue;
+    }
     for (const name of ["Idempotency-Key"]) {
       const header = parameters.find((parameter) => parameter.in === "header" && parameter.name === name);
       assert.equal(header?.required, true, `${method.toUpperCase()} ${path} ${name}`);
@@ -1335,7 +1394,9 @@ test("fix round 3 settlement allocation input rejects caller authority while out
   };
   assert.equal(validateInput({ sourceFactId: "payment-fact-1", items: [itemInput] }), true, JSON.stringify(validateInput.errors));
   assert.equal(validateInput({ sourceFactId: "payment-fact-1", items: [{ ...itemInput, commercialBindingSnapshot }] }), false);
-  assert.equal(validateOutput({ allocationSetId: "allocation-set-1", ...itemInput, commercialBindingSnapshot }), true, JSON.stringify(validateOutput.errors));
+  assert.equal(validateInput({ sourceFactId: "payment-fact-1", items: [{ ...itemInput, id: "caller-item" }] }), false);
+  assert.equal(validateOutput({ allocationSetId: "allocation-set-1", ...itemInput, commercialBindingSnapshot }), false);
+  assert.equal(validateOutput({ id: "allocation-item-1", allocationSetId: "allocation-set-1", ...itemInput, commercialBindingSnapshot }), true, JSON.stringify(validateOutput.errors));
 });
 
 // Production break caught: independently-valid Deal and event fragments combining into contradictory won, lost, or pre-quote decision outcomes.

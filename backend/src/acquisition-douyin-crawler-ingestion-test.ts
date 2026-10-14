@@ -69,6 +69,18 @@ test("ingestion creates one bounded evidence row and one stable candidate for du
   assert.equal(repository.candidates.length, 1);
 });
 
+test("video authors remain evidence, not prospects even when their description includes demand words", async () => {
+  const repository = store();
+  const result = await ingestDouyinCrawlerPage({
+    repository, workspaceId: "workspace-1", runId: "run-1",
+    crawlerJobs: crawlerJobs([record({ kind: "creator", recordId: "creator-1", textExcerpt: "需要电子合同？找我们报价" })])
+  });
+  assert.deepEqual(result, { evidenceCount: 1, candidateCount: 0, suppressedCount: 1 });
+  assert.equal(repository.evidence.length, 1);
+  assert.equal(repository.candidates.length, 0);
+  assert.equal(repository.dnc.length, 0);
+});
+
 test("edited comments supersede the previous record evidence and refusals are retained as DNC", async () => {
   const repository = store();
   let records = [record()];

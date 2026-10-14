@@ -60,6 +60,8 @@ export async function withGrowthAdvisorMysqlTestDatabase(
 ): Promise<void> {
   const adminUrl = configuredAdminUrl();
   const name = databaseName();
+  const databaseUrl = new URL(adminUrl);
+  databaseUrl.pathname = `/${name}`;
   const admin = await mysql.createConnection({
     uri: adminUrl,
     namedPlaceholders: true,
@@ -67,8 +69,7 @@ export async function withGrowthAdvisorMysqlTestDatabase(
     dateStrings: true
   });
   const pool = mysql.createPool({
-    uri: `${adminUrl.slice(0, adminUrl.indexOf("?") >= 0
-      ? adminUrl.indexOf("?") : adminUrl.length)}/${name}`,
+    uri: databaseUrl.toString(),
     connectionLimit: 3,
     namedPlaceholders: true,
     timezone: "Z",

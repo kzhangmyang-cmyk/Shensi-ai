@@ -6,6 +6,9 @@ export interface PublicRunCandidate {
   status: string;
   displayName: string;
   evidence: { sourceUrl: string; excerpt: string };
+  /** Optional, display-only public image hints. They never affect outreach authority. */
+  avatarUrl?: string;
+  coverUrl?: string;
 }
 
 export interface AcquisitionRunCandidatesRepository {
@@ -46,10 +49,29 @@ function decode(value: string, secret: string): CursorPayload | null {
       && Number.isSafeInteger(parsed.offset) && parsed.offset >= 0 ? parsed : null;
   } catch { return null; }
 }
+function publicHttpsImageUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 2_000
+    || !/^https:\/\/[^/\\?#]/iu.test(value)
+    || value.includes("\\")
+    || /[\p{White_Space}\p{Cc}\p{Cf}]/u.test(value)
+    || /%(?![0-9A-Fa-f]{2})/u.test(value)) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:"
+      && parsed.hostname.length > 0
+      && parsed.username.length === 0
+      && parsed.password.length === 0;
+  } catch { return false; }
+}
+
 function publicItem(item: PublicRunCandidate) {
+  const avatarUrl = publicHttpsImageUrl(item.avatarUrl) ? item.avatarUrl : undefined;
+  const coverUrl = publicHttpsImageUrl(item.coverUrl) ? item.coverUrl : undefined;
   return {
     id: item.id, status: item.status, displayName: item.displayName.slice(0, 200),
-    evidence: { sourceUrl: item.evidence.sourceUrl, excerpt: [...item.evidence.excerpt].slice(0, 500).join("") }
+    evidence: { sourceUrl: item.evidence.sourceUrl, excerpt: [...item.evidence.excerpt].slice(0, 500).join("") },
+    ...(avatarUrl ? { avatarUrl } : {}),
+    ...(coverUrl ? { coverUrl } : {})
   };
 }
 

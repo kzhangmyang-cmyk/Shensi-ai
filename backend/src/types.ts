@@ -321,7 +321,7 @@ export interface AcquisitionCustomerHandoff {
   processingKeyHash: string;
   acceptedProcessingKeyHashes: string[];
   requestHash: string;
-  intelligence: AcquisitionHandoffIntelligence;
+  intelligence: AcquisitionHandoffIntelligence | null;
   qualificationSnapshotHash: string;
   financialSnapshotHash: string;
   acquisitionAttribution: OutcomeAttributionInput | null;
@@ -337,7 +337,7 @@ export type AcquisitionCustomerHandoffStage =
   | "completed";
 
 export interface AcquisitionCustomerHandoffRequestSnapshot {
-  operationCode: "handoff_acquisition_candidate_v1";
+  operationCode: "handoff_acquisition_candidate_v1" | "handoff_acquisition_candidate_v2";
   runId: string;
   discoveredEventId: string;
   decisionVersion: string;
@@ -367,7 +367,7 @@ export interface AcquisitionCustomerHandoffOperation {
   activityId: string;
   todoId: string;
   handoffId: string;
-  intelligence: AcquisitionHandoffIntelligence;
+  intelligence: AcquisitionHandoffIntelligence | null;
   qualificationSnapshotHash: string;
   financialSnapshotHash: string;
   acquisitionAttribution: OutcomeAttributionInput | null;

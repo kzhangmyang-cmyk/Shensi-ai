@@ -1,4 +1,5 @@
 import type { components } from "../../generated/growth-advisor-quote-roi";
+import type { FinancialCouncilCollaboration, FinancialCouncilRunHistory } from "../contracts";
 import type {
   FinancialCouncilApproval,
   CreateCouncilRunFromPackageInput,
@@ -87,6 +88,61 @@ function nullableString(value: unknown): boolean {
 
 function responseError(): never {
   throw new CouncilApiValidationError();
+}
+
+function validateCollaboration(value: unknown, runId: string): FinancialCouncilCollaboration {
+  const row = record(value, ["runId", "workspaceId", "revision", "dataAsOf", "currency", "statementPackageId", "snapshotId", "snapshotHash", "policyVersionId", "executionMode", "reviewRoundLimit", "roles", "events", "reviews", "narrative", "report"]);
+  const roles = ["cfo", "finance", "profit", "cost", "cashflow", "tax"];
+  const states = ["waiting", "running", "completed", "missing_data", "failed", "degraded"];
+  const phases = ["analysis", "review", "synthesis", "run"];
+  if (row.runId !== runId || !positiveInteger(row.revision) || row.executionMode !== "sequential"
+    || row.reviewRoundLimit !== 1 || !Array.isArray(row.roles) || row.roles.length !== 6
+    || !Array.isArray(row.events) || !Array.isArray(row.reviews)) responseError();
+  for (const role of row.roles as unknown[]) {
+    const item = record(role, ["role", "state", "phase", "updatedAt", "message", "reasonCode", "findings", "actions"]);
+    const index = roles.indexOf(String(item.role));
+    if (index < 0 || !states.includes(String(item.state)) || !phases.includes(String(item.phase)) || typeof item.message !== "string"
+      || !Array.isArray(item.findings) || !Array.isArray(item.actions)) responseError();
+    roles.splice(index, 1);
+    for (const finding of item.findings as unknown[]) {
+      const entry = record(finding, ["findingId", "runId", "snapshotId", "agentRole", "conclusion", "evidenceRefs", "formulaRef", "confidenceBps", "severity", "assumptions", "missingData", "candidateActionIds"]);
+      if (typeof entry.conclusion !== "string" || typeof entry.severity !== "string"
+        || !Array.isArray(entry.evidenceRefs) || !Array.isArray(entry.missingData)) responseError();
+      for (const ref of entry.evidenceRefs as unknown[]) {
+        const evidence = record(ref, ["source", "sourceId", "contentHash"]);
+        if (!nonempty(evidence.source) || !nonempty(evidence.sourceId)) responseError();
+      }
+      for (const gap of entry.missingData as Record<string, unknown>[]) {
+        if (!gap || typeof gap.description !== "string") responseError();
+      }
+    }
+  }
+  for (const event of row.events as unknown[]) {
+    const item = record(event, ["eventId", "role", "phase", "state", "occurredAt", "message", "reasonCode", "findingIds"]);
+    if (!nonempty(item.eventId) || !phases.includes(String(item.phase)) || !states.includes(String(item.state))
+      || !nonempty(item.occurredAt) || typeof item.message !== "string" || !Array.isArray(item.findingIds)
+      || !item.findingIds.every(id => typeof id === "string")) responseError();
+  }
+  for (const review of row.reviews as unknown[]) {
+    const item = record(review, ["role", "round", "findingId", "peerFindingId", "state", "summary", "occurredAt"]);
+    if (item.round !== 1 || !["pending", "upheld", "revised", "withdrawn"].includes(String(item.state))
+      || typeof item.summary !== "string" || typeof item.findingId !== "string" || typeof item.peerFindingId !== "string") responseError();
+  }
+  const report = record(row.report, ["reportId", "version", "title", "complete", "generatedAt", "sections"]);
+  if (report.version !== "financial-council-report.v1" || !nonempty(report.reportId)
+    || typeof report.title !== "string" || typeof report.complete !== "boolean"
+    || !Array.isArray(report.sections)) responseError();
+  for (const section of report.sections as unknown[]) {
+    const item = record(section, ["id", "title", "paragraphs", "items"]);
+    if (!nonempty(item.id) || typeof item.title !== "string" || !Array.isArray(item.paragraphs)
+      || !item.paragraphs.every(p => typeof p === "string") || !Array.isArray(item.items)) responseError();
+    for (const detail of item.items as unknown[]) {
+      const cell = record(detail, ["label", "value", "evidenceRefs"]);
+      if (typeof cell.label !== "string" || typeof cell.value !== "string" || !Array.isArray(cell.evidenceRefs)
+        || !cell.evidenceRefs.every(ref => typeof ref === "string")) responseError();
+    }
+  }
+  return value as FinancialCouncilCollaboration;
 }
 
 export function validateFinancialCouncilRunResponse(
@@ -242,6 +298,8 @@ function optionalSignal(signal: AbortSignal | undefined) {
 }
 
 export interface FinancialCouncilApi {
+  listRuns(after?: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilRunHistory>>;
+  getCollaboration(runId: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilCollaboration>>;
   createRun(input: FinancialCouncilCreateInput, idempotencyKey: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilRun>>;
   createFromStatementPackage(input: CreateCouncilRunFromPackageInput, idempotencyKey: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilRun>>;
   getRun(runId: string, signal?: AbortSignal): Promise<GrowthHttpResponse<FinancialCouncilRun>>;
@@ -256,6 +314,20 @@ export interface FinancialCouncilApi {
 
 export function createFinancialCouncilApi(http: GrowthHttpClient): FinancialCouncilApi {
   const api: FinancialCouncilApi = {
+    async listRuns(after, signal) {
+      const query = new URLSearchParams({ limit: "20" });
+      if (after) query.set("after", after);
+      const response = await http.request<unknown>(`/api/v1/finance/council-runs?${query}`, { signal });
+      validatePage(response.body, entry => {
+        const row = record(entry, ["runId", "status", "currency", "dataAsOf", "createdAt", "updatedAt"]);
+        if (!nonempty(row.runId) || !RUN_STATUSES.has(String(row.status))) responseError();
+      });
+      return { ...response, body: response.body as FinancialCouncilRunHistory };
+    },
+    async getCollaboration(runId, signal) {
+      const response = await http.request<unknown>(`/api/v1/finance/council-runs/${encodeURIComponent(runId)}/collaboration`, { signal });
+      return { ...response, body: validateCollaboration(response.body, runId) };
+    },
     async createRun(input, idempotencyKey, signal) {
       const response = await http.request<unknown>("/api/v1/finance/council-runs", {
         method: "POST", body: createBody(input), idempotencyKey,
@@ -277,10 +349,21 @@ export function createFinancialCouncilApi(http: GrowthHttpClient): FinancialCoun
       return { ...response, body: validateFinancialCouncilRunResponse(response.body) };
     },
     async listEvents(runId, signal) {
-      const response = await http.request<unknown>(
-        `/api/v1/finance/council-runs/${encodeURIComponent(runId)}/events`, { signal }
-      );
-      return { ...response, body: validateEvents(response.body) };
+      const items = new Map<string, FinancialCouncilRunEventPage["items"][number]>();
+      const cursors = new Set<string>();
+      let after: string | null = null;
+      for (;;) {
+        const query = after ? `?after=${encodeURIComponent(after)}&limit=100` : "";
+        const response = await http.request<unknown>(
+          `/api/v1/finance/council-runs/${encodeURIComponent(runId)}/events${query}`, { signal }
+        );
+        const page = validateEvents(response.body);
+        for (const item of page.items) items.set(item.eventId, item);
+        if (!page.hasMore) return { ...response, body: { items: [...items.values()], nextAfter: page.nextAfter, hasMore: false } };
+        if (!page.nextAfter || cursors.has(page.nextAfter)) return responseError();
+        cursors.add(page.nextAfter);
+        after = page.nextAfter;
+      }
     },
     async getPolicy(signal) {
       const response = await http.request<unknown>("/api/v1/finance/council-policy", { signal });

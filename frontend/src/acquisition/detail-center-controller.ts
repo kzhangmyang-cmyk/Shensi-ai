@@ -3,6 +3,7 @@ import {
   type AcquisitionDetailApi,
   type AcquisitionPrivateDomainHandoffInput,
   type AcquisitionRunControlAction,
+  type AcquisitionRunPresentation,
   type AcquisitionRunWithEtag,
   type AcquisitionTaskDetail,
   type AcquisitionContentFetchOperation,
@@ -54,7 +55,10 @@ export interface AcquisitionDetailCenterControllerOptions {
 export interface AcquisitionDetailCenterController {
   getState(): Readonly<AcquisitionDetailCenterState>;
   whenIdle(): Promise<void>;
-  open(mode: AcquisitionDetailCenterMode, planId: string): Promise<void>;
+  open(mode: AcquisitionDetailCenterMode, planId: string, candidate?: {
+    candidateId: string;
+    candidateRunId?: string;
+  }): Promise<void>;
   openCandidate(candidateId: string): Promise<void>;
   close(): void;
   switchMode(mode: AcquisitionDetailCenterMode): void;
@@ -105,6 +109,7 @@ interface DetailOpenRequest {
   mode?: unknown;
   planId?: unknown;
   candidateId?: unknown;
+  candidateRunId?: unknown;
 }
 
 function defaultEventTarget(): EventTarget {
@@ -672,6 +677,7 @@ export function createAcquisitionDetailCenterController(
     status: "ready",
     detail: null,
     selectedCandidateId: null,
+    candidateFocus: null,
     candidateDetail: null,
     message: null,
     error: null,
@@ -1016,6 +1022,7 @@ export function createAcquisitionDetailCenterController(
   }
 
   function ensureRunPolling(): void {
+    if (state.candidateFocus) return;
     if (disposed || hasPollHandle || !currentPlanId || !shouldPollRun(state.detail)) return;
     const generation = pollGeneration;
     const delay = Math.min(
@@ -1237,6 +1244,7 @@ export function createAcquisitionDetailCenterController(
   async function readCandidateSnapshot(
     candidateId: string
   ): Promise<AcquisitionCandidateDetail> {
+    const directHandoff = state.candidateFocus?.candidateId === candidateId;
     const [candidateResult, evidenceResult, qualificationResult,
       financialResult, battleCardResult, reviewsResult, identityResult,
       operationResult, handoffResult] =
@@ -1252,33 +1260,33 @@ export function createAcquisitionDetailCenterController(
         })),
         loadResource(
           "资格研判",
-          () => api.getCandidateQualification(candidateId),
+          () => directHandoff ? Promise.resolve(null) : api.getCandidateQualification(candidateId),
           null
         ),
         loadResource(
           "财务价值",
-          () => api.getCandidateFinancialValue(candidateId),
+          () => directHandoff ? Promise.resolve(null) : api.getCandidateFinancialValue(candidateId),
           null
         ),
         loadResource(
           "客户作战卡",
-          () => api.getCandidateBattleCard(candidateId),
+          () => directHandoff ? Promise.resolve(null) : api.getCandidateBattleCard(candidateId),
           null
         ),
-        loadCursorPages("审核记录", (cursor) => api.getCandidateReviews(candidateId, {
+        loadCursorPages("审核记录", (cursor) => directHandoff ? Promise.resolve({ items: [], nextCursor: null }) : api.getCandidateReviews(candidateId, {
           ...(cursor ? { cursor } : {}),
           limit: 100
         })),
         loadResource<CandidateDouyinIdentityResolutionOperation | null>(
           "自动主体核验",
-          () => typeof api.getLatestDouyinIdentityResolutionOperation === "function"
+          () => !directHandoff && typeof api.getLatestDouyinIdentityResolutionOperation === "function"
             ? api.getLatestDouyinIdentityResolutionOperation(candidateId)
             : Promise.resolve(null),
           null
         ),
         loadResource(
           "AI 研判任务",
-          () => api.getLatestIntelligenceOperation(candidateId),
+          () => directHandoff ? Promise.resolve(null) : api.getLatestIntelligenceOperation(candidateId),
           null
         ),
         loadResource(
@@ -1605,6 +1613,44 @@ export function createAcquisitionDetailCenterController(
     ensureSelectedCandidatePolling();
   }
 
+  async function loadFocusedCandidateSource(serial: number): Promise<void> {
+    const focus = state.candidateFocus;
+    if (!focus) return;
+    const current = () => !disposed && detailOpen && serial === requestSerial
+      && state.candidateFocus === focus && state.selectedCandidateId === focus.candidateId;
+    if (!focus.runId) {
+      const source = handoffAttributionSource(state.detail, focus.candidateId);
+      if (source && current()) Object.assign(focus, source);
+      return;
+    }
+    const seenCursors = new Set<string>();
+    let after: string | undefined;
+    // Find the retained discovery in its own run, not in the plan's latest run.
+    for (let page = 0; page < 100 && current(); page += 1) {
+      const presentation: AcquisitionRunPresentation | null = await api.getRunPresentation(focus.runId, { after, limit: 100 })
+        .catch((error: unknown) => {
+          if (!current()) return null;
+          throw error;
+        });
+      if (!presentation || !current()) return;
+      if (presentation.run.id !== focus.runId) throw new Error("候选来源运行不匹配，请重新打开候选");
+      const event = records(presentation.candidateEvents).find((item) =>
+        requestedCandidateId(item.candidateId) === focus.candidateId
+        || requestedCandidateId(record(item.candidate)?.id) === focus.candidateId);
+      const eventId = requestedPlanId(event?.eventId) ?? requestedPlanId(event?.id);
+      if (eventId) {
+        focus.discoveredEventId = eventId;
+        return;
+      }
+      if (!presentation.hasMore) throw new Error("来源运行未找到该候选的发现事件，暂不能交接");
+      const next = requestedPlanId(presentation.nextAfter);
+      if (!next || seenCursors.has(next)) throw new Error("候选来源分页游标无效，已停止读取");
+      seenCursors.add(next);
+      after = next;
+    }
+    if (current()) throw new Error("候选来源尚未定位，请重新打开候选后重试");
+  }
+
   function remember<T>(promise: Promise<T>): Promise<T> {
     idlePromise = promise.then(() => undefined, () => undefined);
     return promise;
@@ -1632,7 +1678,7 @@ export function createAcquisitionDetailCenterController(
       return idlePromise;
     },
 
-    open(mode, planId) {
+    open(mode, planId, candidate) {
       releaseVisualArtifact();
       invalidateMutation();
       invalidateRunMutation();
@@ -1645,6 +1691,13 @@ export function createAcquisitionDetailCenterController(
       detailOpen = true;
       showRoot();
       state.mode = mode;
+      const focusedId = mode === "candidates" ? requestedCandidateId(candidate?.candidateId) : null;
+      state.candidateFocus = focusedId ? {
+        candidateId: focusedId,
+        runId: requestedPlanId(candidate?.candidateRunId),
+        discoveredEventId: null
+      } : null;
+      if (focusedId) visualReaderController.close();
       state.status = "loading";
       state.detail = null;
       state.selectedCandidateId = null;
@@ -1662,6 +1715,18 @@ export function createAcquisitionDetailCenterController(
           if (disposed || serial !== requestSerial) return;
           state.detail = detail;
           state.status = "ready";
+          if (focusedId) {
+            await controller.selectCandidate(focusedId);
+            if (disposed || serial !== requestSerial || !detailOpen) return;
+            try {
+              await loadFocusedCandidateSource(serial);
+            } catch (error) {
+              if (disposed || serial !== requestSerial || !detailOpen) return;
+              state.error = [state.error, errorText(error)].filter(Boolean).join("；");
+            }
+            if (!disposed && serial === requestSerial && detailOpen) render();
+            return;
+          }
           await visualReaderController.open({
             planId,
             runId: requestedPlanId(detail.latestRun?.id),
@@ -1703,6 +1768,7 @@ export function createAcquisitionDetailCenterController(
       visualReaderController.close();
       showRoot();
       state.mode = "candidates";
+      state.candidateFocus = null;
       state.status = "ready";
       state.detail = null;
       state.selectedCandidateId = null;
@@ -2433,20 +2499,19 @@ export function createAcquisitionDetailCenterController(
       }
       if (handoffStatus && "handoff" in handoffStatus
         && recoveryRequest === undefined) return;
-      if (status !== "approved" && status !== "converted_to_lead") {
-        void rejectValidation("只有已批准或已转线索的候选可以交接").catch(
-          () => undefined
-        );
-        return;
-      }
       const source = recoveryRequest?.runId && recoveryRequest.discoveredEventId
         ? {
             runId: recoveryRequest.runId,
             discoveredEventId: recoveryRequest.discoveredEventId
           }
-        : handoffAttributionSource(state.detail, state.selectedCandidateId);
+        : state.candidateFocus
+          ? state.candidateFocus.candidateId === state.selectedCandidateId
+            && state.candidateFocus.runId && state.candidateFocus.discoveredEventId
+            ? { runId: state.candidateFocus.runId, discoveredEventId: state.candidateFocus.discoveredEventId }
+            : null
+          : handoffAttributionSource(state.detail, state.selectedCandidateId);
       if (!source) {
-        void rejectValidation("候选缺少当前运行的固定发现事件").catch(
+        void rejectValidation("候选缺少来源运行的固定发现事件，请从原采集结果重新打开").catch(
           () => undefined
         );
         return;
@@ -2495,12 +2560,6 @@ export function createAcquisitionDetailCenterController(
       if (!candidateId || !candidate) {
         return rejectValidation("请先选择一个候选");
       }
-      if (status !== "approved" && status !== "converted_to_lead") {
-        return rejectValidation("只有已批准或已转线索的候选可以交接");
-      }
-      if (!decisionVersion) {
-        return rejectValidation("候选缺少已批准的资格决定版本");
-      }
       if (!dialog?.open || !dialog.runId.trim()
         || !dialog.discoveredEventId.trim()) {
         return rejectValidation("候选缺少当前运行的固定发现事件");
@@ -2522,10 +2581,10 @@ export function createAcquisitionDetailCenterController(
       if (mutating) return rejectValidation("另一项候选操作正在进行");
 
       const request: AcquisitionPrivateDomainHandoffInput = {
-        operationCode: "handoff_acquisition_candidate_v1",
+        operationCode: dialog.recovering ? "handoff_acquisition_candidate_v1" : "handoff_acquisition_candidate_v2",
         runId: dialog.runId,
         discoveredEventId: dialog.discoveredEventId,
-        decisionVersion,
+        decisionVersion: dialog.recovering ? decisionVersion : "",
         mode: effectiveInput.mode,
         existingCustomerId: effectiveInput.mode === "link_existing"
           ? existingCustomerId
@@ -2614,14 +2673,25 @@ export function createAcquisitionDetailCenterController(
       }
       if (mutating) return rejectValidation("另一项候选操作正在进行");
 
-      const idempotency = stableKey("start-intelligence", { candidateId });
+      const operation = state.candidateDetail?.intelligenceOperation;
+      const retryOperationId = operation?.status === "failed"
+        && typeof operation.id === "string" && operation.id.length > 0
+        ? operation.id : null;
+      if (operation?.status === "failed" && !retryOperationId) {
+        return rejectValidation("研判任务标识缺失，请重新打开候选详情");
+      }
+      const idempotency = stableKey("start-intelligence", { candidateId, retryOperationId });
       const context = beginMutation(candidateId);
       state.error = null;
       state.message = "正在启动 AI 客户情报与资格研判…";
       render();
       return remember((async () => {
         try {
-          await api.startIntelligenceOperation(candidateId, idempotency.value);
+          if (retryOperationId) {
+            await api.retryIntelligenceOperation(retryOperationId, idempotency.value);
+          } else {
+            await api.startIntelligenceOperation(candidateId, idempotency.value);
+          }
           pendingIdempotencyKeys.delete(idempotency.id);
           if (!mutationIsCurrent(context)) return;
           eventTarget.dispatchEvent(customEvent(
@@ -2677,6 +2747,7 @@ export function createAcquisitionDetailCenterController(
       );
       root?.removeEventListener("click", onRootClick);
       root?.removeEventListener("change", onRootChange);
+      root?.removeEventListener("input", onHandoffInput);
       root?.removeEventListener("submit", onRootSubmit);
       root?.removeEventListener("close", onRootClose);
     }
@@ -2687,6 +2758,7 @@ export function createAcquisitionDetailCenterController(
     const mode = requestedMode(detail?.mode);
     const planId = requestedPlanId(detail?.planId);
     const candidateId = requestedCandidateId(detail?.candidateId);
+    const candidateRunId = requestedPlanId(detail?.candidateRunId);
     if (!mode) return;
     if (!planId) {
       if (mode === "candidates" && candidateId) {
@@ -2694,17 +2766,10 @@ export function createAcquisitionDetailCenterController(
       }
       return;
     }
-    void controller.open(mode, planId)
-      .then(() => {
-        if (
-          mode === "candidates"
-          && candidateId
-          && controller.getState().selectedCandidateId !== candidateId
-        ) {
-          return controller.selectCandidate(candidateId);
-        }
-        return undefined;
-      })
+    void controller.open(mode, planId, candidateId ? {
+      candidateId,
+      ...(candidateRunId ? { candidateRunId } : {})
+    } : undefined)
       .catch(() => undefined);
   }
 
@@ -2754,7 +2819,10 @@ export function createAcquisitionDetailCenterController(
     } else if (action === "load-more-candidates") {
       consume(controller.loadMoreCandidates());
     } else if (action === "retry") {
-      if (currentPlanId) consume(controller.open(state.mode, currentPlanId));
+      if (currentPlanId) consume(controller.open(state.mode, currentPlanId, state.candidateFocus ? {
+        candidateId: state.candidateFocus.candidateId,
+        ...(state.candidateFocus.runId ? { candidateRunId: state.candidateFocus.runId } : {})
+      } : undefined));
     } else if (action === "authorize-visual-reader") {
       event.preventDefault();
       consume(visualReaderController.authorize());
@@ -2798,7 +2866,10 @@ export function createAcquisitionDetailCenterController(
         window.location.hash = `#growth/quotes?candidate=${
           encodeURIComponent(candidateId)
         }`;
+      } else if (customerId) {
+        window.location.hash = `#growth/quotes?customer=${encodeURIComponent(customerId)}`;
       }
+      controller.close();
     } else if (action === "close-private-domain-handoff") {
       event.preventDefault();
       controller.closePrivateDomainHandoff();
@@ -2828,10 +2899,28 @@ export function createAcquisitionDetailCenterController(
   }
 
   function onRootChange(event: Event): void {
+    onHandoffInput(event);
     const target = event.target as HTMLInputElement | null;
     if (!target?.matches?.('input[name="visualReaderArtifactUpload"]')
       || !root?.contains(target)) return;
     visualReaderController.setArtifactUploadEnabled(target.checked);
+  }
+
+  function onHandoffInput(event: Event): void {
+    const target = event.target as HTMLInputElement | HTMLSelectElement | null;
+    const form = target?.closest?.('[data-acquisition-detail-form="private-domain-handoff"]');
+    const dialog = state.handoffDialog;
+    if (!target || !form || !root?.contains(target) || !dialog?.open || dialog.busy || dialog.recovering) return;
+    if (target.name === "handoffMode" && (target.value === "create_new" || target.value === "link_existing")) {
+      dialog.mode = target.value;
+      const existing = form.querySelector<HTMLInputElement>('[name="existingCustomerId"]');
+      if (existing) existing.required = dialog.mode === "link_existing";
+    } else if (target.name === "existingCustomerId") dialog.existingCustomerId = target.value;
+    else if (target.name === "followUpTitle") dialog.followUp.title = target.value;
+    else if (target.name === "followUpDueAt") dialog.followUp.dueAt = target.value;
+    else if (target.name === "followUpPriority" && ["high", "medium", "normal"].includes(target.value)) {
+      dialog.followUp.priority = target.value as "high" | "medium" | "normal";
+    }
   }
 
   function onRootSubmit(event: Event): void {
@@ -2938,6 +3027,7 @@ export function createAcquisitionDetailCenterController(
   resolveDom();
   root?.addEventListener("click", onRootClick);
   root?.addEventListener("change", onRootChange);
+  root?.addEventListener("input", onHandoffInput);
   root?.addEventListener("submit", onRootSubmit);
   root?.addEventListener("close", onRootClose);
   render();

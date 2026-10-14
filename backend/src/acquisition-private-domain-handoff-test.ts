@@ -172,7 +172,11 @@ const acquisitionAttribution = {
 };
 
 const validAttributionResolver = {
-  async resolve() { return structuredClone(acquisitionAttribution); }
+  async resolve() { return structuredClone(acquisitionAttribution); },
+  async resolveSource() {
+    const { qualificationDecisionId, decisionVersion, decisionSnapshotHash, ...source } = acquisitionAttribution;
+    return structuredClone(source);
+  }
 };
 
 function handoffStore(): AcquisitionPrivateDomainHandoffStore {
@@ -1433,5 +1437,51 @@ assert.equal(refreshed.handoff.id, recovered.handoff.id);
 assert.equal(refreshed.lead.id, recovered.lead.id);
 assert.equal(refreshed.customer.id, recovered.customer.id);
 assert.equal(refreshed.todo.id, recovered.todo.id);
+
+for (const status of ["normalized", "needs_research"] as const) {
+  const direct = await fixture({ status, latestDecisionId: null, latestDecisionVersion: null,
+    approvedDecisionVersion: null, hardGateFailures: ["old_ai_failure"] });
+  direct.repository.listQualificationDecisions = async () => { throw new Error("direct intake must not read qualification"); };
+  direct.repository.listFinancialValues = async () => { throw new Error("direct intake must not read financial AI"); };
+  direct.domainService.convertCandidate = async () => { throw new Error("direct intake must not call approved conversion"); };
+  const input = { ...request, operationCode: "handoff_acquisition_candidate_v2" as const, decisionVersion: "" };
+  const result = await direct.service.create(scope, "candidate-a", input, "direct-key");
+  assert.equal(result.intelligence, null);
+  assert.equal(result.customer.company, "厦门真实采购有限公司");
+  assert.equal(result.customer.ownerId, scope.ownerId);
+  assert.equal(result.todo.customerId, result.customer.id);
+  assert.equal(direct.store.customers.find((row) => row.id === result.customer.id)?.company, result.customer.company);
+  const [again, anotherKey] = await Promise.all([
+    direct.service.create(scope, "candidate-a", input, "direct-key"),
+    direct.service.create(scope, "candidate-a", input, "different-key")
+  ]);
+  assert.equal(again.customer.id, result.customer.id);
+  assert.equal(anotherKey.customer.id, result.customer.id);
+  assert.equal(direct.store.customers.length, 1);
+  assert.equal(direct.store.todos.length, 1);
+  const loaded = await direct.service.get(scope, "candidate-a");
+  assert.ok("handoff" in loaded);
+  assert.equal(loaded.recovery, undefined);
+  assert.equal(loaded.source?.runId, runId);
+  await assert.rejects(direct.service.create({ ...scope, ownerId: "other" }, "candidate-a", input, "direct-key"));
+  await assert.rejects(direct.service.get({ ...scope, teamId: "other" }, "candidate-a"));
+  assert.equal(direct.store.customers.length, 1);
+  const source = JSON.parse(direct.store.leadSourceEvents[0]!.rawPayload);
+  assert.equal(source.sourceAttribution.runId, runId);
+  assert.equal("qualificationDecisionId" in source.sourceAttribution, false);
+}
+
+{
+  const failed = await fixture({ status: "normalized", latestDecisionId: null, latestDecisionVersion: null, approvedDecisionVersion: null });
+  failed.store.persist = async () => { throw new Error("storage unavailable"); };
+  await assert.rejects(failed.service.create(scope, "candidate-a", {
+    ...request, operationCode: "handoff_acquisition_candidate_v2", decisionVersion: ""
+  }, "direct-rollback"), /storage unavailable/);
+  for (const rows of [failed.store.customers, failed.store.leads, failed.store.todos,
+    failed.store.customerActivities, failed.store.leadSourceEvents,
+    failed.store.acquisitionCustomerHandoffs, failed.store.acquisitionCustomerHandoffOperations]) {
+    assert.equal(rows.length, 0, "direct intake rolls back all linked rows together");
+  }
+}
 
 console.log("acquisition private-domain handoff tests passed");

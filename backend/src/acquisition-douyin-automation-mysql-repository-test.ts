@@ -730,7 +730,7 @@ test("live MySQL aligns a new run binding with the existing authoritative run co
 }, async () => {
   const configured = process.env.MYSQL_TEST_ADMIN_URL!;
   const adminUrl = new URL(configured);
-  const databaseName = `goodjob_douyin_binding_collation_${randomUUID().replaceAll("-", "")}`;
+  const databaseName = `goodjob_dy_bind_coll_${randomUUID().replaceAll("-", "")}`;
   const admin = await mysql.createConnection(adminUrl.toString());
   const databaseUrl = new URL(adminUrl);
   databaseUrl.pathname = `/${databaseName}`;

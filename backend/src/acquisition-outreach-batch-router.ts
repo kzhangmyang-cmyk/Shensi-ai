@@ -13,21 +13,33 @@ const createSchema = z.object({ candidateIds: z.array(z.string().trim().min(1).m
 const putSchema = z.object({ candidates: z.array(z.object({ candidateId: z.string().trim().min(1).max(255),
   selected: z.boolean(), comment: z.string(), directMessage: z.string() }).strict()).min(1).max(200) }).strict();
 const approveSchema = z.object({ revision: z.number().int().min(1), batchHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u), confirm: z.literal(true) }).strict();
-const directMessageApproveSchema = z.object({
+const directMessageApproveCommonSchema = z.object({
   batchRevision: z.number().int().min(1),
   batchHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
-  commentApprovalHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
   dailyLimit: z.number().int().min(1).max(100),
   candidates: z.array(z.object({ candidateId: z.string().trim().min(1).max(255),
     directMessage: z.string().min(1).max(800) }).strict()).min(1).max(100),
   confirm: z.literal(true)
 }).strict();
+const directMessageApproveSchema = z.union([
+  directMessageApproveCommonSchema.extend({ accountLoginStateVersion: z.number().int().min(1) }).strict(),
+  // Existing v2 clients and persisted approvals retain their comment-linked authority.
+  directMessageApproveCommonSchema.extend({ commentApprovalHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u) }).strict()
+]);
 const reasonSchema = z.object({ reason: z.string().trim().max(2_000).optional() }).strict();
 const emptySchema = z.object({}).strict();
 const reconcileSchema = z.object({
   batchRevision: z.number().int().min(1),
   approvalHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
   contentHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+  confirm: z.literal(true)
+}).strict();
+const recoverAccountActionsSchema = z.object({
+  batchRevision: z.number().int().min(1),
+  accountLoginStateVersion: z.number().int().min(1),
+  pendingActionIds: z.array(id).max(200),
+  acknowledgedUncertainActionIds: z.array(id).max(200),
+  reason: z.string().trim().min(8).max(2_000),
   confirm: z.literal(true)
 }).strict();
 const listQuerySchema = z.object({
@@ -175,6 +187,10 @@ function knownDraftFailure(error: unknown) {
     return new HttpError(422, "outreach_model_response_invalid",
       "AI 未返回符合要求的评论和私信草稿，请重试或切换模型");
   }
+  if (error.message === "OUTREACH_MANUAL_DRAFT_INVALID") {
+    return new HttpError(422, "outreach_manual_draft_invalid",
+      "手动文案未通过校验：评论需为 1–300 字、私信需为 1–800 字；请检查链接、联系方式或不支持的字符。草稿已保留，无需切换模型。");
+  }
   return null;
 }
 function batchPublicMessage(code: string) {
@@ -189,6 +205,9 @@ function batchPublicMessage(code: string) {
   }
   if (code === "outreach_direct_message_target_invalid") {
     return "所选候选人缺少可私信的抖音主页，请返回候选人列表重新选择";
+  }
+  if (code === "outreach_action_recovery_stale") {
+    return "评论队列状态已变化，请刷新并重新核对后再恢复";
   }
   return code;
 }
@@ -299,8 +318,23 @@ export function createAcquisitionOutreachBatchRouter(options: {
     headers(res, result); res.json(result.value);
   }));
   router.get("/outreach-batches/:batchId/actions", route(requestId, internalError, async (req, res) => {
-    res.json({ items: await options.service.actions(scope(req), id.parse(req.params.batchId)) });
+    const currentScope = scope(req);
+    const batchId = id.parse(req.params.batchId);
+    const [items, executionGate] = await Promise.all([
+      options.service.actions(currentScope, batchId),
+      options.service.actionExecutionGate(currentScope, batchId)
+    ]);
+    res.json({ items, executionGate });
   }));
+  router.post("/outreach-batches/:batchId/actions/recover-account",
+    route(requestId, internalError, async (req, res) => {
+      const result = await options.service.recoverAccountActions(
+        scope(req), id.parse(req.params.batchId), match(req), key(req),
+        recoverAccountActionsSchema.parse(req.body)
+      );
+      if (result.replayed) res.setHeader("Idempotency-Replayed", "true");
+      res.json(result.value);
+    }));
   router.post("/outreach-batches/:batchId/actions/:actionId/reconcile",
     route(requestId, internalError, async (req, res) => {
       key(req);
@@ -308,6 +342,7 @@ export function createAcquisitionOutreachBatchRouter(options: {
         scope(req),
         id.parse(req.params.batchId),
         id.parse(req.params.actionId),
+        key(req),
         reconcileSchema.parse(req.body),
       );
       res.json(value);

@@ -12,6 +12,7 @@ import { knowledgeContext, validInput } from '../../test/knowledge-fixture.js';
 async function validator(definition: string) {
   const ajv = new Ajv({ strict: false, allErrors: true }); addFormats(ajv);
   const schema = JSON.parse(await readFile(new URL('../../../contracts/json-schema/knowledge.v1.schema.json', import.meta.url), 'utf8'));
+  ajv.addSchema(JSON.parse(await readFile(new URL('../../../contracts/json-schema/system-reference.v1.schema.json', import.meta.url), 'utf8')));
   ajv.addSchema(schema); return ajv.compile({ $ref: `${schema.$id}#/$defs/${definition}` });
 }
 test('knowledge generated input contract rejects the same ownership, format and byte breaks as runtime', async () => {
@@ -35,7 +36,7 @@ test('knowledge public records conform to closed DTOs without internal ownership
 });
 test('optional knowledge projection preserves legacy CFO and voice payloads and bounded citations', async () => {
   const ajv = new Ajv({ strict: false }); addFormats(ajv);
-  for (const name of ['knowledge', 'finance-document', 'cfo-conversation', 'cfo-session']) {
+  for (const name of ['knowledge', 'system-reference', 'finance-document', 'cfo-conversation', 'cfo-session']) {
     ajv.addSchema(JSON.parse(await readFile(new URL(`../../../contracts/json-schema/${name}.v1.schema.json`, import.meta.url), 'utf8')));
   }
   const input = ajv.compile({ $ref: 'https://schemas.goodjob.ai/cfo-conversation.v1.schema.json#/$defs/Input' });

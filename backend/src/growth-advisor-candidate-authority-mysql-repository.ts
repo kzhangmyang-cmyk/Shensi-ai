@@ -23,6 +23,10 @@ import {
 
 type MysqlRow = Record<string, unknown>;
 
+function mysqlJson<T>(value: unknown): T {
+  return (typeof value === "string" ? JSON.parse(value) : value) as T;
+}
+
 export const ADVISOR_CANDIDATE_AUTHORITY_MYSQL_SCHEMA_STATEMENTS =
   Object.freeze([
     `CREATE TABLE IF NOT EXISTS advisor_candidate_authority_events (
@@ -71,11 +75,11 @@ export async function ensureAdvisorCandidateAuthorityMysqlSchema(
 }
 
 function authorityRow(row: MysqlRow): AdvisorCandidateAuthorityEvent {
-  const evidence = JSON.parse(String(row.evidence_json)) as Array<{
+  const evidence = mysqlJson<Array<{
     evidenceId: string;
     contentHash: string;
     fetchedAt: string;
-  }>;
+  }>>(row.evidence_json);
   return Object.freeze({
     id: String(row.id),
     workspaceId: String(row.workspace_id),

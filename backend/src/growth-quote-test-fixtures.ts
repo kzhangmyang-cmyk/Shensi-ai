@@ -10,6 +10,11 @@ import type { AcquisitionCustomerHandoff, Customer, Deal, Lead, User } from "./t
 import type { CommercialBindingInput } from "./commercial-binding-snapshot.js";
 import { CommercialBindingVerifier, createCommercialBindingSnapshot } from "./commercial-binding-snapshot.js";
 import {
+  CrmQuoteAuthorityVerifier,
+  createCrmQuoteAuthoritySnapshot,
+  isCrmQuoteAuthoritySnapshot
+} from "./crm-quote-assessment.js";
+import {
   DefaultGrowthTemporalBarrier,
   InMemoryGrowthTemporalTransactionRunner
 } from "./growth-temporal-barrier.js";
@@ -293,6 +298,7 @@ interface QuoteCaseFixtureOptions {
   }>;
   authorityRevision?: number;
   failAfterWork?: boolean;
+  ordinaryDeal?: boolean;
 }
 
 export function quoteCaseFixture(options: QuoteCaseFixtureOptions = {}) {
@@ -348,6 +354,8 @@ export function quoteCaseFixture(options: QuoteCaseFixtureOptions = {}) {
   };
   const bindingVerifier = new CommercialBindingVerifier(sourceState,
     () => FIXED_INSTANT);
+  const crmAuthorityVerifier = new CrmQuoteAuthorityVerifier(sourceState,
+    () => FIXED_INSTANT);
   const defaultMembers = [
     { actorId: "sales-a", workspaceId: "team-a", role: "sales" as const,
       status: "active" as const },
@@ -399,13 +407,15 @@ export function quoteCaseFixture(options: QuoteCaseFixtureOptions = {}) {
         if (requested.customerId && requested.customerId !== "customer-1") return null;
         if (requested.candidateId && requested.candidateId !== "candidate-1") return null;
         return {
-          candidateId: requested.candidateId ?? (requested.dealId ? "candidate-1" : null),
+          candidateId: options.ordinaryDeal && requested.dealId
+            ? null
+            : requested.candidateId ?? (requested.dealId ? "candidate-1" : null),
           customerId: requested.customerId ?? (requested.dealId ? "customer-1" : null),
           dealId: requested.dealId ?? null
         };
       }
     },
-    bindingVerifier, probabilityAssessments,
+    bindingVerifier, crmAuthorityVerifier, probabilityAssessments,
     now: () => FIXED_INSTANT,
     idFactory: () => `case-created-${++nextId}`,
     leaseOwner: "quote-fixture", leaseDurationMs: 30_000
@@ -439,6 +449,7 @@ export interface QuoteVersionFixtureOptions {
   readonly previousPreviewEvidenceRecordedAt?: string;
   readonly previewAppendServerNow?: string;
   readonly pauseDraftAfterCaseLock?: boolean;
+  readonly ordinaryDeal?: boolean;
 }
 
 export function quoteVersionFixture(options: QuoteVersionFixtureOptions = {}) {
@@ -448,11 +459,27 @@ export function quoteVersionFixture(options: QuoteVersionFixtureOptions = {}) {
       ?? initialNow
   );
   const temporalBarrier = new DefaultGrowthTemporalBarrier(transactions);
-  const binding = createCommercialBindingSnapshot(bindingInputFixture());
+  const authoritySource = bindingInputFixture();
+  const binding = options.ordinaryDeal
+    ? createCrmQuoteAuthoritySnapshot({
+        context: { workspaceId: "team-a", actorId: "sales-a" },
+        customer: authoritySource.customer,
+        deal: authoritySource.deal,
+        assessment: {
+          demandConfirmed: true,
+          budgetConfirmed: true,
+          decisionMakerConfirmed: true,
+          closeProbabilityBps: options.closeProbabilityBps ?? 4_321,
+          evidenceSummary: "客户需求、预算与决策人已人工确认。"
+        },
+        verifiedAt: FIXED_INSTANT
+      })
+    : createCommercialBindingSnapshot(authoritySource);
   const boundDeal = options.boundDeal !== false;
   const ids = options.cases ?? ["case-1"];
   const cases: QuoteCase[] = ids.map((id) => ({
-    id, workspaceId: "team-a", candidateId: "candidate-1",
+    id, workspaceId: "team-a",
+    candidateId: options.ordinaryDeal ? null : "candidate-1",
     customerId: boundDeal ? "customer-1" : null,
     dealId: boundDeal ? "deal-1" : null,
     assignedTo: "sales-a", status: "open", currentDraftVersionId: null,
@@ -516,8 +543,19 @@ export function quoteVersionFixture(options: QuoteVersionFixtureOptions = {}) {
       async findCurrent() { return assessment; }
     } as never,
     bindingVerifier: {
-      async verify() { return binding; }
+      async verify() {
+        if (options.ordinaryDeal) {
+          throw new Error("unexpected_acquisition_verification");
+        }
+        return binding;
+      }
     } as never,
+    crmAuthorityVerifier: options.ordinaryDeal
+      ? new CrmQuoteAuthorityVerifier({
+          customers: [authoritySource.customer as Customer],
+          deals: [authoritySource.deal]
+        }, () => FIXED_INSTANT)
+      : undefined,
     catalog: {
       quoteCatalog: {
         async resolveAt(_context: unknown, input: { effectiveAt: string }) {
@@ -601,6 +639,7 @@ export function managerDecisionContext(
 export interface ApprovalFixtureOptions {
   readonly submittedBy?: string;
   readonly requiredCapabilities?: readonly string[];
+  readonly ordinaryDeal?: boolean;
 }
 
 export function approvalFixture(options: ApprovalFixtureOptions = {}) {
@@ -608,11 +647,27 @@ export function approvalFixture(options: ApprovalFixtureOptions = {}) {
     "2026-08-09T08:00:00.000Z"
   );
   const temporalBarrier = new DefaultGrowthTemporalBarrier(transactions);
-  const binding = createCommercialBindingSnapshot(bindingInputFixture({
+  const authoritySource = bindingInputFixture({
     verifiedAt: "2026-08-09T07:00:00.000Z"
-  }));
+  });
+  const binding = options.ordinaryDeal
+    ? createCrmQuoteAuthoritySnapshot({
+        context: { workspaceId: "team-a", actorId: "sales-a" },
+        customer: authoritySource.customer,
+        deal: authoritySource.deal,
+        assessment: {
+          demandConfirmed: true,
+          budgetConfirmed: true,
+          decisionMakerConfirmed: true,
+          closeProbabilityBps: 6_500,
+          evidenceSummary: "客户需求、预算和决策人均已人工确认。"
+        },
+        verifiedAt: "2026-08-09T07:00:00.000Z"
+      })
+    : createCommercialBindingSnapshot(authoritySource);
   const quoteCase: QuoteCase = {
-    id: "case-1", workspaceId: "team-a", candidateId: "candidate-1",
+    id: "case-1", workspaceId: "team-a",
+    candidateId: options.ordinaryDeal ? null : "candidate-1",
     customerId: "customer-1", dealId: "deal-1", assignedTo: "sales-a",
     status: "open", currentDraftVersionId: "version-draft-1", revision: 2,
     commercialBindingSnapshot: binding,
@@ -634,9 +689,11 @@ export function approvalFixture(options: ApprovalFixtureOptions = {}) {
   const formalVersion = createQuoteVersionFromCalculation({
     id: "version-formal-2", quoteCase, version: 2, versionKind: "formal",
     sourceDraftVersionId: draftVersion.id,
-    probabilityAssessmentSnapshot: probabilityRecordFixture({
-      dealId: "deal-1", recordedAt: "2026-08-09T07:45:00.000Z"
-    }),
+    probabilityAssessmentSnapshot: options.ordinaryDeal
+      ? isCrmQuoteAuthoritySnapshot(binding) ? binding.assessment : null
+      : probabilityRecordFixture({
+          dealId: "deal-1", recordedAt: "2026-08-09T07:45:00.000Z"
+        }),
     calculated, actorId: options.submittedBy ?? "sales-a",
     effectiveAt: "2026-08-09T08:00:00.000Z",
     recordedAt: "2026-08-09T08:00:00.000Z", temporalSequence: 2,
@@ -691,6 +748,12 @@ export function approvalFixture(options: ApprovalFixtureOptions = {}) {
   } as never;
   const service = new QuoteApprovalService({
     repository, bindingVerifier, foundation,
+    crmAuthorityVerifier: options.ordinaryDeal
+      ? new CrmQuoteAuthorityVerifier({
+          customers: [authoritySource.customer as Customer],
+          deals: [authoritySource.deal]
+        }, () => "2026-08-09T08:30:00.000Z")
+      : undefined,
     now: () => "2026-08-09T08:30:00.000Z",
     executionId: () => "approval-fixture-execution"
   });

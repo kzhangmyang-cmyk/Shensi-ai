@@ -32,6 +32,7 @@ import { InMemoryFinancialCouncilPolicyRepository } from
   "./financial-council-policy-repository.js";
 import type { FinancialCouncilPolicyRepository } from
   "./financial-council-policy-repository.js";
+import type { FinancialCfoNarrativePort } from "./financial-council-cfo.js";
 import type { FinancialCouncilModelRoutingRepository } from
   "./financial-council-model-routing-repository.js";
 import { FinancialCouncilRebuttalCoordinator } from
@@ -311,7 +312,8 @@ function modelResult<Value>(
 
 export class DeterministicFinancialCouncilModelPort
 implements FinancialCouncilModelPort {
-  constructor(private readonly delayMs = 0) {
+  constructor(private readonly delayMs = 0,
+    private readonly rebutExplanation = "risk preference remains material") {
     if (!Number.isSafeInteger(delayMs) || delayMs < 0) {
       throw new TypeError("invalid_financial_council_model_delay");
     }
@@ -383,7 +385,7 @@ implements FinancialCouncilModelPort {
       findingId: input.targetFindingId,
       evidenceRefs: Object.freeze([input.allowlist.evidenceRefIds[0]!]),
       replacement: null,
-      explanation: "risk preference remains material"
+      explanation: this.rebutExplanation
     }));
   }
 
@@ -391,13 +393,14 @@ implements FinancialCouncilModelPort {
   Promise<FinancialCouncilModelResult<FinancialCfoNarrativeOutput>> {
     const content = buildFinancialCouncilModelContent("synthesize", input);
     const value = Object.freeze({
-      overallDiagnosis: "Prioritize cash protection and verified margins.",
+      overallDiagnosis: `现金保护与利润改善需要共同审阅 ${[...input.acceptedFindings, ...input.minorityFindings]
+        .map(row => `[${row.findingId}]`).join("、")}`,
       priorityFindingIds: Object.freeze(input.acceptedFindings
         .slice(0, 2).map((row) => row.findingId)),
       minorityFindingIds: Object.freeze(input.minorityFindings
         .map((row) => row.findingId)),
-      riskNotes: Object.freeze(input.unresolvedConflicts.length
-        ? ["An unresolved risk preference remains visible."] : [])
+      riskNotes: Object.freeze(input.unresolvedConflicts.map(conflict =>
+        `风险偏好分歧需要保留 ${conflict.findingIds.map(id => `[${id}]`).join("、")}`))
     });
     return Object.freeze({ value, binding: Object.freeze({
       jobId: `financial-council:${input.runId}:cfo:synthesize:1`,
@@ -429,6 +432,7 @@ export interface FinancialCouncilIntegrationFixture {
 }
 
 export async function createFinancialCouncilIntegrationFixture(options: {
+  rebutExplanation?: string;
   repository?: FinancialCouncilRepository;
   policyRepository?: FinancialCouncilPolicyRepository;
   draftRepository?: FinancialCouncilDraftRepository;
@@ -438,6 +442,7 @@ export async function createFinancialCouncilIntegrationFixture(options: {
   workspaceId?: string;
   autoWake?: boolean;
   modelDelayMs?: number;
+  cfoNarrativePort?: FinancialCfoNarrativePort;
   formulaMinimumCashReserveMinor?: number;
   logger?: { error(event: Readonly<Record<string, unknown>>): void };
 } = {}): Promise<FinancialCouncilIntegrationFixture> {
@@ -491,7 +496,7 @@ export async function createFinancialCouncilIntegrationFixture(options: {
     now
   });
   const model = new DeterministicFinancialCouncilModelPort(
-    options.modelDelayMs ?? 0
+    options.modelDelayMs ?? 0, options.rebutExplanation
   );
   const resolvePolicy = async () => Object.freeze({
     formulaPolicy: Object.freeze({
@@ -529,7 +534,7 @@ export async function createFinancialCouncilIntegrationFixture(options: {
     logger: options.logger
   });
   const optimization = new FinancialCouncilOptimizationWorker({
-    repository, policyRepository, cfo: model,
+    repository, policyRepository, cfo: options.cfoNarrativePort ?? model,
     workerId: "council-integration-optimizer", now,
     leaseTokenFactory: () => "2".repeat(64)
   });

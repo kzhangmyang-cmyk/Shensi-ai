@@ -31,7 +31,8 @@ const candidateDetailOpenRequest = (
   detailEntry as typeof detailEntry & {
     acquisitionCandidateDetailRequest?: (
       candidateId: string,
-      planId?: string
+      planId?: string,
+      candidateRunId?: string
     ) => unknown;
   }
 ).acquisitionCandidateDetailRequest;
@@ -55,3 +56,29 @@ assert.deepEqual(
   },
   "an imported candidate should keep task attribution when a plan is selected"
 );
+
+assert.deepEqual(
+  candidateDetailOpenRequest?.(" candidate-history-1 ", " plan-1 ", " run-retained-1 "),
+  {
+    mode: "candidates",
+    planId: "plan-1",
+    candidateId: "candidate-history-1",
+    candidateRunId: "run-retained-1"
+  },
+  "direct candidate review must carry the trimmed retained result run rather than infer the latest run"
+);
+assert.deepEqual(
+  candidateDetailOpenRequest?.("candidate-imported-1", undefined, "run-without-plan"),
+  { mode: "candidates", candidateId: "candidate-imported-1" },
+  "a task-independent candidate must not acquire a run pin without a plan"
+);
+assert.deepEqual(
+  candidateDetailOpenRequest?.("candidate-imported-1", "  ", "run-without-plan"),
+  { mode: "candidates", candidateId: "candidate-imported-1" }
+);
+assert.deepEqual(
+  candidateDetailOpenRequest?.("candidate-imported-1", "plan-1", "  "),
+  { mode: "candidates", planId: "plan-1", candidateId: "candidate-imported-1" },
+  "a missing result run must preserve the legacy plan/candidate request"
+);
+assert.equal(candidateDetailOpenRequest?.("  ", "plan-1", "run-retained-1"), null);

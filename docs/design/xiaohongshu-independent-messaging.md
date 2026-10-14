@@ -1,6 +1,6 @@
 # 小红书独立私信适配
 
-状态：用户已选择独立适配；本书面设计待审阅，产品代码尚未实施。
+状态：源码已装配独立后端路由、Main/Preload、stdio运行器和社媒对话入口，离线合成验证进行中。运行应用尚未更新；真实平台、真实MySQL和原生整链验收未完成。部署与测试入口见`../../services/xiaohongshu/README.md`。
 
 ## 目标
 
@@ -18,7 +18,7 @@
 4. 小红书适配进程独占自己的账号会话和认证存储，只接受单条已校验命令，负责平台连接、发送、关联回执和只读对账。每个账号发送串行，不使用影响其他账号或抖音的全局锁。
 5. 后端保存批准版本、客户端消息ID、结果和审计，执行结果只能归属原工作区/用户/设备/账号。复用现有鉴权、加密和数据库连接，不扩大为重构抖音发送服务。
 
-建议新增独立目录 `services/xiaohongshu/`、桌面 `desktop/src/main/xiaohongshu/`、后端独立 `xiaohongshu-messaging-*` 模块。准确文件与契约变更在后续执行计划中按现有入口核定；不修改冻结的抖音实现。
+独立模块位于`services/xiaohongshu/`、`desktop/src/main/xiaohongshu-*.ts`、`backend/src/xiaohongshu-*.ts`及`frontend/src/conversations/xiaohongshu.ts`。共用应用文件只负责装配与平台入口，不改变抖音执行逻辑。
 
 ## 登录和凭据
 

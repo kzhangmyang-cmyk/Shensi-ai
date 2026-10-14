@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { GrowthApiError } from "../http";
 import { createQuoteController } from "./controller";
-import type { QuoteApi, QuoteCase } from "./api";
+import type { QuoteApi, QuoteCase, QuotePreviewInput } from "./api";
 
 function caseFixture(): QuoteCase {
   return {
@@ -25,6 +25,9 @@ function apiFixture(overrides: Partial<QuoteApi> = {}): QuoteApi {
     async listCases() {
       return { status: 200, etag: null, body: { items: [] } } as never;
     },
+    async createCase() {
+      return { status: 201, etag: '"quote-case:case-1:1"', body: caseFixture() } as never;
+    },
     async getCase() {
       return { status: 200, etag: null, body: caseFixture() } as never;
     },
@@ -33,6 +36,9 @@ function apiFixture(overrides: Partial<QuoteApi> = {}): QuoteApi {
     },
     async listVersions() {
       return { status: 200, etag: null, body: { items: [] } } as never;
+    },
+    async createVersion() {
+      throw new Error("unused");
     },
     async getVersion() {
       throw new Error("unused");
@@ -89,6 +95,125 @@ assert.deepEqual(
 const loaded = await controller.loadCase("case-1");
 assert.equal(loaded.kind, "editing");
 
+const created = await controller.createCase({
+  customerId: "customer-1",
+  assignedTo: "sales-a"
+});
+assert.equal(created.kind, "case_created");
+
+const ordinaryCaseController = createQuoteController({
+  api: apiFixture({
+    async createCase(input) {
+      assert.deepEqual(input, {
+        customerId: "customer-1",
+        dealId: "deal-1",
+        assignedTo: "sales-a",
+        crmAssessment: {
+          demandConfirmed: true,
+          budgetConfirmed: true,
+          decisionMakerConfirmed: false,
+          closeProbabilityBps: 6500,
+          evidenceSummary: "客户已确认预算，技术负责人仍需引入决策人。"
+        }
+      });
+      return { status: 201, etag: '"quote-case:case-2:1"', body: {
+        ...caseFixture(),
+        id: "case-2",
+        candidateId: null,
+        customerId: "customer-1",
+        dealId: "deal-1",
+        commercialBindingSnapshot: {
+          sourceKind: "crm"
+        }
+      } } as never;
+    }
+  }),
+  hasFeature: () => true,
+  hasCapability: () => true
+});
+const ordinaryCreated = await ordinaryCaseController.createCase({
+  customerId: "customer-1",
+  dealId: "deal-1",
+  assignedTo: "sales-a",
+  crmAssessment: {
+    demandConfirmed: true,
+    budgetConfirmed: true,
+    decisionMakerConfirmed: false,
+    closeProbabilityBps: 6500,
+    evidenceSummary: "客户已确认预算，技术负责人仍需引入决策人。"
+  }
+});
+assert.equal(ordinaryCreated.kind, "case_created");
+assert.equal(
+  ordinaryCreated.kind === "case_created"
+    ? ordinaryCreated.case.authorityKind
+    : null,
+  "crm"
+);
+
+const quoteInput: QuotePreviewInput = {
+  catalogItemId: "catalog-1",
+  pricingPolicyVersionId: "policy-1",
+  quantityMicros: 1_000_000,
+  offeredUnitPriceMinor: 100_000,
+  orderDiscountMinor: 0,
+  customerTargetPriceMinor: null,
+  paymentTermDays: 30,
+  creditRiskBps: null,
+  manualEscalation: false,
+  giftItems: [],
+  surchargeContext: { region: null, deliveryMethod: null }
+};
+
+const actionable = {
+  amountState: "actionable",
+  quotedAmountMinor: 100_000,
+  grossMarginBps: 2_500,
+  previewIdentity: {
+    calculationHash: `sha256:${"a".repeat(64)}`,
+    formulaVersion: "quote-calculation.v1",
+    inputSnapshotHash: `sha256:${"b".repeat(64)}`,
+    packageVersionId: null,
+    pricingPolicyRevision: 1,
+    pricingPolicyVersionId: "policy-1"
+  }
+} as never;
+
+const draftController = createQuoteController({
+  api: apiFixture({
+    async createVersion() {
+      return { status: 201, etag: '"quote-version:quote-v1:1"', body: {
+        id: "quote-v1", version: 1, status: "draft", lifecycleRevision: 1,
+        quotedAmountMinor: 100_000
+      } } as never;
+    },
+    async submitVersion() {
+      return { status: 200, etag: null, body: {
+        id: "approval-1", quoteVersionId: "quote-v2", status: "pending",
+        approvalKind: "confirmation"
+      } } as never;
+    }
+  }),
+  hasFeature: () => true,
+  hasCapability: () => true
+});
+const saved = await draftController.saveDraft(
+  "case-1", quoteInput, actionable, '"quote-case:case-1:4"'
+);
+assert.equal(saved.kind, "draft_saved");
+const submitted = await draftController.submit(
+  "quote-v1", '"quote-version:quote-v1:1"'
+);
+assert.deepEqual(submitted, {
+  kind: "submitted",
+  approval: {
+    id: "approval-1",
+    quoteVersionId: "quote-v2",
+    status: "pending",
+    approvalKind: "confirmation"
+  }
+});
+
 const previewController = createQuoteController({
   api: apiFixture({
     async previewQuote() {
@@ -108,19 +233,7 @@ const previewController = createQuoteController({
 });
 const previewed = await previewController.preview(
   "case-1",
-  {
-    catalogItemId: "catalog-1",
-    pricingPolicyVersionId: "policy-1",
-    quantityMicros: 1_000_000,
-    offeredUnitPriceMinor: 100_000,
-    orderDiscountMinor: 0,
-    customerTargetPriceMinor: null,
-    paymentTermDays: 30,
-    creditRiskBps: null,
-    manualEscalation: false,
-    giftItems: [],
-    surchargeContext: { region: null, deliveryMethod: null }
-  },
+  quoteInput,
   '"4"'
 );
 assert.equal(previewed.kind, "preview_ready");

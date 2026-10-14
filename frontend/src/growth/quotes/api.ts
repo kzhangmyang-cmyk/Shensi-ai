@@ -11,6 +11,10 @@ export type QuoteCase = Omit<
 >;
 export type QuotePreviewInput =
   components["schemas"]["QuoteCase_QuotePreviewInput"];
+export type QuoteCaseCreateInput =
+  components["schemas"]["QuoteCase_QuoteCaseCreateInput"];
+export type QuotePreviewIdentity =
+  components["schemas"]["QuoteCase_QuotePreviewIdentity"];
 export type QuotePreviewResult =
   components["schemas"]["QuoteCase_QuotePreviewResult"];
 export type QuoteVersion = Omit<
@@ -32,6 +36,11 @@ export interface QuoteApi {
     cursor?: string;
     signal?: AbortSignal;
   }): Promise<GrowthHttpResponse<{ items: readonly QuoteCase[] }>>;
+  createCase(
+    input: QuoteCaseCreateInput,
+    idempotencyKey: string,
+    signal?: AbortSignal
+  ): Promise<GrowthHttpResponse<QuoteCase>>;
   getCase(
     caseId: string,
     signal?: AbortSignal
@@ -47,6 +56,16 @@ export interface QuoteApi {
     caseId: string,
     query: { limit: number; cursor?: string; signal?: AbortSignal }
   ): Promise<GrowthHttpResponse<{ items: readonly QuoteVersion[] }>>;
+  createVersion(
+    caseId: string,
+    input: {
+      previewIdentity: QuotePreviewIdentity;
+      quoteInput: QuotePreviewInput;
+    },
+    etag: string,
+    idempotencyKey: string,
+    signal?: AbortSignal
+  ): Promise<GrowthHttpResponse<QuoteVersion>>;
   getVersion(
     versionId: string,
     signal?: AbortSignal
@@ -59,16 +78,18 @@ export interface QuoteApi {
     versionId: string,
     etag: string,
     idempotencyKey: string
-  ): Promise<GrowthHttpResponse<QuoteVersion>>;
+  ): Promise<GrowthHttpResponse<QuoteApproval>>;
   approveVersion(
     versionId: string,
     etag: string,
-    idempotencyKey: string
-  ): Promise<GrowthHttpResponse<QuoteApproval>>;
+    idempotencyKey: string,
+    reason: string
+  ): Promise<GrowthHttpResponse<QuoteVersion>>;
   rejectVersion(
     versionId: string,
     etag: string,
-    idempotencyKey: string
+    idempotencyKey: string,
+    reason: string
   ): Promise<GrowthHttpResponse<QuoteApproval>>;
   getPublication(
     operationId: string,
@@ -97,6 +118,14 @@ export function createQuoteApi(http: GrowthHttpClient): QuoteApi {
         { signal: query.signal }
       );
     },
+    async createCase(input, idempotencyKey, signal) {
+      return http.request<QuoteCase>("/api/v1/quotes/cases", {
+        method: "POST",
+        body: input,
+        idempotencyKey,
+        signal
+      });
+    },
     async getCase(caseId, signal) {
       return http.request<QuoteCase>(
         `/api/v1/quotes/cases/${encodeURIComponent(caseId)}`,
@@ -123,6 +152,18 @@ export function createQuoteApi(http: GrowthHttpClient): QuoteApi {
         { signal: query.signal }
       );
     },
+    async createVersion(caseId, input, etag, idempotencyKey, signal) {
+      return http.request<QuoteVersion>(
+        `/api/v1/quotes/cases/${encodeURIComponent(caseId)}/versions`,
+        {
+          method: "POST",
+          body: input,
+          ifMatch: etag,
+          idempotencyKey,
+          signal
+        }
+      );
+    },
     async getVersion(versionId, signal) {
       return http.request<QuoteVersion>(
         `/api/v1/quotes/versions/${encodeURIComponent(versionId)}`,
@@ -136,21 +177,21 @@ export function createQuoteApi(http: GrowthHttpClient): QuoteApi {
       );
     },
     async submitVersion(versionId, etag, idempotencyKey) {
-      return http.request<QuoteVersion>(
+      return http.request<QuoteApproval>(
         `/api/v1/quotes/versions/${encodeURIComponent(versionId)}/submit`,
         commandOptions(etag, idempotencyKey)
       );
     },
-    async approveVersion(versionId, etag, idempotencyKey) {
-      return http.request<QuoteApproval>(
+    async approveVersion(versionId, etag, idempotencyKey, reason) {
+      return http.request<QuoteVersion>(
         `/api/v1/quotes/versions/${encodeURIComponent(versionId)}/approve`,
-        commandOptions(etag, idempotencyKey)
+        { ...commandOptions(etag, idempotencyKey), body: { reason } }
       );
     },
-    async rejectVersion(versionId, etag, idempotencyKey) {
+    async rejectVersion(versionId, etag, idempotencyKey, reason) {
       return http.request<QuoteApproval>(
         `/api/v1/quotes/versions/${encodeURIComponent(versionId)}/reject`,
-        commandOptions(etag, idempotencyKey)
+        { ...commandOptions(etag, idempotencyKey), body: { reason } }
       );
     },
     async getPublication(operationId, signal) {

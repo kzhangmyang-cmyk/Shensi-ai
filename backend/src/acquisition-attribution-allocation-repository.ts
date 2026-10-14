@@ -42,12 +42,19 @@ implements AttributionAllocationRepository {
       input.workspaceId, input.domainCommandHash
     );
     if (existing) return existing;
+    const version = Math.max(input.version,
+      [...this.sets.values()].reduce((max, set) =>
+      set.workspaceId === input.workspaceId
+        && set.sourceType === input.sourceType
+        && set.sourceId === input.sourceId
+        ? Math.max(max, set.version)
+        : max, 0) + 1);
     const set = {
       id: input.id,
       workspaceId: input.workspaceId,
       sourceType: input.sourceType,
       sourceId: input.sourceId,
-      version: input.version,
+      version,
       status: "draft",
       revision: 1,
       items: Object.freeze(input.items.map((item) =>

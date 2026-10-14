@@ -67,7 +67,8 @@ import type {
   AcquisitionPlanPayload
 } from "./acquisition-plan-run-repository.js";
 import {
-  InMemoryAcquisitionPlanRunRepository
+  InMemoryAcquisitionPlanRunRepository,
+  type AcquisitionRun
 } from "./acquisition-plan-run-repository.js";
 import {
   AcquisitionPlanRunService,
@@ -87,6 +88,7 @@ import {
   acquisitionPiModelSnapshotFromStored
 } from "./acquisition-pi-runtime-factory.js";
 import { memoryStore, type CrmStore } from "./store.js";
+import { createSerializedTaskQueue } from "./mysql-store.js";
 import type {
   AiModelConfig
 } from "./types.js";
@@ -123,18 +125,40 @@ import type {
 } from "./acquisition-outreach-draft-authority.js";
 import {
   ACQUISITION_DOUYIN_DRAFT_PROMPT_ID,
-  ACQUISITION_OUTREACH_DRAFT_TOOL
+  ACQUISITION_OUTREACH_DRAFT_TOOL,
+  ACQUISITION_OUTREACH_KEYWORD_TOOL
 } from "./acquisition-outreach-model-content.js";
 import {
   InMemoryAcquisitionOutreachBatchRepository
 } from "./acquisition-outreach-batch-repository.js";
-import type {
-  AcquisitionOutreachAction,
-  AcquisitionOutreachBatch
+import { acquisitionOutreachMysqlDdl } from
+  "./acquisition-outreach-batch-mysql-repository.js";
+import {
+  acquisitionDesktopInstallationEnrollmentsDdl,
+  acquisitionDesktopInstallationsDdl
+} from "./acquisition-desktop-installation-mysql-repository.js";
+import {
+  outreachBatchEtag,
+  outreachBatchHash,
+  outreachContentHash,
+  type AcquisitionOutreachAction,
+  type AcquisitionOutreachBatch
 } from "./acquisition-outreach-batch.js";
 import type {
   DouyinMediaCrawlerGateway
 } from "./acquisition-mediacrawler-gateway.js";
+import {
+  InMemoryAcquisitionCrawlerJobRepository
+} from "./acquisition-crawler-job-repository.js";
+import {
+  InMemoryAcquisitionSocialAccountRepository
+} from "./acquisition-social-account-repository.js";
+import type { AcquisitionDesktopOutreachRepository } from
+  "./acquisition-outreach-batch-repository.js";
+import { AcquisitionMemoryTransactionCoordinator } from
+  "./acquisition-memory-transaction-coordinator.js";
+import { InMemoryDesktopInstallationRepository } from
+  "./acquisition-desktop-installation-repository.js";
 
 const OWNER = "owner-application";
 const TEAM = "team-application";
@@ -711,6 +735,15 @@ async function serve(
           value
         ])
       );
+      request.rawHeaders = [];
+      for (const [key, value] of headers.entries()) {
+        request.rawHeaders.push(key, value);
+      }
+      request.is = ((types?: string | string[]) => {
+        const accepted = Array.isArray(types) ? types : [types];
+        return accepted.some((type) => type === "application/json")
+          ? "application/json" : false;
+      }) as express.Request["is"];
       request.body = init.body
         ? JSON.parse(String(init.body))
         : undefined;
@@ -871,6 +904,129 @@ function planPayload(
       stopWhenNoMoreResults: true
     }
   };
+}
+
+for (const modelOutcome of ["success", "failure"] as const) {
+  test(`application keyword suggestions with serialized persistence complete after model ${modelOutcome}`, async () => {
+    const fixture = isolatedMemoryStore();
+    fixture.store.modelConnectionIdempotencyRecords = [];
+    fixture.store.pendingModelConnectionIdempotencyRecords = [];
+    let modelCalls = 0;
+    let ledgerPersisted = false;
+    const runtime = await createAcquisitionApplication({
+      store: fixture.store,
+      masterSecret: MASTER_SECRET,
+      searchPort: fakeSearchPort().port,
+      modelGatewayFactory: () => ({
+        async callTools() {
+          modelCalls += 1;
+          try {
+            if (modelOutcome === "failure") {
+              throw new Error("synthetic_keyword_provider_failure");
+            }
+            return {
+              toolCalls: [{
+                id: "keyword-fixture-call",
+                name: ACQUISITION_OUTREACH_KEYWORD_TOOL,
+                arguments: { keywords: ["企业供应商"] }
+              }],
+              usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: 0 },
+              providerRequestId: "keyword-fixture-request"
+            };
+          } finally {
+            // The production gateway flushes its attempt ledger before returning
+            // either a model response or a provider failure.
+            await fixture.store.persist();
+            ledgerPersisted = true;
+          }
+        }
+      })
+    });
+    const server = await serve((req, res, next) => {
+      req.activeWorkspace = {
+        workspaceId: TEAM,
+        kind: "team",
+        actorId: OWNER,
+        role: "admin",
+        teamId: TEAM,
+        capabilities: [],
+        capabilityRegistryVersion: "test"
+      };
+      runtime.handler(req, res, next);
+    });
+    const withinDeadline = async <T>(operation: Promise<T>, label: string) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          operation,
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error(
+              `${label} did not complete: modelCalls=${modelCalls}, ledgerPersisted=${ledgerPersisted}`
+            )), 1_000);
+          })
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    try {
+      const created = await server.request("/api/v1/acquisition/plans", {
+        method: "POST",
+        headers: { "Idempotency-Key": `keyword-queue-plan-${modelOutcome}` },
+        body: JSON.stringify(planPayload())
+      });
+      assert.equal(created.response.status, 201, JSON.stringify(created.json));
+
+      // Match MySQL's shared queue while replacing only its read/write I/O.
+      const enqueuePersistence = createSerializedTaskQueue();
+      const readSqlFixture = fixture.store.readBarrier;
+      const persistFixture = fixture.store.persist;
+      const writeSqlFixture = async () => {
+        await persistFixture();
+        fixture.store.pendingModelConnectionIdempotencyRecords.splice(0);
+      };
+      fixture.store.readBarrier = () => enqueuePersistence(readSqlFixture);
+      fixture.store.persist = () => enqueuePersistence(writeSqlFixture);
+      fixture.store.persistAsyncMutation = (mutation) => enqueuePersistence(async () => {
+        const applied = await mutation();
+        try {
+          await writeSqlFixture();
+          return applied.value;
+        } catch (error) {
+          await applied.rollback();
+          throw error;
+        }
+      });
+
+      const result = await withinDeadline(server.request(
+        `/api/v1/acquisition/plans/${created.json.id}/automation/keyword-suggestions`,
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": `keyword-queue-generate-${modelOutcome}` },
+          body: JSON.stringify({})
+        }
+      ), "keyword route");
+      assert.equal(modelCalls, 1);
+      assert.equal(ledgerPersisted, true);
+      assert.equal(result.response.status, modelOutcome === "success" ? 200 : 500,
+        JSON.stringify(result.json));
+      if (modelOutcome === "success") {
+        assert.deepEqual(result.json.keywords, ["企业供应商"]);
+        assert.ok(fixture.store.aiJobModelSnapshots.some(
+          (snapshot) => snapshot.jobId === result.json.modelSnapshotId
+        ));
+      }
+      assert.equal(fixture.store.modelConnectionIdempotencyRecords.length,
+        modelOutcome === "success" ? 1 : 0);
+      const persistedBeforeNextWrite = fixture.persistCount();
+      await withinDeadline(fixture.store.persist(), "subsequent store persistence");
+      assert.equal(fixture.persistCount(), persistedBeforeNextWrite + 1);
+    } finally {
+      await server.close();
+      await runtime.close();
+    }
+  });
 }
 
 test("application search directory scopes and stably sorts active personal official connections", async () => {
@@ -3372,9 +3528,82 @@ test("mysql acquisition application owns schema setup and pool lifecycle", async
   let visualRecoveryStartCount = 0;
   let visualRecoveryCloseCount = 0;
   let composedVisualRepository: AcquisitionVisualReaderRepository | null = null;
+  let outreachSchemaUsedPool = false;
+  let installationSchemaUsedPool = false;
+  const ddlColumns = (ddl: string) => {
+    const body = ddl.slice(ddl.indexOf("(") + 1, ddl.lastIndexOf(") ENGINE"));
+    const definitions: string[] = [];
+    let start = 0;
+    let depth = 0;
+    for (let index = 0; index < body.length; index += 1) {
+      if (body[index] === "(") depth += 1;
+      else if (body[index] === ")") depth -= 1;
+      else if (body[index] === "," && depth === 0) {
+        definitions.push(body.slice(start, index).trim());
+        start = index + 1;
+      }
+    }
+    definitions.push(body.slice(start).trim());
+    return definitions
+      .filter((definition) => !/^(PRIMARY|UNIQUE|KEY|INDEX|CONSTRAINT|CHECK|FOREIGN)\b/u
+        .test(definition))
+      .map((definition) => {
+        const match = /^([a-z_][a-z0-9_]*)\s+([a-z]+(?:\(\d+(?:,\d+)?\))?(?:\s+unsigned)?)/iu
+          .exec(definition);
+        assert.ok(match, `test DDL parser could not read ${definition}`);
+        const defaultMatch = /\bDEFAULT\s+(?:'([^']*)'|([^\s,]+))/iu.exec(definition);
+        return {
+          column_name: match[1], column_type: match[2].toLowerCase(),
+          is_nullable: /\bNOT\s+NULL\b/iu.test(definition) ? "NO" : "YES",
+          column_default: defaultMatch ? (defaultMatch[1] ?? defaultMatch[2]) : null,
+          character_set_name: /\bCHARACTER\s+SET\s+([a-z0-9_]+)/iu.exec(definition)?.[1]
+            ?.toLowerCase() ?? null,
+          collation_name: /\bCOLLATE\s+([a-z0-9_]+)/iu.exec(definition)?.[1]
+            ?.toLowerCase() ?? null
+        };
+      });
+  };
+  const mysqlColumnMetadata = new Map<string, ReturnType<typeof ddlColumns>>();
+  for (const ddl of [...acquisitionOutreachMysqlDdl,
+    acquisitionDesktopInstallationEnrollmentsDdl, acquisitionDesktopInstallationsDdl]) {
+    const table = /CREATE TABLE(?: IF NOT EXISTS)?\s+([a-z0-9_]+)/iu.exec(ddl)?.[1];
+    assert.ok(table);
+    mysqlColumnMetadata.set(table, ddlColumns(ddl));
+  }
+  const outreachTables = [...mysqlColumnMetadata.keys()].filter((table) =>
+    table.startsWith("acquisition_outreach_") || table.startsWith("acquisition_desktop_outreach_"));
+  const outreachIndexes = [
+    ["acquisition_outreach_batches", "ix_acquisition_outreach_batch_run_page", 1, "workspace_id,run_id,created_at,id,revision"],
+    ["acquisition_outreach_batch_candidates", "ix_acquisition_outreach_candidate_page", 1, "workspace_id,candidate_id,batch_id,batch_revision"],
+    ["acquisition_outreach_actions", "ix_acquisition_outreach_action_claim", 1, "status,created_at,id"],
+    ["acquisition_outreach_actions", "ix_acquisition_outreach_action_desktop_claim", 1, "execution_target,status,created_at,id"],
+    ["acquisition_outreach_actions", "uk_acquisition_outreach_direct_message_ordinal", 0, "workspace_id,account_id,local_date,kind,direct_message_daily_ordinal"],
+    ["acquisition_outreach_action_accounts", "PRIMARY", 0, "workspace_id,account_id"],
+    ["acquisition_outreach_action_attempts", "uk_acquisition_outreach_action_attempt_fence", 0, "action_id,fencing_token"],
+    ["acquisition_desktop_outreach_claim_replays", "PRIMARY", 0, "workspace_id,idempotency_key_hash"],
+    ["acquisition_desktop_outreach_completion_replays", "PRIMARY", 0, "workspace_id,operation_name,idempotency_key_hash"],
+    ["acquisition_desktop_outreach_recovery_replays", "PRIMARY", 0, "workspace_id,idempotency_key_hash"],
+    ["acquisition_desktop_outreach_human_reconciliations", "PRIMARY", 0, "workspace_id,operation_name,idempotency_key_hash"],
+    ["acquisition_desktop_outreach_human_reconciliations", "ix_acquisition_desktop_outreach_human_reconciliation_action", 1, "workspace_id,batch_id,action_id,requested_at"]
+  ].map(([table_name, index_name, non_unique, column_names]) => ({
+    table_name, index_name, non_unique, column_names
+  }));
+  const outreachConstraints = [
+    ["acquisition_outreach_actions", "acquisition_outreach_action_execution_target", "execution_target IN ('server','desktop')"],
+    ["acquisition_desktop_outreach_claim_replays", "acquisition_desktop_outreach_claim_replay_kind", "(response_kind='pending' AND action_id IS NULL AND retry_after_ms IS NULL) OR (response_kind='claimed' AND action_id IS NOT NULL AND retry_after_ms IS NULL) OR (response_kind='empty' AND action_id IS NULL AND retry_after_ms BETWEEN 3000 AND 5000)"],
+    ["acquisition_desktop_outreach_completion_replays", "acquisition_desktop_outreach_completion_replay_operation", "operation_name IN ('started','receipt','reconciliation_receipt')"],
+    ["acquisition_desktop_outreach_recovery_replays", "acquisition_desktop_outreach_recovery_replay_kind", "(response_kind='pending' AND response_json IS NULL) OR (response_kind IN ('waiting','released','terminal','reconcile') AND response_json IS NOT NULL)"],
+    ["acquisition_desktop_outreach_human_reconciliations", "acquisition_desktop_outreach_human_reconciliation_operation", "operation_name='request_desktop_action_reconciliation'"]
+  ].map(([table_name, constraint_name, check_clause]) => ({
+    table_name, constraint_name, check_clause, enforced: "YES"
+  }));
   const query = async (statement: unknown, values: unknown[] = []) => {
     const sql = String(statement);
     statements.push(sql);
+    if (sql.includes("acquisition_outreach_")) outreachSchemaUsedPool = true;
+    if (sql.includes("acquisition_desktop_installation_")) {
+      installationSchemaUsedPool = true;
+    }
     if (/SELECT GET_LOCK/u.test(sql)) return [[{ lock_acquired: 1 }], []];
     if (/SELECT RELEASE_LOCK/u.test(sql)) return [[{ lock_released: 1 }], []];
     if (sql.includes("FROM information_schema.statistics")) {
@@ -3387,13 +3616,44 @@ test("mysql acquisition application owns schema setup and pool lifecycle", async
         seq_in_index: index + 1
       })), []];
     }
+    if (sql.includes("FROM information_schema.STATISTICS")) {
+      return [outreachIndexes, []];
+    }
+    if (sql.includes("information_schema.TABLE_CONSTRAINTS")
+      && sql.includes("acquisition_outreach_actions")) {
+      return [outreachConstraints, []];
+    }
+    if (sql.includes("information_schema.TABLES")
+      && values.some((value) => outreachTables.includes(String(value)))) {
+      return [outreachTables.map((table_name) => ({ table_name, engine: "InnoDB" })), []];
+    }
+    if (sql.includes("information_schema.TABLES") && values.length === 1
+      && mysqlColumnMetadata.has(String(values[0]))) {
+      return [[{ ENGINE: "InnoDB" }], []];
+    }
+    if (sql.includes("information_schema.COLUMNS")) {
+      const table = /TABLE_NAME='([^']+)'/iu.exec(sql)?.[1] ?? String(values[0] ?? "");
+      const columns = mysqlColumnMetadata.get(table);
+      if (columns) return [columns, []];
+    }
     if (sql.includes("information_schema.COLUMNS")
       && values[0] === "acquisition_social_accounts") {
       return [["id", "workspace_id", "platform", "account_handle",
         "upstream_session_id", "display_name", "state",
-        "login_state_version", "revision", "etag", "last_validated_at",
+        "login_state_version", "login_state_version_high_water", "executor_mode",
+        "executor_device_id_hash", "executor_binding_generation",
+        "executor_lease_expires_at", "revision", "etag", "last_validated_at",
         "created_at", "updated_at"].map((COLUMN_NAME) => ({
-        COLUMN_NAME, IS_NULLABLE: COLUMN_NAME === "upstream_session_id"
+        COLUMN_NAME,
+        COLUMN_TYPE: COLUMN_NAME === "executor_mode" ? "varchar(16)"
+          : COLUMN_NAME === "executor_device_id_hash" ? "char(71)"
+          : COLUMN_NAME === "executor_binding_generation"
+            || COLUMN_NAME === "login_state_version_high_water"
+            ? "bigint unsigned" : "varchar(255)",
+        COLUMN_DEFAULT: COLUMN_NAME === "executor_binding_generation"
+          || COLUMN_NAME === "login_state_version_high_water" ? "0" : null,
+        IS_NULLABLE: ["upstream_session_id", "executor_mode",
+          "executor_device_id_hash", "executor_lease_expires_at"].includes(COLUMN_NAME)
           ? "YES" : "NO"
       })), []];
     }
@@ -3505,6 +3765,15 @@ test("mysql acquisition application owns schema setup and pool lifecycle", async
   });
 
   assert.deepEqual(databaseUrls, ["mysql://application-test"]);
+  assert.equal(outreachSchemaUsedPool, true,
+    "outreach schema must use the application-owned fake pool");
+  assert.equal(installationSchemaUsedPool, true,
+    "desktop installation schema must use the application-owned fake pool");
+  assert.equal(databaseUrls.length, 1,
+    "installation and outreach composition must share the one application pool");
+  assert.equal(statements.some((statement) =>
+    statement.includes("desktop_task_token_hash")), true,
+  "desktop task capability storage must be part of the composed outreach schema");
   assert.equal(
     statements.some((statement) =>
       statement.includes("acquisition_candidates")
@@ -3616,7 +3885,7 @@ test("provider versions prefer an explicit credential version", () => {
   );
 });
 
-test("acquisition application always mounts Douyin automation and outreach routes", async () => {
+test("acquisition application always mounts Douyin account, automation, and outreach routes", async () => {
   const fixture = isolatedMemoryStore();
   const runtime = await createAcquisitionApplication({
     store: fixture.store,
@@ -3635,6 +3904,11 @@ test("acquisition application always mounts Douyin automation and outreach route
     runtime.handler(req, res, next);
   });
   try {
+    const accounts = await server.request(
+      "/api/v1/acquisition/social-accounts/douyin"
+    );
+    assert.equal(accounts.response.status, 200);
+    assert.deepEqual(accounts.json, { items: [] });
     const result = await server.request(
       "/api/v1/acquisition/plans/missing/automation"
     );
@@ -3649,6 +3923,41 @@ test("acquisition application always mounts Douyin automation and outreach route
     await server.close();
     await runtime.close();
   }
+});
+
+test("production application composes the desktop installation and outreach transport", async () => {
+  const fixture = isolatedMemoryStore();
+  const runtime = await createAcquisitionApplication({
+    store: fixture.store,
+    masterSecret: MASTER_SECRET
+  });
+  const server = await serve((req, res, next) => runtime.handler(req, res, next));
+  try {
+    const result = await server.request(
+      "/api/v1/acquisition/desktop-installations/register",
+      { method: "POST" }
+    );
+    assert.notEqual(result.response.status, 404,
+      "Task 6B must mount the desktop installation transport");
+  } finally {
+    await server.close();
+    await runtime.close();
+  }
+});
+
+test("desktop-enabled composition rejects an outreach repository without Task 5 methods at startup", async () => {
+  const fixture = isolatedMemoryStore();
+  const incomplete = {} as AcquisitionDesktopOutreachRepository;
+  await assert.rejects(createAcquisitionApplication({
+    store: fixture.store,
+    masterSecret: MASTER_SECRET,
+    outreachBatchRepository: incomplete as unknown as CreateAcquisitionApplicationOptions["outreachBatchRepository"],
+    douyinOutreachFeatureFlags: {
+      approvalsEnabled: false,
+      serverExecutionEnabled: false,
+      desktopExecutionEnabled: true
+    }
+  }), /desktop outreach repository/i);
 });
 
 test("acquisition application rejects weak master secrets", async () => {
@@ -3667,6 +3976,39 @@ test("acquisition application rejects weak master secrets", async () => {
     }),
     /masterSecret/u
   );
+});
+
+test("desktop Memory composition rejects same-coordinator repositories with missing or foreign authority links", async () => {
+  for (const brokenLink of ["installation-social", "installation-outreach", "outreach-social", "outreach-installation"] as const) {
+    const fixture = isolatedMemoryStore();
+    const memoryTransactions = new AcquisitionMemoryTransactionCoordinator();
+    const socialAccounts = new InMemoryAcquisitionSocialAccountRepository(memoryTransactions);
+    const foreignSocial = new InMemoryAcquisitionSocialAccountRepository(memoryTransactions);
+    const installationLinks: {
+      memoryTransactions: AcquisitionMemoryTransactionCoordinator;
+      socialAccounts: InMemoryAcquisitionSocialAccountRepository;
+      outreachActions?: InMemoryAcquisitionOutreachBatchRepository;
+    } = { memoryTransactions, socialAccounts: brokenLink === "installation-social"
+      ? foreignSocial : socialAccounts };
+    const installations = new InMemoryDesktopInstallationRepository(installationLinks);
+    const foreignInstallation = new InMemoryDesktopInstallationRepository({ memoryTransactions });
+    const outreach = new InMemoryAcquisitionOutreachBatchRepository({
+      memoryTransactions,
+      socialAccounts: brokenLink === "outreach-social" ? foreignSocial : socialAccounts,
+      desktopInstallations: brokenLink === "outreach-installation" ? foreignInstallation : installations
+    });
+    if (brokenLink !== "installation-outreach") installationLinks.outreachActions = outreach;
+    await assert.rejects(createAcquisitionApplication({
+      store: fixture.store, masterSecret: MASTER_SECRET,
+      socialAccountRepository: socialAccounts,
+      planRunRepository: new InMemoryAcquisitionPlanRunRepository(memoryTransactions),
+      desktopInstallationRepository: installations,
+      outreachBatchRepository: outreach,
+      douyinOutreachFeatureFlags: {
+        approvalsEnabled: false, serverExecutionEnabled: false, desktopExecutionEnabled: true
+      }
+    }), /desktop Memory composition must share one transaction coordinator and authority bundle/, brokenLink);
+  }
 });
 
 test("acquisition startup rejects missing and lookalike Growth runtime ports", async () => {
@@ -4024,6 +4366,624 @@ test("custom repository startup stays compatible and draft generation fails clos
   }
 });
 
+test("production application composes private desktop account authority with canonical execution gates", async () => {
+  const fixture = isolatedMemoryStore();
+  fixture.store.users = [{ id: OWNER, name: "Desktop Owner", email: "desktop-composition@example.test",
+    password: "fixture-password", role: "admin", teamId: TEAM, avatar: "DO", status: "active", authVersion: 1 }];
+  const domainRepository = new InMemoryAcquisitionDomainRepository();
+  const crawlerJobs = new InMemoryAcquisitionCrawlerJobRepository();
+  const memoryTransactions = new AcquisitionMemoryTransactionCoordinator();
+  const planRuns = new InMemoryAcquisitionPlanRunRepository(memoryTransactions);
+  const socialAccounts = new InMemoryAcquisitionSocialAccountRepository(
+    memoryTransactions
+  );
+  const desktopInstallationTesting: {
+    memoryTransactions: AcquisitionMemoryTransactionCoordinator;
+    socialAccounts: InMemoryAcquisitionSocialAccountRepository;
+    outreachActions?: InMemoryAcquisitionOutreachBatchRepository;
+  } = { memoryTransactions, socialAccounts };
+  const desktopInstallations = new InMemoryDesktopInstallationRepository(
+    desktopInstallationTesting
+  );
+  const desktopTaskTokenKey = Buffer.from("desktop-task-capability-key-6b".repeat(2));
+  const crawlerIngestion = new InMemoryAcquisitionDouyinCrawlerIngestionRepository(
+    domainRepository,
+    planRuns
+  );
+  const seeded = await seedCustomOutreachAuthorityFixture(domainRepository);
+  const digest = (value: string) =>
+    `sha256:${createHash("sha256").update(value).digest("hex")}`;
+  const createdAt = "2026-08-25T12:00:00.000Z";
+  const approvedAt = "2026-08-25T12:00:05.000Z";
+  const planSnapshotHash = digest("production-composition-plan");
+  const policyHash = digest("production-composition-policy");
+  const dailyBudgetId = digest("production-composition-budget");
+  const runId = "run-production-composition";
+  const planId = "plan-production-composition";
+  const planVersionId = "plan-version-production-composition";
+  const policyVersionId = "policy-production-composition";
+  const accountId = "account-production-composition";
+  const accountLoginStateVersion = 3;
+  const run = {
+    executionMode: "douyin_mediacrawler",
+    id: runId,
+    ownerId: OWNER,
+    teamId: TEAM,
+    planId,
+    planVersionId,
+    planVersion: 1,
+    planSnapshotHash,
+    parentRunId: null,
+    status: "succeeded",
+    terminationIntent: null,
+    revision: 1,
+    etag: '"run-production-composition:1"',
+    budgetSnapshotId: "budget-snapshot-production-composition",
+    budgetSnapshot: {
+      maxRequests: 10,
+      maxResults: 10,
+      maxAmountMinor: 0,
+      maxDurationSeconds: 60,
+      billingCurrency: "CNY"
+    },
+    budgetSnapshotHash: digest("production-composition-budget-snapshot"),
+    billingCurrency: "CNY",
+    modelSnapshotRef: null,
+    consumedBudget: {
+      requests: 1,
+      results: 1,
+      amountMinor: 0,
+      durationSeconds: 1
+    },
+    evidenceCount: 1,
+    reason: null,
+    createdBy: OWNER,
+    createdAt,
+    updatedBy: OWNER,
+    updatedAt: createdAt,
+    completedAt: createdAt
+  } satisfies AcquisitionRun;
+  await planRuns.transaction((transaction) => transaction.putRun(run));
+
+  await crawlerJobs.createOrGet({
+    id: "crawler-production-composition",
+    workspaceId: TEAM,
+    runId,
+    automationIntentId: "intent-production-composition",
+    planId,
+    planVersionId,
+    planSnapshotHash,
+    policyVersionId,
+    policyHash,
+    accountId,
+    accountLoginStateVersion,
+    dailyBudgetId,
+    localDate: "2026-08-25",
+    trigger: "run_now",
+    dailyCandidateLimit: 1,
+    keywords: ["公开获客需求"],
+    collectCreators: true,
+    collectDemandComments: true,
+    limits: {
+      maxVideos: 1,
+      maxCommentsPerVideo: 1,
+      maxPagesPerVideo: 1,
+      maxDurationSeconds: 60
+    },
+    createdAt
+  });
+  await crawlerJobs.enqueue(TEAM, runId, "2026-08-25T12:00:01.000Z");
+  const crawlerClaim = await crawlerJobs.claimNext(
+    "crawler-production-composition-worker",
+    "2026-08-25T12:00:02.000Z",
+    60_000
+  );
+  assert.ok(crawlerClaim);
+  await crawlerJobs.persistPage(crawlerClaim.fence, {
+    expectedCursor: null,
+    nextCursor: null,
+    records: [],
+    done: true,
+    terminalActivity: {
+      phase: "completed",
+      currentKeyword: null,
+      browserMode: "headless",
+      sequence: 1
+    },
+    now: "2026-08-25T12:00:03.000Z"
+  });
+  const ingestionClaim = await crawlerJobs.claimNextIngestion(
+    "ingestion-production-composition-worker",
+    "2026-08-25T12:00:04.000Z",
+    60_000
+  );
+  assert.ok(ingestionClaim);
+  await crawlerJobs.completeIngestion(
+    ingestionClaim.fence,
+    "2026-08-25T12:00:04.000Z",
+    "2026-08-25T12:00:04.000Z",
+    "2026-08-25T12:00:04.000Z"
+  );
+
+  await socialAccounts.upsert({
+    id: accountId,
+    workspaceId: TEAM,
+    platform: "douyin",
+    accountHandle: `dyacct_${"c".repeat(64)}`,
+    upstreamSessionId: "private-upstream-session-production-composition",
+    displayName: "桌面端抖音账号",
+    state: "active",
+    loginStateVersion: accountLoginStateVersion,
+    loginStateVersionHighWater: accountLoginStateVersion,
+    executorMode: null,
+    executorDeviceIdHash: null,
+    executorBindingGeneration: 0,
+    executorLeaseExpiresAt: null,
+    revision: 1,
+    etag: '"account-production-composition:1"',
+    lastValidatedAt: createdAt,
+    createdAt,
+    updatedAt: createdAt
+  });
+
+  const policy = Object.freeze({
+    id: policyVersionId,
+    source: "version" as const,
+    workspaceId: TEAM,
+    planId,
+    planVersionId,
+    planVersion: 1,
+    planSnapshotHash,
+    accountId,
+    accountLoginStateVersion,
+    keywords: ["公开获客需求"],
+    schedule: { enabled: false, localTime: "09:30", timeZone: "UTC" },
+    dailyCandidateLimit: 1,
+    collectCreators: true,
+    collectDemandComments: true,
+    limits: {
+      maxVideos: 1,
+      maxCommentsPerVideo: 1,
+      maxPagesPerVideo: 1,
+      maxDurationSeconds: 60
+    },
+    version: 1,
+    revision: 1,
+    etag: '"policy-production-composition:1"',
+    policyHash,
+    createdBy: OWNER,
+    createdAt
+  });
+  const automationRepository = {
+    async listCurrentPolicies() { return [policy]; },
+    async getCurrent(workspaceId: string, requestedPlanId: string) {
+      return workspaceId === TEAM && requestedPlanId === planId ? policy : null;
+    },
+    async listVersions(workspaceId: string, requestedPlanId: string) {
+      return workspaceId === TEAM && requestedPlanId === planId ? [policy] : [];
+    },
+    async findCommandReplay() { return { kind: "none" as const }; },
+    async savePolicy(): Promise<never> {
+      throw new Error("unexpected_policy_write");
+    },
+    async createRunIntent(): Promise<never> {
+      throw new Error("unexpected_run_intent_write");
+    },
+    async getRunIntent() { return null; }
+  } as unknown as NonNullable<
+    CreateAcquisitionApplicationOptions["douyinAutomationRepository"]
+  >;
+  const candidate = Object.freeze({
+    candidateId: seeded.candidate.id,
+    selected: true,
+    candidateRevision: seeded.candidate.version,
+    evidenceHashes: Object.freeze([seeded.evidence.contentHash]),
+    evidenceText: Object.freeze([seeded.evidence.sourceSnippet]),
+    publicActorKey: seeded.candidate.profile.publicActorKey,
+    publicProfileUrl: seeded.candidate.profile.publicProfileUrl,
+    commentTargetPublicUrl: seeded.evidence.provenance.sourceUrl,
+    draftRevision: 1,
+    comment: "看到你公开提到正在寻找获客方案，祝进展顺利。",
+    commentHash: outreachContentHash(
+      "看到你公开提到正在寻找获客方案，祝进展顺利。"
+    ),
+    directMessage: "根据你公开提到的获客需求，如愿意可交流公开场景里的思路。",
+    directMessageHash: outreachContentHash(
+      "根据你公开提到的获客需求，如愿意可交流公开场景里的思路。"
+    ),
+    rationaleCodes: Object.freeze(["evidence_grounded"]),
+    modelSnapshotId: "model-production-composition",
+    sourceModelSnapshotId: "model-production-composition",
+    contentHash: digest("production-composition-draft")
+  });
+
+  async function seedBatch(
+    repository: InMemoryAcquisitionOutreachBatchRepository,
+    id: string
+  ) {
+    const base = {
+      id,
+      workspaceId: TEAM,
+      runId,
+      planId,
+      planVersionId,
+      planVersion: 1,
+      planSnapshotHash,
+      policyVersionId,
+      policyHash,
+      accountId,
+      accountLoginStateVersion,
+      dailyBudgetId,
+      localDate: "2026-08-25",
+      timeZone: "UTC",
+      dailyCandidateLimit: 1,
+      revision: 1,
+      state: "awaiting_approval" as const,
+      candidates: Object.freeze([candidate]),
+      createdBy: OWNER,
+      createdAt
+    };
+    const batch: AcquisitionOutreachBatch = Object.freeze({
+      ...base,
+      dailyRemainingLimit: 1,
+      etag: outreachBatchEtag(id, 1),
+      batchHash: outreachBatchHash(base),
+      approvedBy: null,
+      approvedAt: null,
+      approvalHash: null,
+      rejectedBy: null,
+      rejectedAt: null,
+      rejectionReason: null,
+      pauseReason: null,
+      updatedBy: OWNER,
+      updatedAt: createdAt
+    });
+    await repository.create({
+      workspaceId: TEAM,
+      operation: `create:${id}`,
+      idempotencyKey: `create-${id}`,
+      requestHash: digest(`create-${id}`),
+      batch
+    });
+    return batch;
+  }
+
+  const createRuntime = (
+    repository: InMemoryAcquisitionOutreachBatchRepository,
+    desktopExecutionEnabled: boolean
+  ) => {
+    desktopInstallationTesting.outreachActions = repository;
+    return createAcquisitionApplication({
+    store: fixture.store,
+    masterSecret: MASTER_SECRET,
+    domainRepository,
+    planRunRepository: planRuns,
+    crawlerJobRepository: crawlerJobs,
+    crawlerIngestionRepository: crawlerIngestion,
+    socialAccountRepository: socialAccounts,
+    desktopInstallationRepository: desktopInstallations,
+    douyinAutomationRepository: automationRepository,
+    outreachBatchRepository: repository,
+    douyinOutreachFeatureFlags: {
+      approvalsEnabled: true,
+      serverExecutionEnabled: false,
+      desktopExecutionEnabled
+    },
+    now: () => approvedAt
+    });
+  };
+  const serveRuntime = async (
+    runtime: Awaited<ReturnType<typeof createRuntime>>
+  ) => serve((req, res, next) => {
+    req.activeWorkspace = {
+      workspaceId: TEAM,
+      kind: "team",
+      actorId: OWNER,
+      role: "admin",
+      teamId: TEAM,
+      capabilities: ["acquisition.outreach.approve"],
+      capabilityRegistryVersion: "test"
+    };
+    runtime.handler(req, res, next);
+  });
+
+  const enabledRepository = new InMemoryAcquisitionOutreachBatchRepository({
+    memoryTransactions,
+    memoryDomainTransactions: domainRepository,
+    socialAccounts,
+    desktopInstallations,
+    desktopTaskTokenKey
+  });
+  const enabledBatch = await seedBatch(
+    enabledRepository,
+    "batch-production-composition-enabled"
+  );
+  desktopInstallationTesting.outreachActions = enabledRepository;
+  const enabledRuntime = await createRuntime(enabledRepository, true);
+  const enabledServer = await serveRuntime(enabledRuntime);
+  try {
+    const installationId = "i".repeat(43);
+    const enrollment = await enabledServer.request("/api/v1/acquisition/desktop-installations/enrollments", {
+      method: "POST", headers: { "Idempotency-Key": "composition-enrollment" },
+      body: JSON.stringify({ protocolVersion: 1, installationId })
+    });
+    assert.equal(enrollment.response.status, 201);
+    const registration = await enabledServer.request("/api/v1/acquisition/desktop-installations/register", {
+      method: "POST", headers: { "Idempotency-Key": "composition-registration" },
+      body: JSON.stringify({ protocolVersion: 1, installationId, enrollmentToken: enrollment.json.enrollmentToken })
+    });
+    assert.equal(registration.response.status, 201);
+    const binding = await enabledServer.request(`/api/v1/acquisition/social-accounts/${accountId}/desktop-binding`, {
+      method: "POST", headers: { "Idempotency-Key": "composition-binding" },
+      body: JSON.stringify({ installationId, accountHandle: `dyacct_${"c".repeat(64)}`,
+        loginStateVersion: accountLoginStateVersion, expectedBindingGeneration: 0, handoff: false })
+    });
+    assert.equal(binding.response.status, 200);
+    const result = await enabledServer.request(
+      `/api/v1/acquisition/outreach-batches/${enabledBatch.id}/approve`,
+      {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": "approve-production-composition-enabled",
+          "If-Match": enabledBatch.etag
+        },
+        body: JSON.stringify({
+          revision: enabledBatch.revision,
+          batchHash: enabledBatch.batchHash,
+          confirm: true
+        })
+      }
+    );
+    assert.equal(result.response.status, 200);
+    assert.deepEqual(
+      (await enabledRepository.listActions(TEAM, enabledBatch.id))
+        .map((action) => action.executionTarget),
+      ["desktop"]
+    );
+    const claim = await enabledServer.request("/api/v1/acquisition/desktop-outreach-actions/claim", {
+      method: "POST", headers: { "Idempotency-Key": "composition-real-authority-claim",
+        "X-Shensi-Desktop-Installation-Id": installationId,
+        "X-Shensi-Desktop-Device-Token": registration.json.deviceToken as string },
+      body: JSON.stringify({ protocolVersion: 1, processInstanceId: "p".repeat(43), waitSeconds: 0,
+        availableAccounts: [{ accountId, accountHandle: `dyacct_${"c".repeat(64)}`,
+          loginStateVersion: accountLoginStateVersion, bindingGeneration: binding.json.bindingGeneration }] })
+    });
+    assert.equal(claim.response.status, 200);
+    assert.equal(claim.json.kind, "claimed", "the composed locked candidate/evidence/DNC authority must be wired");
+    assert.equal((claim.json.task as Record<string, unknown>).kind, "comment");
+    assert.equal((await enabledRepository.listActions(TEAM, enabledBatch.id)).length, 1);
+  } finally {
+    await enabledServer.close();
+    await enabledRuntime.close();
+  }
+
+  const disabledRepository = new InMemoryAcquisitionOutreachBatchRepository({
+    memoryTransactions,
+    socialAccounts,
+    desktopInstallations,
+    desktopTaskTokenKey
+  });
+  const disabledBatch = await seedBatch(
+    disabledRepository,
+    "batch-production-composition-disabled"
+  );
+  const disabledRuntime = await createRuntime(disabledRepository, false);
+  const disabledServer = await serveRuntime(disabledRuntime);
+  try {
+    const result = await disabledServer.request(
+      `/api/v1/acquisition/outreach-batches/${disabledBatch.id}/approve`,
+      {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": "approve-production-composition-disabled",
+          "If-Match": disabledBatch.etag
+        },
+        body: JSON.stringify({
+          revision: disabledBatch.revision,
+          batchHash: disabledBatch.batchHash,
+          confirm: true
+        })
+      }
+    );
+    assert.equal(result.response.status, 503);
+    assert.equal(result.json.code, "outreach_desktop_execution_disabled");
+    assert.equal(
+      (await disabledRepository.listActions(TEAM, disabledBatch.id)).length,
+      0
+    );
+    assert.equal(
+      (await disabledRepository.find(TEAM, disabledBatch.id))?.state,
+      "awaiting_approval"
+    );
+  } finally {
+    await disabledServer.close();
+    await disabledRuntime.close();
+  }
+});
+
+test("all eight independent outreach flag combinations compose through the application", async () => {
+  const combinations = [false, true] as const;
+  for (const approvalsEnabled of combinations) {
+    for (const serverExecutionEnabled of combinations) {
+      for (const desktopExecutionEnabled of combinations) {
+        const fixture = isolatedMemoryStore();
+        const gateway = serverExecutionEnabled ? {
+          async startCrawlJob() { throw new Error("unexpected_crawl"); },
+          async getCrawlJob() { throw new Error("unexpected_crawl"); },
+          async getCrawlResults() { throw new Error("unexpected_crawl"); },
+          async acknowledgeCrawlJob() { throw new Error("unexpected_crawl"); },
+          async cancelCrawlJob() {},
+          async executeAction() { throw new Error("unexpected_action"); }
+        } as unknown as DouyinMediaCrawlerGateway : undefined;
+        const runtime = await createAcquisitionApplication({
+          store: fixture.store,
+          masterSecret: MASTER_SECRET,
+          douyinMediaCrawlerGateway: gateway,
+          douyinOutreachFeatureFlags: {
+            approvalsEnabled, serverExecutionEnabled, desktopExecutionEnabled
+          },
+          crawlerWorkerIntervalMs: 5,
+          outreachActionWorkerIntervalMs: 5,
+          outreachActionRecoveryIntervalMs: 5
+        });
+        const server = await serve((req, res, next) => {
+          req.activeWorkspace = {
+            workspaceId: TEAM, kind: "team", actorId: OWNER, role: "admin", teamId: TEAM,
+            capabilities: ["acquisition.outreach.approve"], capabilityRegistryVersion: "test"
+          };
+          runtime.handler(req, res, next);
+        });
+        try {
+          const approval = await server.request("/api/v1/acquisition/outreach-batches/missing/approve", {
+            method: "POST", headers: { "Idempotency-Key": "flags-approve", "If-Match": '"batch:1"' },
+            body: JSON.stringify({ revision: 1, batchHash: `sha256:${"a".repeat(64)}`, confirm: true })
+          });
+          assert.equal(approval.response.status, approvalsEnabled ? 404 : 503);
+          assert.equal(approval.json.code, approvalsEnabled ? "outreach_batch_not_found" : "outreach_actions_disabled");
+          for (const actionPath of ["claim", "action/complete", "action/reconcile"]) {
+            const action = await server.request(`/api/v1/acquisition/desktop-outreach-actions/${actionPath}`, {
+              method: "POST", body: "{}"
+            });
+            assert.equal(action.response.status, desktopExecutionEnabled ? 401 : 503);
+            assert.equal(action.json.error, desktopExecutionEnabled
+              ? "desktop_device_authentication_required" : "desktop_execution_disabled");
+          }
+        } finally { await server.close(); await runtime.close(); }
+        if (serverExecutionEnabled) {
+          await assert.rejects(createAcquisitionApplication({
+            store: isolatedMemoryStore().store, masterSecret: MASTER_SECRET,
+            douyinOutreachFeatureFlags: { approvalsEnabled, serverExecutionEnabled, desktopExecutionEnabled }
+          }), /DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED requires a MediaCrawler gateway/);
+        }
+      }
+    }
+  }
+});
+
+test("Memory desktop bundle completes enrollment, registration, binding, and fail-closed claim", async () => {
+  const fixture = isolatedMemoryStore();
+  const user = {
+    id: OWNER, name: "Application Owner", email: "desktop-owner@example.test",
+    password: "desktop-password", role: "admin" as const, teamId: TEAM,
+    avatar: "DO", status: "active" as "active" | "disabled", authVersion: 1
+  };
+  fixture.store.users.push(user);
+  const memoryTransactions = new AcquisitionMemoryTransactionCoordinator();
+  const planRuns = new InMemoryAcquisitionPlanRunRepository(memoryTransactions);
+  const socialAccounts = new InMemoryAcquisitionSocialAccountRepository(memoryTransactions);
+  const desktopInstallationsTesting: {
+    memoryTransactions: AcquisitionMemoryTransactionCoordinator;
+    socialAccounts: InMemoryAcquisitionSocialAccountRepository;
+    outreachActions?: InMemoryAcquisitionOutreachBatchRepository;
+  } = { memoryTransactions, socialAccounts };
+  const desktopInstallations = new InMemoryDesktopInstallationRepository(
+    desktopInstallationsTesting
+  );
+  const outreach = new InMemoryAcquisitionOutreachBatchRepository({
+    memoryTransactions, socialAccounts, desktopInstallations,
+    desktopTaskTokenKey: Buffer.from("desktop-task-capability-key-6b".repeat(2))
+  });
+  desktopInstallationsTesting.outreachActions = outreach;
+  const accountHandle = `dyacct_${"c".repeat(64)}`;
+  await socialAccounts.upsert({
+    id: "desktop-account", workspaceId: TEAM, platform: "douyin",
+    accountHandle, upstreamSessionId: null, displayName: "Desktop account",
+    state: "active", loginStateVersion: 1, loginStateVersionHighWater: 1,
+    executorMode: null, executorDeviceIdHash: null, executorBindingGeneration: 0,
+    executorLeaseExpiresAt: null, revision: 1, etag: '"account:1"',
+    lastValidatedAt: "2026-09-05T00:00:00.000Z",
+    createdAt: "2026-09-05T00:00:00.000Z", updatedAt: "2026-09-05T00:00:00.000Z"
+  });
+  const runtime = await createAcquisitionApplication({
+    store: fixture.store,
+    masterSecret: MASTER_SECRET,
+    socialAccountRepository: socialAccounts,
+    planRunRepository: planRuns,
+    desktopInstallationRepository: desktopInstallations,
+    outreachBatchRepository: outreach,
+    douyinOutreachFeatureFlags: {
+      approvalsEnabled: true, serverExecutionEnabled: false, desktopExecutionEnabled: true
+    }
+  });
+  const token = "i".repeat(43);
+  const handler = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    req.activeWorkspace = {
+      workspaceId: TEAM, kind: "team", actorId: OWNER, role: "admin", teamId: TEAM,
+      capabilities: ["acquisition.outreach.approve"], capabilityRegistryVersion: "test"
+    };
+    runtime.handler(req, res, next);
+  };
+  const server = await serve(handler);
+  try {
+    const enrollment = await server.request(
+      "/api/v1/acquisition/desktop-installations/enrollments", {
+        method: "POST", headers: { "Idempotency-Key": "memory-enroll-key" },
+        body: JSON.stringify({ protocolVersion: 1, installationId: token })
+      });
+    assert.equal(enrollment.response.status, 201);
+    const enrollmentToken = enrollment.json.enrollmentToken as string;
+    const registration = await server.request(
+      "/api/v1/acquisition/desktop-installations/register", {
+        method: "POST", headers: { "Idempotency-Key": "memory-register-key" },
+        body: JSON.stringify({ protocolVersion: 1, installationId: token, enrollmentToken })
+      });
+    assert.equal(registration.response.status, 201);
+    const deviceToken = registration.json.deviceToken as string;
+    const binding = await server.request(
+      "/api/v1/acquisition/social-accounts/desktop-account/desktop-binding", {
+        method: "POST", headers: { "Idempotency-Key": "memory-bind-key" },
+        body: JSON.stringify({ installationId: token, accountHandle, loginStateVersion: 1,
+          expectedBindingGeneration: 0, handoff: false })
+      });
+    assert.equal(binding.response.status, 200);
+    assert.equal(binding.json.executorMode, "desktop");
+    const claim = await server.request(
+      "/api/v1/acquisition/desktop-outreach-actions/claim", {
+        method: "POST", headers: {
+          "Idempotency-Key": "memory-claim-key",
+          "X-Shensi-Desktop-Installation-Id": token,
+          "X-Shensi-Desktop-Device-Token": deviceToken
+        },
+        body: JSON.stringify({ protocolVersion: 1, processInstanceId: "p".repeat(43),
+          waitSeconds: 0, availableAccounts: [{ accountId: "desktop-account", accountHandle,
+            loginStateVersion: 1, bindingGeneration: 1 }] })
+      });
+    assert.equal(claim.response.status, 200);
+    assert.equal(claim.json.kind, "empty");
+
+    user.status = "disabled";
+    const revoked = await server.request(
+      "/api/v1/acquisition/desktop-outreach-actions/claim", {
+        method: "POST", headers: {
+          "Idempotency-Key": "memory-revoked-claim",
+          "X-Shensi-Desktop-Installation-Id": token,
+          "X-Shensi-Desktop-Device-Token": deviceToken
+        }, body: JSON.stringify({ protocolVersion: 1, processInstanceId: "q".repeat(43),
+          waitSeconds: 0, availableAccounts: [{ accountId: "desktop-account", accountHandle,
+            loginStateVersion: 1, bindingGeneration: 1 }] })
+      });
+    assert.equal(revoked.response.status, 401);
+    user.status = "active";
+    user.teamId = "cross-workspace";
+    const crossWorkspace = await server.request(
+      "/api/v1/acquisition/desktop-outreach-actions/claim", {
+        method: "POST", headers: {
+          "Idempotency-Key": "memory-cross-workspace-claim",
+          "X-Shensi-Desktop-Installation-Id": token,
+          "X-Shensi-Desktop-Device-Token": deviceToken
+        }, body: JSON.stringify({ protocolVersion: 1, processInstanceId: "r".repeat(43),
+          waitSeconds: 0, availableAccounts: [{ accountId: "desktop-account", accountHandle,
+            loginStateVersion: 1, bindingGeneration: 1 }] })
+      });
+    assert.equal(crossWorkspace.response.status, 401);
+  } finally {
+    await server.close();
+    await runtime.close();
+    const index = fixture.store.users.findIndex((candidate) => candidate.id === OWNER);
+    if (index >= 0) fixture.store.users.splice(index, 1);
+  }
+});
+
 test("disabled Douyin outreach leaves approved actions unclaimed while crawler gateway remains configured", async () => {
   const fixture = isolatedMemoryStore();
   const repository = new InMemoryAcquisitionOutreachBatchRepository();
@@ -4055,7 +5015,7 @@ test("disabled Douyin outreach leaves approved actions unclaimed while crawler g
     batchRevision: 1, candidateId: "disabled-candidate",
     accountId: awaiting.accountId, accountLoginStateVersion: 1,
     policyVersionId: awaiting.policyVersionId, localDate: awaiting.localDate,
-    kind: "comment", sequence: 1, status: "queued",
+    kind: "comment", sequence: 1, status: "queued", executionTarget: "server",
     predecessorActionId: null,
     targetPublicUrl: "https://www.douyin.com/video/7536012345678909999",
     content: "frozen approved comment", contentHash: digest("content"),

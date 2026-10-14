@@ -120,8 +120,8 @@ function statesMinorAge(text: string) {
 }
 const STAGES: Array<[RegExp, BuyingStage]> = [
   [/(?:正在采购|采购需求|招标|求购|马上购买|尽快上线|近期上线)/u, "purchase_ready"],
-  [/(?:比价|对比|比较|询价|报价|方案选择)/u, "comparison"],
-  [/(?:寻找(?:获客)?方案|了解(?:获客)?方案|调研|咨询|怎么做|解决方案)/u, "solution_research"],
+  [/(?:比价|对比|比较|询价|报价|方案选择|多少钱|怎么收费)/u, "comparison"],
+  [/(?:寻找(?:获客)?方案|了解(?:获客)?方案|调研|咨询|怎么做|解决方案|求推荐|有推荐的吗)/u, "solution_research"],
   [/(?:获客难|成本高|需要|需求|痛点|缺少)/u, "problem_defined"]
 ];
 
@@ -146,7 +146,7 @@ export function qualifyDouyinCrawlerCandidate(input: {
     return { status: "suppressed", buyingStage: null, reason: "minor_signal", retainDoNotContact: true };
   }
   if (input.kind === "creator") {
-    return { status: "qualified", buyingStage: "awareness", reason: null };
+    return { status: "suppressed", buyingStage: null, reason: "creator_context_only", retainDoNotContact: false };
   }
   const stage = STAGES.find(([matcher]) => matcher.test(text))?.[1];
   return stage

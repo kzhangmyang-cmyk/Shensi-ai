@@ -233,7 +233,9 @@ def test_service_schemas_are_closed():
         LoginSessionView(
             session_id="session_1",
             state="active",
+            qr_status=None,
             qr_image_data_url=None,
+            login_page=None,
             expires_at=NOW,
             account_handle="handle",
             account_display_name="Display",
@@ -302,6 +304,20 @@ def test_service_schemas_are_closed():
     for model in models:
         with pytest.raises(ValidationError):
             type(model).model_validate({**model.model_dump(mode="json"), "unexpected": True})
+
+
+def test_login_session_contract_requires_an_explicit_qr_status():
+    with pytest.raises(ValidationError, match="qr_status"):
+        LoginSessionView(
+            session_id="session_1",
+            state="active",
+            qr_image_data_url=None,
+            login_page=None,
+            expires_at=NOW,
+            account_handle="handle",
+            account_display_name="Display",
+            login_state_version=1,
+        )
 
 
 @pytest.mark.parametrize("failure_code", [
@@ -452,6 +468,33 @@ def test_health_requires_valid_bearer_authentication_without_echoing_header():
     }
 
 
+def test_lifespan_cleanup_continues_after_crawl_shutdown_failure():
+    cleanup_calls = []
+
+    class _Manager:
+        def __init__(self, name, *, fail=False):
+            self.name = name
+            self.fail = fail
+
+        def close(self):
+            cleanup_calls.append(self.name)
+            if self.fail:
+                raise RuntimeError(f"{self.name}_shutdown_failed")
+
+    application = create_app(
+        SERVICE_SECRET,
+        account_manager=_Manager("accounts"),
+        crawl_job_manager=_Manager("crawl", fail=True),
+        action_job_manager=_Manager("actions"),
+    )
+
+    with pytest.raises(RuntimeError, match="^crawl_shutdown_failed$"):
+        with TestClient(application):
+            pass
+
+    assert cleanup_calls == ["crawl", "actions", "accounts"]
+
+
 def test_service_secret_requires_32_non_whitespace_bytes():
     with pytest.raises(ValueError, match="32 non-whitespace bytes"):
         create_app(" " * 32)
@@ -502,6 +545,8 @@ def test_deployment_rejects_missing_crawl_output_before_browser_start(
     monkeypatch.setenv("MEDIACRAWLER_ENCRYPTED_VOLUME", str(volume))
     monkeypatch.setenv("MEDIACRAWLER_PROFILE_ROOT", str(volume / "profiles"))
     monkeypatch.delenv("MEDIACRAWLER_CRAWL_OUTPUT_ROOT", raising=False)
+    monkeypatch.setenv("SHENSI_RUNTIME_MODE", "web")
+    monkeypatch.setenv("MEDIACRAWLER_BROWSER_DISPLAY", "virtual")
     secret_file = tmp_path / "service-secret"
     secret_file.write_text(SERVICE_SECRET, encoding="utf-8")
     os.chmod(secret_file, 0o600)
@@ -525,6 +570,8 @@ def test_deployment_rejects_missing_crawl_output_before_browser_start(
 
 
 def test_deployment_outreach_actions_require_literal_true(monkeypatch):
+    monkeypatch.setenv("SHENSI_RUNTIME_MODE", "web")
+    monkeypatch.setenv("MEDIACRAWLER_BROWSER_DISPLAY", "virtual")
     monkeypatch.delenv("DOUYIN_OUTREACH_ACTIONS_ENABLED", raising=False)
     assert deployment_app.deployment_outreach_actions_enabled() is False
     for value in ["", "false", "1", "yes", " true ", "true-ish"]:
@@ -536,6 +583,8 @@ def test_deployment_outreach_actions_require_literal_true(monkeypatch):
 
 
 def test_deployment_app_rejects_actions_when_default_disabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("SHENSI_RUNTIME_MODE", "web")
+    monkeypatch.setenv("MEDIACRAWLER_BROWSER_DISPLAY", "virtual")
     secret_file = tmp_path / "service-secret"
     secret_file.write_text(SERVICE_SECRET, encoding="utf-8")
     os.chmod(secret_file, 0o600)

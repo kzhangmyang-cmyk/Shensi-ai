@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { financeImportColumnIndexes, financeImportFieldValue } from "./finance-import-columns.js";
 import { requireGrowthCapabilities } from "./growth-capabilities.js";
 import {
   GrowthHttpError,
@@ -34,6 +35,7 @@ import {
   type FinanceImportPublicNormalizedRow,
   type FinanceImportRepository,
   type FinanceImportRowErrorCode,
+  type FinanceImportRowErrorDetail,
   type FinanceImportStoredNormalizedRow,
   type FinanceImportStoredRow,
   type FinanceImportStoredRowInput
@@ -43,6 +45,16 @@ export const FINANCE_COST_IMPORT_TEMPLATE_VERSION =
   "finance-cost-import.v1" as const;
 export const FINANCE_FACT_IMPORT_TEMPLATE_VERSION =
   "finance-fact-import.v1" as const;
+
+const FINANCE_COST_IMPORT_HEADERS = Object.freeze([
+  "externalId", "category", "amount", "currency",
+  "businessOccurredAt", "provenance", "status"
+]);
+const FINANCE_FACT_IMPORT_HEADERS = Object.freeze([
+  "externalId", "factType", "amount", "currency",
+  "businessOccurredAt", "provenance", "revenue", "grossProfit",
+  "status"
+]);
 
 export interface FinanceImportTemplate {
   readonly kind: FinanceImportKind;
@@ -92,6 +104,25 @@ export class FinanceImportRowError extends Error {
     super(code);
     this.name = "FinanceImportRowError";
     this.code = code;
+  }
+}
+
+class RowErrors {
+  readonly codes: FinanceImportRowErrorCode[] = [];
+  readonly details: FinanceImportRowErrorDetail[] = [];
+  get length() { return this.codes.length; }
+  push(code: FinanceImportRowErrorCode) { this.field(null, code); }
+  field(field: string | null, code: FinanceImportRowErrorCode) {
+    const labels: Record<string, string> = { category: "费用类别", factType: "事实类型", amount: "金额", currency: "币种",
+      businessOccurredAt: "业务发生时间", revenue: "收入", grossProfit: "毛利", status: "状态" };
+    const messages: Partial<Record<FinanceImportRowErrorCode, string>> = {
+      required_field_missing: "缺失或不属于支持的值", money_invalid: "必须是非负、符合币种小数位的金额",
+      currency_invalid: "请填写明确的有效币种代码或名称", business_time_invalid: "业务时间格式无效或存在时区歧义",
+      spreadsheet_formula_forbidden: "不接受公式或公式样式单元格", verified_import_forbidden: "导入只能创建待核验记录",
+      financial_fact_amount_invalid: "收入与毛利金额不符合财务约束", amount_out_of_range: "金额超出安全计算范围"
+    };
+    this.codes.push(code);
+    this.details.push({ code, field, message: `${field ? `${labels[field] ?? field}：` : ""}${messages[code] ?? code}` });
   }
 }
 
@@ -214,24 +245,13 @@ function rejectFormulaCells(
   }
 }
 
-function columnIndexesForMapping(
-  headerRow: readonly ParsedSpreadsheetCell[],
-  mapping: Readonly<Record<string, string>>
-): ReadonlyMap<string, number> {
-  const indexes = new Map<string, number>();
-  for (const [column, header] of Object.entries(mapping)) {
-    indexes.set(column, headerRow.findIndex((cell) => cell.text === header));
-  }
-  return indexes;
-}
-
 function rowCellValues(
   row: readonly ParsedSpreadsheetCell[],
   columnIndexes: ReadonlyMap<string, number>
 ): Map<string, string> {
   const values = new Map<string, string>();
   for (const [column, index] of columnIndexes) {
-    values.set(column, index >= 0 ? row[index]!.text : "");
+    values.set(column, financeImportFieldValue(column, index >= 0 ? row[index]?.text ?? "" : ""));
   }
   return values;
 }
@@ -327,7 +347,8 @@ export function projectFinanceImportPreviewRow(
     status: stored.status,
     sourceIdentityRoot: stored.sourceIdentityRoot,
     normalized,
-    errors: [...stored.errors]
+    errors: [...stored.errors],
+    ...(stored.errorDetails ? { errorDetails: stored.errorDetails.map(detail => ({ ...detail })) } : {})
   };
 }
 
@@ -390,10 +411,7 @@ export class FinanceImportService {
       return Object.freeze({
         kind,
         version: FINANCE_COST_IMPORT_TEMPLATE_VERSION,
-        headers: Object.freeze([
-          "externalId", "category", "amount", "currency",
-          "businessOccurredAt", "provenance", "status"
-        ]),
+        headers: FINANCE_COST_IMPORT_HEADERS,
         labels: Object.freeze([
           "外部ID", "费用类别", "金额", "币种", "业务发生时间",
           "来源", "状态"
@@ -406,11 +424,7 @@ export class FinanceImportService {
     return Object.freeze({
       kind,
       version: FINANCE_FACT_IMPORT_TEMPLATE_VERSION,
-      headers: Object.freeze([
-        "externalId", "factType", "amount", "currency",
-        "businessOccurredAt", "provenance", "revenue", "grossProfit",
-        "status"
-      ]),
+      headers: FINANCE_FACT_IMPORT_HEADERS,
       labels: Object.freeze([
         "外部ID", "事实类型", "金额", "币种", "业务发生时间",
         "来源", "收入", "毛利", "状态"
@@ -473,8 +487,8 @@ export class FinanceImportService {
         let invalidRows = 0;
         for (const sheet of artifact.sheets) {
           const headerRow = sheet.rows[0] ?? [];
-          const columnIndexes = columnIndexesForMapping(
-            headerRow, input.mapping
+          const columnIndexes = financeImportColumnIndexes(
+            headerRow.map(cell => cell.text), input.mapping, input.kind
           );
           const dataRows = sheet.rows.slice(1);
           for (let index = 0; index < dataRows.length; index += 1) {
@@ -566,7 +580,7 @@ export class FinanceImportService {
     rowNumber: number;
     previewId: string;
   }): Promise<FinanceImportStoredRowInput> {
-    const errors: FinanceImportRowErrorCode[] = [];
+    const errors = new RowErrors();
     try {
       rejectFormulaCells(input.row);
     } catch (error) {
@@ -579,7 +593,7 @@ export class FinanceImportService {
     const values = rowCellValues(input.row, input.columnIndexes);
     const status = values.get("status")?.trim() ?? "";
     if (status !== "" && status !== "pending") {
-      errors.push("verified_import_forbidden");
+      errors.field("status", "verified_import_forbidden");
     }
     const evidenceHash = rowEvidenceHash(input.row);
     let normalized: FinanceImportStoredNormalizedRow | null = null;
@@ -623,7 +637,8 @@ export class FinanceImportService {
         rowNumber: input.rowNumber
       }),
       normalized: isInvalid ? null : normalized,
-      errors: Object.freeze(errors)
+      errors: Object.freeze(errors.codes),
+      errorDetails: Object.freeze(errors.details)
     });
   }
 
@@ -631,7 +646,7 @@ export class FinanceImportService {
     values: ReadonlyMap<string, string>;
     timeZone: string;
     evidenceHash: string;
-    errors: FinanceImportRowErrorCode[];
+    errors: RowErrors;
   }): FinanceImportStoredNormalizedRow | null {
     const { values } = input;
     const category = values.get("category")?.trim() ?? "";
@@ -639,30 +654,30 @@ export class FinanceImportService {
     const currencyText = values.get("currency")?.trim() ?? "";
     const businessText = values.get("businessOccurredAt")?.trim() ?? "";
     if (!COST_CATEGORIES.has(category)) {
-      input.errors.push("required_field_missing");
+      input.errors.field("category", "required_field_missing");
     }
     let currency = "";
     try {
       currency = assertCurrencyCode(currencyText.toUpperCase());
     } catch {
-      if (!currencyText) input.errors.push("required_field_missing");
-      else input.errors.push("currency_invalid");
+      if (!currencyText) input.errors.field("currency", "required_field_missing");
+      else input.errors.field("currency", "currency_invalid");
     }
     let amountMinor = 0;
     try {
       amountMinor = signedDecimalToMinor(amountText, currency || "CNY");
-      if (amountMinor < 0) return null;
+      if (amountMinor < 0) input.errors.field("amount", "money_invalid");
     } catch {
-      if (!amountText) input.errors.push("required_field_missing");
-      else input.errors.push("money_invalid");
+      if (!amountText) input.errors.field("amount", "required_field_missing");
+      else input.errors.field("amount", "money_invalid");
     }
     const resolved = resolveTenantBusinessInstant(
       businessText, input.timeZone
     );
     if (!businessText) {
-      input.errors.push("required_field_missing");
+      input.errors.field("businessOccurredAt", "required_field_missing");
     } else if (!resolved) {
-      input.errors.push("business_time_invalid");
+      input.errors.field("businessOccurredAt", "business_time_invalid");
     }
     if (input.errors.length > 0) return null;
     return Object.freeze({
@@ -682,7 +697,7 @@ export class FinanceImportService {
     values: ReadonlyMap<string, string>;
     timeZone: string;
     evidenceHash: string;
-    errors: FinanceImportRowErrorCode[];
+    errors: RowErrors;
   }): Promise<FinanceImportStoredNormalizedRow | null> {
     const factTypeText = input.values.get("factType")?.trim() ?? "";
     const amountText = input.values.get("amount")?.trim() ?? "";
@@ -697,17 +712,17 @@ export class FinanceImportService {
     try {
       currency = assertCurrencyCode(currencyText.toUpperCase());
     } catch {
-      if (!currencyText) input.errors.push("required_field_missing");
-      else input.errors.push("currency_invalid");
+      if (!currencyText) input.errors.field("currency", "required_field_missing");
+      else input.errors.field("currency", "currency_invalid");
     }
     let businessOccurredAt = "";
     if (!businessText) {
-      input.errors.push("required_field_missing");
+      input.errors.field("businessOccurredAt", "required_field_missing");
     } else {
       const resolved = resolveTenantBusinessInstant(
         businessText, input.timeZone
       );
-      if (!resolved) input.errors.push("business_time_invalid");
+      if (!resolved) input.errors.field("businessOccurredAt", "business_time_invalid");
       else businessOccurredAt = resolved;
     }
     let derivedFacts: Array<{
@@ -722,14 +737,16 @@ export class FinanceImportService {
     const derivationPresent = revenueText.length > 0
       || grossProfitText.length > 0;
     if (derivationPresent) {
+      let amountField = "revenue";
       try {
         const revenueMinor = revenueText
           ? signedDecimalToMinor(revenueText, currency || "CNY") : null;
+        amountField = grossProfitText ? "grossProfit" : "revenue";
         const grossProfitMinor = grossProfitText
           ? signedDecimalToMinor(grossProfitText, currency || "CNY") : null;
         derivationInputs = { revenueMinor, grossProfitMinor };
         if (grossProfitText && revenueMinor === null) {
-          input.errors.push("required_field_missing");
+          input.errors.field("revenue", "required_field_missing");
         } else {
           const derived = this.derive({
             revenueMinor,
@@ -752,17 +769,17 @@ export class FinanceImportService {
       } catch (error) {
         const code = (error as { code?: string }).code;
         if (code === "amount_out_of_range") {
-          input.errors.push("amount_out_of_range");
+          input.errors.field(amountField, "amount_out_of_range");
         } else if (code === "revenue_required_for_gross_profit") {
-          input.errors.push("required_field_missing");
+          input.errors.field("revenue", "required_field_missing");
         } else {
-          input.errors.push("financial_fact_amount_invalid");
+          input.errors.field(amountField, "financial_fact_amount_invalid");
         }
       }
     } else {
       if (!factTypeText
         || !FINANCIAL_FACT_TYPES.has(factTypeText as FinancialFactType)) {
-        input.errors.push("required_field_missing");
+        input.errors.field("factType", "required_field_missing");
       }
       try {
         const amountMinor = signedDecimalToMinor(
@@ -776,8 +793,8 @@ export class FinanceImportService {
           }];
         }
       } catch {
-        if (!amountText) input.errors.push("required_field_missing");
-        else input.errors.push("money_invalid");
+        if (!amountText) input.errors.field("amount", "required_field_missing");
+        else input.errors.field("amount", "money_invalid");
       }
     }
     if (input.errors.length > 0) return null;

@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { parseHTML } from "linkedom";
 import { renderCatalogPage } from "./view";
 import type { CatalogPageState } from "./controller";
 
@@ -52,6 +53,8 @@ const salesHtml = renderCatalogPage(ready);
 assert.equal(salesHtml.includes("标准产品"), true);
 assert.equal(salesHtml.includes("list 100000"), false);
 assert.equal(salesHtml.includes("data-action=\"activate-package\""), false);
+assert.equal(salesHtml.includes("growth-command-strip"), true);
+assert.equal(salesHtml.includes("catalog-workbench-grid"), true);
 assert.equal(salesHtml.includes("absoluteFloorUnitPriceMinor"), false);
 
 const managerReady: CatalogPageState = {
@@ -63,8 +66,25 @@ const managerReady: CatalogPageState = {
   canManage: true
 };
 const managerHtml = renderCatalogPage(managerReady);
-assert.equal(managerHtml.includes("list 100000"), true);
+assert.match(managerHtml, /标价.*1,000\.00/u);
 assert.equal(managerHtml.includes("data-action=\"activate-package\""), true);
+assert.ok(managerHtml.includes("&quot;package-version:package-v1:2&quot;"),
+  "lifecycle actions use the server's resource-bound revision ETag");
+assert.ok(managerHtml.includes("&quot;pricing-policy:policy-1:3&quot;"));
+assert.ok(renderCatalogPage({ kind: "empty", reason: "catalog_empty", canManage: true } as CatalogPageState)
+  .includes('data-action="create-item"'), "a manager can create the first item in a new workspace");
+for (const [status, activateDisabled, retireDisabled] of [
+  ["draft", false, true], ["active", true, false], ["retired", true, true]
+] as const) {
+  const pkg = ready.packagesByItem.get("item-1")![0]!;
+  const { document } = parseHTML(renderCatalogPage({ ...managerReady,
+    packagesByItem: new Map([["item-1", [{ ...pkg, status }]]]),
+    policies: [{ ...ready.policies[0]!, status }]
+  }));
+  assert.equal(document.querySelector('[data-action="activate-package"]')!.hasAttribute("disabled"), activateDisabled);
+  assert.equal(document.querySelector('[data-action="retire-package"]')!.hasAttribute("disabled"), retireDisabled);
+  assert.equal(document.querySelector('[data-action="activate-policy"]')!.hasAttribute("disabled"), activateDisabled);
+}
 
 const maliciousItems = [{
   ...ready.items[0]!,

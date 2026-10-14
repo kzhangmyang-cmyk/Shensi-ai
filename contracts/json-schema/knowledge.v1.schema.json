@@ -84,6 +84,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["sourceId", "documentId", "versionId", "sourceHash", "chunkId", "sourceLabel", "locator", "excerpt", "warnings"],
       "properties": {
+        "sourceType": { "const": "private", "description": "Omitted is legacy private; never infer system ownership from UUID or K alias." },
         "sourceId": { "type": "string", "pattern": "^K[1-6]$" },
         "documentId": { "type": "string", "format": "uuid" }, "versionId": { "type": "string", "format": "uuid" },
         "sourceHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "chunkId": { "type": "string", "format": "uuid" },
@@ -96,7 +97,7 @@
       "type": "object", "additionalProperties": false, "required": ["status", "detailedText", "sources", "warnings"],
       "properties": {
         "status": { "enum": ["used", "no_match", "unavailable"] }, "detailedText": { "type": "string", "maxLength": 12000 },
-        "sources": { "type": "array", "maxItems": 6, "items": { "$ref": "#/$defs/Citation" } }, "warnings": { "$ref": "#/$defs/Warnings" }
+        "sources": { "type": "array", "maxItems": 6, "items": { "$ref": "system-reference.v1.schema.json#/$defs/ReferenceCitation" } }, "warnings": { "$ref": "#/$defs/Warnings" }
       }
     }
   }

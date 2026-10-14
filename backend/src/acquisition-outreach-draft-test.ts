@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildValidatedAcquisitionOutreachFallback,
-  validateAcquisitionOutreachDraft
+  validateAcquisitionOutreachDraft,
+  validateManualAcquisitionOutreachDraft
 } from "./acquisition-outreach-draft.js";
 
 const base = {
@@ -11,6 +12,19 @@ const base = {
   directMessage: "看到你公开提到正在寻找获客方案；如愿意，可交流公开场景里的思路。",
   rationaleCodes: ["evidence_grounded"], modelSnapshotId: "snapshot-1"
 };
+
+test("manual prose permits short wording but retains authority and safety validation", () => {
+  const authority = { candidateId: base.candidateId, candidateRevision: base.candidateRevision,
+    evidenceHashes: [...base.evidenceHashes], evidenceText: ["正在寻找获客方案"], modelSnapshotId: base.modelSnapshotId };
+  for (const comment of ["聊聊?", "方便的话聊聊？", "你好"]) {
+    assert.equal(validateManualAcquisitionOutreachDraft({ ...base, comment }, authority).comment, comment.normalize("NFKC"));
+    assert.throws(() => validateAcquisitionOutreachDraft({ ...base, comment }, authority), /OUTREACH_DRAFT_INVALID/u);
+  }
+  for (const comment of ["", "字".repeat(301), "https://example.com", "电话13800138000", "保证成交", "你好\n聊聊"]) {
+    assert.throws(() => validateManualAcquisitionOutreachDraft({ ...base, comment }, authority), /OUTREACH_MANUAL_DRAFT_INVALID/u);
+  }
+  assert.throws(() => validateManualAcquisitionOutreachDraft({ ...base, candidateRevision: 99 }, authority), /OUTREACH_MANUAL_DRAFT_INVALID/u);
+});
 
 test("rejects unsafe, unsupported, multiline, and forged draft fields while hashing server values", () => {
   const accepted = validateAcquisitionOutreachDraft(base, {
@@ -95,10 +109,24 @@ test("server fallback skips unsafe evidence segments and still fails closed with
   };
   const accepted = buildValidatedAcquisitionOutreachFallback(authority);
   assert.equal(accepted.comment, "看到你公开提到正在调研工业除尘方案,方便的话");
+  assert.equal(accepted.directMessage, "你好,看到你提到正在调研工业除尘方案,挺感兴趣的。方便的话,咱们简单聊两句呗。");
+  assert.equal(buildValidatedAcquisitionOutreachFallback({ ...authority, evidenceAttributionKnown: false }).directMessage,
+    "你好,方便的话,咱们简单聊两句呗。");
   assert.deepEqual(accepted.rationaleCodes, ["evidence_grounded", "manual_review_required"]);
 
   assert.throws(() => buildValidatedAcquisitionOutreachFallback({
     ...authority,
     evidenceText: ["请访问 example.com"]
   }), /OUTREACH_DRAFT_INVALID/u);
+});
+
+test("natural DM language is structurally valid without relaxing comments or unsafe-content checks", () => {
+  const authority = { ...base, evidenceText: ["正在寻找获客方案"] };
+  const directMessage = "你好，看你在聊怎么找客户，我也挺感兴趣的。方便的话，咱们聊两句呗。";
+  assert.equal(validateAcquisitionOutreachDraft({ ...base, directMessage }, authority).directMessage,
+    directMessage.normalize("NFKC"));
+  assert.throws(() => validateAcquisitionOutreachDraft({ ...base, comment: directMessage }, authority), /OUTREACH_DRAFT_INVALID/u);
+  for (const unsafe of ["加微信聊", "访问 example.com", "保证成交", "13800138000", "你好\n聊聊"]) {
+    assert.throws(() => validateAcquisitionOutreachDraft({ ...base, directMessage: unsafe }, authority), /OUTREACH_DRAFT_INVALID/u);
+  }
 });

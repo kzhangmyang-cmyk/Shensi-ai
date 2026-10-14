@@ -7,6 +7,8 @@ import type {
 } from "./financial-settlement-allocation.js";
 import type { GrowthTemporalBarrier } from "./growth-temporal-barrier.js";
 import {
+  growthMysqlDate,
+  growthMysqlInstant,
   MysqlGrowthTemporalTransaction
 } from "./growth-temporal-barrier-mysql-repository.js";
 
@@ -113,9 +115,10 @@ function settlementSet(row: MysqlRow): CashSettlementAllocationSet {
     revision: Number(row.revision),
     items: [],
     createdBy: String(row.created_by),
-    createdAt: String(row.created_at),
+    createdAt: growthMysqlInstant(row.created_at),
     activatedBy: row.activated_by === null ? null : String(row.activated_by),
-    activatedAt: row.activated_at === null ? null : String(row.activated_at)
+    activatedAt: row.activated_at === null
+      ? null : growthMysqlInstant(row.activated_at)
   });
 }
 
@@ -129,11 +132,11 @@ function lifecycleEvent(row: MysqlRow): CashSettlementAllocationLifecycleEvent {
       CashSettlementAllocationLifecycleEvent["eventType"],
     eventSequence: Number(row.event_sequence),
     revision: Number(row.revision),
-    effectiveAt: String(row.effective_at),
+    effectiveAt: growthMysqlInstant(row.effective_at),
     supersedesAllocationSetId: row.supersedes_allocation_set_id === null
       ? null : String(row.supersedes_allocation_set_id),
     actorId: String(row.actor_id),
-    recordedAt: String(row.recorded_at),
+    recordedAt: growthMysqlInstant(row.recorded_at),
     temporalSequence: Number(row.temporal_sequence)
   });
 }
@@ -187,7 +190,7 @@ implements CashSettlementAllocationRepository {
           create_domain_command_hash, create_request_hash, requested_by
         ) VALUES (?, ?, ?, ?, 'draft', 1, ?, ?, NULL, NULL, ?, ?, ?)`,
         [input.id, input.workspaceId, input.sourceFactId, input.version,
-          input.createdBy, input.createdAt, input.domainCommandHash,
+          input.createdBy, growthMysqlDate(input.createdAt), input.domainCommandHash,
           input.requestHash, input.requestedBy]
       );
       for (const item of input.items) {
@@ -285,7 +288,7 @@ implements CashSettlementAllocationRepository {
     domainCommandHash: `sha256:${string}`;
     requestHash: string;
   }): Promise<CashSettlementAllocationSet> {
-    return this.transaction(async ({ connection, temporal }) => {
+    await this.transaction(async ({ connection, temporal }) => {
       const firstStamp = await this.barrier.allocateAppend(
         temporal, input.workspaceId
       );
@@ -307,19 +310,61 @@ implements CashSettlementAllocationRepository {
         [input.allocationSetId]
       );
       const items = itemRows as MysqlRow[];
-      const dealId = String(items[0]?.deal_id ?? "");
-      const currency = String(items[0]?.currency ?? "CNY");
-      await connection.query(
-        `INSERT INTO cash_settlement_deal_guards
-           (workspace_id, deal_id, currency) VALUES (?, ?, ?)
-         ON DUPLICATE KEY UPDATE workspace_id = VALUES(workspace_id)`,
-        [input.workspaceId, dealId, currency]
+      const dealGuards = [...new Map(items.map((item) => {
+        const dealId = String(item.deal_id);
+        const currency = String(item.currency);
+        return [`${dealId}\u0000${currency}`, { dealId, currency }];
+      })).values()].sort((left, right) =>
+        left.dealId.localeCompare(right.dealId)
+        || left.currency.localeCompare(right.currency));
+      for (const guard of dealGuards) {
+        await connection.query(
+          `INSERT INTO cash_settlement_deal_guards
+             (workspace_id, deal_id, currency) VALUES (?, ?, ?)
+           ON DUPLICATE KEY UPDATE workspace_id = VALUES(workspace_id)`,
+          [input.workspaceId, guard.dealId, guard.currency]
+        );
+        await connection.query(
+          `SELECT workspace_id FROM cash_settlement_deal_guards
+           WHERE workspace_id = ? AND deal_id = ? AND currency = ? FOR UPDATE`,
+          [input.workspaceId, guard.dealId, guard.currency]
+        );
+      }
+      const targetRevenueFactIds = [...new Set(items.map((item) =>
+        String(item.target_revenue_fact_id)))].sort();
+      const factIds = [...new Set([
+        draft.sourceFactId,
+        ...targetRevenueFactIds
+      ])].sort();
+      const factPlaceholders = factIds.map(() => "?").join(", ");
+      const [factRows] = await connection.query(
+        `SELECT id, fact_type, amount_minor, currency
+         FROM financial_facts
+         WHERE workspace_id = ? AND id IN (${factPlaceholders})
+         ORDER BY deal_id ASC, id ASC FOR UPDATE`,
+        [input.workspaceId, ...factIds]
       );
-      await connection.query(
-        `SELECT workspace_id FROM cash_settlement_deal_guards
-         WHERE workspace_id = ? AND deal_id = ? AND currency = ? FOR UPDATE`,
-        [input.workspaceId, dealId, currency]
-      );
+      const factsById = new Map((factRows as MysqlRow[]).map((row) =>
+        [String(row.id), row]));
+      if (!factsById.has(draft.sourceFactId)) {
+        throw Object.assign(new Error("settlement_source_fact_not_found"), {
+          code: "settlement_source_fact_not_found", status: 422
+        });
+      }
+      const referencedPaymentItemIds = [...new Set(items
+        .map((item) => item.original_payment_allocation_item_id)
+        .filter((id): id is string => typeof id === "string"))].sort();
+      if (referencedPaymentItemIds.length > 0) {
+        const itemPlaceholders = referencedPaymentItemIds
+          .map(() => "?").join(", ");
+        await connection.query(
+          `SELECT id, allocation_set_id, target_revenue_fact_id, amount_minor
+           FROM cash_settlement_allocation_items
+           WHERE workspace_id = ? AND id IN (${itemPlaceholders})
+           ORDER BY id ASC FOR UPDATE`,
+          [input.workspaceId, ...referencedPaymentItemIds]
+        );
+      }
       const [headRows] = await connection.query(
         `SELECT * FROM cash_settlement_source_heads
          WHERE workspace_id = ? AND source_fact_id = ? FOR UPDATE`,
@@ -344,6 +389,86 @@ implements CashSettlementAllocationRepository {
           code: "revision_mismatch", status: 412
         });
       }
+      const isRefund = String(factsById.get(draft.sourceFactId)!.fact_type) === "refund";
+      if (isRefund) {
+        const incomingByPayment = new Map<string, bigint>();
+        for (const item of items) {
+          const paymentItemId = String(item.original_payment_allocation_item_id ?? "");
+          const [paymentRows] = await connection.query(
+            `SELECT i.amount_minor FROM cash_settlement_allocation_items i
+             JOIN cash_settlement_allocation_sets s ON s.id = i.allocation_set_id AND s.workspace_id = i.workspace_id
+             JOIN financial_facts f ON f.id = s.source_fact_id AND f.workspace_id = s.workspace_id
+             WHERE i.workspace_id = ? AND i.id = ? AND s.id = ? AND s.source_fact_id = ?
+               AND s.status = 'active' AND f.fact_type = 'payment_received'
+               AND i.target_revenue_fact_id = ? AND i.currency = ?`,
+            [input.workspaceId, paymentItemId, item.original_payment_allocation_set_id,
+              item.original_payment_fact_id, item.target_revenue_fact_id, item.currency]
+          );
+          const payment = (paymentRows as MysqlRow[])[0];
+          if (!payment) throw Object.assign(new Error("refund_payment_item_invalid"), {code:"refund_payment_item_invalid",status:422});
+          const incoming = (incomingByPayment.get(paymentItemId) ?? 0n) + BigInt(String(item.amount_minor));
+          incomingByPayment.set(paymentItemId, incoming);
+          const [refundRows] = await connection.query(
+            `SELECT COALESCE(SUM(i.amount_minor), 0) AS refunded_minor
+             FROM cash_settlement_allocation_items i
+             JOIN cash_settlement_allocation_sets s ON s.id = i.allocation_set_id AND s.workspace_id = i.workspace_id
+             JOIN financial_facts f ON f.id = s.source_fact_id AND f.workspace_id = s.workspace_id
+             WHERE s.workspace_id = ? AND s.status = 'active' AND s.source_fact_id <> ?
+               AND f.fact_type = 'refund' AND i.original_payment_allocation_item_id = ?`,
+            [input.workspaceId, draft.sourceFactId, paymentItemId]
+          );
+          if (incoming + BigInt(String((refundRows as MysqlRow[])[0]!.refunded_minor)) > BigInt(String(payment.amount_minor))) {
+            throw Object.assign(new Error("refund_overallocated"), {code:"refund_overallocated",status:422});
+          }
+        }
+      }
+      if (targetRevenueFactIds.length > 0 && !isRefund) {
+        const targetPlaceholders = targetRevenueFactIds
+          .map(() => "?").join(", ");
+        const [allocatedRows] = await connection.query(
+          `SELECT i.target_revenue_fact_id,
+             COALESCE(SUM(i.amount_minor), 0) AS allocated_minor
+           FROM cash_settlement_allocation_items i
+           JOIN cash_settlement_allocation_sets s
+             ON s.id = i.allocation_set_id
+             AND s.workspace_id = i.workspace_id
+           JOIN financial_facts f ON f.id = s.source_fact_id AND f.workspace_id = s.workspace_id
+           WHERE s.workspace_id = ? AND s.status = 'active'
+             AND f.fact_type IN ('payment_received', 'bad_debt_written_off')
+             AND s.source_fact_id <> ?
+             AND i.target_revenue_fact_id IN (${targetPlaceholders})
+           GROUP BY i.target_revenue_fact_id`,
+          [input.workspaceId, draft.sourceFactId, ...targetRevenueFactIds]
+        );
+        const allocatedByRevenue = new Map(
+          (allocatedRows as MysqlRow[]).map((row) => [
+            String(row.target_revenue_fact_id),
+            BigInt(String(row.allocated_minor))
+          ])
+        );
+        const incomingByRevenue = new Map<string, bigint>();
+        for (const item of items) {
+          const targetId = String(item.target_revenue_fact_id);
+          incomingByRevenue.set(targetId,
+            (incomingByRevenue.get(targetId) ?? 0n)
+            + BigInt(String(item.amount_minor)));
+        }
+        for (const targetId of targetRevenueFactIds) {
+          const target = factsById.get(targetId);
+          if (!target || String(target.fact_type) !== "revenue_recognized") {
+            throw Object.assign(new Error("settlement_revenue_fact_invalid"), {
+              code: "settlement_revenue_fact_invalid", status: 422
+            });
+          }
+          const allocated = allocatedByRevenue.get(targetId) ?? 0n;
+          const incoming = incomingByRevenue.get(targetId) ?? 0n;
+          if (allocated + incoming > BigInt(String(target.amount_minor))) {
+            throw Object.assign(new Error("revenue_overallocated"), {
+              code: "revenue_overallocated", status: 422
+            });
+          }
+        }
+      }
       let nextSequence = head.lastEventSequence;
       let activationStamp = firstStamp;
       if (head.activeAllocationSetId !== null) {
@@ -359,8 +484,15 @@ implements CashSettlementAllocationRepository {
           [`${input.allocationSetId}-sup-${nextSequence}`,
             input.workspaceId, draft.sourceFactId,
             head.activeAllocationSetId, nextSequence, nextSequence,
-            firstStamp.recordedAt, input.activatedBy,
-            firstStamp.recordedAt, firstStamp.temporalSequence]
+            growthMysqlDate(firstStamp.recordedAt), input.activatedBy,
+            growthMysqlDate(firstStamp.recordedAt),
+            firstStamp.temporalSequence]
+        );
+        await connection.query(
+          `UPDATE cash_settlement_allocation_sets
+           SET status = 'superseded'
+           WHERE workspace_id = ? AND id = ?`,
+          [input.workspaceId, head.activeAllocationSetId]
         );
         activationStamp = await this.barrier.allocateAppend(
           temporal, input.workspaceId
@@ -377,9 +509,11 @@ implements CashSettlementAllocationRepository {
         ) VALUES (?, ?, ?, ?, 'activated', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [`${input.allocationSetId}-act-${nextSequence}`,
           input.workspaceId, draft.sourceFactId, input.allocationSetId,
-          nextSequence, nextSequence, activationStamp.recordedAt,
+          nextSequence, nextSequence,
+          growthMysqlDate(activationStamp.recordedAt),
           head.activeAllocationSetId, input.activatedBy,
-          activationStamp.recordedAt, activationStamp.temporalSequence,
+          growthMysqlDate(activationStamp.recordedAt),
+          activationStamp.temporalSequence,
           input.domainCommandHash, input.requestHash, input.activatedBy]
       );
       await connection.query(
@@ -399,11 +533,12 @@ implements CashSettlementAllocationRepository {
          SET status = 'active', revision = ?, activated_by = ?,
            activated_at = ?
          WHERE workspace_id = ? AND id = ?`,
-        [head.revision + 1, input.activatedBy, activationStamp.recordedAt,
+        [head.revision + 1, input.activatedBy,
+          growthMysqlDate(activationStamp.recordedAt),
           input.workspaceId, input.allocationSetId]
       );
-      return (await this.get(input.workspaceId, input.allocationSetId))!;
     });
+    return (await this.get(input.workspaceId, input.allocationSetId))!;
   }
 
   async findActivationByDomainCommandHash(

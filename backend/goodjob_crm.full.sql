@@ -38,23 +38,45 @@ CREATE TABLE acquisition_social_accounts (
   state VARCHAR(32) NOT NULL,
   login_state_version BIGINT NULL,
   login_state_version_high_water BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  executor_mode VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  executor_device_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  executor_binding_generation BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  executor_binding_generation_high_water BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  executor_lease_expires_at VARCHAR(40) NULL,
   revision BIGINT NOT NULL,
   etag VARCHAR(64) NOT NULL,
   last_validated_at VARCHAR(40) NULL,
   created_at VARCHAR(40) NOT NULL,
   updated_at VARCHAR(40) NOT NULL,
-  UNIQUE KEY acquisition_social_accounts_workspace_platform (workspace_id, platform)
-);
+  UNIQUE KEY acquisition_social_accounts_workspace_platform (workspace_id, platform),
+  INDEX acquisition_social_accounts_executor_lookup
+    (workspace_id,executor_mode,executor_device_id_hash,executor_lease_expires_at),
+  CONSTRAINT acquisition_social_accounts_executor_binding CHECK (
+    ((executor_mode IS NULL OR executor_mode='server') AND executor_device_id_hash IS NULL
+      AND executor_binding_generation=0 AND executor_lease_expires_at IS NULL)
+    OR (executor_mode='desktop' AND executor_device_id_hash IS NOT NULL
+      AND executor_binding_generation>0 AND executor_lease_expires_at IS NOT NULL))
+) ENGINE=InnoDB;
 
 CREATE TABLE acquisition_social_account_sessions (
   id VARCHAR(255) NOT NULL PRIMARY KEY,
   workspace_id VARCHAR(255) NOT NULL,
   upstream_id VARCHAR(512) NOT NULL,
+  interaction_surface VARCHAR(32) NOT NULL DEFAULT 'remote_canvas',
   expires_at VARCHAR(40) NOT NULL,
   created_at VARCHAR(40) NOT NULL,
   INDEX acquisition_social_account_sessions_expiry (expires_at),
   UNIQUE KEY acquisition_social_account_sessions_workspace_id (workspace_id, id)
-);
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_social_account_login_openings (
+  workspace_id VARCHAR(255) NOT NULL PRIMARY KEY,
+  session_id VARCHAR(255) NULL,
+  lease_owner VARCHAR(128) NULL,
+  lease_expires_at VARCHAR(40) NULL,
+  fencing_token BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at VARCHAR(40) NOT NULL
+) ENGINE=InnoDB;
 
 CREATE TABLE acquisition_social_account_replays (
   workspace_id VARCHAR(255) NOT NULL,
@@ -76,7 +98,7 @@ CREATE TABLE acquisition_social_account_replays (
   INDEX acquisition_social_account_replays_expiry (expires_at),
   CONSTRAINT acquisition_social_account_replays_state
     CHECK (state IN ('pending', 'completed'))
-);
+) ENGINE=InnoDB;
 
 CREATE TABLE acquisition_plans (
   id VARCHAR(160) PRIMARY KEY,
@@ -799,6 +821,7 @@ CREATE TABLE acquisition_crawler_jobs (
   plan_id VARCHAR(160) NOT NULL,
   policy_version_id VARCHAR(255) NOT NULL,
   local_date DATE NOT NULL,
+  execution_target VARCHAR(16) NOT NULL DEFAULT 'server',
   state VARCHAR(32) NOT NULL,
   lease_worker_id VARCHAR(255) NULL,
   lease_token CHAR(64) NULL,
@@ -807,9 +830,10 @@ CREATE TABLE acquisition_crawler_jobs (
   payload_json JSON NOT NULL,
   created_at DATETIME(3) NOT NULL,
   updated_at DATETIME(3) NOT NULL,
-  UNIQUE KEY acquisition_crawler_job_daily (workspace_id,plan_id,policy_version_id,local_date),
-  INDEX acquisition_crawler_job_claim (state,created_at),
-  CONSTRAINT acquisition_crawler_job_lease_token CHECK (lease_token IS NULL OR lease_token REGEXP '^[0-9a-f]{64}$')
+  UNIQUE KEY acquisition_crawler_job_daily (workspace_id,plan_id,policy_version_id,local_date,execution_target),
+  INDEX acquisition_crawler_job_claim (state,execution_target,created_at),
+  CONSTRAINT acquisition_crawler_job_lease_token CHECK (lease_token IS NULL OR lease_token REGEXP '^[0-9a-f]{64}$'),
+  CONSTRAINT acquisition_crawler_job_execution_target CHECK (execution_target IN ('server','desktop'))
 ) ENGINE=InnoDB;
 
 CREATE TABLE acquisition_crawler_job_runs (
@@ -855,6 +879,18 @@ CREATE TABLE acquisition_crawler_job_cursors (
   CONSTRAINT acquisition_crawler_cursor_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE acquisition_crawler_desktop_page_replays (
+  job_id VARCHAR(255) NOT NULL,
+  idempotency_key_hash CHAR(71) NOT NULL,
+  request_hash CHAR(71) NOT NULL,
+  response_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (job_id,idempotency_key_hash),
+  CONSTRAINT acquisition_crawler_desktop_page_replay_job FOREIGN KEY (job_id) REFERENCES acquisition_crawler_jobs(id),
+  CONSTRAINT acquisition_crawler_desktop_page_replay_key_hash CHECK (idempotency_key_hash REGEXP '^sha256:[0-9a-f]{64}$'),
+  CONSTRAINT acquisition_crawler_desktop_page_replay_request_hash CHECK (request_hash REGEXP '^sha256:[0-9a-f]{64}$')
+) ENGINE=InnoDB;
+
 CREATE TABLE acquisition_douyin_crawler_evidence_index (
   workspace_id VARCHAR(255) NOT NULL,
   content_hash CHAR(71) NOT NULL,
@@ -882,6 +918,48 @@ CREATE TABLE acquisition_douyin_do_not_contact (
   last_observed_at DATETIME(3) NOT NULL,
   PRIMARY KEY (workspace_id,identity_hash),
   CONSTRAINT acquisition_douyin_dnc_hash CHECK (identity_hash REGEXP '^dnc:sha256:[0-9a-f]{64}$')
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_desktop_installation_enrollments (
+  workspace_id VARCHAR(255) NOT NULL,
+  user_id VARCHAR(255) NOT NULL,
+  team_id VARCHAR(255) NOT NULL,
+  device_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  protocol_version TINYINT UNSIGNED NOT NULL,
+  enrollment_token_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  expires_at DATETIME(3) NOT NULL,
+  consumed_at DATETIME(3) NULL,
+  registration_idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  registration_request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,idempotency_key_hash),
+  UNIQUE KEY acquisition_desktop_enrollment_token (enrollment_token_hash),
+  INDEX acquisition_desktop_enrollment_workspace_device (workspace_id,device_id_hash),
+  INDEX acquisition_desktop_enrollment_expiry (expires_at),
+  CONSTRAINT acquisition_desktop_enrollment_protocol CHECK (protocol_version=1)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_desktop_installations (
+  workspace_id VARCHAR(255) NOT NULL,
+  user_id VARCHAR(255) NOT NULL,
+  team_id VARCHAR(255) NOT NULL,
+  device_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  device_credential_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  protocol_version TINYINT UNSIGNED NOT NULL,
+  state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  revoked_at DATETIME(3) NULL,
+  PRIMARY KEY (workspace_id,device_id_hash),
+  UNIQUE KEY acquisition_desktop_installation_workspace_credential
+    (workspace_id,device_credential_hash),
+  INDEX acquisition_desktop_installation_state (workspace_id,state),
+  INDEX acquisition_desktop_installation_device_credential
+    (device_id_hash,device_credential_hash,protocol_version,state),
+  CONSTRAINT acquisition_desktop_installation_protocol CHECK (protocol_version=1),
+  CONSTRAINT acquisition_desktop_installation_state_check CHECK (state IN ('active','revoked'))
 ) ENGINE=InnoDB;
 
 CREATE TABLE acquisition_outreach_batches (
@@ -913,7 +991,7 @@ CREATE TABLE acquisition_outreach_batch_command_replays (
   workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   operation_name VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  request_hash CHAR(71) NOT NULL,
+  request_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   response_json JSON NOT NULL, created_at DATETIME(3) NOT NULL,
   PRIMARY KEY (workspace_id, operation_name, idempotency_key_hash)
 ) ENGINE=InnoDB;
@@ -925,15 +1003,24 @@ CREATE TABLE acquisition_outreach_actions (
   candidate_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   account_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   local_date DATE NOT NULL, kind VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  sequence INT NOT NULL, status VARCHAR(40) NOT NULL, predecessor_action_id VARCHAR(255) NULL,
+  sequence INT NOT NULL, status VARCHAR(40) NOT NULL,
+  execution_target VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'server',
+  predecessor_action_id VARCHAR(255) NULL,
   target_public_url VARCHAR(2000) NOT NULL,
   content_text TEXT NOT NULL, content_hash CHAR(71) NOT NULL, approval_hash CHAR(71) NOT NULL,
   authorization_version TINYINT NULL, approved_by VARCHAR(255) NULL,
   approved_at DATETIME(3) NULL, direct_message_daily_limit INT NULL,
   direct_message_daily_ordinal INT NULL,
   payload_json JSON NOT NULL, created_at DATETIME(3) NOT NULL, attempt_count INT NOT NULL DEFAULT 0,
+  platform_write_attempt_count INT NOT NULL DEFAULT 0,
   lease_owner VARCHAR(255) NULL, lease_token CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
   fencing_token BIGINT NOT NULL DEFAULT 0, lease_expires_at DATETIME(3) NULL, claimed_at DATETIME(3) NULL,
+  desktop_device_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  desktop_process_instance_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  desktop_executor_binding_generation BIGINT NULL,
+  desktop_task_request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  desktop_task_token_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  desktop_action_deadline_at DATETIME(3) NULL,
   platform_receipt_reference VARCHAR(255) NULL, occurred_at DATETIME(3) NULL,
   failure_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NULL,
   UNIQUE KEY uk_acquisition_outreach_action_sequence (batch_id, batch_revision, candidate_id, sequence),
@@ -941,6 +1028,9 @@ CREATE TABLE acquisition_outreach_actions (
   UNIQUE KEY uk_acquisition_outreach_direct_message_ordinal
     (workspace_id, account_id, local_date, kind, direct_message_daily_ordinal),
   KEY ix_acquisition_outreach_action_claim (status,created_at,id),
+  KEY ix_acquisition_outreach_action_desktop_claim (execution_target,status,created_at,id),
+  CONSTRAINT acquisition_outreach_action_execution_target
+    CHECK (execution_target IN ('server','desktop')),
   CONSTRAINT fk_acquisition_outreach_action_batch FOREIGN KEY (batch_id, batch_revision)
     REFERENCES acquisition_outreach_batches (id, revision)
 ) ENGINE=InnoDB;
@@ -961,7 +1051,114 @@ CREATE TABLE acquisition_outreach_action_attempts (
   completed_at DATETIME(3) NULL, outcome VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NULL,
   failure_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NULL,
   platform_receipt_reference VARCHAR(255) NULL,
+  execution_target VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'server',
+  device_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  process_instance_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  executor_binding_generation BIGINT NULL,
+  task_request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  task_token_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  account_handle CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  predecessor_receipt VARCHAR(255) NULL,
+  action_deadline_at DATETIME(3) NULL,
+  platform_write_attempt_count INT NOT NULL DEFAULT 0,
+  started_at DATETIME(3) NULL,
+  started_request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  started_response_json JSON NULL,
+  receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  receipt_request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  receipt_json JSON NULL,
+  receipt_response_json JSON NULL,
+  reconciliation_generation BIGINT NOT NULL DEFAULT 0,
+  recovery_process_instance_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  recovery_task_token_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  recovery_lease_expires_at DATETIME(3) NULL,
+  PRIMARY KEY (action_id, fencing_token),
   UNIQUE KEY uk_acquisition_outreach_action_attempt_fence (action_id, fencing_token),
   CONSTRAINT fk_acquisition_outreach_action_attempt FOREIGN KEY (action_id)
     REFERENCES acquisition_outreach_actions (id)
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_desktop_outreach_claim_replays (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  device_id_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  claim_request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  response_kind VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  action_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  server_time DATETIME(3) NOT NULL,
+  retry_after_ms INT NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,idempotency_key_hash),
+  CONSTRAINT acquisition_desktop_outreach_claim_replay_kind
+    CHECK ((response_kind='pending' AND action_id IS NULL AND retry_after_ms IS NULL)
+      OR (response_kind='claimed' AND action_id IS NOT NULL AND retry_after_ms IS NULL)
+      OR (response_kind='empty' AND action_id IS NULL AND retry_after_ms BETWEEN 3000 AND 5000))
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_desktop_outreach_completion_replays (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  operation_name VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  action_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  fencing_token BIGINT NOT NULL,
+  response_json JSON NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,operation_name,idempotency_key_hash),
+  CONSTRAINT acquisition_desktop_outreach_completion_replay_operation
+    CHECK (operation_name IN ('started','receipt','reconciliation_receipt'))
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_desktop_outreach_recovery_replays (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  action_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  original_fencing_token BIGINT NOT NULL,
+  response_kind VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  response_json JSON NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,idempotency_key_hash),
+  CONSTRAINT acquisition_desktop_outreach_recovery_replay_kind
+    CHECK ((response_kind='pending' AND response_json IS NULL)
+      OR (response_kind IN ('waiting','released','terminal','reconcile') AND response_json IS NOT NULL))
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_desktop_outreach_human_reconciliations (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  operation_name VARCHAR(48) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  batch_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  action_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  batch_revision INT NOT NULL,
+  approval_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  content_hash CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  requested_by_user_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  requested_at DATETIME(3) NOT NULL,
+  expected_execution_lease_version BIGINT NOT NULL,
+  response_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id,operation_name,idempotency_key_hash),
+  KEY ix_acquisition_desktop_outreach_human_reconciliation_action
+    (workspace_id,batch_id,action_id,requested_at),
+  CONSTRAINT acquisition_desktop_outreach_human_reconciliation_operation
+    CHECK (operation_name='request_desktop_action_reconciliation')
+) ENGINE=InnoDB;
+
+CREATE TABLE acquisition_outreach_account_recoveries (
+  workspace_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  batch_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  account_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  account_login_state_version INT NOT NULL,
+  idempotency_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(71) NOT NULL,
+  actor_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  reason_text TEXT NOT NULL,
+  enabled_action_ids_json JSON NOT NULL,
+  acknowledged_uncertain_action_ids_json JSON NOT NULL,
+  recovered_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (workspace_id, batch_id, idempotency_key_hash),
+  KEY ix_acquisition_outreach_account_recovery
+    (workspace_id,account_id,recovered_at)
 ) ENGINE=InnoDB;

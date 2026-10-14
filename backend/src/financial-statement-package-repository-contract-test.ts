@@ -192,8 +192,8 @@ export async function runFinancialStatementPackageTamperContract(
       const receivables = [...value.cashForecast!.receivables, duplicate];
       const cashForecast = resignForecast({ ...value.cashForecast!, receivables }) as
         FinancialCashForecastSupplement;
-      const businessReport = structuredClone(value.businessReport);
-      businessReport.cashFlow!.receivables = receivables;
+      const clonedReport = structuredClone(value.businessReport);
+      const businessReport = { ...clonedReport, cashFlow: { ...clonedReport.cashFlow!, receivables } };
       const reportInputHash = financialCouncilCanonicalHash(businessReport);
       return resignPackage({ ...value, cashForecast, businessReport,
         reportInputHash });

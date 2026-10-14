@@ -43,8 +43,12 @@
       "properties": {
         "id": { "$ref": "#/$defs/nonempty" }, "cohortId": { "$ref": "#/$defs/nonempty" }, "workspaceId": { "type": "string", "minLength": 1, "not": { "const": "all" } }, "platform": { "$ref": "#/$defs/nonempty" },
         "canonicalSubjectId": { "$ref": "#/$defs/nonempty" }, "subjectStableKey": { "$ref": "#/$defs/nonempty" }, "primaryCandidateId": { "$ref": "#/$defs/nonempty" }, "firstDiscoveredAt": { "$ref": "#/$defs/dateTime" },
-        "firstPlanId": { "$ref": "#/$defs/nonempty" }, "firstRunId": { "$ref": "#/$defs/nonempty" }, "firstShardId": { "$ref": "#/$defs/nonempty" }, "attributionSnapshot": { "$ref": "outcome-feedback.v1.schema.json#/$defs/liveAttribution" }, "createdAt": { "$ref": "#/$defs/dateTime" }
-      }
+        "firstPlanId": { "$ref": "#/$defs/nonempty" }, "firstRunId": { "$ref": "#/$defs/nonempty" }, "firstShardId": { "type": ["string", "null"], "minLength": 1 }, "attributionSnapshot": { "$ref": "outcome-feedback.v1.schema.json#/$defs/snapshotAttribution" }, "createdAt": { "$ref": "#/$defs/dateTime" }
+      },
+      "oneOf": [
+        { "properties": { "firstShardId": { "type": "null" }, "attributionSnapshot": { "type": "object", "properties": { "attributionVersion": { "const": "douyin-crawler.v1" } } } } },
+        { "properties": { "firstShardId": { "$ref": "#/$defs/nonempty" }, "attributionSnapshot": { "type": "object", "properties": { "attributionVersion": { "const": "acquisition-run.v1" } } } } }
+      ]
     },
     "ClosureAttestation": {
       "type": "object", "additionalProperties": false,

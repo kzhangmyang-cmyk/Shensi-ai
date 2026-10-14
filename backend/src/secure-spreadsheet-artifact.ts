@@ -14,6 +14,11 @@ export class SecureSpreadsheetError extends Error {
 export interface ParsedSpreadsheetCell {
   text: string;
   formula: string | null;
+  /** Original 1-based spreadsheet coordinates; rows retain their legacy compaction. */
+  sourceRow?: number;
+  sourceColumn?: number;
+  /** Whether a formula cell carries an original workbook cached value; never recomputed. */
+  hasCachedValue?: boolean;
 }
 
 export interface ParsedSpreadsheetSheet {
@@ -25,6 +30,7 @@ export interface ParsedSpreadsheetArtifact {
   fileHash: string;
   mediaType:
     | "text/csv"
+    | "application/vnd.ms-excel"
     | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   sheets: ParsedSpreadsheetSheet[];
 }
@@ -59,6 +65,7 @@ export function normalizedSpreadsheetMediaType(
   mediaType: string
 ): ParsedSpreadsheetArtifact["mediaType"] {
   if (mediaType === "text/csv") return "text/csv";
+  if (mediaType === "application/vnd.ms-excel") return mediaType;
   if (mediaType
     === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") {
     return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -117,9 +124,11 @@ function parseCsvCells(
   }
   return [{
     name: "CSV",
-    rows: rows.map((values) => values.map((value) => ({
+    rows: rows.map((values, rowIndex) => values.map((value, columnIndex) => ({
       text: value,
-      formula: null
+      formula: null,
+      sourceRow: rowIndex + 1,
+      sourceColumn: columnIndex + 1
     })))
   }];
 }
@@ -401,6 +410,15 @@ function rowsFromWorksheet(
   const reference = sheet["!ref"];
   if (!reference) return [];
   const range = XLSX.utils.decode_range(reference);
+  const rowCount = range.e.r - range.s.r + 1;
+  const columnCount = range.e.c - range.s.c + 1;
+  if (![range.s.r, range.s.c, range.e.r, range.e.c].every(Number.isSafeInteger)
+    || range.s.r < 0 || range.s.c < 0 || rowCount < 1 || columnCount < 1) {
+    invalidSpreadsheet();
+  }
+  if (rowCount > limits.maxRows || columnCount > limits.maxColumns) {
+    spreadsheetLimitExceeded();
+  }
   const rows: Array<Array<ParsedSpreadsheetCell>> = [];
   for (let rowIndex = range.s.r; rowIndex <= range.e.r; rowIndex += 1) {
     const row: ParsedSpreadsheetCell[] = [];
@@ -412,17 +430,21 @@ function rowsFromWorksheet(
         r: rowIndex,
         c: columnIndex
       })];
-      if (cell === undefined) {
-        row.push({ text: "", formula: null });
+      if (cell === undefined || (cell.t === "z" && typeof cell.f !== "string")) {
+        row.push({ text: "", formula: null,
+          sourceRow: rowIndex + 1, sourceColumn: columnIndex + 1 });
         continue;
       }
       hasCell = true;
-      const text = cell.w !== undefined
+      const text = cell.t === "z" ? "" : cell.w !== undefined
         ? String(cell.w)
         : cell.v !== undefined ? String(cell.v) : "";
       row.push({
         text,
-        formula: typeof cell.f === "string" ? cell.f : null
+        formula: typeof cell.f === "string" ? cell.f : null,
+        ...(typeof cell.f === "string" ? { hasCachedValue: cell.t !== "z" && cell.v !== undefined && cell.v !== null } : {}),
+        sourceRow: rowIndex + 1,
+        sourceColumn: columnIndex + 1
       });
     }
     if (hasCell) rows.push(row);
@@ -435,18 +457,46 @@ function parseXlsxCellsAfterSafeZipValidation(
   limits: SecureSpreadsheetLimits
 ): ParsedSpreadsheetSheet[] {
   assertSafeXlsxZip(content);
+  return parseWorkbookCells(content, limits);
+}
+
+function parseLegacyExcelCells(content: Buffer, limits: SecureSpreadsheetLimits): ParsedSpreadsheetSheet[] {
+  const compound = content.subarray(0, 8).equals(Buffer.from('d0cf11e0a1b11ae1', 'hex'));
+  let source: Buffer | string = content;
+  if (!compound) {
+    try {
+      source = new TextDecoder(content[0] === 0xff && content[1] === 0xfe ? 'utf-16le' : 'utf-8', { fatal: true }).decode(content).replace(/^\ufeff/u, '').trim();
+    } catch { invalidSpreadsheet(); }
+    // Only static HTML tables or Excel 2003 SpreadsheetML; never arbitrary text,
+    // entity declarations, active content or external-resource instructions.
+    if (/<!DOCTYPE|<!ENTITY|<\?xml-stylesheet|<(?:script|iframe|object|embed|link)\b|\bon\w+\s*=|\b(?:src|href)\s*=/iu.test(source)) invalidSpreadsheet();
+    const html = /^(?:<html\b|<table\b)/iu.test(source) && /<table\b/iu.test(source);
+    const xml = /^(?:<\?xml[^>]*>\s*)?<Workbook\b/iu.test(source)
+      && /urn:schemas-microsoft-com:office:spreadsheet/u.test(source);
+    if (!html && !xml) invalidSpreadsheet();
+  }
+  return parseWorkbookCells(source, limits, true);
+}
+
+function parseWorkbookCells(
+  content: Buffer | string,
+  limits: SecureSpreadsheetLimits,
+  legacy = false
+): ParsedSpreadsheetSheet[] {
   let workbook: XLSX.WorkBook;
   try {
     workbook = XLSX.read(content, {
-      type: "buffer",
+      type: typeof content === 'string' ? 'string' : "buffer",
       cellDates: false,
       cellFormula: true,
-      bookVBA: false,
+      sheetStubs: true,
+      bookVBA: legacy,
       dense: false
     });
   } catch {
     invalidSpreadsheet();
   }
+  if (legacy && (workbook.vbaraw || workbook.SheetNames.some(name => String(workbook.Sheets[name]?.['!type']) === 'macro'))) invalidSpreadsheet();
   if (workbook.SheetNames.length < 1
     || workbook.SheetNames.length > limits.maxSheets) {
     spreadsheetLimitExceeded();
@@ -480,6 +530,7 @@ export function parseSecureSpreadsheetArtifact(
   const mediaType = normalizedSpreadsheetMediaType(input.mediaType);
   const sheets = mediaType === "text/csv"
     ? parseCsvCells(input.content, input.limits)
+    : mediaType === 'application/vnd.ms-excel' ? parseLegacyExcelCells(input.content, input.limits)
     : parseXlsxCellsAfterSafeZipValidation(input.content, input.limits);
   assertSpreadsheetShape(sheets, input.limits);
   return { fileHash, mediaType, sheets };

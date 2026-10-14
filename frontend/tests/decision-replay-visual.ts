@@ -1,0 +1,9 @@
+import {mountDecisionSimulation} from '../src/decision-simulation/view';
+import {operatingExample,type SimulationRecord} from '../src/decision-simulation/samples';
+const input=operatingExample('normal');input.title='隔离回放布局验收';
+document.querySelector<HTMLInputElement>('#old-height')!.onchange=event=>document.body.classList.toggle('old-replay-height',(event.currentTarget as HTMLInputElement).checked);
+const months=Array.from({length:12},(_,index)=>({month:index+1,cashMinor:6000000+index*100000,orders:100,delivered:100,backlogUnits:0,revenueMinor:1000000,receiptsMinor:1000000,paymentsMinor:900000,profitMinor:100000,receivablesMinor:0,shock:{demand:1,procurement:1,collectionDelay:0,delivery:1}}));
+const samples=Array.from({length:100},()=>({months,minimumCashMinor:6000000,totalProfitMinor:1200000,fundingGapMinor:0}));
+const record:SimulationRecord={runId:input.runId,createdAt:'2026-09-15T00:00:00Z',recordVersion:'decision-simulation.v1',input,paths:[],report:{modelVersion:'isolated-fixture',plans:[{planId:'baseline',sampleCount:100,profitRangeMinor:[1200000,1200000],worstMinimumCashMinor:6000000,samplesWithFundingGap:0,samplesWithBacklog:0,maximumBacklogUnits:0,pairedProfitDifferenceMinor:Array(100).fill(0)}],replays:[{planId:'baseline',modelVersion:'isolated-fixture',samples}],sensitivity:[],threshold:{unitsForMonthlyOperatingBreakEven:63,withinBaselineCapacity:true,conditions:'合成数据，隔离布局验收'}}};
+export {record};
+mountDecisionSimulation(document.querySelector('main')!,{list:async()=>[{runId:record.runId,title:input.title,dataKind:'synthetic',createdAt:record.createdAt}],get:async()=>record,create:async()=>{throw Error('isolated_fixture_writes_disabled');}});

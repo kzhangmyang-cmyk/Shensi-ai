@@ -26,6 +26,8 @@ export interface GrowthHttpRequestOptions {
   idempotencyKey?: string;
   ifMatch?: string;
   signal?: AbortSignal;
+  onProgress?: (event: unknown) => void;
+  referenceProtocol?: 'system-v1';
 }
 
 export interface GrowthHttpClient {
@@ -67,8 +69,11 @@ export function createGrowthHttpClient(
     ) {
       const method = requestOptions.method ?? "GET";
       const headers: Record<string, string> = {
-        Accept: "application/json"
+        Accept: requestOptions.onProgress ? 'application/x-ndjson' : "application/json"
       };
+      if(method==='GET'&&requestOptions.referenceProtocol==='system-v1'&&/^\/api\/v1\/finance\/cfo-sessions\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(path)){
+        headers['X-Shensi-Reference-Protocol']='system-v1';
+      }
       const activeWorkspaceId = workspaceId()?.trim();
       if (activeWorkspaceId && activeWorkspaceId !== "all") {
         headers["X-Workspace-Id"] = activeWorkspaceId;
@@ -95,6 +100,32 @@ export function createGrowthHttpClient(
         signal: requestOptions.signal
       });
       const etag = response.headers.get("etag");
+      if (response.ok && requestOptions.onProgress && response.headers.get('content-type')?.includes('application/x-ndjson')) {
+        const reader = response.body?.getReader(); if (!reader) throw new Error('growth_stream_unavailable');
+        const decoder = new TextDecoder(); let buffer = ''; let result: unknown; let completed = false; let size = 0;
+        const consume = (line: string) => {
+          if (!line.trim()) return;
+          if (completed) throw new Error('growth_stream_after_result');
+          const event = JSON.parse(line);
+          if (event.type === 'error') throw new GrowthApiError(Number(event.status) || 500, String(event.code || 'growth_api_error'));
+          if (event.type === 'result') { result = event.result; completed = true; }
+          else if (event.type === 'stage') requestOptions.onProgress?.(event);
+          else throw new Error('growth_stream_invalid');
+        };
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            requestOptions.signal?.throwIfAborted();
+            if (done) { buffer += decoder.decode(); consume(buffer); break; }
+            size += value.byteLength; if (size > 2_000_000) throw new Error('growth_stream_too_large');
+            buffer += decoder.decode(value, { stream: true });
+            let newline: number;
+            while ((newline = buffer.indexOf('\n')) >= 0) { consume(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1); }
+          }
+          if (!completed) throw new Error('growth_stream_incomplete');
+          return Object.freeze({ status: response.status, etag, body: result as T });
+        } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+      }
       const text = await response.text();
       let body: unknown = null;
       if (text) {

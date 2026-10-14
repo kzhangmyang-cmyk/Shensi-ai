@@ -47,7 +47,7 @@ export interface AcquisitionCohortMember {
   firstSourceTemporalSequence: number;
   firstPlanId: string;
   firstRunId: string;
-  firstShardId: string;
+  firstShardId: string | null;
   attributionSnapshot: OutcomeAttributionInput;
   ownershipVersionId: string;
   appendRevision: number;
@@ -101,7 +101,7 @@ export interface AuthoritativeDiscoveryEvent {
   attribution: OutcomeAttributionInput;
   planId: string;
   runId: string;
-  shardId: string;
+  shardId: string | null;
   evidenceId: string | null;
 }
 

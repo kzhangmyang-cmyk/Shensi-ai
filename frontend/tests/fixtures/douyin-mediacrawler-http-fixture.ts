@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
-const PORT = 5391;
+const PORT = Number(process.env.PORT ?? 5391);
 const NOW = "2026-08-25T09:30:00.000Z";
 const hash = (char: string) => `sha256:${char.repeat(64)}`;
 const TEST_QR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240" shape-rendering="crispEdges">
@@ -150,10 +150,10 @@ const server = createServer(async (request, response) => {
     attemptLedger: state.attemptLedger,
     externalWriteCount: 0
   });
-  if (url.pathname === "/api/auth/login" && request.method === "POST") return send(response, { id: "user-fixture", name: "默认管理员", email: "admin@example.com", role: "admin", teamId: "team-fixture", avatar: "AD" }, 200, { "set-cookie": ["gj_session=fixture-session; Path=/; HttpOnly; SameSite=Lax", "gj_csrf=fixture-csrf; Path=/; SameSite=Lax"] });
+  if (url.pathname === "/api/auth/login" && request.method === "POST") return send(response, { user: { id: "user-fixture", name: "默认管理员", email: "admin@example.com", role: "admin", teamId: "team-fixture", avatar: "AD" } }, 200, { "set-cookie": ["gj_session=fixture-session; Path=/; HttpOnly; SameSite=Lax", "gj_csrf=fixture-csrf; Path=/; SameSite=Lax"] });
   if (url.pathname === "/api/auth/logout" && request.method === "POST") return send(response, { ok: true }, 200, { "set-cookie": ["gj_session=; Path=/; Max-Age=0", "gj_csrf=; Path=/; Max-Age=0"] });
   if (!authenticated(request)) return error(response, 401, "unauthorized", "请先登录");
-  if (url.pathname === "/api/auth/me") return send(response, { id: "user-fixture", name: "默认管理员", email: "admin@example.com", role: "admin", teamId: "team-fixture", avatar: "AD" });
+  if (url.pathname === "/api/auth/me") return send(response, { user: { id: "user-fixture", name: "默认管理员", email: "admin@example.com", role: "admin", teamId: "team-fixture", avatar: "AD" } });
   if (!["GET", "HEAD"].includes(request.method ?? "GET") && !writeAuthorized(request)) return error(response, 403, "csrf_invalid", "请求校验失败");
   if (url.pathname === "/api/v1/acquisition/overview") return send(response, { generatedAt: NOW, platform: "douyin", totals: { tasks: state.planCreated ? 1 : 0 }, statusCounts: state.planCreated ? state.runStarted ? { partial_success: 1 } : { not_started: 1 } : {}, discoveryMethodCounts: state.planCreated ? { official_authorized: 1 } : {}, tasks: state.planCreated ? [{ id: "task-fixture", planId: "plan-fixture", name: state.planName, objective: "通过 MediaCrawler 采集抖音公开内容", platform: "douyin", discoveryMethods: ["official_authorized"], planStatus: state.planApproved ? "approved" : "draft", latestRun: state.runStarted ? latestRun() : null, latestResultRunId: state.runStarted ? "run-fixture" : null, updatedAt: NOW }] : [] });
   if (url.pathname === "/api/v1/acquisition/tasks/plan-fixture" && state.planCreated) return send(response, { task: { id: "task-fixture", planId: "plan-fixture", name: state.planName, objective: "通过 MediaCrawler 采集抖音公开内容", platform: "douyin", discoveryMethods: ["official_authorized"], planStatus: state.planApproved ? "approved" : "draft", latestRun: state.runStarted ? latestRun() : null, latestResultRunId: state.runStarted ? "run-fixture" : null, updatedAt: NOW }, plan: { id: "plan-fixture", status: state.planApproved ? "approved" : "draft", version: 1 }, latestRun: state.runStarted ? latestRun() : null, shards: [], presentation: null });

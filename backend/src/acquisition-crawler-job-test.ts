@@ -6,6 +6,8 @@ import {
 import type { AcquisitionCrawlerJobInput } from "./acquisition-crawler-job.js";
 import {
   assertAcquisitionCrawlerActivity,
+  desktopCrawlerRequestHash,
+  hashDesktopCrawlerCapability,
   assertNormalizedDouyinRecord,
   crawlerOutreachFinalizationState,
   crawlerStatus,
@@ -42,6 +44,97 @@ test("jobs persist scheduled before an idempotent enqueue and claim", async () =
   assert.equal((await repository.enqueue("workspace-1", "run-1", at(1)))?.state, "queued");
   assert.equal((await repository.enqueue("workspace-1", "run-1", at(1)))?.state, "queued");
   assert.equal((await repository.claimNext("worker-A", at(2), 1_000))?.job.state, "running");
+});
+
+test("desktop jobs are exact-claim only and never leak into the server worker queue", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  const taskTokenHash = hashDesktopCrawlerCapability("opaque-task-capability");
+  await repository.createOrGet(input({
+    id: "desktop-crawler-1", runId: "desktop-run-1",
+    automationIntentId: "desktop-intent-1", executionTarget: "desktop",
+    desktopTaskTokenHash: taskTokenHash, maxAttempts: 1
+  }));
+  await repository.enqueue("workspace-1", "desktop-run-1", at(0));
+
+  assert.equal(await repository.claimNext("server-worker", at(1), 10_000), null);
+  await assert.rejects(
+    repository.claimDesktop(
+      "workspace-2", "desktop-crawler-1", taskTokenHash,
+      "desktop-worker", at(1), 10_000
+    ),
+    /desktop_crawler_job_not_found/u
+  );
+  await assert.rejects(
+    repository.claimDesktop(
+      "workspace-1", "desktop-crawler-1",
+      hashDesktopCrawlerCapability("wrong-capability"),
+      "desktop-worker", at(1), 10_000
+    ),
+    /desktop_crawler_capability_mismatch/u
+  );
+  const claim = await repository.claimDesktop(
+    "workspace-1", "desktop-crawler-1", taskTokenHash,
+    "desktop-worker", at(1), 10_000
+  );
+  assert.equal(claim.job.executionTarget, "desktop");
+  assert.equal(claim.job.maxAttempts, 1);
+  assert.equal(claim.job.state, "running");
+});
+
+test("desktop page replay is atomic by hashed idempotency key and canonical request hash", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  const taskTokenHash = hashDesktopCrawlerCapability("opaque-task-capability");
+  await repository.createOrGet(input({
+    id: "desktop-crawler-2", runId: "desktop-run-2",
+    automationIntentId: "desktop-intent-2", executionTarget: "desktop",
+    desktopTaskTokenHash: taskTokenHash, maxAttempts: 1
+  }));
+  await repository.enqueue("workspace-1", "desktop-run-2", at(0));
+  const claim = await repository.claimDesktop(
+    "workspace-1", "desktop-crawler-2", taskTokenHash,
+    "desktop-worker", at(1), 10_000
+  );
+  const page = {
+    expectedCursor: null, nextCursor: "opaque-page-1", records: [],
+    done: false, now: at(2)
+  };
+  const requestHash = desktopCrawlerRequestHash(page);
+  const idempotencyKeyHash = hashDesktopCrawlerCapability("desktop-page-key-1");
+  const first = await repository.persistDesktopPage(claim.fence, {
+    ...page, requestHash, idempotencyKeyHash
+  });
+  const replay = await repository.persistDesktopPage(claim.fence, {
+    ...page, now: at(3), requestHash, idempotencyKeyHash
+  });
+  assert.equal(first.replayed, false);
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.job.cursor, "opaque-page-1");
+  await assert.rejects(repository.persistDesktopPage(claim.fence, {
+    ...page, nextCursor: "changed-page", now: at(3),
+    requestHash: desktopCrawlerRequestHash({ ...page, nextCursor: "changed-page" }),
+    idempotencyKeyHash
+  }), /desktop_crawler_page_replay_conflict/u);
+});
+
+test("expired desktop leases pause and cannot be reclaimed by the server worker", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  const taskTokenHash = hashDesktopCrawlerCapability("opaque-task-capability");
+  await repository.createOrGet(input({
+    id: "desktop-crawler-3", runId: "desktop-run-3",
+    automationIntentId: "desktop-intent-3", executionTarget: "desktop",
+    desktopTaskTokenHash: taskTokenHash, maxAttempts: 1
+  }));
+  await repository.enqueue("workspace-1", "desktop-run-3", at(0));
+  await repository.claimDesktop(
+    "workspace-1", "desktop-crawler-3", taskTokenHash,
+    "desktop-worker", at(1), 1_000
+  );
+  assert.equal(await repository.sweepExpired(at(2)), 1);
+  assert.equal(
+    (await repository.findByRun("workspace-1", "desktop-run-3"))?.state,
+    "paused"
+  );
+  assert.equal(await repository.claimNext("server-worker", at(3), 10_000), null);
 });
 
 test("fenced activity snapshots advance only for frozen keywords and higher sequences", async () => {
@@ -341,7 +434,7 @@ test("terminal metadata is rejected on a nonterminal page", async () => {
   }), /invalid_crawler_terminal_metadata/u);
 });
 
-test("candidate budget truncation on an early page survives the final empty page", async () => {
+test("legacy candidate quota no longer truncates an early page", async () => {
   const repository = new InMemoryAcquisitionCrawlerJobRepository();
   await repository.createOrGet(input({ dailyCandidateLimit: 1 }));
   await repository.enqueue("workspace-1", "run-1", at(0));
@@ -361,15 +454,125 @@ test("candidate budget truncation on an early page survives the final empty page
   const first = await repository.persistPage(claim.fence, {
     expectedCursor: null, nextCursor: "opaque-A", records, done: false, now: at(2)
   });
-  assert.equal(first.lastErrorCode, "crawler_candidate_budget_exhausted");
+  assert.equal(first.lastErrorCode, null);
+  assert.equal(first.recordCount, 2);
+  assert.equal(first.candidateBudgetLimit, null);
 
   const terminal = await repository.persistPage(claim.fence, {
     expectedCursor: "opaque-A", nextCursor: null, records: [], done: true,
     terminalState: "succeeded", terminalErrorCode: null,
     terminalActivity: completedActivity, now: at(3)
   });
-  assert.equal(terminal.state, "partial");
-  assert.equal(terminal.lastErrorCode, "crawler_candidate_budget_exhausted");
+  assert.equal(terminal.state, "succeeded");
+  assert.equal(terminal.lastErrorCode, null);
+});
+
+test("candidate discovery crosses the legacy 50 limit across pages without losing records", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  await repository.createOrGet(input({ dailyCandidateLimit: 50 }));
+  await repository.enqueue("workspace-1", "run-1", at(0));
+  const claim = await repository.claimNext("worker-A", at(1), 10_000);
+  assert.ok(claim);
+  const records = Array.from({ length: 51 }, (_, index) => {
+    const record = {
+      recordId: `comment-${index + 1}`, kind: "comment" as const,
+      actorKind: "commenter" as const,
+      canonicalUrl: "https://www.douyin.com/video/1",
+      publicDisplayName: `Buyer ${index + 1}`,
+      publicProfileUrl: `https://www.douyin.com/user/buyer-${index + 1}`,
+      textExcerpt: "need pump", sourceKeyword: "pump",
+      observedAt: at(1), contentHash: ""
+    };
+    record.contentHash = normalizedDouyinContentHash(record);
+    return record;
+  });
+  const first = await repository.persistPage(claim.fence, {
+    expectedCursor: null, nextCursor: "budget-page-2",
+    records: records.slice(0, 25), done: false, now: at(2)
+  });
+  assert.equal(first.candidateBudgetUsed, 25);
+  assert.equal(first.lastErrorCode, null);
+
+  const atLimit = await repository.persistPage(claim.fence, {
+    expectedCursor: "budget-page-2", nextCursor: "budget-page-3",
+    records: [records[0]!, ...records.slice(25, 50)], done: false, now: at(3)
+  });
+  assert.equal(atLimit.candidateBudgetUsed, 50);
+  assert.equal(atLimit.recordCount, 50);
+  assert.equal(atLimit.lastErrorCode, null);
+  const video = {
+    recordId: "video-after-candidate-limit", kind: "video" as const,
+    actorKind: null,
+    canonicalUrl: "https://www.douyin.com/video/1",
+    publicDisplayName: "Pump video", publicProfileUrl: null,
+    textExcerpt: "pump", sourceKeyword: "pump",
+    observedAt: at(1), contentHash: ""
+  };
+  video.contentHash = normalizedDouyinContentHash(video);
+  const terminal = await repository.persistPage(claim.fence, {
+    expectedCursor: "budget-page-3", nextCursor: null,
+    records: [records[50]!, video], done: true,
+    terminalState: "succeeded", terminalErrorCode: null,
+    terminalActivity: completedActivity, now: at(4)
+  });
+  assert.equal(terminal.candidateBudgetUsed, 51);
+  assert.equal(terminal.recordCount, 52);
+  assert.equal(terminal.state, "succeeded");
+  assert.equal(terminal.lastErrorCode, null);
+  const stored = await repository.listRecords("crawler-1");
+  assert.equal(stored.filter((record) => record.kind !== "video").length, 51);
+  assert.equal(stored.filter((record) => record.recordId === "comment-1").length, 1);
+  assert.equal(stored.find((record) => record.recordId === "comment-50")?.pageCursor,
+    "budget-page-2");
+  assert.equal(stored.some((record) => record.recordId === "comment-51"), true);
+  assert.equal(stored.find((record) => record.recordId === video.recordId)?.pageCursor,
+    "budget-page-3");
+});
+
+test("a new policy's 50-record budget does not replace the prior job's frozen budget of 5", async () => {
+  const repository = new InMemoryAcquisitionCrawlerJobRepository();
+  const prior = input({ dailyCandidateLimit: 5 });
+  await repository.createOrGet(prior);
+  const next = await repository.createOrGet(input({
+    id: "crawler-50", runId: "run-50", automationIntentId: "intent-50",
+    policyVersionId: "policy-50", policyHash: `sha256:${"c".repeat(64)}`,
+    dailyBudgetId: `sha256:${"d".repeat(64)}`, dailyCandidateLimit: 50
+  }));
+  assert.equal(next.created, true);
+  assert.equal(next.job.dailyCandidateLimit, 50);
+  const replay = await repository.createOrGet(prior);
+  assert.equal(replay.created, false);
+  assert.equal(replay.job.dailyCandidateLimit, 5);
+
+  await repository.enqueue("workspace-1", "run-1", at(0));
+  const claim = await repository.claimNext("worker-A", at(1), 10_000);
+  assert.ok(claim);
+  assert.equal(claim.job.id, "crawler-1");
+  const records = Array.from({ length: 6 }, (_, index) => {
+    const recordId = `creator-${index + 1}`;
+    const record = {
+      recordId, kind: "creator" as const, actorKind: "creator" as const,
+      canonicalUrl: `https://www.douyin.com/user/${recordId}`,
+      publicDisplayName: recordId,
+      publicProfileUrl: `https://www.douyin.com/user/${recordId}`,
+      textExcerpt: "pump", sourceKeyword: "pump", observedAt: at(1), contentHash: ""
+    };
+    record.contentHash = normalizedDouyinContentHash(record);
+    return record;
+  });
+  const terminal = await repository.persistPage(claim.fence, {
+    expectedCursor: null, nextCursor: null, records, done: true,
+    terminalActivity: completedActivity, now: at(2)
+  });
+  assert.equal(terminal.dailyCandidateLimit, 5);
+  assert.equal(terminal.candidateBudgetUsed, 6);
+  assert.equal(terminal.candidateBudgetLimit, null);
+  assert.equal(terminal.lastErrorCode, null);
+  assert.equal((await repository.listRecords("crawler-1")).length, 6);
+  const untouched = await repository.findByRun("workspace-1", "run-50");
+  assert.equal(untouched?.dailyCandidateLimit, 50);
+  assert.equal(untouched?.candidateBudgetUsed, 0);
+  assert.equal(untouched?.state, "scheduled");
 });
 
 test("persist rejects a well-shaped but tampered normalized content hash", async () => {

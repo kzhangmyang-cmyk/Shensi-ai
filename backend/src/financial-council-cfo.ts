@@ -101,6 +101,9 @@ function prohibitedNarrative(
 ): boolean {
   let prose = text;
   for (const id of allowedIds) prose = prose.replaceAll(`[${id}]`, "");
+  // These are lexical words, not numerical assertions. Strip only the known
+  // ordinary words before checking the remaining numeric characters.
+  prose = prose.replace(/成本|形成|统一/gu, "");
   return /\d|[零〇一二三四五六七八九十百千万亿兆壹贰叁肆伍陆柒捌玖拾佰仟两元倍成¥$￥%]|\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|millions?|billions?|grand|doubled?|tripled?|halved?)\b|\bbps\b|基点|金额|人民币|美元|\bminor\b|合规|compliant|compliance|执行|实施|批准|动作|\baction\b|状态|\bstatus\b|推理过程|思考过程|chain[ -]?of[ -]?thought|\breasoning\b/iu
     .test(prose);
 }

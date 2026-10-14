@@ -43,13 +43,21 @@ class FakeElement:
 
 
 class FakePage:
-    def __init__(self, *, header_links, profile_names=()):
+    def __init__(
+        self, *, header_links, profile_names=(), current_account_links=(),
+    ):
         self.url = "https://www.douyin.com/"
         self.header_links = list(header_links)
+        self.current_account_links = list(current_account_links)
         self.profile_names = list(profile_names)
         self.visited = []
 
     def locator(self, selector):
+        if selector == (
+            '[class~="tab-user_self"] a[href], '
+            'a[class~="tab-user_self"][href]'
+        ):
+            return FakeLocator(self.current_account_links)
         if selector == (
             'header a[href], nav a[href], [role="navigation"] a[href], '
             '[data-e2e="douyin-header"] a[href], #douyin-header a[href]'
@@ -154,6 +162,62 @@ def test_in_place_fingerprint_never_navigates_for_a_missing_display_name():
         ).hexdigest()
     )
     assert page.visited == []
+
+
+def test_in_place_identity_uses_authenticated_account_control_with_from_nav_query():
+    bound_sender = "MS4wLjABBoundSender"
+    page = FakePage(
+        current_account_links=[{
+            "href": f"/user/{bound_sender}?from_nav=main",
+            "text": "个人主页",
+        }],
+        header_links=[
+            {
+                "href": f"/user/{bound_sender}?from_nav=main",
+                "text": "个人主页",
+            },
+            {
+                "href": "/user/MS4wLjABVideoAuthor",
+                "text": "视频作者",
+            },
+        ],
+    )
+
+    fingerprint = extract_douyin_account_fingerprint_in_place(page)
+
+    assert account_handle_for_fingerprint(fingerprint) == (
+        "dyacct_" + hashlib.sha256(
+            f"douyin:sec_uid:{bound_sender}".encode("utf-8")
+        ).hexdigest()
+    )
+    assert page.visited == []
+
+
+@pytest.mark.parametrize(
+    "current_account_links,code",
+    [
+        ([{"href": "/user/MS4wLjABBound?redirect=elsewhere"}],
+         "douyin_account_identity_missing"),
+        ([{"href": "/user/MS4wLjABBound#fragment"}],
+         "douyin_account_identity_missing"),
+        ([
+            {"href": "/user/MS4wLjABFirst?from_nav=main"},
+            {"href": "/user/MS4wLjABSecond?from_nav=main"},
+        ], "douyin_account_identity_ambiguous"),
+    ],
+)
+def test_authenticated_account_control_still_fails_closed(
+    current_account_links, code,
+):
+    page = FakePage(
+        current_account_links=current_account_links,
+        header_links=[{
+            "href": "/user/MS4wLjABFallbackMustNotBeUsed",
+        }],
+    )
+
+    with pytest.raises(DouyinAccountIdentityFailure, match=code):
+        extract_douyin_account_fingerprint_in_place(page)
 
 
 @pytest.mark.parametrize(

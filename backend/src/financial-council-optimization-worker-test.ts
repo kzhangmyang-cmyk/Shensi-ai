@@ -93,6 +93,11 @@ test("model-unavailable CFO fallback still publishes three complete empty portfo
   ))!;
   assert.equal(published.status, "awaiting_approval");
   assert.equal(published.latestPortfolioRevision, 1);
+  const narrative = (await fixture.repository.listCollaborationEvents(workspace(), fixture.run.runId))
+    .find(event => event.narrative)?.narrative;
+  assert.equal(narrative?.narrativeStatus, "model_unavailable");
+  assert.equal(narrative?.overallDiagnosis, published.consensusReport!.overallDiagnosis);
+  assert.ok(narrative?.priorityFindingIds.length);
   assert.match(published.consensusReport!.overallDiagnosis,
     /\[finding:/u);
   assert.deepEqual(published.portfolios.map((portfolio) => portfolio.kind),
@@ -101,6 +106,24 @@ test("model-unavailable CFO fallback still publishes three complete empty portfo
     portfolio.actionIds.length === 0
     && portfolio.hardConstraints.length === 12));
   await optimizationWorker.close();
+});
+
+test("crash between CFO narrative and consensus preserves full synthesis without another model call", async () => {
+  const fixture = await setupSynthesizing();
+  const store = fixture.repository.storeConsensus.bind(fixture.repository);
+  let calls = 0;
+  fixture.repository.storeConsensus = async () => { throw new Error("crash-before-consensus"); };
+  const cfo = { async synthesize() { calls++; throw new Error("provider-secret-not-public"); } };
+  await assert.rejects(worker(fixture, { cfo }).wake(fixture.run), /crash-before-consensus/u);
+  const before = (await fixture.repository.listCollaborationEvents(workspace(), fixture.run.runId)).find(event => event.narrative);
+  assert.equal(before?.state, "degraded");
+  assert.equal(JSON.stringify(before).includes("provider-secret"), false);
+  fixture.repository.storeConsensus = store;
+  await worker(fixture, { cfo }).wake(fixture.run);
+  assert.equal(calls, 1);
+  const after = (await fixture.repository.listCollaborationEvents(workspace(), fixture.run.runId)).filter(event => event.narrative);
+  assert.deepEqual(after, [before]);
+  assert.equal((await fixture.repository.findRun(workspace(), fixture.run.runId))?.status, "awaiting_approval");
 });
 
 test("crash after immutable insert resumes by recomputing and byte-comparing before publish", async () => {

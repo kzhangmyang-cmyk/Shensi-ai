@@ -15,6 +15,12 @@ import {
 
 export type FinanceImportKind = "acquisition_cost" | "financial_fact";
 
+export interface FinanceImportRowErrorDetail {
+  readonly code: FinanceImportRowErrorCode;
+  readonly field: string | null;
+  readonly message: string;
+}
+
 export type FinanceImportRowErrorCode =
   | "spreadsheet_formula_forbidden"
   | "verified_import_forbidden"
@@ -74,6 +80,7 @@ export interface FinanceImportPreviewRow {
   sourceIdentityRoot: string;
   normalized: FinanceImportPublicNormalizedRow | null;
   errors: FinanceImportRowErrorCode[];
+  errorDetails?: readonly FinanceImportRowErrorDetail[];
 }
 
 export interface FinanceImportStoredRow {
@@ -85,6 +92,7 @@ export interface FinanceImportStoredRow {
   readonly sourceIdentityRoot: string;
   readonly normalized: FinanceImportStoredNormalizedRow | null;
   readonly errors: readonly FinanceImportRowErrorCode[];
+  readonly errorDetails?: readonly FinanceImportRowErrorDetail[];
   readonly recordedAt: string;
   readonly temporalSequence: number;
 }
@@ -136,6 +144,7 @@ export interface FinanceImportStoredRowInput {
   readonly sourceIdentityRoot: string;
   readonly normalized: FinanceImportStoredNormalizedRow | null;
   readonly errors: readonly FinanceImportRowErrorCode[];
+  readonly errorDetails?: readonly FinanceImportRowErrorDetail[];
 }
 
 export interface FinanceImportOperation {
@@ -279,6 +288,7 @@ function immutableStoredRow(
   return Object.freeze({
     ...row,
     errors: Object.freeze([...row.errors]),
+    ...(row.errorDetails ? { errorDetails: Object.freeze(row.errorDetails.map(detail => Object.freeze({ ...detail }))) } : {}),
     normalized: row.normalized === null
       ? null
       : Object.freeze(row.normalized)

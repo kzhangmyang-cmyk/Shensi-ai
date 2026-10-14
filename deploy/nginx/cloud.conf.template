@@ -1,0 +1,47 @@
+server {
+    listen 8443 ssl;
+    server_name ${SHENSI_CLOUD_HOSTNAME};
+    ssl_certificate /etc/nginx/tls/fullchain.pem;
+    ssl_certificate_key /etc/nginx/tls/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 12m;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy same-origin always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    location = /preview-access { return 404; }
+    location = /api/health {
+        access_log off;
+        proxy_pass http://backend:4188;
+    }
+    location ^~ /api/platform/ {
+        include /etc/nginx/admin-allow.conf;
+        proxy_pass http://backend:4188;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+    location /api/ {
+        proxy_pass http://backend:4188;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+    location = /admin.html {
+        include /etc/nginx/admin-allow.conf;
+        add_header Cache-Control no-store;
+        proxy_pass http://frontend:8080/admin.html;
+    }
+    # Customer recovery shares the bundle, but never grants operator authority.
+    # Open /account-recovery#reset; tokens are entered in the form, never the URL.
+    location = /account-recovery {
+        add_header Cache-Control no-store;
+        proxy_pass http://frontend:8080/admin.html;
+    }
+    location / {
+        proxy_pass http://frontend:8080;
+        proxy_set_header Host $host;
+    }
+}

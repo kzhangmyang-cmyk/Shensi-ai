@@ -1,0 +1,57 @@
+appId: com.shensi.desktop
+productName: Shensi
+copyright: Copyright © 2026 Shensi
+
+directories:
+  output: ../dist/desktop/macos
+  buildResources: build
+
+asar: true
+files:
+  - dist/**/*
+  - package.json
+
+extraResources:
+  - from: resources/generated/desktop-config.json
+    to: desktop-config.json
+  - from: ../frontend/dist-desktop
+    to: frontend
+    filter:
+      - "**/*"
+  - from: resources/staging/sidecar
+    to: sidecar
+    filter:
+      - "**/*"
+  - from: resources/staging/playwright
+    to: playwright
+    filter:
+      - "**/*"
+  - from: resources/audio
+    to: audio
+    filter:
+      - "startup-greeting-qwen35-tina-v1.wav"
+  - from: ../services/media-crawler/LICENSE
+    to: licenses/MediaCrawler-LICENSE
+
+mac:
+  minimumSystemVersion: "13.0"
+  icon: build/icon.icns
+  category: public.app-category.business
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.empty.plist
+  sign: ./scripts/macos-release-sign.mjs
+  target:
+    - target: dmg
+    - target: zip
+  artifactName: Shensi-${version}-${arch}.${ext}
+
+dmg:
+  sign: true
+
+afterPack: scripts/macos-release-hooks.mjs
+afterSign: scripts/macos-release-hooks.mjs
+artifactBuildCompleted: scripts/macos-release-hooks.mjs
+
+publish: null
