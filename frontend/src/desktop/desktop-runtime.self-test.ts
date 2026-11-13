@@ -149,6 +149,39 @@ for (const [code, expected] of [
   rejected.dispose();
 }
 
+let admissionLocked = true;
+let admissionEnrolls = 0;
+const admissionRecords: string[] = [];
+const admissionRetryRuntime = createDesktopRuntimeState({
+  ...completeBridge(),
+  getDesktopInstallationInfo: async () => ({ installationId: "a".repeat(43), protocolVersion: 1, registeredWorkspaceIds: [] as string[] }),
+  recordDesktopBinding: async (input) => { admissionRecords.push(input.accountId); return { recorded: true }; }
+}, { body: { dataset: { sessionWorkspaceId: "workspace-7" } } }, {
+  enroll: async () => {
+    admissionEnrolls += 1;
+    if (admissionLocked) throw new Error("desktop_client_migration_locked");
+    return { enrollmentToken: "b".repeat(43), expiresAt: new Date(Date.now() + 60_000).toISOString() };
+  },
+  getBinding: async () => ({ accountId: "social-1", executorMode: null, bindingGeneration: 0, leaseExpiresAt: null, ownedByInstallation: false, hasUnresolvedActions: false }),
+  bind: async (accountId) => ({ accountId, executorMode: "desktop" as const, bindingGeneration: 1, leaseExpiresAt: new Date(Date.now() + 90_000).toISOString(), ownedByInstallation: true })
+});
+await assert.rejects(admissionRetryRuntime.synchronizeWorkspace("workspace-7"));
+assert.match(admissionRetryRuntime.enrollmentError() ?? "", /后台暂未开放桌面连接/u);
+admissionLocked = false;
+await admissionRetryRuntime.synchronizeWorkspace("workspace-7");
+assert.equal(admissionRetryRuntime.enrollmentError(), null,
+  "the same workspace must retry enrollment after the server unlocks and clear the stale banner");
+assert.equal(admissionEnrolls, 2);
+await admissionRetryRuntime.acceptLocalAccount(
+  { id: "social-1", workspaceId: "workspace-7", state: "active", loginStateVersion: 3 },
+  { accountHandle: `dyacct_${"a".repeat(64)}`, loginStateVersion: 3 }
+);
+assert.equal(admissionRetryRuntime.enrollmentError(), null,
+  "a successful login bind must not restore the cleared admission banner");
+assert.deepEqual(admissionRecords, ["social-1"],
+  "same-workspace enrollment retry must still finish the account binding");
+admissionRetryRuntime.dispose();
+
 const enrollmentApi = createDesktopEnrollmentApi({ cookieSource: () => "gj_csrf=csrf%2Dvalue", fetchImpl: async (url, init) => {
   publicApiCalls.push({ url: String(url), init });
   return new Response(JSON.stringify({ enrollmentToken: "b".repeat(43), expiresAt: new Date(Date.now() + 60_000).toISOString() }), { status: 200 });

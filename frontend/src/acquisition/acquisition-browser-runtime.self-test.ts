@@ -971,6 +971,47 @@ for (const entry of ["open", "poll", "confirm"] as const) {
   admissionController.close();
 }
 
+for (const [status, code, expected] of [
+  [503, "desktop_client_migration_locked", /后台暂未开放桌面连接/u],
+  [409, "desktop_client_build_not_admitted", /应用版本与后台允许的版本不一致/u]
+] as const) {
+  let timers = 0;
+  const httpApi = createDouyinAutomationApi(async (input) => {
+    assert.match(String(input), /desktop-login-completions/u);
+    return new Response(JSON.stringify({ error: code }), { status });
+  }, { cookie: "gj_csrf=test-csrf" });
+  const expiry = new Date(Date.now() + 60_000).toISOString();
+  installDesktopRuntime({ shensiDesktop: { ...controllerBridge,
+    getDesktopInstallationInfo: async () => ({ installationId: "a".repeat(43), protocolVersion: 1, registeredWorkspaceIds: ["workspace-desktop"] }),
+    startDouyinLogin: async () => ({ ...loginStatus("string-admission"), expiresAt: expiry }),
+    confirmDouyinLogin: async () => ({ ...activeLoginStatus("string-admission"), runtimeState: "starting", expiresAt: expiry })
+  } }, { body: { dataset: { sessionWorkspaceId: "workspace-desktop" } } });
+  const stringController = createDouyinAutomationController({
+    api: {
+      ...runtimeApi,
+      completeDesktopLogin: httpApi.completeDesktopLogin.bind(httpApi)
+    } as DouyinAutomationApi & Pick<DouyinDesktopSyncApi, "completeDesktopLogin">,
+    setTimer: (() => { timers += 1; return 0; }) as unknown as typeof setTimeout,
+    clearTimer: (() => undefined) as typeof clearTimeout
+  });
+  await stringController.connect();
+  timers = 0;
+  await stringController.confirmLogin();
+  assert.match(stringController.getState().error ?? "", expected, code);
+  assert.equal(stringController.getState().loginSession?.authState, "authenticated");
+  assert.equal(stringController.getState().loginSession?.state, "awaiting_scan");
+  assert.equal(timers, 0, `${code} must not keep polling behind the login dialog`);
+  const stringHost = document.createElement("div");
+  renderDouyinAutomationView(stringHost, stringController.getState());
+  const stringDialog = stringHost.querySelector(".douyin-login-dialog");
+  assert.match(stringDialog?.textContent ?? "", expected,
+    `${code} must be visible inside the external login dialog`);
+  assert.equal(stringDialog?.querySelector("[role=alert]")?.textContent, stringController.getState().error);
+  assert.doesNotMatch(stringDialog?.querySelector(".douyin-login-status")?.textContent ?? "",
+    /正在打开外部浏览器|抖音登录服务暂时不可用|请求失败（HTTP/u);
+  stringController.close();
+}
+
 installDesktopRuntime({ shensiDesktop: controllerBridge }, {
   body: { dataset: { sessionWorkspaceId: "workspace-desktop" } }
 });

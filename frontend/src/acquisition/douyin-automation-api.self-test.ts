@@ -246,6 +246,17 @@ for (const status of [401, 403, 409, 412]) {
     (error: unknown) => error instanceof AcquisitionHttpError && error.status === status && error.code === `status_${status}`
   );
 }
+for (const [status, code] of [
+  [503, "desktop_client_migration_locked"],
+  [409, "desktop_client_build_not_admitted"]
+] as const) {
+  await assert.rejects(
+    createDouyinAutomationApi(async () => new Response(JSON.stringify({ error: code }), { status })).getAutomation("plan-1"),
+    (error: unknown) => error instanceof AcquisitionHttpError
+      && error.status === status && error.code === code && error.message === code,
+    `${code} must stay a stable code when the server sends a string error field`
+  );
+}
 await assert.rejects(
   createDouyinAutomationApi(async () => new Response(JSON.stringify({
     error: {

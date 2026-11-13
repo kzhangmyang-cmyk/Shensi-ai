@@ -265,13 +265,20 @@ function safeErrorDetails(value: unknown): AcquisitionHttpErrorDetail[] {
   }).slice(0, 10);
 }
 
+function desktopStringErrorCode(value: unknown): string | null {
+  return typeof value === "string" && /^desktop_[a-z_]{1,80}$/u.test(value) ? value : null;
+}
+
 function safeError(body: unknown, status: number): AcquisitionHttpError {
   const root = isRecord(body) ? body : {};
   const nested = isRecord(root.error) ? root.error : {};
+  const stringCode = desktopStringErrorCode(root.error);
   const code = typeof nested.code === "string" ? nested.code
-    : typeof root.code === "string" ? root.code : `http_${status}`;
+    : typeof root.code === "string" ? root.code
+      : stringCode ?? `http_${status}`;
   const message = typeof nested.message === "string" ? nested.message
-    : typeof root.message === "string" ? root.message : `请求失败（HTTP ${status}）`;
+    : typeof root.message === "string" ? root.message
+      : stringCode ?? `请求失败（HTTP ${status}）`;
   const details = safeErrorDetails(nested.details ?? root.details);
   const firstDetail = details[0];
   const displayMessage = firstDetail

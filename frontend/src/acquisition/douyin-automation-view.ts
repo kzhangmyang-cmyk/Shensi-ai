@@ -132,11 +132,16 @@ async function mountDefaultLiveLogin(
   return mountEmbeddedDouyinLiveLogin(host, sessionId);
 }
 
+function loginDialogNotice(error: string | null): string {
+  return error ? `<div class="douyin-alert" role="alert">${escape(error)}</div>` : "";
+}
+
 function loginDialog(state: DouyinAutomationState): string {
   const session = state.loginSession;
   if (!session) return "";
   const awaiting = session.state === "awaiting_scan";
   const failure = session.failureCode;
+  const notice = loginDialogNotice(state.error);
   if (session.interactionSurface === "external_window") {
     const title = failure ? "抖音登录未完成"
       : session.state === "active" ? "账号已连接"
@@ -147,6 +152,10 @@ function loginDialog(state: DouyinAutomationState): string {
         ? "登录已保存，登录窗口已自动关闭。"
       : session.state === "login_expired"
         ? "登录会话已过期，请重新打开登录页。"
+      : state.error
+        ? session.authState === "authenticated"
+          ? "抖音登录已确认，连接后台失败；请按下方说明处理后重新检测。"
+          : "登录检测未完成，请按下方说明处理后重新检测。"
       : session.runtimeState === "starting"
         ? "正在打开外部浏览器…"
         : session.runtimeState === "crashed"
@@ -154,14 +163,14 @@ function loginDialog(state: DouyinAutomationState): string {
           : session.authState === "verification_required"
             ? "抖音要求完成安全验证，请在外部浏览器中按提示处理。"
             : session.authState === "authenticated"
-              ? state.error ? "抖音登录已确认，连接后台失败；请按错误提示处理后重新检测。" : "登录已确认，正在绑定账号。"
+              ? "登录已确认，正在绑定账号。"
               : "已打开外部浏览器，请在浏览器中完成登录。";
     const actions = awaiting && !failure
       ? `<button type="button" class="primary" data-douyin-action="confirm-login" ${state.interactionPending ? "disabled" : ""}>${state.interactionPending ? "正在检测…" : "我已完成登录，重新检测"}</button><button type="button" class="secondary" data-douyin-action="cancel-login">取消登录</button>`
       : session.state === "active"
         ? `<button type="button" class="secondary" data-douyin-action="close-login">关闭</button>`
         : `<button type="button" class="primary" data-douyin-action="create-session">重新打开登录页</button><button type="button" class="secondary" data-douyin-action="cancel-login">取消</button>`;
-    return `<dialog class="douyin-login-dialog" open aria-labelledby="douyinLoginTitle"><div><span class="douyin-eyebrow">EXTERNAL LOGIN</span><h3 id="douyinLoginTitle">${title}</h3><p class="douyin-login-status" role="status" aria-live="polite">${escape(status)}</p><p class="douyin-login-help">此登录由本机独立浏览器窗口完成；本页无需二维码截图或远程画面。</p><div class="douyin-actions">${actions}</div></div></dialog>`;
+    return `<dialog class="douyin-login-dialog" open aria-labelledby="douyinLoginTitle"><div><span class="douyin-eyebrow">EXTERNAL LOGIN</span><h3 id="douyinLoginTitle">${title}</h3><p class="douyin-login-status" role="status" aria-live="polite">${escape(status)}</p>${notice}<p class="douyin-login-help">此登录由本机独立浏览器窗口完成；本页无需二维码截图或远程画面。</p><div class="douyin-actions">${actions}</div></div></dialog>`;
   }
   const title = failure ? "抖音登录未完成"
     : awaiting ? "打开抖音登录页"
@@ -195,7 +204,7 @@ function loginDialog(state: DouyinAutomationState): string {
     : session.state === "login_expired" || failure
       ? `<button type="button" class="primary" data-douyin-action="create-session">创建新登录会话</button>`
       : "";
-  return `<dialog class="douyin-login-dialog" open aria-labelledby="douyinLoginTitle"><div><span class="douyin-eyebrow">SECURE LOGIN PAGE</span><h3 id="douyinLoginTitle">${title}</h3><p class="douyin-login-status" role="status" aria-live="polite">${status}</p>${readyQr}${embeddedLiveLogin}${liveLoginLink ? `<p class="douyin-login-help">“刷新二维码”只更新二维码；画面断开时使用窗口内的“重新连接画面”。新标签页仅作备用。</p><div class="douyin-actions douyin-login-primary-actions">${liveLoginLink}</div>` : ""}${fallback}<div class="douyin-actions">${sessionActions}<button type="button" class="secondary" data-douyin-action="close-login">关闭</button></div></div></dialog>`;
+  return `<dialog class="douyin-login-dialog" open aria-labelledby="douyinLoginTitle"><div><span class="douyin-eyebrow">SECURE LOGIN PAGE</span><h3 id="douyinLoginTitle">${title}</h3><p class="douyin-login-status" role="status" aria-live="polite">${status}</p>${notice}${readyQr}${embeddedLiveLogin}${liveLoginLink ? `<p class="douyin-login-help">“刷新二维码”只更新二维码；画面断开时使用窗口内的“重新连接画面”。新标签页仅作备用。</p><div class="douyin-actions douyin-login-primary-actions">${liveLoginLink}</div>` : ""}${fallback}<div class="douyin-actions">${sessionActions}<button type="button" class="secondary" data-douyin-action="close-login">关闭</button></div></div></dialog>`;
 }
 
 function formDraft(form: HTMLFormElement, state: DouyinAutomationState): DouyinAutomationDraft {
