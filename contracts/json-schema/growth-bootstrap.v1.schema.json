@@ -8,7 +8,8 @@
         "catalog.read", "catalog.manage", "pricing.sensitive.read", "quote.draft.create", "quote.confirm",
         "quote.exception.discount.approve", "quote.exception.margin.approve", "quote.exception.payment_terms.approve",
         "quote.exception.gift.approve", "quote.exception.credit.approve", "quote.exception.manual.approve",
-        "ledger.pending.create", "ledger.verify", "finance.council.run", "finance.council.approve", "finance.council.policy.manage", "roi.close", "growth.performance.team.read", "growth.performance.workspace.read"
+        "ledger.pending.create", "ledger.verify", "finance.council.run", "finance.council.approve", "finance.council.policy.manage", "roi.close", "growth.performance.team.read", "growth.performance.workspace.read",
+        "knowledge.read", "knowledge.upload", "knowledge.manage_own", "acquisition.outreach.approve"
       ]
     },
     "feature": { "enum": ["catalog", "quotes", "finance", "roi", "advisor"] },

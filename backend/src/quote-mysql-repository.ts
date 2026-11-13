@@ -709,9 +709,20 @@ export class MysqlQuoteRepository implements QuoteRepository {
     return row ? parseVersionRow(row) : null;
   }
 
-  getVersion(workspaceId: string, id: string) {
-    return this.loadVersion(this.pool,
+  private async currentVersion(version: QuoteVersion): Promise<QuoteVersion> {
+    const events = await this.listLifecycleEvents(version.workspaceId, version.id);
+    const latest = events.filter(event => event.quoteVersionId === version.id
+      && event.eventType === "version_transition"
+      && event.revision > version.lifecycleRevision)
+      .sort((a, b) => b.revision - a.revision)[0];
+    return latest ? immutableQuoteValue({ ...version,
+      status: latest.toStatus as QuoteVersion["status"], lifecycleRevision: latest.revision }) : version;
+  }
+
+  async getVersion(workspaceId: string, id: string) {
+    const version = await this.loadVersion(this.pool,
       assertConcreteGrowthWorkspaceId(workspaceId), id);
+    return version ? this.currentVersion(version) : null;
   }
 
   async listVersions(workspaceId: string, quoteCaseId: string) {
@@ -721,7 +732,8 @@ export class MysqlQuoteRepository implements QuoteRepository {
        WHERE workspace_id = ? AND quote_case_id = ? ORDER BY version`,
       [workspace, quoteCaseId]
     );
-    return Object.freeze((rows as MysqlRow[]).map(parseVersionRow));
+    return Object.freeze(await Promise.all((rows as MysqlRow[])
+      .map(row => this.currentVersion(parseVersionRow(row)))));
   }
 
   async listApprovals(workspaceId: string) {

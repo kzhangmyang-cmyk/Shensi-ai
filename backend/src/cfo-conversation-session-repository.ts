@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { knowledgeAnswerSchema } from './knowledge/answer.js';
+import { libraryStatusSchema } from './system-reference/domain.js';
 import { conversationResearchSchema } from './agent-conversation-research.js';
 import type mysql from 'mysql2/promise';
 import type { ActiveWorkspaceContext } from './growth-workspace-context.js';
@@ -13,7 +15,8 @@ export const cfoSessionSchema = z.object({
   documentId: z.string().min(1).max(191).nullable(),
   createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
   turns: z.array(z.object({ role: z.enum(['user', 'assistant']), text: z.string().min(1).max(4000),
-    model: z.string().max(191).optional(), sourceLabel: z.string().max(1000).optional(), research:conversationResearchSchema.optional()
+    model: z.string().max(191).optional(), sourceLabel: z.string().max(1000).optional(), research:conversationResearchSchema.optional(),
+    knowledge: knowledgeAnswerSchema.optional(), libraryStatus: libraryStatusSchema.optional()
   }).strict()).max(100)
 }).strict();
 export type CfoConversationSession = z.infer<typeof cfoSessionSchema>;

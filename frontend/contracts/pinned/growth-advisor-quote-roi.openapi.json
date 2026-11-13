@@ -3618,6 +3618,9 @@
               "dealId": {
                 "$ref": "#/components/schemas/AttributionAllocationSet/%24defs/nonempty"
               },
+              "id": {
+                "$ref": "#/components/schemas/AttributionAllocationSet/%24defs/nonempty"
+              },
               "originalPaymentAllocationItemId": {
                 "$ref": "#/components/schemas/AttributionAllocationSet/%24defs/nullableId"
               },
@@ -3635,6 +3638,7 @@
               }
             },
             "required": [
+              "id",
               "allocationSetId",
               "targetRevenueFactId",
               "dealId",
@@ -4122,6 +4126,11 @@
         "$defs": {
           "Input": {
             "additionalProperties": false,
+            "dependentRequired": {
+              "referenceTopicIds": [
+                "referenceProtocol"
+              ]
+            },
             "properties": {
               "conversationKey": {
                 "description": "Required for a chat attachment: must match the conversation used when parsing it, together with the selected role.",
@@ -4144,10 +4153,25 @@
                 "maxItems": 10,
                 "type": "array"
               },
+              "knowledgeMode": {
+                "default": "off",
+                "description": "Bounded private reference retrieval for text; omitted preserves legacy and voice behavior.",
+                "enum": [
+                  "auto",
+                  "off"
+                ]
+              },
               "question": {
                 "maxLength": 2000,
                 "minLength": 1,
                 "type": "string"
+              },
+              "referenceProtocol": {
+                "const": "system-v1",
+                "description": "Explicit negotiated text protocol. Omitted is private-only; knowledgeMode off or omitted closes both libraries."
+              },
+              "referenceTopicIds": {
+                "$ref": "#/components/schemas/CfoSessionAsk/properties/referenceTopicIds"
               },
               "role": {
                 "default": "cfo",
@@ -4159,6 +4183,13 @@
                   "cost",
                   "cashflow",
                   "tax"
+                ]
+              },
+              "webSearchMode": {
+                "description": "Explicit text search preference: off skips planning and public search; on requires safe public retrieval or an explicit error. Omitted preserves legacy automatic planning. Independent from knowledgeMode.",
+                "enum": [
+                  "on",
+                  "off"
                 ]
               }
             },
@@ -4314,6 +4345,278 @@
             "format": "date-time",
             "type": "string"
           },
+          "knowledge": {
+            "additionalProperties": false,
+            "properties": {
+              "detailedText": {
+                "maxLength": 12000,
+                "type": "string"
+              },
+              "sources": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "chunkId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "documentId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "excerpt": {
+                          "maxLength": 4000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "locator": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "chapter": {
+                              "maxLength": 300,
+                              "type": "string"
+                            },
+                            "column": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "endLine": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "endOffset": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "page": {
+                              "maximum": 1000,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "paragraph": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "row": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "sheet": {
+                              "maxLength": 200,
+                              "type": "string"
+                            },
+                            "startLine": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "startOffset": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "table": {
+                              "minimum": 1,
+                              "type": "integer"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "sourceHash": {
+                          "pattern": "^[a-f0-9]{64}$",
+                          "type": "string"
+                        },
+                        "sourceId": {
+                          "pattern": "^K[1-6]$",
+                          "type": "string"
+                        },
+                        "sourceLabel": {
+                          "maxLength": 1000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "sourceType": {
+                          "const": "private",
+                          "description": "Omitted is legacy private; never infer system ownership from UUID or K alias."
+                        },
+                        "versionId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "warnings": {
+                          "$ref": "#/components/schemas/CfoConversationAnswer/properties/knowledge/properties/warnings"
+                        }
+                      },
+                      "required": [
+                        "sourceId",
+                        "documentId",
+                        "versionId",
+                        "sourceHash",
+                        "chunkId",
+                        "sourceLabel",
+                        "locator",
+                        "excerpt",
+                        "warnings"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "chunkHash": {
+                          "pattern": "^[a-f0-9]{64}$",
+                          "type": "string"
+                        },
+                        "corpusId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "excerpt": {
+                          "maxLength": 4000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "excerptRange": {
+                          "additionalProperties": false,
+                          "description": "Server-selected UTF-16 half-open offsets in the immutable chunk. Runtime also checks exact length/source equality and intact surrogate pairs.",
+                          "properties": {
+                            "end": {
+                              "maximum": 4000,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "start": {
+                              "maximum": 4000,
+                              "minimum": 0,
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "locator": {
+                          "$ref": "#/components/schemas/CfoConversationAnswer/properties/knowledge/properties/sources/items/oneOf/0/properties/locator"
+                        },
+                        "queryGrantId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "referenceId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "referenceKey": {
+                          "maxLength": 80,
+                          "pattern": "^system:[a-fA-F0-9-]{36}:[a-fA-F0-9-]{36}$",
+                          "type": "string"
+                        },
+                        "releaseId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "sourceHash": {
+                          "pattern": "^[a-f0-9]{64}$",
+                          "type": "string"
+                        },
+                        "sourceId": {
+                          "pattern": "^K[1-6]$",
+                          "type": "string"
+                        },
+                        "sourceLabel": {
+                          "maxLength": 1000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "sourceType": {
+                          "const": "system"
+                        },
+                        "warnings": {
+                          "$ref": "#/components/schemas/CfoConversationAnswer/properties/knowledge/properties/warnings"
+                        }
+                      },
+                      "required": [
+                        "sourceType",
+                        "sourceId",
+                        "referenceKey",
+                        "queryGrantId",
+                        "referenceId",
+                        "corpusId",
+                        "releaseId",
+                        "sourceHash",
+                        "chunkHash",
+                        "excerptRange",
+                        "sourceLabel",
+                        "locator",
+                        "excerpt",
+                        "warnings"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "maxItems": 6,
+                "type": "array"
+              },
+              "status": {
+                "enum": [
+                  "used",
+                  "no_match",
+                  "unavailable"
+                ]
+              },
+              "warnings": {
+                "items": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              }
+            },
+            "required": [
+              "status",
+              "detailedText",
+              "sources",
+              "warnings"
+            ],
+            "type": "object"
+          },
+          "libraryStatus": {
+            "additionalProperties": false,
+            "properties": {
+              "private": {
+                "enum": [
+                  "off",
+                  "used",
+                  "no_match",
+                  "unavailable"
+                ]
+              },
+              "system": {
+                "enum": [
+                  "off",
+                  "unconfigured",
+                  "unbound",
+                  "ready",
+                  "no_match",
+                  "unavailable",
+                  "auth_required",
+                  "forbidden",
+                  "rate_limited",
+                  "vocabulary_mismatch"
+                ]
+              }
+            },
+            "required": [
+              "private",
+              "system"
+            ],
+            "type": "object"
+          },
           "material": {
             "oneOf": [
               {
@@ -4356,6 +4659,11 @@
         "$defs": {
           "Ask": {
             "additionalProperties": false,
+            "dependentRequired": {
+              "referenceTopicIds": [
+                "referenceProtocol"
+              ]
+            },
             "properties": {
               "documentId": {
                 "maxLength": 191,
@@ -4372,14 +4680,54 @@
                 "maxItems": 10,
                 "type": "array"
               },
+              "knowledgeMode": {
+                "default": "off",
+                "enum": [
+                  "auto",
+                  "off"
+                ]
+              },
               "question": {
                 "maxLength": 2000,
                 "minLength": 1,
                 "type": "string"
               },
+              "referenceProtocol": {
+                "const": "system-v1",
+                "description": "Explicit negotiated protocol; knowledgeMode off or omitted closes both libraries."
+              },
+              "referenceTopicIds": {
+                "items": {
+                  "enum": [
+                    "budget_variance",
+                    "budget_planning",
+                    "cost_driver",
+                    "cost_structure",
+                    "cashflow_forecast",
+                    "working_capital",
+                    "profitability_analysis",
+                    "break_even",
+                    "statement_analysis",
+                    "ratio_analysis",
+                    "tax_document_review",
+                    "tax_risk_review"
+                  ]
+                },
+                "maxItems": 3,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
               "revision": {
                 "minimum": 1,
                 "type": "integer"
+              },
+              "webSearchMode": {
+                "description": "Explicit public search preference for this turn; omitted retains legacy automatic planning.",
+                "enum": [
+                  "on",
+                  "off"
+                ]
               }
             },
             "required": [
@@ -4565,6 +4913,12 @@
             "items": {
               "additionalProperties": false,
               "properties": {
+                "knowledge": {
+                  "$ref": "#/components/schemas/CfoConversationAnswer/properties/knowledge"
+                },
+                "libraryStatus": {
+                  "$ref": "#/components/schemas/CfoConversationAnswer/properties/libraryStatus"
+                },
                 "model": {
                   "maxLength": 191,
                   "type": "string"
@@ -5369,6 +5723,74 @@
               "unknown"
             ]
           },
+          "DetailedReport": {
+            "additionalProperties": false,
+            "properties": {
+              "publicResearchStatus": {
+                "enum": [
+                  "completed",
+                  "unavailable",
+                  "not_requested"
+                ]
+              },
+              "research": {
+                "$ref": "#/components/schemas/CfoConversationAnswer/%24defs/Research"
+              },
+              "sections": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "action": {
+                      "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/ReportBlock"
+                    },
+                    "coverage": {
+                      "enum": [
+                        "supported",
+                        "partial",
+                        "insufficient"
+                      ]
+                    },
+                    "evidence": {
+                      "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/ReportBlock"
+                    },
+                    "id": {
+                      "enum": [
+                        "overview",
+                        "income",
+                        "cost",
+                        "profit",
+                        "cashflow",
+                        "comparison",
+                        "actions"
+                      ]
+                    },
+                    "interpretation": {
+                      "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/ReportBlock"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "coverage",
+                    "evidence",
+                    "interpretation",
+                    "action"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 7,
+                "minItems": 7,
+                "type": "array"
+              },
+              "version": {
+                "const": "finance-detailed.v1"
+              }
+            },
+            "required": [
+              "version",
+              "sections"
+            ],
+            "type": "object"
+          },
           "FileHash": {
             "pattern": "^sha256:[a-f0-9]{64}$",
             "type": "string"
@@ -5443,6 +5865,16 @@
                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                   "application/pdf",
                   "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                ]
+              },
+              "publicIndustry": {
+                "description": "Controlled public industry label for report context search; no file text is sent to search.",
+                "enum": [
+                  "general",
+                  "manufacturing",
+                  "retail",
+                  "services",
+                  "technology"
                 ]
               },
               "readWithModel": {
@@ -5637,6 +6069,14 @@
               "uncertain"
             ],
             "type": "object"
+          },
+          "ReportBlock": {
+            "items": {
+              "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Observation"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array"
           },
           "SegmentMetadata": {
             "description": "Long PDF/Word text is preserved as segments. Offsets are zero-based UTF-16 indexes into the complete original text; endOffset is exclusive.",
@@ -5865,6 +6305,9 @@
           },
           "classification": {
             "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/Classification"
+          },
+          "detailedReport": {
+            "$ref": "#/components/schemas/FinanceDocumentInspection/%24defs/DetailedReport"
           },
           "documentId": {
             "maxLength": 255,
@@ -10223,7 +10666,11 @@
               "finance.council.policy.manage",
               "roi.close",
               "growth.performance.team.read",
-              "growth.performance.workspace.read"
+              "growth.performance.workspace.read",
+              "knowledge.read",
+              "knowledge.upload",
+              "knowledge.manage_own",
+              "acquisition.outreach.approve"
             ]
           },
           "contractFields": {
@@ -14472,7 +14919,7 @@
   },
   "info": {
     "title": "GoodJob Growth Advisor, Quote and ROI API",
-    "version": "1.0.34"
+    "version": "1.0.41"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -18762,10 +19209,22 @@
     },
     "/api/v1/finance/cfo-sessions/{sessionId}": {
       "get": {
+        "description": "Read saved turns without regenerating answers. Clients supporting system references send X-Shensi-Reference-Protocol system-v1. If system reference snapshots exist and this header is omitted, return 409 reference_client_upgrade_required without returning or dropping those snapshots. This header is a compatibility signal, not authorization; private legacy history remains readable without it.",
         "operationId": "getCfoSession",
         "parameters": [
           {
             "$ref": "#/components/parameters/optionalWorkspaceHeader"
+          },
+          {
+            "in": "header",
+            "name": "X-Shensi-Reference-Protocol",
+            "required": false,
+            "schema": {
+              "enum": [
+                "system-v1"
+              ],
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -18800,6 +19259,26 @@
             "description": "API error"
           },
           "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "API error"
+          },
+          "422": {
             "content": {
               "application/json": {
                 "schema": {

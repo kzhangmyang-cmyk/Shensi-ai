@@ -1,8 +1,9 @@
 import {
   normalizePackageMode,
-  validateRemoteOrigin,
+  resolvePackageRuntimeConfig,
   validateReleaseEnvironment,
 } from "./release-policy.mjs";
+import { verifyStandaloneResources } from './standalone-resources.mjs';
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,5 +19,9 @@ if (mode === "release") {
     throw new Error("release packaging requires a product-owner-approved Shensi icon");
   }
 }
-else validateRemoteOrigin(process.env.SHENSI_REMOTE_ORIGIN, false);
+else resolvePackageRuntimeConfig(process.env, false);
+if (process.env.SHENSI_DESKTOP_MODE === 'standalone') {
+  const directory = path.dirname(fileURLToPath(import.meta.url));
+  await verifyStandaloneResources(path.join(directory, '../resources/staging/standalone'));
+}
 console.log(JSON.stringify({ ok: true, mode }));

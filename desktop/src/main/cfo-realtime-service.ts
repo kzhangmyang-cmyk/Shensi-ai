@@ -18,6 +18,8 @@ interface Active {
   preparedAnswer?: Promise<{ answer: string; model: string }>;
   question?: string; transcriptWait?: ReturnType<typeof setTimeout>;
   recovery?: { instructions: string; phase: 'waiting_ack' | 'speaking'; timer?: ReturnType<typeof setTimeout> };
+  /** Transient WebSocket drops: one automatic transport reconnect per session. */
+  reconnects: number;
 }
 function conversationalReply(question: string): string | undefined {
   // Match the entire utterance, never a keyword within a business question.
@@ -96,7 +98,17 @@ export class CfoRealtimeService {
     if (this.active) throw new Error('voice_busy');
     const active: Active = { id: randomUUID(), scope, settings, history, documentId, generation: 0, abort: new AbortController(),
       allowed: false, toolUsed: false, generationDone: false, ring: [], buffer: [], transcriptions: new Set(), lastAudio: Date.now() + 45000, rateAt: Date.now(), rateBytes: 0,
-      monitor: setInterval(() => { if (Date.now() - active.lastAudio > 15_000) this.fail(active, 'voice_audio_unavailable'); }, 5000) };
+      reconnects: 0,
+      monitor: setInterval(() => {
+        // Only enforce mic liveness while we expect uplink audio. Thinking/tool/playback/ASR
+        // wait can exceed prior 15s budgets on customer networks; false device failures drop
+        // voice and make operators think text chat is broken.
+        if (active.tool || active.output || active.recovery || active.turnStartedAt) {
+          active.lastAudio = Date.now();
+          return;
+        }
+        if (Date.now() - active.lastAudio > 45_000) this.fail(active, 'voice_audio_stalled');
+      }, 5000) };
     active.monitor.unref(); this.active = active;
     void this.connect(active); return { sessionId: active.id };
   }
@@ -126,12 +138,14 @@ export class CfoRealtimeService {
     const bytes = pcmBytes(pcm); if (bytes > 6400) throw new Error('voice_input_invalid');
     if (Date.now() - active.rateAt >= 1000) { active.rateAt = Date.now(); active.rateBytes = 0; }
     active.rateBytes += bytes;
-    if (active.rateBytes > 64000) { this.fail(active, 'voice_backpressure'); return; }
+    // Renderer can flush queued mic chunks in bursts after a main-thread/GC stall; only a
+    // sustained flood (>4x realtime) is abuse. Drop the excess chunk instead of ending voice.
+    if (active.rateBytes > 192000) { this.diagnostic({ stage: 'uplink_burst_dropped', bytes: active.rateBytes }); return; }
     active.lastAudio = Date.now(); active.ring.push(pcm);
     while (active.ring.reduce((n, p) => n + p.length, 0) > 44000) active.ring.shift();
     try {
       if (active.port) active.port.send({ type: 'input_audio_buffer.append', audio: pcm });
-      else { active.buffer.push(pcm); if (active.buffer.reduce((n, p) => n + p.length, 0) > 128000) this.fail(active, 'voice_backpressure'); }
+      else { active.buffer.push(pcm); while (active.buffer.reduce((n, p) => n + p.length, 0) > 128000) active.buffer.shift(); }
     } catch { this.fail(active, 'voice_network_failed'); }
   }
   played(sessionId: string, responseId: string, playedMs: number, complete: boolean) {
@@ -149,6 +163,22 @@ export class CfoRealtimeService {
   }
   private append(active: Active, role: 'user' | 'assistant', text: string) {
     active.history.push({ role, text: text.trim().slice(0, 4000) }); active.history = active.history.slice(-10);
+  }
+  private reconnectTransport(active: Active, reason: string) {
+    if (this.active !== active) return;
+    this.stage(active, 'transport_reconnect', { reason, attempt: active.reconnects });
+    this.emit(active, { type: 'reconnecting' });
+    active.turnStartedAt = undefined; active.toolStartedAt = undefined;
+    clearTimeout(active.transcriptWait); clearTimeout(active.recovery?.timer);
+    active.transcriptWait = undefined; active.recovery = undefined; active.question = undefined;
+    active.allowed = false; active.toolUsed = false; active.toolCall = undefined; active.toolAnswer = undefined;
+    active.preparedAnswer = undefined; active.generationDone = false;
+    active.generation++; active.tool?.abort(); active.tool = undefined;
+    active.abort.abort(); active.port?.close(); active.port = undefined;
+    active.abort = new AbortController(); active.responseId = undefined; active.output = undefined;
+    active.buffer = [...active.ring];
+    active.lastAudio = Date.now() + 15_000;
+    void this.connect(active);
   }
   private interrupt(active: Active) {
     const wasActive = !!active.responseId || !!active.tool || !!active.transcriptWait
@@ -177,10 +207,26 @@ export class CfoRealtimeService {
   }
   private receive(active: Active, event: ProviderEvent) {
     try {
-      if (event.type === 'closed') { this.fail(active, ['voice_credentials_failed', 'voice_permission_failed', 'voice_protocol_failed'].includes(event.code) ? event.code : 'voice_network_failed'); return; }
+      if (event.type === 'closed') {
+        const code = ['voice_credentials_failed', 'voice_permission_failed', 'voice_protocol_failed'].includes(event.code)
+          ? event.code : 'voice_network_failed';
+        // Auth/protocol mismatches are not recoverable by reconnecting the same credentials.
+        if (code !== 'voice_network_failed') { this.fail(active, code); return; }
+        // Customer networks often flap briefly; one transport reconnect keeps the mic session
+        // alive instead of forcing a full stop + re-permission dance.
+        if (active.reconnects < 1) {
+          active.reconnects += 1;
+          this.reconnectTransport(active, code);
+          return;
+        }
+        this.fail(active, code);
+        return;
+      }
       if (event.type === 'input_audio_buffer.speech_started') { this.interrupt(active); return; }
       if (event.type === 'input_audio_buffer.speech_stopped') {
-        active.turnStartedAt = Date.now(); this.stage(active, 'speech_stopped');
+        active.turnStartedAt = Date.now();
+        active.lastAudio = Date.now();
+        this.stage(active, 'speech_stopped');
         this.emit(active, { type: 'thinking' }); return;
       }
       if (event.type === 'conversation.item.input_audio_transcription.completed') {
@@ -308,6 +354,12 @@ export class CfoRealtimeService {
     active.allowed = true; active.tool = undefined; active.toolCall = undefined;
     this.stage(active, 'tool_output_submitted');
     active.port?.send({ type: 'response.create' });
+  }
+  /** Used by IPC auth monitor so silent authority loss still surfaces a recoverable error. */
+  failActive(code: string) {
+    const active = this.active;
+    if (!active) return;
+    this.fail(active, code);
   }
   private fail(active: Active, code: string) {
     if (this.active !== active) return;

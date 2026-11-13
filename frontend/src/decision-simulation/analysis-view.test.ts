@@ -4,6 +4,19 @@ import {parseHTML} from 'linkedom';
 import {mountDecisionAnalysis} from './analysis-view';
 import type {components} from '../generated/decision-simulation';
 
+test('background motion stays paused after hidden state and disposal even with late activation',()=>{
+  const {document,window}=parseHTML('<html><body><main></main></body></html>');
+  const view=mountDecisionAnalysis(document.querySelector('main')!,()=>{});
+  view.update({id:'preview',expiresAt:'',dataKind:'synthetic',state:'completed',files:[],sources:[],facts:[],uncertain:[],runId:null,errorCode:null,agents:[]},'empty');
+  const root=document.querySelector<HTMLElement>('.decision-analysis')!;
+  view.setActive(true);assert.equal(root.dataset.motion,'running');
+  Object.defineProperty(document,'hidden',{configurable:true,value:true});
+  document.dispatchEvent(new window.Event('visibilitychange'));assert.equal(root.dataset.motion,'paused');
+  Object.defineProperty(document,'hidden',{configurable:true,value:false});
+  document.dispatchEvent(new window.Event('visibilitychange'));assert.equal(root.dataset.motion,'running');
+  view.dispose();view.setActive(true);assert.equal(root.dataset.motion,'paused');
+});
+
 test('galaxy statuses and retry follow actual preparation, never elapsed decorative time',()=>{
   const {document,window}=parseHTML('<html><body><main></main></body></html>');
   let retries=0;

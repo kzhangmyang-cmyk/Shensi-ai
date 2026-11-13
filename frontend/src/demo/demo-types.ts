@@ -8,6 +8,7 @@ export type DemoModule =
   | "decision-simulation"
   | "conversion"
   | "agents"
+  | "knowledge"
   | "scripts"
   | "trade-marketing"
   | "settings";

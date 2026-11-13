@@ -46,6 +46,7 @@ export interface OutreachBatchController {
   approve(): Promise<void>;
   approveDirectMessages(): Promise<void>;
   pause(reason?: string): Promise<void>;
+  cancelPending?(): Promise<void>;
   resume(): Promise<void>;
   refreshActions(): Promise<void>;
   recoverAccountActions(): Promise<void>;
@@ -420,7 +421,7 @@ export function createOutreachBatchController(options: {
     timer = null;
     return poll(batchId, own, pollEpoch, emptyAttempts);
   };
-  const transition = async (name: "approve" | "pause" | "resume", reason = "") => {
+  const transition = async (name: "approve" | "pause" | "resume" | "reject", reason = "") => {
     if (!state.batch || activeCommand) return;
     if (name === "approve" && hasUnsavedChanges()) {
       emit({ phase: "ready", error: "当前文案尚未保存，请先保存为新修订后再审批。", conflict: false });
@@ -438,6 +439,8 @@ export function createOutreachBatchController(options: {
     try {
       const batch = name === "approve"
         ? await options.api.approveBatch(authority.id, authority.revision, authority.batchHash, authority.etag, makeKey("outreach-approve"), aborter.signal)
+        : name === "reject"
+          ? await options.api.rejectBatch(authority.id, reason, authority.etag, makeKey("outreach-reject"), aborter.signal)
         : name === "pause"
           ? await options.api.pauseBatch(authority.id, reason, authority.etag, makeKey("outreach-pause"), aborter.signal)
           : await options.api.resumeBatch(authority.id, authority.etag, makeKey("outreach-resume"), aborter.signal);
@@ -689,6 +692,7 @@ export function createOutreachBatchController(options: {
       }
     },
     pause: (reason = "人工暂停") => transition("pause", reason),
+    cancelPending: () => transition("reject", "用户取消尚未执行的私信"),
     resume: () => transition("resume"),
     async refreshActions() { if (state.batch) await startPoll(state.batch.id, generation); },
     async recoverAccountActions() {

@@ -369,6 +369,7 @@ async function defaultResources(
     : null;
   const crm = options.store ? (options.mode === "mysql"
     ? createMysqlQuoteCrmCommand({ pool: options.pool,
+        store: options.store,
         temporalBarrier: input.temporalBarrier, repository })
     : createQuoteCrmCommand({ store: options.store,
         temporalTransactions: input.temporalTransactions,

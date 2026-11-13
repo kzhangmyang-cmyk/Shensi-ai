@@ -55,6 +55,7 @@ export function moduleMetaForSession(
 }
 
 export const demoModuleMeta: Record<DemoModule, ModuleMeta> = {
+  knowledge: {title:'知识库',subtitle:'本地私有资料 · 按需参考 · 来源可追溯',searchPlaceholder:'搜索资料标题',primaryAction:'上传资料'},
   home:{title:'首页',subtitle:'获客 · 经营顾问 · 星盘决策',searchPlaceholder:'选择工作入口',primaryAction:'进入获客中心'},
   "decision-simulation": {title:"星盘决策模拟",subtitle:"同起点经营方案对照与月度回放",searchPlaceholder:"查看经营方案",primaryAction:"编辑经营起点"},
   "enterprise-query": {
@@ -122,7 +123,7 @@ export const demoModuleMeta: Record<DemoModule, ModuleMeta> = {
 const modules = new Set<DemoModule>(Object.keys(demoModuleMeta) as DemoModule[]);
 
 export function demoModuleFromHash(hash: string, fallback: DemoModule): DemoModule {
-  const module = hash.replace(/^#/, "");
+  const module = hash.replace(/^#/, "").split('?',1)[0];
   return modules.has(module as DemoModule) ? module as DemoModule : fallback;
 }
 

@@ -16,6 +16,7 @@ export interface RealConversationsViewState {
   error: string | null;
   activeTab?: "direct_messages" | "comments" | "history";
   candidateQuery?: string;
+  recipientKeys?: string[];
 }
 
 function escapeHtml(value: unknown): string {
@@ -224,6 +225,12 @@ function renderMain(state: RealConversationsViewState): string {
   const visibleInteractions = query ? interactions.filter((item) =>
     [item.displayName, item.taskName, item.excerpt].some((value) =>
       value.toLocaleLowerCase("zh-CN").includes(query))) : interactions;
+  const eligible = (item: RealPublicInteraction) => item.outreachEligible
+    && !["do_not_contact", "rejected", "unresolvable"].includes(item.candidateStatus);
+  const selectedRecipients = interactions.filter(item => eligible(item) && state.recipientKeys?.includes(item.key));
+  const selectionRun = selectedRecipients[0]?.runId ?? visibleInteractions.find(eligible)?.runId;
+  const selectable = visibleInteractions.filter(item => eligible(item) && item.runId === selectionRun);
+  const allSelected = selectable.every(item => state.recipientKeys?.includes(item.key));
   const selected = interactions.find((item) =>
     item.key === state.selectedInteractionKey) ?? interactions[0];
   const activeTab = state.activeTab ?? "direct_messages";
@@ -239,7 +246,7 @@ function renderMain(state: RealConversationsViewState): string {
       ${tabs}
       <button type="button" data-real-conversations-action="retry">刷新公开证据</button>
     </div>`;
-  const accountStrip = `<div class="real-conversations-account-strip"><i class="ph ph-shield-check" aria-hidden="true"></i><span>每次发送前都会核对发送账号、精确收件人与正文</span><button type="button" data-xhs-open>小红书私信</button><a href="#acquisition">管理账号</a></div>`;
+  const accountStrip = `<div class="real-conversations-account-strip"><i class="ph ph-shield-check" aria-hidden="true"></i><span>当前平台：抖音 · 每次发送前都会核对发送账号、精确收件人与正文</span><button type="button" data-xhs-open>切换到小红书私信</button><a href="#acquisition">管理账号</a></div>`;
 
   if (state.status === "loading" && snapshot === null) {
     return `<section class="real-conversations" aria-label="抖音公开互动">${heading}${accountStrip}<section class="demo-panel demo-empty" role="status"><h2>正在读取真实公开互动…</h2><p>数据来自现有获客任务和候选证据接口。</p></section></section>`;
@@ -254,10 +261,11 @@ function renderMain(state: RealConversationsViewState): string {
     ${state.error ? `<p class="real-conversations-warning" role="alert">${escapeHtml(state.error)}</p>` : ""}
     <section class="real-conversations-grid" data-real-conversations-tab-panel="${activeTab}">
       <aside class="demo-panel real-conversation-list" aria-label="公开候选证据列表">
-        <div><b>选择收件人</b><small>${interactions.length} 位已采集真实候选 · ${snapshot?.runsRead ?? 0} 个运行</small></div>
+        <div><b>选择收件人</b><small>${new Set(interactions.map(item => item.candidateId)).size} 位已载入真实候选 · ${snapshot?.runsRead ?? 0} 个运行</small></div>
         <label><span class="sr-only">搜索候选人</span><input type="search" value="${escapeHtml(state.candidateQuery ?? "")}" placeholder="搜索候选人" data-real-conversations-candidate-search></label>
+        ${activeTab === "direct_messages" ? `<div class="real-conversation-bulk-controls"><p role="status">当前筛选 ${new Set(visibleInteractions.map(item => item.candidateId)).size} 人 · 已选 ${new Set(selectedRecipients.map(item => item.candidateId)).size} 人</p><div class="douyin-actions"><button type="button" class="secondary" data-real-conversations-action="select-recipients" ${allSelected ? "disabled" : ""}>全选当前运行</button><button type="button" class="secondary" data-real-conversations-action="clear-recipients" ${(state.recipientKeys ?? []).length ? "" : "disabled"}>全取消</button></div><small>全选范围：当前筛选已载入、同一采集运行的 ${selectable.length} 位可发候选；不同运行分别准备，不自动发送。</small><button type="button" class="primary" data-real-conversations-action="prepare-recipients" ${(state.recipientKeys ?? []).length && state.outreach.phase !== "loading" ? "" : "disabled"}>添加 ${(state.recipientKeys ?? []).length} 位到待发送列表</button></div>` : ""}
         <nav>${visibleInteractions.length > 0
-          ? visibleInteractions.map((item) => renderInteractionRow(item, item.key === selected?.key)).join("")
+          ? visibleInteractions.map((item) => `${activeTab === "direct_messages" ? `<label class="real-conversation-recipient-check"><input type="checkbox" data-real-conversations-recipient="${escapeHtml(item.key)}" ${(state.recipientKeys ?? []).includes(item.key) ? "checked" : ""} ${item.outreachEligible && !["do_not_contact", "rejected", "unresolvable"].includes(item.candidateStatus) ? "" : "disabled"}>选择 ${escapeHtml(item.displayName)}${item.outreachEligible ? "" : "（仅查看证据）"}</label>` : ""}${renderInteractionRow(item, item.key === selected?.key)}`).join("")
           : "<p>没有匹配的真实候选人。</p>"}</nav>
       </aside>
       ${activeTab === "direct_messages"
@@ -289,7 +297,7 @@ export function renderRealConversationsView(
     item.id === batch.accountId
     && item.state === "active") : undefined;
   const candidates = batch?.candidates.flatMap((candidate) => {
-    if (candidate.candidateId !== selectedInteraction?.candidateId) return [];
+    if (!state.recipientKeys?.length && candidate.candidateId !== selectedInteraction?.candidateId) return [];
     const interaction = state.snapshot?.interactions.find((item) =>
       item.runId === batch.runId && item.candidateId === candidate.candidateId);
     return interaction ? [{

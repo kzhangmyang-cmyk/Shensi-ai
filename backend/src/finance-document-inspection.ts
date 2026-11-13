@@ -1,5 +1,6 @@
 import { parseSecureSpreadsheetArtifact, type ParsedSpreadsheetCell } from './secure-spreadsheet-artifact.js';
 import type { FinanceTextCell } from './secure-finance-document-text.js';
+import type { completedResearch } from './agent-conversation-research.js';
 
 export type FinanceDocumentRegionKind = 'balance_sheet' | 'income_statement' | 'cash_flow_statement' | 'ledger' | 'unknown';
 export interface FinanceSpreadsheetCell { sourceRef: string; sheetName: string; row: number; column: number; text: string;
@@ -8,7 +9,16 @@ export type FinanceDocumentCell = FinanceSpreadsheetCell | FinanceTextCell;
 export interface FinanceDocumentRegion { regionId: string; sheetName: string; kind: FinanceDocumentRegionKind;
   startRow: number; endRow: number; headerRow: number | null; sourceRefs: string[]; uncertain: string[] }
 export interface FinanceDocumentObservation { text: string; sourceRefs: string[] }
+export interface FinanceDetailedReport {
+  version: 'finance-detailed.v1';
+  publicResearchStatus?: 'completed'|'unavailable'|'not_requested';
+  research?: NonNullable<ReturnType<typeof completedResearch>>;
+  sections: Array<{ id: 'overview'|'income'|'cost'|'profit'|'cashflow'|'comparison'|'actions';
+    coverage: 'supported'|'partial'|'insufficient';
+    evidence: FinanceDocumentObservation[]; interpretation: FinanceDocumentObservation[]; action: FinanceDocumentObservation[] }>;
+}
 export interface FinanceDocumentInspection {
+  detailedReport?: FinanceDetailedReport;
   files?: Array<{ fileName: string; fileHash: string; prefix: string }>;
   fileHash: string; classification: 'financial_statements' | 'ledger' | 'unknown';
   regions: FinanceDocumentRegion[]; cells: FinanceDocumentCell[];

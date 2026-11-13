@@ -41,6 +41,7 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.empty.plist
+  sign: ./scripts/macos-release-sign.mjs
   target:
     - target: dmg
     - target: zip

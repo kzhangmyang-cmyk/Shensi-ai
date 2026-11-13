@@ -10,6 +10,9 @@ import { createSourceContentManifest } from "./source-content-manifest.mjs";
 
 const execFile = promisify(nativeExecFile);
 const DESKTOP_REQUIRED = [
+  'desktop/scripts/standalone-resources.mjs','desktop/scripts/stage-standalone-resources.mjs','desktop/scripts/reviewed-vendor-path-examples.mjs',
+  'frontend/reference-approval.html',
+  'services/knowledge-reader/shensi_knowledge_reader.py','services/knowledge-reader/pyproject.toml','services/knowledge-reader/uv.lock',
   'desktop/enterprise-bridge/extension/capture.js',
   "desktop/scripts/dev.mjs", "desktop/scripts/prepare-dev-build-identity.mjs", "scripts/source-content-manifest.mjs",
   "frontend/package.json", "frontend/index.html", "frontend/admin.html", "frontend/ui-kit.html", "frontend/vite.config.ts", "frontend/tsconfig.json",
@@ -61,6 +64,50 @@ test("backend-runtime hashes sorted regular Docker inputs including an untracked
   assert.deepEqual(manifest.records.map((record) => record.path), [...manifest.records.map((record) => record.path)].sort());
   assert.equal(manifest.records.some((record) => record.path === "backend/src/untracked.ts"), true);
   assert.match(manifest.rootHash, /^[a-f0-9]{64}$/u);
+});
+
+test("Finder metadata does not change source identity while similarly named inputs remain classified", async () => {
+  const root = await fixture();
+  const scopes = ["desktop-app", "backend-runtime"];
+  const before = await Promise.all(scopes.map((scope) => createSourceContentManifest(root, scope)));
+  await writeFixtureFiles(root, {
+    "desktop/.DS_Store": "Finder desktop metadata",
+    "frontend/src/.DS_Store": "Finder renderer metadata",
+    "backend/.DS_Store": "Finder backend metadata"
+  });
+  for (const [index, scope] of scopes.entries()) {
+    const after = await createSourceContentManifest(root, scope);
+    assert.equal(after.rootHash, before[index].rootHash);
+    assert.equal(after.records.some(({ path }) => path.split("/").at(-1) === ".DS_Store"), false);
+  }
+  await writeFile(join(root, "desktop/.DS_Store.ts"), "not Finder metadata");
+  await assert.rejects(createSourceContentManifest(root, "desktop-app"), /MANIFEST_UNCLASSIFIED_FILE:desktop\/\.DS_Store\.ts/u);
+});
+
+test('knowledge reader source affects desktop identity but private books and pre-extracted artifacts never enter manifests',async()=>{
+  const root=await fixture();
+  await writeFixtureFiles(root,{'services/knowledge-reader/shensi_knowledge_reader.py':'reader-v1','services/knowledge-reader/pyproject.toml':'pins',
+    'services/knowledge-reader/uv.lock':'lock','services/knowledge-reader/pre-extracted/source-01.json':'PRIVATE_DERIVED',
+    'frontend/public/books/private.pdf':'PRIVATE_BOOK','backend/pre-extracted/private.json':'PRIVATE_DERIVED',
+    '.runtime/book-private/source-01.json':'PRIVATE_DERIVED'});
+  for(const scope of ['desktop-app','backend-runtime']){
+    const before=await createSourceContentManifest(root,scope);
+    assert.equal(before.records.some(x=>/books\/|pre-extracted\/|\.runtime\//u.test(x.path)),false);
+    if(scope==='desktop-app'){
+      assert.equal(before.records.some(x=>x.path==='services/knowledge-reader/shensi_knowledge_reader.py'),true);
+      await writeFile(join(root,'services/knowledge-reader/shensi_knowledge_reader.py'),'reader-v2');
+      assert.notEqual((await createSourceContentManifest(root,scope)).rootHash,before.rootHash);
+    }
+  }
+});
+
+test('standalone packaging controls affect desktop identity without including staged books',async()=>{
+  const root=await fixture();const before=await createSourceContentManifest(root,'desktop-app');
+  await writeFixtureFiles(root,{'desktop/scripts/standalone-resources.mjs':'new staging rules',
+    'desktop/resources/staging/standalone/system-reference/books.json.gz':'private-derived'});
+  const after=await createSourceContentManifest(root,'desktop-app');
+  assert.notEqual(before.rootHash,after.rootHash);
+  assert.equal(after.records.some(r=>r.path.includes('resources/staging')),false);
 });
 
 test("backend-runtime exactly binds Docker COPY controls including frontend contract output and Docker ignore", async () => {
@@ -152,6 +199,19 @@ test("desktop-app binds the admin entry and rejects its omission", async () => {
   assert.notEqual((await createSourceContentManifest(root, "desktop-app")).rootHash, before.rootHash);
   await rm(join(root, "frontend/admin.html"));
   await assert.rejects(() => createSourceContentManifest(root, "desktop-app"), /MANIFEST_REQUIRED_INPUT_MISSING:frontend\/admin.html/u);
+});
+
+test('desktop-app binds the reference approval entry and rejects changes, omission or unclassified neighbors',async t=>{
+  const root=await fixture();t.after(()=>rm(root,{recursive:true,force:true}));
+  const path='frontend/reference-approval.html',before=await createSourceContentManifest(root,'desktop-app');
+  assert(before.records.some(record=>record.path===path));
+  await writeFile(join(root,path),'<main>changed reference approval</main>');
+  assert.notEqual((await createSourceContentManifest(root,'desktop-app')).rootHash,before.rootHash);
+  await rm(join(root,path));
+  await assert.rejects(createSourceContentManifest(root,'desktop-app'),/MANIFEST_REQUIRED_INPUT_MISSING:frontend\/reference-approval.html/u);
+  await writeFile(join(root,path),'<main>reference approval</main>');
+  await writeFile(join(root,'frontend/reference-approval-unknown.html'),'unknown');
+  await assert.rejects(createSourceContentManifest(root,'desktop-app'),/MANIFEST_UNCLASSIFIED_FILE:frontend\/reference-approval-unknown.html/u);
 });
 
 test("desktop-app excludes generated output and fails for an unclassified frontend-root input", async () => {
@@ -309,6 +369,7 @@ test("desktop-app record set exactly follows renderer Electron packaging and Sid
   const root = await mkdtemp(join(tmpdir(), "shensi-desktop-manifest-exact-"));
   const reachedScripts = [
     "dev.mjs", "prepare-dev-build-identity.mjs",
+    "standalone-resources.mjs", "stage-standalone-resources.mjs", "reviewed-vendor-path-examples.mjs",
     "build-preload.mjs", "build-sidecar.mjs", "build-sidecar.sh",
     "frozen-sidecar-entrypoint.py", "generate-macos-icon.mjs",
     "check-package-environment.mjs", "write-runtime-config.mjs",
@@ -319,6 +380,8 @@ test("desktop-app record set exactly follows renderer Electron packaging and Sid
     "verify-macos-artifacts.sh"
   ];
   const files = {
+    'frontend/reference-approval.html':'<main>reference approval</main>',
+    'services/knowledge-reader/shensi_knowledge_reader.py':'reader','services/knowledge-reader/pyproject.toml':'pins','services/knowledge-reader/uv.lock':'lock',
     "scripts/source-content-manifest.mjs": "export {}",
     "desktop/enterprise-bridge/extension/capture.js": "(() => ({}))()",
     "package.json": "{}", "pnpm-lock.yaml": "lock", "pnpm-workspace.yaml": "packages: []",

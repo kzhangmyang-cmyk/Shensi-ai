@@ -17,6 +17,7 @@
     "build": "pnpm build:main",
     "package:mac": "bash scripts/package-macos.sh development",
     "package:mac:release": "bash scripts/package-macos.sh release",
+    "stage:standalone": "node scripts/stage-standalone-resources.mjs",
     "verify:package": "node scripts/verify-package.mjs",
     "verify:mac": "bash scripts/verify-macos-artifacts.sh development",
     "verify:mac:release": "bash scripts/verify-macos-artifacts.sh release"

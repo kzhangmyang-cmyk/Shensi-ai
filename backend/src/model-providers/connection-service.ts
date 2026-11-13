@@ -202,6 +202,69 @@ export async function activateModelConnection(
   return target;
 }
 
+export interface ModelConnectionDeactivationStore {
+  connections: ModelConnection[];
+  persist(): Promise<void>;
+  deactivateModelConnectionTransaction?(
+    scope: ModelConnectionScope,
+    connectionId: string,
+    actorId: string,
+    reason: string
+  ): Promise<ModelConnection>;
+}
+
+export async function deactivateModelConnection(
+  store: ModelConnectionDeactivationStore,
+  scope: ModelConnectionScope,
+  connectionId: string,
+  actorId: string,
+  reason: string
+) {
+  if (store.deactivateModelConnectionTransaction) {
+    return store.deactivateModelConnectionTransaction(
+      scope,
+      connectionId,
+      actorId,
+      reason
+    );
+  }
+  const target = store.connections.find(
+    (item) => item.id === connectionId
+      && item.ownerId === scope.ownerId
+      && item.teamId === scope.teamId
+  );
+  if (!target) {
+    throw new ModelConnectionError(
+      "connection_not_found",
+      "模型连接不存在或不属于当前用户",
+      404
+    );
+  }
+  if (target.status !== "active" && target.isDefault !== true) {
+    return target;
+  }
+  const before = {
+    status: target.status,
+    isDefault: target.isDefault,
+    updatedAt: target.updatedAt
+  };
+  const now = new Date().toISOString();
+  target.status = "inactive";
+  target.isDefault = false;
+  target.updatedAt = now;
+  void actorId;
+  void reason;
+  try {
+    await store.persist();
+  } catch (error) {
+    target.status = before.status;
+    target.isDefault = before.isDefault;
+    target.updatedAt = before.updatedAt;
+    throw error;
+  }
+  return target;
+}
+
 export function createModelCredentialVersion(
   credentials: ModelCredentialVersion[],
   connection: ModelConnection,

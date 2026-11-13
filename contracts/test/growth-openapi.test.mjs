@@ -105,7 +105,7 @@ test("1.0.19 exposes closed real council onboarding routes", async () => {
   const document = await loadNamedOpenApiSource(
     "growth-advisor-quote-roi.v1.yaml"
   );
-  assert.equal(document.info.version, "1.0.34");
+  assert.equal(document.info.version, "1.0.41");
   for (const path of [
     "/api/v1/finance/council-model-routing-policy",
     "/api/v1/finance/council-model-routing-policy/preview",
@@ -223,6 +223,22 @@ function effectiveParameters(document, pathItem, operation) {
   }
   return [...parameters.values()];
 }
+
+test("CFO history formally negotiates reference readers without query or body input", async () => {
+  const document = await loadNamedOpenApiSource("growth-advisor-quote-roi.v1.yaml");
+  const path = document.paths["/api/v1/finance/cfo-sessions/{sessionId}"], operation = path.get;
+  const parameters = effectiveParameters(document, path, operation);
+  const readers = parameters.filter(parameter => parameter.name === "X-Shensi-Reference-Protocol");
+  assert.equal(readers.length, 1);
+  assert.equal(readers[0].in, "header"); assert.equal(readers[0].required, false);
+  assert.deepEqual(readers[0].schema, { type: "string", enum: ["system-v1"] });
+  assert.equal(parameters.some(parameter => parameter.in === "query"), false);
+  assert.equal(operation.requestBody, undefined);
+  assert.deepEqual(operation.security, [{ bearerAuth: [] }, { cookieAuth: [] }]);
+  for (const status of ["401", "403", "404", "409", "422", "503"])
+    assert.ok(operation.responses[status]?.content?.["application/json"]?.schema);
+  assert.match(operation.description, /reference_client_upgrade_required/u);
+});
 
 function resolveInternalResponse(document, response) {
   if (!response?.$ref) return response;
@@ -1378,7 +1394,9 @@ test("fix round 3 settlement allocation input rejects caller authority while out
   };
   assert.equal(validateInput({ sourceFactId: "payment-fact-1", items: [itemInput] }), true, JSON.stringify(validateInput.errors));
   assert.equal(validateInput({ sourceFactId: "payment-fact-1", items: [{ ...itemInput, commercialBindingSnapshot }] }), false);
-  assert.equal(validateOutput({ allocationSetId: "allocation-set-1", ...itemInput, commercialBindingSnapshot }), true, JSON.stringify(validateOutput.errors));
+  assert.equal(validateInput({ sourceFactId: "payment-fact-1", items: [{ ...itemInput, id: "caller-item" }] }), false);
+  assert.equal(validateOutput({ allocationSetId: "allocation-set-1", ...itemInput, commercialBindingSnapshot }), false);
+  assert.equal(validateOutput({ id: "allocation-item-1", allocationSetId: "allocation-set-1", ...itemInput, commercialBindingSnapshot }), true, JSON.stringify(validateOutput.errors));
 });
 
 // Production break caught: independently-valid Deal and event fragments combining into contradictory won, lost, or pre-quote decision outcomes.

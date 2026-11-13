@@ -69,6 +69,8 @@ const DEFAULT_NOW = "2026-08-09T03:00:00.000Z";
 function connectionOptions(url: URL) {
   return {
     host: url.hostname,
+    ...(url.searchParams.get("socketPath")
+      ? { socketPath: url.searchParams.get("socketPath")! } : {}),
     port: Number(url.port || 3306),
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),
@@ -1037,7 +1039,9 @@ export async function withGrowthFinanceMysqlTestDatabase<T>(
     connectionB?.release();
     connectionA?.release();
     if (pool) await pool.end();
-    if (created) await admin.query(`DROP DATABASE IF EXISTS \`${databaseName}\``);
+    const retainForPackagedRestart = process.env.SHENSI_PACKAGED_ROI_RESTART === "1"
+      && /^\/private\/tmp\/shensi-db-[^/]+\/mysql\.sock$/u.test(new URL(adminUrl).searchParams.get("socketPath") ?? "");
+    if (created && !retainForPackagedRestart) await admin.query(`DROP DATABASE IF EXISTS \`${databaseName}\``);
     await admin.end();
   }
 }

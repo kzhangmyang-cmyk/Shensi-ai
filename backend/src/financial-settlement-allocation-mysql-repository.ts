@@ -389,7 +389,40 @@ implements CashSettlementAllocationRepository {
           code: "revision_mismatch", status: 412
         });
       }
-      if (targetRevenueFactIds.length > 0) {
+      const isRefund = String(factsById.get(draft.sourceFactId)!.fact_type) === "refund";
+      if (isRefund) {
+        const incomingByPayment = new Map<string, bigint>();
+        for (const item of items) {
+          const paymentItemId = String(item.original_payment_allocation_item_id ?? "");
+          const [paymentRows] = await connection.query(
+            `SELECT i.amount_minor FROM cash_settlement_allocation_items i
+             JOIN cash_settlement_allocation_sets s ON s.id = i.allocation_set_id AND s.workspace_id = i.workspace_id
+             JOIN financial_facts f ON f.id = s.source_fact_id AND f.workspace_id = s.workspace_id
+             WHERE i.workspace_id = ? AND i.id = ? AND s.id = ? AND s.source_fact_id = ?
+               AND s.status = 'active' AND f.fact_type = 'payment_received'
+               AND i.target_revenue_fact_id = ? AND i.currency = ?`,
+            [input.workspaceId, paymentItemId, item.original_payment_allocation_set_id,
+              item.original_payment_fact_id, item.target_revenue_fact_id, item.currency]
+          );
+          const payment = (paymentRows as MysqlRow[])[0];
+          if (!payment) throw Object.assign(new Error("refund_payment_item_invalid"), {code:"refund_payment_item_invalid",status:422});
+          const incoming = (incomingByPayment.get(paymentItemId) ?? 0n) + BigInt(String(item.amount_minor));
+          incomingByPayment.set(paymentItemId, incoming);
+          const [refundRows] = await connection.query(
+            `SELECT COALESCE(SUM(i.amount_minor), 0) AS refunded_minor
+             FROM cash_settlement_allocation_items i
+             JOIN cash_settlement_allocation_sets s ON s.id = i.allocation_set_id AND s.workspace_id = i.workspace_id
+             JOIN financial_facts f ON f.id = s.source_fact_id AND f.workspace_id = s.workspace_id
+             WHERE s.workspace_id = ? AND s.status = 'active' AND s.source_fact_id <> ?
+               AND f.fact_type = 'refund' AND i.original_payment_allocation_item_id = ?`,
+            [input.workspaceId, draft.sourceFactId, paymentItemId]
+          );
+          if (incoming + BigInt(String((refundRows as MysqlRow[])[0]!.refunded_minor)) > BigInt(String(payment.amount_minor))) {
+            throw Object.assign(new Error("refund_overallocated"), {code:"refund_overallocated",status:422});
+          }
+        }
+      }
+      if (targetRevenueFactIds.length > 0 && !isRefund) {
         const targetPlaceholders = targetRevenueFactIds
           .map(() => "?").join(", ");
         const [allocatedRows] = await connection.query(
@@ -399,7 +432,9 @@ implements CashSettlementAllocationRepository {
            JOIN cash_settlement_allocation_sets s
              ON s.id = i.allocation_set_id
              AND s.workspace_id = i.workspace_id
+           JOIN financial_facts f ON f.id = s.source_fact_id AND f.workspace_id = s.workspace_id
            WHERE s.workspace_id = ? AND s.status = 'active'
+             AND f.fact_type IN ('payment_received', 'bad_debt_written_off')
              AND s.source_fact_id <> ?
              AND i.target_revenue_fact_id IN (${targetPlaceholders})
            GROUP BY i.target_revenue_fact_id`,

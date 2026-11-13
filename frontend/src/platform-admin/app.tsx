@@ -1,5 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { components } from '../generated/platform-admin';
+import { PlatformReferencePanel } from '../system-reference/admin-panel';
+import { createReferenceAdminApi } from '../system-reference/admin-api';
 
 type Overview = components['schemas']['Overview'];
 type NewEnterprise = components['schemas']['NewEnterprise'];
@@ -9,9 +11,10 @@ type AccountAccess = components['schemas']['AccountAccess'];
 type Workspace = components['schemas']['Workspace'];
 type NewAccount = components['schemas']['NewAccount'];
 type PasswordResetResult = components['schemas']['PasswordResetResult'];
-const tabs = ['企业客户', '账号', '套餐授权', '操作日志'] as const;
+const tabs = ['企业客户', '账号', '套餐授权', '操作日志', '默认参考库'] as const;
 const planNames = { trial: '试用版', basic: '基础版', pro: '专业版' };
 const featureNames = { acquisition: '获客中心', agents: '智能体中心', decision: '星盘决策模拟', crm: '客户管理', growth: '经营管理', outreach: '社媒外联' };
+const localPreviewPasswordOnly = typeof location !== 'undefined' && location.origin === 'http://localhost:5681';
 const date = (value: string | null) => value ? new Date(value).toLocaleString('zh-CN') : '未设置';
 async function api<T>(path: string, value?: unknown, method = value === undefined ? 'GET' : 'POST', signal?: AbortSignal): Promise<T> {
   const csrf = document.cookie.split(';').map(value => value.trim()).find(value => value.startsWith('gj_csrf='))?.slice(8) ?? '';
@@ -56,12 +59,15 @@ function AdminApp() {
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const [tab, setTab] = useState<typeof tabs[number]>('企业客户');
   const [snapshot, setSnapshot] = useState<Overview | null>(null);
+  const referenceApi = useMemo(() => createReferenceAdminApi(), [snapshot]);
   const [page, setPage] = useState(1), [query, setQuery] = useState(''), [search, setSearch] = useState('');
   const [reload, setReload] = useState(0), [busy, setBusy] = useState(false), [loading, setLoading] = useState(true);
   const [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [form, setForm] = useState<'enterprise' | 'account' | 'plan' | Workspace | null>(null);
   const [resetCredential, setResetCredential] = useState<PasswordResetResult | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
+  const [accountInput, setAccountInput] = useState(localPreviewPasswordOnly ? 'adminkamiran' : '');
+  const passwordOnlyForLogin = localPreviewPasswordOnly && accountInput.trim().toLowerCase() === 'adminkamiran';
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true); setError(''); setSnapshot(null);
@@ -97,7 +103,7 @@ function AdminApp() {
     try {
       const account = String(fields.get('account') ?? '').trim();
       if (account) await api('/api/auth/login', { email: account, password: fields.get('password') });
-      await api('/api/platform/v1/session', { code: fields.get('code') });
+      await api('/api/platform/v1/session', passwordOnlyForLogin ? {} : { code: fields.get('code') });
       if (alive.current) setReload(value => value + 1);
     } catch (value) { if (alive.current) setError(value instanceof Error ? value.message : '验证失败'); }
     finally { pending.current = false; if (alive.current) setBusy(false); }
@@ -112,11 +118,12 @@ function AdminApp() {
     finally { pending.current = false; if (alive.current) setBusy(false); }
   }
   const count = snapshot ? tab === '企业客户' ? snapshot.workspaceCount : tab === '账号' ? snapshot.accountCount : tab === '操作日志' ? snapshot.auditCount : snapshot.plans.length : 0;
-  return <div className="platform-app"><aside><a className="brand" href="/admin.html">神思<span>运营管理</span></a><nav aria-label="运营导航">{tabs.map(label => <button key={label} disabled={busy || loading} aria-current={tab === label ? 'page' : undefined} onClick={() => { setTab(label); setPage(1); setForm(null); setNotice(''); setError(''); }}>{label}</button>)}</nav><p className="aside-note">企业账号与授权管理<br/>客户业务数据保持独立</p></aside><main>
+  return <div className="platform-app"><a className="reference-skip" href="#platform-main">跳至主要内容</a><aside><a className="brand" href="/admin.html">神思<span>运营管理</span></a><nav aria-label="运营导航">{tabs.map(label => <button key={label} disabled={busy || loading} aria-current={tab === label ? 'page' : undefined} onClick={() => { setTab(label); setPage(1); setForm(null); setNotice(''); setError(''); }}>{label}</button>)}</nav><button type="button" className="product-theme-toggle" data-theme-toggle>切换主题</button><p className="aside-note">企业账号与授权管理<br/>客户业务数据保持独立</p></aside><main id="platform-main" tabIndex={-1}>
     <header><div><p className="eyebrow">神思管理工作台</p><h1>{tab}</h1></div><button disabled={busy || loading || !!form} onClick={() => setReload(value => value + 1)}>刷新</button>{snapshot && <button disabled={busy || loading} onClick={() => void logout()}>退出运营</button>}</header>
     {error && <p role="alert" className="alert">{error}</p>}{notice && <p role="status" className="notice">{notice}</p>}
-    {needsAuth ? <section className="login panel"><h2>运营身份验证</h2><p>使用已配置运营权限的账号及身份验证器。当前已有登录会话时，可仅填写验证码。</p><form onSubmit={authenticate}><label>账号<input name="account" autoComplete="username"/></label><label>密码<input name="password" type="password" autoComplete="current-password"/></label><label>身份验证器验证码<input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required/></label><button className="primary" disabled={busy}>验证并进入</button></form></section>
-    : loading ? <p role="status">正在读取运营数据…</p> : !snapshot ? <section className="login panel"><p>当前无法读取运营数据。请确认账号具有运营权限，或刷新后重试。</p><button onClick={() => setNeedsAuth(true)}>使用运营账号验证</button></section> : <>
+    {needsAuth ? <section className="login panel"><h2>运营身份验证</h2><p>{localPreviewPasswordOnly ? '本机隔离预览：adminkamiran 暂时只需账号密码，其他运营账号仍需验证码。' : '使用已配置运营权限的账号及身份验证器。当前已有登录会话时，可仅填写验证码。'}</p><form onSubmit={authenticate}><label>账号<input name="account" autoComplete="username" value={accountInput} onChange={event => setAccountInput(event.target.value)}/></label><label>密码<input name="password" type="password" autoComplete="current-password"/></label>{!passwordOnlyForLogin && <label>身份验证器验证码<input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required/></label>}<button className="primary" disabled={busy}>验证并进入</button></form></section>
+    : loading ? <p role="status">正在读取运营数据…</p> : !snapshot ? <section className="login panel"><p>当前无法读取运营数据。请确认账号具有运营权限，或刷新后重试。</p><button onClick={() => setNeedsAuth(true)}>使用运营账号验证</button></section>
+    : tab === '默认参考库' ? <PlatformReferencePanel api={referenceApi} role={snapshot.role} platformRevision={snapshot.revision}/> : <>
       <section className="toolbar"><form onSubmit={event => { event.preventDefault(); if (busy || form) return; setPage(1); setSearch(query); }}><input aria-label={tab === '操作日志' ? '搜索操作日志' : '搜索企业或账号'} placeholder={tab === '操作日志' ? '搜索动作、操作者、目标或原因' : '搜索企业名称、账号或编号'} value={query} onChange={event => setQuery(event.target.value)}/><button disabled={busy || !!form}>搜索</button></form><span>{count} 条记录</span>{tab === '企业客户' && <button className="primary" disabled={busy} onClick={() => setForm('enterprise')}>创建企业</button>}{tab === '账号' && <button className="primary" disabled={busy} onClick={() => setForm('account')}>创建账号</button>}{tab === '套餐授权' && snapshot.role === 'owner' && <button className="primary" disabled={busy} onClick={() => setForm('plan')}>配置套餐版本</button>}</section>
       {resetCredential && <section className="panel editor"><h2>一次性密码恢复凭证</h2><p>请通过可信渠道交给账号本人。此凭证仅在本次显示，有效期至 {date(resetCredential.expiresAt)}。</p><label>恢复凭证<input readOnly value={resetCredential.token} onFocus={event => event.target.select()}/></label><p>账号本人打开 <a href="/admin.html#reset" target="_blank" rel="noreferrer">设置新密码页面</a>，粘贴凭证并设置密码。</p><button onClick={() => setResetCredential(null)}>已保存，关闭凭证</button></section>}
       {form && <section className="panel editor"><div className="editor-heading"><h2>{form === 'enterprise' ? '创建企业与管理员账号' : form === 'account' ? '创建企业成员账号' : form === 'plan' ? '配置套餐版本' : `管理 ${form.name}`}</h2><button disabled={busy} onClick={() => setForm(null)}>取消</button></div><form key={typeof form === 'string' ? form : form.id} onSubmit={event => {

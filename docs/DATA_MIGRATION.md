@@ -1,5 +1,101 @@
 # Data Migration
 
+## System-reference binding storage
+
+`system-reference/mysql-bindings.ts` defines the additive central-only
+`system_reference_bindings` table: a request UUID, unique nullable token hash,
+retention timestamp and closed binding-state JSON. Initialization is an explicit
+trusted startup operation, not an import side effect, and is not wired into the
+current source instance. No existing account, private knowledge or book table is
+rewritten. The new adapter has driver-double tests; actual dedicated MySQL
+acceptance remains pending for this binding adapter; D4's publication-only SQL
+checks do not verify binding storage or constitute a current-runtime migration.
+
+Pending/approved/consumed/cancelled/expired states and token tombstones persist
+under a row lock. Only the S256 challenge and opaque token hash are stored, never
+the verifier or raw reader token. `retain_until` is at least seven days beyond the
+latest request/token expiry; no automatic cleanup is implemented. Preserve these
+rows on rollback so consumed or cancelled credentials cannot revive. Failed or
+uncertain commits fail closed and are not automatically replayed. Publication
+and reader/query authorization integration remain separate from this binding adapter.
+
+## System-reference publication storage (staged D4)
+
+The explicit `initializeReferenceSchema` initializer adds independent
+`system_reference_releases`, `system_reference_sources`, `system_reference_chunks`,
+`system_reference_commands`, `system_reference_grants`, `system_reference_budgets`
+and `system_reference_audits` tables. Each has corpus/opaque-record keys and an
+encrypted payload; release lookup metadata contains IDs only. No private ownership
+columns are changed and no books are migrated by this initializer. Grant/budget
+tables provide the same-transaction storage seam. D5's internal primitives now store
+sliding-minute/UTC-day rate counters, account/source-hash disclosure counters and
+30-day exact grants. No new table or migration is needed for these payloads.
+Reader HTTP is registered but default-unconfigured; it performs no initialization.
+The
+binding proof adapter borrows the caller's transaction connection for FOR SHARE;
+it adds no table, changes no binding row and never starts a nested transaction.
+Its three dedicated actual-SQL access checks pass with the19-gate aggregate.
+
+Source usage is independent of binding, account authVersion and release ID. Each
+UTC day admits at most 12 newly disclosed chunks and 24,000 new excerpt characters;
+rolling 30-day characters cannot exceed the smaller of 5% of indexed source text
+(rounded down) and 120,000. Repeated identical text does not charge characters
+again within the retained window. Full chunks are never truncated to fit. Grant
+records retain reader/workspace/authVersion, release, exact references and expiry;
+expired records cannot authorize new reads, and rows are not deleted by this work.
+Rates, usage, grants and content-free audits use the same transaction. Four actual-SQL
+primitive checks and the five publication checks pass together (9/9, zero skips),
+covering pool reopen, audit rollback, concurrent final allowance and the thirty-day
+boundary. The 19-gate budget checkpoint passes, but does not verify the pending
+reader API. The access checkpoint adds three real SQL cases (12/12 total). Internal
+retrieval now reuses the immutable source loader and rechecks current pointer,
+complete source counts, indexed characters and grant expiry. It adds no table or
+persisted plaintext index. Its two SQL service cases pass with the 20-gate retrieval
+checkpoint and subsequent HTTP21-gate aggregate (actual isolated SQL14/14, zero skips).
+The latter root suite has1072 tests/1063 passed/zero failed/nine conditional skips.
+The dedicated owned-database stop/start gate also passes: a new daemon over the same
+datadir/key and fresh application process preserve all encrypted table digests,
+exact references, revocation and cumulative disclosure limits. This normal stop/start
+is not hard-crash recovery or a migration of the current business database.
+HTTP cancellation checks before commit
+but cannot preempt an already-started SQL COMMIT; an uncertain result never retries
+or compensates by deleting a possibly committed grant.
+
+HKDF purpose `shensi.system-reference.storage.v1` plus per-kind keys separates
+these records from private documents, binding credentials and MFA. AES-GCM AAD
+includes corpus, record kind and complete release/source/chunk key. Preserve the
+explicitly supplied stable master key and all seven tables together; changing keys
+cannot silently re-encrypt or import private corpus records. Candidate page sets
+are immutable after readiness; only complete canonical-hash/coverage/index checks
+allow publication. Fresh owner authority is checked within the same transaction
+before state writes and commit. The corpus pointer, revision, command and audit
+commit together. Unknown commit/rollback results fail closed without replay.
+
+The dedicated `pnpm --dir backend test:system-reference:mysql` requires explicit
+`MYSQL_TEST_ADMIN_URL`, creates only a fresh random owned test database and closes/
+drops only that database. It has no DATABASE_URL fallback or automatic skip.
+The storage checkpoint executed five actual MySQL tests without skips, including
+reopen, concurrency, audit rollback, owner fence and lost commit acknowledgement.
+The subsequent five-test actual-MySQL run also covers bounded metadata/cursors and
+command-status readback after reopening the pool. The complete 18-step D4 gate
+passes with five actual SQL checks and no SQL skips; no current business database
+was initialized. Rollback must retain the old release, command history, revocations
+and future grant/budget records; restoring an older snapshot that resurrects
+withdrawn access requires an explicit controlled recovery, not ordinary startup.
+
+## System-reference connection storage
+
+`system-reference/mysql-connections.ts` defines the separate additive business
+backend table `system_reference_connections`, keyed by an installation/actor hash.
+Its closed JSON holds monotonic generations, up to 100 workspace connections and
+1000 retained attempt/tombstone records; encrypted credentials carry full-scope
+AAD. Exchange consumption is durable before network issuance. Unbinding removes
+active tokens before explicit remote cancellation; an unknown cancellation keeps
+a proof-only encrypted tombstone, not an active token. Tombstones remain at least
+seven days beyond their recorded expiry, with pruning only after retention.
+No real database initializer was invoked in D3. Driver tests verify actor-row
+locking and commit-uncertainty handling; dedicated MySQL evidence is still due.
+
 Douyin discovery quota removal uses an additive nullable field in crawler job
 JSON: `candidateBudgetLimit: null` means unlimited. No SQL column migration or
 historical rewrite is needed. Missing fields on completed legacy jobs retain

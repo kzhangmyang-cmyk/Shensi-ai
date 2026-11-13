@@ -185,6 +185,19 @@ const baseState: RealConversationsViewState = {
   }
 };
 
+{
+  const { main, inspector } = hosts();
+  renderRealConversationsView({ ...baseState, candidateQuery: '不存在的筛选结果' }, main, inspector);
+  assert.equal(main.querySelector<HTMLButtonElement>('[data-real-conversations-action=select-recipients]')!.disabled, true);
+  assert.match(main.querySelector('.real-conversation-bulk-controls')!.textContent!, /当前筛选 0 人/);
+  const candidate = baseState.snapshot!.interactions[0]!;
+  renderRealConversationsView({ ...baseState, snapshot: { ...baseState.snapshot!, interactions: [candidate,
+    { ...candidate, key: 'run-2:candidate-1', runId: 'run-2' }] } }, main, inspector);
+  assert.match(main.querySelector('.real-conversation-list')!.textContent!, /1 位已载入真实候选/);
+  assert.match(main.querySelector('.real-conversation-bulk-controls')!.textContent!, /当前筛选 1 人/);
+  assert.match(main.querySelector('.real-conversation-bulk-controls')!.textContent!, /同一采集运行的 1 位/);
+}
+
 // Capacity must neither clip a complete 50-candidate result nor inflate a
 // smaller persisted result to the configured collection allowance.
 for (const count of [5, 50]) {
@@ -205,7 +218,7 @@ for (const count of [5, 50]) {
     assert.equal(main.querySelectorAll("[data-real-conversations-action=select]").length, count,
       `${activeTab} must render the complete persisted candidate result`);
     assert.equal(main.querySelector(".real-conversation-list > div > small")?.textContent,
-      `${count} 位已采集真实候选 · 1 个运行`);
+      `${count} 位已载入真实候选 · 1 个运行`);
     assert.equal(main.querySelector(".real-conversation-row.selected")?.getAttribute("data-interaction-key"),
       `run-1:candidate-${count}`);
     const privateDomainEntry = main.querySelector<HTMLButtonElement>("[data-real-conversations-action=review-candidate]");
@@ -217,6 +230,8 @@ for (const count of [5, 50]) {
 {
   const { main, inspector } = hosts();
   renderRealConversationsView(baseState, main, inspector);
+  assert.equal(main.querySelector('[data-xhs-open]')?.textContent, '切换到小红书私信');
+  assert.match(main.querySelector('.real-conversations-account-strip')?.textContent ?? '', /当前平台：抖音/);
   const html = main.innerHTML;
   assert.match(html, /社媒对话/u);
   assert.match(html, /data-real-conversations-tab="direct_messages" aria-current="page"/u);

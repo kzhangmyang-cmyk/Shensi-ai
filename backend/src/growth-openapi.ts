@@ -214,7 +214,7 @@ function prepareReleasedSchema(
     };
   }
   const rewritten = Object.fromEntries(Object.entries(value)
-    .filter(([key]) => key !== "contains" && key !== "$defs")
+    .filter(([key]) => !["contains", "$defs", "dependentRequired"].includes(key))
     .map(([key, item]) => [
     key,
     prepareReleasedSchema(item, source)
@@ -227,6 +227,24 @@ function prepareReleasedSchema(
     rewritten.allOf = [
       ...(Array.isArray(rewritten.allOf) ? rewritten.allOf : []),
       { not: { items: { not: contains } } }
+    ];
+  }
+  if (Object.hasOwn(record, 'dependentRequired')) {
+    const dependencies = record.dependentRequired;
+    if (!dependencies || typeof dependencies !== 'object' || Array.isArray(dependencies)) {
+      throw new TypeError('Growth dependentRequired must be an object');
+    }
+    const implications = Object.entries(dependencies).flatMap(([property, required]) => {
+      if (!Array.isArray(required) || !required.every(name => typeof name === 'string')
+          || new Set(required).size !== required.length) {
+        throw new TypeError('Growth dependentRequired entries must be unique string arrays');
+      }
+      // Equivalent implication: absent trigger OR all dependent properties.
+      // Empty arrays impose no constraint and are not legal OAS 3.0 required lists.
+      return required.length ? [{ anyOf: [{ not: { required: [property] } }, { required: [...required] }] }] : [];
+    });
+    if (implications.length) rewritten.allOf = [
+      ...(Array.isArray(rewritten.allOf) ? rewritten.allOf : []), ...implications
     ];
   }
   return rewritten;

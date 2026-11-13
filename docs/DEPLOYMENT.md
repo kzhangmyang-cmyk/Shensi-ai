@@ -1,9 +1,205 @@
 # Deployment
 
+## Application-bundled reference books
+
+The current delivery target is standalone desktop with the approved 21 books
+built in. No central server, per-user import, binding or selection is needed for
+default agent retrieval. Customers still configure their own answer-model API;
+developer keys, private uploads, business databases and sessions are not bundled.
+
+The offline builder reuses exact validated Docling artifacts without new OCR or
+network access:
+
+```sh
+node --import ./backend/node_modules/tsx/dist/loader.mjs backend/scripts/build-embedded-reference-pack.ts /absolute/private/scoped-sources.json /absolute/new/output
+```
+
+Input must contain exactly 21 approved sources with source/artifact hashes.
+Output is `books.json.gz` plus `manifest.json` with exactly version, file,
+sha256, sourceCount, corpusId and releaseId. Existing output is never overwritten.
+Only derived text/locators/quality warnings are included, not input filesystem
+paths, PDF originals or account scope. Book resources stay outside source backup.
+
+Trusted `SHENSI_REFERENCE_MODE=embedded` requires absolute
+`SHENSI_REFERENCE_PACK` and `SHENSI_REFERENCE_PACK_SHA256`, with the existing
+local MySQL and stable installation encryption key. Central origin/issuer/
+identity fields are rejected. Backend validates and prewarms the index before
+readiness. Corrupt resources fail startup rather than pretending no books match.
+
+`pnpm desktop:local` automatically uses `.runtime/embedded-reference/`
+when no explicit client config exists. The launcher verifies its 21-source
+manifest/hash and ignores inherited reference settings, preserving old secrets
+and user data. Standalone packages use fixed `Resources/system-reference/`.
+The real 21-book pack is 3,819,097 compressed bytes. The source app has been
+normally restarted with the existing session preserved; all six native text
+agents show `embedded_ready` without binding and with public search off.
+Isolated MySQL integration passes 3/3. The final eight-step test/build/type/
+context/diff gate passes, with nine root-test skips still explicitly retained.
+
+The standalone app contains five verified resource trees: current Backend,
+Backend Node runtime, contracts, MySQL runtime and the reference pack. These
+resources contain no existing user database or developer credentials. pnpm's
+installation state and generated `node_modules/**/.bin` wrappers are omitted;
+runtime modules, original CLI JavaScript and relative dependency links remain.
+The package verifier accepts the reviewed upstream documentation examples only
+at the 58 exact vendor paths with their recorded SHA-256 bytes; application files,
+changed content and installation-generated host paths are not exempted.
+
+The `embedded-20261009-v2` archive is withdrawn: macOS reports its inherited
+Electron signature has no sealed resources. Do not send that archive again.
+Replacement Mac Apple Silicon test builds use complete ad-hoc signing, including
+nested runtimes, followed by `codesign --verify --deep --strict`. They are not
+Developer ID-signed or notarized. After extracting and moving Shensi to
+Applications, the user may need to approve this app once in System Settings →
+Privacy & Security → Open Anyway. Never disable Gatekeeper globally or strip
+download quarantine as a packaging fix. Book import, binding, topic selection
+and central-library setup are not required. No model credentials are included.
+
+Current replacement:
+`dist/desktop/embedded-20261009-signed-test/Shensi-0.1.0-arm64-openfix-20261009.zip`.
+Archive size: 807,522,340 bytes; SHA-256:
+`6269fcd93de43b27d1e7b400eb4d03c38293d506a38d53b84ff6d5ab8f241fe4`.
+ZIP CRC and its freshly extracted app's strict signature/content checks pass,
+with the same build identity as the original. The original bundle's signature
+also remains valid after native startup.
+The final app passes strict signature and 36,904-entry content validation;
+Desktop114/Frontend43/Backend562 files match the current compiled output exactly.
+Its fresh isolated runtime passes all13 login/book/readiness/restart checks.
+The native process was launched with debugger-isolated appData (without changing
+bundle files or the existing profile), and the user confirmed the normal window.
+This is not a downloaded-file Gatekeeper approval: `spctl` still rejects the
+unnotarized ad-hoc identity, so the per-app first-launch step remains necessary.
+
+The app passes package-content/architecture verification (36,874 entries).
+Its actual packaged Node/MySQL/Backend/book resources pass 13 isolated checks:
+normal first login, bootstrap, embedded-ready status, empty private library and
+model ledger, normal stop/start, and the same account/workspace/status after
+restart. This verifies the packaged runtime/HTTP path, not native first-account
+UI/keychain or a new live-model answer. The existing source app separately passes
+native six-role status and dual-theme checks.
+
+Rebuild with the existing production-deploy stager, current compiled source and
+offline sidecar/browser resources. `stage:standalone` requires fresh output and
+explicit Backend/contracts/Node/MySQL/reference inputs. For an ad-hoc test build,
+run `check-package-environment.mjs development` and `write-runtime-config.mjs`
+with `SHENSI_DESKTOP_MODE=standalone`, no `SHENSI_REMOTE_ORIGIN`, then the existing
+electron-builder config with `--dir --arm64 --config.mac.identity=-` and a
+fresh output directory. Run `verify-package.mjs <app> development` before creating
+the archive, then extract it into a fresh directory and verify that copy too.
+The shared custom signer signs nested code, refreshes the standalone-resource
+and build-identity fingerprints, and finally reseals only the outer app. Ad-hoc
+test signing does not enable hardened-runtime library validation or contact a
+timestamp server. Developer ID release signing retains hardened runtime,
+minimal entitlements and notarization; neither path hashes pre-sign executable
+bytes as if they were the final signed payload.
+
+Ordinary UI/API is excerpt-only. Derived contents are nevertheless installed on
+the recipient's machine; ASAR or bundled encryption is not DRM and cannot promise
+that filesystem extraction is impossible.
+
+## Optional central-library deployment
+
+`disabled` remains the generic server default. Explicit `client|central`
+requires matching canonical HTTPS ORIGIN/ISSUER and a stable BACKEND_INSTANCE_ID;
+central also requires a corpus UUID. The optional private source-launcher
+`.runtime/desktop-local/system-reference.json` selects client mode only.
+Unknown, incomplete or mixed-mode fields fail closed. Embedded delivery does not
+configure a real central destination or upload books.
+
+The existing `pnpm verify:system-reference` runner verifies central/client
+behavior with synthetic accounts and an owned socket-only MySQL. It is not
+evidence of a live central deployment. Enabled modes use the stable encryption
+key; no memory fallback or deletion of shared user data is allowed.
+
+Connection encryption explicitly uses the stable `AGENT_JOB_ENCRYPTION_KEY`
+with a separate HKDF purpose; no JWT/database/random fallback is allowed. Preserve
+the connection table and tombstones on restart/rollback. A changed key, issuer,
+account version or installation cannot silently reuse old credentials. A stored
+ready binding still reauthorizes every central query/check/citation. Local-only
+users require normal central enrollment and explicit binding, not user/password
+table upload. No live central destination, book publication or installer is part
+of these local synthetic checks.
+
+## System-reference publication (staged D4)
+
+System-reference D4 storage is staged source, not an enabled publication service.
+Trusted D9 composition must explicitly supply the persistent MySQL pool and stable
+AGENT_JOB_ENCRYPTION_KEY to the separate storage-purpose crypto/initializer. Never
+use a random, JWT or database-URL fallback. All seven corpus tables and stable keys
+belong in controlled backup/recovery, never in a customer installer or Git snapshot.
+Candidate and active index input together are capped at 64 MiB; process-wide raw-input
+reservations also prevent concurrent builders from each using the full allowance.
+This is not a V8 heap cap. D5 caches must share the same budget; actual 21-book capacity
+and heap overhead remain D10 gates. Rejection leaves the old active release intact.
+Owner/MFA-before-body ingress and the CLI are implemented with synthetic tests;
+the complete 18-step D4 gate passes, including five actual isolated SQL checks.
+Do not initialize the actual runtime, upload
+books or restart the source app based on these source components.
+
+D5 budget/grant primitives and reader HTTP are staged, default-unconfigured. Their
+19-gate checkpoint passes, including 12 focused checks, isolated SQL9/9 and root
+1031 tests / 1022 passed / nine conditional skips. The transaction-bound reader
+proof extension passes binding60 and all19 gates, including SQL12/12 and root1038/
+1029/nine conditional skips. The internal lexical service passes its20-gate checkpoint:
+17 focused tests, actual isolated SQL14/14 and root1055/1046/nine conditional skips. It
+builds an ephemeral, budget-reserved index per query and scans only granted sources
+for checks; cold-query cost and real21-book capacity remain D10 acceptance items.
+Reader HTTP passes17 focused tests and its21-gate aggregate (isolated SQL14/14,
+root1072/1063/zero failures/nine conditional skips). Owned synthetic database-process
+stop/start acceptance passes, including fresh application processes and preserved
+reference/revocation/quota state; its temporary database was stopped and removed.
+Trusted application assembly is not enabled. The ingress
+deadline is cooperative, not a hard SQL/COMMIT preemption guarantee; uncertain
+outcomes never retry. Preserve grant/budget/audit tables with the corpus and key: rebinding,
+switching releases or restarting must not reset per-account/source usage. Their
+test suite requires a fresh owned synthetic database, never the running business
+database. No actual runtime initialization or service restart is authorized here.
+
+### Local publication preparation
+
+`backend/scripts/stage-system-reference-library.ts --manifest /absolute/input.json`
+defaults to local validation only: no login, HTTP or write. The input is a regular,
+non-symlink, current-owner 0600 file, at most 1 MiB, with strict
+`{version:1,corpusId,sources}`. Each source specifies absolute `sourcePath` and
+`artifactPath`, exact PDF `expectedHash`, mandatory raw Docling `artifactHash`,
+preverified `expectedPages`, title, roles and optional quality warnings. It does
+not accept workspace/actor identity, passwords, sessions or database settings.
+Reuse the existing extracted artifact; this command does not parse a PDF or run OCR.
+
+The validator verifies both local file hashes and provenance, derives complete
+ParsedKnowledge/quality, and computes its canonical hash and the formal manifest
+hash. It does not independently prove every extracted character matches the PDF.
+Dry-run prints metadata and the confirmation hash, never chunks or local paths.
+All sources, page-body budgets and the total 64 MiB logical input budget are
+checked before any authentication. Central candidate+active capacity may still
+reject the batch without changing the published version.
+
+Only separately authorized staging uses all of `--apply`, explicit HTTPS `--origin`,
+`--account`, `--confirm-manifest-hash` and a fresh UUID `--run-id`. There is no default
+destination. Supply password and current six-digit code via the dedicated
+`SHENSI_REFERENCE_STAGE_PASSWORD` and `SHENSI_REFERENCE_STAGE_MFA` environment inputs,
+not command arguments or files. The CLI consumes/removes these values, performs its
+own normal login and real MFA, and keeps the three returned cookies only in process
+memory. It neither reads old sessions nor uses the login response's Bearer token.
+It does not call platform logout, which would revoke other owner sessions.
+
+Before the first network action, an exclusive 0600 `.reference-stage-<run-id>.guard`
+is created beside the private input. It durably records command keys/request hashes
+and acknowledged release metadata, without credentials, paths or text. The same
+run cannot be launched again. Requests do not redirect/retry, use a 10-second total
+deadline and a 256 KiB response cap. On any failure or unknown result the guard stays;
+use a new normal owner session and the metadata/command-status GETs for manual
+reconciliation. `not_observed` does not authorize automatic resubmission. There is
+no automatic resume. Successful apply means **staged/ready only**: publish/revoke
+requires a separate explicit owner action with reason and current revision.
+
+Tests use generated synthetic PDFs/Docling JSON only. Source/CLI availability is
+not authorization to read the existing 21 books, transfer artifacts or deploy a service.
+
 ## Xiaohongshu desktop development
 
-The independent source integration uses `SHENSI_XHS_UPSTREAM_PATH` (absolute clean pinned checkout) and the locked `services/xiaohongshu/.venv` Python environment. See [adapter setup](../services/xiaohongshu/README.md). It does not reuse Douyin profiles or queues. `XHS_DESKTOP_SENDING_ENABLED` defaults false in both Main and Backend; `XHS_DAILY_LIMIT` defaults 20 and accepts 1–100. Do not enable real sends for offline verification. Backend MySQL startup initializes the independent encrypted `xiaohongshu_messaging` table using its existing pool; database errors abort composition, never fall back to memory. No new installer is required for development. Current live application has not been restarted for this integration.
 
+The independent source integration uses `SHENSI_XHS_UPSTREAM_PATH` (absolute clean pinned checkout) and the locked `services/xiaohongshu/.venv` Python environment. See [adapter setup](../services/xiaohongshu/README.md). It does not reuse Douyin profiles or queues. `XHS_DESKTOP_SENDING_ENABLED` defaults false in both Main and Backend; `XHS_DAILY_LIMIT` defaults 20 and accepts 1–100. Do not enable real sends for offline verification. Backend MySQL startup initializes the independent encrypted `xiaohongshu_messaging` table using its existing pool; database errors abort composition, never fall back to memory. No new installer is required for development. Current live application has not been restarted for this integration.
 
 For the single-instance persistent account service, fixed HTTPS, private operator
 initialization, backup and rollback, use
@@ -57,6 +253,13 @@ and the current one-time authenticator code; open `/admin.html` for operations
 or `/` for the actual customer application. Use separate browser profiles for
 operator and customer sessions. The helper is loopback-only, checks Host/Origin
 and must never be used as a production login/recovery mechanism.
+
+For the privately provisioned local `adminkamiran` operator only, this isolated
+preview temporarily accepts its password without an authenticator code. The
+launcher reads that account's ignored, owner-only identity file and passes only
+its user ID to the loopback Backend. The exception requires the exact preview
+database, bind address, ports and origins; other operators and cloud deployments
+continue to require MFA. The TOTP seed remains stored for re-enabling MFA.
 
 The launcher creates its own labeled MySQL container/volume and database
 `shensi_admin_preview`, validates engine/container/port identity on reuse, and

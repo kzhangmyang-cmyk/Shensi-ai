@@ -22,8 +22,10 @@ node "$SCRIPT_DIR/check-package-environment.mjs" "$MODE"
 if [[ "$MODE" == "development" ]]; then
   export CSC_IDENTITY_AUTO_DISCOVERY=false
   BUILDER_CONFIG="electron-builder.yml"
+  SIGNING_ARGS=(--config.mac.identity=-)
 else
   BUILDER_CONFIG="electron-builder.release.yml"
+  SIGNING_ARGS=()
 fi
 
 case "$OUTPUT_ROOT" in
@@ -40,7 +42,7 @@ mkdir -p "$OUTPUT_ROOT"
 node "$SCRIPT_DIR/generate-macos-icon.mjs"
 pnpm --dir "$REPOSITORY_ROOT" desktop:build
 node "$SCRIPT_DIR/write-runtime-config.mjs"
-pnpm --dir "$DESKTOP_ROOT" exec electron-builder --config "$BUILDER_CONFIG" --mac dmg zip "--$ARCH"
+pnpm --dir "$DESKTOP_ROOT" exec electron-builder --config "$BUILDER_CONFIG" --mac dmg zip "--$ARCH" "${SIGNING_ARGS[@]}"
 
 (
   cd "$OUTPUT_ROOT"

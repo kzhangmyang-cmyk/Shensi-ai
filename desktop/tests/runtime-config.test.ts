@@ -5,6 +5,19 @@ import path from "node:path";
 import test from "node:test";
 import { resolveRemoteOrigin, resolveDesktopRuntime } from "../src/main/runtime-config.ts";
 
+test('standalone mode is explicit and does not inherit a remote API', async () => {
+  const resourcesPath = await mkdtemp(path.join(tmpdir(), 'shensi-runtime-config-'));
+  await writeFile(path.join(resourcesPath, 'desktop-config.json'), JSON.stringify({ mode: 'standalone' }));
+  assert.deepEqual(await resolveDesktopRuntime({ production: true, resourcesPath,
+    environment: { SHENSI_REMOTE_ORIGIN: 'http://127.0.0.1:5638' } }),
+    { mode: 'standalone', dataEnvironment: 'production' });
+  assert.deepEqual(await resolveDesktopRuntime({ production: false, resourcesPath,
+    environment: { SHENSI_DESKTOP_MODE: 'standalone', SHENSI_REMOTE_ORIGIN: 'http://127.0.0.1:5638' } }),
+    { mode: 'standalone', dataEnvironment: 'development' });
+  await writeFile(path.join(resourcesPath, 'desktop-config.json'), JSON.stringify({ mode: 'standalone', remoteOrigin: 'https://api.shensi.cn' }));
+  await assert.rejects(resolveDesktopRuntime({ production: true, resourcesPath, environment: {} }), /fields/);
+});
+
 test("loopback installation tests isolate application and browser state from production", async () => {
   const resourcesPath = await mkdtemp(path.join(tmpdir(), "shensi-runtime-config-"));
   await writeFile(path.join(resourcesPath, "desktop-config.json"), JSON.stringify({ remoteOrigin: "http://127.0.0.1:5680" }));

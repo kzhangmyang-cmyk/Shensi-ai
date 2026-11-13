@@ -2,8 +2,25 @@
 
 ## 使用入口
 
+财务经营的 `analysisPurpose:finance` 使用独立详细报告模式，响应可含 `detailedReport`（`finance-detailed.v1`）：经营概况、收入、成本、利润、现金流、可比口径、行动计划七章。每章区分资料依据、经营影响、行动与复核标准，并标注证据覆盖；这些段落继续经过原格引用、数字与单位校验，不复用聊天的十二条短观察上限。聊天、ROI和管理资料入口暂保留原模式。
+页面和HTML/PDF共用 `detailedReportBody`，按执行摘要、关键指标、七章经营解释与行动建议、来源附录组织。报告为固定白纸深字的文档画布，不随应用主题切换文字颜色；应用两种主题下均保留对比度。来源按原文件、工作表和行归组显示完整引用，打印重复表头，段落标签随正文，超长正文正常跨页。PDF继续使用已有静态HTML白名单、隔离窗口及禁网设置，不放开脚本、图片或外链执行。报告模式沿用模型超时、单次格式修复和用户停止；失败保留文件和预览，可明确重试，不自动重发。
+
+金额图表是显示层只读摘录，不是模型推算或账本数据。仅识别原表中明确包含“指标、金额、币种、期间、单位”五列的营业收入、营业成本、净利润及经营现金净流入；期间要求YYYY-MM，币种为CNY/USD/EUR/GBP/HKD/JPY，单位为主币单位（CNY也接受元）。不同币种和期间分组，重复相同值合并来源，冲突金额不绘图。缺失、缓存公式、不明确或缩放单位不补零、不自动换算；PDF/Word文字和模型正文不提取数值图表。没有合格指标时明确显示不绘图原因，七章定性报告与原文仍可导出。负数保留符号、条长用绝对值并标红；这些指标不能加总，不据此生成同比或行业排名。
+模型内部协议的三个正文区直接使用`{template,sourceRefs}`数组，不再额外嵌套`observations`容器；每项仍经过原有闭合引用、数字、单位与长度校验。渲染后的公开`detailedReport`接口保持不变。
+财务报告按所选公开行业分类（通用、制造、零售、服务、软件信息技术）复用搜索连接；只把服务端固定行业词和通用财务主题发给搜索，附件、金额、文件名均不参与搜索词。检索成功保留实际引用、来源URL、摘要和时间；失败仍分析现有资料并明确缺少外部依据。改选行业使旧报告失效，需重新生成。搜索摘要仅提供背景，不构成已验证行业均值或企业排名。
+模板验收使用合成资料，不调用模型：普通4页、空数据2页、USD4页、长文本9页均逐页检查；覆盖原值、缺失、冲突、币种隔离、超长正文、来源表重复表头和中文嵌入。模型正文质量、任意格式财务表的指标识别，以及其余用途的详细报告不由此认定完成。具体安装App与全项目回归进度见`docs/PROJECT_STATUS.md`。
+
+### 报告导出复用
+
+已对照 [jsPDF-AutoTable](https://github.com/simonbengtsson/jsPDF-AutoTable)（MIT，表格分页和行/列分页配置）、[Paged.js](https://github.com/pagedjs/pagedjs)（MIT，浏览器排版分页）与 [Electron printToPDF](https://www.electronjs.org/docs/latest/api/web-contents#contentsprinttopdfoptions)。前两者有公开源码与维护入口，但此批次未引入或声称完成依赖安全审计：AutoTable需要单独维护PDF布局与字体，Paged.js需要额外脚本执行，与现有静态禁脚本导出边界不匹配。选择复用已安装Electron及语义HTML/CSS分页；借鉴分页能力，不复制第三方源码，不增加依赖。
+
 通用入口可多选或拖入一批文件：最多10份、合计5MB，逐份解析并显示成功/失败；失败可以单独重试或移除，不覆盖成功预览。新批次取消旧请求，旧响应不能替换当前列表。分析按钮使用勾选的成功资料集合，未勾选及失败文件不发送模型。合并引用为 `file:序号:原始引用`，报告附逐文件名称与hash；同一集合供智能体追问，不暗中只选最后一份。
 仍保留总计2000项来源与模型上下文预算，批量按文件分配来源额度，超额明确标记省略；并非无限文档知识库。改变所选集合会使当页旧报告失效，需要重新分析后导出。完整入口清单见 [文件上传入口](file-upload-inventory.md)。
+
+持久资料通过独立`#knowledge`页面上传，保存加密原件、版本、解析覆盖和可定位片段；
+临时分析附件不会自动进入该库。六角色文字问答检索本人启用的参考资料后，再结合当前
+显式附件或已验证报表由当前模型回答，书籍不能覆盖企业事实或放宽公司金额校验。
+知识回答的精确内部引用与本入口原格引用分别保存，见[知识库](knowledge-base.md)。
 
 财务经营、ROI 经营分析和财务委员会顶部共用企业资料分析入口，接受原始 CSV/XLS/XLSX、可提取文字的 PDF 和 Word DOCX。选择文件自动只读识别；明确点击“使用当前模型分析并生成报告”才调用已配置的模型，不要求资料分类或三表齐全，不把每行自动当成获客费用。
 ROI 资料缺少投入、产出、期间或归因依据时只给定性建议和缺项说明，不生成数值 ROI；既有批次 ROI 计算仍使用核验后的业务数据。
@@ -126,9 +143,13 @@ pnpm --dir frontend exec tsx src/growth/finance/import-workflow.self-test.ts
 pnpm --dir frontend exec tsx src/growth/finance/view.self-test.ts
 pnpm --dir frontend exec tsx src/growth/finance/document-selection.self-test.ts
 pnpm --dir frontend test:finance-document-runtime
+pnpm --dir frontend exec tsx --test src/growth/finance/report-metrics.test.ts src/growth/finance/detailed-report.test.ts
+pnpm --dir frontend exec tsx scripts/preview-finance-report.mts
 pnpm --dir frontend exec playwright test --config=playwright.finance-import.config.ts
 pnpm --dir desktop exec tsx --test tests/cfo-realtime-service.test.ts tests/cfo-realtime-ipc.test.ts tests/cfo-realtime-config-flow.test.ts tests/renderer-server.test.ts
 ```
+
+`preview-finance-report.mts`直接复用生产导出函数与桌面静态HTML校验，只写`/tmp/shensi-finance-report-qa`合成HTML/PDF；可传`shensi-finance-empty`、`shensi-finance-usd`、`shensi-finance-long`。具备`pypdf`的Python运行`frontend/scripts/check-finance-report-pdf.py <PDF路径...>`检查空页和孤立段落标签，再用Poppler渲染逐页检查；文本断言不代替目视验收。
 
 自动测试只使用合成文件、隔离 HTTP 和受控模型返回。真实原始文件、供应商回答与原生 UI 的验收状态见 `docs/PROJECT_STATUS.md`。
 

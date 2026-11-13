@@ -38,6 +38,17 @@ function roiIntegration() {
   });
 }
 
+test('store composition installs reference preparation between private knowledge and its financial consumers',()=>{
+  const foundation=createGrowthCommercialCompositionForStore({store:{mode:'memory',users:[]}});
+  const names=foundation.composition.modules.map(module=>module.name);
+  const reference=names.indexOf('system-reference');
+  assert.ok(reference>names.indexOf('knowledge'),'reference must consume the installed private retriever');
+  assert.ok(reference<names.indexOf('growth-financial-council'),'financial council must receive the reference retriever');
+  assert.throws(()=>createGrowthCommercialCompositionForStore({store:{mode:'memory',users:[]},
+    reference:{settings:{mode:'client',origin:'https://library.example.test',issuer:'https://library.example.test',backendInstanceId:'installation'},
+      secret:'synthetic-runtime-key-at-least-32-characters'}}),/reference_configuration_invalid/);
+});
+
 function foundationPorts() {
   const acquisitionWorkspace = Object.freeze({
     resolve: async () => null
@@ -64,7 +75,7 @@ function foundationPorts() {
 }
 
 function catalogProjection(): CommissionCatalogProjectionPort {
-  return Object.freeze({
+  return Object.freeze<CommissionCatalogProjectionPort>({
     async projectProduct(_context, product) { return product; },
     async assertCommercialPatchAllowed() {}
   });
@@ -214,6 +225,8 @@ test("production memory composition installs the council after Advisor", async (
       "growth-finance",
       "growth-roi",
       "growth-advisor",
+      "knowledge",
+      "system-reference",
       "growth-financial-council"
     ]
   );

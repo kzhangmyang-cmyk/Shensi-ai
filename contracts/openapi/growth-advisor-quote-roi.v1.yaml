@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GoodJob Growth Advisor, Quote and ROI API
-  version: 1.0.34
+  version: 1.0.41
 servers:
   - url: /
 
@@ -1663,8 +1663,11 @@ paths:
       - { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
     get:
       operationId: getCfoSession
+      description: Read saved turns without regenerating answers. Clients supporting system references send X-Shensi-Reference-Protocol system-v1. If system reference snapshots exist and this header is omitted, return 409 reference_client_upgrade_required without returning or dropping those snapshots. This header is a compatibility signal, not authorization; private legacy history remains readable without it.
       security: [{ bearerAuth: [] }, { cookieAuth: [] }]
-      parameters: [{ $ref: '#/components/parameters/optionalWorkspaceHeader' }]
+      parameters:
+        - { $ref: '#/components/parameters/optionalWorkspaceHeader' }
+        - { name: X-Shensi-Reference-Protocol, in: header, required: false, schema: { type: string, enum: [system-v1] } }
       responses:
         '200':
           description: Completed conversation turns
@@ -1674,6 +1677,8 @@ paths:
         '401': *apiErrorResponse
         '403': *apiErrorResponse
         '404': *apiErrorResponse
+        '409': *apiErrorResponse
+        '422': *apiErrorResponse
         '503': *apiErrorResponse
   /api/v1/finance/cfo-sessions/{sessionId}/turns:
     parameters:

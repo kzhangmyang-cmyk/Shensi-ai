@@ -2006,6 +2006,9 @@ paths:
   /api/v1/ai/connections/{id}/activate:
     parameters: [{ $ref: '#/components/parameters/id' }]
     post: { <<: *write, summary: Activate model connection, responses: { '200': { description: Model connection, content: { application/json: { schema: { $ref: '#/components/schemas/ModelConnection' } } } }, '400': *apiError, '401': *apiError } }
+  /api/v1/ai/connections/{id}/deactivate:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post: { <<: *write, summary: Deactivate model connection, responses: { '200': { description: Model connection, content: { application/json: { schema: { $ref: '#/components/schemas/ModelConnection' } } } }, '400': *apiError, '401': *apiError } }
   /api/v1/ai/calls:
     get: { <<: *list, summary: List model call records }
   /api/v1/ai/calls/{id}:

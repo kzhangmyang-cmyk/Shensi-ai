@@ -18,7 +18,7 @@ const gapLabels: Record<string, string> = {
   receivable_due_dates_missing: '缺少应收款到期日', jurisdiction_taxpayer_tax_period_missing: '缺少税务辖区、主体与申报期间',
   effective_official_tax_source_missing: '缺少现行有效官方税务依据', tax_adjustments_and_filing_missing: '缺少纳税调整与申报明细'
 };
-export const FINANCIAL_ANSWER_RULES = `财务数值引用协议：所有公司金额、比例和倍数都用 {{fact:指标id}} 引用 analysis.facts，服务器会替换成精确的display；不要抄写数字，不在引用旁添加元、万元、%、倍或“百分点”等新单位，不自行换算或计算新指标。未提供的指标明确缺资料。公司名称与报表期间可以照写；其余文字不要出现阿拉伯数字或中文金额/税率。display已含完整单位。百分比不是百分点变化，没有可比基期就不能声称变化。`;
+export const FINANCIAL_ANSWER_RULES = `财务数值引用协议：所有公司金额、比例和倍数都用 {{fact:指标id}} 引用 analysis.facts，服务器会替换成精确的display；不要抄写数字，不在引用旁添加元、万元、%、倍或“百分点”等新单位，不自行换算或计算新指标。未提供的指标明确缺资料。公司名称、报表期间与单独的公历年份（如“2026年”）可以照写；其余文字不要出现阿拉伯数字或中文金额/税率。display已含完整单位。百分比不是百分点变化，没有可比基期就不能声称变化。`;
 
 export function financialModelEvidence(skill: Skill) {
   const { source } = skill.context;
@@ -31,9 +31,9 @@ export function financialModelEvidence(skill: Skill) {
     facts: skill.context.facts.map(({ value: _value, unit: _unit, ...fact }) => fact) } };
 }
 
-export function financialAnswerSchema(context: Context, publicEvidence?:PublicResearchEvidence) {
+export function financialAnswerSchema(context: Context, publicEvidence?:PublicResearchEvidence, maxLength: 4000 | 12000 = 4000) {
   const ids = new Set(context.facts.map(f => f.id));
-  return z.object({ answer: z.string().trim().min(1).max(4000),
+  return z.object({ answer: z.string().trim().min(1).max(maxLength),
     ...(publicEvidence?{citationIds:researchCitationIds(publicEvidence)}:{}) }).strict().superRefine(({ answer }, ctx) => {
     let invalid = false;
     let prose = answer.replace(reference, (_token, id: string) => { if (!ids.has(id)) invalid = true; return ''; });
@@ -50,6 +50,8 @@ export function financialAnswerSchema(context: Context, publicEvidence?:PublicRe
     // “统一成本口径” contains the characters “一成”, but no financial ratio.
     // Remove only the lexical prefix; any following actual amount stays checked.
     prose = prose.replace(/统一(?=成本)/gu, '');
+    // A calendar year (e.g. “2026年”) is a date, not a financial value; only the bare year label is removed.
+    prose = prose.replace(/(?<![0-9０-９.])(?:19|20)[0-9]{2}\s*年(?!\s*[0-9０-９])/gu, '');
     // Reference values already include a unit: block unit rescaling at the join.
     if (/\}\}\s*(?:万?元|万元|亿元|美元|块(?:钱)?|人民币|美金|欧元|港币|港元|英镑|日元|韩元|新元|%|％|倍|个百分点)/u.test(answer)) invalid = true;
     if (/[0-9０-９]|\{\{|\}\}/u.test(prose)
@@ -58,11 +60,11 @@ export function financialAnswerSchema(context: Context, publicEvidence?:PublicRe
     if (invalid) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answer'], message: 'Use known {{fact:id}} references, without literal financial numbers or added units.' });
   });
 }
-export function renderFinancialAnswer(answer: string, context: Context) {
-  financialAnswerSchema(context).parse({ answer });
+export function renderFinancialAnswer(answer: string, context: Context, maxLength: 4000 | 12000 = 4000) {
+  financialAnswerSchema(context, undefined, maxLength).parse({ answer });
   const facts = new Map(context.facts.map(f => [f.id, f.display]));
   let rendered = answer.replace(reference, (_token, id: string) => facts.get(id)!);
   for (const [code, label] of Object.entries(gapLabels)) rendered = rendered.replaceAll(code, label);
-  if (rendered.length > 4000) throw new Error('financial_answer_too_large');
+  if (rendered.length > maxLength) throw new Error('financial_answer_too_large');
   return rendered;
 }

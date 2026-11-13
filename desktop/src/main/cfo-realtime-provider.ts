@@ -103,7 +103,9 @@ export function openQwenRealtime(settings: VoiceSettingsInput, history: VoiceTur
     timer.unref(); signal.addEventListener('abort', aborted, { once: true });
     const send = (event: Record<string, unknown>) => {
       if (closed || socket.readyState !== WebSocket.OPEN) throw new Error('voice_network_failed');
-      if (socket.bufferedAmount > 1_048_576) throw new Error('voice_backpressure');
+      // Slow uplink: drop mic frames rather than killing the session; only fail on a real stall.
+      if (socket.bufferedAmount > 1_048_576 && event.type === 'input_audio_buffer.append') return;
+      if (socket.bufferedAmount > 8_388_608) throw new Error('voice_backpressure');
       socket.send(JSON.stringify(event));
     };
     socket.on('unexpected-response', (_request, response) => {

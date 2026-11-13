@@ -2,6 +2,104 @@
 
 ## System shape
 
+macOS package integrity is checked for both development and release builds.
+The custom signer signs nested executable resources before finalizing resource
+fingerprints, then seals only the outer app. Development uses explicit ad-hoc
+signing without hardened-runtime library validation; release retains Developer
+ID, hardened runtime and notarization. Package verification rejects damaged
+signatures before reporting content checks successful.
+
+The default desktop reference source is a read-only embedded pack, separate from
+the user's private knowledge store. The trusted launcher selects `embedded`
+with an absolute resource path and the exact compressed SHA-256. Backend checks
+the gzip/closed schema and prewarms one existing MiniSearch index at startup.
+The six normal text paths already send `knowledgeMode:auto` and
+`referenceProtocol:system-v1`; they search locally using the question without
+a fixed-topic selection or central connection. No question leaves the machine
+for this retrieval.
+
+`EmbeddedReferenceService` uses ordinary current local actor/workspace/authVersion
+and agents-execution eligibility. An absent platform-state row uses the existing
+`emptyPlatformState` semantics for normal older local accounts; disabled or expired
+access is still denied. It never impersonates a central reader or the books'
+original importing account. Each answer gets UUID grants for at most six
+whole excerpts/12,000 characters. The existing encrypted reference repository
+persists these under an embedded grant namespace; exact source/hash/locator/
+warnings, actor, authVersion, expiry and pack release are rechecked for history
+citations and at the existing pre-model/post-model/pre-save boundaries.
+Logout cancels in-flight proof use. Shared books do not grant access to other
+users' uploads, business data, conversation history or citation grants.
+
+The composite retains original private WeakMap evidence and its own captured
+system proof, merging private/system candidates with existing deduplication and
+combined limits. It does not requery or regenerate on failure. The formal
+connection status `embedded_ready` shows built-in availability without binding
+buttons; successful retrieval still uses `LibraryStatus.system:ready`.
+The existing grant/reference endpoint returns only the current user's previously
+released excerpt; no pack download, arbitrary ranges or full-book pagination
+is exposed. Installed derived content is nevertheless locally extractable; the
+embedded delivery does not claim central-service anti-extraction guarantees.
+
+The optional central/client implementation remains isolated: pinned HTTPS,
+explicit central identity or approved binding, fixed-topic-only outbound queries,
+owner/MFA publication, durable quotas and release/version fences. Its design is
+documented in [central reference architecture](design/system-default-reference-library.md).
+It is not deployed and is not the desktop's embedded readiness gate. A later
+server switch requires separate explicit configuration and book publication,
+never automatic private-database upload. Prior central acceptance evidence is
+retained in PROJECT_STATUS and the ignored execution ledger.
+
+The local reference knowledge feature has scoped domain and contract definitions
+in `backend/src/knowledge/` and `contracts/openapi/knowledge.v1.yaml`.
+Its memory repository is a test double, not a production fallback. Private MySQL
+versions, encrypted original storage and authenticated streaming HTTP routes are
+implemented. The isolated macOS reader is verified; local MiniSearch retrieval
+and fenced index publication pass targeted and aggregate verification.
+The latest DOM shell mounts a scoped `#knowledge` workspace with verified
+upload, version, identity-lifecycle, scroll-preserving polls and dual-theme
+browser behavior. Full frontend and desktop proxy gates pass; the knowledge-first
+six-role chat integration passes complete chat, financial and dual-theme layout regression.
+The library uses a full-width responsive card grid and on-demand detail view,
+with the existing controller, pagination and focus restoration. Text input has
+an independent optional Growth 1.0.39 `webSearchMode` field: explicit off skips
+planning/search, on uses the existing private-fragment guard/planner/retriever
+and requires successful public evidence, omission retains automatic planning.
+The UI defaults off while `knowledgeMode:auto` remains enabled; no new search
+subsystem, persistence store or voice behavior is introduced.
+The same current model emits brief and detailed projections in one call; private
+evidence is separated from system instructions, verified facts and public search.
+For knowledge-backed conversation answers, the final prompt enumerates the strict
+root/nested fields and supplies a complete JSON example. Public S IDs stay in
+root citationIds, private K IDs in knowledge.citationIds; server-derived reference
+metadata is never requested from the model. This prompt alignment changes no
+schema, financial validation, repair policy or public contract.
+Fresh authorization and version release checks run after model completion and
+before encrypted CFO history persistence, without repair/replay. Rebuildable
+indexes are private, role-filtered and capped by source-input bytes, not a claimed
+heap limit. They never become the sole persistent source.
+The source launcher explicitly selects the existing local interpreter using its
+private runtime configuration; inherited reader paths are not accepted. A
+workspace＋actor-bound server manifest can reuse already extracted Docling
+provenance after source/hash/page validation, without a public pre-extraction
+API or repeated OCR. The normal encrypted-original and persistent-worker path
+still owns ingestion. Invalid selection disables only knowledge. Installer
+distribution of the interpreter remains outside source development. The owner's
+actual 21-book import, native synthetic-file lifecycle, and full application plus
+original MySQL-container restart are verified. Cross-account normal API reads are
+isolated; native second-account UI acceptance remains pending. Current-model
+acceptance passed CFO/profit and a separately approved post-alignment finance
+question with five exact references and one current-model call. Cost/cashflow/tax
+and the new public-search toggle's real answer remain unverified after alignment,
+so Task8 is not complete. Safe fixed validation categories include bounded, deduplicated structural
+location/kind codes with segment-matched allowlisted paths. They retain no model
+body, arbitrary keys/values/messages or private paths, change no validators and
+add no retry. Exact-reference navigation reads bounded 100-chunk pages through
+the existing authenticated API, retaining only the target page; normal preview
+pages remain 20 chunks and server rate limits are unchanged.
+Knowledge-first text answers use
+an additive projection, leaving financial authority and realtime voice protocols
+unchanged. See [knowledge-base boundaries](modules/knowledge-base.md).
+
 `website/` is a separate public brand-site source boundary, built with the
 existing Vite toolchain and shared pure TypeScript templates into 40 bilingual
 static pages. Its standalone loopback Node server serves only those assets and
@@ -713,8 +811,9 @@ request limits and authentication are unchanged. The import services still
 enforce decoded size and spreadsheet limits. Statement Base64 uses exact
 round-trip validation instead of a repeated-group regex that can exhaust the
 stack on a valid multi-MiB file.
-The exact document-inspection and CFO-question POST routes have a 130-second
-Main upstream budget for the existing bounded model call and repair; other
+The exact document-inspection, CFO-question, UUID session-turn and operating-memory-question
+POST routes have a 130-second Main upstream budget for the existing bounded model
+workflow; this does not enable repair where knowledge requests prohibit it. Other
 routes retain ten seconds. Inspection admits an 8 MiB response for the bounded
 cell inventory, not an unrestricted response stream. Normal page changes retain
 the selected document ID in account/workspace-scoped memory; identity changes
@@ -848,7 +947,8 @@ master secrets are external configuration and must never enter Git or logs.
 `contracts/openapi/ai-acquisition.v1.yaml` and
 `contracts/openapi/growth-advisor-quote-roi.v1.yaml` are the editable shared
 contracts. Backend builders and response-conformance tests guard runtime
-parity. `contracts/releases/growth-advisor-quote-roi/1.0.19/` is immutable;
+parity. The current `contracts/releases/growth-advisor-quote-roi/1.0.41/` and
+all earlier releases are immutable;
 changing public Growth behavior requires the release workflow, not editing the
 release bytes in place. See `docs/API_INDEX.md`.
 

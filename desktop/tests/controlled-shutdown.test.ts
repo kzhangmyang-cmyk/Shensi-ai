@@ -42,3 +42,33 @@ test("a failed coordinator or Sidecar shutdown still closes remaining owned serv
   }), /^Error: desktop_shutdown_failed$/u);
   assert.deepEqual(calls, ["coordinator", "sidecar", "renderer"]);
 });
+
+test("standalone shutdown drains desktop before backend and database", async () => {
+  const calls: string[] = [];
+  const services = {
+    coordinator: { stop: async () => { calls.push("coordinator"); } },
+    sidecar: { stop: async () => { calls.push("sidecar"); } },
+    renderer: { close: async () => { calls.push("renderer"); } },
+    local: {
+      backend: { stop: async () => { calls.push("backend"); } },
+      database: { stop: async () => { calls.push("database"); } },
+    },
+  };
+  await stopDesktopServices(services);
+  assert.deepEqual(calls, ["coordinator", "sidecar", "renderer", "backend", "database"]);
+});
+
+test("standalone shutdown attempts database cleanup after backend failure without leaking details", async () => {
+  const calls: string[] = [];
+  const services = {
+    coordinator: { stop: async () => {} },
+    sidecar: { stop: async () => {} },
+    renderer: { close: async () => {} },
+    local: {
+      backend: { stop: async () => { calls.push("backend"); throw new Error("private connection string"); } },
+      database: { stop: async () => { calls.push("database"); } },
+    },
+  };
+  await assert.rejects(stopDesktopServices(services), /^Error: desktop_shutdown_failed$/u);
+  assert.deepEqual(calls, ["backend", "database"]);
+});

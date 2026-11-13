@@ -26,3 +26,9 @@ test('preview admits only an explicitly saved exact test package digest', () => 
   assert.equal(env.DOUYIN_OUTREACH_DESKTOP_EXECUTION_ENABLED, 'false');
   assert.throws(() => previewEnvironment({ ...cfg, admittedBuildManifestSha256: '*' }), /digest_invalid/);
 });
+
+test('password-only identity is scoped to the isolated backend environment', () => {
+  const cfg = { database: 'shensi_admin_preview', mysqlPort: 34999, databasePassword: 'synthetic', secrets: {}, previewPasswordOnlyUserId: 'synthetic-preview-user' };
+  assert.equal(previewEnvironment(cfg).SHENSI_ADMIN_PREVIEW_PASSWORD_ONLY_USER_ID, 'synthetic-preview-user');
+  assert.equal(previewEnvironment({ ...cfg, previewPasswordOnlyUserId: undefined }).SHENSI_ADMIN_PREVIEW_PASSWORD_ONLY_USER_ID, '');
+});

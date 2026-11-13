@@ -39,6 +39,7 @@ export interface ConnectionCenterController {
   createModel(input: ModelConnectionCreateInput): Promise<void>;
   testModel(connectionId: string): Promise<void>;
   activateModel(connectionId: string): Promise<void>;
+  deactivateModel(connectionId: string): Promise<void>;
   rotateModel(
     connectionId: string,
     input: ModelConnectionUpdateInput
@@ -558,12 +559,35 @@ export function createConnectionCenterController(
       ));
     },
 
+    deactivateModel(connectionId) {
+      const id = normalizedRequired(connectionId, "模型连接 ID");
+      const connection = state.modelConnections.find((item) => item.id === id);
+      if (!connection) return Promise.reject(new Error("模型连接不存在"));
+      if (connection.status !== "active") {
+        return Promise.reject(new Error("该模型未启用，无需停用"));
+      }
+      if (!ask("确认停用这个 AI 模型？停用后获客任务将不再使用它，可再启用其他模型。")) {
+        return Promise.resolve();
+      }
+      const reason = "用户停用当前启用的模型连接";
+      return remember(mutate(
+        "deactivating",
+        () => idempotent("deactivate-model", { id, reason }, (key) =>
+          api.deactivateModelConnection(id, reason, key)),
+        (deactivated) => ({
+          kind: "model",
+          connectionId: deactivated.id,
+          message: "AI 模型已停用，可启用其他模型或删除此连接。"
+        })
+      ));
+    },
+
     rotateModel(connectionId, input) {
       const id = normalizedRequired(connectionId, "模型连接 ID");
       const existing = state.modelConnections.find((item) => item.id === id);
       if (existing?.status === "active") {
         return Promise.reject(new Error(
-          "正在启用的模型不能直接修改，请先启用另一模型后再更新"
+          "正在启用的模型不能直接修改，请先停用或启用另一模型后再更新"
         ));
       }
       const normalized: ModelConnectionUpdateInput = {
@@ -595,7 +619,7 @@ export function createConnectionCenterController(
       const existing = state.modelConnections.find((item) => item.id === id);
       if (existing?.status === "active") {
         return Promise.reject(new Error(
-          "正在启用的模型不能删除，请先启用另一模型"
+          "正在启用的模型不能删除，请先停用此模型"
         ));
       }
       if (!ask("确认删除这个 AI 模型连接？正在使用的连接可能会被服务端拒绝删除。")) {
@@ -682,6 +706,8 @@ export function createConnectionCenterController(
       consume(controller.testModel(target.dataset.connectionId ?? ""));
     } else if (action === "activate-model") {
       consume(controller.activateModel(target.dataset.connectionId ?? ""));
+    } else if (action === "deactivate-model") {
+      consume(controller.deactivateModel(target.dataset.connectionId ?? ""));
     } else if (action === "delete-model") {
       consume(controller.deleteModel(target.dataset.connectionId ?? ""));
     }

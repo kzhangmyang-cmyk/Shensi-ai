@@ -128,3 +128,21 @@ test('decision entry exposes explicit examples without auto-generating or writin
   assert.match(document.querySelector('[data-step-status]')!.textContent!,/尚未|未就绪/);
   assert.equal(writes,0);
 });
+
+test('incremental UX keeps structure and adds environment + disclaimer fold', async (t) => {
+  const { document, window } = dom(t);
+  document.body.dataset.sessionWorkspaceId='ws';document.body.dataset.sessionUserId='user';
+  const host = document.createElement('div'); document.body.append(host);
+  const api = {
+    list: async () => [],
+    get: async () => { throw new Error('missing'); },
+    create: async (input: any) => ({ runId: input.runId, createdAt: new Date().toISOString(), recordVersion: 'decision-simulation.v1', input, paths: [], report: { modelVersion: 'operating-monthly-v3-regime', plans: [], replays: [], sensitivity: [], threshold: { unitsForMonthlyOperatingBreakEven: null, withinBaselineCapacity: false, conditions: '' }, recommendations: [] } }),
+  };
+  mountDecisionSimulation(host, api as any);
+  assert.ok(document.querySelector('.decision-example-bar'));
+  assert.ok(document.querySelector('.decision-workflow'));
+  assert.ok(document.querySelector('.decision-env-block'));
+  assert.ok(document.querySelector('.decision-boundary-fold'));
+  assert.match(document.querySelector('.decision-hero p')?.textContent ?? '', /同一起点/);
+  assert.equal(document.querySelector('.decision-primary')?.textContent, '开始对比');
+});

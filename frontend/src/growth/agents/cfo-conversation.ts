@@ -7,6 +7,9 @@ import { CfoRealtimeClient } from './cfo-realtime-client';
 import { voiceErrorMessage } from '../../../../desktop/src/shared/cfo-realtime';
 import { BUSINESS_AGENT_TEAM } from './agents';
 import { mountCfoChatMessages } from './cfo-chat-messages';
+import {mountReferenceTopics} from '../../system-reference/topics-view';
+import {createReferenceApi,type ReferenceApi} from '../../system-reference/api';
+import {mountReferenceConnection} from '../../system-reference/connection-view';
 import { mountChatAttachments } from './chat-attachments';
 import { financeDocumentScope, getFinanceDocumentSelection, setFinanceDocumentSelection, subscribeFinanceDocumentSelection } from '../finance/document-selection';
 import {
@@ -21,11 +24,15 @@ export function isAcquisitionWorkflowInstruction(value: string): boolean {
     && /(执行|开始|创建|帮我|请|去|跑|发起)/u.test(text);
 }
 
-export function mountCfoConversation(options: { host: HTMLElement; http: GrowthHttpClient; scope(): string | null; initialRole?: string; onRoleChange?(role: string): void }) {
+export function mountCfoConversation(options: { host: HTMLElement; http: GrowthHttpClient; scope(): string | null; initialRole?: string; onRoleChange?(role: string): void; referenceApi?:ReferenceApi }) {
   const { host } = options; const doc = host.ownerDocument;
   let agent = BUSINESS_AGENT_TEAM[0];
   let history: CfoConversationInput['history'] = [];
   let pending: AbortController | undefined; let disposed = false;
+  let webSearchEnabled = false;
+  // When search is on but the question has no searchable public topic (or contains private
+  // fragments), answer once without search instead of refusing. Never sends private data out.
+  let searchFallback: 'none' | 'retry' | 'done' = 'none';
   let savedSession: CfoSession | null = null;
   let conversationKey=crypto.randomUUID();
   let attachments: ReturnType<typeof mountChatAttachments>;
@@ -60,6 +67,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
       </div>
     </section>
     <div data-cfo-operating-memory></div>
+    <details data-cfo-reference-connection><summary>默认参考资料</summary><div data-cfo-reference-settings></div></details>
     <div class="cfo-session-layout">
     <aside class="cfo-history" aria-label="经营总管历史对话" data-cfo-history>
       <header><strong>历史对话</strong></header>
@@ -67,22 +75,44 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
     </aside>
     <div class="cfo-chat-workspace">
       <div data-cfo-turns class="cfo-turns" role="log" aria-label="本次对话"></div>
-      <form data-cfo-question-form class="cfo-composer"><div class="cfo-composer-heading"><label for="cfoQuestion">想先解决什么经营问题？</label><span>最多 2000 字</span></div>
-      <textarea id="cfoQuestion" rows="3" maxlength="2000" placeholder="例如：改善现金流应该先看哪些数据？" required></textarea>
-      <div data-cfo-chat-attachments></div>
-      <p data-cfo-document-source></p><button type="button" data-cfo-clear-document hidden>取消当前资料，使用已确认报表</button>
-      <div class="cfo-actions"><p data-cfo-status role="status">尚未提问；本次对话不会自动写入公司资料。</p>
-      <div class="cfo-action-buttons"><button type="button" data-cfo-stop hidden>停止回答</button><button type="submit" class="primary">发送问题</button></div></div></form>
+      <form data-cfo-question-form class="cfo-composer">
+        <div class="cfo-composer-toolbar" aria-label="提问工具">
+          <div data-cfo-chat-attachments></div>
+          <div data-cfo-reference-topics></div>
+          <div class="cfo-search-control"><button type="button" data-cfo-web-search aria-pressed="false" title="知识库按需参考；联网仅检索公开主题，不发送附件或内部资料。" aria-describedby="cfoWebSearchHint">联网搜索 · 关</button><small id="cfoWebSearchHint" class="cfo-visually-hidden">知识库按需参考；联网仅检索公开主题，不发送附件或内部资料。</small></div>
+        </div>
+        <div class="cfo-composer-heading"><label for="cfoQuestion">想先解决什么经营问题？</label><span>Enter 发送 · Shift+Enter 换行 · 最多 2000 字</span></div>
+        <textarea id="cfoQuestion" rows="2" maxlength="2000" placeholder="例如：改善现金流应该先看哪些数据？" required></textarea>
+        <p data-cfo-document-source class="cfo-document-source"></p><button type="button" data-cfo-clear-document hidden>取消当前资料，使用已确认报表</button>
+        <div class="cfo-actions"><p data-cfo-status role="status">尚未提问；本次对话不会自动写入公司资料。</p>
+        <div class="cfo-action-buttons"><button type="button" data-cfo-stop hidden>停止回答</button><button type="submit" class="primary">发送问题</button></div></div></form>
     </div></div>
     </section>`;
   const form = host.querySelector<HTMLFormElement>('[data-cfo-question-form]')!; const textarea = host.querySelector('textarea')!;
   const operating=mountOperatingWorkbench(host.querySelector<HTMLElement>('[data-cfo-operating-memory]')!,options.http,()=>!disposed&&options.scope()===scope);
   const status = host.querySelector<HTMLElement>('[data-cfo-status]')!;
+  const referenceTopics=mountReferenceTopics(host.querySelector<HTMLElement>('[data-cfo-reference-topics]')!);
   const stop = host.querySelector<HTMLButtonElement>('[data-cfo-stop]')!;
+  const searchToggle = host.querySelector<HTMLButtonElement>('[data-cfo-web-search]')!;
+  function renderSearchToggle() {
+    searchToggle.setAttribute('aria-pressed', String(webSearchEnabled));
+    searchToggle.textContent = `联网搜索 · ${webSearchEnabled ? '开' : '关'}`;
+  }
+  function toggleSearch() {
+    if (disposed || pending || options.scope() !== scope) return;
+    webSearchEnabled = !webSearchEnabled; renderSearchToggle();
+  }
+  searchToggle.addEventListener('click', toggleSearch);
   const submit = form.querySelector<HTMLButtonElement>('[type=submit]')!;
   const turns = host.querySelector<HTMLElement>('[data-cfo-turns]')!;
   const userName = doc.querySelector('[data-session-user-name]')?.textContent ?? '';
-  let messages = mountCfoChatMessages({ host: turns, agent, userName });
+  const reference={api:options.referenceApi??createReferenceApi({workspaceId:()=>doc.body.dataset.sessionWorkspaceId??null}),identity:options.scope};
+  let connection:ReturnType<typeof mountReferenceConnection>|undefined;
+  const connectionSummary=host.querySelector<HTMLElement>('[data-cfo-reference-connection] > summary')!;
+  const openConnection=()=>{if(!disposed&&!connection&&options.scope()===scope)connection=mountReferenceConnection(host.querySelector<HTMLElement>('[data-cfo-reference-settings]')!,reference);};
+  const clearConnection=()=>{connection?.dispose();connection=undefined;host.querySelector<HTMLDetailsElement>('[data-cfo-reference-connection]')!.open=false;};
+  connectionSummary.addEventListener('click',openConnection);
+  let messages = mountCfoChatMessages({ host: turns, agent, userName,reference });
   const historyPanel = host.querySelector<HTMLElement>('[data-cfo-history]')!;
   const historyList = host.querySelector<HTMLElement>('[data-cfo-history-list]')!;
   const historyStatus = host.querySelector<HTMLElement>('[data-cfo-history-status]')!;
@@ -107,6 +137,8 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
     }
   }
   function newSession() {
+    referenceTopics.clear();
+    webSearchEnabled = false; renderSearchToggle();
     void attachments.clear();
     conversationKey=crypto.randomUUID();
     operating.clear();
@@ -120,12 +152,13 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
     void attachments.clear();
     conversationKey=crypto.randomUUID();
     const sequence = ++sessionSequence; cancel(); live?.stop();
+    webSearchEnabled = false; renderSearchToggle();
     try {
-      const { body } = await options.http.request<CfoSession>(`/api/v1/finance/cfo-sessions/${encodeURIComponent(button.dataset.cfoSession!)}`);
+      const { body } = await options.http.request<CfoSession>(`/api/v1/finance/cfo-sessions/${encodeURIComponent(button.dataset.cfoSession!)}`,{referenceProtocol:'system-v1'});
       if (disposed || sequence !== sessionSequence || options.scope() !== scope || agent.id !== 'cfo') return;
       if (!body || !Array.isArray(body.turns)) throw new Error('invalid_session');
       savedSession = body; history = body.turns.slice(-10).map(({ role, text }) => ({ role, text }));
-      messages.clear(); for (const turn of body.turns) messages.append(turn);
+      referenceTopics.clear();messages.clear(); for (const turn of body.turns) messages.append({...turn,historical:true});
       status.textContent = body.documentId === currentDocumentId() ? '已恢复历史对话，可继续提问。历史内容不等于已验证公司事实。'
         : '此对话使用其他资料，仅供查看。请新建对话使用当前资料。';
       for (const item of historyList.querySelectorAll<HTMLButtonElement>('button'))
@@ -159,14 +192,31 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
     onState: view => { voiceReady = view.state === 'ready'; voiceButton.disabled = !voiceRunning && !voiceReady;
       if (!voiceRunning) voiceStatus.textContent = voiceReady ? '连接检测通过。点击开始后授权麦克风；首次使用请实际验证听说与打断。'
         : '请先在语音服务设置中保存配置并检测连接。文字问答可正常使用。'; } });
-  const busy = (value: boolean) => { submit.disabled = value; stop.hidden = !value; };
+  const busy = (value: boolean) => { submit.disabled = value; searchToggle.disabled = value; referenceTopics.setDisabled(value); stop.hidden = !value; };
+  const paintVoiceIdle = (detail?: string) => {
+    voiceRunning = false;
+    voiceButton.disabled = !voiceReady;
+    if (!voiceError) voiceButton.textContent = '开始语音对话';
+    if (detail) voiceStatus.textContent = detail;
+  };
   const live = bridge ? new CfoRealtimeClient({ bridge,
     onState: state => { voiceRunning = state !== 'idle'; voiceButton.disabled = !voiceRunning && !voiceReady;
-      voiceButton.textContent = voiceRunning ? '结束语音对话' : '开始语音对话';
-      if (!voiceError) voiceStatus.textContent = ({ idle: '语音已结束，麦克风已关闭。', connecting: '正在连接语音服务并准备麦克风…',
+      voiceButton.textContent = voiceRunning ? '结束语音对话' : (voiceError ? '重新开始语音' : '开始语音对话');
+      if (!voiceError) voiceStatus.textContent = ({ idle: '语音已结束，麦克风已关闭。文字问答可继续发送。', connecting: '正在连接／重连语音服务…',
         listening: '正在聆听 · 可以直接说话，也可以打断播报。', thinking: '已听到，正在准备回答…',
-        speaking: '经营总管正在回答 · 开口即可打断。', interrupting: '已停止播报，正在接续你的发言…' })[state]; },
-    onError: code => { voiceError = true; voiceStatus.textContent = voiceErrorMessage(code); },
+        speaking: '经营总管正在回答 · 开口即可打断。', interrupting: '已停止播报，正在接续你的发言…' })[state];
+      // Idle after an error must not re-enable a half-open session; keep the error copy.
+      if (state === 'idle' && voiceError) paintVoiceIdle(voiceStatus.textContent || undefined); },
+    onError: code => {
+      voiceError = true;
+      const recoverable = code === 'voice_network_failed' || code === 'voice_audio_stalled'
+        || code === 'voice_backpressure' || code === 'voice_auth_required' || code === 'voice_permission_denied';
+      const message = `${voiceErrorMessage(code)}${recoverable ? '' : ' 文字问答仍可连续发送。'}`;
+      paintVoiceIdle(message);
+      voiceButton.textContent = recoverable ? '重新开始语音' : '开始语音对话';
+      // Never leave the text composer disabled because a voice session failed.
+      if (!pending) busy(false);
+    },
     onTurn: turn => { if (disposed || options.scope() !== scope) return; voiceError = false;
       history.push(turn); history = history.slice(-10); messages.append(turn);
       if (turn.role === 'user' && isAcquisitionWorkflowInstruction(turn.text)) offerAcquisitionWorkflow(turn.text); },
@@ -222,8 +272,10 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
   function changeRole(roleId: string) {
     const next = BUSINESS_AGENT_TEAM.find(a => a.id === roleId); if (!next || next.id === agent.id) return;
     operating.clear();
+    referenceTopics.clear();
     sessionSequence++; savedSession = null;
-    cancel(); live?.stop(); agent = next; history = []; messages.dispose(); messages = mountCfoChatMessages({ host: turns, agent, userName });
+    webSearchEnabled = false; renderSearchToggle();
+    cancel(); live?.stop(); agent = next; history = []; messages.dispose(); messages = mountCfoChatMessages({ host: turns, agent, userName,reference });
     attachments.setRole(agent.id);
     conversationKey=crypto.randomUUID();
     renderDocumentSource();
@@ -491,7 +543,13 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
     const question = textarea.value.trim();
     if (disposed || pending || !question || question.length > 2000) return;
     sessionSequence++;
-    if (voiceRunning) live?.stop();
+    // Text chat is independent of voice. Always tear down a live voice session first,
+    // including after device errors that left the button looking idle.
+    try { live?.stop(); } catch { /* ignore voice teardown failures */ }
+    voiceRunning = false;
+    voiceError = false;
+    voiceButton.disabled = !voiceReady;
+    voiceButton.textContent = '开始语音对话';
     if (!scope || options.scope() !== scope) { history = []; messages.clear(); status.textContent = '工作区已变化，请重新打开经营总管。'; return; }
     if (isAcquisitionWorkflowInstruction(question)) {
       messages.append({ role: 'user', text: question });
@@ -505,7 +563,8 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
     catch (error) { status.textContent = error instanceof Error ? error.message : '请先完成附件解析。'; return; }
     const abort = new AbortController(); pending = abort; busy(true); status.textContent = `正在向${agent.name}提问…`;
     try {
-      const input: CfoConversationInput = { question, conversationKey, history: history.slice(-10), role: agent.id, documentId: getFinanceDocumentSelection(documentScope)?.documentId ?? null, ...attachment };
+      const topics=referenceTopics.value();
+      const input: CfoConversationInput = { question, conversationKey, history: history.slice(-10), role: agent.id, knowledgeMode: 'auto', referenceProtocol:'system-v1', ...(topics?{referenceTopicIds:topics}:{}), webSearchMode: webSearchEnabled && searchFallback !== 'retry' ? 'on' : 'off', documentId: getFinanceDocumentSelection(documentScope)?.documentId ?? null, ...attachment };
       let body: CfoConversationAnswer;
       const selection=operating.selection();
       if (!attachment && agent.id === 'cfo' && sessionsAvailable) {
@@ -524,7 +583,7 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
         if(result.body.session&&savedSession){savedSession={...savedSession,revision:result.body.session.revision};void refreshSessions();}
       }else if(!attachment&&agent.id==='cfo'&&sessionsAvailable&&savedSession){
         const result = await options.http.request<CfoSessionReply>(`/api/v1/finance/cfo-sessions/${encodeURIComponent(savedSession.sessionId)}/turns`,
-          { method: 'POST', body: { question, revision: savedSession.revision, documentId: currentDocumentId(), history: input.history }, signal: abort.signal,
+          { method: 'POST', body: { question, revision: savedSession.revision, documentId: currentDocumentId(), history: input.history, knowledgeMode: input.knowledgeMode, webSearchMode: input.webSearchMode, referenceProtocol:input.referenceProtocol, ...(input.referenceTopicIds?{referenceTopicIds:input.referenceTopicIds}:{}) }, signal: abort.signal,
             onProgress: event => {
               if (disposed || pending !== abort || abort.signal.aborted || options.scope() !== scope) return;
               const stage = event && typeof event === 'object' && 'stage' in event ? event.stage : null;
@@ -545,40 +604,69 @@ export function mountCfoConversation(options: { host: HTMLElement; http: GrowthH
         || (body.material !== null && (!body.material || ('kind' in body.material && body.material.kind === 'readonly_document'
           ? typeof body.material.fileName !== 'string' || typeof body.material.documentId !== 'string' || typeof body.material.fileHash !== 'string'
           : !('period' in body.material) || typeof body.material.period !== 'string' || typeof body.material.companyName !== 'string')))) throw new Error('invalid_answer');
+      // Backend now answers without web search when no safe public topic exists or search is unavailable.
+      const researchSkipped = input.webSearchMode === 'on' && body.research?.status !== 'completed';
       history.push({ role: 'user', text: question }, { role: 'assistant', text: body.answer });
-      history = history.slice(-10); messages.append({ role: 'user', text: question }); messages.append({ role: 'assistant', text: body.answer, research:body.research });
+      history = history.slice(-10); messages.append({ role: 'user', text: question }); messages.append({ role: 'assistant', text: body.answer, research:body.research, knowledge: body.knowledge, libraryStatus:body.libraryStatus });
       if (textarea.value.trim() === question) textarea.value = '';
       status.textContent = body.material ? ('kind' in body.material && body.material.kind === 'readonly_document'
         ? `${body.material.fileName} · 只读资料（未验证，未入账） · ${body.model}`
         : 'companyName' in body.material ? `${body.material.companyName} · ${body.material.period} 已验证报表 · ${body.model}` : '')
         : `尚无已验证公司报表 · ${body.model}`;
+      status.textContent += body.research?.status === 'completed' ? ` · 已使用公网搜索，${body.research.sources.length} 个公开来源` : searchFallback === 'retry' || researchSkipped ? ' · 本题无可公开检索的主题或搜索暂不可用，已直接回答（未联网）' : ' · 未使用公网搜索';
     } catch (error) {
       if (disposed || pending !== abort || abort.signal.aborted) return;
+      if (error instanceof GrowthApiError && error.code==='agent_research_public_topic_required' && webSearchEnabled && searchFallback === 'none') {
+        searchFallback = 'retry'; status.textContent = '本题无需联网，正在直接回答…';
+        queueMicrotask(() => { void send(new Event('submit', { cancelable: true })).finally(() => { searchFallback = 'none'; }); });
+        return;
+      }
       status.textContent = error instanceof GrowthApiError && error.code==='agent_research_public_topic_required'
         ? '请单独说明需要查询的公开主题、地区或政策，不附账号、联系方式或内部金额。问题已保留。'
         : error instanceof GrowthApiError && error.code==='agent_web_connection_unavailable'
         ? '本题需要联网，请先在连接中心启用搜索连接；问题已保留。'
         : error instanceof GrowthApiError && /^agent_(web|research)_/u.test(error.code)
         ? '本次联网检索或来源校验未完成，请稍后重试；未生成已查证的回答。'
+        : error instanceof GrowthApiError && /^knowledge_reference_/u.test(error.code)
+        ? '参考资料或访问权限已变化，本次回答未保存。请核对知识库后重新提问；未自动重发。'
         : error instanceof GrowthApiError && /^finance_document_/u.test(error.code)
         ? '当前只读资料不可用或已过期，请重新读取；未自动切换到其他报表。'
         : error instanceof GrowthApiError && /^decision_/u.test(error.code)
         ? '个人经营偏好已变化或不可用，请刷新并重新选用；问题已保留，未自动重发。'
         : error instanceof GrowthApiError && /^cfo_session_/u.test(error.code)
         ? '对话版本或资料已变化，请重新选择历史对话或新建对话；问题已保留，未自动重发。'
+        : error instanceof GrowthApiError && ['cfo_conversation_model_not_ready','MODEL_CREDENTIAL_UNAVAILABLE','MODEL_AUTH_FAILED','MODEL_NOT_FOUND','MODEL_CAPABILITY_UNSUPPORTED'].includes(error.code)
+        ? `请在连接中心为当前工作区配置并启用文字模型；问题已保留。（${error.code}）`
+        : error instanceof GrowthApiError && ['MODEL_TIMEOUT','MODEL_PROVIDER_UNAVAILABLE','MODEL_EMPTY_RESPONSE','MODEL_STREAM_ABORTED'].includes(error.code)
+        ? `模型响应超时或暂时不可用，请稍后重试；问题已保留。（${error.code}）`
+        : error instanceof GrowthApiError && error.code === 'MODEL_RATE_LIMITED'
+        ? `模型调用过于频繁或额度不足，请稍后重试或在连接中心检查额度；问题已保留。（${error.code}）`
+        : error instanceof GrowthApiError && error.code === 'MODEL_CONTENT_FILTERED'
+        ? `模型服务拦截了本次内容，请换个说法再问；问题已保留。（${error.code}）`
+        : error instanceof GrowthApiError && ['MODEL_RESPONSE_INVALID','MODEL_SCHEMA_INVALID'].includes(error.code)
+        ? `模型返回的格式不完整，请重试一次；问题已保留。（${error.code}）`
         : error instanceof GrowthApiError && [409, 503].includes(error.status)
         ? '模型暂未就绪，请在连接中心检查当前工作区的模型。'
         : error instanceof GrowthApiError && error.status === 403 ? '当前账号没有经营总管权限。'
         : error instanceof GrowthApiError && error.status === 429 ? '提问较频繁，请稍后再试。'
-        : '本次回答未完成，问题已保留，请重试。';
+        : `本次回答未完成，问题已保留，请重试。（${error instanceof GrowthApiError ? `${error.status} ${error.code}` : error instanceof Error ? error.message || error.name : 'unknown'}）`;
+      console.warn('[cfo-chat] send failed', error);
     } finally { if (pending === abort) { pending = undefined; busy(false); } }
   }
   attachments = mountChatAttachments({ host: host.querySelector<HTMLElement>('[data-cfo-chat-attachments]')!, http: options.http,
     scope: documentScope, role: agent.id, onChange() { cancel(); live?.stop(); sessionSequence++; savedSession = null; history = []; messages.clear(); renderDocumentSource(); } });
   renderDocumentSource();
+  textarea.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    if (typeof form.requestSubmit === 'function') form.requestSubmit();
+    else form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+  });
   form.addEventListener('submit', send); stop.addEventListener('click', cancel);
   if (options.initialRole) changeRole(options.initialRole);
-  return { suspend() { live?.stop(); voiceSettings.suspend(); }, dispose() { disposed = true; attachments.dispose(); operating.dispose(); unsubscribeDocument(); clearDocument.removeEventListener('click', onClearDocument); scopeObserver?.disconnect(); live?.stop(); voiceSettings.dispose(); pending?.abort(); pending = undefined;
+  return { cancelPending: cancel, suspend() { messages.suspendReferences();clearConnection();live?.stop(); voiceSettings.suspend(); }, resume(){messages.resumeReferences();}, dispose() { disposed = true; clearConnection();connectionSummary.removeEventListener('click',openConnection); attachments.dispose(); operating.dispose(); unsubscribeDocument(); clearDocument.removeEventListener('click', onClearDocument); scopeObserver?.disconnect(); live?.stop(); voiceSettings.dispose(); pending?.abort(); pending = undefined;
+    searchToggle.removeEventListener('click', toggleSearch);
+    referenceTopics.dispose();
     sessionSequence++; historyList.removeEventListener('click', chooseSession); newSessionButton.removeEventListener('click', newSession);
     voiceButton.removeEventListener('click', toggleVoice); doc.defaultView?.removeEventListener('pagehide', endVoice);
     form.removeEventListener('submit', send); stop.removeEventListener('click', cancel); roleStrip.removeEventListener('click', chooseRole);

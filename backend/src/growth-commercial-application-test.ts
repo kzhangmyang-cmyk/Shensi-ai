@@ -150,7 +150,7 @@ test("Growth routes enforce authentication before workspace resolution", async (
     }) as express.RequestHandler
   });
   try {
-    for (const path of ["/api/v1/growth/bootstrap", "/api/v1/agent-memory/operating"]) {
+    for (const path of ["/api/v1/growth/bootstrap", "/api/v1/agent-memory/operating", "/api/v1/knowledge/availability"]) {
       const result = await get(runtime.handler, path);
       assert.equal(result.response.status, 401);
       assert.deepEqual(result.body, { code: "unauthorized" });

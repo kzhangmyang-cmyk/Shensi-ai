@@ -22,6 +22,7 @@ export function verifyReleaseAppSignatures(
   appPath: string,
   operations?: ReleaseSignatureOperations,
 ): Promise<DeveloperIdIdentity>;
+export function verifyAppSignatureIntegrity(appPath: string): Promise<void>;
 export function verifyReleaseDmgSignature(
   dmgPath: string,
   expected: DeveloperIdIdentity,

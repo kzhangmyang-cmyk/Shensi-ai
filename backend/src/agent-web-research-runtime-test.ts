@@ -103,11 +103,11 @@ test('configured model gateway receives only public sources and rejects invented
         const payload=JSON.parse(user.replace(/^BEGIN_UNTRUSTED_DATA\n/,'').replace(/\nEND_UNTRUSTED_DATA$/,''));
         const planning=!('history' in payload);
         let value:unknown;
-        if(planning){plannerPayloads.push(payload);assert.ok(Object.keys(payload).every(k=>['question','previousPublicTopic'].includes(k)));
+        if(planning){plannerPayloads.push(payload);assert.ok(Object.keys(payload).every(k=>['question','previousPublicTopic','webSearchMode'].includes(k)));
           const rules=outgoing.messages.find((m:any)=>m.role==='system').content;
           for(const example of ['{"kind":"not_needed"}','{"kind":"clarify","question":"需要澄清的问题"}','{"kind":"search","topic":"公开主题","region":"","freshness":""}']) assert.ok(rules.includes(example),'planner receives the exact JSON alternatives');
           assert.match(rules,/明确要求.{0,30}联网.{0,100}search/u,'explicit public search must take priority over the general-knowledge shortcut in the model request');
-          value=payload.question==='解释现金流'?{kind:'not_needed'}:{kind:'search',topic:'公共政策',region:'中国',freshness:'最新'};
+          value=payload.question==='解释现金流'&&payload.webSearchMode!=='on'?{kind:'not_needed'}:{kind:'search',topic:'公共政策',region:'中国',freshness:'最新'};
         }else{answerPayloads.push(payload);
           if(payload.publicEvidence && !payload.cells) {
             const rules=outgoing.messages.find((m:any)=>m.role==='system').content;
@@ -149,6 +149,21 @@ test('configured model gateway receives only public sources and rejects invented
       const selected=await post('/operating-memory-question',{selection:{domain:'operating',revision:1},input:{question:'最新公共政策',role:'cost',history:[]}});
       assert.equal(selected.answer.research.status,'completed');assert.equal(answerPayloads.at(-1).personalTradeoffs.priority,'cash');
       assert.equal(searches,9);
+      const planCount=plannerPayloads.length;
+      const off=await post('/cfo-conversation',{question:'联网查询最新公共政策',role:'finance',history:[],webSearchMode:'off'});
+      assert.equal(off.research,undefined);assert.equal(searches,9);assert.equal(plannerPayloads.length,planCount);
+      const savedOff=await post(`/cfo-sessions/${session.sessionId}/turns`,{question:'最新公共政策',documentId:null,revision:reply.session.revision,webSearchMode:'off'});
+      assert.equal(savedOff.answer.research,undefined);assert.equal(searches,9);assert.equal(plannerPayloads.length,planCount);
+      const directOn=await post('/cfo-conversation',{role:'finance',question:'解释现金流',history:[],webSearchMode:'on'});
+      assert.equal(directOn.research.status,'completed');
+      const savedOn=await post(`/cfo-sessions/${session.sessionId}/turns`,{question:'解释现金流',documentId:null,revision:savedOff.session.revision,webSearchMode:'on'});
+      assert.equal(savedOn.answer.research.status,'completed');
+      const memoryOn=await post('/operating-memory-question',{selection:{domain:'operating',revision:1},input:{question:'解释现金流',role:'cost',history:[],webSearchMode:'on'}});
+      assert.equal(memoryOn.answer.research.status,'completed');
+      const memorySessionOn=await post('/operating-memory-question',{selection:{domain:'operating',revision:1},input:{question:'解释现金流',role:'cfo',history:[],webSearchMode:'on'},session:{sessionId:session.sessionId,revision:savedOn.session.revision}});
+      assert.equal(memorySessionOn.answer.research.status,'completed');assert.equal(searches,13);
+      assert.equal(plannerPayloads.length,planCount+4);
+      assert.ok(plannerPayloads.slice(-4).every(payload=>payload.webSearchMode==='on'));
       for(const payload of plannerPayloads)for(const secret of ['998877.66','private@example.org','附件秘密','cashFloorMinor'])assert.equal(JSON.stringify(payload).includes(secret),false);
     }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));await resources.relay.close();await resources.closeFinancialCouncilResources();}
   } finally { if (previous === undefined) delete process.env.PROVIDER_CREDENTIAL_KEY; else process.env.PROVIDER_CREDENTIAL_KEY = previous; }

@@ -48,6 +48,12 @@ import {
   CurrentFinanceImportRecoveryAuthorizer
 } from "./finance-import-worker.js";
 import { GrowthHttpError } from "./growth-command-context.js";
+import { createKnowledgeModule } from './knowledge/module.js';
+import { createKnowledgeJobAuthorizer, createKnowledgeScopeAuthorizer } from './knowledge/authorization.js';
+import {createSystemReferenceModule,REFERENCE_RUNTIME,type ReferenceModuleRuntime,type ReferenceRuntimeConfig} from './system-reference/module.js';
+import {createMysqlReferenceAuthority} from './system-reference/authority.js';
+import {readReferenceRuntime} from './runtime-env.js';
+import {isAccountMutationPending,isPlatformMutationPending} from './account-mutation-state.js';
 
 export interface GrowthCommercialModule {
   readonly name: string;
@@ -83,6 +89,7 @@ export function createGrowthMysqlPool(
 }
 
 export interface GrowthAcquisitionIntegrations {
+  systemReference?:ReferenceModuleRuntime;
   acquisitionWorkspace: GrowthAcquisitionWorkspaceResolver;
   temporalBarrier: GrowthTemporalBarrier;
   temporalTransactions: GrowthTemporalTransactionRunner;
@@ -141,6 +148,7 @@ export function createGrowthCommercialComposition(
         throw new Error("MISSING_GROWTH_FOUNDATION_SERVICES");
       }
       return Object.freeze({
+        systemReference:privateServices.get(REFERENCE_RUNTIME)??undefined,
         acquisitionWorkspace,
         temporalBarrier,
         temporalTransactions,
@@ -157,7 +165,7 @@ export function createGrowthCommercialComposition(
 
 export function createGrowthCommercialCompositionForStore(options: {
   store: Pick<CrmStore, "mode" | "users"> & Partial<Pick<CrmStore,
-    "acquisitionCustomerHandoffs" | "leads" | "customers" | "deals">>;
+    "acquisitionCustomerHandoffs" | "leads" | "customers" | "deals" | "platformAdminStates">>;
   findCandidate?: (
     workspaceId: string,
     candidateId: string
@@ -165,10 +173,13 @@ export function createGrowthCommercialCompositionForStore(options: {
     "id" | "ownerId" | "teamId" | "version"> | null>;
   databaseUrl?: string;
   createMysqlPool?: typeof mysql.createPool;
+  reference?:{settings:ReturnType<typeof readReferenceRuntime>;secret?:string};
 }): {
   composition: GrowthCommercialComposition<GrowthAcquisitionIntegrations>;
   workspaceMiddleware: express.RequestHandler;
 } {
+  const reference=options.reference?.settings??{mode:'disabled'};
+  if(reference.mode!=='disabled'&&(options.store.mode!=='mysql'||!options.reference?.secret||options.reference.secret.length<32))throw Error('reference_configuration_invalid');
   const workspaceDirectory: GrowthWorkspaceDirectory = {
     async canAccess(user, workspaceId) {
       return user.role === "super_admin" && options.store.users.some(
@@ -342,6 +353,22 @@ export function createGrowthCommercialCompositionForStore(options: {
   modules.push(createGrowthAdvisorModule({
     createResources: createGrowthAdvisorResources
   }));
+  modules.push(createKnowledgeModule(financePool ? { mode: 'mysql', pool: financePool,
+    root: process.env.SHENSI_KNOWLEDGE_STORAGE_ROOT, secret: process.env.AGENT_JOB_ENCRYPTION_KEY,
+    ...(process.env.SHENSI_KNOWLEDGE_READER_CONFIGURATION_INVALID==='true'?{readerConfigurationError:'knowledge_reader_configuration_invalid' as const}:{}),
+    authorizeJob: createKnowledgeJobAuthorizer(options.store), authorizeScope: createKnowledgeScopeAuthorizer(options.store) } : { mode: 'disabled' }));
+  const referencePending=(actorId:string)=>isAccountMutationPending(actorId)||isPlatformMutationPending(options.store as CrmStore);
+  let referenceConfig:ReferenceRuntimeConfig={mode:'disabled'};
+  if(reference.mode==='embedded'){
+    if(!financePool||!reference.packPath||!reference.packHash)throw Error('reference_configuration_invalid');
+    referenceConfig={mode:'embedded',pool:financePool,secret:options.reference!.secret!,packPath:reference.packPath,packHash:reference.packHash};
+  }else if(reference.mode!=='disabled'){
+    if(!financePool||!reference.issuer||!reference.origin||!reference.backendInstanceId)throw Error('reference_configuration_invalid');
+    referenceConfig=reference.mode==='central'
+      ?{mode:'central',pool:financePool,secret:options.reference!.secret!,issuer:reference.issuer,corpusId:reference.corpusId!,authority:createMysqlReferenceAuthority(financePool,referencePending)}
+      :{mode:'client',pool:financePool,secret:options.reference!.secret!,issuer:reference.issuer,centralOrigin:reference.origin,backendInstanceId:reference.backendInstanceId};
+  }
+  modules.push(createSystemReferenceModule(referenceConfig,{isMutationPending:referencePending}));
   modules.push(createGrowthFinancialCouncilModule(
     financePool
       ? { mode: "mysql", pool: financePool,

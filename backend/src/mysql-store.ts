@@ -683,6 +683,72 @@ export async function createMysqlStore(
       connection.release();
     }
   });
+  const deactivateModelConnection = (
+    scope: ModelConnectionScope,
+    connectionId: string,
+    _actorId: string,
+    _reason: string
+  ): Promise<ModelConnection> => enqueuePersistence(async () => {
+    const connection = await pool.getConnection();
+    let transactionStarted = false;
+    try {
+      await connection.beginTransaction();
+      transactionStarted = true;
+      const [targetRows] = await connection.query(
+        `SELECT * FROM ai_model_configs
+         WHERE id = ? AND owner_id = ? AND team_id = ?
+         FOR UPDATE`,
+        [connectionId, scope.ownerId, scope.teamId]
+      );
+      const target = (targetRows as Array<Record<string, any>>)[0];
+      if (!target) {
+        throw new ModelConnectionError(
+          "connection_not_found",
+          "模型连接不存在或不属于当前用户",
+          404
+        );
+      }
+      const updatedAt = new Date().toISOString();
+      await connection.query(
+        `UPDATE ai_model_configs
+         SET enabled = FALSE, is_default = FALSE, updated_at = ?
+         WHERE id = ? AND owner_id = ? AND team_id = ?`,
+        [
+          mysqlDate(updatedAt),
+          connectionId,
+          scope.ownerId,
+          scope.teamId
+        ]
+      );
+      await connection.commit();
+      transactionStarted = false;
+
+      const loadedConfigs = await loadAiModelConfigs(pool);
+      store.aiModelConfigs.splice(
+        0,
+        store.aiModelConfigs.length,
+        ...loadedConfigs
+      );
+      const deactivated = store.aiModelConfigs.find(
+        (item) => item.id === connectionId
+          && item.ownerId === scope.ownerId
+          && item.teamId === scope.teamId
+      );
+      if (!deactivated) {
+        throw new ModelConnectionError(
+          "connection_not_found",
+          "停用后未能重新加载模型连接",
+          404
+        );
+      }
+      return modelConnectionFromAiConfig(deactivated);
+    } catch (error) {
+      if (transactionStarted) await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  });
   const deleteModelConnection = (
     scope: ModelConnectionScope,
     connectionId: string,
@@ -1728,6 +1794,7 @@ export async function createMysqlStore(
 		    whatsappMessages: await loadWhatsAppMessages(pool),
         persist,
         activateModelConnection,
+        deactivateModelConnection,
         deleteModelConnection,
         persistMutation,
         persistAsyncMutation,
@@ -1847,13 +1914,14 @@ export async function createMysqlStore(
       if (!email || password.length < 12) {
         throw new Error("首次生产部署必须配置 INITIAL_ADMIN_EMAIL 和至少 12 位的 INITIAL_ADMIN_PASSWORD");
       }
+      const localCustomer = process.env.SHENSI_LOCAL_INITIAL_ACCOUNT === "true";
       store.users.push({
-        id: "u_initial_super_admin",
+        id: localCustomer ? `u_${randomUUID()}` : "u_initial_super_admin",
         name: process.env.INITIAL_ADMIN_NAME?.trim() || "Super Admin",
         email,
         password: await hashPassword(password),
-        role: "super_admin",
-        teamId: "all",
+        role: localCustomer ? "admin" : "super_admin",
+        teamId: localCustomer ? `workspace_${randomUUID()}` : "all",
         avatar: "SA",
         status: "active",
         authVersion: 1

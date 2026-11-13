@@ -195,6 +195,7 @@ components:
         revision: {type: integer, minimum: 0}
     OperatingMemoryQuestion:
       type: object
+      description: Shares the negotiated CFO reference protocol for both session and non-session text questions; no topic IDs without system-v1. Knowledge off or omitted closes both libraries.
       additionalProperties: false
       required: [selection, input]
       properties:
@@ -466,6 +467,9 @@ components:
         value: {type: number, minimum: 0, maximum: 24}
         probability: {type: number, minimum: 0, maximum: 1}
         assumption: {type: string, minLength: 1, maxLength: 500}
+        startMonthMax: {type: integer, minimum: 1, maximum: 24}
+        valueMin: {type: number, minimum: 0, maximum: 24}
+        valueMax: {type: number, minimum: 0, maximum: 24}
     RealizedEvent:
       type: object
       additionalProperties: false
@@ -479,10 +483,19 @@ components:
       required: [seed, samples, months, assumptions]
       properties:
         seed: {type: integer, minimum: 0, maximum: 4294967295}
-        samples: {type: integer, minimum: 1, maximum: 100}
+        samples: {type: integer, minimum: 1, maximum: 500}
         months: {type: integer, minimum: 1, maximum: 24}
         assumptions: {$ref: '#/components/schemas/Assumptions'}
         events: {type: array, maxItems: 8, items: {$ref: '#/components/schemas/OperatingEvent'}}
+        yearRegime: {type: string, enum: [normal, tight, storm]}
+        seasonality: {type: string, enum: [none, general_ecommerce, home_textile]}
+        externalEnvironment:
+          type: array
+          maxItems: 12
+          items: {type: string, enum: [tariff, credit_tight, price_war, fx, material, key_account_delay, shipping, weather_power, labor_cost]}
+        randomizePrice: {type: boolean}
+        randomizeFixedCost: {type: boolean}
+        fatTailProbability: {type: number, minimum: 0, maximum: 0.2}
     DecisionPreferences:
       type: object
       additionalProperties: false
@@ -553,6 +566,7 @@ components:
         sampleCount: {type: integer}
         profitRangeMinor: {type: array, items: {type: integer}}
         worstMinimumCashMinor: {type: integer}
+        worst5PctMeanCashMinor: {type: integer}
         samplesWithFundingGap: {type: integer}
         samplesWithBacklog: {type: integer}
         maximumBacklogUnits: {type: integer}
@@ -600,6 +614,7 @@ components:
             properties:
               planId: {type: string}
               modelVersion: {type: string}
+              retainedSampleIndexes: {type: array, items: {type: integer}}
               samples:
                 type: array
                 items:
@@ -627,6 +642,15 @@ components:
             unitsForMonthlyOperatingBreakEven: {type: integer, nullable: true}
             withinBaselineCapacity: {type: boolean}
             conditions: {type: string}
+        externalFactorImpact:
+          type: array
+          items:
+            type: object
+            required: [id, label, impact]
+            properties:
+              id: {type: string}
+              label: {type: string}
+              impact: {type: string}
     ListItem:
       type: object
       required: [runId, title, dataKind, createdAt]

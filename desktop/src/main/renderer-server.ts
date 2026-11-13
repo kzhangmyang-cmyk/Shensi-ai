@@ -3,6 +3,8 @@ import { realpath, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import path from "node:path";
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 const DEFAULT_MAX_BODY_BYTES = 1_048_576;
 // One raw 5 MiB file (three for statement packages), plus bounded JSON metadata.
@@ -19,6 +21,13 @@ const FINANCE_UPLOAD_BODY_BYTES = new Map([
 const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 10_000;
+const KNOWLEDGE_MAX_BYTES = 50 * 1024 * 1024;
+const KNOWLEDGE_UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const KNOWLEDGE_CONTENT = new RegExp(`^/api/v1/knowledge/documents/${KNOWLEDGE_UUID}/versions/${KNOWLEDGE_UUID}/content$`, 'u');
+const CFO_SESSION_TURN = new RegExp(`^/api/v1/finance/cfo-sessions/${KNOWLEDGE_UUID}/turns$`, 'u');
+function knowledgeTransfer(method: string | undefined, pathname: string) {
+  return (method === 'PUT' || method === 'GET') && KNOWLEDGE_CONTENT.test(pathname);
+}
 const BUILD_HEADER = "x-shensi-desktop-build-manifest-sha256";
 const HOP_BY_HOP_HEADERS = new Set([
   "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
@@ -44,10 +53,15 @@ export interface RendererServerOptions {
 /** Route-specific deadlines cover each backend model operation and its bounded repair. */
 export function rendererUpstreamBudget(method: string | undefined, pathname: string,
   options: Pick<RendererServerOptions, "upstreamTimeoutMs" | "maxResponseBytes"> = {}) {
+  if (knowledgeTransfer(method, pathname)) return {
+    timeoutMs: options.upstreamTimeoutMs ?? 120_000,
+    responseBytes: options.maxResponseBytes ?? (method === 'GET' ? KNOWLEDGE_MAX_BYTES : DEFAULT_MAX_RESPONSE_BYTES)
+  };
   const sourceRead = method === "POST" && pathname === "/api/v1/finance/documents/inspect";
   const decisionUpload=method==='POST'&&pathname==='/api/v1/decision-simulations/preparations';
   const decisionResult=(method==='POST'&&pathname==='/api/v1/decision-simulations') || (method==='GET'&&/^\/api\/v1\/decision-simulations\/(?:preparations\/)?[0-9a-f-]{36}$/u.test(pathname));
-  const modelRead = sourceRead || (method === "POST" && pathname === "/api/v1/finance/cfo-conversation");
+  const modelRead = sourceRead || (method === "POST" && (pathname === "/api/v1/finance/cfo-conversation"
+    || pathname === "/api/v1/finance/operating-memory-question" || CFO_SESSION_TURN.test(pathname)));
   // Keyword tool-calling uses one 30s attempt; the existing connection test
   // uses up to two 120s structured attempts. Keep ordinary APIs bounded at 10s.
   const keywordRead = method === "POST"
@@ -207,6 +221,7 @@ function sendFailure(
   failure: HttpFailure,
 ): void {
   if (response.destroyed || response.writableEnded) return;
+  if (response.headersSent) { response.destroy(); return; }
   if (!response.headersSent) response.statusCode = failure.status;
   if (failure.closeConnection && !response.headersSent) {
     response.setHeader("connection", "close");
@@ -264,10 +279,15 @@ export async function startRendererServer(options: RendererServerOptions): Promi
       const url = new URL(request.url ?? "/", "http://local");
       if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
         const budget = rendererUpstreamBudget(request.method, url.pathname, options);
+        const transfer = knowledgeTransfer(request.method, url.pathname);
+        const streamingUpload = transfer && request.method === 'PUT';
         const routeBodyBytes = request.method === "POST"
           ? FINANCE_UPLOAD_BODY_BYTES.get(url.pathname) : undefined;
-        const requestBody = await readRequestBody(request,
+        const requestBody = streamingUpload ? undefined : await readRequestBody(request,
           maxBodyBytes ?? routeBodyBytes ?? DEFAULT_MAX_BODY_BYTES, requestTimeoutMs);
+        if (streamingUpload && Number(request.headers['content-length']) > (maxBodyBytes ?? KNOWLEDGE_MAX_BYTES)) {
+          throw new HttpFailure(413, 'Request too large', true);
+        }
         const headers = new Headers();
         for (const [key, value] of Object.entries(request.headers)) {
           if (value && !HOP_BY_HOP_HEADERS.has(key)
@@ -287,27 +307,56 @@ export async function startRendererServer(options: RendererServerOptions): Promi
         response.once("close", abortDisconnectedRequest);
         if (response.destroyed) controller.abort();
         let timedOut = false;
+        let streamFailure: HttpFailure | undefined;
         const timer = setTimeout(() => {
           timedOut = true;
           controller.abort();
         }, budget.timeoutMs);
         timer.unref();
         try {
+          let streamingBody: Readable | undefined;
+          if (streamingUpload) {
+            let bytes = 0;
+            streamingBody = Readable.from((async function* () {
+              try {
+                // Do not destroy the local socket on an over-limit iterator
+                // return: the client must still receive the bounded 413.
+                for await (const part of request.iterator({ destroyOnReturn: false })) {
+                  const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
+                  bytes += chunk.length;
+                  if (bytes > (maxBodyBytes ?? KNOWLEDGE_MAX_BYTES)) {
+                    request.pause(); streamFailure = new HttpFailure(413, 'Request too large', true); throw streamFailure;
+                  }
+                  yield chunk;
+                }
+              } catch (error) {
+                streamFailure ??= new HttpFailure(400, 'Request aborted', true); throw error;
+              }
+            })(), { objectMode: false, highWaterMark: 64 * 1024 });
+          }
           const upstreamResponse = await fetch(
             new URL(`${url.pathname}${url.search}`, upstream),
             {
               method: request.method,
               headers,
-              body: ["GET", "HEAD"].includes(request.method ?? "") ? undefined : requestBody,
+              body: ["GET", "HEAD"].includes(request.method ?? "") ? undefined : (streamingBody ?? requestBody) as BodyInit,
+              ...(streamingUpload ? { duplex: 'half' } : {}),
               redirect: "manual",
               signal: controller.signal,
             },
           );
           if (upstreamResponse.status >= 300 && upstreamResponse.status < 400) {
             await upstreamResponse.body?.cancel().catch(() => undefined);
-            throw new HttpFailure(502, "Gateway redirect denied");
+            throw new HttpFailure(502, "Gateway redirect denied", streamingUpload);
           }
-          const data = await readResponseBody(upstreamResponse, budget.responseBytes);
+          const streamDownload = transfer && request.method === 'GET' && upstreamResponse.status === 200
+            && upstreamResponse.headers.get('content-type')?.split(';')[0].trim().toLowerCase() === 'application/octet-stream';
+          const advertised = Number(upstreamResponse.headers.get('content-length'));
+          if (streamDownload && Number.isFinite(advertised) && advertised > budget.responseBytes) {
+            await upstreamResponse.body?.cancel(); throw new HttpFailure(413, 'Response too large');
+          }
+          const data = streamDownload ? undefined : await readResponseBody(upstreamResponse,
+            transfer && request.method === 'GET' ? options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES : budget.responseBytes);
           response.statusCode = upstreamResponse.status;
           upstreamResponse.headers.forEach((value, key) => {
             if (!HOP_BY_HOP_HEADERS.has(key) && key !== "set-cookie")
@@ -322,11 +371,21 @@ export async function startRendererServer(options: RendererServerOptions): Promi
               : []);
           const rewritten = cookies.map(rewriteCookie).filter(Boolean);
           if (rewritten.length) response.setHeader("set-cookie", rewritten);
-          response.end(data);
+          if (streamDownload && upstreamResponse.body) {
+            let bytes = 0;
+            const meter = new Transform({ transform(chunk: Buffer, _encoding, callback) {
+              bytes += chunk.length;
+              if (bytes > budget.responseBytes) callback(new HttpFailure(413, 'Response too large'));
+              else callback(null, chunk);
+            } });
+            await pipeline(Readable.fromWeb(upstreamResponse.body as Parameters<typeof Readable.fromWeb>[0]), meter, response, { signal: controller.signal });
+          } else response.end(data);
         } catch (error) {
           if (timedOut) throw new HttpFailure(504, "Gateway timeout");
+          if (streamFailure) throw streamFailure;
           throw error;
         } finally {
+          if (transfer) controller.abort();
           clearTimeout(timer);
           response.off("close", abortDisconnectedRequest);
           upstreamRequests.delete(controller);

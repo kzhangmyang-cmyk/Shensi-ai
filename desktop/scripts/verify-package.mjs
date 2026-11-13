@@ -5,9 +5,11 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { listPackage } from "@electron/asar";
-import { findDeveloperAbsolutePath } from "./package-content-policy.mjs";
-import { normalizePackageMode, validateRemoteOrigin } from "./release-policy.mjs";
+import { findDeveloperAbsolutePath, isReviewedVendorPathExample } from "./package-content-policy.mjs";
+import { normalizePackageMode, validatePackagedRuntimeConfig } from "./release-policy.mjs";
+import { verifyStandaloneResources } from './standalone-resources.mjs';
 import { readDesktopBuildIdentity } from "../dist/main/desktop-build-identity.js";
+import { verifyAppSignatureIntegrity } from "./macos-signature-policy.mjs";
 
 const execFileAsync = promisify(execFile);
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -18,6 +20,7 @@ const packageMode = normalizePackageMode(process.argv[3]);
 if (path.extname(appPath) !== ".app") throw new Error("expected a .app bundle path");
 
 const appReal = await realpath(appPath);
+await verifyAppSignatureIntegrity(appReal);
 const resources = path.join(appReal, "Contents", "Resources");
 const asarPath = path.join(resources, "app.asar");
 const sidecarRoot = path.join(resources, "sidecar");
@@ -25,6 +28,9 @@ const sidecarInternal = path.join(sidecarRoot, "_internal");
 const CFO_GREETING_ASSET_FILENAME = "startup-greeting-qwen35-tina-v1.wav";
 const CFO_GREETING_ASSET_SHA256 = "78340a80314916b19bbb7cac6a85dcb2b1f512df1d7e00b8adc33ce9ab4b2ffd";
 const cfoGreetingAsset = path.join(resources, "audio", CFO_GREETING_ASSET_FILENAME);
+const runtimeConfig = validatePackagedRuntimeConfig(JSON.parse(await readFile(path.join(resources, 'desktop-config.json'), 'utf8')), packageMode === 'release');
+const standalone = runtimeConfig.mode === 'standalone';
+if (standalone) await verifyStandaloneResources(resources);
 const required = [
   asarPath,
   path.join(resources, "desktop-build-manifest.json"),
@@ -79,10 +85,12 @@ while (queue.length > 0) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     entries += 1;
     if (entries > 200_000) throw new Error("package verification entry cap exceeded");
-    if (forbiddenName.test(entry.name)) throw new Error(`forbidden packaged component: ${entry.name}`);
+    const candidate = path.join(directory, entry.name);
+    const permittedMysql = standalone && candidate.startsWith(`${path.join(resources, 'mysql')}${path.sep}`)
+      && /^(?:mysqld|mysqld_safe|mysqld-safe)(?:[-_.]|$)/iu.test(entry.name);
+    if (forbiddenName.test(entry.name) && !permittedMysql) throw new Error(`forbidden packaged component: ${entry.name}`);
     if (entry.name === ".links") throw new Error("Playwright SDK garbage-collection links must not be packaged");
     if (forbiddenSecret.test(entry.name)) throw new Error(`secret-like artifact: ${entry.name}`);
-    const candidate = path.join(directory, entry.name);
     if (forbiddenSecretExtension.test(entry.name)
       && candidate !== path.join(sidecarInternal, "certifi", "cacert.pem")) {
       throw new Error(`private-key-like artifact: ${entry.name}`);
@@ -131,6 +139,9 @@ if (!fileDescription.includes(expectedArchitecture)) {
 for (const [description, executable] of [
   ["bundled Playwright Node", path.join(sidecarInternal, "playwright", "driver", "node")],
   ["bundled Chromium", browserExecutable],
+  ...(standalone ? [['bundled Backend Node', path.join(resources, 'backend-runtime/node')],
+    ['bundled MySQL server', path.join(resources, 'mysql/bin/mysqld')],
+    ['bundled MySQL client', path.join(resources, 'mysql/bin/mysql')]] : []),
 ]) {
   const details = await stat(executable);
   if (!details.isFile() || (details.mode & 0o111) === 0) throw new Error(`${description} is not executable`);
@@ -144,15 +155,6 @@ for (const [description, executable] of [
 
 const index = await readFile(path.join(resources, "frontend", "index.html"), "utf8");
 if (!index.includes("<html")) throw new Error("packaged renderer is invalid");
-const runtimeConfig = JSON.parse(
-  await readFile(path.join(resources, "desktop-config.json"), "utf8"),
-);
-if (!runtimeConfig || typeof runtimeConfig !== "object" || Array.isArray(runtimeConfig)
-  || Object.keys(runtimeConfig).length !== 1
-  || typeof runtimeConfig.remoteOrigin !== "string") {
-  throw new Error("packaged desktop config is invalid");
-}
-validateRemoteOrigin(runtimeConfig.remoteOrigin, packageMode === "release");
 
 for (const candidate of packagedFiles) {
   const details = await stat(candidate);
@@ -163,7 +165,7 @@ for (const candidate of packagedFiles) {
   try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
   catch { continue; }
   const leakedPath = findDeveloperAbsolutePath(text);
-  if (leakedPath) {
+  if (leakedPath && !isReviewedVendorPathExample(path.relative(resources, candidate), bytes)) {
     throw new Error(`developer absolute path leaked in packaged file content (${leakedPath}): ${path.relative(appReal, candidate)}`);
   }
 }

@@ -1,6 +1,7 @@
 import type express from "express";
 import type mysql from "mysql2/promise";
 import { AcquisitionCostLedgerService } from "./acquisition-cost-ledger.js";
+import { RepositoryAcquisitionCostEstimateSealedReader } from "./acquisition-cost-estimate-as-of-reader.js";
 import {
   createAcquisitionCostLedgerRouter
 } from "./acquisition-cost-ledger-router.js";
@@ -65,6 +66,7 @@ import { MysqlFinancialStatementPackageRepository,
   "./financial-statement-package-mysql-repository.js";
 
 export interface GrowthFinanceServices {
+  readonly costEstimates?: RepositoryAcquisitionCostEstimateSealedReader;
   readonly costLedger: AcquisitionCostLedgerService;
   readonly financialFacts: FinancialFactLedgerService;
   readonly imports: FinanceImportService;
@@ -186,6 +188,7 @@ export function createGrowthFinanceModule(
           repository: statementPackageRepository, now: options.now
         });
         input.privateServices.provide(GROWTH_FINANCE_SERVICES, Object.freeze({
+          costEstimates: new RepositoryAcquisitionCostEstimateSealedReader(ledgerRepository),
           costLedger,
           financialFacts,
           imports,

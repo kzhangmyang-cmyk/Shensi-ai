@@ -7,6 +7,8 @@
   "required": ["answer", "provider", "model", "material", "answeredAt"],
   "properties": {
     "research": { "$ref": "#/$defs/Research" },
+    "knowledge": { "$ref": "knowledge.v1.schema.json#/$defs/Answer" },
+    "libraryStatus": { "$ref": "system-reference.v1.schema.json#/$defs/LibraryStatus" },
     "answer": { "type": "string", "minLength": 1, "maxLength": 4000 },
     "provider": { "type": "string", "minLength": 1 },
     "model": { "type": "string", "minLength": 1 },
@@ -39,7 +41,12 @@
     "Input": {
       "type": "object", "additionalProperties": false,
       "required": ["question", "history"],
+      "dependentRequired": { "referenceTopicIds": ["referenceProtocol"] },
       "properties": {
+        "referenceProtocol": { "const": "system-v1", "description": "Explicit negotiated text protocol. Omitted is private-only; knowledgeMode off or omitted closes both libraries." },
+        "referenceTopicIds": { "$ref": "system-reference.v1.schema.json#/$defs/ReferenceTopicSelection" },
+        "knowledgeMode": { "enum": ["auto", "off"], "default": "off", "description": "Bounded private reference retrieval for text; omitted preserves legacy and voice behavior." },
+        "webSearchMode": { "enum": ["on", "off"], "description": "Explicit text search preference: off skips planning and public search; on requires safe public retrieval or an explicit error. Omitted preserves legacy automatic planning. Independent from knowledgeMode." },
         "conversationKey": { "type": "string", "format": "uuid", "description": "Required for a chat attachment: must match the conversation used when parsing it, together with the selected role." },
         "documentId": { "type": ["string", "null"], "minLength": 1, "maxLength": 255, "description": "Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics." },
         "role": { "enum": ["cfo", "finance", "profit", "cost", "cashflow", "tax"], "default": "cfo", "description": "Selected specialist; omitted means CFO. One role/model per question." },

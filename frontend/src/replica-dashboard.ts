@@ -1,14 +1,35 @@
-import { startAcquisitionRuntime } from "./acquisition/runtime";
-import { startAcquisitionTaskCreation } from "./acquisition/task-creation-controller";
-import { startAcquisitionDetailCenter } from "./acquisition/detail-center-controller";
 import { acquisitionDetailRequestForAction } from "./acquisition/detail-center-entry";
-import { startAcquisitionPerformance } from "./acquisition/performance-controller";
-import { startConnectionCenter } from "./connections/connection-controller";
 import {
   getFlowCardSpacing,
   isSelectableFlowCard,
   nextSelectableFlowIndex
 } from "./replica-flow-selection";
+
+/** Defer heavy acquisition/connection controllers so they are not in the initial JS graph. */
+let acquisitionControllersStarted = false;
+function startAcquisitionControllers(): void {
+  if (acquisitionControllersStarted) return;
+  acquisitionControllersStarted = true;
+  void Promise.all([
+    import("./acquisition/runtime"),
+    import("./acquisition/task-creation-controller"),
+    import("./acquisition/detail-center-controller"),
+    import("./acquisition/performance-controller"),
+    import("./connections/connection-controller")
+  ]).then(([
+    { startAcquisitionRuntime },
+    { startAcquisitionTaskCreation },
+    { startAcquisitionDetailCenter },
+    { startAcquisitionPerformance },
+    { startConnectionCenter }
+  ]) => {
+    startAcquisitionRuntime();
+    startAcquisitionTaskCreation();
+    startAcquisitionDetailCenter();
+    startAcquisitionPerformance();
+    startConnectionCenter();
+  });
+}
 
 type ReplicaTaskRow = HTMLButtonElement & {
   dataset: DOMStringMap & {
@@ -614,8 +635,4 @@ if (replica) {
   updateFlowLayout(selectedFlowIndex);
 }
 
-startAcquisitionRuntime();
-startAcquisitionTaskCreation();
-startAcquisitionDetailCenter();
-startAcquisitionPerformance();
-startConnectionCenter();
+startAcquisitionControllers();

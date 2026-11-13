@@ -216,8 +216,9 @@ export function createFinancialFactRouter(
   router.get("/api/v1/finance/facts", route(async (req, res) => {
     requiredWorkspace(req);
     requireFactCapability(options, req);
-    listQuerySchema.parse(req.query);
-    jsonWithoutEtag(res, 200, { items: [], nextAfter: null, hasMore: false });
+    const query = listQuerySchema.parse(req.query);
+    const page = await options.ledger.list(options.workspaceContext(req), query);
+    jsonWithoutEtag(res, 200, { ...page, items: page.items.map(projectFinancialFact) });
   }));
 
   router.post("/api/v1/finance/facts", route(async (req, res) => {

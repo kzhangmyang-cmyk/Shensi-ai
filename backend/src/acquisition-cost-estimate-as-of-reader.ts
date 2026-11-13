@@ -129,6 +129,24 @@ export class RepositoryAcquisitionCostEstimateSealedReader
 implements AcquisitionCostEstimateSealedReader {
   constructor(private readonly repository: FinancialLedgerRepository) {}
 
+  async listActiveForCohortAt(cutoff: GrowthSealedReadCutoff, input: {
+    cohortId: string; currency: string; planId: string | null;
+  }): Promise<readonly AcquisitionCostEstimate[]> {
+    assertGrowthSealedReadCutoff(cutoff, cutoff.workspaceId);
+    const candidates = await this.repository.listCostEstimates(cutoff.workspaceId);
+    const keys = [...new Set(candidates.filter(row => row.currency === input.currency)
+      .map(row => row.sourceStableKey))].sort();
+    const rows: AcquisitionCostEstimate[] = [];
+    for (const sourceStableKey of keys) {
+      const row = await this.getActiveAt(cutoff, {currency: input.currency, sourceStableKey});
+      if (row && row.cohortId === input.cohortId
+        && (input.planId === null || row.planId === input.planId)
+        && row.validFrom <= cutoff.effectiveAsOf
+        && (row.validTo === null || cutoff.effectiveAsOf < row.validTo)) rows.push(row);
+    }
+    return Object.freeze(rows);
+  }
+
   getActiveAt(cutoff: GrowthSealedReadCutoff, input: {
     currency: string;
     sourceStableKey: string;

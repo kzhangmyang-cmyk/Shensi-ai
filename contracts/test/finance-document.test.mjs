@@ -60,7 +60,11 @@ test('readonly PDF and DOCX sources use page or document coordinates, not fabric
   assert.equal(validate({ ...base, cells: [{ ...sources[1], sourceRef: 'docx:p:0' }] }), false);
   assert.equal(validate({ ...base, cells: [{ ...sources[2], column: 0 }] }), false);
   const schema = registry.schemaDocuments.get('finance-document');
-  const ajv = new Ajv2020({ strict: true }); addFormats(ajv); ajv.addSchema(schema);
+  const ajv = new Ajv2020({ strict: true }); addFormats(ajv);
+  ajv.addSchema(registry.schemaDocuments.get('knowledge'));
+  ajv.addSchema(registry.schemaDocuments.get('system-reference'));
+  ajv.addSchema(registry.schemaDocuments.get('cfo-conversation'));
+  ajv.addSchema(schema);
   const input = ajv.compile({ $ref: `${schema.$id}#/$defs/Input` });
   for (const mediaType of ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']) {
     assert.equal(input({ fileName: 'source', mediaType, contentBase64: 'dGV4dA==', readWithModel: false }), true, JSON.stringify(input.errors));

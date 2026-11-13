@@ -56,6 +56,7 @@ test("producer rejects unsafe owner roots and cannot follow a symlink or replace
 test("same-source restart reuses exact immutable identity without writes but refuses corrupt or extra owner-root contents", async (t) => {
   const root = await fixture(t);
   await mkdir(path.join(root, ".runtime"), { mode: 0o755 });
+  await chmod(path.join(root, ".runtime"), 0o755);
   const file = await prepareDevelopmentBuildIdentity(root);
   const before = await lstat(file);
   assert.equal(await prepareDevelopmentBuildIdentity(root), file);

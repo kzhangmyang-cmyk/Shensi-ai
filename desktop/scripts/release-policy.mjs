@@ -37,8 +37,27 @@ export function validateRemoteOrigin(value, release) {
   return origin.origin;
 }
 
+export function resolvePackageRuntimeConfig(environment, release = false) {
+  if (environment.SHENSI_DESKTOP_MODE === 'standalone') {
+    if (environment.SHENSI_REMOTE_ORIGIN) throw new Error('mixed standalone and remote package configuration');
+    return { mode: 'standalone' };
+  }
+  if (environment.SHENSI_DESKTOP_MODE && environment.SHENSI_DESKTOP_MODE !== 'remote') {
+    throw new Error('invalid desktop package mode');
+  }
+  return { remoteOrigin: validateRemoteOrigin(environment.SHENSI_REMOTE_ORIGIN, release) };
+}
+
+export function validatePackagedRuntimeConfig(config, release = false) {
+  if (!config || typeof config !== 'object' || Array.isArray(config) || Object.keys(config).length !== 1)
+    throw new Error('packaged desktop config is invalid');
+  if (config.mode === 'standalone') return { mode: 'standalone' };
+  if (typeof config.remoteOrigin !== 'string') throw new Error('packaged desktop config is invalid');
+  return { remoteOrigin: validateRemoteOrigin(config.remoteOrigin, release) };
+}
+
 export function validateReleaseEnvironment(environment) {
-  const remoteOrigin = validateRemoteOrigin(environment.SHENSI_REMOTE_ORIGIN, true);
+  const config = resolvePackageRuntimeConfig(environment, true);
   if (!environment.CSC_NAME && !environment.CSC_LINK) {
     throw new Error("release packaging requires a Developer ID signing identity via CSC_NAME or CSC_LINK");
   }
@@ -46,5 +65,5 @@ export function validateReleaseEnvironment(environment) {
   if (!notaryProfile || !/^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$/u.test(notaryProfile)) {
     throw new Error("release packaging requires a valid notarytool keychain profile name");
   }
-  return { remoteOrigin, notaryProfile };
+  return { ...config, notaryProfile };
 }

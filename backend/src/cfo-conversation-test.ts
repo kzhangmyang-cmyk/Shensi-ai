@@ -65,6 +65,20 @@ function center(overrides: Record<string, unknown> = {}) {
   } as never);
 }
 
+test('explicit network off skips any research adapter; on degrades to an answer without research', async () => {
+  let modelCalls=0;
+  const chatModel=async()=>{modelCalls++;return {answer:'本地参考回答。',provider:'fixture',model:'fixture'};};
+  for(const role of FINANCIAL_COUNCIL_MODEL_ROLES){
+    const noSearch=center({chatModel,research:{prepare:async()=>assert.fail('off must never call research')}});
+    await noSearch.ask(context,{question:'联网查询最新公开政策',role,history:[],webSearchMode:'off'});
+    const degraded=await center({chatModel}).ask(context,{question:'公开政策',role,history:[],webSearchMode:'on'});
+    assert.equal('research' in degraded,false);
+    const failing=await center({chatModel,research:{prepare:async()=>{throw new GrowthHttpError(502,'agent_web_search_unavailable');}}}).ask(context,{question:'公开政策',role,history:[],webSearchMode:'on'});
+    assert.equal('research' in failing,false);
+  }
+  assert.equal(modelCalls,FINANCIAL_COUNCIL_MODEL_ROLES.length*3,'unavailable search answers without public evidence and without a research claim');
+});
+
 test('normal chat retrieves once, passes separate public evidence and atomically restores sources', async () => {
   let searches = 0;
   const topics: (string | undefined)[] = [];
@@ -318,8 +332,10 @@ test('CFO HTTP question validates body, permission, sanitized schema and per-act
     const body = await good.json();
     const schema = JSON.parse(readFileSync(new URL('../../contracts/json-schema/cfo-conversation.v1.schema.json', import.meta.url), 'utf8'));
     const documentSchema = JSON.parse(readFileSync(new URL('../../contracts/json-schema/finance-document.v1.schema.json', import.meta.url), 'utf8'));
+    const knowledgeSchema = JSON.parse(readFileSync(new URL('../../contracts/json-schema/knowledge.v1.schema.json', import.meta.url), 'utf8'));
     const ajv=new Ajv2020({ strict: false });addFormats(ajv);
-    const validate = ajv.addSchema(documentSchema).compile(schema);
+    ajv.addSchema(JSON.parse(readFileSync(new URL('../../contracts/json-schema/system-reference.v1.schema.json', import.meta.url), 'utf8')));
+    const validate = ajv.addSchema(knowledgeSchema).addSchema(documentSchema).compile(schema);
     assert.equal(validate(body), true, JSON.stringify(validate.errors));
     assert.equal(body.material, null);
     for (let i = 0; i < 10; i++) await post(input);

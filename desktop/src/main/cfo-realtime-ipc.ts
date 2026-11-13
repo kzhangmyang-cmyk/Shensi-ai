@@ -14,8 +14,15 @@ export function registerCfoRealtimeIpc(options: {
     const scope = options.service.activeScope; const sessionId = options.service.activeSessionId; if (!scope || checking) return;
     checking = true;
     void options.authorize(scope.workspaceId).then(current => {
-      if (current.actorId !== scope.actorId && options.service.activeSessionId === sessionId) options.service.stop();
-    }, () => { if (options.service.activeSessionId === sessionId) options.service.stop(); }).finally(() => { checking = false; });
+      // Actor/workspace change: tell the renderer instead of silently ending (looks like a random drop).
+      if (current.actorId !== scope.actorId && options.service.activeSessionId === sessionId) {
+        options.service.failActive('voice_permission_denied');
+      }
+    }, () => {
+      if (options.service.activeSessionId === sessionId) {
+        options.service.failActive('voice_auth_required');
+      }
+    }).finally(() => { checking = false; });
   }, 15_000); monitor.unref();
   options.ipcMain.handle(CFO_REALTIME_CHANNEL, async (event, raw) => {
     const sender = options.authorizedSender();

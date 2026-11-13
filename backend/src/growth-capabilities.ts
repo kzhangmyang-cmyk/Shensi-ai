@@ -21,6 +21,9 @@ export const GROWTH_CAPABILITIES = [
   "finance.council.run",
   "finance.council.approve",
   "finance.council.policy.manage",
+  "knowledge.read",
+  "knowledge.upload",
+  "knowledge.manage_own",
   "roi.close",
   "growth.performance.team.read",
   "growth.performance.workspace.read",
@@ -31,7 +34,7 @@ export const GROWTH_CAPABILITIES = [
 export type GrowthCapability = typeof GROWTH_CAPABILITIES[number];
 
 const HUMAN_GRANTS: Record<Role, readonly GrowthCapability[]> = {
-  sales: ["catalog.read", "quote.draft.create"],
+  sales: ["catalog.read", "quote.draft.create", "knowledge.read", "knowledge.upload", "knowledge.manage_own"],
   manager: [
     "catalog.read",
     "pricing.sensitive.read",
@@ -44,6 +47,9 @@ const HUMAN_GRANTS: Record<Role, readonly GrowthCapability[]> = {
     "quote.exception.credit.approve",
     "quote.exception.manual.approve",
     "ledger.pending.create",
+    "knowledge.read",
+    "knowledge.upload",
+    "knowledge.manage_own",
     "growth.performance.team.read"
   ],
   admin: GROWTH_CAPABILITIES.filter((capability) =>

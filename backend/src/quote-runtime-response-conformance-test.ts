@@ -45,7 +45,7 @@ type OperationId = keyof typeof operations;
 
 export async function assertQuoteRuntimeResponsesConform(): Promise<void> {
   const release = loadGrowthContractRelease();
-  assert.equal(release.manifest.contractVersion, "1.0.34");
+  assert.equal(release.manifest.contractVersion, "1.0.41");
   const document = release.document as Record<string, any>;
   const components = structuredClone(document.components);
   for (const schema of Object.values(components.schemas)) {

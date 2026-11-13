@@ -343,6 +343,12 @@ export interface CrmStore {
     actorId: string,
     reason: string
   ): Promise<ModelConnection>;
+  deactivateModelConnection?(
+    scope: ModelConnectionScope,
+    connectionId: string,
+    actorId: string,
+    reason: string
+  ): Promise<ModelConnection>;
   deleteModelConnection?(
     scope: ModelConnectionScope,
     connectionId: string,

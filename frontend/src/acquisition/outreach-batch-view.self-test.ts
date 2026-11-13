@@ -749,7 +749,7 @@ assert.match(compactDirectMessageFlow?.textContent ?? "", /当前设置上限\s*
 assert.doesNotMatch(compactDirectMessageFlow?.textContent ?? "", /今日剩余/u,
   "batch-local actions must not be presented as authoritative account-wide quota");
 assert.match(compactDirectMessageFlow?.textContent ?? "", /发送私信/u);
-assert.match(compactDirectMessageFlow?.textContent ?? "", /确认并排队私信/u);
+assert.match(compactDirectMessageFlow?.textContent ?? "", /批准并发送 \d+ 条私信/u);
 assert.match(compactDirectMessageFlow?.textContent ?? "", /预览并确认私信/u);
 assert.match(compactDirectMessageFlow?.querySelector(
   "[data-outreach-direct-message-preview-content=candidate-1]"
@@ -790,7 +790,7 @@ const dailyLimit = host.querySelector<HTMLInputElement>(
 assert.equal(dailyLimit?.value, "20");
 assert.equal(dailyLimit?.getAttribute("min"), "1");
 assert.equal(dailyLimit?.getAttribute("max"), "100");
-assert.match(host.textContent ?? "", /确认并排队私信/u);
+assert.match(host.textContent ?? "", /批准并发送 \d+ 条私信/u);
 assert.match(host.textContent ?? "", /无需先发表评论/u);
 assert.equal(
   host.querySelector("[data-outreach-confirm]"),

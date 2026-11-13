@@ -48,11 +48,15 @@ free-form output; use sourced references or a qualitative answer.
 
 Skills maintain repeatable analytical methods and tested formulas. Company
 knowledge holds sourced company facts with period, version and correction
-history. Current six-role questions read an explicitly selected read-only CSV/XLSX, text PDF or DOCX
-source or the latest verified three-statement package. They do not learn new facts
-by silently saving chat or train the provider model. Future knowledge ingestion should preserve source,
-scope, validity and user-confirmed corrections through the existing authorization
-boundary. No new database, connector or knowledge write is part of this release.
+history. Six-role text questions first retrieve enabled reference material from
+the authenticated actor's concrete workspace and applicable role, then combine
+it with the explicitly selected read-only source or latest verified three-statement
+package in one current-model answer. The independent persistent `#knowledge`
+library preserves source/version/hash and exact locations; books and internal
+documents are reference statements, not verified company facts or system instructions.
+No silent chat-to-fact learning or provider training occurs. Detailed reference
+answers retain financial validation, current permission/version release checks
+and exact internal citations. See [knowledge-base boundaries](knowledge-base.md).
 
 ## Uploaded material and questions
 

@@ -6,7 +6,9 @@ import { createSourceContentManifest } from "../../scripts/source-content-manife
 import os from "node:os";
 import path from "node:path";
 import { validateReleaseEnvironment } from "./release-policy.mjs";
+import { installStagedStandaloneResources, refreshStandaloneResourceManifest } from './standalone-resources.mjs';
 import {
+  verifyAppSignatureIntegrity,
   verifyReleaseAppSignatures,
   verifyReleaseDmgSignature,
 } from "./macos-signature-policy.mjs";
@@ -29,15 +31,17 @@ async function treeDigest(root) {
   return digest(JSON.stringify(records.sort((a, b) => a[0].localeCompare(b[0]))));
 }
 
-/** Generated before code signing: payload fingerprints, not signature attestation. */
+/** Payload fingerprints finalized after nested signing, before the outer seal; not identity attestation. */
 export async function writePackagedBuildIdentity({ resourcesPath, sourceRootHash, architecture, bundleId }) {
   if (!/^[a-f0-9]{64}$/u.test(sourceRootHash) || !["arm64", "x64"].includes(architecture)
     || !/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u.test(bundleId)) throw new Error("invalid packaged identity inputs");
+  const runtimeConfig = JSON.parse(await readFile(path.join(resourcesPath, 'desktop-config.json'), 'utf8'));
   const manifest = { version: 1, kind: "packaged", sourceRootHash,
     rendererSha256: await treeDigest(path.join(resourcesPath, "frontend")),
     mainSha256: digest(await readFile(path.join(resourcesPath, "app.asar"))),
     sidecarSha256: await treeDigest(path.join(resourcesPath, "sidecar")),
     runtimeConfigSha256: digest(await readFile(path.join(resourcesPath, "desktop-config.json"))),
+    ...(runtimeConfig.mode === 'standalone' ? { standaloneResourcesSha256: digest(await readFile(path.join(resourcesPath, 'standalone-resources.json'))) } : {}),
     architecture, bundleId };
   const output = path.join(resourcesPath, "desktop-build-manifest.json");
   await writeFile(output, `${JSON.stringify(manifest)}\n`, { mode: 0o644 });
@@ -49,8 +53,21 @@ export async function afterPack(context) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const source = await createSourceContentManifest(repositoryRoot, "desktop-app");
   const resourcesPath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents", "Resources");
+  const config = JSON.parse(await readFile(path.join(resourcesPath, 'desktop-config.json'), 'utf8'));
+  if (config.mode === 'standalone') {
+    await installStagedStandaloneResources(path.join(repositoryRoot, 'desktop/resources/staging/standalone'), resourcesPath);
+  }
   await writePackagedBuildIdentity({ resourcesPath, sourceRootHash: source.rootHash,
     architecture: process.arch, bundleId: context.packager.appInfo.id });
+}
+
+export async function finalizePackagedResources(appPath) {
+  const resourcesPath = path.join(appPath, 'Contents', 'Resources');
+  const identity = JSON.parse(await readFile(path.join(resourcesPath, 'desktop-build-manifest.json'), 'utf8'));
+  const config = JSON.parse(await readFile(path.join(resourcesPath, 'desktop-config.json'), 'utf8'));
+  if (config.mode === 'standalone') await refreshStandaloneResourceManifest(resourcesPath);
+  return writePackagedBuildIdentity({ resourcesPath, sourceRootHash: identity.sourceRootHash,
+    architecture: identity.architecture, bundleId: identity.bundleId });
 }
 
 function run(executable, arguments_) {
@@ -69,9 +86,10 @@ function releaseConfiguration() {
 }
 
 export async function afterSign(context) {
+  const appPath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
+  await verifyAppSignatureIntegrity(appPath);
   const configuration = releaseConfiguration();
   if (!configuration) return;
-  const appPath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
   const identity = await verifyReleaseAppSignatures(appPath);
   signedAppIdentities.set(String(context.arch), identity);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "shensi-app-notary-"));

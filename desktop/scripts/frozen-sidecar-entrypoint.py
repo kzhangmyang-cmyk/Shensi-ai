@@ -32,7 +32,8 @@ def configure_frozen_node(
         root = raw_root.resolve(strict=True)
     except OSError as error:
         raise RuntimeError("frozen Sidecar resource root is missing") from error
-    expected = root / "playwright" / "driver" / "node"
+    node_name = "node.exe" if sys.platform == "win32" else "node"
+    expected = root / "playwright" / "driver" / node_name
     try:
         resolved = expected.resolve(strict=True)
     except OSError as error:

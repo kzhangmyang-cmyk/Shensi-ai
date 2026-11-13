@@ -7,6 +7,7 @@ export class CfoRealtimeClient {
   private context?: AudioContext; private player?: CfoPcmPlayback; private release?: () => void;
   private unsubscribe?: () => void; private timer?: ReturnType<typeof setInterval>; private starting = false;
   private replyEpoch = 0; private preview?: CfoVoicePreview; private retired = new Set<string>();
+  private onContextState?: () => void;
   constructor(private readonly options: { bridge: CfoRealtimeBridge;
     createAudio?(): AudioContext; microphone?: typeof openCfoMicrophone;
     onState(state: 'idle' | 'connecting' | 'listening' | 'thinking' | 'speaking' | 'interrupting'): void;
@@ -21,6 +22,16 @@ export class CfoRealtimeClient {
       // Resume in the user's click, before IPC/network awaits consume activation.
       const context = (this.options.createAudio ?? (() => new AudioContext()))(); this.context = context;
       await context.resume(); if (!current()) return;
+      // Sleep / device switch can suspend WebAudio; try one resume, else recoverable stall.
+      this.onContextState = () => {
+        if (!current() || context.state !== 'suspended') return;
+        void context.resume().then(() => {
+          if (current() && context.state === 'suspended') this.fail('voice_audio_stalled');
+        }, () => { if (current()) this.fail('voice_audio_stalled'); });
+      };
+      if (typeof context.addEventListener === 'function') {
+        context.addEventListener('statechange', this.onContextState);
+      }
       const player = new CfoPcmPlayback(context, (id, ms, complete, text) => {
         if (!current() || !this.sessionId) return;
         const replyEpoch = this.replyEpoch;
@@ -28,11 +39,13 @@ export class CfoRealtimeClient {
           if (current() && replyEpoch === this.replyEpoch && !this.retired.has(id) && complete && text.trim()) {
             this.retired.add(id); this.preview = undefined;
             this.options.onTurn({ role: 'assistant', text }); this.options.onState('listening'); }
-        }, () => { if (current()) this.fail('voice_network_failed'); });
+        }, () => {
+          // Playback ACK is best-effort. A late/failed ACK must not tear down the mic session.
+        });
       }); this.player = player;
       this.unsubscribe = this.options.bridge.onEvent(event => {
         if (!current()) return;
-        if (!this.sessionId) { if (early.length < 32) early.push(event); else this.fail('voice_backpressure'); return; }
+        if (!this.sessionId) { if (early.length < 512) early.push(event); return; }
         this.receive(event);
       });
       const { sessionId } = await this.options.bridge.start(workspaceId, history, documentId);
@@ -42,11 +55,21 @@ export class CfoRealtimeClient {
       let inFlight = 0;
       const release = await (this.options.microphone ?? openCfoMicrophone)(context, pcm => {
         if (!current()) return;
-        if (++inFlight > 5) { this.fail('voice_backpressure'); return; }
-        void this.options.bridge.audio(sessionId, pcm).catch(() => { if (current()) this.fail('voice_network_failed'); }).finally(() => { inFlight--; });
-      }, abort.signal);
+        // ~10 PCM frames/sec. Under Electron IPC backlog, drop frames instead of killing
+        // the whole customer session (former hard limit of 5 was too aggressive).
+        if (inFlight >= 12) return;
+        inFlight += 1;
+        void this.options.bridge.audio(sessionId, pcm).catch(error => {
+          if (!current()) return;
+          const code = error instanceof Error ? error.message : '';
+          if (code === 'voice_not_ready') return;
+          this.fail(/^voice_[a-z_]+$/u.test(code) ? code : 'voice_network_failed');
+        }).finally(() => { inFlight -= 1; });
+      }, abort.signal, undefined, code => { if (current()) this.fail(code); });
       if (!current()) { release(); return; } this.release = release;
-      this.timer = setInterval(() => { try { player.tick(); } catch { this.fail('voice_audio_unavailable'); } }, 100);
+      this.timer = setInterval(() => { try { player.tick(); } catch (error) {
+        this.fail(error instanceof Error && /^voice_[a-z_]+$/u.test(error.message) ? error.message : 'voice_audio_unavailable');
+      } }, 100);
       this.options.onState('listening');
     } catch (error) { if (current()) this.fail(error instanceof Error && /^voice_[a-z_]+$/u.test(error.message) ? error.message : 'voice_audio_unavailable'); }
     finally { early = []; this.starting = false; }
@@ -55,7 +78,9 @@ export class CfoRealtimeClient {
     if (event.sessionId !== this.sessionId || !this.abort || this.abort.signal.aborted) return;
     try {
       if (event.type === 'ended') { this.stop(); return; }
-      if (event.type === 'error') { this.options.onError(event.code); return; }
+      // Always tear down on provider error so a failed mic/session cannot linger and block later text turns.
+      if (event.type === 'error') { this.fail(typeof event.code === 'string' ? event.code : 'voice_network_failed'); return; }
+      if (event.type === 'reconnecting') { this.player?.clear(); this.options.onState('connecting'); return; }
       if (event.type === 'listening') { this.options.onState(this.release ? 'listening' : 'connecting'); return; }
       if (event.type === 'thinking') { this.options.onState('thinking'); return; }
       if (event.type === 'interrupted') { this.retireReply(); this.player?.clear(); this.options.onState('interrupting'); return; }
@@ -70,7 +95,9 @@ export class CfoRealtimeClient {
       if (event.type === 'response_done') { this.player?.done(event.responseId, event.text); return; }
       if (event.type === 'user') this.options.onTurn({ role: 'user', text: event.text });
       if (event.type === 'business') this.options.onBusiness(event.text, event.model);
-    } catch { this.fail('voice_audio_unavailable'); }
+    } catch (error) {
+      this.fail(error instanceof Error && /^voice_[a-z_]+$/u.test(error.message) ? error.message : 'voice_audio_unavailable');
+    }
   }
   private fail(code: string) { this.stop(); this.options.onError(code); }
   private retireReply() {
@@ -84,6 +111,10 @@ export class CfoRealtimeClient {
     const active = !!this.abort; ++this.epoch; this.abort?.abort(); this.abort = undefined;
     this.unsubscribe?.(); this.unsubscribe = undefined; clearInterval(this.timer); this.timer = undefined;
     this.player?.clear(); this.player = undefined; this.release?.(); this.release = undefined;
+    if (this.context && this.onContextState && typeof this.context.removeEventListener === 'function') {
+      try { this.context.removeEventListener('statechange', this.onContextState); } catch { /* ignore */ }
+    }
+    this.onContextState = undefined;
     void this.context?.close().catch(() => {}); this.context = undefined; this.sessionId = undefined;
     if (active) { void this.options.bridge.stop().catch(() => {}); this.options.onState('idle'); }
   }

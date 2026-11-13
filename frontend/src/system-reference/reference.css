@@ -1,0 +1,79 @@
+/* The default library reuses the product's appearance roles in every entry. */
+:is(.reference-connection,.system-reference-citation,.reference-admin-panel,.reference-approval-page,[data-cfo-reference-topics],[data-cfo-reference-connection]) {
+  color: var(--theme-text); font-size: 14px; line-height: 1.65; min-width: 0; overflow-wrap: anywhere;
+}
+:is(.reference-connection,.system-reference-citation,.reference-admin-panel,.reference-binding-approval) {
+  background: var(--theme-surface); border: 1px solid var(--theme-line); border-radius: 12px; padding: 18px;
+}
+:is(.reference-connection,.system-reference-citation,.reference-admin-panel,.reference-approval-page,[data-cfo-reference-topics],[data-cfo-reference-connection]) :is(button,input,summary) {
+  font: inherit; color: var(--theme-text); accent-color: var(--theme-accent);
+}
+:is(.reference-connection,.system-reference-citation,.reference-admin-panel,.reference-approval-page,[data-cfo-reference-topics],[data-cfo-reference-connection]) :is(button,summary) {
+  min-height: 44px; padding: 9px 12px; border: 1px solid var(--theme-line); border-radius: 8px;
+  background: var(--theme-raised); white-space: normal; text-align: start; cursor: pointer;
+}
+:is(.reference-connection,.system-reference-citation,.reference-admin-panel,.reference-approval-page,[data-cfo-reference-topics],[data-cfo-reference-connection]) :is(button,input):disabled {
+  opacity: 1; color: var(--theme-muted); background: var(--theme-sunken); cursor: default;
+}
+/* Match the retained chat shell's ID-bearing selector without changing older controls. */
+:is(.replica-shell,#growthWorkspace) :is(.reference-connection,.system-reference-citation,[data-cfo-reference-topics]) :is(button,input):disabled {
+  opacity: 1; color: var(--theme-muted); background: var(--theme-sunken); cursor: default;
+}
+:is(.reference-connection,.system-reference-citation,.reference-admin-panel,.reference-approval-page,[data-cfo-reference-topics],[data-cfo-reference-connection]) :is(button,input,summary,a):focus-visible {
+  outline: 2px solid var(--theme-accent); outline-offset: 3px;
+}
+:is(.reference-connection,.reference-binding-approval,[data-cfo-reference-topics]) label,.reference-check {
+  display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer;
+}
+:is(.reference-connection,.reference-binding-approval,.reference-admin-panel,[data-cfo-reference-topics]) input[type=checkbox] {
+  width: 20px; height: 20px; flex: 0 0 20px; padding: 0; margin: 0;
+}
+.reference-actions,.reference-admin-confirm>div { display: flex; flex-wrap: wrap; gap: 10px; margin-block-start: 12px; }
+:is(.reference-connection,.system-reference-citation,.reference-admin-panel,.reference-binding-approval) p { margin: 10px 0; color: var(--theme-text); }
+.reference-connection a,.reference-approval-page a { color: var(--theme-accent); text-decoration: underline; text-underline-offset: 3px; }
+.reference-connection :is(h3,p):empty { display: none; }
+.system-reference-citation { margin-block: 12px; }
+.system-reference-citation h4 { margin: 0 0 8px; font-size: 15px; }
+.system-reference-citation blockquote { margin: 12px 0; padding: 12px; background: var(--theme-sunken); border-inline-start: 3px solid var(--theme-line); white-space: pre-wrap; color: var(--theme-text); }
+[data-cfo-reference-topics],[data-cfo-reference-connection] { margin-block: 8px; }
+[data-cfo-reference-topics] fieldset { border: 1px solid var(--theme-line); border-radius: 8px; margin: 8px 0; padding: 12px; display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: 4px 12px; }
+[data-cfo-reference-topics] legend { padding: 0 5px; }
+[data-cfo-reference-topics] label:has(input:checked) { color: var(--theme-text); background: var(--theme-sunken); border-radius: 6px; }
+[data-cfo-reference-topics] label:has(input:disabled) { color: var(--theme-muted); }
+[data-cfo-reference-connection]>summary { margin-block-end: 8px; }
+.reference-central-surface { margin: 0; background: var(--theme-page); color: var(--theme-text); font-family: Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+.reference-central-surface * { box-sizing: border-box; }
+.reference-skip { position: absolute; inset-inline-start: -9999px; }
+.reference-skip:focus { inset-inline-start: 16px; top: 12px; padding: 12px; z-index: 10; background: var(--theme-surface); color: var(--theme-text); }
+.reference-approval-page { max-width: 760px; padding: 32px 20px; margin: auto; }
+.reference-approval-page header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.reference-approval-page h1 { font-size: 24px; line-height: 1.4; margin: 0; }
+.reference-approval-page .product-theme-toggle { width: auto; }
+.reference-approval-page h2 { margin-top: 0; font-size: 19px; }
+.reference-approval-page #reference-approval-root>a { margin-inline-end: 12px; }
+.reference-admin-panel form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.reference-admin-panel form label { flex: 1; min-width: min(260px,100%); }
+.reference-admin-panel label:not(.reference-check) { display: grid; gap: 8px; }
+.reference-admin-panel input:not([type=checkbox]) { min-height: 44px; width: 100%; min-width: 0; padding: 9px 12px; border: 1px solid var(--theme-line); border-radius: 8px; background: var(--theme-sunken); font-size: 16px; }
+.reference-admin-panel dl { display: grid; grid-template-columns: minmax(96px,auto) minmax(0,1fr); gap: 8px 16px; }
+.reference-admin-panel dt { color: var(--theme-muted); }
+.reference-admin-panel dd { margin: 0; word-break: break-word; }
+.reference-admin-panel dd ul { margin: 0; padding-inline-start: 20px; }
+.reference-admin-panel article { border-block-start: 1px solid var(--theme-line); padding-block: 12px; }
+.reference-admin-confirm { border-block-start: 1px solid var(--theme-line); padding-block-start: 18px; display: grid; gap: 12px; }
+.reference-central-surface .platform-app :is(aside,.panel) { background: var(--theme-surface); color: var(--theme-text); border-color: var(--theme-line); }
+.reference-central-surface .platform-app :is(button,input,select) { color: var(--theme-text); background: var(--theme-raised); border-color: var(--theme-line); }
+.reference-central-surface .platform-app :is(button,input,select):disabled { opacity: 1; color: var(--theme-muted); background: var(--theme-sunken); }
+.reference-central-surface .platform-app :is(.brand,.brand span,.aside-note,.eyebrow,.empty,small,footer,dt,.login p) { color: var(--theme-muted); }
+.reference-central-surface .platform-app .brand { color: var(--theme-text); }
+.reference-central-surface .platform-app :is(.primary,nav button[aria-current]) { background: var(--theme-accent); color: var(--theme-on-accent); border-color: var(--theme-accent); }
+.reference-central-surface .platform-app :is(button,input,select,a):focus-visible { outline: 2px solid var(--theme-accent); outline-offset: 3px; }
+.reference-central-surface .platform-app .product-theme-toggle { margin-block-start: 16px; }
+@media (max-width: 30rem) {
+  :is(.reference-connection,.system-reference-citation,.reference-admin-panel,.reference-binding-approval) { padding: 14px; }
+  .reference-admin-panel dl { grid-template-columns: minmax(0,1fr); gap: 2px; }
+  .reference-admin-panel dd { margin-block-end: 10px; }
+}
+@media (forced-colors: active) {
+  :is(.reference-central-surface,.reference-connection,.system-reference-citation,[data-cfo-reference-topics],[data-cfo-reference-connection]) :is(button,input,summary,a):focus-visible { outline-color: Highlight; }
+}

@@ -112,6 +112,21 @@ function requestToken(req: Request) {
   return { token, source: "cookie" as const };
 }
 
+/** Optional old session for connection fencing after a new login is verified.
+ * Invalid/expired cookies must not prevent a fresh normal login. No token leaves auth. */
+export function referenceSessionToFence(req: Request): { actorId: string; csrfValid: boolean } | null {
+  const { token, source } = requestToken(req);
+  if (!token) return null;
+  try {
+    const claims = jwt.verify(token, jwtSecret(), { issuer: TOKEN_ISSUER, audience: TOKEN_AUDIENCE, algorithms: ['HS256'] }) as TokenClaims;
+    const user = getStore().users.find(item => item.id === claims.sub);
+    if (!user || isAccountMutationPending(user.id) || user.status !== 'active' || Number(user.authVersion || 1) !== Number(claims.ver || 1)) return null;
+    if (source === 'bearer') return { actorId: user.id, csrfValid: true };
+    const cookie = parseCookies(req.headers.cookie)[CSRF_COOKIE_NAME] || '', header = String(req.headers['x-csrf-token'] || '');
+    return { actorId: user.id, csrfValid: !!cookie && !!header && Buffer.byteLength(cookie) === Buffer.byteLength(header) && timingSafeEqual(Buffer.from(cookie), Buffer.from(header)) };
+  } catch { return null; }
+}
+
 function usesAcquisitionTaskOverviewErrorEnvelope(req: Request) {
   const pathname = new URL(
     req.originalUrl || req.url,
@@ -134,6 +149,14 @@ function sendAuthError(
   res.setHeader("X-Request-Id", requestId);
   res.setHeader("Cache-Control", "no-store");
   const error = { code, message, details: null, requestId };
+  const pathname = new URL(req.originalUrl || req.url, 'http://localhost').pathname;
+  if (pathname === '/api/v1/knowledge' || pathname.startsWith('/api/v1/knowledge/')
+    || pathname === '/api/v1/reference-connection' || pathname.startsWith('/api/v1/reference-connection/')
+    || pathname === '/api/v1/system-reference' || pathname.startsWith('/api/v1/system-reference/')
+    || pathname.startsWith('/api/platform/v1/system-reference/')) {
+    res.status(status).json({ error: { code, message } });
+    return;
+  }
   if (usesAcquisitionTaskOverviewErrorEnvelope(req)) {
     res.status(status).json({ error });
     return;
@@ -175,7 +198,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     if (platform && !crawlerResult && !pathname.startsWith('/api/auth/') && !pathname.startsWith('/api/platform/')) {
       const feature: PlatformFeature | null = pathname === '/api/profile' ? null : pathname.includes('decision-simulation') ? 'decision'
         : pathname.includes('acquisition') || pathname.includes('prospect') ? 'acquisition'
-        : pathname.includes('agent') || pathname.includes('financial-council') || /^\/api\/v1\/finance\/(cfo-sessions|cfo-conversation|council-runs|operating-memory-question)(\/|$)/.test(pathname) ? 'agents'
+        : /^\/api\/v1\/(system-reference|reference-connection)(\/|$)/.test(pathname) || pathname.includes('agent') || pathname.includes('financial-council') || /^\/api\/v1\/finance\/(cfo-sessions|cfo-conversation|council-runs|operating-memory-question)(\/|$)/.test(pathname) ? 'agents'
         : pathname.includes('/growth') || pathname.includes('/finance') || pathname.includes('/quote') || pathname.includes('/catalog') ? 'growth' : 'crm';
       const access = evaluatePlatformAccess(platform, user.teamId, feature, ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ? 'read' : 'execute', Date.now());
       if (access.managed && isPlatformMutationPending(getStore())) { sendAuthError(req, res, 403, 'authorization_updating', '授权正在更新，请稍后重试'); return; }

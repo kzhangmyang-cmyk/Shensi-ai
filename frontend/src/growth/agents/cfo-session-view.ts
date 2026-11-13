@@ -36,6 +36,7 @@ export function mountRetainedCfoConversation(options:Options) {
     const agent=BUSINESS_AGENT_TEAM.find(item=>item.id===role);
     if(!agent||sessions.get(doc)!==current||!current.host)return;
     if(current.views.get(role)?.panel.parentElement===current.host)return;
+    if (role !== current.role) current.views.get(current.role)?.controller.cancelPending();
     current.views.get(current.role)?.controller.suspend();
     let view=current.views.get(role);
     if(!view){
@@ -43,7 +44,7 @@ export function mountRetainedCfoConversation(options:Options) {
       const controller=mountCfoConversation({...options,host:panel,initialRole:role,onRoleChange:show});
       view={panel,controller};current.views.set(role,view);
     }
-    current.role=role;current.host.replaceChildren(view.panel);
+    current.role=role;current.host.replaceChildren(view.panel);view.controller.resume();
     const EventType=doc.defaultView?.CustomEvent??CustomEvent;
     queueMicrotask(()=>{if(sessions.get(doc)===current&&current.host?.isConnected)doc.dispatchEvent(new EventType('goodjob:cfo-role-changed',{detail:{roleId:role,roleName:agent.name.replace(/^AI\s*/u,'')}}));});
   }

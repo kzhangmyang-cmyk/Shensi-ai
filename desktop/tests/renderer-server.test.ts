@@ -1,15 +1,117 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { Readable } from 'node:stream';
 import { startRendererServer as startServer, rendererUpstreamBudget, type RendererServerOptions } from "../src/main/renderer-server.ts";
 
 const BUILD_DIGEST = "a".repeat(64);
 const startRendererServer = (options: Omit<RendererServerOptions, "buildManifestSha256">) =>
   startServer({ ...options, buildManifestSha256: BUILD_DIGEST });
+
+const knowledgePath = '/api/v1/knowledge/documents/12345678-1234-1234-1234-123456789abc/versions/abcdef01-1234-1234-1234-123456789abc/content';
+test('only exact knowledge binary GET/PUT use 120s and bounded original transfer budgets', () => {
+  assert.equal(rendererUpstreamBudget('GET', knowledgePath).timeoutMs, 120_000);
+  assert.equal(rendererUpstreamBudget('GET', knowledgePath).responseBytes, 50 * 1024 * 1024);
+  assert.equal(rendererUpstreamBudget('PUT', knowledgePath).timeoutMs, 120_000);
+  assert.equal(rendererUpstreamBudget('PUT', knowledgePath).responseBytes, 1024 * 1024);
+  for (const [method, pathname] of [['POST', knowledgePath], ['GET', `${knowledgePath}/`], ['PUT', `${knowledgePath}-other`], ['PUT', '/api/v1/knowledge/documents/not-a-uuid/versions/not-a-uuid/content']]) {
+    assert.equal(rendererUpstreamBudget(method, pathname).timeoutMs, 10_000);
+    assert.equal(rendererUpstreamBudget(method, pathname).responseBytes, 1024 * 1024);
+  }
+});
+
+test('knowledge upload forwards before local EOF and download forwards before upstream EOF', async t => {
+  const distDir = await mkdtemp(path.join(tmpdir(), 'shensi-renderer-knowledge-'));
+  t.after(() => rm(distDir, { recursive: true, force: true }));
+  let uploadObserved!: () => void, finishDownload!: () => void;
+  const receivedUpload = new Promise<void>(resolve => { uploadObserved = resolve; });
+  const upstream = createServer((incoming, outgoing) => {
+    if (incoming.method === 'PUT') {
+      assert.equal(incoming.headers.cookie, 'gj_session=synthetic');
+      assert.equal(incoming.headers['x-csrf-token'], 'synthetic-csrf');
+      assert.equal(incoming.headers['x-workspace-id'], 'synthetic-workspace');
+      assert.equal(incoming.headers['x-shensi-desktop-build-manifest-sha256'], BUILD_DIGEST);
+      incoming.once('data', uploadObserved); incoming.on('data', () => {}); incoming.on('end', () => outgoing.end('uploaded'));
+    } else {
+      outgoing.setHeader('Content-Type', 'application/octet-stream'); outgoing.write('first'); finishDownload = () => outgoing.end('last');
+    }
+  });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const address = upstream.address(); assert.ok(address && typeof address === 'object');
+  const renderer = await startRendererServer({ distDir, remoteOrigin: `http://127.0.0.1:${address.port}` });
+  t.after(async () => { await renderer.close(); upstream.closeAllConnections(); await new Promise<void>(resolve => upstream.close(() => resolve())); });
+  const upload = httpRequest(`${renderer.origin}${knowledgePath}`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream',
+    Cookie: 'gj_session=synthetic', 'X-CSRF-Token': 'synthetic-csrf', 'X-Workspace-Id': 'synthetic-workspace',
+    'X-Shensi-Desktop-Build-Manifest-SHA256': 'renderer-cannot-select-this' } });
+  upload.on('error', () => {});
+  upload.write(Buffer.alloc(2 * 1024 * 1024, 65));
+  assert.equal(await Promise.race([receivedUpload.then(() => true), new Promise(resolve => setTimeout(() => resolve(false), 1000))]), true);
+  const uploadDone = new Promise<number>(resolve => upload.once('response', res => { res.resume(); res.once('end', () => resolve(res.statusCode!)); }));
+  upload.end(); assert.equal(await uploadDone, 200);
+  const response = await fetch(`${renderer.origin}${knowledgePath}`); const reader = response.body!.getReader();
+  const first = await reader.read(); assert.equal(Buffer.from(first.value!).toString(), 'first');
+  finishDownload(); let rest = '';
+  for (;;) { const next = await reader.read(); if (next.done) break; rest += Buffer.from(next.value).toString(); }
+  assert.equal(rest, 'last'); reader.releaseLock();
+});
+
+test('disconnected knowledge uploads and downloads cancel the exact streaming upstream', { timeout: 5000 }, async t => {
+  const distDir = await mkdtemp(path.join(tmpdir(), 'shensi-renderer-knowledge-abort-'));
+  t.after(() => rm(distDir, { recursive: true, force: true }));
+  for (const method of ['PUT', 'GET']) {
+    let observed!: () => void, aborted!: () => void;
+    const received = new Promise<void>(resolve => { observed = resolve; });
+    const closed = new Promise<void>(resolve => { aborted = resolve; });
+    const upstream = createServer((incoming, outgoing) => {
+      outgoing.once('close', aborted);
+      if (method === 'PUT') { incoming.on('data', () => {}); incoming.once('data', observed); }
+      else { outgoing.setHeader('Content-Type', 'application/octet-stream'); outgoing.write('partial'); observed(); }
+    });
+    await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+    const address = upstream.address(); assert.ok(address && typeof address === 'object');
+    const renderer = await startRendererServer({ distDir, remoteOrigin: `http://127.0.0.1:${address.port}` });
+    try {
+      const outgoing = httpRequest(`${renderer.origin}${knowledgePath}`, { method, headers: { 'Content-Type': 'application/octet-stream' } });
+      outgoing.on('error', () => {}); outgoing.on('response', response => response.on('error', () => {}));
+      if (method === 'PUT') outgoing.write('partial'); else outgoing.end();
+      await received; outgoing.destroy();
+      assert.equal(await Promise.race([closed.then(() => true), new Promise(resolve => setTimeout(() => resolve(false), 750))]), true);
+    } finally {
+      await renderer.close(); upstream.closeAllConnections(); await new Promise<void>(resolve => upstream.close(() => resolve()));
+    }
+  }
+});
+
+test('knowledge unknown-length overrun is bounded, redirects denied and neighboring routes unchanged', { timeout: 15000 }, async t => {
+  const distDir = await mkdtemp(path.join(tmpdir(), 'shensi-renderer-knowledge-limit-'));
+  t.after(() => rm(distDir, { recursive: true, force: true }));
+  let calls = 0;
+  const upstream = createServer((incoming, outgoing) => {
+    calls++;
+    if (incoming.method === 'GET') { outgoing.writeHead(302, { Location: 'https://external.invalid/collect' }); outgoing.end(); }
+    else { incoming.on('data', () => {}); incoming.on('end', () => outgoing.end('ok')); }
+  });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const address = upstream.address(); assert.ok(address && typeof address === 'object');
+  const renderer = await startRendererServer({ distDir, remoteOrigin: `http://127.0.0.1:${address.port}` });
+  t.after(async () => { await renderer.close(); upstream.closeAllConnections(); await new Promise<void>(resolve => upstream.close(() => resolve())); });
+  const body = Readable.from((async function* () { const chunk = Buffer.alloc(64 * 1024, 65); for (let i = 0; i < 801; i++) yield chunk; })());
+  const response = await fetch(`${renderer.origin}${knowledgePath}`, { method: 'PUT', body: body as unknown as BodyInit,
+    headers: { 'Content-Type': 'application/octet-stream' }, duplex: 'half', signal: AbortSignal.timeout(10000) } as RequestInit);
+  assert.equal(response.status, 413); assert.equal(await response.text(), 'Request too large');
+  const redirected = await request(renderer.origin, knowledgePath);
+  assert.equal(redirected.status, 502); assert.equal(await redirected.text(), 'Gateway redirect denied');
+  const before = calls;
+  for (const pathname of [`${knowledgePath}/`, `${knowledgePath}-other`]) {
+    const neighbor = await request(renderer.origin, pathname, { method: 'PUT', body: 'x'.repeat(1024 * 1024 + 1) });
+    assert.equal(neighbor.status, 413);
+  }
+  assert.equal(calls, before);
+});
 
 test("only exact read-only model routes use the bounded model deadline and source response budget", () => {
   for (const pathname of ["/api/v1/finance/documents/inspect", "/api/v1/finance/cfo-conversation"]) {
@@ -22,6 +124,24 @@ test("only exact read-only model routes use the bounded model deadline and sourc
   assert.equal(rendererUpstreamBudget("POST", "/api/v1/finance/cfo-conversation").responseBytes, 1024 * 1024);
   assert.deepEqual(rendererUpstreamBudget("POST", "/api/v1/finance/documents/inspect",
     { upstreamTimeoutMs: 50, maxResponseBytes: 256 }), { timeoutMs: 50, responseBytes: 256 });
+});
+
+test('system reference text entry routes receive 130s without widening methods, UUIDs or response bytes', () => {
+  const session = '/api/v1/finance/cfo-sessions/12345678-1234-1234-1234-123456789abc/turns';
+  const routes = ['/api/v1/finance/cfo-conversation', session, '/api/v1/finance/operating-memory-question'];
+  for (const pathname of routes) {
+    assert.deepEqual(rendererUpstreamBudget('POST', pathname), { timeoutMs: 130_000, responseBytes: 1_048_576 });
+    for (const method of ['GET', 'PUT', 'PATCH', 'DELETE', undefined]) {
+      assert.equal(rendererUpstreamBudget(method, pathname).timeoutMs, 10_000);
+    }
+    for (const neighbor of [`${pathname}/`, `${pathname}-other`, `${pathname}/extra`]) {
+      assert.equal(rendererUpstreamBudget('POST', neighbor).timeoutMs, 10_000);
+    }
+  }
+  for (const id of ['not-a-uuid', '12345678-1234-1234-1234-123456789abg', '------------------------------------', '12345678123412341234123456789abc']) {
+    assert.equal(rendererUpstreamBudget('POST', `/api/v1/finance/cfo-sessions/${id}/turns`).timeoutMs, 10_000);
+  }
+  assert.deepEqual(rendererUpstreamBudget('POST', session, { upstreamTimeoutMs: 25, maxResponseBytes: 128 }), { timeoutMs: 25, responseBytes: 128 });
 });
 
 test("AI route deadlines cover their model operations without broadening neighboring APIs", () => {

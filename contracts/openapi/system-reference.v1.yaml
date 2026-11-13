@@ -1,0 +1,956 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Shensi bounded system reference protocol",
+    "version": "1.0.0",
+    "description": "Contract-first surface; schemas do not imply deployed routes or published books. Reader, normal central approval, local connection and platform owner are distinct trust boundaries."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "paths": {
+    "/api/v1/system-reference/query": {
+      "post": {
+        "operationId": "querySystemReferences",
+        "description": "Fixed topics only; 4 KiB request and 256 KiB response, 10 s deadline. Strict authority and cumulative release budgets. No retries, raw questions or fulltext pagination.",
+        "security": [
+          {
+            "referenceReader": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferenceQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "At most six exact released snippets / 12000 UTF-16 code units",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/v1/system-reference/grants/{id}/check": {
+      "post": {
+        "operationId": "checkSystemReferenceGrant",
+        "security": [
+          {
+            "referenceReader": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fresh authority and immutable release check; no excerpt content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantCheck"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/v1/system-reference/grants/{id}/references/{referenceId}": {
+      "get": {
+        "operationId": "getGrantedSystemReference",
+        "security": [
+          {
+            "referenceReader": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "$ref": "#/components/parameters/referenceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Only an exact previously released excerpt, after current authorization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemReference"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/v1/system-reference/binding-requests": {
+      "post": {
+        "operationId": "createReferenceBindingRequest",
+        "description": "Backend-generated S256 challenge, 5 minute lifetime; 10 attempts per observed IP/minute. This does not grant access.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindingCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Matching code; no credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BindingPending"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/v1/system-reference/binding-requests/{id}/approve": {
+      "post": {
+        "operationId": "approveReferenceBindingRequest",
+        "description": "Explicit human approval under a normal central customer session. Subject/workspace come from server authority, never the body.",
+        "security": [
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindingApprove"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Approved exactly once for the current eligible central customer"
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/v1/system-reference/binding-requests/{id}/exchange": {
+      "post": {
+        "operationId": "exchangeReferenceBindingProof",
+        "description": "Trusted business backend only. Single transaction consumption; never proxy token to renderer. Not retried after an uncertain result.",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindingProof"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Opaque purpose-limited reader credential, at most 7 days; no refresh",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BindingExchange"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/v1/system-reference/binding-requests/{id}/cancel": {
+      "post": {
+        "operationId": "cancelReferenceBindingProof",
+        "description": "Trusted backend verifier authorization; also revokes any possibly issued reader credential.",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindingProof"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Cancelled or revoked without returning credentials"
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/v1/reference-connection": {
+      "get": {
+        "operationId": "getReferenceConnection",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current actor/workspace/generation safe state. embedded_ready uses application-bundled references by default without central login or client binding operations. session_ready reuses the current central session and has no client binding to begin, complete or unbind; ready denotes a client binding.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "unbindReferenceConnection",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Local binding removed and generation fenced; remote uncertainty remains explicit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/v1/reference-connection/grants/{id}/references/{referenceId}": {
+      "get": {
+        "operationId": "getConnectedSystemReference",
+        "description": "Normal local actor/workspace session resolves its current trusted backend binding. Only exact previously released excerpts; no reader credentials, query/body/range, pagination or original content. Ten-second end-to-end limit and 256 KiB response; no retry or version substitution. Central reader Bearer endpoint is unchanged.",
+        "security": [{ "bearerAuth": [] }, { "cookieAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/workspace" }, { "$ref": "#/components/parameters/id" }, { "$ref": "#/components/parameters/referenceId" }],
+        "responses": {
+          "200": { "description": "Exact current-authorized system reference", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SystemReference" } } } },
+          "default": { "$ref": "#/components/responses/error" }
+        }
+      }
+    },
+    "/api/v1/reference-connection/begin": {
+      "post": {
+        "operationId": "beginReferenceConnection",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Safe configured-origin approval URL and matching code only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionBegin"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/v1/reference-connection/complete": {
+      "post": {
+        "operationId": "completeReferenceConnection",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/workspace"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionComplete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One explicit exchange attempt; no token/verifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/platform/v1/system-reference/releases": {
+      "post": {
+        "operationId": "stageSystemReferenceRelease",
+        "description": "Fresh platform owner plus actual MFA required. Schema contract only until publication module is installed; never uploads original PDFs or a customer database.",
+        "security": [
+          {
+            "cookieAuth": [],
+            "platformSession": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/key"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicationManifest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Immutable staging manifest; not searchable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseDraft"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      },
+      "get": {
+        "operationId": "listReferenceReleases",
+        "description": "Owner metadata only; real MFA, no-store, no text or original files. not_observed never authorizes an automatic retry.",
+        "security": [
+          {
+            "cookieAuth": [],
+            "platformSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "corpusId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded owner metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseList"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/platform/v1/system-reference/releases/{id}/sources/{sourceHash}/pages/{pageIndex}": {
+      "put": {
+        "operationId": "stageSystemReferenceSourcePage",
+        "description": "Exact route only: authenticate actual MFA and owner before accepting at most 2 MiB / 100 synthetic-or-authorized parsed chunks. Body identity must equal path; server validates full parsed hash and contiguous page sequence.",
+        "security": [
+          {
+            "cookieAuth": [],
+            "platformSession": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "$ref": "#/components/parameters/sourceHash"
+          },
+          {
+            "$ref": "#/components/parameters/pageIndex"
+          },
+          {
+            "$ref": "#/components/parameters/key"
+          },
+          {
+            "$ref": "#/components/parameters/revision"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourcePage"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Candidate state after hash-bound page admission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseDraft"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/platform/v1/system-reference/releases/{id}/publish": {
+      "post": {
+        "operationId": "publishSystemReferenceRelease",
+        "description": "Fresh owner/MFA/revision and idempotency validation; pointer and audit update in the same transaction.",
+        "security": [
+          {
+            "cookieAuth": [],
+            "platformSession": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "$ref": "#/components/parameters/key"
+          },
+          {
+            "$ref": "#/components/parameters/revision"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseTransition"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authorized release state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseDraft"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/platform/v1/system-reference/releases/{id}/revoke": {
+      "post": {
+        "operationId": "revokeSystemReferenceRelease",
+        "description": "Fresh owner/MFA/revision and idempotency validation; pointer and audit update in the same transaction.",
+        "security": [
+          {
+            "cookieAuth": [],
+            "platformSession": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "$ref": "#/components/parameters/key"
+          },
+          {
+            "$ref": "#/components/parameters/revision"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseTransition"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authorized release state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseDraft"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/platform/v1/system-reference/releases/{id}": {
+      "get": {
+        "operationId": "inspectReferenceRelease",
+        "description": "Owner metadata only; real MFA, no-store, no text or original files. not_observed never authorizes an automatic retry.",
+        "security": [
+          {
+            "cookieAuth": [],
+            "platformSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded owner metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseDetail"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    },
+    "/api/platform/v1/system-reference/commands/status": {
+      "get": {
+        "operationId": "inspectReferenceCommand",
+        "description": "Owner metadata only; real MFA, no-store, no text or original files. not_observed never authorizes an automatic retry.",
+        "security": [
+          {
+            "cookieAuth": [],
+            "platformSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "corpusId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "operation",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "stage",
+                "source",
+                "publish",
+                "revoke"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/key"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded owner metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationCommandStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "referenceReader": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Opaque system-reference-reader only; local JWT/device tokens are not accepted."
+      },
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "gj_session"
+      },
+      "csrfToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CSRF-Token"
+      },
+      "platformSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "shensi_platform",
+        "description": "Actual platform MFA, owner role and fresh authority required."
+      }
+    },
+    "parameters": {
+      "id": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "referenceId": {
+        "name": "referenceId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "sourceHash": {
+        "name": "sourceHash",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "pageIndex": {
+        "name": "pageIndex",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 499
+        }
+      },
+      "workspace": {
+        "name": "X-Workspace-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 191
+        }
+      },
+      "key": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,191}$"
+        }
+      },
+      "revision": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^\"[1-9][0-9]*\"$"
+        }
+      }
+    },
+    "schemas": {
+      "ReferenceTopicId": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/ReferenceTopicId"
+      },
+      "ReferenceTopicSelection": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/ReferenceTopicSelection"
+      },
+      "ReferenceQuery": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/ReferenceQuery"
+      },
+      "ExcerptRange": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/ExcerptRange"
+      },
+      "SystemReference": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/SystemReference"
+      },
+      "ReferenceCitation": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/ReferenceCitation"
+      },
+      "LibraryStatus": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/LibraryStatus"
+      },
+      "CentralReader": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/CentralReader"
+      },
+      "CentralOwner": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/CentralOwner"
+      },
+      "ConnectionStatus": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/ConnectionStatus"
+      },
+      "ReleaseDraft": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/ReleaseDraft"
+      },
+      "PublicationManifest": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/PublicationManifest"
+      },
+      "SourcePage": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/SourcePage"
+      },
+      "QueryResult": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/QueryResult"
+      },
+      "BindingCreate": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/BindingCreate"
+      },
+      "BindingPending": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/BindingPending"
+      },
+      "BindingApprove": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/BindingApprove"
+      },
+      "BindingProof": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/BindingProof"
+      },
+      "BindingExchange": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/BindingExchange"
+      },
+      "ConnectionBegin": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/ConnectionBegin"
+      },
+      "ConnectionComplete": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/ConnectionComplete"
+      },
+      "Empty": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/Empty"
+      },
+      "GrantCheck": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/GrantCheck"
+      },
+      "ReleaseTransition": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/ReleaseTransition"
+      },
+      "Error": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/Error"
+      },
+      "ReleaseList": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/ReleaseList"
+      },
+      "ReleaseDetail": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/ReleaseDetail"
+      },
+      "PublicationCommandStatus": {
+        "$ref": "../json-schema/system-reference.v1.schema.json#/$defs/PublicationCommandStatus"
+      }
+    },
+    "responses": {
+      "error": {
+        "description": "Fixed bounded code and safe message; no book/query content, arbitrary upstream error or credentials.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

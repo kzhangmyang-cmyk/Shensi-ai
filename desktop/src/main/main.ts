@@ -18,8 +18,12 @@ import { createAppPaths, type AppPaths } from "./app-paths.ts";
 import { createDesktopLogger } from "./logger.ts";
 import { desktopExecutionPaths, rendererLocation } from "./runtime-location.ts";
 import { installControlledQuitSignalHandlers, stopDesktopServices } from "./controlled-shutdown.ts";
-import { resolveDesktopRuntime, type DesktopRuntime } from "./runtime-config.ts";
-import { launchSingleInstanceApplication } from "./main-bootstrap.ts";
+import { resolveDesktopRuntime, type RemoteDesktopRuntime } from "./runtime-config.ts";
+import { prepareLocalApplication } from './prepare-local-application.ts';
+import { readEmbeddedReferencePack } from './embedded-reference-pack.js';
+import type { LocalApplicationRuntime } from './local-application-runtime.ts';
+import { requestLocalInitialAccount } from './local-setup-window.ts';
+import { launchSingleInstanceApplication, keepApplicationAliveBetweenWindows } from "./main-bootstrap.ts";
 import { readDesktopBuildIdentity, readDevelopmentDesktopBuildIdentity } from "./desktop-build-identity.ts";
 import { DesktopCentralApiClient } from "./desktop-central-api-client.ts";
 import { createDeviceInstallationStore } from "./device-installation.ts";
@@ -39,7 +43,8 @@ import { CFO_REALTIME_EVENT } from '../shared/cfo-realtime.ts';
 import { registerEnterpriseBrowserIpc } from './enterprise-browser-ipc.ts';
 import { createEnterpriseLocalBrowser } from './enterprise-local-browser.ts';
 
-async function main(runtime: DesktopRuntime, paths: AppPaths): Promise<void> {
+async function main(runtime: RemoteDesktopRuntime, paths: AppPaths,
+  localApplication?: LocalApplicationRuntime, handoffStartup: () => void = () => {}): Promise<void> {
   const environment: "production" | "development" = app.isPackaged
     ? "production"
     : "development";
@@ -87,7 +92,7 @@ async function main(runtime: DesktopRuntime, paths: AppPaths): Promise<void> {
     installationStore,
     credentialStore,
     journalStore: createOutreachActionJournalStore(paths.outreachJournal),
-    enabled: true,
+    enabled: !localApplication,
     onDiagnostic: (diagnostic) => logger.warn("desktop.outreach_operation_failed", diagnostic),
     // The current login/collection IPC's historical accountId is a workspace
     // ID. Reuse that exact Profile key; the central lane still uses accountId.
@@ -101,7 +106,7 @@ async function main(runtime: DesktopRuntime, paths: AppPaths): Promise<void> {
     onFailure: () => logger.error("desktop.outreach_lifecycle_failed"),
   });
   let window: BrowserWindow | null = null;
-  const xhsEnabled = process.env.XHS_DESKTOP_SENDING_ENABLED === 'true';
+  const xhsEnabled = !localApplication && process.env.XHS_DESKTOP_SENDING_ENABLED === 'true';
   const xhsUpstream = process.env.SHENSI_XHS_UPSTREAM_PATH;
   const xhsService = new XhsDesktopService(createXhsAuthority({ localOrigin: renderer.origin,
     session: () => window?.webContents.session, installationStore, credentialStore }), scope => {
@@ -222,7 +227,7 @@ async function main(runtime: DesktopRuntime, paths: AppPaths): Promise<void> {
     }
   });
   app.on("activate", () => { if (!window) open(); });
-  app.on("window-all-closed", () => undefined);
+  handoffStartup();
   app.on("before-quit", (event) => {
     if (allowQuit) return;
     event.preventDefault();
@@ -235,7 +240,10 @@ async function main(runtime: DesktopRuntime, paths: AppPaths): Promise<void> {
     realtimeIpc.dispose();
     outreach.dispose();
     disposeOutreachLifecycle();
-    void (async () => { try { await xhsIpc.dispose(); } finally { await stopDesktopServices({ coordinator, sidecar: manager, renderer }); } })()
+    void (async () => {
+      try { try { await xhsIpc.dispose(); } finally { await stopDesktopServices({ coordinator, sidecar: manager, renderer }); } }
+      finally { await localApplication?.stop(); }
+    })()
       .catch(() => logger.error("desktop.shutdown_failed")).then(() => {
       disposeSignals();
       unsubscribeStatus();
@@ -262,16 +270,55 @@ function reportBootstrapFailure(paths: AppPaths): void {
 }
 
 async function bootstrap(): Promise<void> {
+  keepApplicationAliveBetweenWindows(app);
   const runtime = await resolveDesktopRuntime({ production: app.isPackaged,
     resourcesPath: process.resourcesPath, environment: process.env });
   const paths = createAppPaths({ baseUserData: app.getPath("appData"),
-    environment: runtime.dataEnvironment, testId: runtime.testId });
+    environment: runtime.dataEnvironment, testId: runtime.mode === 'standalone' ? undefined : runtime.testId,
+    standalone: runtime.mode === 'standalone' });
   // Before the single-instance lock and Chromium session initialization.
-  if (runtime.dataEnvironment === "test") app.setPath("userData", path.join(paths.userData, "browser-session"));
+  if (runtime.mode === 'standalone') mkdirSync(paths.userData, { recursive: true, mode: 0o700 });
+  if (runtime.dataEnvironment === "test" || runtime.mode === 'standalone') app.setPath("userData", path.join(paths.userData, "browser-session"));
   launchSingleInstanceApplication({
     requestSingleInstanceLock: () => app.requestSingleInstanceLock(),
     whenReady: () => app.whenReady(),
-    start: () => main(runtime, paths),
+    start: async () => {
+      if (runtime.mode !== 'standalone') return main(runtime, paths);
+      const execution = desktopExecutionPaths({ production: app.isPackaged,
+        mainModuleDirectory: import.meta.dirname, appPath: app.getAppPath() });
+      const digest = app.isPackaged ? await readDesktopBuildIdentity(process.resourcesPath)
+        : await readDevelopmentDesktopBuildIdentity(execution.repositoryRoot!, process.env.SHENSI_DESKTOP_DEV_BUILD_MANIFEST_PATH ?? '');
+      const embeddedReference = app.isPackaged ? await readEmbeddedReferencePack(process.resourcesPath) : undefined;
+      const local = await prepareLocalApplication({ userData: paths.userData, safeStorage,
+        ...(embeddedReference ? { embeddedReference } : {}),
+        requestInitialAccount: () => requestLocalInitialAccount({ ipcMain, createWindow: options => new BrowserWindow(options),
+          preloadPath: path.join(path.dirname(execution.preloadPath), 'local-setup.cjs') }),
+        buildDigest: digest,
+        mysqlRuntimeDirectory: app.isPackaged ? path.join(process.resourcesPath, 'mysql') : process.env.SHENSI_STANDALONE_MYSQL_ROOT ?? '',
+        nodeExecutable: app.isPackaged ? path.join(process.resourcesPath, 'backend-runtime', 'node') : process.env.SHENSI_STANDALONE_NODE ?? '',
+        backendEntrypoint: app.isPackaged ? path.join(process.resourcesPath, 'backend', 'dist', 'server.js')
+          : path.join(execution.repositoryRoot!, 'backend', 'dist', 'server.js') });
+      let quitting = false;
+      const startupQuit = (event: Electron.Event) => {
+        event.preventDefault();
+        if (quitting) return;
+        quitting = true;
+        void local.stop().catch(() => reportBootstrapFailure(paths)).finally(() => {
+          app.removeListener('before-quit', startupQuit); app.quit();
+        });
+      };
+      app.on('before-quit', startupQuit);
+      try {
+        await local.start();
+        if (quitting) return;
+        await main({ remoteOrigin: local.origin, dataEnvironment: runtime.dataEnvironment }, paths, local, () => {
+          if (quitting) throw new Error('desktop_start_cancelled');
+          app.removeListener('before-quit', startupQuit);
+        });
+      } catch (error) {
+        await local.stop(); app.removeListener('before-quit', startupQuit); throw error;
+      }
+    },
     quit: () => app.quit(),
     onFailure: () => reportBootstrapFailure(paths),
   });

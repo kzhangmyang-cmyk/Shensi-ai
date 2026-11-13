@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   activateModelConnection,
   createModelCredentialVersion,
+  deactivateModelConnection,
   deleteModelConnection,
   selectLegacyActiveConnectionIds,
   toPublicModelConnection
@@ -142,6 +143,64 @@ test("activation is owner-and-team scoped and existing job snapshots remain immu
   assert.equal(snapshot.capabilitySnapshot.toolCalling, true);
   assert.equal(Object.isFrozen(snapshot), true);
   assert.equal(Object.isFrozen(snapshot.capabilitySnapshot), true);
+});
+
+test("deactivation clears enabled status and default flag for the scoped connection", async () => {
+  const active = Object.assign(
+    connection("conn-active", "owner-1", "deepseek", true),
+    { isDefault: true }
+  );
+  const standby = Object.assign(
+    connection("conn-standby", "owner-1", "moonshot", true),
+    { isDefault: false }
+  );
+  const otherTeam = Object.assign(
+    connection("conn-other-team", "owner-1", "zhipu", true, "team-2"),
+    { isDefault: true }
+  );
+  const store = {
+    connections: [active, standby, otherTeam],
+    async persist() {}
+  };
+
+  await deactivateModelConnection(
+    store,
+    { ownerId: "owner-1", teamId: "team-1" },
+    active.id,
+    "owner-1",
+    "user disable"
+  );
+  assert.equal(active.status, "inactive");
+  assert.equal(active.isDefault, false);
+  assert.equal(standby.status, "active");
+  assert.equal(otherTeam.status, "active");
+  assert.equal(otherTeam.isDefault, true);
+
+  await deactivateModelConnection(
+    store,
+    { ownerId: "owner-1", teamId: "team-1" },
+    active.id,
+    "owner-1",
+    "idempotent disable"
+  );
+  assert.equal(active.status, "inactive");
+
+  await assert.rejects(
+    deactivateModelConnection(
+      store,
+      { ownerId: "owner-1", teamId: "team-1" },
+      otherTeam.id,
+      "owner-1",
+      "cross-team"
+    ),
+    (error: unknown) => {
+      assert.equal(
+        (error as { code?: string }).code,
+        "connection_not_found"
+      );
+      return true;
+    }
+  );
 });
 
 test("credential updates append encrypted versions and public responses stay masked", () => {

@@ -238,6 +238,61 @@ test("structured generation validates JSON and records only auditable hashes", a
   assert.equal(Object.isFrozen(record), true);
 });
 
+test("validation diagnostics discard arbitrary custom messages, parameters and issue paths", async () => {
+  const privateMarker = '/private/synthetic-book/DO_NOT_RECORD_THIS';
+  const fixture = createFixture([completionResponse(JSON.stringify({ knowledge: 'synthetic-private-output' }))]);
+  const schema = z.object({ knowledge: z.string() }).superRefine((_value, context) => {
+    context.addIssue({ code: 'custom', path: ['knowledge'], message: privateMarker,
+      params: { modelOutputFailureReason: privateMarker } });
+    context.addIssue({ code: 'custom', path: [privateMarker], message: privateMarker });
+  });
+  await assert.rejects(fixture.gateway.generateStructured({ prompt: 'synthetic diagnostic', schema, repair: false }));
+  assert.equal(fixture.requests.length, 1);
+  assert.deepEqual(fixture.ledger.records[0].error?.validationReasons, ['knowledge_validation', 'schema_shape', 'schema_detail:other:custom']);
+  assert.doesNotMatch(JSON.stringify(fixture.ledger.records), /DO_NOT_RECORD_THIS|synthetic-private-output|sk-task-four-private/u);
+});
+
+test('schema details normalize paths segment by segment and never serialize arbitrary issue metadata', async () => {
+  const privateMarker = 'PRIVATE_SCHEMA_METADATA';
+  const fixture = createFixture([completionResponse(JSON.stringify({ answer: '需核对。' }))]);
+  const schema = z.object({ answer: z.string() }).superRefine((_value, context) => {
+    context.addIssue({ code: 'invalid_string', path: ['knowledge.template'], validation: { includes: privateMarker }, message: privateMarker });
+    context.addIssue({ code: 'invalid_type', path: ['knowledge', 'citationIds', privateMarker], expected: 'string', received: 'number', message: privateMarker });
+    context.addIssue({ code: 'invalid_enum_value', path: ['answer'], options: [privateMarker], received: privateMarker, message: privateMarker });
+    context.addIssue({ code: 'invalid_literal', path: [privateMarker], expected: privateMarker, received: privateMarker, message: privateMarker });
+    for (let index = 0; index < 100; index++) context.addIssue({ code: 'unrecognized_keys', path: [], keys: [`${privateMarker}_${index}`], message: privateMarker });
+  });
+  await assert.rejects(fixture.gateway.generateStructured({ prompt: 'synthetic diagnostic', schema, repair: false }));
+  assert.equal(fixture.requests.length, 1);
+  assert.deepEqual(fixture.ledger.records[0].error?.validationReasons, [
+    'knowledge_schema_shape', 'schema_shape',
+    'schema_detail:other:invalid_value', 'schema_detail:other:wrong_type',
+    'schema_detail:answer:invalid_value', 'schema_detail:root:unknown_keys'
+  ]);
+  assert.doesNotMatch(JSON.stringify(fixture.ledger.records), /PRIVATE_SCHEMA_METADATA|sk-task-four-private/u);
+});
+
+test('schema detail audit stays bounded when validation reports many distinct shapes', async () => {
+  const fixture = createFixture([completionResponse('{}')]);
+  const paths = [[], ['answer'], ['citationIds'], ['citationIds', 0], ['knowledge'],
+    ['knowledge', 'template'], ['knowledge', 'citationIds'], ['knowledge', 'citationIds', 0], ['PRIVATE_UNLISTED_PATH']];
+  const schema = z.object({}).superRefine((_value, context) => {
+    for (const path of paths) {
+      context.addIssue({ code: 'invalid_type', path, expected: 'string', received: 'undefined' });
+      context.addIssue({ code: 'invalid_type', path, expected: 'string', received: 'number' });
+      context.addIssue({ code: 'unrecognized_keys', path, keys: ['PRIVATE_UNLISTED_KEY'] });
+      context.addIssue({ code: 'invalid_literal', path, expected: 'PRIVATE_EXPECTED', received: 'PRIVATE_RECEIVED' });
+      context.addIssue({ code: 'invalid_date', path });
+    }
+  });
+  await assert.rejects(fixture.gateway.generateStructured({ prompt: 'synthetic diagnostic', schema, repair: false }));
+  assert.equal(fixture.requests.length, 1);
+  const details = fixture.ledger.records[0].error?.validationReasons?.filter(reason => reason.startsWith('schema_detail:'));
+  assert.equal(details?.length, 32);
+  assert.equal(new Set(details).size, 32);
+  assert.doesNotMatch(JSON.stringify(fixture.ledger.records), /PRIVATE_UNLISTED|PRIVATE_EXPECTED|PRIVATE_RECEIVED/u);
+});
+
 test("structured generation repairs invalid output once with the same snapshot and model", async () => {
   const fixture = createFixture([
     completionResponse("{\"plan\":7}"),

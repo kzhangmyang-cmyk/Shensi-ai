@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { EventEmitter, once } from "node:events";
+import {createHash,randomUUID} from 'node:crypto';
 import { prepareDesktopLocalRuntime, desktopLocalBackendEnvironment,
   desktopLocalCompose, assertDesktopLocalResources, parseDesktopLocalCommand, withDesktopLocalProcesses } from "./desktop-local-runtime.mjs";
+import { configureKnowledgeReaderRuntime } from './knowledge-reader-runtime.mjs';
 
 const engine = "a".repeat(64);
 const roots = [];
@@ -24,10 +26,49 @@ test("fresh local credentials are independent of Trial and survive another prepa
   assert.equal(new Set(Object.values(first.secrets)).size, Object.keys(first.secrets).length);
   assert.equal((await stat(join(repo, ".runtime/desktop-local/config.json"))).mode & 0o777, 0o600);
   assert.equal((await stat(join(repo, ".runtime/desktop-local"))).mode & 0o777, 0o700);
+  assert.equal(first.knowledgeRoot, join(repo, '.runtime/desktop-local/knowledge'));
+  assert.equal((await stat(first.knowledgeRoot)).mode & 0o777, 0o700);
   assert.equal(await readFile(join(old, "jwt_secret"), "utf8"), "old-do-not-copy");
   const other = await prepareDesktopLocalRuntime(await root(), engine);
   assert.notEqual(other.secrets.JWT_SECRET, first.secrets.JWT_SECRET);
   assert.notEqual(other.owner, first.owner);
+});
+
+test('reference runtime ignores inherited destinations and has stable installation scope without replacing old secrets',async()=>{
+  const repo=await root(),first=await prepareDesktopLocalRuntime(repo,engine);
+  const inherited={SHENSI_REFERENCE_MODE:'central',SHENSI_REFERENCE_ORIGIN:'https://evil.example',SHENSI_REFERENCE_ISSUER:'https://evil.example',SHENSI_REFERENCE_BACKEND_INSTANCE_ID:'attacker'};
+  const disabled=desktopLocalBackendEnvironment(first,'a'.repeat(64),inherited);
+  assert.equal(disabled.SHENSI_REFERENCE_MODE,'disabled');assert.equal(disabled.SHENSI_REFERENCE_ORIGIN,undefined);
+  const path=join(repo,'.runtime/desktop-local/system-reference.json');
+  await writeFile(path,JSON.stringify({version:1,mode:'client',origin:'https://library.example.test'}),{mode:0o600});
+  const configured=await prepareDesktopLocalRuntime(repo,engine),next=await prepareDesktopLocalRuntime(repo,engine);
+  const env=desktopLocalBackendEnvironment(configured,'b'.repeat(64),inherited),again=desktopLocalBackendEnvironment(next,'c'.repeat(64));
+  assert.equal(env.SHENSI_REFERENCE_MODE,'client');assert.equal(env.SHENSI_REFERENCE_ORIGIN,'https://library.example.test');
+  assert.equal(env.SHENSI_REFERENCE_BACKEND_INSTANCE_ID,again.SHENSI_REFERENCE_BACKEND_INSTANCE_ID);
+  assert.notEqual(env.SHENSI_REFERENCE_BACKEND_INSTANCE_ID,'attacker');assert.deepEqual(configured.secrets,first.secrets);
+  const other=await root();await prepareDesktopLocalRuntime(other,engine);
+  await writeFile(join(other,'.runtime/desktop-local/system-reference.json'),JSON.stringify({version:1,mode:'client',origin:'https://library.example.test'}),{mode:0o600});
+  assert.notEqual(desktopLocalBackendEnvironment(await prepareDesktopLocalRuntime(other,engine),'a'.repeat(64)).SHENSI_REFERENCE_BACKEND_INSTANCE_ID,env.SHENSI_REFERENCE_BACKEND_INSTANCE_ID);
+  await chmod(path,0o644);await assert.rejects(prepareDesktopLocalRuntime(repo,engine),/REFERENCE/u);
+});
+test('desktop reference configuration rejects central mode, URLs with path and extra fields',async()=>{
+  const repo=await root();await prepareDesktopLocalRuntime(repo,engine);const path=join(repo,'.runtime/desktop-local/system-reference.json');
+  for(const value of [{version:1,mode:'central',origin:'https://library.example.test'},{version:1,mode:'client',origin:'http://127.0.0.1:1234'},{version:1,mode:'client',origin:'https://library.example.test/'},{version:1,mode:'client',origin:'https://library.example.test',secret:'not-allowed'}]) {
+    await writeFile(path,JSON.stringify(value),{mode:0o600});await assert.rejects(prepareDesktopLocalRuntime(repo,engine),/REFERENCE/u);
+  }
+});
+
+test('a shipped book pack is enabled automatically for a fresh local installation without binding configuration',async()=>{
+  const repo=await root(),directory=join(repo,'.runtime/embedded-reference'),bytes=Buffer.from('synthetic-pack');
+  await mkdir(directory,{recursive:true,mode:0o700});
+  await writeFile(join(directory,'books.json.gz'),bytes,{mode:0o600});
+  const sha256=createHash('sha256').update(bytes).digest('hex');
+  await writeFile(join(directory,'manifest.json'),JSON.stringify({version:1,file:'books.json.gz',sha256,sourceCount:21,corpusId:randomUUID(),releaseId:randomUUID()}),{mode:0o600});
+  const config=await prepareDesktopLocalRuntime(repo,engine),env=desktopLocalBackendEnvironment(config,'b'.repeat(64),{SHENSI_REFERENCE_PACK:'/foreign'});
+  assert.equal(env.SHENSI_REFERENCE_MODE,'embedded');assert.equal(env.SHENSI_REFERENCE_PACK,join(directory,'books.json.gz'));
+  assert.equal(env.SHENSI_REFERENCE_PACK_SHA256,sha256);assert.equal(env.SHENSI_REFERENCE_ORIGIN,undefined);
+  await writeFile(join(directory,'books.json.gz'),'damaged');
+  await assert.rejects(prepareDesktopLocalRuntime(repo,engine),/REFERENCE_PACK_INVALID/);
 });
 
 test("fresh local runtime refuses foreign Engine or non-private retained credentials", async () => {
@@ -44,7 +85,7 @@ test("fresh Backend enables confirmed desktop outreach but never the retained se
   const env = desktopLocalBackendEnvironment(config, "b".repeat(64), {
     PATH: "/usr/bin", HOME: "/tmp", DATABASE_URL: "old-database",
     MEDIACRAWLER_BASE_URL: "https://old-sidecar", DOUYIN_OUTREACH_ACTIONS_ENABLED: "true",
-    OPENAI_API_KEY: "old-secret"
+    OPENAI_API_KEY: "old-secret", SHENSI_KNOWLEDGE_STORAGE_ROOT: '/foreign'
   });
   const database = new URL(env.DATABASE_URL);
   assert.equal(database.hostname, "127.0.0.1");
@@ -63,7 +104,48 @@ test("fresh Backend enables confirmed desktop outreach but never the retained se
   assert.equal(env.MEDIACRAWLER_BASE_URL, undefined);
   assert.equal(env.OPENAI_API_KEY, undefined);
   assert.equal(env.JWT_SECRET, config.secrets.JWT_SECRET);
+  assert.equal(env.SHENSI_KNOWLEDGE_STORAGE_ROOT, config.knowledgeRoot);
   assert.throws(() => desktopLocalBackendEnvironment(config, "fake", {}), /DESKTOP_LOCAL_BUILD_INVALID/);
+});
+
+test('source runtime refuses non-private retained knowledge root', async () => {
+  const repo = await root(); const config = await prepareDesktopLocalRuntime(repo, engine);
+  await chmod(config.knowledgeRoot, 0o755);
+  await assert.rejects(prepareDesktopLocalRuntime(repo, engine), /DESKTOP_LOCAL_PRIVATE_FILE_INVALID/);
+});
+
+test('source children retain explicit no-install setting without inheriting private credentials', async () => {
+  const config = await prepareDesktopLocalRuntime(await root(), engine);
+  const env = desktopLocalBackendEnvironment(config, 'b'.repeat(64), {
+    PATH: '/usr/bin', pnpm_config_verify_deps_before_run: 'false',
+    OPENAI_API_KEY: 'foreign-private-key', DATABASE_URL: 'foreign-database'
+  });
+  assert.equal(env.pnpm_config_verify_deps_before_run, 'false');
+  assert.equal(env.PATH, '/usr/bin');
+  assert.equal(env.OPENAI_API_KEY, undefined);
+  assert.notEqual(env.DATABASE_URL, 'foreign-database');
+  assert.equal(desktopLocalBackendEnvironment(config, 'b'.repeat(64), {
+    pnpm_config_verify_deps_before_run: 'install'
+  }).pnpm_config_verify_deps_before_run, undefined);
+});
+
+test('knowledge parser uses explicit private runtime selection, never inherited reader or manifest paths',async()=>{
+  const repo=await root(),python=join(repo,'python'),script=join(repo,'services/knowledge-reader/shensi_knowledge_reader.py');
+  await mkdir(join(repo,'services/knowledge-reader'),{recursive:true});
+  await writeFile(python,'synthetic trusted executable',{mode:0o700});await writeFile(script,'parser',{mode:0o644});
+  const initial=await prepareDesktopLocalRuntime(repo,engine);
+  assert.equal(desktopLocalBackendEnvironment(initial,'b'.repeat(64),{SHENSI_KNOWLEDGE_READER_PYTHON:'/foreign',SHENSI_KNOWLEDGE_PREEXTRACTED_MANIFEST:'/foreign'}).SHENSI_KNOWLEDGE_READER_PYTHON,undefined);
+  await configureKnowledgeReaderRuntime(repo,{python});
+  const ready=await prepareDesktopLocalRuntime(repo,engine),env=desktopLocalBackendEnvironment(ready,'b'.repeat(64),{SHENSI_KNOWLEDGE_READER_SCRIPT:'/foreign'});
+  assert.equal(env.SHENSI_KNOWLEDGE_READER_PYTHON,await realpath(python));assert.equal(env.SHENSI_KNOWLEDGE_READER_SCRIPT,await realpath(script));
+  assert.equal((await stat(join(repo,'.runtime/desktop-local/knowledge-reader.json'))).mode&0o777,0o600);
+  assert.deepEqual(ready.secrets,initial.secrets);
+  await chmod(join(repo,'.runtime/desktop-local/knowledge-reader.json'),0o644);
+  const unavailable=await prepareDesktopLocalRuntime(repo,engine);
+  assert.equal(unavailable.knowledgeReaderFailure,'knowledge_reader_configuration_invalid');
+  assert.equal(unavailable.knowledgeReader,undefined);
+  assert.deepEqual(unavailable.secrets,initial.secrets);
+  assert.equal(desktopLocalBackendEnvironment(unavailable,'b'.repeat(64)).SHENSI_KNOWLEDGE_READER_CONFIGURATION_INVALID,'true');
 });
 
 test("fresh Compose uses a persistent owned volume, loopback port, and password files", async () => {

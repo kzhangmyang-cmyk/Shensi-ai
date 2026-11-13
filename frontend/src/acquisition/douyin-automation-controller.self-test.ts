@@ -100,6 +100,7 @@ zeroPlanController.close();
 const scheduledRunPolls: Array<() => void> = [];
 let liveCandidateReads = 0;
 let liveRunStarts = 0;
+let liveCandidateItems = [liveCandidate, profileOnlyCandidate];
 const liveCandidateController = createDouyinAutomationController({
   api: {
     savePlanName: unusedPlanNameSave,
@@ -118,7 +119,7 @@ const liveCandidateController = createDouyinAutomationController({
     getCrawlerStatus: async () => ({ runId: "run-live-1", state: "running", attempt: 1, cursorPersisted: true, recordCount: 25, candidateBudgetUsed: 1, candidateBudgetLimit: 50, candidateProjectionState: "pending", lastErrorCode: null, createdAt: now, updatedAt: now, completedAt: null, activity: { phase: "collecting_comments", currentKeyword: "袜子", browserMode: "visible", sequence: 4 } }),
     listRunCandidates: async () => {
       liveCandidateReads += 1;
-      return { items: [liveCandidate, profileOnlyCandidate], nextCursor: null };
+      return { items: liveCandidateItems, nextCursor: null };
     }
   },
   pollDelayMs: 250,
@@ -141,12 +142,21 @@ assert.deepEqual(liveCandidateController.getState().selectedCandidateIds, [],
   "a profile-only candidate must not enter a comment-then-message approval batch");
 liveCandidateController.toggleCandidate(liveCandidate.id);
 assert.deepEqual(liveCandidateController.getState().selectedCandidateIds, [liveCandidate.id]);
+liveCandidateController.selectAllCandidates(false);
+assert.deepEqual(liveCandidateController.getState().selectedCandidateIds, []);
+liveCandidateController.selectAllCandidates(true);
+liveCandidateController.selectAllCandidates(true);
+assert.deepEqual(liveCandidateController.getState().selectedCandidateIds, [liveCandidate.id], "bulk selection skips profile-only candidates and is idempotent");
+assert.equal(liveRunStarts, 1, "selection must not start collection");
 assert.equal(liveCandidateReads, 1);
 assert.equal(scheduledRunPolls.length, 1, "running crawl must schedule another poll after publishing candidates");
 scheduledRunPolls.shift()?.();
 await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
 assert.equal(liveCandidateReads, 2, "scheduled polling must continue while candidates are already visible");
 assert.equal(scheduledRunPolls.length, 1, "each running refresh must schedule the next poll");
+liveCandidateItems = [profileOnlyCandidate];
+await liveCandidateController.refreshRun();
+assert.deepEqual(liveCandidateController.getState().selectedCandidateIds, [], "refresh removes no-longer-present selections");
 liveCandidateController.close();
 
 const failedPollTimers: Array<() => void> = [];
@@ -1611,9 +1621,14 @@ for (const historical of [false, true]) {
     `all 50 unique candidates must survive 20+20+11 pages (historical=${historical})`);
   assert.deepEqual(reads, [undefined, "page-2", "page-3"]);
   assert.equal(paged.getState().historicalRun, historical);
-  fiftyCandidates.forEach((candidate) => paged.toggleCandidate(candidate.id));
+  paged.selectAllCandidates(true);
   assert.deepEqual(paged.getState().selectedCandidateIds, fiftyCandidates.map((candidate) => candidate.id),
     "all 50 real comment-eligible candidates must be selectable, including the last page");
+  paged.selectAllCandidates(false);
+  assert.deepEqual(paged.getState().selectedCandidateIds, []);
+  assert.equal(paged.getState().candidates.length, 50, "clearing selection preserves candidates");
+  await paged.load("plan-2", "另一个运行", "run-other");
+  assert.deepEqual(paged.getState().selectedCandidateIds, [], "changing runs clears selection");
   paged.close();
 }
 

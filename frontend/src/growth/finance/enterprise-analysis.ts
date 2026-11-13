@@ -1,13 +1,15 @@
-import { createFinanceApi, financeDocumentFileIssue, type FinanceDocumentInspection } from './api';
+import { createFinanceApi, financeDocumentFileIssue, type FinanceDocumentInspection, type ReportIndustry } from './api';
 import type { GrowthHttpClient } from '../http';
 import { financeDocumentScope, setFinanceDocumentSelection } from './document-selection';
 import { importErrorMessage } from './import-workflow';
 import { documentUncertaintyHints } from './view';
+import { detailedReportBody, detailedReportStyle } from './detailed-report';
 
 const escape = (value: string) => value.replace(/[&<>"']/gu, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
 
 export function enterpriseReportHtml(value: FinanceDocumentInspection, purpose: string): string {
   if (value.modelStatus !== 'completed') throw new Error('report_not_ready');
+  if (value.detailedReport) return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>财务经营详细报告</title><style>body{font:15px/1.8 system-ui,sans-serif;max-width:960px;margin:32px auto;padding:20px;color:#17251c}${detailedReportStyle}</style></head><body>${detailedReportBody(value)}<p>${escape(documentUncertaintyHints(value.uncertain))}</p></body></html>`;
   const sources = new Map(value.cells.map(cell => [cell.sourceRef, cell.text]));
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>企业资料分析报告</title>
     <style>body{font:15px/1.7 system-ui,sans-serif;max-width:900px;margin:40px auto;padding:20px;color:#17251c}h1,h2{color:#153f29}article{margin:24px 0;break-inside:avoid}small{color:#526758}li{overflow-wrap:anywhere}@media print{body{margin:0;max-width:none}}</style>
@@ -72,6 +74,7 @@ function createEnterpriseAnalysis(options: AnalysisOptions) {
     <label>选择企业资料（可多选或拖入）<input type="file" multiple accept=".csv,.xls,.xlsx,.pdf,.docx" data-enterprise-file></label>
     <p>支持 CSV、XLS、XLSX、文字 PDF、DOCX。每批最多10份、合计5MB，逐份识别。扫描件请先OCR，加密文件请先解密，旧DOC请另存DOCX。</p>
     <div data-enterprise-files aria-live="polite"></div>
+    ${options.purpose === 'finance' ? '<label>公开行业背景<select data-report-industry><option value="general">通用经营（行业未指定）</option><option value="manufacturing">制造业</option><option value="retail">零售业</option><option value="services">服务业</option><option value="technology">软件与信息技术服务业</option></select></label><p>生成报告时仅用所选行业的公开关键词检索；附件和内部金额不发给搜索服务。</p>' : ''}
     ${options.purpose === 'roi' ? '<p>投入、产出、周期或归因不足时，只给定性建议和缺项说明，不编造ROI。</p>' : ''}
     <div class="council-button-row"><button type="button" data-enterprise-analyze disabled>使用当前模型分析并生成报告</button><button type="button" data-enterprise-stop hidden>停止</button>
     <button type="button" data-enterprise-html disabled>下载 HTML 报告</button><button type="button" data-enterprise-pdf disabled>导出 PDF</button></div>
@@ -86,8 +89,10 @@ function createEnterpriseAnalysis(options: AnalysisOptions) {
   const output = host.querySelector<HTMLElement>('[data-enterprise-result]')!;
   const agent = host.querySelector<HTMLAnchorElement>('[data-enterprise-agent]')!;
   const list = host.querySelector<HTMLElement>('[data-enterprise-files]')!;
+  const industry = host.querySelector<HTMLSelectElement>('[data-report-industry]');
   const active = () => !disposed && scope !== null && scope === financeDocumentScope(doc.body.dataset.sessionWorkspaceId, doc.body.dataset.sessionUserId);
   function controls() {
+    if (industry) industry.disabled = Boolean(pending);
     analyze.disabled = !items.some(item => item.selected && item.state === 'ready') || Boolean(pending) || !options.canAnalyze;
     stop.hidden = !pending;
     html.disabled = result?.modelStatus !== 'completed' || Boolean(pending);
@@ -121,10 +126,14 @@ function createEnterpriseAnalysis(options: AnalysisOptions) {
     pending?.abort(); const abort = new AbortController(); pending = abort;
     const selected = selectedFiles[0]; const expected = generation; controls(); status.textContent = '正在使用当前模型分析选中资料集合…';
     try {
-      const { body } = await api.inspectDocument(selected, selected.name, withModel, abort.signal, options.purpose, selectedFiles.slice(1));
+      const { body } = await api.inspectDocument(selected, selected.name, withModel, abort.signal, options.purpose, selectedFiles.slice(1), undefined, industry?.value as ReportIndustry | undefined);
       if (!active() || pending !== abort || abort.signal.aborted || generation !== expected) return;
       result = body;
       output.replaceChildren();
+      if (body.detailedReport) {
+        output.innerHTML = `<style>${detailedReportStyle}</style>${detailedReportBody(body)}`;
+        const hints = doc.createElement('p'); hints.textContent = documentUncertaintyHints(body.uncertain); output.append(hints);
+      } else {
       const summary = doc.createElement('p'); summary.textContent = `${body.fileName} · 已解析 ${body.cells.length} 项来源`; output.append(summary);
       const hints = doc.createElement('p'); hints.textContent = documentUncertaintyHints(body.uncertain); output.append(hints);
       for (const observation of body.observations) {
@@ -135,6 +144,7 @@ function createEnterpriseAnalysis(options: AnalysisOptions) {
       const sourceList = doc.createElement('ul');
       for (const cell of body.cells) { const item = doc.createElement('li'); const sourceFile = body.files?.find(file => cell.sourceRef.startsWith(file.prefix)); item.textContent = `${sourceFile?.fileName ?? body.fileName} · ${cell.sourceRef}：${cell.text}`; sourceList.append(item); }
       details.append(sourceList); output.append(details);
+      }
       if (withModel && body.selectedForConversation && scope) {
         const { documentId, fileName, fileHash, classification, missingStatements, expiresAt } = body;
         setFinanceDocumentSelection(scope, { kind: 'readonly_document', documentId, fileName, fileHash, classification, missingStatements, expiresAt });
@@ -201,10 +211,13 @@ function createEnterpriseAnalysis(options: AnalysisOptions) {
     } catch { if (active()) status.textContent = '报告导出失败，内容仍保留，请重试。'; }
   }
   const run = () => void inspect(true); const saveHtml = () => void download('html'); const savePdf = () => void download('pdf');
+  const changeIndustry = () => { if (pending) return; invalidate(); controls(); status.textContent = '行业背景已变更，请重新生成报告；已选资料保留。'; };
+  industry?.addEventListener('change', changeIndustry);
   input.addEventListener('change', choose); analyze.addEventListener('click', run); stop.addEventListener('click', cancel);
   html.addEventListener('click', saveHtml); pdf.addEventListener('click', savePdf);
   list.addEventListener('click', listAction); host.addEventListener('dragover', drop); host.addEventListener('drop', drop);
   return { setFiles, dispose() { disposed = true; pending?.abort(); items = []; result = null;
+    industry?.removeEventListener('change', changeIndustry);
     list.removeEventListener('click', listAction); host.removeEventListener('dragover', drop); host.removeEventListener('drop', drop);
     input.removeEventListener('change', choose); analyze.removeEventListener('click', run); stop.removeEventListener('click', cancel);
     html.removeEventListener('click', saveHtml); pdf.removeEventListener('click', savePdf); } };

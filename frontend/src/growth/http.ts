@@ -27,6 +27,7 @@ export interface GrowthHttpRequestOptions {
   ifMatch?: string;
   signal?: AbortSignal;
   onProgress?: (event: unknown) => void;
+  referenceProtocol?: 'system-v1';
 }
 
 export interface GrowthHttpClient {
@@ -70,6 +71,9 @@ export function createGrowthHttpClient(
       const headers: Record<string, string> = {
         Accept: requestOptions.onProgress ? 'application/x-ndjson' : "application/json"
       };
+      if(method==='GET'&&requestOptions.referenceProtocol==='system-v1'&&/^\/api\/v1\/finance\/cfo-sessions\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(path)){
+        headers['X-Shensi-Reference-Protocol']='system-v1';
+      }
       const activeWorkspaceId = workspaceId()?.trim();
       if (activeWorkspaceId && activeWorkspaceId !== "all") {
         headers["X-Workspace-Id"] = activeWorkspaceId;

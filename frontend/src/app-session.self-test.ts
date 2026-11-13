@@ -838,3 +838,20 @@ for (const credentials of [
   assert.deepEqual(events, [false]);
   controller.destroy();
 }
+
+
+{
+  const document = createDocument();
+  const storage = createStorage();
+  const bootstrap = { ...admin, id: "u_initial_super_admin", teamId: "all", role: "super_admin" as const, email: "bootstrap@shensi.local", name: "Local Bootstrap" };
+  const response = createDeferred<Response>();
+  const controller = createAppSessionController({
+    document, storage, location: { hash: "#decision-simulation" } as Location, demoMode: false,
+    fetchImpl: async () => response.promise,
+  });
+  const restoring = controller.start();
+  response.resolve(new Response(JSON.stringify({ user: bootstrap, access: { status: "unmanaged", workspaceId: "all", canRead: true, canExecute: true, features: ["decision"] } }), { status: 200 }));
+  await restoring;
+  assert.equal(document.body.dataset.sessionWorkspaceId, `personal:${bootstrap.id}`);
+  controller.destroy();
+}

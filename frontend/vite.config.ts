@@ -31,6 +31,7 @@ export default defineConfig(({ mode }) => ({
       input: {
         main: `${projectRoot}index.html`,
         admin: `${projectRoot}admin.html`,
+        referenceApproval: `${projectRoot}reference-approval.html`,
         uiKit: `${projectRoot}ui-kit.html`
       }
     }

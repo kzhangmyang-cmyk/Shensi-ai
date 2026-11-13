@@ -11,7 +11,10 @@ test("human grants are closed and never include the reconciler identity", () => 
   assert.equal(GROWTH_CAPABILITY_REGISTRY_VERSION, "growth-capabilities.v1");
   assert.deepEqual(capabilitiesForHumanRole("sales"), [
     "catalog.read",
-    "quote.draft.create"
+    "quote.draft.create",
+    "knowledge.read",
+    "knowledge.upload",
+    "knowledge.manage_own"
   ]);
   assert.equal(capabilitiesForHumanRole("manager").includes(
     "finance.council.run"

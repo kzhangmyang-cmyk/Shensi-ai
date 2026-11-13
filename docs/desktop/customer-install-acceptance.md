@@ -1,6 +1,6 @@
 # macOS 隔离安装包验收
 
-公网接入、HTTPS 测试包隔离及正式发行前置条件见 [客户端公网准备](public-client-readiness.md)。本页保留本机测试产物与对应验收证据。
+当前单机内部产物、合成验收方案及未测边界见 [单机内部验收](standalone-internal-acceptance.md)。本页以下为2026-09-22远程客户端测试包的历史证据，不是当前单机包或启动入口。公网接入历史背景见 [客户端公网准备](public-client-readiness.md)。
 
 ## 2026-09-22 测试产物
 

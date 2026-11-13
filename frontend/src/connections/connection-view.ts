@@ -12,6 +12,7 @@ export type ConnectionMutation =
   | "saving"
   | "testing"
   | "activating"
+  | "deactivating"
   | "updating"
   | "deleting";
 
@@ -226,7 +227,7 @@ function modelEditor(state: ConnectionCenterState): string {
             ? `<button type="button" class="replica-connection-primary" data-connection-action="activate-model" data-connection-id="${escapeHtml(connection.id)}"${disabled(state)}>${state.mutation === "activating" ? "正在启用" : "启用模型"}</button>`
             : ""}
           ${connection.status === "active"
-            ? `<span class="replica-connection-action-note">切换到其他模型后才能删除</span>`
+            ? `<button type="button" data-connection-action="deactivate-model" data-connection-id="${escapeHtml(connection.id)}"${disabled(state)}>${state.mutation === "deactivating" ? "正在停用" : "停用模型"}</button><span class="replica-connection-action-note">停用后可删除或改凭证；也可另选模型并启用</span>`
             : `<button type="button" class="is-danger" data-connection-action="delete-model" data-connection-id="${escapeHtml(connection.id)}"${disabled(state)}>删除连接</button>`}
         </div>
         ${connection.status === "active" ? "" : `

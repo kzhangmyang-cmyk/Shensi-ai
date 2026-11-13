@@ -1,4 +1,7 @@
 import type express from "express";
+import { KNOWLEDGE_RETRIEVER } from './knowledge/module.js';
+import { REFERENCE_RETRIEVER, type ReferenceRetrievalPort } from './system-reference/composite-retrieval.js';
+import type { KnowledgeRetrievalPort } from './knowledge/retrieval.js';
 import type { CrmStore } from './store.js';
 import { createAgentWebResearchRuntime, createAgentConversationResearchRuntime } from './agent-web-research-runtime.js';
 import type { ActiveWorkspaceContext } from './growth-workspace-context.js';
@@ -414,6 +417,8 @@ class IdempotentInProcessWakeSink implements FinancialCouncilWakeSink {
 const TRUSTED_FINANCIAL_COUNCIL_RESOURCES = new WeakSet<object>();
 
 export async function createGrowthFinancialCouncilResources(input: {
+  knowledge?: KnowledgeRetrievalPort;
+  references?: ReferenceRetrievalPort;
   webResearchStore?: CrmStore;
   modelFetch?: typeof fetch;
   executeSearch?: NonNullable<Parameters<typeof createAgentWebResearchRuntime>[1]>['executeSearch'];
@@ -576,6 +581,14 @@ export async function createGrowthFinancialCouncilResources(input: {
     repository: modelRoutingRepository, runtimeState
   });
   const documents = new FinanceDocumentService({
+    async reportResearch(context, industry, signal) {
+      if (!webResearch) throw new GrowthHttpError(409, 'agent_web_connection_unavailable');
+      const labels = {general:'企业经营',manufacturing:'制造业',retail:'零售业',services:'服务业',technology:'软件与信息技术服务业'};
+      const connections = await webResearch.connections(context);
+      if (!connections.length) throw new GrowthHttpError(409, 'agent_web_connection_unavailable');
+      // Only controlled public taxonomy is sent to search, never uploaded text.
+      return webResearch.retrieve(context, {query:`中国 ${labels[industry]} 收入 成本 现金流 管理 行业 可比口径`,connectionId:connections[0].id,role:'finance'}, signal);
+    },
     model: input.documentModel ?? (input.modelStore ? createFinanceDocumentModel(input.modelStore,{fetch:input.modelFetch}) : undefined),
     async connectionFor(context, role) {
       const policy = await modelRoutingRepository.getCurrent(context);
@@ -599,6 +612,8 @@ export async function createGrowthFinancialCouncilResources(input: {
   const agentCenter = new FinancialCouncilAgentCenter({
     research:input.webResearchStore&&webResearch?createAgentConversationResearchRuntime(input.webResearchStore,researchOptions,webResearch):undefined,
     operatingMemory:input.operatingMemory,
+    knowledge: input.knowledge,
+    references: input.references,
     sessions: input.mode === 'mysql' ? new MysqlCfoConversationSessionRepository(input.pool!) : new InMemoryCfoConversationSessionRepository(),
     documents,
     chatModel: input.modelStore ? createCfoChatModel(input.modelStore,{fetch:input.modelFetch}) : undefined,
@@ -682,6 +697,8 @@ export function createGrowthFinancialCouncilModule(
         const createdResources = options.createResources
           ? await options.createResources({ foundation, advisor, finance })
           : await createGrowthFinancialCouncilResources({
+              knowledge: input.privateServices.get(KNOWLEDGE_RETRIEVER) ?? undefined,
+              references: input.privateServices.get(REFERENCE_RETRIEVER) ?? undefined,
               operatingMemory:input.privateServices.get(AGENT_OPERATING_MEMORY)??undefined,
               mode: options.mode ?? "memory",
               pool: options.pool,

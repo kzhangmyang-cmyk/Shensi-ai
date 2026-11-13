@@ -19,7 +19,8 @@ function isElectronJitObject(relative) {
 }
 
 function isPlaywrightNode(relative) {
-  return relative === "Contents/Resources/sidecar/_internal/playwright/driver/node";
+  return relative === "Contents/Resources/sidecar/_internal/playwright/driver/node"
+    || relative === "Contents/Resources/backend-runtime/node";
 }
 
 function isChromiumJitObject(relative) {

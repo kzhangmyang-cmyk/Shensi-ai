@@ -4,6 +4,7 @@ const standalone = new Set([
   "home",
   "dashboard",
   "agents",
+  "knowledge",
   "acquisition",
   "conversations",
   "private-domain",
@@ -30,6 +31,7 @@ export function douyinLiveLoginSessionId(hash: string): string | null {
 export function normalizeAppHash(hash: string): string {
   if(hash===''||hash==='#')return '#home';
   const pathname = hash.replace(/^#/, "").split("?", 1)[0];
+  if (pathname === "knowledge") return hash.startsWith("#") ? hash : `#${hash}`;
   if (pathname === "douyin-live-login") {
     return hash.startsWith("#") ? hash : `#${hash}`;
   }

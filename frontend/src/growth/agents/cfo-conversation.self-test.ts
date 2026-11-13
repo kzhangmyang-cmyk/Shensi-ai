@@ -6,6 +6,35 @@ import { BUSINESS_AGENT_TEAM } from './agents';
 import { setFinanceDocumentSelection, resetFinanceDocumentSelection } from '../finance/document-selection';
 
 export async function runCfoConversationTests() {
+  for (const role of BUSINESS_AGENT_TEAM) {
+    const {document}=parseHTML('<html><body><main></main></body></html>');
+    const host=document.querySelector('main')!;
+    const requests: any[]=[]; let answer!: (value:any)=>void;
+    const view=mountCfoConversation({host,initialRole:role.id,scope:()=> 'network-test',http:{request:async(path,options)=>{
+      if(path.endsWith('/cfo-sessions')||path.endsWith('/cfo-workflows/latest'))return {body:null} as any;
+      requests.push({path,options});return new Promise(resolve=>{answer=resolve;});
+    }}});
+    const toggle=host.querySelector<HTMLButtonElement>('[data-cfo-web-search]');
+    assert.ok(toggle,`${role.id} exposes the network toggle`);
+    assert.equal(toggle.getAttribute('aria-pressed'),'false');
+    assert.equal(requests.length,0,'toggling must never send a request');
+    const form=host.querySelector('[data-cfo-question-form]')!;
+    const submit=()=>form.dispatchEvent(new document.defaultView!.Event('submit',{bubbles:true,cancelable:true}));
+    host.querySelector('textarea')!.value='解释预算偏差';submit();
+    assert.equal(requests[0].options.body.webSearchMode,'off');
+    assert.equal(requests[0].options.body.knowledgeMode,'auto');
+    assert.equal(toggle.disabled,true);toggle.click();
+    assert.equal(toggle.getAttribute('aria-pressed'),'false','in-flight policy is immutable');
+    answer({body:{answer:'请核对预算口径。',model:'fixture',material:null}});
+    await new Promise(resolve=>setTimeout(resolve,0));
+    toggle.click();assert.equal(toggle.getAttribute('aria-pressed'),'true');
+    assert.equal(requests.length,1);
+    host.querySelector('textarea')!.value='最新公开政策';submit();
+    assert.equal(requests[1].options.body.webSearchMode,'on');
+    assert.equal(requests[1].options.body.question,'最新公开政策','toggle is not a question suffix');
+    view.dispose();assert.equal(requests[1].options.signal.aborted,true);
+    toggle.click();assert.equal(requests.length,2);
+  }
   {
     const {document}=parseHTML('<html><body><main></main></body></html>');
     const {mountCfoChatMessages}=await import('./cfo-chat-messages');
@@ -45,6 +74,7 @@ export async function runCfoConversationTests() {
   input.value = '先处理回款吗？';
   host.querySelector('[data-cfo-question-form]')!.dispatchEvent(new document.defaultView!.Event('submit', { bubbles: true, cancelable: true }));
   assert.equal(calls[0].body.question, '先处理回款吗？');
+  assert.equal(calls[0].body.knowledgeMode, 'auto');
   assert.equal(calls[0].body.documentId, 'doc-1', 'ask must carry the selected source explicitly');
   assert.equal(shellSubmits, 0, 'real CFO submission must not trigger a legacy demo toast');
   assert.deepEqual(calls[0].body.history, []);
@@ -257,7 +287,8 @@ async function runSavedCfoSessionTests() {
   const { document } = parseHTML('<html><body><main></main></body></html>');
   const host = document.querySelector('main')!;
   const session = { sessionId: '00000000-0000-4000-8000-000000000001', revision: 2, title: '历史问题', documentId: null,
-    turns: [{ role: 'user', text: '历史问题' }, { role: 'assistant', text: '历史回答' }],
+    turns: [{ role: 'user', text: '历史问题' }, { role: 'assistant', text: '历史回答',
+      knowledge: { status: 'no_match', detailedText: '历史回答 · 详细说明保留于加密快照', sources: [], warnings: [] } }],
     createdAt: '2026-09-12T00:00:00Z', updatedAt: '2026-09-12T00:00:00Z' };
   const calls: string[] = [];
   const view = mountCfoConversation({ host, scope: () => 'saved:actor', http: { request: async (path, options) => {
@@ -267,6 +298,8 @@ async function runSavedCfoSessionTests() {
     if (path.endsWith('/cfo-sessions')) return { body: [session] } as any;
     if (path.endsWith('/turns')) {
       assert.equal((options?.body as any).revision, 2);
+      assert.equal((options?.body as any).knowledgeMode, 'auto');
+      assert.equal((options?.body as any).webSearchMode, 'off');
       options?.onProgress?.({ type: 'stage', stage: 'model_started' });
       assert.match(host.querySelector('[data-cfo-status]')!.textContent!, /模型正在生成/);
       return { body: { session: { ...session, revision: 3 }, answer: {
@@ -281,6 +314,7 @@ async function runSavedCfoSessionTests() {
   host.querySelector<HTMLButtonElement>('[data-cfo-session]')!.click();
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.match(host.querySelector('[data-cfo-turns]')!.textContent!, /历史回答/);
+  assert.match(host.querySelector('[data-cfo-turns]')!.textContent!, /详细说明保留于加密快照/);
   assert.equal(input.value, '我的未发送草稿');
   host.querySelector('[data-cfo-question-form]')!.dispatchEvent(new document.defaultView!.Event('submit', { bubbles: true, cancelable: true }));
   await new Promise(resolve => setTimeout(resolve, 0));

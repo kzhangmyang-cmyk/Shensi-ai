@@ -6,7 +6,18 @@ import { app } from './server.js';
 import { getStore, setStore } from './store.js';
 import { hashPassword, publicUser, signToken, requireAuth } from './auth.js';
 import { bootstrapPlatformOwner, platformState, savePlatformPlan, updatePlatformEnterprise } from './platform-admin-service.js';
+import { isolatedPreviewPasswordOnly } from './platform-admin-router.js';
 import type { User } from './types.js';
+
+test('password-only exception is confined to one user in the isolated loopback MySQL preview', () => {
+  const env = { SHENSI_ADMIN_PREVIEW_PASSWORD_ONLY_USER_ID: 'preview-owner', DATABASE_URL: 'mysql://test:private@127.0.0.1:34999/shensi_admin_preview', BACKEND_HOST: '127.0.0.1', PORT: '5680', CORS_ORIGINS: 'http://localhost:5681,http://127.0.0.1:5680' };
+  assert.equal(isolatedPreviewPasswordOnly('preview-owner', 'mysql', env), true);
+  assert.equal(isolatedPreviewPasswordOnly('another-user', 'mysql', env), false);
+  assert.equal(isolatedPreviewPasswordOnly('preview-owner', 'memory', env), false);
+  for (const change of [{ DATABASE_URL: 'mysql://test:private@127.0.0.1:3306/shensi' }, { BACKEND_HOST: '0.0.0.0' }, { PORT: '4188' }, { CORS_ORIGINS: 'https://app.example.com' }]) {
+    assert.equal(isolatedPreviewPasswordOnly('preview-owner', 'mysql', { ...env, ...change }), false);
+  }
+});
 
 test('public registration waits for operator grant and returns safe access with atomic audit', async () => {
   const previous = getStore(), previousFlag = process.env.SHENSI_REQUIRE_PLATFORM_OWNER;

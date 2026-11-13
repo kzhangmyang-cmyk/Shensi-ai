@@ -15,6 +15,7 @@ export interface ConversationResearchInput {
   context: ActiveWorkspaceContext;
   role: typeof FINANCIAL_COUNCIL_MODEL_ROLES[number];
   question: string;
+  webSearchMode?: 'on' | 'off';
   previousPublicTopic?: string;
   signal?: AbortSignal;
 }
@@ -50,7 +51,6 @@ function privateFragment(text: string) {
   const amount=/(?:[0-9][0-9,.]*|[零〇一二两三四五六七八九十百千万亿壹贰叁肆伍陆柒捌玖拾佰仟点]+)\s*(?:万|亿|千|元|美元|港元|港币|欧元|英镑|日元|人民币|块钱|million|billion|thousand)|[¥￥$€£]\s*\d|\b(?:USD|CNY|RMB|HKD|EUR|GBP|JPY)\s*\d|(?:营收|收入|利润|余额|成本|费用|合同金额)\s*[:：]?\s*\d/iu;
   return privateIdentifier.test(normalized)||amount.test(normalized);
 }
-const clarify = () => new GrowthHttpError(409, 'agent_research_public_topic_required');
 
 export class AgentConversationResearch {
   constructor(private readonly dependencies: { retrieval: AgentWebResearchService; plan: ResearchPlanner }) {}
@@ -58,23 +58,23 @@ export class AgentConversationResearch {
     requireGrowthCapabilities(input.context, ['finance.council.run']);
     input.signal?.throwIfAborted();
     if (!input.question.trim() || input.question.length > 2000) throw new GrowthHttpError(422, 'cfo_conversation_input_invalid');
-    if (privateFragment(input.question)) {
-      if (/联网|查询|查一下|搜索|上网|网上|公开|外部|search|look\s?up|browse/iu.test(input.question)) throw clarify();
-      return null; // Preserve internal analysis without sending private input to a planner/searcher.
-    }
-    if (input.previousPublicTopic && privateFragment(input.previousPublicTopic)) throw clarify();
+    if (input.webSearchMode === 'off') return null;
+    // Private fragments never reach the planner or searcher; the question is answered without public search.
+    if (privateFragment(input.question)) return null;
+    const previousPublicTopic = input.previousPublicTopic && !privateFragment(input.previousPublicTopic) ? input.previousPublicTopic : undefined;
     let raw:unknown;
     try { raw = await this.dependencies.plan({context:input.context,role:input.role,question:input.question,
-      ...(input.previousPublicTopic ? {previousPublicTopic:input.previousPublicTopic} : {}),signal:input.signal}); }
+      ...(input.webSearchMode ? {webSearchMode:input.webSearchMode} : {}),
+      ...(previousPublicTopic ? {previousPublicTopic} : {}),signal:input.signal}); }
     catch(error) { input.signal?.throwIfAborted(); if(error instanceof GrowthHttpError)throw error;
       throw new GrowthHttpError(502,'agent_research_plan_unavailable'); }
     input.signal?.throwIfAborted();
     const parsed=researchPlanSchema.safeParse(raw);
     if (!parsed.success) throw new GrowthHttpError(502,'agent_research_plan_invalid');
-    if (parsed.data.kind==='not_needed') return null;
-    if (parsed.data.kind==='clarify') throw clarify();
+    // No safe public topic (not needed, ambiguous, or the plan leaked private/unsafe text): skip web search, answer normally.
+    if (parsed.data.kind!=='search') return null;
     const query=[parsed.data.topic,parsed.data.region,parsed.data.freshness].filter(Boolean).join(' ');
-    if (privateFragment(query) || !/^[\p{L}\p{N}\s，、（）()%-]+$/u.test(query)) throw clarify();
+    if (privateFragment(query) || !/^[\p{L}\p{N}\s，、（）()%-]+$/u.test(query)) return null;
     const connections=await this.dependencies.retrieval.connections(input.context);
     input.signal?.throwIfAborted();
     if (!connections.length) throw new GrowthHttpError(409,'agent_web_connection_unavailable');

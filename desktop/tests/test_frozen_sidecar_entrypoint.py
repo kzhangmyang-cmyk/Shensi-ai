@@ -64,6 +64,29 @@ def test_non_frozen_mode_preserves_path(tmp_path: Path) -> None:
     assert environment == {"PATH": "/custom/bin"}
 
 
+def test_windows_frozen_node_uses_bundled_exe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = make_node(tmp_path)
+    executable = node.with_suffix(".exe")
+    node.rename(executable)
+    monkeypatch.setattr(MODULE.sys, "platform", "win32")
+    environment = {}
+    assert MODULE.configure_frozen_node(
+        frozen=True, resource_root=tmp_path, environment=environment,
+    ) == executable.resolve()
+    assert environment["PATH"] == str(executable.parent.resolve())
+
+
+def test_windows_frozen_node_does_not_fall_back_to_unix_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_node(tmp_path)
+    monkeypatch.setattr(MODULE.sys, "platform", "win32")
+    with pytest.raises(RuntimeError, match="missing"):
+        MODULE.configure_frozen_node(frozen=True, resource_root=tmp_path, environment={})
+
+
 def test_frozen_mode_rejects_absent_meipass_even_when_cwd_contains_node(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

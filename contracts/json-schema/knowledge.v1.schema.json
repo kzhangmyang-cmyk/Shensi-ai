@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.goodjob.ai/knowledge.v1.schema.json",
+  "title": "PrivateReferenceKnowledge",
+  "$defs": {
+    "Role": { "enum": ["cfo", "finance", "profit", "cost", "cashflow", "tax"] },
+    "Roles": { "type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": true, "items": { "$ref": "#/$defs/Role" } },
+    "Warnings": { "type": "array", "maxItems": 100, "items": { "type": "string", "minLength": 1, "maxLength": 80 } },
+    "Status": { "enum": ["queued", "parsing", "indexing", "ready", "failed", "cancelled"] },
+    "UploadInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["title", "filename", "format", "bytes", "sourceKind", "roles"],
+      "allOf": [{ "not": { "properties": { "filename": { "enum": [".", ".."] } }, "required": ["filename"] } }],
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "filename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^/\\\\\\u0000-\\u001f\\u007f]+$" },
+        "format": { "enum": ["pdf", "docx", "xlsx", "csv", "txt", "md"] },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 52428800 },
+        "sourceKind": { "enum": ["book", "company", "reference"] }, "roles": { "$ref": "#/$defs/Roles" }
+      }
+    },
+    "Patch": {
+      "type": "object", "additionalProperties": false, "minProperties": 1,
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "sourceKind": { "enum": ["book", "company", "reference"] },
+        "roles": { "$ref": "#/$defs/Roles" }, "enabled": { "type": "boolean" }
+      }
+    },
+    "Document": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "revision", "title", "sourceKind", "roles", "enabled", "activeVersionId", "latestVersionId", "updatedAt"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" }, "revision": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "sourceKind": { "enum": ["book", "company", "reference"] }, "roles": { "$ref": "#/$defs/Roles" },
+        "enabled": { "type": "boolean" }, "activeVersionId": { "type": ["string", "null"], "format": "uuid" },
+        "latestVersionId": { "type": "string", "format": "uuid" }, "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Coverage": {
+      "type": "object", "additionalProperties": false, "required": ["totalPages", "extractedPages", "missingPages"],
+      "properties": {
+        "totalPages": { "type": ["integer", "null"], "minimum": 1, "maximum": 1000 },
+        "extractedPages": { "type": ["integer", "null"], "minimum": 0, "maximum": 1000 },
+        "missingPages": { "type": "array", "uniqueItems": true, "maxItems": 1000, "items": { "type": "integer", "minimum": 1, "maximum": 1000 } }
+      }
+    },
+    "Version": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "documentId", "revision", "jobId", "filename", "format", "bytes", "sourceHash", "uploadComplete", "status", "coverage", "warnings", "failureCode"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" }, "documentId": { "type": "string", "format": "uuid" },
+        "revision": { "type": "integer", "minimum": 1 }, "jobId": { "type": ["string", "null"], "format": "uuid" },
+        "filename": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "format": { "enum": ["pdf", "docx", "xlsx", "csv", "txt", "md"] },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 52428800 },
+        "sourceHash": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "uploadComplete": { "type": "boolean" }, "status": { "$ref": "#/$defs/Status" },
+        "coverage": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Coverage" }] },
+        "warnings": { "$ref": "#/$defs/Warnings" }, "failureCode": { "type": ["string", "null"], "pattern": "^[a-z0-9_]{1,80}$" }
+      }
+    },
+    "Locator": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "page": { "type": "integer", "minimum": 1, "maximum": 1000 }, "chapter": { "type": "string", "maxLength": 300 },
+        "sheet": { "type": "string", "maxLength": 200 }, "row": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 }, "paragraph": { "type": "integer", "minimum": 1 },
+        "table": { "type": "integer", "minimum": 1 }, "startLine": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 }, "startOffset": { "type": "integer", "minimum": 0 },
+        "endOffset": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Chunk": {
+      "type": "object", "additionalProperties": false, "required": ["id", "versionId", "order", "text", "locator", "warnings"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" }, "versionId": { "type": "string", "format": "uuid" },
+        "order": { "type": "integer", "minimum": 0 }, "text": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "locator": { "$ref": "#/$defs/Locator" }, "warnings": { "$ref": "#/$defs/Warnings" }
+      }
+    },
+    "Citation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourceId", "documentId", "versionId", "sourceHash", "chunkId", "sourceLabel", "locator", "excerpt", "warnings"],
+      "properties": {
+        "sourceType": { "const": "private", "description": "Omitted is legacy private; never infer system ownership from UUID or K alias." },
+        "sourceId": { "type": "string", "pattern": "^K[1-6]$" },
+        "documentId": { "type": "string", "format": "uuid" }, "versionId": { "type": "string", "format": "uuid" },
+        "sourceHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "chunkId": { "type": "string", "format": "uuid" },
+        "sourceLabel": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "locator": { "$ref": "#/$defs/Locator" }, "excerpt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "warnings": { "$ref": "#/$defs/Warnings" }
+      }
+    },
+    "Answer": {
+      "type": "object", "additionalProperties": false, "required": ["status", "detailedText", "sources", "warnings"],
+      "properties": {
+        "status": { "enum": ["used", "no_match", "unavailable"] }, "detailedText": { "type": "string", "maxLength": 12000 },
+        "sources": { "type": "array", "maxItems": 6, "items": { "$ref": "system-reference.v1.schema.json#/$defs/ReferenceCitation" } }, "warnings": { "$ref": "#/$defs/Warnings" }
+      }
+    }
+  }
+}

@@ -17,8 +17,9 @@ completed turns. Model context stays bounded to ten recent turns, including
 confirmed in-page voice turns. Voice audio/transcripts are not persisted by this
 text pilot. History is unverified conversation, not company facts or a knowledge
 base. All six roles retain their current view, completed messages, citations,
-draft and pending text request in this Renderer document's memory across module
-and role switches. A return reattaches the same view without resending a question.
+and draft in this Renderer document's memory across module and role switches.
+Pending text survives module departure; an explicit role switch cancels that
+role's pending request. A return reattaches the same view without resending a question.
 Each role has a separate current conversation; New conversation clears only that
 role's messages and attachments and preserves its unsent input. Logout, changed
 identity/authority and document close destroy these views and abort pending work.
@@ -38,9 +39,54 @@ with an explicit history-unavailable message.
 Empty chats show no avatar/title/explanatory placeholder;
 the composer, attachments, voice controls and actual history remain available.
 The model receives one explicit output shape: answer for ordinary questions,
-answer plus validated citationIds for public-evidence questions.
-Six-role text questions use the current role model to decide whether public
-research is needed, after validating the selected document and role route.
+answer plus validated citationIds for public-evidence questions. Text UI sends
+knowledgeMode:auto and first retrieves scoped local references. A used reference
+adds a separately validated knowledge template/source-ID projection to the same
+answer call, rendered into detailedText and exact-version citations server-side.
+The conversation model's final output instruction closes the root key set and
+includes a complete nested JSON example: answer/knowledge without public evidence,
+answer/citationIds/knowledge with it. Knowledge has only template/citationIds;
+K IDs belong inside knowledge.citationIds, and public S IDs belong at the root.
+Status, detailedText, sources, warnings and version/location metadata are
+server-generated, not model output fields. Non-used and legacy short prompts
+keep their existing shapes. The 48-case six-role outbound-request matrix passes
+its examples through the unchanged production validator; negative cross-scope
+citations and extra root fields still fail without knowledge-call replay.
+Separate post-alignment live verification passed one finance question with HTTP 200,
+exactly one active configured model call, no other model calls and five references
+whose version/hash/chunk/locator/excerpt/warnings match the normal knowledge API.
+This single sample does not establish repeated reliability, remaining-role or
+public-search acceptance, or finance history/native citation-navigation coverage.
+No match/unavailable is explicit; omitted/off and voice keep the old short path.
+Reference text is untrusted data, not company facts or current-law proof, and
+does not enter public research or subsequent short history. Both verified-report
+and explicit-attachment paths retain their original numeric validators.
+CFO history optionally persists the exact knowledge snapshot in its encrypted
+turn payload. Source permissions/enablement/version are rechecked after the model
+and immediately before history persistence; stale references reject without
+automatic repair/replay. See `knowledge-base.md` for reference release boundaries.
+Invalid structured outputs expose only fixed safe validation categories in the
+existing error/audit boundary, never raw model text, private paths or arbitrary
+custom messages. Categories distinguish shape, reference joins, existing company
+text validation and output limits without weakening validators or adding calls.
+Shape failures append at most 32 deduplicated `schema_detail:<location>:<kind>`
+codes to the same audit array. Locations and kinds are closed labels; paths are
+matched segment by segment and array indexes are normalized. Unknown keys,
+enum/literal values, issue messages and arbitrary metadata never enter the audit.
+An early shape failure does not certify later financial/reference validation.
+The six-role text composer has a default-off `联网搜索` button, separate from
+knowledge retrieval. Growth 1.0.39 adds optional `webSearchMode:on|off` to normal
+questions and saved-session turns; operating-memory questions reuse the same
+input. Off skips both planning and public retrieval, even if the question asks
+for current information. On requires safe public retrieval; private/ambiguous
+topics, missing adapters, empty results and failed searches never silently
+produce an unsearched answer. The UI preserves the question on failure and
+shows completed-source counts only from the returned research snapshot.
+The button cannot change during a pending question; new/restored conversations
+start off. Its state is only in the scoped Renderer view, not shared across accounts.
+Omitting the field preserves legacy automatic planning. Voice is unchanged.
+Automatic/on planning uses the current role model, after validating the selected
+document and role route.
 Planning receives only the question and a same-scope public topic; private
 attachments, history and preferences are never added to a search query.
 An explicit request to search or verify public sources takes precedence over
@@ -122,7 +168,8 @@ return to confirmed statements. The input lifecycle is in
 `finance-document-reading.md`; role methods are in `agent-specialist-skills.md`.
 
 Leaving the module or switching roles stops live voice and closes the voice-settings
-dialog without retaining a draft key, but does not abort a pending text question.
+dialog without retaining a draft key. Leaving alone retains a pending text
+question; explicitly switching roles cancels it and rejects late UI updates.
 Explicit Stop, New conversation, source replacement and identity cleanup abort
 the text request and reject late UI updates. HTTP disconnect propagates abort into the provider fetch. Request rate
 is bounded per authenticated workspace/actor; there is no automatic question
@@ -182,7 +229,8 @@ The six-role responsibilities, numeric reference validator, missing data and
 reuse decisions are in [`agent-specialist-skills.md`](agent-specialist-skills.md).
 Models receive display facts, not raw Minor integers or raw reports. They compose
 `{{fact:id}}` references; the server validates and renders exact amounts, ratios
-and percentages. One structured-output repair is allowed; persistent numeric
+and percentages. Ordinary non-knowledge calls allow one structured-output repair;
+knowledge-aware text questions disable that repair. Persistent numeric
 violations fail closed. Existing council-run specialist formulas/knowledge are
 not silently replaced. Only CFO supports realtime voice.
 

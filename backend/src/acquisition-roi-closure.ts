@@ -247,6 +247,10 @@ export interface ClosureFixtureReader {
 }
 
 export interface RoiClosureRepository {
+  selectPublishedVersionAt(
+    workspaceId: string, cohortId: string, currency: string,
+    cutoff: GrowthSealedReadCutoff, versionId?: string
+  ): Promise<RoiClosureVersion | null>;
   getSeries(
     workspaceId: string,
     cohortId: string,
@@ -272,6 +276,7 @@ export interface RoiClosureRepository {
   ): Promise<ClosureAttestation[]>;
   appendClosureVersion(input: {
     version: RoiClosureVersion;
+    series?: RoiClosureSeries;
     snapshots: RoiSnapshot[];
     sliceMembers: RoiSnapshotSliceMember[];
     entries: RoiSnapshotEntry[];
@@ -303,7 +308,8 @@ export interface RoiClosureRepository {
   appendReopenEvent(
     series: RoiClosureSeries,
     closureVersionId: string,
-    domainCommandHash: `sha256:${string}`
+    domainCommandHash: `sha256:${string}`,
+    actorId: string
   ): Promise<RoiClosureSeries>;
   findReopenByDomainHash(
     workspaceId: string,
@@ -491,7 +497,7 @@ export class RoiClosureService {
           );
           if (!series) {
             series = Object.freeze({
-              id: `series-${input.cohortId}-${input.currency}`,
+              id: randomUUID(),
               workspaceId: context.workspace.workspaceId,
               cohortId: input.cohortId,
               currency: input.currency,
@@ -567,7 +573,7 @@ export class RoiClosureService {
             })
           };
           const versionNumber = series.revision;
-          const versionId = `closure-${input.cohortId}-${versionNumber}`;
+          const versionId = randomUUID();
           const memberSetHash = hashCanonicalJson(
             frozen.members.map((member) =>
               `${member.cohortMemberId}\u0000${member.ownershipVersionId}`)
@@ -636,6 +642,7 @@ export class RoiClosureService {
           });
           await this.repository.appendClosureVersion({
             version,
+            series,
             snapshots: [snapshot],
             sliceMembers,
             entries,
@@ -643,7 +650,6 @@ export class RoiClosureService {
             requestHash: context.requestHash,
             requestedBy: context.actorId
           });
-          await this.repository.markClosed(series, versionId);
           return {
             resourceId: version.id,
             operationId: `op-${version.id}`
@@ -706,7 +712,7 @@ export class RoiClosureService {
             throw new RoiClosureError("revision_mismatch", 412);
           }
           const updated = await this.repository.appendReopenEvent(
-            series, closureVersionId, hash
+            series, closureVersionId, hash, context.actorId
           );
           return { resourceId: updated.id, operationId: null };
         }

@@ -143,6 +143,7 @@ export function createRealConversationsController(
           } : null;
         },
         directMessageCandidateScope() {
+          if (state.recipientKeys?.length) return recipientItems().map((item) => item.candidateId);
           const interaction = selectedInteraction();
           return interaction ? [interaction.candidateId] : [];
         }
@@ -164,6 +165,36 @@ export function createRealConversationsController(
       ?? interactions[0];
   }
 
+  function recipientItems(): RealPublicInteraction[] {
+    return (state.snapshot?.interactions ?? []).filter((item) =>
+      state.recipientKeys?.includes(item.key) && item.outreachEligible
+      && !["do_not_contact", "rejected", "unresolvable"].includes(item.candidateStatus));
+  }
+  function updateRecipients(keys: string[]) {
+    state.recipientKeys = [...new Set(keys)];
+    const items = recipientItems();
+    state.recipientKeys = items.filter((item) => item.runId === items[0]?.runId).map((item) => item.key);
+    batchController.setDirectMessageConfirmed(false);
+    for (const candidate of batchController.getState().batch?.candidates ?? []) {
+      batchController.setDirectMessageCandidateSelected(candidate.candidateId,
+        items.some((item) => item.candidateId === candidate.candidateId));
+    }
+    render();
+  }
+  async function prepareRecipients() {
+    await idlePromise;
+    const items = recipientItems();
+    if (!active || disposed || !items.length || state.outreach.phase === "loading") return;
+    state.selectedInteractionKey = items[0].key;
+    await batchController.create(items[0].runId, items.map((item) => item.candidateId));
+    if (latestBatchState.batch && latestBatchState.phase === "ready") {
+      effectiveBatchId = latestBatchState.batch.id;
+      state.outreach = latestBatchState;
+      rememberBatch(effectiveBatchId);
+    }
+    render();
+  }
+
   function batchBelongsTo(
     outreach: OutreachBatchState,
     interaction: RealPublicInteraction | undefined
@@ -178,7 +209,8 @@ export function createRealConversationsController(
     if (captureFixture) return outreach;
     if (effectiveBatchId !== null
       && outreach.batch?.id === effectiveBatchId
-      && batchBelongsTo(outreach, selectedInteraction())) {
+      && (batchBelongsTo(outreach, selectedInteraction())
+        || (state.activeTab === "direct_messages" && Boolean(state.recipientKeys?.length)))) {
       return outreach;
     }
     return {
@@ -302,7 +334,11 @@ export function createRealConversationsController(
     render();
   });
   const desktop = getInstalledDesktopRuntime();
+  let lastDesktopGate = "";
   const unsubscribeDesktop = desktop?.subscribeOutreach(() => {
+    const current = desktop.outreachStatus();
+    const gate = `${["idle", "claiming", "claimed", "executing", "reconciling"].includes(current?.state ?? "")}:${current?.diagnostic ?? ""}`;
+    if (gate !== lastDesktopGate) { lastDesktopGate = gate; batchController.setDirectMessageConfirmed(false); render(); }
     const status = main?.querySelector<HTMLElement>("[data-outreach-desktop-status]");
     if (status) status.textContent = desktopOutreachCopy(desktop.outreachStatus());
   }) ?? (() => undefined);
@@ -345,6 +381,7 @@ export function createRealConversationsController(
           const snapshot = await api.load(requestAbort?.signal);
           if (disposed || serial !== requestSerial) return;
           state.snapshot = snapshot;
+          state.recipientKeys = recipientItems().map((item) => item.key);
           state.selectedInteractionKey = snapshot.interactions.some((item) =>
             item.key === state.selectedInteractionKey)
             ? state.selectedInteractionKey
@@ -380,6 +417,7 @@ export function createRealConversationsController(
         return;
       }
       state.selectedInteractionKey = normalized;
+      if (state.activeTab === "direct_messages" && state.recipientKeys?.length && effectiveBatchId) { render(); return; }
       const operation = recoverSelectedBatch();
       idlePromise = operation.then(() => undefined, () => undefined);
     },
@@ -424,6 +462,18 @@ export function createRealConversationsController(
     const action = target.dataset.realConversationsAction;
     if (action === "select") {
       controller.selectInteraction(target.dataset.interactionKey ?? "");
+    } else if (action === "clear-recipients") {
+      updateRecipients([]);
+    } else if (action === "select-recipients") {
+      const query = state.candidateQuery?.trim().toLocaleLowerCase("zh-CN") ?? "";
+      const visible = (state.snapshot?.interactions ?? []).filter((item) => item.outreachEligible
+        && !["do_not_contact", "rejected", "unresolvable"].includes(item.candidateStatus)
+        && [item.displayName, item.taskName, item.excerpt].some((value) => value.toLocaleLowerCase("zh-CN").includes(query)));
+      const runId = recipientItems()[0]?.runId ?? visible[0]?.runId;
+      updateRecipients([...(state.recipientKeys ?? []), ...visible.filter((item) => item.runId === runId).map((item) => item.key)]);
+    } else if (action === "prepare-recipients") {
+      const operation = prepareRecipients();
+      idlePromise = operation.then(() => undefined, () => undefined);
     } else if (action === "retry") {
       void controller.open().catch(() => undefined);
     } else if (action === "create-outreach") {
@@ -448,6 +498,18 @@ export function createRealConversationsController(
 
   function onBatchChange(event: Event): void {
     const target = event.target as HTMLInputElement | HTMLSelectElement | null;
+    if (target?.matches("[data-real-conversations-recipient]") && main?.contains(target)) {
+      const key = target.dataset.realConversationsRecipient!;
+      const item = state.snapshot?.interactions.find((candidate) => candidate.key === key);
+      if ((target as HTMLInputElement).checked && recipientItems()[0] && item?.runId !== recipientItems()[0].runId) {
+        state.error = "请先清空选择；不同采集运行分别准备私信。";
+        render(); return;
+      }
+      state.error = null;
+      updateRecipients((target as HTMLInputElement).checked ? [...(state.recipientKeys ?? []), key]
+        : (state.recipientKeys ?? []).filter((value) => value !== key));
+      return;
+    }
     if (target?.matches("[data-real-conversations-candidate-search]") && main?.contains(target)) {
       state.candidateQuery = target.value.slice(0, 100);
       render();

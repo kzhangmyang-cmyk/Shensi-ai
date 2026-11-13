@@ -4,3 +4,4 @@ export function writePackagedBuildIdentity(input: {
   architecture: string;
   bundleId: string;
 }): Promise<string>;
+export function finalizePackagedResources(appPath: string): Promise<string>;

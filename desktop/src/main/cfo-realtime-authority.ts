@@ -44,7 +44,9 @@ export function createCfoVoiceAuthority(options: { localOrigin: string; session(
     async ask(scope: VoiceScope, input: { question: string; history: VoiceTurn[]; documentId?: string | null }, signal: AbortSignal) {
       const current = await authorize(scope.workspaceId);
       if (current.actorId !== scope.actorId || signal.aborted) throw new Error('voice_auth_required');
-      return request('/api/v1/finance/cfo-conversation', scope.workspaceId, input, signal);
+      // Voice turns must not auto-enter public research planning; that path needs a separate
+      // planner/model and otherwise surfaces as voice_tool_failed / 文字模型配置.
+      return request('/api/v1/finance/cfo-conversation', scope.workspaceId, { ...input, webSearchMode: 'off' }, signal);
     }
   };
 }

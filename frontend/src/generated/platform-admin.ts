@@ -1,4 +1,107 @@
 export interface paths {
+    "/api/platform/v1/system-reference/releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Owner metadata only; real MFA, no-store, no text or original files. not_observed never authorizes an automatic retry. */
+        get: operations["listReferenceReleases"];
+        put?: never;
+        /** @description Fresh platform owner plus actual MFA required. Schema contract only until publication module is installed; never uploads original PDFs or a customer database. */
+        post: operations["stageSystemReferenceRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/v1/system-reference/releases/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Owner metadata only; real MFA, no-store, no text or original files. not_observed never authorizes an automatic retry. */
+        get: operations["inspectReferenceRelease"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/v1/system-reference/commands/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Owner metadata only; real MFA, no-store, no text or original files. not_observed never authorizes an automatic retry. */
+        get: operations["inspectReferenceCommand"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/v1/system-reference/releases/{id}/sources/{sourceHash}/pages/{pageIndex}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Exact route only: authenticate actual MFA and owner before accepting at most 2 MiB / 100 synthetic-or-authorized parsed chunks. Body identity must equal path; server validates full parsed hash and contiguous page sequence. */
+        put: operations["stageSystemReferenceSourcePage"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/v1/system-reference/releases/{id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Fresh owner/MFA/revision and idempotency validation; pointer and audit update in the same transaction. */
+        post: operations["publishSystemReferenceRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/v1/system-reference/releases/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Fresh owner/MFA/revision and idempotency validation; pointer and audit update in the same transaction. */
+        post: operations["revokeSystemReferenceRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/platform/v1/accounts": {
         parameters: {
             query?: never;
@@ -147,6 +250,9 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        SystemReferenceReleaseDraft: components["schemas"]["ReleaseDraft"];
+        SystemReferencePublicationManifest: components["schemas"]["PublicationManifest"];
+        SystemReferenceSourcePage: components["schemas"]["SourcePage"];
         CustomerAccess: {
             /** @enum {string} */
             status: "unmanaged" | "pending" | "suspended" | "unconfigured" | "scheduled" | "active" | "expired";
@@ -304,15 +410,320 @@ export interface components {
         MfaInput: {
             code: string;
         };
+        "$defs-Error": {
+            error: {
+                /** @enum {unknown} */
+                code: "authentication_required" | "reference_forbidden" | "reference_not_found" | "reference_invalid" | "reference_unavailable" | "reference_rate_limited" | "reference_vocabulary_mismatch" | "reference_client_upgrade_required" | "reference_conflict" | "reference_unconfirmed";
+                message: string;
+            };
+        };
+        ReleaseDraft: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            corpusId: string;
+            revision: number;
+            /** @enum {unknown} */
+            status: "staging" | "ready" | "published" | "revoked" | "failed";
+            manifestHash: string;
+        };
+        ReleaseList: {
+            items: components["schemas"]["ReleaseDraft"][];
+            activeReleaseId: string | null;
+            nextCursor: string | null;
+        };
+        /** @enum {unknown} */
+        Role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+        Roles: components["schemas"]["Role"][];
+        Coverage: {
+            totalPages: number | null;
+            extractedPages: number | null;
+            missingPages: number[];
+        };
+        Warnings: string[];
+        PublicationManifest: {
+            /** Format: uuid */
+            corpusId: string;
+            sources: {
+                sourceHash: string;
+                artifactHash: string;
+                parsedHash: string;
+                parserVersion: string;
+                title: string;
+                roles: components["schemas"]["Roles"];
+                coverage: components["schemas"]["Coverage"];
+                warnings: components["schemas"]["Warnings"];
+            }[];
+        };
+        ReleaseDetail: {
+            release: components["schemas"]["ReleaseDraft"];
+            manifest: components["schemas"]["PublicationManifest"];
+            activeReleaseId: string | null;
+            sources: {
+                sourceHash: string;
+                totalChunks: number | null;
+                receivedChunks: number;
+                complete: boolean;
+            }[];
+        };
+        PublicationCommandStatus: {
+            /** @enum {string} */
+            operation: "stage" | "source" | "publish" | "revoke";
+            /** @constant */
+            outcome: "not_observed";
+        } | {
+            /** @enum {string} */
+            operation: "stage" | "source" | "publish" | "revoke";
+            /** @constant */
+            outcome: "committed";
+            requestHash: string;
+            release: components["schemas"]["ReleaseDraft"];
+        };
+        Locator: {
+            page?: number;
+            chapter?: string;
+            sheet?: string;
+            row?: number;
+            column?: number;
+            paragraph?: number;
+            table?: number;
+            startLine?: number;
+            endLine?: number;
+            startOffset?: number;
+            endOffset?: number;
+        };
+        SourcePage: {
+            sourceHash: string;
+            pageIndex: number;
+            totalChunks: number;
+            chunks: {
+                order: number;
+                text: string;
+                locator: components["schemas"]["Locator"];
+                warnings: components["schemas"]["Warnings"];
+            }[];
+        };
+        ReleaseTransition: {
+            reason: string;
+        };
     };
-    responses: never;
-    parameters: never;
+    responses: {
+        /** @description Fixed bounded code and safe message; no book/query content, arbitrary upstream error or credentials. */
+        error: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["$defs-Error"];
+            };
+        };
+    };
+    parameters: {
+        key: string;
+        id: string;
+        sourceHash: string;
+        pageIndex: number;
+        revision: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listReferenceReleases: {
+        parameters: {
+            query: {
+                corpusId: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded owner metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseList"];
+                };
+            };
+            default: components["responses"]["error"];
+        };
+    };
+    stageSystemReferenceRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["key"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationManifest"];
+            };
+        };
+        responses: {
+            /** @description Immutable staging manifest; not searchable */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseDraft"];
+                };
+            };
+            default: components["responses"]["error"];
+        };
+    };
+    inspectReferenceRelease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded owner metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseDetail"];
+                };
+            };
+            default: components["responses"]["error"];
+        };
+    };
+    inspectReferenceCommand: {
+        parameters: {
+            query: {
+                corpusId: string;
+                operation: "stage" | "source" | "publish" | "revoke";
+            };
+            header: {
+                "Idempotency-Key": components["parameters"]["key"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded owner metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationCommandStatus"];
+                };
+            };
+            default: components["responses"]["error"];
+        };
+    };
+    stageSystemReferenceSourcePage: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["key"];
+                "If-Match": components["parameters"]["revision"];
+            };
+            path: {
+                id: components["parameters"]["id"];
+                sourceHash: components["parameters"]["sourceHash"];
+                pageIndex: components["parameters"]["pageIndex"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourcePage"];
+            };
+        };
+        responses: {
+            /** @description Candidate state after hash-bound page admission */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseDraft"];
+                };
+            };
+            default: components["responses"]["error"];
+        };
+    };
+    publishSystemReferenceRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["key"];
+                "If-Match": components["parameters"]["revision"];
+            };
+            path: {
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseTransition"];
+            };
+        };
+        responses: {
+            /** @description Current authorized release state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseDraft"];
+                };
+            };
+            default: components["responses"]["error"];
+        };
+    };
+    revokeSystemReferenceRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["key"];
+                "If-Match": components["parameters"]["revision"];
+            };
+            path: {
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseTransition"];
+            };
+        };
+        responses: {
+            /** @description Current authorized release state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseDraft"];
+                };
+            };
+            default: components["responses"]["error"];
+        };
+    };
     createPlatformAccount: {
         parameters: {
             query?: never;

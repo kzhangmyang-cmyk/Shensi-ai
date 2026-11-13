@@ -3,12 +3,13 @@ import { createHash, randomBytes } from "node:crypto";
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { API_ONLY_CRYPTO_SECRET_BINDINGS } from "./api-only-runtime.mjs";
 import { discoverComposeRuntime } from "./container-runtime.mjs";
 import { assertPortAvailable, terminateProcessTree } from "./dev.mjs";
+import { readKnowledgeReaderRuntime } from './knowledge-reader-runtime.mjs';
 
 const TARGET = Object.freeze({ version: 1, project: "shensi-desktop-local", database: "shensi_desktop",
   databaseUser: "shensi_desktop", mysqlPort: 3313, backendPort: 5638 });
@@ -43,6 +44,37 @@ function validateConfig(config, engine) {
   if (config.engine !== engine) throw error("ENGINE_CHANGED");
 }
 
+async function embeddedReferenceRuntime(repo) {
+  const directory=join(repo,'.runtime/embedded-reference'),manifestPath=join(directory,'manifest.json');
+  try{await privateEntry(manifestPath);}catch(cause){if(cause.code==='ENOENT')return {mode:'disabled'};throw error('REFERENCE_PACK_INVALID');}
+  try{
+    await privateEntry(directory,true);
+    const raw=await readFile(manifestPath,'utf8');if(Buffer.byteLength(raw)>4096)throw Error();
+    const value=JSON.parse(raw),uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u;
+    if(!value||Object.keys(value).sort().join(',')!=='corpusId,file,releaseId,sha256,sourceCount,version'||value.version!==1
+      ||value.file!=='books.json.gz'||value.sourceCount!==21||!HASH.test(value.sha256??'')||!uuid.test(value.corpusId??'')||!uuid.test(value.releaseId??''))throw Error();
+    const packPath=join(directory,'books.json.gz');await privateEntry(packPath);
+    const info=await lstat(packPath);if(info.size<1||info.size>64*1024*1024)throw Error();
+    if(createHash('sha256').update(await readFile(packPath)).digest('hex')!==value.sha256)throw Error();
+    return {mode:'embedded',packPath,packHash:value.sha256};
+  }catch{throw error('REFERENCE_PACK_INVALID');}
+}
+async function referenceRuntime(root, owner, repo) {
+  const path = join(root, 'system-reference.json');
+  try { await privateEntry(path); }
+  catch (cause) { if (cause.code === 'ENOENT') return embeddedReferenceRuntime(repo); throw error('REFERENCE_CONFIG_INVALID'); }
+  try {
+    const bytes = await readFile(path, 'utf8');
+    if (Buffer.byteLength(bytes) > 4096) throw Error();
+    const value = JSON.parse(bytes);
+    if (!value || value.version !== 1 || value.mode !== 'client' || Object.keys(value).sort().join(',') !== 'mode,origin,version') throw Error();
+    const url = new URL(value.origin);
+    if (url.protocol !== 'https:' || url.origin !== value.origin || url.username || url.password || url.search || url.hash) throw Error();
+    return { mode:'client',origin:value.origin,issuer:value.origin,
+      backendInstanceId:createHash('sha256').update(`reference-connection.v1:${owner}`).digest('hex') };
+  } catch { throw error('REFERENCE_CONFIG_INVALID'); }
+}
+
 export async function prepareDesktopLocalRuntime(repo, engine) {
   if (!HASH.test(engine)) throw error("ENGINE_INVALID");
   // The shared .runtime directory already belongs to other retained runtimes;
@@ -68,20 +100,41 @@ export async function prepareDesktopLocalRuntime(repo, engine) {
   for (const name of ["mysql_root_password", "mysql_password", "initial_admin_password"]) {
     await retainedPrivateFile(join(root, "secrets", name), config.secrets[name]);
   }
-  return config;
+  const knowledgeRoot = resolve(root, 'knowledge');
+  await privateDirectory(knowledgeRoot);
+  // Derived by this trusted launcher, never from inherited environment or the
+  // persisted JSON's optional fields. Existing credentials are unchanged.
+  let knowledgeReader,knowledgeReaderFailure;
+  try{knowledgeReader=await readKnowledgeReaderRuntime(repo);}catch{knowledgeReaderFailure='knowledge_reader_configuration_invalid';}
+  const reference = await referenceRuntime(root, config.owner, repo);
+  return { ...config, knowledgeRoot, knowledgeReader, reference,...(knowledgeReaderFailure?{knowledgeReaderFailure}:{}) };
 }
 
 function hostEnvironment(environment) {
-  return Object.fromEntries(["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "SHELL"]
-    .filter((key) => typeof environment[key] === "string").map((key) => [key, environment[key]]));
+  return { ...Object.fromEntries(["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "SHELL"]
+    .filter((key) => typeof environment[key] === "string").map((key) => [key, environment[key]])),
+    // Keep the caller's explicit no-install choice through nested pnpm builds.
+    // Never inherit arbitrary npm configuration or dependency-install modes.
+    ...(environment.pnpm_config_verify_deps_before_run === "false"
+      ? { pnpm_config_verify_deps_before_run: "false" } : {}) };
 }
 
 export function desktopLocalBackendEnvironment(config, buildDigest, inherited = process.env, uiOnly = false) {
   validateConfig(config, config.engine);
   if (!HASH.test(buildDigest)) throw error("BUILD_INVALID");
+  if (!isAbsolute(config.knowledgeRoot ?? '')) throw error('KNOWLEDGE_ROOT_INVALID');
   return { ...hostEnvironment(inherited),
     ...Object.fromEntries(Object.keys(API_ONLY_CRYPTO_SECRET_BINDINGS).map((key) => [key, config.secrets[key]])),
     NODE_ENV: "production", SHENSI_SKIP_LOCAL_ENV: "true", CRM_STORE: "mysql", CRM_SEED_DEVELOPMENT_DATA: "false",
+    SHENSI_REFERENCE_MODE: config.reference?.mode ?? 'disabled',
+    ...(config.reference?.mode === 'embedded' ? {SHENSI_REFERENCE_PACK:config.reference.packPath,SHENSI_REFERENCE_PACK_SHA256:config.reference.packHash}:{}),
+    ...(config.reference?.mode === 'client' ? { SHENSI_REFERENCE_ORIGIN:config.reference.origin,
+      SHENSI_REFERENCE_ISSUER:config.reference.issuer, SHENSI_REFERENCE_BACKEND_INSTANCE_ID:config.reference.backendInstanceId } : {}),
+    SHENSI_KNOWLEDGE_STORAGE_ROOT: config.knowledgeRoot,
+    ...(config.knowledgeReaderFailure?{SHENSI_KNOWLEDGE_READER_CONFIGURATION_INVALID:'true'}:{}),
+    ...(config.knowledgeReader ? { SHENSI_KNOWLEDGE_READER_PYTHON:config.knowledgeReader.python,
+      SHENSI_KNOWLEDGE_READER_SCRIPT:config.knowledgeReader.script,
+      ...(config.knowledgeReader.manifest?{SHENSI_KNOWLEDGE_PREEXTRACTED_MANIFEST:config.knowledgeReader.manifest}:{}) } : {}),
     DATABASE_URL: `mysql://${config.databaseUser}:${encodeURIComponent(config.secrets.mysql_password)}@127.0.0.1:${config.mysqlPort}/${config.database}`,
     BACKEND_HOST: "127.0.0.1", PORT: String(config.backendPort), CORS_ORIGINS: `http://127.0.0.1:${config.backendPort}`,
     SESSION_COOKIE_SECURE: "false", TRUSTED_PROXY_CIDRS: "", SHENSI_API_GATEWAY_IP: "",
@@ -246,8 +299,14 @@ export async function startDesktopLocal(repo, uiOnly = false) {
     const requireDesktop = createRequire(join(repo, "desktop/package.json"));
     const requireBackend = createRequire(join(repo, "backend/package.json"));
     const origin = `http://127.0.0.1:${config.backendPort}`;
+    const backendLogPath = join(localRoot(repo), "curated-backend.log");
+    await mkdir(localRoot(repo), { recursive: true });
+    const backendEnv = {
+      ...desktopLocalBackendEnvironment(config, digest, process.env, uiOnly),
+      SHENSI_DESKTOP_BACKEND_LOG: backendLogPath,
+    };
     const backend = pool.launch(process.execPath, [requireBackend.resolve("tsx/cli"), "src/server.ts"],
-      { cwd: join(repo, "backend"), env: desktopLocalBackendEnvironment(config, digest, process.env, uiOnly) });
+      { cwd: join(repo, "backend"), env: backendEnv });
     await backendReady(origin, backend.child);
     if (pool.stopped) return;
     let electron;

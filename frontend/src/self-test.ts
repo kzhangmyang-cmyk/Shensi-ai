@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { runCfoRealtimeSessionTests } from './growth/agents/cfo-realtime-session.self-test';
 import { runCfoConversationTests } from './growth/agents/cfo-conversation.self-test';
+import './growth/agents/knowledge-reference.self-test';
 import './growth/agents/chat-attachments.self-test';
 import './growth/agents/cfo-attachments.self-test';
 import './growth/agents/cfo-session-view.self-test';

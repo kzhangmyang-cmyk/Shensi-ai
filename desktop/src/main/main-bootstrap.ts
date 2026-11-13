@@ -6,6 +6,13 @@ export interface SingleInstanceApplicationOptions {
   onFailure(error: unknown): void;
 }
 
+/** Startup may close setup before the business window exists. Explicit app.quit still works. */
+export function keepApplicationAliveBetweenWindows(application: {
+  on(event: 'window-all-closed', listener: () => void): unknown;
+}): void {
+  application.on('window-all-closed', () => {});
+}
+
 export function launchSingleInstanceApplication(
   options: SingleInstanceApplicationOptions,
 ): boolean {

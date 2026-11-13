@@ -61,6 +61,31 @@ export async function generateGrowthContractTypes({ check }) {
 export function normalizeOpenApiDefs(document) {
   const schemas = document.components?.schemas;
   if (!schemas || typeof schemas !== "object") return document;
+  // A default is server behavior, not a requirement for old text/voice callers.
+  // Bundle can reuse scalar arrays or closed flat coordinate objects through
+  // optional properties / oneOf branches. Those are schema paths, not valid
+  // TypeScript indexes. Inline only these nonrecursive leaves in this copy.
+  const normalizeKnowledgeProperties = value => {
+    if (!value || typeof value !== 'object') return;
+    if (value.properties?.knowledgeMode && !value.required?.includes('knowledgeMode')) {
+      delete value.properties.knowledgeMode.default;
+    }
+    if (typeof value.$ref === 'string' && value.$ref.startsWith('#/components/schemas/') && value.$ref.includes('/properties/')) {
+      const target = value.$ref.slice(2).split('/').reduce((current, key) => current?.[key.replace(/~1/gu, '/').replace(/~0/gu, '~')], document);
+      const primitiveTypes = ['string', 'number', 'integer', 'boolean'];
+      const scalarArray = target?.type === 'array' && primitiveTypes.includes(target.items?.type);
+      const flatObject = target?.type === 'object' && target.additionalProperties === false
+        && target.properties && !target.$ref && !target.allOf && !target.anyOf && !target.oneOf
+        && Object.values(target.properties).every(property => property && !property.$ref
+          && primitiveTypes.includes(property.type));
+      if (scalarArray || flatObject) {
+        delete value.$ref;
+        Object.assign(value, structuredClone(target));
+      }
+    }
+    for (const child of Object.values(value)) normalizeKnowledgeProperties(child);
+  };
+  normalizeKnowledgeProperties(document);
   const fileToComponent = new Map();
   for (const [name, schema] of Object.entries(schemas)) {
     if (!schema || typeof schema !== "object") continue;

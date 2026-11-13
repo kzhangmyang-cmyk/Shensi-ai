@@ -3,6 +3,20 @@
 本文档是 macOS 桌面版的当前执行规范。Git 历史和外部浏览器取证见 `macos-external-browser-audit.md`。
 客户无需安装 Chrome；内置、随包和系统默认浏览器的职责及 V1.0 跨浏览器验收见 [浏览器兼容边界](browser-compatibility-acceptance.md)。
 
+## 单机运行模式（实施中）
+
+`resolveDesktopRuntime` 仅在生产资源 `desktop-config.json` 为 `{"mode":"standalone"}`，
+或开发显式指定 `SHENSI_DESKTOP_MODE=standalone` 时启用单机分支。生产单机配置不接受
+`remoteOrigin`；开发原生运行时需分别指定绝对路径 `SHENSI_STANDALONE_NODE` 和
+`SHENSI_STANDALONE_MYSQL_ROOT`，不回退到 PATH、Docker 或已有业务数据库。
+Main 在独立 `Shensi Standalone` / `Shensi Standalone Development` 下保存数据和浏览器会话，
+通过 safeStorage 保存安装密钥，数据库与后端就绪后才加载现有前端，退出逆序关闭。
+新空库先显示首次账号设置窗口，要求3–32位字母开头账号与至少12位密码并确认密码；关闭窗口
+取消设置，不启动数据库。窗口仅能调用自己的受限初始化 IPC，账号由现有后端空库逻辑创建，
+不修改云注册。已有数据库不重复显示设置，也不生成替代账号。模型 API 使用进入后的现有设置入口。
+当前数据库驱动仅支持 macOS、关闭网络监听和真实外发；原生窗口验收及安装包仍未完成。
+详见 [单机实施计划](standalone-implementation-plan.md)。
+
 ## 登录外观与记忆
 
 登录和注册共用双主题界面：黑绿使用深色品牌视觉；蓝白使用浅蓝品牌区、
@@ -278,6 +292,8 @@ pnpm desktop:verify:mac:release
 
 日常使用 `desktop:local`：独立 MySQL 数据库 `shensi_desktop` 保存在持久卷中，端口 `3313`；本机 Backend 端口 `5638`。首次初始化生成独立凭据，不复制旧账号、业务数据或 API Key。进入应用后注册普通账号创建新工作区。Cmd+Q 退出开发应用或 Ctrl+C 会停止它启动的 Backend，保留 MySQL 和数据；下次启动继续使用同一数据库。旧试用和已安装应用保持不变。
 
+运行时保留数据库所属Docker Engine身份。自动发现的Engine不匹配时，使用`SHENSI_DOCKER_HOST`显式选择原Engine的Unix socket；不要重绑配置或新建空卷替代原数据库。若当前pnpm配置会在运行脚本前自动安装依赖，可用`pnpm_config_verify_deps_before_run=false pnpm desktop:local`明确禁止本次自动安装；该精确设置传递到子构建，不继承其他npm配置或外部凭据。启动前正常退出同一开发应用的旧窗口，避免单实例锁只聚焦旧版。源身份忽略Finder `.DS_Store`元数据，但仍拒绝未分类源码、secret和符号链接。
+
 本地开发入口启用人工审批与桌面执行，服务端发送保持关闭。生成批次使用已启用的 AI 模型，评论和私信在页面分两次确认；仅生成草稿不会发送。重新检测登录后，新批次使用当前有效登录版本，原采集证据保持不变；已存在的旧批次不能自动换用新登录。关闭发送门时显示“桌面执行尚未启用”，而不是中心服务离线。
 
 评论提交后若出现“接收短信验证码”等已识别验证提示，保留并置前同一浏览器供用户手动处理；等待最多使用配置的人工验证时长（默认 120 秒），并受本动作剩余截止时间限制。验证结束后重新核对账号和目标，只读检查已提交评论的回执，不再输入或发送。验证超时、关闭窗口或身份改变会冻结为待只读对账；弹窗消失不等于发送成功。确认成功或结果不明确后保留页面 10 秒再关闭，不能无限延长任务或恢复发送。
@@ -322,7 +338,7 @@ pnpm desktop:verify:mac
 
 ## 发布边界
 
-首版使用 Electron + TypeScript + electron-builder。依赖使用现有 pnpm workspace 并精确锁定，不全面升级前端。Renderer、Main、Preload、Sidecar 可执行物和 Playwright Chromium 都位于 asar 外的明确资源边界。开发模式设置 `CSC_IDENTITY_AUTO_DISCOVERY=false`，允许生成未签名或系统链接器 ad-hoc 状态的本机测试包；它不是 Developer ID 签名，不启用可验证的 hardened runtime，也不是公开发布物。
+首版使用 Electron + TypeScript + electron-builder。依赖使用现有 pnpm workspace 并精确锁定，不全面升级前端。开发模式设置 `CSC_IDENTITY_AUTO_DISCOVERY=false` 和明确的 `mac.identity=-`，必须完整 ad-hoc 重签 App 及嵌套代码，不接受继承的 linker 签名或 `identity=null`。开发包不启用 hardened-runtime library validation，也不访问 timestamp 服务；它不是 Developer ID 公证发行，首次打开可能需要用户在系统“隐私与安全性”中单独允许。
 
 release 模式 fail closed，必须同时提供：
 
@@ -330,7 +346,7 @@ release 模式 fail closed，必须同时提供：
 - Electron Builder 支持的 Developer ID 来源 `CSC_NAME` 或 `CSC_LINK`（相关密码只通过其支持的环境变量提供，不写入命令或仓库）；
 - 只含名称的 `SHENSI_NOTARYTOOL_KEYCHAIN_PROFILE`，凭据预先由所有者写入系统 Keychain。
 
-release 专用 Electron Builder overlay 强制 `forceCodeSigning=true`，并通过 custom `mac.sign` 包裹 electron-builder 传入的完整 `configuration.optionsForFile`（包括未来增加的 context/其余参数），最终仍调用锁定的 `@electron/osx-sign` 1.3.3 `signAsync`；开发配置不使用该 custom signer。base config 的 `entitlementsInherit` 明确指向空 plist，不再把主进程权限宽泛继承给嵌套对象。签名策略默认给代码对象空 entitlement 并保留 hardened runtime，只给明确的 V8 进程 `allow-jit`：Electron app/main 与普通主 Helper/Renderer/GPU、Sidecar 内的 Playwright driver Node，以及 Chromium app/main/Renderer/GPU。Electron Framework、Plugin Helper、Python Sidecar、普通 dylib/framework、ffmpeg、Chromium Framework 和其它 Chromium Helper 都为空。custom signer 不使用 `--deep`；只有下述发布验证器额外用 deep 检查整体结构。没有 Chromium 上游签名 allowlist，也没有 `allow-unsigned-executable-memory`、`disable-library-validation` 或非 Sandbox 场景无效的 network entitlement。
+两种模式共用 custom `mac.sign`，保留 electron-builder 传入的完整 `configuration.optionsForFile`，调用锁定的 `@electron/osx-sign` 1.3.3 `signAsync`。嵌套代码签名后重新计算 standalone 五资源树及 desktop-build-manifest 摘要，再仅重签最外层 App；不得在最终签名后修改包内清单。release overlay 仍强制 `forceCodeSigning=true` 和 hardened runtime。base config 的 `entitlementsInherit` 指向空 plist，只给明确的 V8 进程 `allow-jit`：Electron app/main 与普通主 Helper/Renderer/GPU、Backend Node、Sidecar Playwright driver Node、Chromium app/main/Renderer/GPU。其它代码对象保持空权限。custom signer 不使用 `--deep`，没有宽泛的 library-validation 或 executable-memory entitlement。所有模式的 afterSign 和包验证器均强制 `codesign --verify --deep --strict`；压缩包解压副本也必须通过。
 
 release hook 在任何 notarytool upload 前先对最外层 app 执行 `codesign --verify --deep --strict` 整体结构验证；随后不跟随符号链接地枚举所有嵌套 `.app`、`.framework` bundle 和 Mach-O 文件，对最外层及每个枚举对象分别执行 strict 签名、身份和 entitlement 验证。整体 deep 验证只是附加结构门禁，不能替代逐对象 allowlist。每个对象都必须拒绝 ad-hoc、缺少 `Developer ID Application` Authority、无效 10 位 Team ID 或缺少 hardened-runtime flag，并与最外层 app 的 Authority 和 Team ID 完全一致；验证器同时导出各对象 entitlement，按上述路径边界拒绝缺项或任何额外 key。Chromium 上游签名若未被项目 Developer ID 重签会停止发布。验证通过后才以 `notarytool --keychain-profile ... --wait` 提交临时 ZIP，随后 staple/validate app，再构造 DMG/ZIP；DMG 必须使用相同 Authority 与 Team ID 签名，并在上传前再次验证（hardened runtime 只适用于可执行代码，不要求 DMG 容器携带）。流程不使用 altool，也不把密码、私钥或 key 文件放到 argv。最终 release 验证还检查 Gatekeeper、app/DMG ticket 和三份 app 内容。
 
@@ -338,7 +354,7 @@ release hook 在任何 notarytool upload 前先对最外层 app 执行 `codesign
 
 | entitlement | 所属边界 | 原因 | 移除证据 |
 | --- | --- | --- | --- |
-| `com.apple.security.cs.allow-jit` | Electron app/main 与普通主 Helper/Renderer/GPU、Playwright driver Node、Chromium app/main/Renderer/GPU | 这些可执行角色承载 V8/JIT；electron-builder 26.15.3 的本地类型说明明确指出 arm64 Electron 20+ 需要 JIT entitlement，锁定的 osx-sign 也只给 Renderer/GPU 默认 `allow-jit` | 正式 Developer ID 包必须分别启动 Electron Renderer、Sidecar driver Node 和可见 Chromium 才能评估进一步收紧；Framework 与 Plugin Helper 在没有具体错误证据时保持空 |
+| `com.apple.security.cs.allow-jit` | Electron app/main 与普通主 Helper/Renderer/GPU、Backend Node、Playwright driver Node、Chromium app/main/Renderer/GPU | 这些可执行角色承载 V8/JIT | 正式 Developer ID 包必须分别启动这些进程；Framework 与 Plugin Helper 保持空 |
 
 当前机器 `security find-identity -v -p codesigning` 返回 0 个有效身份，因此 release 命令按设计在预检阶段停止；没有签名、公证、Gatekeeper 通过、hardened runtime 或上述最小 entitlement 对真实运行影响的发布证据。正式证书环境若出现运行错误，只能根据具体失败对象追加最小权限并重新完成全套门禁，不得预先恢复宽 entitlement。发布前仍须在目标架构上重打包，并在签名安装版中实测认证读取与一个 CSRF 写请求。
 

@@ -2,6 +2,7 @@ import type express from "express";
 import type mysql from "mysql2/promise";
 import type { GrowthCommercialToolPorts } from "./growth-commercial-application.js";
 import type { GrowthCommercialModule } from "./growth-commercial-composition.js";
+import { GrowthHttpError } from "./growth-command-context.js";
 import {
   defineGrowthPrivateServiceKey,
   type GrowthPrivateServiceRegistry
@@ -79,7 +80,7 @@ export function createGrowthFoundationModule(options: GrowthFoundationModuleOpti
           );
         }
         const workspaceContext: GrowthWorkspaceContextResolver = (req) => {
-          if (!req.activeWorkspace) throw new Error("workspace_required");
+          if (!req.activeWorkspace) throw new GrowthHttpError(403, "workspace_required");
           return req.activeWorkspace;
         };
         const services = Object.freeze({

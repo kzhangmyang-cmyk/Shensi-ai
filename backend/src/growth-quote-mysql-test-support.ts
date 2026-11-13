@@ -15,6 +15,8 @@ import {
 function connectionOptions(url: URL) {
   return {
     host: url.hostname, port: Number(url.port || 3306),
+    ...(url.searchParams.get("socketPath")
+      ? { socketPath: url.searchParams.get("socketPath")! } : {}),
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),
     timezone: "Z" as const, dateStrings: true

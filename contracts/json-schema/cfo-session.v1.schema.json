@@ -18,7 +18,9 @@
         "text": { "type": "string", "minLength": 1, "maxLength": 4000 },
         "model": { "type": "string", "maxLength": 191 },
         "sourceLabel": { "type": "string", "maxLength": 1000 },
-        "research": { "$ref": "cfo-conversation.v1.schema.json#/$defs/Research" }
+        "research": { "$ref": "cfo-conversation.v1.schema.json#/$defs/Research" },
+        "libraryStatus": { "$ref": "system-reference.v1.schema.json#/$defs/LibraryStatus" },
+        "knowledge": { "$ref": "knowledge.v1.schema.json#/$defs/Answer" }
       }
     } }
   },
@@ -37,8 +39,13 @@
     "Create": { "type": "object", "additionalProperties": false, "required": ["documentId"],
       "properties": { "documentId": { "type": ["string", "null"], "minLength": 1, "maxLength": 191 } } },
     "Ask": { "type": "object", "additionalProperties": false, "required": ["question", "revision", "documentId"],
+      "dependentRequired": { "referenceTopicIds": ["referenceProtocol"] },
       "properties": {
+        "referenceProtocol": { "const": "system-v1", "description": "Explicit negotiated protocol; knowledgeMode off or omitted closes both libraries." },
+        "referenceTopicIds": { "$ref": "system-reference.v1.schema.json#/$defs/ReferenceTopicSelection" },
         "question": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "knowledgeMode": { "enum": ["auto", "off"], "default": "off" },
+        "webSearchMode": { "enum": ["on", "off"], "description": "Explicit public search preference for this turn; omitted retains legacy automatic planning." },
         "revision": { "type": "integer", "minimum": 1 },
         "history": { "type": "array", "maxItems": 10, "items": { "$ref": "cfo-conversation.v1.schema.json#/$defs/Turn" } },
         "documentId": { "type": ["string", "null"], "minLength": 1, "maxLength": 191 }

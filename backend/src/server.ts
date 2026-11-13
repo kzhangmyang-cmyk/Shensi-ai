@@ -8,6 +8,11 @@ import { lstatSync, readFileSync } from "node:fs";
 import nodemailer from "nodemailer";
 import { z } from "zod";
 import { AUTH_COOKIE_NAME, CSRF_COOKIE_NAME, canManageAccount, canManageAccounts, canManageRole, canSeeOwner, canSeePersonalData, canSeeTeam, createCsrfToken, csrfCookieOptions, hashPassword, publicUser, requireAuth, sessionCookieOptions, signToken, validateAuthSecurity, verifyPassword } from "./auth.js";
+import { installKnowledgeIngress } from './knowledge/router.js';
+import { installReferenceBindingIngress } from './system-reference/binding-router.js';
+import { installReferenceConnectionIngress } from './system-reference/connection-router.js';
+import { installReferenceAdminIngress } from './system-reference/admin-router.js';
+import { installSystemReferenceIngress, isSystemReferenceReaderRequest } from './system-reference/router.js';
 import { assertAiBaseUrlAllowed } from "./ai-http-security.js";
 import {
   acquisitionApiErrorMiddleware,
@@ -33,6 +38,7 @@ import {
   activateModelConnection,
   createAiModelConfigId,
   createModelCredentialVersion,
+  deactivateModelConnection,
   deleteModelConnection,
   EMPTY_MODEL_CAPABILITY_SNAPSHOT,
   modelConnectionFromAiConfig
@@ -92,7 +98,7 @@ import {
 } from "./provider-runtime.js";
 import { ProspectScheduler } from "./prospect-scheduler.js";
 import { ProspectWorkerService } from "./prospect-worker-service.js";
-import { loadLocalEnv } from "./runtime-env.js";
+import { loadLocalEnv,readReferenceRuntime } from "./runtime-env.js";
 import { registerSwagger } from "./swagger.js";
 import { AccountCommandError, createAccount, updateAccountAccess, persistAccountMutation } from './account-command.js';
 import { isAccountMutationPending, beginAccountMutation, beginPlatformMutation } from './account-mutation-state.js';
@@ -585,6 +591,11 @@ app.use(helmet({
 }));
 app.use((req, res, next) => {
   if (!originAllowed(req.headers.origin)) {
+    if (isSystemReferenceReaderRequest(req.originalUrl)) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(403).json({ error: { code: 'reference_forbidden', message: '不允许的请求来源' } });
+      return;
+    }
     res.status(403).json({ message: "不允许的请求来源" });
     return;
   }
@@ -596,6 +607,12 @@ app.use(cors({
     callback(null, originAllowed(origin));
   }
 }));
+installKnowledgeIngress(app, requireAuth);
+export const configureReferenceBindingRuntime = installReferenceBindingIngress(app);
+const referenceConnectionIngress = installReferenceConnectionIngress(app);
+export const configureReferenceConnectionRuntime = referenceConnectionIngress.configure;
+export const configureReferenceAdminRuntime = installReferenceAdminIngress(app);
+export const configureSystemReferenceRuntime = installSystemReferenceIngress(app);
 function isAcquisitionVisualReaderWriteRequest(req: Request) {
   return req.method === "POST" && (
     req.path === "/api/v1/acquisition/visual-reader-sessions"
@@ -1286,6 +1303,7 @@ app.post("/api/auth/register", registrationLimiter, asyncRoute(async (req, res) 
   const hasOwner = () => platformState(store).memberships.some(member => member.role === 'owner' && member.status === 'active' && store.users.some(user => user.id === member.userId && user.status === 'active'));
   if (ownerRequired && !hasOwner()) { res.status(503).json({ message: '平台尚未开放注册，请联系运营人员' }); return; }
   const body = registrationSchema.parse(req.body);
+  if (!await referenceConnectionIngress.beforeSessionChange(req, res)) return;
   const email = `${body.account}@shensi.local`;
   const user = {
     id: `u_${randomUUID()}`,
@@ -1369,10 +1387,15 @@ app.post("/api/auth/login", loginLimiter, asyncRoute(async (req, res) => {
     res.status(409).json({ message: '账号正在更新，请稍后重试' });
     return;
   }
+  if (!await referenceConnectionIngress.beforeSessionChange(req, res)) return;
+  if (!store.users.includes(user) || user.status !== 'active' || user.password !== authenticatedHash || (user.authVersion || 1) !== versionAtStart || isAccountMutationPending(user.id)) {
+    res.status(409).json({ message: '账号正在更新，请稍后重试' });
+    return;
+  }
   sendAuthenticatedSession(res, user);
 }));
 
-app.post("/api/auth/logout", (req, res) => {
+app.post("/api/auth/logout", referenceConnectionIngress.logout, (req, res) => {
   res.clearCookie(AUTH_COOKIE_NAME, { ...sessionCookieOptions(), maxAge: undefined });
   res.clearCookie(CSRF_COOKIE_NAME, { ...csrfCookieOptions(), maxAge: undefined });
   res.setHeader("Cache-Control", "no-store");
@@ -8709,6 +8732,70 @@ app.post("/api/v1/ai/connections/:id/activate", requireAuth, asyncRoute(async (r
   }
 }));
 
+app.post("/api/v1/ai/connections/:id/deactivate", requireAuth, asyncRoute(async (req, res) => {
+  const idempotencyKey = String(req.header("Idempotency-Key") || "");
+  if (!idempotencyKey.trim()) {
+    res.status(400).json({
+      code: "idempotency_key_required",
+      message: "必须提供 Idempotency-Key 请求头",
+      details: null,
+      requestId: `req_${randomUUID()}`,
+      retryable: false
+    });
+    return;
+  }
+  const body = z.object({
+    reason: z.string().min(1).max(500)
+  }).parse(req.body ?? {});
+  const store = getStore();
+  try {
+    const result = await executeModelConnectionWriteIdempotently(
+      store,
+      {
+        ownerId: req.user!.id,
+        teamId: req.user!.teamId,
+        idempotencyKey,
+        method: req.method,
+        path: req.path,
+        body
+      },
+      async () => {
+        const configStates = store.aiModelConfigs.map((item) => ({
+          item,
+          enabled: item.enabled,
+          isDefault: item.isDefault,
+          updatedAt: item.updatedAt
+        }));
+        const rollback = () => {
+          for (const state of configStates) {
+            state.item.enabled = state.enabled;
+            state.item.isDefault = state.isDefault;
+            state.item.updatedAt = state.updatedAt;
+          }
+        };
+        try {
+          const connection = await deactivateModelConnection(
+            modelConnectionStore(store, { deferPersistence: true }),
+            { ownerId: req.user!.id, teamId: req.user!.teamId },
+            req.params.id,
+            req.user!.id,
+            body.reason
+          );
+          return { status: 200, body: connection, rollback };
+        } catch (error) {
+          rollback();
+          throw error;
+        }
+      }
+    );
+    if (result.replayed) res.setHeader("Idempotency-Replayed", "true");
+    res.status(result.status).json(result.body);
+  } catch (error) {
+    if (sendModelConnectionError(res, error)) return;
+    throw error;
+  }
+}));
+
 app.delete("/api/v1/ai/connections/:id", requireAuth, asyncRoute(async (req, res) => {
   const idempotencyKey = String(req.header("Idempotency-Key") || "");
   if (!idempotencyKey.trim()) {
@@ -12144,6 +12231,10 @@ function modelConnectionStore(
     activateModelConnectionTransaction:
       !options.deferPersistence && store.activateModelConnection
       ? store.activateModelConnection.bind(store)
+      : undefined,
+    deactivateModelConnectionTransaction:
+      !options.deferPersistence && store.deactivateModelConnection
+      ? store.deactivateModelConnection.bind(store)
       : undefined
   };
 }
@@ -12701,7 +12792,10 @@ async function startServer() {
   const mysqlRequested = process.env.CRM_STORE === "mysql"
     || (process.env.CRM_STORE !== "memory" && Boolean(process.env.DATABASE_URL || process.env.MYSQL_URL));
   let host = "127.0.0.1";
+  let referenceSettings:ReturnType<typeof readReferenceRuntime>;
   try {
+    referenceSettings=readReferenceRuntime();
+    if(referenceSettings.mode!=='disabled'&&(!mysqlRequested||!process.env.AGENT_JOB_ENCRYPTION_KEY||process.env.AGENT_JOB_ENCRYPTION_KEY.length<32))throw Error('reference_configuration_invalid');
     validateAuthSecurity();
     validateProviderCredentialSecurity();
     validateAgentJobSecurity();
@@ -12732,7 +12826,8 @@ async function startServer() {
   try {
     const foundation = createGrowthCommercialCompositionForStore({
       store,
-      databaseUrl: process.env.DATABASE_URL || process.env.MYSQL_URL
+      databaseUrl: process.env.DATABASE_URL || process.env.MYSQL_URL,
+      reference:{settings:referenceSettings,secret:process.env.AGENT_JOB_ENCRYPTION_KEY}
     });
     const growthRuntime = await createGrowthCommercialApplication({
       manifest: loadGrowthContractRelease().manifest,
@@ -12742,6 +12837,8 @@ async function startServer() {
       composition: foundation.composition
     });
     growthRuntimeBridge.install(growthRuntime);
+    growthRuntime.integrations.systemReference?.attach({binding:configureReferenceBindingRuntime,connection:configureReferenceConnectionRuntime,
+      admin:configureReferenceAdminRuntime,reader:configureSystemReferenceRuntime},foundation.workspaceMiddleware);
     const uninstallCommercialAuthority = installLegacyCommercialAuthorityProjection(
       growthRuntime.integrations.quoteProjectedDocumentAuthority
     );

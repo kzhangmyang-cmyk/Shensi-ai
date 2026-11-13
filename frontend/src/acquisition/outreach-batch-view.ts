@@ -212,6 +212,10 @@ export function renderOutreachBatchView(
   const surface = context.surface ?? "comments";
   const showComments = surface === "comments";
   const showDirectMessages = surface === "direct_messages";
+  const desktopStatus = context.desktopStatus === undefined ? getInstalledDesktopRuntime()?.outreachStatus() : context.desktopStatus;
+  const desktopReady = desktopStatus === undefined || Boolean(desktopStatus
+    && ["idle", "claiming", "claimed", "executing", "reconciling"].includes(desktopStatus.state)
+    && desktopStatus.diagnostic !== "binding_unavailable");
   const visibleActions = surface === "history"
     ? state.actions
     : state.actions.filter((action) => action.kind === (showComments ? "comment" : "direct_message"));
@@ -304,6 +308,7 @@ export function renderOutreachBatchView(
     && Number.isInteger(context.account.loginStateVersion)
     && (context.account.loginStateVersion ?? 0) >= 1);
   const directMessageApprovalContextReady = currentSenderReady
+    && desktopReady
     && directMessageCandidates.length > 0
     && !busy
     && !directMessageApprovalBusy;
@@ -325,7 +330,7 @@ export function renderOutreachBatchView(
   const directMessageAccountName = context.account?.displayName?.trim() || "未连接";
   const directMessageLimitInput = `<input type="number" min="1" max="100" step="1" value="${escape(String(directMessageDailyLimit))}" data-outreach-direct-message-limit ${directMessageApprovalBusy ? "disabled" : ""}>`;
   const directMessageHeader = compactSingleDirectMessage ? `<div class="outreach-direct-message-compose-header is-compact-single-recipient"><div class="outreach-direct-message-header-copy"><span class="outreach-direct-message-eyebrow">私信独立授权</span><h4>${escape(directMessageFlow.title)}</h4><p class="outreach-direct-message-status" role="status">${escape(directMessageFlow.detail)}</p></div><div class="outreach-direct-message-header-summary" aria-label="私信确认摘要"><div data-outreach-direct-message-account-summary><span>发送账号</span><strong>${escape(directMessageAccountName)}</strong></div><div><span>已选收件人</span><strong data-outreach-direct-message-sendable>${directMessageSendableCount} 人</strong></div><label class="outreach-direct-message-limit"><span>每日上限</span>${directMessageLimitInput}<strong data-outreach-direct-message-configured>${directMessageDailyLimit} 条</strong></label></div></div>` : `<div class="outreach-direct-message-compose-header"><div><span class="outreach-direct-message-eyebrow">私信独立授权</span><h4>${escape(directMessageFlow.title)}</h4><p class="outreach-direct-message-status" role="status">${escape(directMessageFlow.detail)}</p><p data-outreach-direct-message-account-summary>当前发送账号：<strong>${escape(directMessageAccountName)}</strong></p></div>${directMessageCandidates.length > 0 ? `<div class="outreach-direct-message-metrics"><div><span>本次已选择</span><strong data-outreach-direct-message-sendable>${directMessageSendableCount} 人</strong></div><div><span>当前设置上限</span><strong data-outreach-direct-message-configured>${directMessageDailyLimit} 条</strong></div></div>` : ""}</div>`;
-  const directMessageConfirmation = `<div class="outreach-direct-message-confirmation"><p><strong>发送账号：</strong>${escape(directMessageAccountName)}</p><p><strong>精确收件人：</strong>${selectedDirectMessageCandidates.map((candidate) => escape(contextByCandidate.get(candidate.candidateId)?.displayName?.trim() || candidate.candidateId)).join("、") || "尚未选择"}</p>${selectedDirectMessageCandidates.map((candidate) => `<blockquote data-outreach-direct-message-preview-content="${escape(candidate.candidateId)}">${escape(draftFor(state, candidate).directMessage)}</blockquote>`).join("")}<p>发送数量须在当日剩余额度内。</p>${!directMessageCountFits ? `<p class="outreach-direct-message-limit-error" role="status">本次 ${selectedDirectMessageCandidates.length} 位候选人超过设置上限，或尚未选择收件人，请调整后再确认。</p>` : ""}<label class="outreach-confirm"><input type="checkbox" data-outreach-direct-message-confirm data-outreach-direct-message-context-ready="${directMessageApprovalContextReady}" data-outreach-direct-message-ready="${directMessageApprovalReady}" ${directMessageConfirmed ? "checked" : ""} ${directMessageApprovalReady ? "" : "disabled"}> 我已核对当前发送账号、精确收件人和私信正文，并单独授权本次发送</label><button type="button" class="primary" data-outreach-action="approve-direct-messages" ${directMessageConfirmed && directMessageApprovalReady ? "" : "disabled"}>确认并排队私信</button></div>`;
+  const directMessageConfirmation = `<div class="outreach-direct-message-confirmation"><p><strong>发送账号：</strong>${escape(directMessageAccountName)}</p><p><strong>精确收件人：</strong>${selectedDirectMessageCandidates.map((candidate) => escape(contextByCandidate.get(candidate.candidateId)?.displayName?.trim() || candidate.candidateId)).join("、") || "尚未选择"}</p>${selectedDirectMessageCandidates.map((candidate) => `<p><strong>${escape(contextByCandidate.get(candidate.candidateId)?.displayName || candidate.candidateId)}</strong></p><blockquote data-outreach-direct-message-preview-content="${escape(candidate.candidateId)}">${escape(draftFor(state, candidate).directMessage)}</blockquote>`).join("")}<p>发送数量须在当日剩余额度内。</p>${!directMessageCountFits ? `<p class="outreach-direct-message-limit-error" role="status">本次 ${selectedDirectMessageCandidates.length} 位候选人超过设置上限，或尚未选择收件人，请调整后再确认。</p>` : ""}<label class="outreach-confirm"><input type="checkbox" data-outreach-direct-message-confirm data-outreach-direct-message-context-ready="${directMessageApprovalContextReady}" data-outreach-direct-message-ready="${directMessageApprovalReady}" ${directMessageConfirmed ? "checked" : ""} ${directMessageApprovalReady ? "" : "disabled"}> 我已核对当前发送账号、精确收件人和私信正文，并单独授权本次发送</label><button type="button" class="primary" data-outreach-action="approve-direct-messages" ${directMessageConfirmed && directMessageApprovalReady ? "" : "disabled"}>批准并发送 ${selectedDirectMessageCandidates.length} 条私信</button></div>`;
   const directMessagePreview = `<details class="outreach-direct-message-preview"><summary>预览并确认私信</summary>${directMessageConfirmation}</details>`;
   const directMessageDrafts = directMessageCandidates.map((candidate) => {
     const index = batch?.candidates.findIndex((item) =>
@@ -352,7 +357,6 @@ export function renderOutreachBatchView(
     ${directMessageHeader}
     ${directMessageCandidates.length > 0 ? `<div class="outreach-direct-message-drafts">${directMessageDrafts}</div>${directMessageControls}` : ""}
   </section>` : "";
-  const desktopStatus = context.desktopStatus === undefined ? getInstalledDesktopRuntime()?.outreachStatus() : context.desktopStatus;
   const legacyPending = desktopStatus !== undefined && state.actions.some((action) => action.executionTarget !== "desktop"
     && ["queued", "blocked_by_predecessor", "executing"].includes(action.status));
   patchStableView(host, `<section class="douyin-panel outreach-workspace" aria-label="批次审批与执行回执">
@@ -382,6 +386,7 @@ export function renderOutreachBatchView(
       }).join("")}</div>
       <div class="outreach-approval-bar">${batch.state === "awaiting_approval" ? `<div class="outreach-approval-copy"><strong>这是第一次真实平台操作确认</strong><p>确认后服务器只会排队执行本批次真实评论；不会同时授权或发送私信。</p><label class="outreach-confirm"><input type="checkbox" data-outreach-confirm data-outreach-review-ready="${reviewContextReady}" ${busy || hasDirtyDraft || !reviewContextReady ? "disabled" : ""}> 我已核对发送账号、目标视频与精确评论，并授权排队执行</label></div><div class="douyin-actions"><button type="button" class="secondary" data-outreach-action="save" ${busy ? "disabled" : ""}>保存为新修订</button><button type="button" class="primary" data-outreach-action="approve" disabled>确认并排队真实评论</button></div>` : `<div><strong>${escape(batchState[batch.state] ?? batch.state)}</strong><p>评论与私信均以服务器动作回执为准。</p></div><div class="douyin-actions"><button type="button" class="secondary" data-outreach-action="${batch.state === "paused" ? "resume" : "pause"}" ${busy ? "disabled" : ""}>${batch.state === "paused" ? "恢复批次" : "暂停批次"}</button><button type="button" class="secondary" data-outreach-action="refresh" ${busy ? "disabled" : ""}>刷新回执</button></div>`}</div>
       ` : ""}${directMessageCompose}
+      ${showDirectMessages && currentDirectMessageActions.length ? `<div class="douyin-actions"><strong>待发送列表 · ${escape(batchState[batch.state])}</strong>${["awaiting_approval", "approved"].includes(batch.state) ? `<button type="button" class="secondary" data-outreach-action="pause" ${busy ? "disabled" : ""}>暂停未开始私信</button>` : ""}${!batch.approvalHash && ["awaiting_approval", "paused"].includes(batch.state) ? `<button type="button" class="secondary" data-outreach-action="cancel-pending" ${busy ? "disabled" : ""}>取消未开始私信</button>` : ""}<button type="button" class="secondary" data-outreach-action="refresh">刷新回执</button><small>仅影响尚未执行的任务，已发送记录保留；结果待核实不会自动重发。</small></div>` : ""}
       <details class="outreach-timeline" data-outreach-receipts><summary><span>发送详情与回执</span><strong>${visibleActions.length} 项</strong></summary><div class="outreach-timeline-body" aria-live="polite">${visibleActions.length ? visibleActions.map((action) => {
         const failure = action.failureCode
           ? failureLabel[action.failureCode] ?? "平台动作安全失败"
@@ -398,7 +403,10 @@ export function renderOutreachBatchView(
           : action.kind === "direct_message"
             ? "真实私信"
             : actionLabel[action.kind] ?? action.kind;
-        const stateLabel = receiptNeedsConfirmation
+        const heldBeforeStart = action.kind === "direct_message" && action.status === "queued" && action.attemptCount === 0;
+        const stateLabel = heldBeforeStart && batch.state === "rejected" ? "已取消（未开始）"
+          : heldBeforeStart && batch.state === "paused" ? "已暂停（未开始）"
+          : receiptNeedsConfirmation
           ? "结果待确认"
           : gatedPending
             ? "已排队 · 等待人工恢复"
@@ -442,6 +450,7 @@ export function bindOutreachBatchActions(
     )];
     const ready = confirmation.dataset.outreachDirectMessageContextReady
         === "true"
+      && !["disabled", "unenrolled", "unbound", "offline", "error", "risk_paused", "stopping"].includes(getInstalledDesktopRuntime()?.outreachStatus()?.state ?? "idle")
       && Number.isInteger(limit) && limit >= 1 && limit <= 100
       && messages.length > 0 && messages.length <= limit
       && messages.every((message) => message.value.trim().length >= 1
@@ -456,6 +465,7 @@ export function bindOutreachBatchActions(
       && controller.getState().directMessageConfirmed === true;
     approve.disabled = !ready || !confirmation.checked
       || controller.getState().directMessageConfirmed !== true;
+    approve.textContent = `批准并发送 ${messages.length} 条私信`;
   };
   const input = (event: Event) => {
     const inputTarget = event.target as HTMLInputElement | null;
@@ -609,6 +619,7 @@ export function bindOutreachBatchActions(
       void controller.approve();
     }
     else if (action === "pause") void controller.pause();
+    else if (action === "cancel-pending") void controller.cancelPending?.();
     else if (action === "resume") void controller.resume();
     else if (action === "refresh") void controller.refreshActions();
     else if (action === "recover-account") {

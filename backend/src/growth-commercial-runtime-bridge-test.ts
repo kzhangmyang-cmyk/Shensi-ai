@@ -38,6 +38,7 @@ test("install bridge delegates once and closes one installed runtime", async () 
     assert.deepEqual(await unavailable.json(), {
       code: "GROWTH_RUNTIME_NOT_READY"
     });
+    assert.equal((await fetch(`${server.origin}/api/v1/knowledge/availability`)).status, 503);
 
     bridge.install({
       handler(req, res, next) {
@@ -95,4 +96,19 @@ test("closing an uninstalled bridge permanently prevents a late install", async 
     integrations: {},
     close: async () => undefined
   }), /closed/u);
+});
+
+test('reference route families reach only the ready runtime and do not capture prefix neighbors', async()=>{
+  const bridge=new GrowthCommercialRuntimeBridge(),app=express();app.use(bridge.middleware());
+  app.use((_req,res)=>res.status(418).end());const server=await listen(app);
+  const families=['/api/v1/reference-connection','/api/v1/system-reference','/api/platform/v1/system-reference'];
+  try{
+    for(const family of families){
+      assert.equal((await fetch(`${server.origin}${family}`)).status,503);
+      assert.equal((await fetch(`${server.origin}${family}-neighbor`)).status,418);
+    }
+    bridge.install({handler:(_req,res)=>{res.status(204).end();},toolPorts:{} as never,integrations:{},close:async()=>{}});
+    for(const family of families)assert.equal((await fetch(`${server.origin}${family}/unrecognized`)).status,204);
+    await bridge.close();for(const family of families)assert.equal((await fetch(`${server.origin}${family}/query`)).status,503);
+  }finally{await bridge.close();await server.close();}
 });

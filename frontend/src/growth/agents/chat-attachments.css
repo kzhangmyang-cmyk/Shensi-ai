@@ -1,11 +1,14 @@
-.cfo-chat-attachments { margin: 12px 0; padding: 12px; border: 1px solid var(--appearance-border); border-radius: 12px; color: var(--appearance-text-primary); background: var(--appearance-bg-surface); min-width: 0; }
-.cfo-chat-attachments > label { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-weight: 600; }
+.cfo-chat-attachments { margin: 0; padding: 0; border: 0; color: var(--appearance-text-primary); background: transparent; min-width: 0; }
+.cfo-chat-attachments-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cfo-chat-attachments [data-chat-file-pick] { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 650; }
+.cfo-chat-attachments [data-chat-file-count] { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--appearance-accent-solid, #00e87b); color: var(--appearance-on-accent, #052613); font-size: 11px; font-weight: 700; }
 .cfo-chat-attachments input[type=file] { max-width: 100%; min-width: 0; font: inherit; color: inherit; }
-.cfo-chat-attachments p { margin: 8px 0; font-size: 12px; line-height: 1.6; color: var(--appearance-text-primary); overflow-wrap: anywhere; }
-.cfo-chat-attachments ul { display: grid; gap: 6px; padding: 0; margin: 8px 0; list-style: none; }
-.cfo-chat-attachments li { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
-.cfo-chat-attachments li span { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
-.cfo-chat-attachments button { padding: 5px 10px; min-height: 32px; flex-shrink: 0; font-size: 12px; }
+.cfo-chat-attachments ul { display: none; gap: 4px; padding: 0; margin: 6px 0 0; list-style: none; }
+.cfo-chat-attachments.has-files ul { display: grid; }
+.cfo-chat-attachments li { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; padding: 4px 8px; border: 1px solid var(--appearance-border); border-radius: 8px; background: var(--appearance-bg-surface); }
+.cfo-chat-attachments li span { min-width: 0; overflow-wrap: anywhere; font-size: 11px; }
+.cfo-chat-attachments-bar > button:not([data-chat-file-pick]) { padding: 4px 8px; min-height: 28px; flex-shrink: 0; font-size: 11px; border-radius: 8px; }
+.cfo-chat-attachments-status { margin: 4px 0 0; font-size: 11px; line-height: 1.45; color: var(--appearance-text-secondary, #8aa094); overflow-wrap: anywhere; }
 .cfo-chat-attachments button:focus-visible, .cfo-chat-attachments input:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .cfo-web-research { margin: 12px 0; padding: 12px; border: 1px solid var(--appearance-border); border-radius: 12px; color: var(--appearance-text-primary); background: var(--appearance-bg-surface); }
 .cfo-web-research summary { cursor: pointer; font-size: 13px; font-weight: 650; }

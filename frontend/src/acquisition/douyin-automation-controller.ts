@@ -56,6 +56,7 @@ export interface DouyinAutomationController {
   runNow(): Promise<void>;
   controlCollection?(action: "pause" | "resume" | "stop"): Promise<void>;
   toggleCandidate(candidateId: string): void;
+  selectAllCandidates(selected: boolean): void;
   refreshRun(): Promise<void>;
   restartConnector(): Promise<void>;
   abort(): void;
@@ -159,6 +160,10 @@ export function createDouyinAutomationController(options: {
         ? { ...patch, errorRetry: "reload" as const }
         : patch;
     state = { ...state, ...normalized };
+    if (patch.candidates !== undefined || patch.selectedCandidateIds !== undefined) {
+      const eligible = new Set(state.candidates.filter(isDouyinCommentOutreachCandidate).map((candidate) => candidate.id));
+      state.selectedCandidateIds = [...new Set(state.selectedCandidateIds)].filter((id) => eligible.has(id));
+    }
     listeners.forEach((listener) => listener(state));
   };
   const unsubscribeConnector = desktopRuntime?.subscribe((connectorStatus) => {
@@ -764,6 +769,10 @@ export function createDouyinAutomationController(options: {
       runFlight = flight;
       void flight.finally(() => { if (runFlight === flight) runFlight = null; });
       return flight;
+    },
+    selectAllCandidates(selected) {
+      emit({ selectedCandidateIds: selected
+        ? state.candidates.filter(isDouyinCommentOutreachCandidate).map((candidate) => candidate.id) : [] });
     },
     toggleCandidate(candidateId) {
       const candidate = state.candidates.find((item) => item.id === candidateId);

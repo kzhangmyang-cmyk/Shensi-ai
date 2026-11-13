@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { inspectFinanceDocument } from './finance-document-inspection.js';
-import { createFinanceDocumentModel, financeDocumentObservationSchema, renderFinanceDocumentObservations } from './finance-document-model.js';
+import { createFinanceDocumentModel, financeDocumentObservationSchema, renderFinanceDocumentObservations, financeDetailedReportSchema, renderFinanceDetailedReport } from './finance-document-model.js';
 import { encryptAiModelApiKey } from './credential-security.js';
 import type { DurableModelRuntimeStore } from './model-providers/runtime.js';
 import type { ActiveWorkspaceContext } from './growth-workspace-context.js';
@@ -10,6 +10,29 @@ import XLSX from 'xlsx-js-style';
 const context: ActiveWorkspaceContext = { workspaceId: 'isolated-ws', actorId: 'owner-fixture', teamId: 'team-fixture', kind: 'team',
   role: 'admin', capabilities: ['finance.council.run'], capabilityRegistryVersion: 'growth-capabilities.v1' };
 const inspection = inspectFinanceDocument({ content: Buffer.from('项目,金额\n营业收入,"1,234.50"'), mediaType: 'text/csv' });
+test('detailed finance report requires distinct evidence, interpretation and action with closed original references', () => {
+  const statement = [{ template: '资料列示{{cell:1:2:2}}，应核对期间口径。', sourceRefs: ['cell:1:2:2'] }];
+  const report = { sections: ['overview','income','cost','profit','cashflow','comparison','actions'].map(id => ({
+    id, coverage: 'partial', evidence: statement, interpretation: statement, action: statement
+  })) };
+  assert.equal(financeDetailedReportSchema(inspection).safeParse(report).success, true);
+  const rendered = renderFinanceDetailedReport(report, inspection);
+  assert.equal(rendered.sections[1].evidence[0].text, '资料列示1,234.50，应核对期间口径。');
+  assert.equal(rendered.sections[1].id, 'income');
+  const wrapped = structuredClone(report) as any;
+  wrapped.sections[0].evidence = {observations: statement, sourceRefs:['cell:1:2:2']};
+  assert.equal(financeDetailedReportSchema(inspection).safeParse(wrapped).success, false);
+  const extra = structuredClone(report) as any;
+  extra.sections[0].evidence[0].amount = 1234.50;
+  assert.equal(financeDetailedReportSchema(inspection).safeParse(extra).success, false);
+  for (const mutate of [
+    (v: typeof report) => { v.sections.pop(); },
+    (v: typeof report) => { v.sections[1].id = 'overview'; },
+    (v: typeof report) => { v.sections[0].action = []; },
+    (v: typeof report) => { v.sections[0].evidence[0].template = '净利润999元'; },
+    (v: typeof report) => { v.sections[0].evidence[0].sourceRefs = ['cell:9:9:9']; }
+  ]) { const invalid = structuredClone(report); mutate(invalid); assert.equal(financeDetailedReportSchema(inspection).safeParse(invalid).success, false); }
+});
 test('batch references are exact and cannot borrow another file source', () => {
   const source = { cells: [ { sourceRef: 'file:1:cell:1:1:1', sheetName: 'A', row: 1, column: 1, text: '100' },
     { sourceRef: 'file:2:cell:1:1:1', sheetName: 'A', row: 1, column: 1, text: '200' } ] };
@@ -238,5 +261,20 @@ test('existing configured scoped gateway receives untrusted bounded source and q
       assert.ok(store.modelCallRecords.at(-1)?.error?.validationReasons?.includes(reason));
       assert.doesNotMatch(JSON.stringify(store.modelCallRecords.at(-1)?.error), /untrusted private text|收入123/u);
     }
+    const reportReader = createFinanceDocumentModel(store, { fetch: async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      assert.match(request.messages[0].content, /完整财务经营报告/);
+      assert.doesNotMatch(request.messages[0].content, /不输出完整长篇报告/);
+      assert.doesNotMatch(request.messages[0].content, /输出 observations 数组|不足以支持观察则返回空数组/);
+      const item = [{template:'资料{{cell:1:2:2}}，需要核对收付口径。',sourceRefs:['cell:1:2:2']}];
+      const content = JSON.stringify({sections:['overview','income','cost','profit','cashflow','comparison','actions']
+        .map(id=>({id,coverage:'partial',evidence:item,interpretation:item,action:item}))});
+      return new Response(JSON.stringify({choices:[{message:{content},finish_reason:'stop'}]}),{status:200,headers:{'content-type':'application/json'}});
+    } });
+    const report = await reportReader({ context, inspection, consent:true, question:'财务经营报告', reportPurpose:'finance' });
+    assert.equal(report.inspection.modelStatus, 'completed');
+    assert.equal(report.inspection.detailedReport?.sections.length, 7);
+    assert.match(report.inspection.detailedReport!.sections[0].evidence[0].text,/1,234.50/);
+    assert.equal(report.inspection.observations.length, 0, 'detailed report is not relabelled chat observations');
   } finally { if (old === undefined) delete process.env.PROVIDER_CREDENTIAL_KEY; else process.env.PROVIDER_CREDENTIAL_KEY = old; }
 });

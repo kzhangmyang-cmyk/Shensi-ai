@@ -6,6 +6,26 @@ import { syntheticPdf, syntheticDocx } from './secure-finance-document-text-test
 
 const context = { ...workspace('ws-doc'), capabilities: ['finance.council.run'] as const };
 const body = { fileName: '部分资料.csv', mediaType: 'text/csv', contentBase64: Buffer.from('说明,金额\n未知项目,100').toString('base64'), readWithModel: false };
+test('report search receives only selected public industry, keeps cited sources and degrades without losing private analysis', async () => {
+  const queries: unknown[] = []; let failSearch = false;
+  const evidence = {query:'中国 制造业 现金流',searchProvider:'fixture',retrievedAt:'2026-09-25T00:00:00Z',evidenceKind:'search_index_snippets' as const,
+    sources:[{id:'S1',title:'公开行业背景',url:'https://example.org/industry',snippet:'需要统一期间及业务口径再比较。',fetchedAt:'2026-09-25T00:00:00Z'}]};
+  const service = new FinanceDocumentService({reportResearch: async (_context,industry) => {
+    queries.push(industry); if(failSearch)throw Error('offline'); return evidence;
+  }, model: async input => ({ inspection:{...input.inspection,modelStatus:'completed',detailedReport:{version:'finance-detailed.v1',sections:[]}},
+    provider:'fixture',model:'fixture',...(input.publicEvidence?{citationIds:['S1']}:{}) })});
+  await service.inspect(context,{...body,analysisPurpose:'finance',publicIndustry:'manufacturing'});
+  assert.equal(queries.length,0,'preview must not trigger public search');
+  const success = await service.inspect(context,{...body,analysisPurpose:'finance',publicIndustry:'manufacturing',readWithModel:true});
+  assert.deepEqual(queries,['manufacturing']);
+  assert.equal(success.detailedReport?.research?.sources[0].url,'https://example.org/industry');
+  failSearch=true;
+  const offline = await service.inspect(context,{...body,analysisPurpose:'finance',readWithModel:true});
+  assert.equal(offline.modelStatus,'completed');
+  assert.equal(offline.detailedReport?.publicResearchStatus,'unavailable');
+  assert.equal(offline.detailedReport?.research,undefined);
+  await assert.rejects(service.inspect(context,{...body,analysisPurpose:'finance',publicIndustry:'内部客户金额100'}),/input_invalid/);
+});
 
 test('chat attachment parsing does not call models or replace finance selection and enforces conversation/role ownership', async () => {
   let calls = 0; let now = Date.parse('2026-09-24T00:00:00Z');
@@ -73,10 +93,10 @@ test('legacy Excel MIME reaches read-only parser without model calls', async () 
 });
 
 test('enterprise and ROI purposes analyze partial source without statement completion or ledger writes', async () => {
-  const questions: string[] = []; const connections: string[] = [];
+  const questions: string[] = []; const connections: string[] = []; const reportPurposes: unknown[] = [];
   const service = new FinanceDocumentService({ connectionFor: async (_context, role) => { connections.push(role); return 'user-selected-connection'; },
     model: async input => {
-      questions.push(input.question); assert.equal(input.connectionId, 'user-selected-connection');
+      questions.push(input.question); reportPurposes.push(input.reportPurpose); assert.equal(input.connectionId, 'user-selected-connection');
       assert.equal(input.inspection.missingStatements.length, 3);
       return { inspection: { ...input.inspection, modelStatus: 'completed', observations: [] }, provider: 'fixture', model: 'fixture' };
     } });
@@ -87,6 +107,7 @@ test('enterprise and ROI purposes analyze partial source without statement compl
     assert.equal(result.modelStatus, 'completed'); assert.equal(result.selectedForConversation, true);
   }
   assert.equal(questions.length, 3); assert.deepEqual(connections, ['cfo', 'cfo', 'cfo']);
+  assert.deepEqual(reportPurposes, ['finance', undefined, undefined], 'only financial report entry selects detailed generation');
   assert.match(questions[1], /投入、产出.*期间/); assert.match(questions[1], /不得编造ROI/);
   assert.match(questions[2], /企业资料/);
   await assert.rejects(service.inspect(context, { ...body, analysisPurpose: 'execute_payment' }), /input_invalid/);

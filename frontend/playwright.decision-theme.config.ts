@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests",
-  testMatch: "decision-analysis-theme.spec.ts",
+  testMatch: ["decision-analysis-theme.spec.ts", "decision-background-motion.spec.ts"],
   use: { baseURL: "http://127.0.0.1:5389", ...devices["Desktop Chrome"], channel: "chrome" },
   webServer: {
     command: "node node_modules/vite/bin/vite.js --mode desktop --host 127.0.0.1 --port 5389",

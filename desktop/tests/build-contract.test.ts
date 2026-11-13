@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 
@@ -77,7 +79,6 @@ test("electron builder packages only the local renderer and bounded desktop reso
 
 test("the build is pinned and verifies executable resources outside asar", () => {
   const sidecarBuilder = read("desktop/scripts/build-sidecar.mjs");
-  const runtimeConfigBuilder = read("desktop/scripts/write-runtime-config.mjs");
   const releasePolicy = read("desktop/scripts/release-policy.mjs");
   const packageVerifier = read("desktop/scripts/verify-package.mjs");
   const entitlements = read("desktop/build/entitlements.mac.plist");
@@ -97,8 +98,6 @@ test("the build is pinned and verifies executable resources outside asar", () =>
   assert.match(spec, /collect_data_files\(["']certifi["']\)/u);
   assert.match(spec, /copy_metadata\(["']certifi["']\)/u);
   assert.doesNotMatch(spec, /\/Users\//u);
-  assert.match(runtimeConfigBuilder, /SHENSI_REMOTE_ORIGIN/u);
-  assert.match(runtimeConfigBuilder, /validateRemoteOrigin/u);
   assert.match(releasePolicy, /127\.0\.0\.1/u);
   assert.match(packageVerifier, /validateRemoteOrigin/u);
   assert.match(packageVerifier, /normalizePackageMode/u);
@@ -125,6 +124,28 @@ test("the build is pinned and verifies executable resources outside asar", () =>
     "get-task-allow",
     "com.apple.security.app-sandbox",
   ]) assert.doesNotMatch(entitlements, new RegExp(forbidden, "u"));
+});
+
+test('runtime config writer emits isolated modes and preserves output on conflicting input', t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'shensi-package-config-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const scripts = path.join(root, 'scripts');
+  mkdirSync(scripts);
+  for (const file of ['write-runtime-config.mjs', 'release-policy.mjs']) {
+    copyFileSync(path.join(desktopRoot, 'scripts', file), path.join(scripts, file));
+  }
+  const run = (env: Record<string, string>) => spawnSync(process.execPath,
+    [path.join(scripts, 'write-runtime-config.mjs')], { env, encoding: 'utf8' });
+  const output = path.join(root, 'resources', 'generated', 'desktop-config.json');
+  assert.equal(run({ SHENSI_DESKTOP_MODE: 'standalone' }).status, 0);
+  assert.deepEqual(JSON.parse(readFileSync(output, 'utf8')), { mode: 'standalone' });
+  assert.equal(run({ SHENSI_REMOTE_ORIGIN: 'http://127.0.0.1:4188' }).status, 0);
+  assert.deepEqual(JSON.parse(readFileSync(output, 'utf8')), { remoteOrigin: 'http://127.0.0.1:4188' });
+  const before = readFileSync(output, 'utf8');
+  assert.notEqual(run({ SHENSI_DESKTOP_MODE: 'standalone', SHENSI_REMOTE_ORIGIN: 'http://127.0.0.1:4188' }).status, 0);
+  assert.equal(readFileSync(output, 'utf8'), before);
+  assert.notEqual(run({ SHENSI_REMOTE_ORIGIN: 'https://service.invalid' }).status, 0);
+  assert.equal(readFileSync(output, 'utf8'), before);
 });
 
 test("macOS packaging scripts are fail-closed and use the owned output tree", () => {

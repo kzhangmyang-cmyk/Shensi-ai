@@ -2,12 +2,18 @@ import { requireGrowthCapabilities } from "./growth-capabilities.js";
 import { completedResearch, type AgentConversationResearch } from './agent-conversation-research.js';
 import {operatingMemorySelectionSchema,type AgentOperatingMemoryService,type OperatingPreferences} from './agent-operating-memory.js';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
+import { assertKnowledgeScope, type KnowledgeEvidence, type KnowledgeAnswer } from './knowledge/domain.js';
+import type { KnowledgeRetrievalPort } from './knowledge/retrieval.js';
+import { CompositeReferenceRetriever, type ReferenceRetrievalPort } from './system-reference/composite-retrieval.js';
+import type { ReferenceEvidence, PreparedReferences } from './system-reference/domain.js';
+import { knowledgeAnswerSchema, knowledgeFallback } from './knowledge/answer.js';
 import type { CfoConversationSessionRepository } from './cfo-conversation-session-repository.js';
 import { observeCfoStage, type CfoConversationProgress } from './cfo-conversation-progress.js';
 import type { FinanceDocumentService } from './finance-document-service.js';
 import { GrowthHttpError } from './growth-command-context.js';
-import { cfoQuestionSchema, type CfoChatModel } from './cfo-conversation.js';
+import { cfoQuestionSchema, cfoQuestionObjectSchema, type CfoChatModel } from './cfo-conversation.js';
 import { selectFinancialCouncilModelRoute } from './financial-council-model-routing.js';
 import { financialCouncilError, type FinancialCouncilRun } from
   "./financial-council-domain.js";
@@ -89,6 +95,7 @@ function roleStatus(run: Pick<FinancialCouncilRun, "status"> | null,
 
 export class FinancialCouncilAgentCenter {
   private readonly publicTopics = new Map<string, {query?:string; expiresAt:number}>();
+  private readonly referenceRelease = new WeakMap<object, () => Promise<void>>();
   constructor(private readonly dependencies: {
     readonly latestPackage: Pick<FinancialStatementPackageRepository,
       "getLatestVerified">;
@@ -101,6 +108,8 @@ export class FinancialCouncilAgentCenter {
     readonly documents?: FinanceDocumentService;
     readonly sessions?: CfoConversationSessionRepository;
     readonly operatingMemory?: AgentOperatingMemoryService;
+    readonly knowledge?: KnowledgeRetrievalPort;
+    readonly references?: ReferenceRetrievalPort;
   }) {}
 
   async askWithOperatingMemory(context:ActiveWorkspaceContext,raw:unknown,signal?:AbortSignal){
@@ -113,7 +122,9 @@ export class FinancialCouncilAgentCenter {
     if(input.data.session){
       if(input.data.input.role&&input.data.input.role!=='cfo')throw new GrowthHttpError(422,'cfo_session_input_invalid');
       const reply=await this.askInSession(context,input.data.session.sessionId,{question:input.data.input.question,
-        revision:input.data.session.revision,documentId:input.data.input.documentId??null,history:input.data.input.history},signal,undefined,preferences);
+        revision:input.data.session.revision,documentId:input.data.input.documentId??null,history:input.data.input.history,
+        knowledgeMode:input.data.input.knowledgeMode,webSearchMode:input.data.input.webSearchMode,
+        referenceProtocol:input.data.input.referenceProtocol,referenceTopicIds:input.data.input.referenceTopicIds},signal,undefined,preferences);
       return {answer:reply.answer,session:{sessionId:reply.session.sessionId,revision:reply.session.revision}};
     }
     return {answer:await this.ask(context,input.data.input,signal,undefined,preferences)};
@@ -128,9 +139,14 @@ export class FinancialCouncilAgentCenter {
     const sessions = await this.sessionRepository(context).list(context);
     return sessions.map(({ turns, ...session }) => ({ ...session, turnCount: turns.length }));
   }
-  async getSession(context: ActiveWorkspaceContext, sessionId: string) {
+  async getSession(context: ActiveWorkspaceContext, sessionId: string, referenceProtocol?: unknown) {
+    if (!z.literal('system-v1').optional().safeParse(referenceProtocol).success)
+      throw new GrowthHttpError(422, 'cfo_session_input_invalid');
     const value = await this.sessionRepository(context).get(context, sessionId);
     if (!value) throw new GrowthHttpError(404, 'cfo_session_not_found');
+    if (referenceProtocol !== 'system-v1' && value.turns.some(turn =>
+      turn.knowledge?.sources.some(source => source.sourceType === 'system')))
+      throw new GrowthHttpError(409, 'reference_client_upgrade_required');
     return value;
   }
   async createSession(context: ActiveWorkspaceContext, raw: unknown) {
@@ -146,13 +162,17 @@ export class FinancialCouncilAgentCenter {
   }
   async askInSession(context: ActiveWorkspaceContext, sessionId: string, raw: unknown, signal?: AbortSignal, onProgress?: CfoConversationProgress, personalPreferences?:OperatingPreferences) {
     const parsed = z.object({ question: z.string().trim().min(1).max(2000), revision: z.number().int().min(1),
-      documentId: z.string().min(1).max(191).nullable(), history: cfoQuestionSchema.shape.history.optional() }).strict().safeParse(raw);
+      documentId: z.string().min(1).max(191).nullable(), history: cfoQuestionObjectSchema.shape.history.optional(),
+      knowledgeMode: cfoQuestionObjectSchema.shape.knowledgeMode, webSearchMode: cfoQuestionObjectSchema.shape.webSearchMode,
+      referenceProtocol: cfoQuestionObjectSchema.shape.referenceProtocol, referenceTopicIds: cfoQuestionObjectSchema.shape.referenceTopicIds })
+      .strict().refine(value => value.referenceTopicIds === undefined || value.referenceProtocol === 'system-v1').safeParse(raw);
     if (!parsed.success) throw new GrowthHttpError(422, 'cfo_session_input_invalid');
-    const session = await this.getSession(context, sessionId);
+    const session = await this.getSession(context, sessionId, parsed.data.referenceProtocol);
     if (session.revision !== parsed.data.revision) throw new GrowthHttpError(409, 'cfo_session_revision_conflict');
     if (session.documentId !== parsed.data.documentId) throw new GrowthHttpError(409, 'cfo_session_source_changed');
     if (session.turns.length > 98) throw new GrowthHttpError(409, 'cfo_session_full');
-    const answer = await this.ask(context, { question: parsed.data.question, role: 'cfo', documentId: session.documentId,
+    const answer = await this.ask(context, { question: parsed.data.question, role: 'cfo', documentId: session.documentId, knowledgeMode: parsed.data.knowledgeMode, webSearchMode: parsed.data.webSearchMode,
+      referenceProtocol: parsed.data.referenceProtocol, referenceTopicIds: parsed.data.referenceTopicIds,
       history: parsed.data.history ?? session.turns.slice(-10).map(({ role, text }) => ({ role, text })) }, signal, onProgress,personalPreferences,
       [...session.turns].reverse().find(turn=>turn.role==='assistant'&&turn.research)?.research?.query);
     signal?.throwIfAborted();
@@ -163,7 +183,10 @@ export class FinancialCouncilAgentCenter {
       title: session.turns.length ? session.title : parsed.data.question.slice(0, 120), updatedAt: new Date().toISOString(),
       turns: [...session.turns, { role: 'user' as const, text: parsed.data.question },
         { role: 'assistant' as const, text: answer.answer, model: answer.model, sourceLabel: sourceLabel.slice(0, 1000),
-          ...(answer.research?{research:answer.research}:{}) }] };
+          ...(answer.research?{research:answer.research}:{}), ...(answer.knowledge ? { knowledge: answer.knowledge } : {}),
+          ...(answer.libraryStatus ? { libraryStatus: answer.libraryStatus } : {}) }] };
+    await this.referenceRelease.get(answer)?.();
+    signal?.throwIfAborted();
     await this.sessionRepository(context).save(context, next, session.revision);
     return { session: next, answer };
   }
@@ -200,16 +223,65 @@ export class FinancialCouncilAgentCenter {
     const source = material ? { packageId: material.packageId, companyName: material.companyName,
       period: material.period, currency: material.currency } : null;
     signal?.throwIfAborted();
-    const publicEvidence=await this.dependencies.research?.prepare({context,role:parsed.data.role??'cfo',question:parsed.data.question,signal,
-      previousPublicTopic:previousPublicTopic??topicState.query});
+    // Public research is best-effort: when planning/search is unavailable or not applicable the agent answers
+    // without web evidence (response carries no `research`), instead of failing the whole turn.
+    let publicEvidence: Awaited<ReturnType<AgentConversationResearch['prepare']>> = null;
+    if (parsed.data.webSearchMode !== 'off' && this.dependencies.research) {
+      try {
+        publicEvidence = await this.dependencies.research.prepare({context,role:parsed.data.role??'cfo',question:parsed.data.question,signal,webSearchMode:parsed.data.webSearchMode,
+          previousPublicTopic:previousPublicTopic??topicState.query});
+      } catch (error) {
+        signal?.throwIfAborted();
+        if (!(error instanceof GrowthHttpError) || !/^agent_(research|web)_/u.test(error.code)) throw error;
+        console.warn('[cfo-conversation] public research skipped', error.code);
+        publicEvidence = null;
+      }
+    }
     signal?.throwIfAborted();
+    let privateEvidence: KnowledgeEvidence | undefined, prepared: PreparedReferences | undefined;
+    if (parsed.data.referenceProtocol === 'system-v1') {
+      prepared = await (this.dependencies.references ?? new CompositeReferenceRetriever({ private: this.dependencies.knowledge }))
+        .prepare(context, { ...parsed.data, role: parsed.data.role ?? 'cfo' }, signal);
+    } else if (parsed.data.knowledgeMode === 'auto') {
+      assertKnowledgeScope(context, 'knowledge.read');
+      privateEvidence = this.dependencies.knowledge
+        ? await this.dependencies.knowledge.retrieve(context, { question: parsed.data.question, role: parsed.data.role ?? 'cfo' }, signal)
+        : { status: 'unavailable', sources: [] };
+    }
+    // Off/omitted knowledge must not change legacy model repair semantics.
+    const knowledgeEvidence: ReferenceEvidence | undefined = parsed.data.knowledgeMode === 'auto'
+      ? prepared?.evidence ?? privateEvidence : undefined;
+    const finishReferences = async <T extends { answer: string; knowledge?: KnowledgeAnswer }>(reply: T) => {
+      const recheck = async () => {
+        signal?.throwIfAborted();
+        try {
+          if (prepared) await prepared.assertCurrent(signal);
+          else if (privateEvidence) {
+            assertKnowledgeScope(context, 'knowledge.read');
+            await this.dependencies.knowledge?.assertCurrent(context, { role: parsed.data.role ?? 'cfo', evidence: privateEvidence }, signal);
+          }
+        } catch {
+          signal?.throwIfAborted(); throw new GrowthHttpError(409, 'knowledge_reference_stale');
+        }
+      };
+      await recheck();
+      let knowledge: KnowledgeAnswer | undefined;
+      if (knowledgeEvidence?.status === 'used') {
+        knowledge = knowledgeAnswerSchema.parse(reply.knowledge);
+        if (knowledge.status !== 'used' || knowledge.sources.some(source => !knowledgeEvidence!.sources.some(
+          allowed => isDeepStrictEqual(allowed, source)))) throw new GrowthHttpError(502, 'knowledge_reference_invalid');
+      } else if (knowledgeEvidence) knowledge = knowledgeFallback(knowledgeEvidence, reply.answer);
+      const result = { ...reply, ...(knowledge ? { knowledge } : {}),
+        ...(prepared ? { libraryStatus: structuredClone(prepared.libraryStatus) } : {}) };
+      this.referenceRelease.set(result, recheck); return result;
+    };
     if (selectedDocument) {
-      const answer = await this.dependencies.documents!.askSelected(context, parsed.data, connectionId, signal, observer,personalPreferences,publicEvidence??undefined);
+      const answer = await this.dependencies.documents!.askSelected(context, parsed.data, connectionId, signal, observer,personalPreferences,publicEvidence??undefined,knowledgeEvidence);
       observeCfoStage(observer, 'answer_validated', signal);
       if(topicKey&&answer.research&&this.publicTopics.get(topicKey)===topicState)topicState.query=answer.research.query;
-      return answer;
+      return finishReferences(answer);
     }
-    const result = await this.dependencies.chatModel!({ ...parsed.data, context, connectionId, signal, onProgress: observer,personalPreferences,publicEvidence:publicEvidence??undefined,
+    const result = await this.dependencies.chatModel!({ ...parsed.data, context, connectionId, signal, onProgress: observer,personalPreferences,publicEvidence:publicEvidence??undefined,knowledgeEvidence,
       material: material && source ? { ...source, businessReport: material.businessReport,
         provenance: { parserVersion: material.parserVersion, packageHash: material.packageHash,
           createdAt: material.createdAt, unit: 'minor', warnings: material.warnings,
@@ -218,7 +290,7 @@ export class FinancialCouncilAgentCenter {
     const research=completedResearch(publicEvidence,result.citationIds);
     if(topicKey&&research&&this.publicTopics.get(topicKey)===topicState)topicState.query=research.query;
     const {citationIds:_citations,...reply}=result;
-    return { ...reply, ...(research?{research}:{}), material: source, answeredAt: new Date().toISOString() };
+    return finishReferences({ ...reply, ...(research?{research}:{}), material: source, answeredAt: new Date().toISOString() });
   }
 
   private async state(context: ActiveWorkspaceContext) {

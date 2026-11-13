@@ -34,19 +34,25 @@ export function mountChatAttachments(options: { host: HTMLElement; http: GrowthH
     return value;
   };
   const notify = () => { for (const listener of state.listeners) listener(); };
-  host.innerHTML = '<section class="cfo-chat-attachments" aria-label="本次聊天附件"><button type="button" data-chat-file-pick>添加资料</button><input type="file" hidden aria-label="选择聊天附件" multiple accept=".csv,.xls,.xlsx,.pdf,.docx" data-chat-files><p>可拖入资料，最多10份、合计5MB。上传只解析，发送问题时才交给当前顾问；保留1小时，跨页保留，退出登录清除。</p><ul data-chat-file-list></ul><p role="status" data-chat-file-status></p><button type="button" data-chat-file-retry hidden>重新解析附件</button><button type="button" data-chat-file-clear hidden>清除附件</button></section>';
+  const help = '可拖入资料，最多10份、合计5MB。上传只解析，发送问题时才交给当前顾问；保留1小时，跨页保留，退出登录清除。';
+  host.innerHTML = `<section class="cfo-chat-attachments" aria-label="本次聊天附件"><div class="cfo-chat-attachments-bar"><button type="button" data-chat-file-pick title="${help}">添加资料<span data-chat-file-count hidden></span></button><button type="button" data-chat-file-retry hidden>重新解析</button><button type="button" data-chat-file-clear hidden>清除</button></div><input type="file" hidden aria-label="选择聊天附件" multiple accept=".csv,.xls,.xlsx,.pdf,.docx" data-chat-files><ul data-chat-file-list></ul><p role="status" data-chat-file-status class="cfo-chat-attachments-status"></p></section>`;
   const input = host.querySelector<HTMLInputElement>('[data-chat-files]')!;
   const list = host.querySelector<HTMLElement>('[data-chat-file-list]')!;
   const message = host.querySelector<HTMLElement>('[data-chat-file-status]')!;
   const retry = host.querySelector<HTMLButtonElement>('[data-chat-file-retry]')!;
   const clearButton = host.querySelector<HTMLButtonElement>('[data-chat-file-clear]')!;
+  const count = host.querySelector<HTMLElement>('[data-chat-file-count]')!;
   function render() {
     if (disposed) return;
     const value = draft(); list.replaceChildren();
     value.files.forEach((file, index) => { const row = doc.createElement('li'); const label = doc.createElement('span'); label.textContent = `${file.name} · ${Math.ceil(file.size / 1024)} KB `;
       const button = doc.createElement('button'); button.type = 'button'; button.textContent = '移除'; button.dataset.removeAttachment = String(index); row.append(label, button); list.append(row); });
     const expired = value.source && Date.parse(value.source.expiresAt) <= Date.now();
-    message.textContent = value.pending ? '正在解析附件，尚未调用模型…' : value.error || (expired ? '附件已过期，请重新解析后再发送。' : value.source ? '附件已解析；发送问题时使用这些资料，尚未调用模型。' : '未添加聊天附件');
+    const n = value.files.length;
+    count.hidden = n === 0; count.textContent = n ? String(n) : '';
+    host.classList.toggle('has-files', n > 0);
+    message.hidden = n === 0 && !value.error;
+    message.textContent = value.pending ? '正在解析附件…' : value.error || (expired ? '附件已过期，请重新解析后再发送。' : value.source ? `已解析 ${n} 份，发送时使用` : n ? `已选 ${n} 份，待解析` : '');
     retry.hidden = !value.files.length || Boolean(value.pending); clearButton.hidden = !value.files.length;
   }
   state.listeners.add(render); render();

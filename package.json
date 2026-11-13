@@ -7,6 +7,7 @@
     "node": ">=22.22.3 <23"
   },
   "scripts": {
+    "verify:system-reference": "node --import ./backend/node_modules/tsx/dist/loader.mjs scripts/verify-system-reference.mjs",
     "website:dev": "pnpm --dir frontend exec vite ../website --config ../website/vite.config.ts",
     "website:build": "pnpm --dir frontend exec tsc -p ../website/tsconfig.json && pnpm --dir frontend exec vite build ../website --config ../website/vite.config.ts && pnpm --dir frontend exec tsx ../website/scripts/prerender.ts",
     "website:preview": "pnpm --dir frontend exec vite preview ../website --config ../website/vite.config.ts",

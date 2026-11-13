@@ -46,6 +46,7 @@ export function previewEnvironment(cfg) {
     DATABASE_URL: `mysql://root:${cfg.databasePassword}@127.0.0.1:${cfg.mysqlPort}/${cfg.database}`, MYSQL_SSL_MODE: 'disabled',
     INITIAL_ADMIN_EMAIL: 'isolated-bootstrap@example.test', INITIAL_ADMIN_PASSWORD: cfg.bootstrapPassword,
     SESSION_COOKIE_SECURE: 'false', BACKEND_HOST: '127.0.0.1', PORT: '5680', CORS_ORIGINS: `${origin},http://127.0.0.1:5680`,
+    SHENSI_ADMIN_PREVIEW_PASSWORD_ONLY_USER_ID: cfg.previewPasswordOnlyUserId ?? '',
     SHENSI_DESKTOP_CLIENT_ADMISSION_MODE: admitted ? 'exact' : 'migration_locked',
     SHENSI_DESKTOP_ADMITTED_BUILD_MANIFEST_SHA256: admitted ?? '',
     DOUYIN_OUTREACH_ACTIONS_ENABLED: 'false', DOUYIN_OUTREACH_APPROVALS_ENABLED: 'false', DOUYIN_OUTREACH_SERVER_EXECUTION_ENABLED: 'false', DOUYIN_OUTREACH_DESKTOP_EXECUTION_ENABLED: 'false',
@@ -131,6 +132,13 @@ async function start() {
   try { for (let i = 0; i < 60; i++) { try { await pool.query('SELECT 1'); ready = true; break; } catch { await new Promise(r => setTimeout(r, 1000)); } } }
   finally { await pool.end(); }
   if (!ready) throw new Error('preview_mysql_not_ready');
+  const passwordOnlyPath = join(runtime, 'adminkamiran-mfa.json');
+  try {
+    await privateFile(passwordOnlyPath);
+    const identity = JSON.parse(await readFile(passwordOnlyPath, 'utf8'));
+    if (identity.account !== 'adminkamiran' || typeof identity.userId !== 'string' || !identity.userId) throw new Error('preview_password_only_identity_invalid');
+    cfg.previewPasswordOnlyUserId = identity.userId;
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
   execFileSync(process.execPath, [fileURLToPath(import.meta.url), 'seed'], { cwd: repo, env: previewEnvironment(cfg), stdio: ['ignore', 'pipe', 'pipe'] });
   const launch = (name, argv, env) => { const fd = openSync(join(runtime, `${name}.log`), 'a', 0o600); const child = spawn(process.execPath, argv, { cwd: repo, env, detached: true, stdio: ['ignore', fd, fd] }); child.unref(); return child.pid; };
   const backendPid = launch('backend', [join(repo, 'backend/dist/server.js')], previewEnvironment(cfg));

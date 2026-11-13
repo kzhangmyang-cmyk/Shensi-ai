@@ -2,12 +2,38 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   QUOTE_MYSQL_SCHEMA_STATEMENTS,
+  MysqlQuoteRepository,
   ensureQuoteMysqlSchema
 } from "./quote-mysql-repository.js";
 import { withGrowthQuoteMysqlTestDatabase } from "./growth-quote-mysql-test-support.js";
 import { createCommercialBindingSnapshot } from "./commercial-binding-snapshot.js";
 import { bindingInputFixture, probabilityRecordFixture } from "./growth-quote-test-fixtures.js";
 import type { QuoteCase } from "./quote-repository.js";
+import { approvalFixture } from "./growth-quote-test-fixtures.js";
+import { DefaultGrowthTemporalBarrier, InMemoryGrowthTemporalTransactionRunner } from "./growth-temporal-barrier.js";
+
+test("current MySQL quote reads project lifecycle without rewriting frozen amounts", async () => {
+  const frozen = approvalFixture().formalVersion;
+  const pool = { async query(sql: string, values: unknown[]) {
+    assert.equal(values[0], frozen.workspaceId);
+    if (sql.includes('FROM quote_versions')) return [[{ frozen_version_json: JSON.stringify(frozen) }], []];
+    assert.match(sql, /FROM quote_lifecycle_events/);
+    return [[{ id: 'approved-event', workspace_id: frozen.workspaceId,
+      quote_case_id: frozen.quoteCaseId, quote_version_id: frozen.id,
+      lifecycle_revision: frozen.lifecycleRevision + 1, from_status: 'submitted', to_status: 'approved',
+      event_type: 'version_transition', actor_id: 'reviewer',
+      recorded_at: new Date('2026-08-09T08:00:00.000Z'), temporal_sequence: 20 }], []];
+  }};
+  const repository = new MysqlQuoteRepository(pool as never,
+    new DefaultGrowthTemporalBarrier(new InMemoryGrowthTemporalTransactionRunner('2026-08-09T08:00:00.000Z')));
+  const read = await repository.getVersion(frozen.workspaceId, frozen.id);
+  assert.equal(read?.status, 'approved');
+  assert.equal(read?.lifecycleRevision, frozen.lifecycleRevision + 1);
+  assert.equal(read?.quotedAmountMinor, frozen.quotedAmountMinor);
+  assert.equal(frozen.status, 'submitted');
+  const list = await repository.listVersions(frozen.workspaceId, frozen.quoteCaseId);
+  assert.equal(list[0]?.status, 'approved');
+});
 
 class Mysql84QuoteSchemaPool {
   readonly calls: string[] = [];

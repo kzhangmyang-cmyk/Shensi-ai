@@ -3,6 +3,7 @@ import { createGrowthHttpClient } from '../growth/http';
 import { operatingExample, type SimulationInput, type SimulationRecord, type SimulationHistory } from './samples';
 import type { components } from '../generated/decision-simulation';
 import { renderDecisionExport } from './export';
+import { renderDecisionBrief } from './brief';
 import { mountDecisionReplay } from './replay-view';
 import { mountDecisionAnalysis } from './analysis-view';
 import { mountEventEditor } from './event-editor';
@@ -66,23 +67,23 @@ function createDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimul
   let disposed=false;
   const scope=JSON.stringify([document.body.dataset.sessionWorkspaceId,document.body.dataset.sessionUserId]);
   host.innerHTML=`<section class="decision-simulation" aria-label="星盘决策模拟">
-    <header class="decision-hero"><div><h2>星盘决策模拟</h2><p>相同经营起点 · 相同波动样本</p></div><div class="decision-view-switch"><button type="button" data-show-input aria-pressed="true">资料与校对</button><button type="button" data-show-report aria-pressed="false" disabled>结果与回放</button></div><span class="decision-mode">在营企业模式</span></header>
+    <header class="decision-hero"><div><h2>星盘决策模拟</h2><p>同一起点、同一外部环境，对比几种做法</p></div><div class="decision-view-switch"><button type="button" data-show-input aria-pressed="true">资料与校对</button><button type="button" data-show-report aria-pressed="false" disabled>结果与回放</button></div><span class="decision-mode">在营企业模式</span></header>
+    <div class="decision-example-bar"><strong>没有资料？先用示例试试</strong><button type="button" data-example="normal">正常经营</button><button type="button" data-example="cash">回款延迟</button><button type="button" data-example="capacity">产能受限</button><span>仅填入假设，不写CRM或正式财务</span></div>
     <ol class="decision-workflow" aria-label="决策流程">${[['source','资料与校对','导入资料 · 确认基础'],['agents','五角色','多视角洞察 · 形成共识'],['worlds','100情景','条件推演 · 对比方案'],['report','报告','保存结论 · 查看依据']].map(([key,label,detail],index)=>`<li data-stage="${key}"><button type="button" data-step="${key}"><span class="decision-step-number" aria-hidden="true">${index+1}</span><span><strong>${label}</strong><small>${detail}</small></span><i class="ph ph-caret-right" aria-hidden="true"></i></button></li>`).join('')}</ol>
     <p class="decision-step-status" data-step-status role="status"></p>
-    <section class="decision-source-panel" aria-label="企业资料上传"><h3>从企业资料开始</h3><p>上传资料 → 校对经营起点 → 五角色分析 → 100条平行路径 → 报告与回放</p>
+    <section class="decision-source-panel" aria-label="企业资料上传"><h3>上传或选择经营资料</h3>
       <label>选择企业文件<input type="file" multiple accept=".csv,.xls,.xlsx,.pdf,.docx" data-source-files></label><p>支持CSV、Excel、文本PDF、Word（DOCX），最多10份、合计5MB。扫描PDF暂不支持OCR。</p>
       <label><input type="checkbox" data-source-synthetic>这些是合成示例文件，不是真实企业资料</label><button type="button" data-source-inspect>读取所选资料</button> <button type="button" data-download-sample>下载合成企业资料CSV</button>
       <p role="status" data-source-status>资料读取不会调用模型或写入客户池。</p><div data-source-review></div>
       <label><input type="checkbox" data-model-consent>我已校对下方经营数据、应收应付与假设，同意将所选资料发送给当前配置模型进行五角色分析</label><div data-agent-progress aria-live="polite"></div>
     </section>
-    <div class="decision-example-bar"><strong>没有资料？从示例开始</strong><button type="button" data-example="normal">正常经营</button><button type="button" data-example="cash">回款延迟</button><button type="button" data-example="capacity">产能受限</button><span>仅填入假设，不写CRM或正式财务</span></div>
     <div class="decision-workspace"><form aria-label="经营模拟输入"><h3>01 / 经营起点</h3><label>名称<input name="title" maxlength="100" required></label><div class="decision-fields">${fieldDefinitions.map(([key,label,isMoney])=>`<label>${label}<input name="${key}" type="number" step="${isMoney?'0.01':'1'}" ${key==='cashMinor'?'':'min="0"'} required></label>`).join('')}</div>
       <details><summary>应收应付、备选方案与波动假设</summary><p>金额以分记账；到期月1表示第一个模拟月。方案中的倍数1表示维持当前水平。修改JSON可比较最多3个备选方案。</p>
         <label>期初应收<textarea name="receivables" rows="3"></textarea></label><label>期初应付<textarea name="payables" rows="3"></textarea></label>
         <label>备选方案<textarea name="alternatives" rows="7"></textarea></label><label>随机样本与波动参数<textarea name="options" rows="9"></textarea></label>
-      </details><label>资料性质<select name="dataKind"><option value="synthetic">示例 / 模拟数据</option><option value="user_defined">本人填写的经营数据</option></select></label><label>假设与来源说明<textarea name="assumptionNote" rows="3" maxlength="1000" required></textarea></label>
-      <button class="decision-primary" type="submit">生成并保存对比</button><p role="status" data-status>示例已填入。点击生成后保存到本人决策记录，不影响客户池。</p>
-    </form><aside><h3>最近决策记录</h3><button type="button" data-refresh-history>刷新记录</button><div data-history>正在读取…</div><div class="decision-boundary"><strong>当前模型口径</strong><p>现金为期初与月末余额；收入按交付确认，回款到期才计现金。直接成本当月支付。</p><p>不含库存、融资、税与折旧。样本范围不是置信区间，缺口样本占比不是现实失败概率。</p></div></aside></div>
+      </details><label>资料性质<select name="dataKind"><option value="synthetic">示例数据</option><option value="user_defined">我自己填的</option></select></label><label>这些数字从哪来<textarea name="assumptionNote" rows="3" maxlength="1000" required></textarea></label>
+      <button class="decision-primary" type="submit">开始对比</button><p role="status" data-status>示例已填入。点击生成后保存到本人决策记录，不影响客户池。</p>
+    </form><aside><h3>最近决策记录</h3><button type="button" data-refresh-history>刷新记录</button><div data-history>正在读取…</div><div class="decision-boundary"><strong>怎么算的（简要）</strong><p>现金看月初和月末；货交出去才算收入，钱收回来才进账；进货成本当月付。</p><p>不算库存、贷款、税和折旧。区间不是保证，缺钱占比也不是现实概率。</p></div></aside></div>
     <section data-report aria-live="polite"><div class="decision-empty"><h3>你的第一个方案对照</h3><p>生成后查看现金下行、利润区间、积压、敏感因素和每月回放。</p></div></section>
   </section>`;
   const root=host.querySelector<HTMLElement>('.decision-simulation')!;
@@ -112,9 +113,11 @@ function createDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimul
   const historyDisclosure=document.createElement('details');historyDisclosure.className='decision-history-disclosure';historyDisclosure.innerHTML='<summary>历史记录</summary>';historyDisclosure.append(sourcePanel.querySelector('aside')!);root.querySelector('.decision-hero')!.append(historyDisclosure);
   const sourceTitle=inputForm.querySelector('[name=title]')!.closest('label')!;sourcePanel.prepend(sourceTitle);
   const assumptions=inputForm.querySelector('[name=assumptionNote]')!.closest('label')!;
-  inputForm.prepend(assumptions);inputForm.querySelector('h3')!.textContent='校对经营起点';
-  const factDisclosure=document.createElement('details');factDisclosure.className='decision-fact-disclosure';factDisclosure.open=true;factDisclosure.innerHTML='<summary>经营起点 · 8项数据</summary>';
+  inputForm.prepend(assumptions);inputForm.querySelector('h3')!.textContent='核对经营数字';
+  const factDisclosure=document.createElement('details');factDisclosure.className='decision-fact-disclosure';factDisclosure.open=true;factDisclosure.innerHTML='<summary>经营数字（8项）</summary>';
   inputForm.querySelector('.decision-fields')!.before(factDisclosure);factDisclosure.append(inputForm.querySelector('.decision-fields')!);
+  const envBlock=document.createElement('section');envBlock.className='decision-env-block';envBlock.innerHTML=`<h3>外部环境</h3><p>先选年景，再勾可能碰上的外部压力。</p><div class="decision-env-years"><button type="button" data-year-regime="normal" aria-pressed="true">正常年</button><button type="button" data-year-regime="tight" aria-pressed="false">偏紧年</button><button type="button" data-year-regime="storm" aria-pressed="false">风暴年</button></div><div class="decision-env-toggles">${[['tariff','关税上调'],['credit_tight','银行不好借钱'],['price_war','价格战/流量贵'],['fx','汇率波动'],['material','原材料涨价'],['key_account_delay','大客户拖欠'],['shipping','海运不稳'],['weather_power','极端天气/限电'],['labor_cost','用工变贵']].map(([id,label])=>`<label><input type="checkbox" name="externalToggle" value="${id}">${label}</label>`).join('')}</div>`;
+  factDisclosure.after(envBlock);
   const rolePreview=document.createElement('section');rolePreview.className='decision-role-preview';rolePreview.innerHTML='<h3>五位智能体共同分析</h3><div><span>经营负责人</span><span>市场</span><span>运营</span><span>财务</span><span>综合复核</span></div><p>使用设置中心当前已启用模型；实际服务商与型号随分析结果保存。</p>';inputForm.querySelector('[data-model-consent]')!.closest('label')!.before(rolePreview);
   const analysisHost=document.createElement('div');analysisHost.className='decision-analysis-host';workspace.before(analysisHost);
   const analysisView=mountDecisionAnalysis(analysisHost,()=>{if(!busy)inputForm.requestSubmit();},retainOnDetach);
@@ -147,6 +150,8 @@ function createDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimul
   root.querySelector<HTMLButtonElement>('[data-show-report]')!.onclick=()=>navigate('report');
   const markEdited=()=>{if(savedRecord){inputEdited=true;stepStatus.textContent=`当前输入已修改，尚未重新生成；保存版本「${savedRecord.input.title}」及其结果未改变。`;}};
   workspace.addEventListener('input',markEdited);workspace.addEventListener('change',markEdited);
+  envBlock.querySelectorAll<HTMLButtonElement>('[data-year-regime]').forEach(btn=>btn.onclick=()=>{envBlock.querySelectorAll('[data-year-regime]').forEach(b=>b.setAttribute('aria-pressed','false'));btn.setAttribute('aria-pressed','true');markEdited();});
+  envBlock.querySelectorAll('input').forEach(input=>input.addEventListener('change',()=>markEdited()));
   showView('input');stage('source');
   const live=()=>!disposed&&(retainOnDetach||root.isConnected)&&scope===JSON.stringify([document.body.dataset.sessionWorkspaceId,document.body.dataset.sessionUserId]);
   const control=(name:string)=>root.querySelector<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement>(`[name="${name}"]`)!;
@@ -154,11 +159,12 @@ function createDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimul
   control('options').closest('details')!.after(eventHost);
   const eventEditor=mountEventEditor(eventHost,()=>JSON.parse(control('options').value),options=>{control('options').value=JSON.stringify(options,null,2);});
   const advanced = control('options').closest('details')!;
-  advanced.querySelector('summary')!.textContent='高级 JSON · 保留原始参数';
+  advanced.querySelector('summary')!.textContent='高级：原始 JSON 参数';
+  advanced.open=false;
   const parameterEditors = (['receivables','payables','alternatives','options'] as const).map(kind => {
     const section=document.createElement('details'); section.className='decision-parameter-section';
-    section.dataset.parameterKind=kind;
-    const summary=document.createElement('summary'); summary.textContent=({receivables:'期初应收',payables:'期初应付',alternatives:'备选经营方案',options:'情景与波动假设'})[kind]; section.append(summary);
+    section.dataset.parameterKind=kind; section.open=false;
+    const summary=document.createElement('summary'); summary.textContent=({receivables:'高级：期初应收',payables:'高级：期初应付',alternatives:'高级：备选方案',options:'高级：波动参数'})[kind]; section.append(summary);
     const note=document.createElement('p');note.textContent=kind==='alternatives'?'倍率1表示维持现状；例如1.1表示增加10%。最多3个备选方案。':kind==='options'?'倍率1表示无扰动；区间和权重是本次假设，不是企业历史估计。':'以元填写金额，到期月1表示第一个模拟月。';section.append(note);
     const body=document.createElement('div');body.className='decision-parameter-fields';section.append(body);advanced.before(section);
     const editor=mountParameterEditor(body,kind,()=>control(kind).value,raw=>{control(kind).value=raw;markEdited();if(kind==='options')eventEditor.sync();});
@@ -170,6 +176,16 @@ function createDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimul
   const memoryHost=document.createElement('section');preferencesHost.after(memoryHost);
   const memoryView=memoryApi?mountDecisionMemory(memoryHost,memoryApi,{read:preferenceEditor.read,set:value=>{preferenceEditor.set(value);markEdited();}},live,(name,content)=>download(name,content,'application/json;charset=utf-8')):undefined;
   control('options').addEventListener('change',()=>eventEditor.sync());
+  const boundaryFold=document.createElement('details');boundaryFold.className='decision-boundary-fold';boundaryFold.innerHTML='<summary>计算口径与边界</summary>';
+  const boundaryBody=document.createElement('div');
+  const boundaryNote=document.createElement('p');boundaryNote.dataset.boundaryAssumption='';
+  boundaryBody.append(boundaryNote);
+  const existingBoundary=root.querySelector('.decision-boundary');
+  if(existingBoundary){boundaryBody.append(existingBoundary.cloneNode(true));existingBoundary.remove();}
+  boundaryFold.append(boundaryBody);submit.before(boundaryFold);
+  assumptions.style.display='none';
+  const syncBoundaryNote=()=>{boundaryNote.textContent=control('assumptionNote').value||'请注明数字来源与主要假设。';};
+  control('assumptionNote').addEventListener('input',syncBoundaryNote);syncBoundaryNote();
   const status=root.querySelector<HTMLElement>('[data-status]')!;
   const sourceStatus=root.querySelector<HTMLElement>('[data-source-status]')!;
   const roleNames={founder:'经营负责人',market:'市场分析',operations:'运营分析',finance:'财务分析',judge:'综合复核'};
@@ -221,6 +237,10 @@ function createDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimul
   };
   const populate=()=>{
     control('title').value=draft.title; control('dataKind').value=draft.dataKind; control('assumptionNote').value=draft.assumptionNote;
+    const regime=(draft.options as {yearRegime?:string}).yearRegime ?? 'normal';
+    envBlock.querySelectorAll<HTMLButtonElement>('[data-year-regime]').forEach(btn=>btn.setAttribute('aria-pressed',String(btn.dataset.yearRegime===regime)));
+    const selected=new Set((draft.options as {externalEnvironment?:string[]}).externalEnvironment ?? []);
+    envBlock.querySelectorAll<HTMLInputElement>('input[name=externalToggle]').forEach(input=>{input.checked=selected.has(input.value);});
     for(const [key,,isMoney] of fieldDefinitions) control(key).value=String(draft.baseline[key]/(isMoney?100:1));
     for(const key of ['receivables','payables'] as const) control(key).value=JSON.stringify(draft.baseline[key],null,2);
     control('alternatives').value=JSON.stringify(draft.alternatives,null,2); control('options').value=JSON.stringify(draft.options,null,2);
@@ -243,8 +263,8 @@ function createDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimul
     const report=record.report;
     const target=root.querySelector<HTMLElement>('[data-report]')!;
     target.innerHTML=`<header class="decision-report-header"><div><span class="decision-eyebrow">02 / 同路径方案对照</span><h3>${e(record.input.title)}</h3><p>${record.input.dataKind==='synthetic'?'明确示例，非真实企业结果':'用户填写数据'} · ${record.input.options.samples}个样本 × ${record.input.options.months}个月 · seed ${record.input.options.seed}</p></div><small>${e(report.modelVersion)}</small></header>
-      <div class="decision-results">${report.plans.map(plan=>`<article><span>${e(plan.planId==='baseline'?'维持现状':plan.planId)}</span><h4>¥ ${money(plan.worstMinimumCashMinor)}</h4><p>样本最差月末现金</p><dl><div><dt>累计经营利润范围</dt><dd>¥ ${money(plan.profitRangeMinor[0])}–${money(plan.profitRangeMinor[1])}</dd></div><div><dt>资金缺口样本</dt><dd>${plan.samplesWithFundingGap} / ${plan.sampleCount}</dd></div><div><dt>交付积压样本</dt><dd>${plan.samplesWithBacklog} / ${plan.sampleCount}</dd></div><div><dt>最大积压</dt><dd>${plan.maximumBacklogUnits} 件</dd></div></dl></article>`).join('')}</div>
-      <div class="decision-threshold"><strong>基线月经营盈亏平衡</strong><span>${report.threshold.unitsForMonthlyOperatingBreakEven===null?'单位贡献不足，没有有限的平衡交付量':`${report.threshold.unitsForMonthlyOperatingBreakEven} 件交付 / 月 · ${report.threshold.withinBaselineCapacity?'基线产能可覆盖':'超过基线产能'}`}</span><p>条件：基线价格、单位成本与固定费用不变，无波动。这不是现金平衡点。</p></div>
+      <div class="decision-results">${report.plans.map(plan=>`<article><span>${e(plan.planId==='baseline'?'维持现状':plan.planId)}</span><h4>¥ ${money(plan.worstMinimumCashMinor)}</h4><p>最坏情况下账上最少剩多少钱</p><dl><div><dt>一年大概能赚多少（区间）</dt><dd>¥ ${money(plan.profitRangeMinor[0])}–${money(plan.profitRangeMinor[1])}</dd></div><div><dt>会缺钱的情景数</dt><dd>${plan.samplesWithFundingGap} / ${plan.sampleCount}</dd></div><div><dt>会积压订单的情景数</dt><dd>${plan.samplesWithBacklog} / ${plan.sampleCount}</dd></div><div><dt>最多积压多少件</dt><dd>${plan.maximumBacklogUnits} 件</dd></div></dl></article>`).join('')}</div>
+      <div class="decision-threshold"><strong>不亏不赚大概要卖多少</strong><span>${report.threshold.unitsForMonthlyOperatingBreakEven===null?'单位贡献不足，没有有限的平衡交付量':`${report.threshold.unitsForMonthlyOperatingBreakEven} 件交付 / 月 · ${report.threshold.withinBaselineCapacity?'基线产能可覆盖':'超过基线产能'}`}</span><p>条件：基线价格、单位成本与固定费用不变，无波动。这不是现金平衡点。</p></div>
       <details><summary>敏感性 · 哪个因素改变结果？</summary><p>条件性单因素扰动，其余路径固定；不是因果归因或全局方差分析。</p><div class="decision-table-wrap"><table><thead><tr><th>因素扰动</th><th>方案</th><th>最差月末现金</th><th>利润范围</th></tr></thead><tbody>${report.sensitivity.flatMap(change=>change.plans.map(plan=>`<tr><td>${e(({demand:'需求',procurement:'采购成本',collectionDelay:'回款周期',delivery:'交付效率'})[change.factor])} ${change.direction==='up'?'+':'−'}${change.factor==='collectionDelay'?'1月':'10%'}</td><td>${e(plan.planId==='baseline'?'维持现状':plan.planId)}</td><td>¥ ${money(plan.worstMinimumCashMinor)}</td><td>¥ ${money(plan.profitRangeMinor[0])}–${money(plan.profitRangeMinor[1])}</td></tr>`)).join('')}</tbody></table></div></details>
       <h3>03 / 月度回放</h3><div class="decision-replay-controls"><label>方案<select data-replay-plan>${report.replays.map((plan,index)=>`<option value="${index}">${e(plan.planId==='baseline'?'维持现状':plan.planId)}</option>`).join('')}</select></label><label>样本<select data-replay-sample>${record.paths.map((_,index)=>`<option value="${index}">样本 ${index+1}</option>`).join('')}</select></label></div><div data-replay-table></div>`;
     const replay=()=>{
@@ -269,12 +289,33 @@ function createDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimul
     target.querySelector('.decision-report-header')!.insertAdjacentHTML('afterend',renderPreferenceAssessment(record));
     evidence.querySelector<HTMLButtonElement>('[data-export-report]')!.onclick=()=>download('Shensi-星盘决策模拟报告.html',renderDecisionExport(record),'text/html;charset=utf-8');
     target.querySelector('.decision-report-header')!.append(evidence.querySelector('[data-export-report]')!);
+    const briefBtn=document.createElement('button');briefBtn.type='button';briefBtn.textContent='导出简报';
+    briefBtn.onclick=()=>download('Shensi-星盘简报.html',renderDecisionBrief(record),'text/html;charset=utf-8');
+    target.querySelector('.decision-report-header')!.append(briefBtn);
     const edit=document.createElement('button');edit.type='button';edit.textContent='编辑经营起点';edit.onclick=()=>navigate('facts');target.querySelector('.decision-report-header')!.append(edit);
     const summary=document.createElement('div');summary.className='decision-summary-strip';
     const firstPlan=report.plans[0];
-    if(firstPlan)summary.innerHTML=`<div><span>当前基线</span><strong>${e(firstPlan.planId==='baseline'?'维持现状':firstPlan.planId)}</strong></div><div><span>样本最差月末现金</span><strong class="${firstPlan.worstMinimumCashMinor<0?'decision-negative':''}">¥ ${money(firstPlan.worstMinimumCashMinor)}</strong></div><div><span>累计经营利润范围</span><strong>¥ ${money(firstPlan.profitRangeMinor[0])}–${money(firstPlan.profitRangeMinor[1])}</strong></div><div><span>资金缺口样本</span><strong>${firstPlan.samplesWithFundingGap} / ${firstPlan.sampleCount}</strong></div><p>样本统计，不代表现实发生概率。</p>`;
+    if(firstPlan)summary.innerHTML=`<div><span>当前基线</span><strong>${e(firstPlan.planId==='baseline'?'维持现状':firstPlan.planId)}</strong></div><div><span>最坏情况下账上最少剩多少钱</span><strong class="${firstPlan.worstMinimumCashMinor<0?'decision-negative':''}">¥ ${money(firstPlan.worstMinimumCashMinor)}</strong></div><div><span>最差5%平均现金</span><strong>¥ ${money(firstPlan.worst5PctMeanCashMinor??firstPlan.worstMinimumCashMinor)}</strong></div><div><span>会缺钱的情景数</span><strong>${firstPlan.samplesWithFundingGap} / ${firstPlan.sampleCount}</strong></div><p>这是模拟统计，不代表现实里一定发生。</p>`;
     target.querySelector('.decision-report-header')!.after(summary);
-    target.querySelector('.decision-results')!.innerHTML=`<h3>方案对比 · 相同条件情景</h3><div class="decision-table-wrap"><table><thead><tr><th>方案</th><th>最差月末现金（元）</th><th>经营利润范围（元）</th><th>缺口样本</th><th>最大积压</th></tr></thead><tbody>${report.plans.map(plan=>`<tr><td>${e(plan.planId==='baseline'?'维持现状':plan.planId)}</td><td class="${plan.worstMinimumCashMinor<0?'decision-negative':''}">${money(plan.worstMinimumCashMinor)}</td><td>${money(plan.profitRangeMinor[0])}–${money(plan.profitRangeMinor[1])}</td><td>${plan.samplesWithFundingGap}/${plan.sampleCount}</td><td>${plan.maximumBacklogUnits}件</td></tr>`).join('')}</tbody></table></div>`;
+    const conclusion=document.createElement('div');conclusion.className='decision-conclusion-banner';
+    const worst=report.plans.reduce((a,b)=>a.worstMinimumCashMinor<=b.worstMinimumCashMinor?a:b);
+    const bestCash=report.plans.reduce((a,b)=>a.worstMinimumCashMinor>=b.worstMinimumCashMinor?a:b);
+    const conclusionText=worst.worstMinimumCashMinor<0
+      ? `在当前假设下，「${worst.planId==='baseline'?'维持现状':worst.planId}」最坏时现金可能为负；相对更稳的是「${bestCash.planId==='baseline'?'维持现状':bestCash.planId}」。先补回款与现金，再谈扩张。`
+      : `在当前假设下，各方案最坏现金仍为正；可优先看「${bestCash.planId==='baseline'?'维持现状':bestCash.planId}」的利润与现金下限，再决定下一步。`;
+    const externalHits=(report as {externalFactorImpact?:Array<{id:string;label:string;impact:string}>}).externalFactorImpact;
+    conclusion.innerHTML=`<strong>一句话结论</strong><span>${e(conclusionText)}</span>${externalHits?.length?`<small>外部环境里影响较大的：${externalHits.slice(0,3).map(item=>e(item.label)).join('、')}</small>`:''}`;
+    summary.before(conclusion);
+    const collapse=(el:Element|null,title:string)=>{
+      if(!el||(el as HTMLElement).dataset.collapsedWrap)return;
+      const wrap=document.createElement('details');wrap.className='decision-collapse-block';
+      wrap.innerHTML=`<summary>${title}</summary>`;
+      el.parentElement?.insertBefore(wrap,el);wrap.append(el);(el as HTMLElement).dataset.collapsedWrap='1';
+    };
+    collapse(target.querySelector('.decision-agent-report'),'五角色分析（点击展开）');
+    target.querySelectorAll('details').forEach(d=>{const s=d.querySelector(':scope > summary');if(s&&/敏感性/.test(s.textContent||'')){d.open=false;s.textContent='敏感性分析（点击展开）';}});
+    collapse(target.querySelector('.decision-replay'),'月度明细与回放（点击展开）');
+    target.querySelector('.decision-results')!.innerHTML=`<h3>几种做法对比（同一外部环境）</h3><div class="decision-table-wrap"><table><thead><tr><th>方案</th><th>最坏时账上最少（元）</th><th>一年利润区间（元）</th><th>缺钱情景</th><th>最多积压多少件</th></tr></thead><tbody>${report.plans.map(plan=>`<tr><td>${e(plan.planId==='baseline'?'维持现状':plan.planId)}</td><td class="${plan.worstMinimumCashMinor<0?'decision-negative':''}">${money(plan.worstMinimumCashMinor)}</td><td>${money(plan.profitRangeMinor[0])}–${money(plan.profitRangeMinor[1])}</td><td>${plan.samplesWithFundingGap}/${plan.sampleCount}</td><td>${plan.maximumBacklogUnits}件</td></tr>`).join('')}</tbody></table></div>`;
     target.querySelectorAll<HTMLElement>('.decision-results h4').forEach((heading,index)=>{if(report.plans[index].worstMinimumCashMinor<0)heading.classList.add('decision-negative');});
     target.querySelectorAll<HTMLSelectElement>('.decision-replay-controls select').forEach(select=>select.onchange=replay); replay();
     root.querySelector<HTMLButtonElement>('[data-show-report]')!.disabled=false;
@@ -282,7 +323,7 @@ function createDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimul
     stepStatus.textContent=`保存版本：${record.input.title}。可点击步骤回看，不会重新计算。`;
   }
   root.querySelectorAll<HTMLButtonElement>('[data-example]').forEach(button=>button.onclick=()=>{
-    if(busy)return;clearPreparation(); draft=operatingExample(button.dataset.example as 'normal'|'cash'|'capacity');pending=undefined;populate();status.textContent='手填示例已填入，尚未计算或保存。此入口不执行五角色资料分析。';root.querySelector<HTMLButtonElement>('button[type=submit]')!.textContent='生成并保存对比';
+    if(busy)return;clearPreparation(); draft=operatingExample(button.dataset.example as 'normal'|'cash'|'capacity');pending=undefined;populate();status.textContent='手填示例已填入，尚未计算或保存。此入口不执行五角色资料分析。';root.querySelector<HTMLButtonElement>('button[type=submit]')!.textContent='开始对比';
   });
   root.querySelector<HTMLButtonElement>('[data-refresh-history]')!.onclick=()=>void history();
   root.querySelector('form')!.onsubmit=event=>{
@@ -297,6 +338,9 @@ function createDecisionSimulation(host: HTMLElement, suppliedApi?: DecisionSimul
       for(const [key,,isMoney] of fieldDefinitions) {const raw=control(key).value;const value=Number(raw);if(!raw.trim()||!Number.isFinite(value)||(!isMoney&&!Number.isInteger(value)))throw new Error('请填写有效数字，件数和月份必须为整数'); input.baseline[key]=Math.round(value*(isMoney?100:1));}
       input.baseline.receivables=JSON.parse(control('receivables').value);input.baseline.payables=JSON.parse(control('payables').value);
       input.alternatives=JSON.parse(control('alternatives').value);input.options=JSON.parse(control('options').value);
+      const yearRegime=(envBlock.querySelector('[data-year-regime][aria-pressed=true]') as HTMLElement|null)?.dataset.yearRegime as 'normal'|'tight'|'storm'|undefined;
+      const externalEnvironment=[...envBlock.querySelectorAll<HTMLInputElement>('input[name=externalToggle]:checked')].map(item=>item.value) as NonNullable<SimulationInput['options']['externalEnvironment']>;
+      input.options={...input.options, ...(yearRegime?{yearRegime}:{}), externalEnvironment, seasonality: input.options.seasonality ?? 'general_ecommerce'};
       const fingerprint=JSON.stringify({...input,runId:''});
       if(pending?.fingerprint===fingerprint)input=pending.input;
       else {input.runId=crypto.randomUUID();pending={fingerprint,input};}

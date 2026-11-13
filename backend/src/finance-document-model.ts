@@ -3,13 +3,16 @@ import { PUBLIC_RESEARCH_RULES, researchCitationIds, type PublicResearchEvidence
 import {operatingPreferenceEvidence,type OperatingPreferences} from './agent-operating-memory.js';
 import { observeCfoStage, type CfoConversationProgress } from './cfo-conversation-progress.js';
 import { z } from 'zod';
+import type { KnowledgeAnswer } from './knowledge/domain.js';
+import type { ReferenceEvidence } from './system-reference/domain.js';
+import { buildKnowledgeModelEvidence, renderKnowledgeAnswer, withKnowledgeAnswer, KNOWLEDGE_ANSWER_RULES } from './knowledge/answer.js';
 import { createAiHttpClient } from './ai-http-security.js';
 import { hashModelCallValue } from './model-providers/call-ledger.js';
 import { ModelGatewayError, modelOutputFailureReasons } from './model-providers/gateway.js';
 import { bindActiveModelSnapshotDurably, bindModelConnectionSnapshotDurably, createActiveModelGatewayForSnapshot,
   type DurableModelRuntimeStore } from './model-providers/runtime.js';
 import type { ActiveWorkspaceContext } from './growth-workspace-context.js';
-import type { FinanceDocumentInspection, FinanceDocumentObservation, FinanceDocumentCell } from './finance-document-inspection.js';
+import type { FinanceDocumentInspection, FinanceDocumentObservation, FinanceDocumentCell, FinanceDetailedReport } from './finance-document-inspection.js';
 import { prepareSpecialistSkill } from './skills/specialists.js';
 
 const ROLES = ['cfo', 'finance', 'profit', 'cost', 'cashflow', 'tax'] as const;
@@ -135,9 +138,9 @@ function selectModelSources(inspection: FinanceDocumentInspection, question: str
   } };
 }
 
-export function financeDocumentObservationSchema(inspection: Pick<FinanceDocumentInspection, 'cells'>, maxObservations=12, compactEvidence=false, publicEvidence?:PublicResearchEvidence) {
+export function financeDocumentObservationSchema(inspection: Pick<FinanceDocumentInspection, 'cells'>, maxObservations=12, compactEvidence=false, publicEvidence?:PublicResearchEvidence, maxTemplate: 2000 | 12000 = 2000) {
   const allowed = new Set(inspection.cells.map(cell => cell.sourceRef));
-  return z.object({ observations: z.array(z.object({ template: z.string().trim().min(1).max(compactEvidence?350:2000),
+  return z.object({ observations: z.array(z.object({ template: z.string().trim().min(1).max(compactEvidence?350:maxTemplate),
     sourceRefs: z.array(z.string().refine(ref => allowed.has(ref))).min(1).max(compactEvidence?4:20)
       .refine(refs => new Set(refs).size === refs.length) }).strict()).max(maxObservations),
     ...(publicEvidence?{citationIds:researchCitationIds(publicEvidence)}:{}) }).strict().superRefine((value, ctx) => {
@@ -163,13 +166,13 @@ export function financeDocumentObservationSchema(inspection: Pick<FinanceDocumen
     });
   });
 }
-export function renderFinanceDocumentObservations(value: unknown, inspection: Pick<FinanceDocumentInspection, 'cells'>): FinanceDocumentObservation[] {
-  const output = financeDocumentObservationSchema(inspection).parse(value);
+export function renderFinanceDocumentObservations(value: unknown, inspection: Pick<FinanceDocumentInspection, 'cells'>, maxLength: 4000 | 12000 = 4000): FinanceDocumentObservation[] {
+  const output = financeDocumentObservationSchema(inspection, 12, false, undefined, maxLength === 12000 ? 12000 : 2000).parse(value);
   const values = new Map(inspection.cells.map(cell => [cell.sourceRef,
     `${cell.text}${'valueStatus' in cell && cell.valueStatus === 'cached_formula' ? '（工作簿缓存显示，未重算）' : ''}`]));
   return output.observations.map(observation => {
     const text = observation.template.replace(token, (_match, ref: string) => values.get(ref)!);
-    if (text.length > 4000) throw new Error('finance_document_observation_too_large');
+    if (text.length > maxLength) throw new Error('finance_document_observation_too_large');
     return { text, sourceRefs: observation.sourceRefs };
   });
 }
@@ -180,12 +183,35 @@ export interface FinanceDocumentModelInput {
   operatingRole?: OperatingDecisionRole;
   personalPreferences?:OperatingPreferences;
   publicEvidence?:PublicResearchEvidence;
+  knowledgeEvidence?: ReferenceEvidence;
+  reportPurpose?: 'finance';
 }
-export interface FinanceDocumentModelResult { inspection: FinanceDocumentInspection; provider: string | null; model: string | null; citationIds?:string[] }
+const FINANCE_REPORT_SECTIONS = ['overview','income','cost','profit','cashflow','comparison','actions'] as const;
+export function financeDetailedReportSchema(inspection: Pick<FinanceDocumentInspection, 'cells'>, publicEvidence?: PublicResearchEvidence) {
+  const block = z.array(z.unknown()).min(1).max(3)
+    .transform(observations => ({ observations }))
+    .pipe(financeDocumentObservationSchema(inspection, 3))
+    .transform(value => value.observations);
+  return z.object({ sections: z.array(z.object({ id: z.enum(FINANCE_REPORT_SECTIONS),
+    coverage: z.enum(['supported','partial','insufficient']), evidence: block, interpretation: block, action: block
+  }).strict()).length(7), ...(publicEvidence?{citationIds:researchCitationIds(publicEvidence)}:{}) }).strict().refine(value => new Set(value.sections.map(section => section.id)).size === 7,
+    'Every required finance chapter must appear exactly once.');
+}
+export function renderFinanceDetailedReport(raw: unknown, inspection: Pick<FinanceDocumentInspection, 'cells'>, publicEvidence?:PublicResearchEvidence): FinanceDetailedReport {
+  const value = financeDetailedReportSchema(inspection,publicEvidence).parse(raw);
+  return { version: 'finance-detailed.v1', sections: FINANCE_REPORT_SECTIONS.map(id => {
+    const section = value.sections.find(section => section.id === id)!;
+    return { id, coverage: section.coverage, evidence: renderFinanceDocumentObservations({observations:section.evidence}, inspection),
+      interpretation: renderFinanceDocumentObservations({observations:section.interpretation}, inspection),
+      action: renderFinanceDocumentObservations({observations:section.action}, inspection) };
+  }) };
+}
+export interface FinanceDocumentModelResult { inspection: FinanceDocumentInspection; provider: string | null; model: string | null; citationIds?:string[]; knowledge?: KnowledgeAnswer }
 export function createFinanceDocumentModel(store: DurableModelRuntimeStore, options: { fetch?: typeof fetch } = {}) {
   return async (input: FinanceDocumentModelInput): Promise<FinanceDocumentModelResult> => {
     const inspection = structuredClone(input.inspection);
     inspection.observations = [];
+    delete inspection.detailedReport;
     const resultWithoutModel = (status: FinanceDocumentInspection['modelStatus']): FinanceDocumentModelResult =>
       ({ inspection: { ...inspection, modelStatus: status }, provider: null, model: null });
     if (input.consent !== true) return resultWithoutModel('consent_required');
@@ -198,7 +224,18 @@ export function createFinanceDocumentModel(store: DurableModelRuntimeStore, opti
       : prepareSpecialistSkill(role, { question, history: [], material: null });
     observeCfoStage(input.onProgress, 'skill_ready', input.signal);
     const operatingMethod=operatingRole?'本次经营模拟的用户已校对输入。confirmed:编号是人工确认的模拟条件，不是审计事实；calc:编号是固定算法产生的条件性结果，不是历史实绩。本模式的紧凑规则优先：template只写简短的定性结论、取舍或行动，不使用任何{{引用}}内联占位，不把原文或完整计算段落粘贴进正文；数值已在页面图表显示。依据仅放sourceRefs，每项最多四个真实引用。每项正文建议六十至一百四十字，最多三百五十字符，最多四项。重点解释当前角色相关的决策取舍、可做动作和需要验证的条件，不重复表头、其他角色摘要或页面已有的示例性质。缺少三表不阻止在明确假设下讨论模拟；仅提影响当前决策的具体缺项。至少一项有依据的可执行建议；不能自行计算或编造新数字。':'';
-    const systemPrompt = `${skill.instructions}\n\n当前职责：${skill.name}。本次不是正式三表委员会，下面的只读资料引用规则优先；不把缺少完整三表作为拒绝阅读现有资料的条件。只输出可供用户阅读的证据与结论摘要，不输出内部推理链。\n${operatingRole?SYSTEM.replace('最多12条observations','最多4条observations'):SYSTEM}\n${operatingMethod}${input.publicEvidence?PUBLIC_RESEARCH_RULES:''}`;
+    let systemPrompt = `${skill.instructions}\n\n当前职责：${skill.name}。本次不是正式三表委员会，下面的只读资料引用规则优先；不把缺少完整三表作为拒绝阅读现有资料的条件。只输出可供用户阅读的证据与结论摘要，不输出内部推理链。\n${operatingRole?SYSTEM.replace('最多12条observations','最多4条observations'):SYSTEM}\n${operatingMethod}${input.publicEvidence?PUBLIC_RESEARCH_RULES:''}`;
+    if (input.reportPurpose === 'finance') {
+      systemPrompt = SYSTEM.split('\n').filter(line => !line.startsWith('输出必须') && !line.startsWith('最多12条')).join('\n')
+        .replace('输出 observations 数组，每项仅含 template 与 sourceRefs。', '每个正文项仅含 template 与 sourceRefs。')
+        .replace('不足以支持观察则返回空数组。', '证据不足时引用已有资料解释缺项，不生成虚构结论。') + `
+本次是完整财务经营报告，不是聊天短摘要。仅输出JSON：{"sections":[{"id":"overview","coverage":"partial","evidence":[{"template":"...","sourceRefs":["..."]}],"interpretation":[{"template":"...","sourceRefs":["..."]}],"action":[{"template":"...","sourceRefs":["..."]}]}]}。
+必须包含且仅包含overview、income、cost、profit、cashflow、comparison、actions七个不同章节。
+严格层级：每个章节只含id、coverage、evidence、interpretation、action；evidence、interpretation、action均为正文项数组，不使用observations包装对象。每个正文项仅有template和sourceRefs，引用只与该正文对应，不在章节外层汇总引用。
+overview：经营概况、资料期间/范围与主要矛盾；income：收入构成、确认与回款差异、客户集中或变化驱动；cost：成本费用结构、固定/变动口径和可控性；profit：利润与收入/成本的关系、已知与未计入项目；cashflow：收付时点、占款与资金约束，不把收入当现金；comparison：期间/业务/行业可比口径及是否具备对照证据，未提供外部来源时不声称已联网或编造行业均值；actions：按影响和可行性排序的风险处理、负责人职能、验收依据与复核条件。
+每章evidence描述实际来源支持什么和缺少什么，interpretation解释机制、影响和替代解释，action给出对应具体动作、需收集的明细与判断标准，不重复三段文字。各数组一至三条，各template最多2000字符，引用一至二十项；需要多少写多少，不凑字数。coverage按实际证据填supported/partial/insufficient；缺少资料也保留章节，引用相关已有来源说明不能推出什么及怎样补证。所有数字、单位、日期及来源规则仍完全适用，不自行计算金额或补造公司事实。`;
+    }
+    if (input.reportPurpose && input.publicEvidence) systemPrompt += PUBLIC_RESEARCH_RULES;
     if (!input.context.actorId?.trim() || !input.context.teamId?.trim() || !input.context.workspaceId?.trim()
       || input.context.workspaceId === 'all') throw new Error('finance_document_context_invalid');
     input.signal?.throwIfAborted();
@@ -207,13 +244,37 @@ export function createFinanceDocumentModel(store: DurableModelRuntimeStore, opti
     if (cells.length !== inspection.cells.length && !inspection.uncertain.includes('model_context_truncated'))
       inspection.uncertain.push('model_context_truncated');
     if (!cells.length) return resultWithoutModel('unavailable');
+    const knowledgeEvidence = !operatingRole && !input.reportPurpose ? input.knowledgeEvidence : undefined;
+    const useKnowledge = knowledgeEvidence?.status === 'used';
+    const renderCompanyText = (template: string) => {
+      const refs = [...new Set([...template.matchAll(token)].map(match => match[1]))];
+      // A qualitative section still goes through the same original-source
+      // validator, anchored to this selected file; it invents no coordinates.
+      return renderFinanceDocumentObservations({ observations: [{ template, sourceRefs: refs.length ? refs : [cells[0].sourceRef] }] }, { cells }, 12000)[0].text;
+    };
+    if (useKnowledge) {
+      const outputShape = `输出必须且只能包含${input.publicEvidence ? 'observations、citationIds和knowledge' : 'observations和knowledge'}。
+observations 是企业资料观察数组，每项只能包含 template 和 sourceRefs；详细参考解释写在独立 knowledge 对象中，knowledge 只能包含 template 字符串和 citationIds 数组。status、detailedText、sources、warnings、版本及定位信息由服务端生成，不由模型输出。
+knowledge.citationIds 只列 knowledgeReferences 中实际用于 template 的 K 编号，并与 {{knowledge:K1}} 等引用完全一致。
+${input.publicEvidence ? '根层 citationIds 只列 publicEvidence 中实际支持回答的 S 编号；根层不能放 K 编号，knowledge.citationIds 不能放 S 编号，两层不可合并。' : '本次没有 publicEvidence，不输出根层 citationIds；K 编号只放在 knowledge.citationIds。'}
+例如：${JSON.stringify({ observations: [{ template: '应核对所选资料的范围与适用条件。', sourceRefs: ['cell:1:1:1'] }],
+        ...(input.publicEvidence ? { citationIds: ['S1'] } : {}),
+        knowledge: { template: '参考原文：{{knowledge:K1}}\n参考方法不等于企业事实，应核对适用条件并补充实际资料。', citationIds: ['K1'] } })}。
+示例只说明结构和引用位置；实际内容回答本次问题，sourceRefs、K和S编号只能选择本次提供的来源，不照搬未提供的编号。`;
+      systemPrompt = systemPrompt.split('\n').filter(line => !line.startsWith('输出必须为 JSON 对象，只有 observations 字段')).join('\n')
+        + `\n${KNOWLEDGE_ANSWER_RULES}\n${outputShape}`;
+    }
     const prompt = `BEGIN_UNTRUSTED_DATA\n${JSON.stringify({ question, history, publicEvidence:input.publicEvidence, personalTradeoffs:operatingPreferenceEvidence(input.personalPreferences), role: operatingRole ?? role, fileHash: inspection.fileHash,
       classification: inspection.classification, missingStatements: inspection.missingStatements,
-      uncertain: inspection.uncertain, ...sources })}\nEND_UNTRUSTED_DATA`;
-    const schemaHash = hashModelCallValue({ version: operatingRole?'decision-role-observations.v2':'finance-document-observations.v1', refs: cells.map(cell => cell.sourceRef),
-      publicSourceIds:input.publicEvidence?.sources.map(source=>source.id) });
+      uncertain: inspection.uncertain, ...sources,
+      ...(useKnowledge ? { knowledgeReferences: buildKnowledgeModelEvidence(knowledgeEvidence) } : {}) })}\nEND_UNTRUSTED_DATA`;
+    const schemaHash = hashModelCallValue({ version: input.reportPurpose?'finance-detailed.v1':operatingRole?'decision-role-observations.v2':'finance-document-observations.v1', refs: cells.map(cell => cell.sourceRef),
+      publicSourceIds:input.publicEvidence?.sources.map(source=>source.id),
+      ...(useKnowledge ? { knowledge: knowledgeEvidence.sources.map(s => s.sourceType === 'system'
+        ? [s.sourceId, s.sourceHash, s.chunkHash, s.releaseId, s.referenceId, s.queryGrantId, s.excerptRange]
+        : [s.sourceId, s.sourceHash, s.chunkId]) } : {}) });
     const identity = { jobId: `finance-document:${randomUUID()}`, ownerId: input.context.actorId, teamId: input.context.teamId,
-      promptVersion: operatingRole?'decision-role-reading.v2':'finance-document-reading.v1', schemaVersion: operatingRole?'decision-role-observations.v2':'finance-document-observations.v1',
+      promptVersion: input.reportPurpose?'finance-detailed.v1':operatingRole?'decision-role-reading.v2':'finance-document-reading.v1', schemaVersion: input.reportPurpose?'finance-detailed.v1':operatingRole?'decision-role-observations.v2':'finance-document-observations.v1',
       promptHash: hashModelCallValue({ systemPrompt, userPrompt: prompt }), schemaHash };
     try {
       const snapshot = input.connectionId
@@ -226,10 +287,20 @@ export function createFinanceDocumentModel(store: DurableModelRuntimeStore, opti
         fetch: ((url, init) => fetcher(url, { ...init, signal: input.signal
           ? AbortSignal.any([input.signal, ...(init?.signal ? [init.signal] : [])]) : init?.signal })) as typeof fetch });
       observeCfoStage(input.onProgress, 'model_started', input.signal);
-      const result = await gateway.generateStructured({ systemPrompt, prompt,
-        schema: financeDocumentObservationSchema({ cells },operatingRole?4:12,Boolean(operatingRole),input.publicEvidence), schemaHash });
+      if (input.reportPurpose === 'finance') {
+        const result = await gateway.generateStructured({ systemPrompt, prompt, schema: financeDetailedReportSchema({ cells },input.publicEvidence), schemaHash });
+        input.signal?.throwIfAborted();
+        const detailedReport = renderFinanceDetailedReport(result.value, { cells },input.publicEvidence);
+        return { inspection: { ...inspection, detailedReport, modelStatus: 'completed' }, provider: snapshot.provider, model: snapshot.model,
+          ...(input.publicEvidence?{citationIds:researchCitationIds(input.publicEvidence).parse(result.value.citationIds)}:{}) };
+      }
+      const baseSchema = financeDocumentObservationSchema({ cells },operatingRole?4:12,Boolean(operatingRole),input.publicEvidence);
+      const schema = useKnowledge ? withKnowledgeAnswer(baseSchema, { evidence: knowledgeEvidence, renderCompanyText }) : baseSchema;
+      const result = await gateway.generateStructured({ systemPrompt, prompt, schema, schemaHash,
+        ...(knowledgeEvidence ? { repair: false } : {}) });
       input.signal?.throwIfAborted();
       return { inspection: { ...inspection, observations: renderFinanceDocumentObservations({observations:result.value.observations}, { cells }), modelStatus: 'completed' },
+        ...(useKnowledge ? { knowledge: renderKnowledgeAnswer('knowledge' in result.value ? result.value.knowledge : undefined, { evidence: knowledgeEvidence, renderCompanyText }) } : {}),
         provider: snapshot.provider, model: snapshot.model, ...(input.publicEvidence?{citationIds:researchCitationIds(input.publicEvidence).parse(result.value.citationIds)}:{}) };
     } catch (error) {
       input.signal?.throwIfAborted();

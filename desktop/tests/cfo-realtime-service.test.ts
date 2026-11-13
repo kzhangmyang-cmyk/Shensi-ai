@@ -25,11 +25,44 @@ test('a failed session records its closed failure category without private histo
   const { service, scope, connections, diagnostics, events } = await fixture(); t.after(() => service.dispose());
   await service.save(scope, { apiKey: 'private-fixture-key', workspaceId: '' }); await service.check(scope);
   await service.start(scope, [{ role: 'user', text: 'private-fixture-business' }]);
+  // First transient close attempts one transport reconnect instead of ending the session.
+  connections.at(-1)!.receive({ type: 'closed', code: 'voice_network_failed' });
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(diagnostics.find(row => row.stage === 'transport_reconnect')?.reason, 'voice_network_failed');
+  assert.equal(events.some(row => row.type === 'reconnecting'), true);
+  assert.equal(events.filter(row => row.type === 'ended').length, 0);
+  assert.equal(connections.length >= 3, true);
+  // Exhaust the single reconnect budget → hard fail.
   connections.at(-1)!.receive({ type: 'closed', code: 'voice_network_failed' });
   assert.equal(diagnostics.find(row => row.stage === 'session_failed')?.code, 'voice_network_failed');
   assert.equal(events.filter(row => row.type === 'ended').length, 1);
   assert.equal(connections.at(-1)!.closed, true);
   assert.doesNotMatch(JSON.stringify(diagnostics), /private-fixture/);
+});
+
+test('auth-class provider closes still fail immediately without reconnect', async t => {
+  const { service, scope, connections, diagnostics, events } = await fixture(); t.after(() => service.dispose());
+  await service.save(scope, { apiKey: 'isolated-test-key', workspaceId: '' }); await service.check(scope);
+  await service.start(scope, []);
+  connections.at(-1)!.receive({ type: 'closed', code: 'voice_credentials_failed' });
+  assert.equal(diagnostics.some(row => row.stage === 'transport_reconnect'), false);
+  assert.equal(diagnostics.find(row => row.stage === 'session_failed')?.code, 'voice_credentials_failed');
+  assert.equal(events.filter(row => row.type === 'error' && row.code === 'voice_credentials_failed').length, 1);
+});
+
+test('mic stall monitor stays quiet during speech-to-tool thinking wait', async t => {
+  let now = 1_000_000; t.mock.method(Date, 'now', () => now);
+  const { service, scope, connections, events } = await fixture(); t.after(() => service.dispose());
+  await service.save(scope, { apiKey: 'isolated-test-key', workspaceId: '' }); await service.check(scope);
+  await service.start(scope, []);
+  const peer = connections.at(-1)!;
+  peer.receive({ type: 'input_audio_buffer.speech_stopped' });
+  // Advance far beyond the 45s stall budget while waiting for ASR / tool.
+  now += 120_000;
+  await new Promise(r => setTimeout(r, 5200));
+  assert.equal(events.some(e => e.code === 'voice_audio_stalled'), false);
+  assert.equal(events.some(e => e.type === 'ended'), false);
+  service.stop();
 });
 
 test('voice freezes the selected document ID and never accepts a provider-selected source', async t => {
@@ -281,4 +314,14 @@ test('interruption fences an unacknowledged fallback and never replays its reply
   peer.receive({ type: 'response.audio.delta', response_id: 'late', delta: 'AAA=' });
   assert.equal(sent.some(e => e.type === 'response.create'), false);
   assert.equal(events.some(e => e.type === 'audio'), false);
+});
+
+test('failActive surfaces an error instead of a silent ended-only teardown', async t => {
+  const { service, scope, events } = await fixture(); t.after(() => service.dispose());
+  await service.save(scope, { apiKey: 'isolated-test-key', workspaceId: '' }); await service.check(scope);
+  await service.start(scope, []);
+  service.failActive('voice_auth_required');
+  assert.equal(events.some(e => e.type === 'error' && e.code === 'voice_auth_required'), true);
+  assert.equal(events.some(e => e.type === 'ended'), true);
+  assert.equal(service.activeSessionId, null);
 });

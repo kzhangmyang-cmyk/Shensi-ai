@@ -308,7 +308,10 @@ export function createAppSessionController(options: AppSessionOptions = {}): App
     documentRef.body.classList.toggle("is-authenticated", businessAllowed);
     documentRef.body.dataset.sessionMode = demoMode ? "demo" : "real";
     documentRef.body.dataset.sessionUserId = user.id;
-    documentRef.body.dataset.sessionWorkspaceId = user.teamId;
+    // Desktop/unmanaged bootstrap uses teamId "all"; decision-sim and growth APIs
+    // require a concrete workspace. Map to the user's personal workspace.
+    documentRef.body.dataset.sessionWorkspaceId =
+      user.teamId === "all" ? `personal:${user.id}` : user.teamId;
     locationRef.hash = normalizeAppHash(locationRef.hash);
     renderAccess(user, access);
     lastPublishedAuthority = signature;

@@ -263,7 +263,7 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
     search.value = "第二页已联系候选";
     search.dispatchEvent(new window.Event("input", { bubbles: true }));
     assert.equal(main.querySelectorAll("[data-real-conversations-action=select]").length, 1);
-    assert.match(main.querySelector(".real-conversation-list")?.textContent ?? "", /50 位已采集真实候选/u);
+    assert.match(main.querySelector(".real-conversation-list")?.textContent ?? "", /50 位已载入真实候选/u);
     assert.equal(controller.getState().selectedInteractionKey, "run-1:candidate-1");
     const currentSearch = main.querySelector<HTMLInputElement>("[data-real-conversations-candidate-search]")!;
     currentSearch.value = "";
@@ -338,7 +338,7 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
   assert.match(main.innerHTML, /天选财税人/u);
   assert.match(main.innerHTML, /当前私信收件人/u);
   assert.match(main.innerHTML, /data-outreach-direct-message-compose/u);
-  assert.match(main.innerHTML, /确认并排队私信/u);
+  assert.match(main.innerHTML, /批准并发送 \d+ 条私信/u);
   for (const tab of ["comments", "history"] as const) {
     inspector.hidden = false;
     inspector.innerHTML = "<section>旧路由技术详情</section>";
@@ -906,4 +906,41 @@ assert.equal(shouldUseRealConversations("dashboard", "real"), false);
   controller.destroy();
 }
 
+{
+  const { main, inspector, window } = domFixture();
+  const items = [snapshot.interactions[0], { ...snapshot.interactions[0], key: "run-1:candidate-2", candidateId: "candidate-2", displayName: "公开用户 B" },
+    { ...snapshot.interactions[0], key: "run-1:blocked", candidateId: "blocked", candidateStatus: "do_not_contact" }];
+  let createdIds: string[] = [];
+  let approvals = 0;
+  const controller = createRealConversationsController({ main, inspector, batchSelection: selectionFixture(),
+    api: { async load() { return { ...snapshot, interactions: items }; } },
+    outreachApi: outreachApi({ async createBatch(_run, ids) {
+      createdIds = ids;
+      return { ...batch(), candidates: ids.map((id) => batch(id).candidates[0]) };
+    }, async approveDirectMessages(_id, command) {
+      approvals += 1;
+      assert.deepEqual(command.candidates.map((candidate) => candidate.candidateId), ["candidate-1", "candidate-2"]);
+      return { ...batch(), candidates: createdIds.map((id) => batch(id).candidates[0]) };
+    } }) });
+  await controller.open();
+  main.querySelector<HTMLElement>("[data-real-conversations-action=select-recipients]")!.click();
+  assert.deepEqual(controller.getState().recipientKeys, ["run-1:candidate-1", "run-1:candidate-2"]);
+  main.querySelector<HTMLElement>("[data-real-conversations-action=select-recipients]")!.click();
+  assert.deepEqual(controller.getState().recipientKeys, ["run-1:candidate-1", "run-1:candidate-2"], "repeat selection stays idempotent");
+  assert.equal(main.querySelector<HTMLInputElement>('[data-real-conversations-recipient="run-1:blocked"]')!.disabled, true);
+  assert.equal(approvals, 0);
+  main.querySelector<HTMLElement>("[data-real-conversations-action=prepare-recipients]")!.click();
+  await controller.whenIdle();
+  assert.deepEqual(createdIds, ["candidate-1", "candidate-2"]);
+  assert.equal(main.querySelectorAll("[data-outreach-direct-message-state]").length, 2);
+  assert.match(main.textContent ?? "", /批准并发送 2 条私信/u);
+  const confirmation = main.querySelector<HTMLInputElement>("[data-outreach-direct-message-confirm]")!;
+  confirmation.checked = true;
+  confirmation.dispatchEvent(new window.Event("change", { bubbles: true }));
+  main.querySelector<HTMLElement>("[data-real-conversations-action=clear-recipients]")!.click();
+  assert.equal(controller.getState().outreach.directMessageConfirmed, false, "recipient edits invalidate approval");
+  assert.equal(approvals, 0, "selection and preparation never authorize real sending");
+  assert.equal(controller.getState().snapshot?.interactions.length, 3);
+  controller.destroy();
+}
 console.log(JSON.stringify({ ok: true, suite: "real-conversations-controller" }));

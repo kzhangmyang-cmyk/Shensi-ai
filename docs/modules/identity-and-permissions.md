@@ -85,11 +85,56 @@ exposing the authenticated shell. Session and CSRF authority remain the
 server-issued `gj_session` and `gj_csrf` cookies. Demo mode does not expose or
 call public registration.
 
+## Default-library central binding
+
+`backend/src/system-reference/authority.ts` implements a separate central reader
+authority: active central user, exact team membership, explicit managed workspace
+and current `agents/execute`. Ordinary customer membership is `users.team_id` and
+status; platform owner/operator membership is not required for reading. Unknown,
+personal, disabled or unentitled workspaces fail closed even if the legacy access
+helper reports unmanaged `.allowed`. Durable reads can share the caller's MySQL
+transaction and lock users before platform state. Pending account mutations deny
+access. Publication authority requires an active platform owner, never an operator
+or local customer administrator.
+
+`binding-service.ts` and `binding-router.ts` implement five-minute S256 challenges,
+random eight-digit matching codes, normal Cookie/CSRF approval and one-time
+transactional exchange. The matching code is confirmation, not exchange authority.
+New binding bodies contain no local account or enterprise names. Separate create,
+approve, exchange and cancel rate limits allow ten per observed IP per minute;
+the ingress applies a 4 KiB body limit before generic parsing. Express's configured
+proxy policy determines the IP, not an unvalidated forwarded header.
+
+The 256-bit opaque reader token is purpose/issuer-bound, expires after seven days,
+has no refresh and is stored centrally only as a hash. Current eligibility and
+authVersion are checked again before issuance and use; a second exchange fails.
+Cancellation invalidates potentially issued credentials and retains a tombstone.
+Reader tokens are not normal login or publishing credentials. D3 adds scoped encrypted
+storage/transport; the live approval route and assembly remain D8/D9 work. The safe approval
+component shows the current central account and matching code and never auto-posts.
+The server's binding ingress defaults to unconfigured. No current account or
+deployment is altered by these synthetic tests.
+
+With a trusted connection runtime installed, normal logout fences every connection
+scope of the verified actor before clearing session cookies. Normal login/registration
+replacement fences the valid previous session's actor as well; existing Cookie
+sessions require CSRF, while invalid/expired prior cookies do not block a fresh
+login. No User.authVersion increment or other actor's data/session revocation is
+used for this fence. Unconfigured deployments retain their prior login/logout
+semantics. Captured connection clients recheck current local identity and generation
+before and after asynchronous work, rejecting late excerpts or token restoration.
+Only explicit central mode may reuse current legal central identity; remote desktop
+topology, a local administrator or installation ID is not central authorization.
+
 ## Tests
 
 - Registration, login, visibility, role, account, and CRM boundaries:
   `pnpm --filter ./backend test`
 - Security-focused gate: `pnpm --filter ./backend test:security`
+- Central binding, current authority and actual-MFA guard:
+  `pnpm --dir backend test:system-reference-binding`; approval DOM behavior:
+  `pnpm --dir frontend test:system-reference-binding`. Driver-double persistence
+  tests are not actual MySQL acceptance; the dedicated SQL gate belongs to D4.
 - Growth capability/workspace tests:
   `pnpm --filter ./backend test:growth-foundation`
 - Frontend session state: `pnpm --filter ./frontend test`

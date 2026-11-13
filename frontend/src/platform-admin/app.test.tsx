@@ -13,6 +13,19 @@ const overview: components['schemas']['Overview'] = { revision: 1, role: 'owner'
   audits: [{ id: 'synthetic-audit', actorId: 'synthetic-owner', action: 'enterprise.create', targetId: 'synthetic-enterprise', reason: '合成测试', occurredAt: '2026-09-21T00:00:00Z', revision: 1 }] };
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
+test('normal admin navigation mounts default-library maintenance, while operators cannot read its metadata', async () => {
+  const {document,window}=parseHTML('<html><body><main id="root"></main></body></html>');
+  const previous={document:globalThis.document,window:globalThis.window,fetch:globalThis.fetch};
+  Object.assign(globalThis,{document,window,IS_REACT_ACT_ENVIRONMENT:true});document.cookie='gj_csrf=synthetic-csrf';
+  let metadataReads=0;
+  globalThis.fetch=async(path)=>{if(String(path).includes('/overview'))return response({...overview,role:'operator'});metadataReads++;return response({},403);};
+  const root=createRoot(document.getElementById('root')!);
+  try{
+    await act(async()=>root.render(<App/>));const entry=[...document.querySelectorAll<HTMLButtonElement>('nav button')].find(button=>button.textContent==='默认参考库');assert.ok(entry,'default reference maintenance tab is required');
+    await act(async()=>entry.click());assert.match(document.body.textContent!,/没有维护权限/);assert.equal(!!document.querySelector('[name=releaseId]'),false);assert.equal(metadataReads,0);
+  }finally{await act(async()=>root.unmount());Object.assign(globalThis,previous);}
+});
+
 test('four admin pages, draft defaults, conflict-preserved input and mutation lock use only synthetic requests', async () => {
   const { document, window } = parseHTML('<html><body><main id="root"></main></body></html>');
   const original = { window: globalThis.window, document: globalThis.document, fetch: globalThis.fetch, FormData: globalThis.FormData };

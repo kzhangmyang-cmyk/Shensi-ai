@@ -48,6 +48,12 @@ async function verifyCodesign(target, deep = false) {
   });
 }
 
+// Integrity is mandatory for test builds as well as Developer ID releases.
+// An ad-hoc signature is permitted here, but a broken or missing seal is not.
+export async function verifyAppSignatureIntegrity(appPath) {
+  await verifyCodesign(appPath, true);
+}
+
 async function codesignEntitlements(target) {
   const { stdout, stderr } = await execFileAsync("/usr/bin/codesign", ["-d", "--entitlements", "-", target], {
     encoding: "utf8", maxBuffer: 2_000_000,

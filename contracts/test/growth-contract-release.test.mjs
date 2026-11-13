@@ -19,7 +19,7 @@ test("growth release derives the version directory and never overwrites differen
     const second = path.join(secondRoot, secondManifest.contractVersion);
     const bytes = await readFile(path.join(first, "openapi.json"));
     const expectedHash = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-    assert.equal(firstManifest.contractVersion, "1.0.34");
+    assert.equal(firstManifest.contractVersion, "1.0.41");
     assert.equal(firstManifest.contractHash, expectedHash);
     assert.deepEqual(firstManifest, secondManifest);
     assert.deepEqual(bytes, await readFile(path.join(second, "openapi.json")));

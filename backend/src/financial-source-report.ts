@@ -56,6 +56,13 @@ interface PersistedFinancialSourceReport extends FinancialSourceReport {
   requestedBy: string;
 }
 
+export interface FinancialSourceReportRepository {
+  createReport(input: PersistedFinancialSourceReport): Promise<FinancialSourceReport>;
+  getReport(workspaceId: string, id: string): Promise<FinancialSourceReport | null>;
+  findReportByDomainHash(workspaceId: string, hash: `sha256:${string}`): Promise<FinancialSourceReport | null>;
+  findReportByHash(workspaceId: string, hash: string): Promise<FinancialSourceReport | null>;
+}
+
 export class DefaultFinancialSourceReportService
 implements FinancialSourceReportService {
   private readonly commandExecutor: RoiCommandExecutor;
@@ -63,15 +70,18 @@ implements FinancialSourceReportService {
   private readonly ids: { next(): string };
   private readonly reports = new Map<string, PersistedFinancialSourceReport>();
   private reportCount = 0;
+  private readonly repository?: FinancialSourceReportRepository;
 
   constructor(input: {
     commandExecutor: RoiCommandExecutor;
     now?: () => string;
     ids?: { next(): string };
+    repository?: FinancialSourceReportRepository;
   }) {
     this.commandExecutor = input.commandExecutor;
     this.now = input.now ?? (() => new Date().toISOString());
     this.ids = input.ids ?? { next: randomUUID };
+    this.repository = input.repository;
   }
 
   private key(workspaceId: string, id: string): string {
@@ -114,7 +124,7 @@ implements FinancialSourceReportService {
               "idempotency_reference_invalid", 409
             );
           }
-          const report = this.reports.get(
+          const report = this.repository ? await this.repository.getReport(context.workspace.workspaceId, ids.resourceId) : this.reports.get(
             this.key(context.workspace.workspaceId, ids.resourceId)
           );
           if (!report) {
@@ -123,6 +133,8 @@ implements FinancialSourceReportService {
           return this.project(report);
         },
         executeClaimed: async (hash) => {
+          const persistedReplay = await this.repository?.findReportByDomainHash(context.workspace.workspaceId, hash);
+          if (persistedReplay) return { resourceId: persistedReplay.id, operationId: null };
           const replay = [...this.reports.values()].find((report) =>
             report.workspaceId === context.workspace.workspaceId
             && report.domainCommandHash === hash);
@@ -135,7 +147,7 @@ implements FinancialSourceReportService {
             }
             return { resourceId: replay.id, operationId: null };
           }
-          const existing = [...this.reports.values()].find((report) =>
+          const existing = await this.repository?.findReportByHash(context.workspace.workspaceId, input.reportHash) ?? [...this.reports.values()].find((report) =>
             report.workspaceId === context.workspace.workspaceId
             && report.reportHash === input.reportHash);
           if (existing) {
@@ -159,7 +171,8 @@ implements FinancialSourceReportService {
             requestHash: context.requestHash,
             requestedBy: context.actorId
           });
-          this.reports.set(this.key(report.workspaceId, report.id), report);
+          if (this.repository) await this.repository.createReport(report);
+          else this.reports.set(this.key(report.workspaceId, report.id), report);
           return { resourceId: report.id, operationId: null };
         }
       }
@@ -171,12 +184,12 @@ implements FinancialSourceReportService {
     id: string
   ): Promise<FinancialSourceReport | null> {
     requireGrowthCapabilities(workspace, ["ledger.pending.create"]);
-    const report = this.reports.get(this.key(workspace.workspaceId, id));
+    const report = this.repository ? await this.repository.getReport(workspace.workspaceId, id) : this.reports.get(this.key(workspace.workspaceId, id));
     return report ? this.project(report) : null;
   }
 
   private project(
-    report: PersistedFinancialSourceReport
+    report: FinancialSourceReport
   ): FinancialSourceReport {
     return Object.freeze({
       id: report.id,

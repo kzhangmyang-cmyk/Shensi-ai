@@ -10,7 +10,7 @@ const sha256 = (value: string | Buffer) => createHash("sha256").update(value).di
 type SourceRecord = Readonly<{ path: string; mode: number; size: number; sha256: string }>;
 interface Common { version: 1; sourceRootHash: string; architecture: "arm64" | "x64"; bundleId: string; }
 export type DesktopBuildManifest = Readonly<Common & ({ kind: "development"; records: readonly SourceRecord[] }
-  | { kind: "packaged"; rendererSha256: string; mainSha256: string; sidecarSha256: string; runtimeConfigSha256: string })>;
+  | { kind: "packaged"; rendererSha256: string; mainSha256: string; sidecarSha256: string; runtimeConfigSha256: string; standaloneResourcesSha256?: string })>;
 
 function object(value: unknown, keys: string[]): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)
@@ -29,9 +29,10 @@ export function decodeDesktopBuildManifest(text: string): DesktopBuildManifest {
     if (Buffer.byteLength(text) > MAX_BYTES) throw invalid();
     const parsed: unknown = JSON.parse(text);
     const kind = (parsed as { kind?: unknown } | null)?.kind;
+    const hasStandalone = !!parsed && typeof parsed === 'object' && Object.hasOwn(parsed, 'standaloneResourcesSha256');
     const value = object(parsed, kind === "development"
       ? ["version", "kind", "sourceRootHash", "records", "architecture", "bundleId"]
-      : ["version", "kind", "sourceRootHash", "rendererSha256", "mainSha256", "sidecarSha256", "runtimeConfigSha256", "architecture", "bundleId"]);
+      : ["version", "kind", "sourceRootHash", "rendererSha256", "mainSha256", "sidecarSha256", "runtimeConfigSha256", ...(hasStandalone ? ['standaloneResourcesSha256'] : []), "architecture", "bundleId"]);
     if (value.version !== 1 || !["development", "packaged"].includes(String(kind))
       || (value.architecture !== "arm64" && value.architecture !== "x64")
       || typeof value.bundleId !== "string" || !/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u.test(value.bundleId)) throw invalid();
@@ -53,7 +54,8 @@ export function decodeDesktopBuildManifest(text: string): DesktopBuildManifest {
       if (sha256(records.map((record) => `${record.path}\0${record.mode}\0${record.size}\0${record.sha256}\n`).join("")) !== sourceRootHash) throw invalid();
       manifest = { version: 1, kind: "development", sourceRootHash, records: Object.freeze(records), architecture: value.architecture, bundleId: value.bundleId };
     } else {
-      manifest = { version: 1, kind: "packaged", sourceRootHash, rendererSha256: digest(value.rendererSha256), mainSha256: digest(value.mainSha256), sidecarSha256: digest(value.sidecarSha256), runtimeConfigSha256: digest(value.runtimeConfigSha256), architecture: value.architecture, bundleId: value.bundleId };
+      manifest = { version: 1, kind: "packaged", sourceRootHash, rendererSha256: digest(value.rendererSha256), mainSha256: digest(value.mainSha256), sidecarSha256: digest(value.sidecarSha256), runtimeConfigSha256: digest(value.runtimeConfigSha256),
+        ...(hasStandalone ? { standaloneResourcesSha256: digest(value.standaloneResourcesSha256) } : {}), architecture: value.architecture, bundleId: value.bundleId };
     }
     if (text !== `${JSON.stringify(manifest)}\n`) throw invalid();
     return Object.freeze(manifest);
@@ -99,6 +101,10 @@ export async function readDesktopBuildIdentity(resourcesPath: string): Promise<s
     await directory(resourcesPath);
     const value = await readManifest(path.join(resourcesPath, "desktop-build-manifest.json"));
     if (value.manifest.kind !== "packaged") throw invalid();
+    if (value.manifest.standaloneResourcesSha256) {
+      const standalone = await fs.readFile(path.join(resourcesPath, 'standalone-resources.json'));
+      if (standalone.length > 4096 || sha256(standalone) !== value.manifest.standaloneResourcesSha256) throw invalid();
+    }
     return value.digest;
   } catch { throw invalid(); }
 }

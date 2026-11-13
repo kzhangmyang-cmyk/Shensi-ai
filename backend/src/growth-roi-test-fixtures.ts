@@ -1345,7 +1345,7 @@ export function growthPerformanceFixture(options: {
   };
   const contributions = {
     async listQuoteContributions(
-      _workspaceId: string,
+      _context: ActiveWorkspaceContext,
       _candidateIds: string[],
       _currency: string,
       _cutoff: import("./growth-temporal-barrier.js")

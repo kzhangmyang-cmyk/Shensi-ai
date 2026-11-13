@@ -6,11 +6,15 @@ function summarize(runs: Runs) {
   const baseline = runs[0];
   return runs.map(run => {
     const profits = run.samples.map(sample => sample.totalProfitMinor);
+    const cashSorted = [...run.samples.map(sample => sample.minimumCashMinor)].sort((a,b)=>a-b);
+    const tail = Math.max(1, Math.ceil(cashSorted.length * 0.05));
+    const worst5PctMeanCashMinor = Math.round(cashSorted.slice(0, tail).reduce((sum, value) => sum + value, 0) / tail);
     return {
       planId: run.planId,
       sampleCount: run.samples.length,
       profitRangeMinor: [Math.min(...profits), Math.max(...profits)],
-      worstMinimumCashMinor: Math.min(...run.samples.map(sample => sample.minimumCashMinor)),
+      worstMinimumCashMinor: cashSorted[0],
+      worst5PctMeanCashMinor,
       samplesWithFundingGap: run.samples.filter(sample => sample.fundingGapMinor > 0).length,
       samplesWithBacklog: run.samples.filter(sample => sample.months.some(month => month.backlogUnits > 0)).length,
       maximumBacklogUnits: Math.max(...run.samples.map(sample => Math.max(...sample.months.map(month => month.backlogUnits)))),
@@ -50,6 +54,7 @@ export function analyzeOperatingPlans(
     recommendations:operatingRecommendations(baseline,summaries[0],sensitivity),
     replays: runs,
     sensitivity,
+    externalFactorImpact: [] as Array<{id:string;label:string;impact:string}>,
     threshold: {
       unitsForMonthlyOperatingBreakEven: breakEvenUnits,
       withinBaselineCapacity: breakEvenUnits !== null && breakEvenUnits <= baseline.capacityUnits,

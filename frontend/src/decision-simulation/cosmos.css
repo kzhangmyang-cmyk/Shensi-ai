@@ -1,6 +1,11 @@
 /* Selected cosmic composition. Background is a raster asset; all labels and results remain real UI. */
 .decision-simulation:has(.decision-cosmos-background){position:relative;isolation:isolate;background:#07172a;border-radius:16px;overflow:hidden;--cosmos-panel:#0b211ff0;--cosmos-line:#426a65;--cosmos-text:#e9faf4;--cosmos-muted:#b6d1c8;--cosmos-accent:#92ecc5}
 .decision-cosmos-background{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:40% center;z-index:-2;pointer-events:none}
+/* Animate only artwork: role coordinates, text and business state remain fixed. */
+.decision-simulation>.decision-cosmos-background,.decision-analysis>.decision-cosmos-background{animation:decision-cosmos-drift 18s ease-in-out infinite alternate paused;transform-origin:40% 50%}
+.decision-simulation[data-view=analysis]:has(.decision-analysis[data-motion=running])>.decision-cosmos-background,.decision-analysis[data-motion=running]>.decision-cosmos-background{animation-play-state:running}
+@keyframes decision-cosmos-drift{from{transform:translate3d(-.45%,.25%,0) scale(1.025)}to{transform:translate3d(.45%,-.25%,0) scale(1.045)}}
+@media(prefers-reduced-motion:reduce){.decision-simulation>.decision-cosmos-background,.decision-analysis>.decision-cosmos-background{animation:none!important;transform:none}}
 .decision-simulation:has(.decision-cosmos-background)::before{display:none}
 .decision-simulation:has(.decision-cosmos-background)>.decision-cosmos-background{filter:brightness(.68) saturate(.8)}
 .decision-simulation:has(.decision-cosmos-background) .decision-universe{mix-blend-mode:screen;opacity:.35;z-index:-1}

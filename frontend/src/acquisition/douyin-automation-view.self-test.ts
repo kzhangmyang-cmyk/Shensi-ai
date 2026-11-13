@@ -658,6 +658,10 @@ const candidateEvidenceState: DouyinAutomationState = {
   }], selectedCandidateIds: [], error: null, suggestionError: null, closed: false
 };
 renderDouyinAutomationView(host, candidateEvidenceState);
+assert.deepEqual([...host.querySelectorAll(".douyin-candidate-number")].map((node) => node.textContent), ["1", "2"]);
+assert.match(host.querySelector(".douyin-candidate-selection")?.textContent ?? "", /候选总数 2 人 · 已选 0 人 · 可选 1 人/u);
+assert.equal(host.querySelector<HTMLButtonElement>("[data-douyin-action=select-all-candidates]")?.disabled, false);
+assert.equal(host.querySelector<HTMLButtonElement>("[data-douyin-action=clear-candidates]")?.disabled, true);
 const candidateInputs = host.querySelectorAll<HTMLInputElement>("[data-douyin-candidate]");
 assert.equal(candidateInputs[0]?.disabled, true);
 assert.equal(candidateInputs[1]?.disabled, false);

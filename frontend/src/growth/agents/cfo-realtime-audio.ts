@@ -17,7 +17,8 @@ export class CfoPcmPlayback {
     const buffer = this.context.createBuffer(1, samples.length, 24000); buffer.copyToChannel(samples, 0);
     const node = this.context.createBufferSource(); node.buffer = buffer; node.connect(this.context.destination);
     const start = Math.max(this.context.currentTime + .03, this.end);
-    if (start - this.context.currentTime > 30) { node.disconnect(); throw new Error('voice_backpressure'); }
+    // Model audio arrives much faster than realtime; long answers legitimately queue >30s.
+    if (start - this.context.currentTime > 200) { node.disconnect(); throw new Error('voice_backpressure'); }
     this.end = start + buffer.duration; node.start(start);
     this.output.segments.push({ node, start, duration: buffer.duration });
   }
@@ -41,17 +42,35 @@ export class CfoPcmPlayback {
 }
 
 export async function openCfoMicrophone(context: AudioContext, onPcm: (pcm: string) => void, signal: AbortSignal,
-  devices: Pick<MediaDevices, 'getUserMedia'> = navigator.mediaDevices) {
+  devices: Pick<MediaDevices, 'getUserMedia'> = navigator.mediaDevices,
+  onFault?: (code: string) => void) {
   let stream: MediaStream | undefined; let source: MediaStreamAudioSourceNode | undefined;
   let worklet: AudioWorkletNode | undefined; let silent: GainNode | undefined; let ended = false;
-  const release = () => { ended = true; stream?.getTracks().forEach(track => track.stop());
+  const tracks: MediaStreamTrack[] = [];
+  const onTrackEnded = () => {
+    if (ended) return;
+    onFault?.('voice_audio_stalled');
+  };
+  const release = () => {
+    ended = true;
+    for (const track of tracks) {
+      try { track.removeEventListener('ended', onTrackEnded); } catch { /* ignore */ }
+      try { track.stop(); } catch { /* ignore */ }
+    }
+    tracks.length = 0;
+    stream?.getTracks().forEach(track => { try { track.stop(); } catch { /* ignore */ } });
     source?.disconnect(); if (worklet) { worklet.port.onmessage = null; worklet.port.close(); worklet.disconnect(); }
-    silent?.disconnect(); signal.removeEventListener('abort', release); };
+    silent?.disconnect(); signal.removeEventListener('abort', release);
+  };
   signal.addEventListener('abort', release, { once: true });
   try {
     if (signal.aborted || !devices?.getUserMedia) throw new Error('voice_audio_unavailable');
     stream = await devices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
     if (ended || signal.aborted) { release(); throw new Error('voice_audio_unavailable'); }
+    for (const track of stream.getAudioTracks()) {
+      tracks.push(track);
+      track.addEventListener('ended', onTrackEnded);
+    }
     await context.audioWorklet.addModule('/worklets/cfo-pcm-capture.js');
     if (ended || signal.aborted) { release(); throw new Error('voice_audio_unavailable'); }
     source = context.createMediaStreamSource(stream); worklet = new AudioWorkletNode(context, 'shensi-cfo-pcm');

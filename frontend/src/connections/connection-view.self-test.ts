@@ -289,6 +289,8 @@ const activeModelHtml = renderConnectionCenter({
   modelHealth: {}
 });
 
-assert.match(activeModelHtml, /切换到其他模型后才能删除/);
+assert.match(activeModelHtml, /data-connection-action="deactivate-model"/);
+assert.match(activeModelHtml, /停用模型/);
+assert.match(activeModelHtml, /停用后可删除/);
 assert.doesNotMatch(activeModelHtml, /data-connection-action="delete-model"/);
 assert.doesNotMatch(activeModelHtml, /data-connection-form="rotate-model"/);

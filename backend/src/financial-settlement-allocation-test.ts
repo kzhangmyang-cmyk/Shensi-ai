@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  CashSettlementAllocationService
+  CashSettlementAllocationService,
+  publicCashSettlementAllocationSet
 } from "./financial-settlement-allocation.js";
 import {
   settlementFixture,
@@ -46,6 +47,9 @@ test("refund must freeze the exact active payment allocation item", async () => 
   const payment = await fixture.activatePayment(
     service, "pay-a", "rev-a", 100
   );
+  const publicPayment=publicCashSettlementAllocationSet(payment);
+  assert.equal(publicPayment.items[0]?.id,payment.items[0]?.id);
+  assert.equal(publicPayment.items[0]?.allocationSetId,payment.id);
   await assert.rejects(
     () => fixture.activateRefund(
       service,

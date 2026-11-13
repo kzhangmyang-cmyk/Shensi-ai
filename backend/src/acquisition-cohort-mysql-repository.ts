@@ -499,9 +499,8 @@ implements AcquisitionCohortRepository {
       [workspaceId, growthMysqlDate(cutoff.effectiveAsOf), workspaceId, cohortId]
     );
     return Promise.all((rows as MysqlRow[]).map(async (row) => {
-      const attributionSnapshot = JSON.parse(
-        String(row.attribution_snapshot)
-      ) as OutcomeAttributionInput;
+      const attributionSnapshot = (typeof row.attribution_snapshot === "string"
+        ? JSON.parse(row.attribution_snapshot) : row.attribution_snapshot) as OutcomeAttributionInput;
       const [sourceRows] = await this.pool.query(
         `SELECT * FROM acquisition_cohort_member_sources
          WHERE cohort_member_id = ? AND source_recorded_at <= ?

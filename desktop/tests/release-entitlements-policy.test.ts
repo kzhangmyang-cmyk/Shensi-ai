@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -14,11 +16,77 @@ const releaseSign = await import(releaseSignUrl) as {
   createReleaseSignOptions: (configuration: Record<string, unknown>) => {
     identity?: string;
     preAutoEntitlements?: boolean;
+    ignore?: Array<string | RegExp | ((filePath: string) => boolean)>;
     optionsForFile: (filePath: string, ...context: unknown[]) => Record<string, unknown>;
   };
 };
 const app = "/private/tmp/release/Shensi.app";
 const jit = ["com.apple.security.cs.allow-jit"];
+
+test("signer excludes non-code binary resources while retaining Mach-O code and bundles", async (context) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "shensi-sign-targets-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const fixtureApp = path.join(root, "Shensi.app");
+  const resources = path.join(fixtureApp, "Contents", "Resources");
+  await mkdir(resources, { recursive: true });
+  const pythonCache = path.join(resources, "module.pyc");
+  const nativeAddon = path.join(resources, "binding.node");
+  const helper = path.join(resources, "Helper.app");
+  const framework = path.join(resources, "Runtime.framework");
+  await Promise.all([
+    writeFile(pythonCache, Buffer.from([0xa7, 0x0d, 0x0d, 0x0a, 0, 0, 0, 0])),
+    writeFile(nativeAddon, Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0])),
+    mkdir(helper), mkdir(framework),
+  ]);
+  const options = releaseSign.createReleaseSignOptions({ app: fixtureApp, identity: "-" });
+  const ignored = (file: string) => (options.ignore ?? []).some(rule =>
+    typeof rule === "function" ? rule(file) : Boolean(file.match(rule)));
+
+  assert.equal(ignored(pythonCache), true, "Python bytecode must not be signed");
+  assert.equal(ignored(nativeAddon), false, "Mach-O native addons must be signed");
+  assert.equal(ignored(helper), false);
+  assert.equal(ignored(framework), false);
+});
+
+test("signer ignores duplicate code reached through symlinked files or parent directories", async (context) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "shensi-sign-aliases-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const fixtureApp = path.join(root, "Shensi.app");
+  const contents = path.join(fixtureApp, "Contents");
+  const actual = path.join(contents, "Resources", "actual");
+  await mkdir(actual, { recursive: true });
+  await writeFile(path.join(actual, "runtime"), Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0]));
+  await symlink("actual", path.join(contents, "Resources", "alias"));
+  await symlink("actual/runtime", path.join(contents, "Resources", "runtime-link"));
+  // A symlink above the app itself is not a duplicate nested code path.
+  await symlink("Shensi.app", path.join(root, "entry.app"));
+  const entryApp = path.join(root, "entry.app");
+  const options = releaseSign.createReleaseSignOptions({ app: entryApp, identity: "-" });
+  const ignored = (file: string) => (options.ignore ?? []).some(rule =>
+    typeof rule === "function" ? rule(file) : Boolean(file.match(rule)));
+
+  assert.equal(ignored(path.join(entryApp, "Contents/Resources/alias/runtime")), true);
+  assert.equal(ignored(path.join(entryApp, "Contents/Resources/runtime-link")), true);
+  assert.equal(ignored(path.join(entryApp, "Contents/Resources/actual/runtime")), false);
+});
+
+test("signer preserves upstream ignore rules and surfaces filesystem errors", async (context) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "shensi-sign-rules-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const fixtureApp = path.join(root, "Shensi.app");
+  const resources = path.join(fixtureApp, "Contents", "Resources");
+  await mkdir(resources, { recursive: true });
+  const file = path.join(resources, "native.node");
+  await writeFile(file, Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0]));
+  const callback = (candidate: string) => candidate === file;
+  for (const ignore of [callback, [callback], /native\.node$/u, ["native\\.node$"]]) {
+    const options = releaseSign.createReleaseSignOptions({ app: fixtureApp, identity: "-", ignore });
+    const ignored = (candidate: string) => (options.ignore ?? []).some(rule =>
+      typeof rule === "function" ? rule(candidate) : Boolean(candidate.match(rule)));
+    assert.equal(ignored(file), true);
+    assert.throws(() => ignored(path.join(resources, "missing.node")), /ENOENT/u);
+  }
+});
 
 test("release entitlement policy grants JIT only to explicit Electron code objects", () => {
   assert.equal(typeof policy.entitlementKeysForCodeObject, "function");
@@ -46,11 +114,38 @@ test("release entitlement policy scopes JIT to Playwright Node and Chromium main
 
   for (const relative of [
     "Contents/Resources/sidecar/_internal/playwright/driver/node",
+    "Contents/Resources/backend-runtime/node",
     "Contents/Resources/playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app",
     "Contents/Resources/playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
     "Contents/Resources/playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/149.0.7827.55/Helpers/Google Chrome for Testing Helper (Renderer).app",
     "Contents/Resources/playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/149.0.7827.55/Helpers/Google Chrome for Testing Helper (GPU).app/Contents/MacOS/Google Chrome for Testing Helper (GPU)",
   ]) assert.deepEqual(policy.entitlementKeysForCodeObject(`${app}/${relative}`, app), jit, relative);
+});
+
+test("signer finalizes resource fingerprints between nested signing and the final outer seal", async () => {
+  const signer = await import(releaseSignUrl);
+  assert.equal(typeof signer.signPackagedApplication, 'function');
+  const events: string[] = [];
+  await signer.signPackagedApplication({ app, identity: '-', identityValidation: false }, {
+    signApplication: async (options: { app: string; ignore?: ((file: string) => boolean)[] }) => {
+      if (events.length === 0) events.push('nested-and-app');
+      else {
+        assert.ok(options.ignore);
+        assert.equal(options.ignore.some(ignore => ignore(app)), false);
+        assert.equal(options.ignore.some(ignore => ignore(`${app}/Contents/MacOS/Shensi`)), true);
+        events.push('outer-only');
+      }
+    },
+    finalizeResources: async (target: string) => { assert.equal(target, app); events.push('fingerprints'); },
+  });
+  assert.deepEqual(events, ['nested-and-app', 'fingerprints', 'outer-only']);
+});
+
+test('ad-hoc test signing does not enable Developer ID library validation or contact a timestamp server', () => {
+  const options = releaseSign.createReleaseSignOptions({ app, identity: '-' });
+  const file = options.optionsForFile(app);
+  assert.equal(file.hardenedRuntime, false);
+  assert.equal(file.timestamp, 'none');
 });
 
 test("release entitlement policy leaves Sidecar, frameworks, libraries, and ffmpeg empty", () => {

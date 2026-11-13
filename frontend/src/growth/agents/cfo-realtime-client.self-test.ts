@@ -33,6 +33,7 @@ export async function runCfoRealtimeClientTests() {
     onTurn: turn => streamedTurns.push(turn), onPreview: preview => previews.push(preview), onError() {}, onBusiness() {} });
   await streaming.start('workspace', []);
   receive({ sessionId: 'test-session', type: 'thinking' }); assert.equal(states.at(-1), 'thinking');
+  receive({ sessionId: 'test-session', type: 'reconnecting' }); assert.equal(states.at(-1), 'connecting');
   receive({ sessionId: 'test-session', type: 'transcript', responseId: 'one', text: '利润' });
   receive({ sessionId: 'test-session', type: 'transcript', responseId: 'one', text: '利润不等于现金。' });
   assert.equal(previews.at(-1).text, '利润不等于现金。'); assert.deepEqual(streamedTurns, []);

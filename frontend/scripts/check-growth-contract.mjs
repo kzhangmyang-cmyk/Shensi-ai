@@ -22,7 +22,7 @@ function canonicalReleaseDirectory() {
     "contracts",
     "releases",
     CONTRACT_NAME,
-    "1.0.34"
+    "1.0.41"
   );
 }
 

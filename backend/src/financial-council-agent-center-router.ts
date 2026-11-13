@@ -52,7 +52,8 @@ export function createFinancialCouncilAgentCenterRouter(dependencies: {
     res.status(201).json(await dependencies.center.createSession(dependencies.workspaceContext(req), req.body));
   }));
   router.get('/cfo-sessions/:sessionId', route(async (req, res) => {
-    noInput(req); res.json(await dependencies.center.getSession(dependencies.workspaceContext(req), req.params.sessionId));
+    noInput(req); res.json(await dependencies.center.getSession(dependencies.workspaceContext(req), req.params.sessionId,
+      req.header('X-Shensi-Reference-Protocol')));
   }));
   router.post('/cfo-sessions/:sessionId/turns', rateLimit({ windowMs: 60_000, limit: 12,
     standardHeaders: true, legacyHeaders: false,
@@ -79,7 +80,8 @@ export function createFinancialCouncilAgentCenterRouter(dependencies: {
       if (!res.headersSent) throw error;
       const status = error instanceof GrowthHttpError ? error.status : error instanceof ModelGatewayError ? 502 : 500;
       const code = error instanceof GrowthHttpError || error instanceof ModelGatewayError ? error.code : 'cfo_session_failed';
-      write({ type: 'error', status, code }); res.end();
+      if (!(error instanceof GrowthHttpError || error instanceof ModelGatewayError)) console.error('[cfo-session] unexpected turn failure', error);
+      write({ type: 'error', status, code, retryable: error instanceof ModelGatewayError ? error.retryable : false }); res.end();
     } finally { res.off('close', onClose); }
   }));
   router.post('/cfo-conversation', rateLimit({ windowMs: 60_000, limit: 12,
@@ -101,14 +103,15 @@ export function createFinancialCouncilAgentCenterRouter(dependencies: {
       dependencies.workspaceContext(req), req.params.runId));
   }));
   router.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
-    let status = 500; let code = "financial_council_internal_error";
+    let status = 500; let code = "financial_council_internal_error"; let retryable = false;
     if (error instanceof GrowthHttpError) { status = error.status; code = error.code; }
-    else if (error instanceof ModelGatewayError) { status = 502; code = error.code; }
+    else if (error instanceof ModelGatewayError) { status = 502; code = error.code; retryable = error.retryable; }
     else if (error instanceof GrowthAuthorizationError) { status = 403; code = error.code; }
     else if (isFinancialCouncilError(error)) { code = error.code;
       status = code.endsWith("not_found") ? 404 : 422; }
+    if (status === 500) console.error('[financial-council-agent-center] unexpected failure', error);
     res.status(status).json({ code, message: code, details: null,
-      requestId: res.getHeader("X-Request-Id"), retryable: false });
+      requestId: res.getHeader("X-Request-Id"), retryable });
   });
   return router;
 }

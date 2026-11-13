@@ -43,17 +43,3 @@ backups/
 /migration-exports/raw/
 **/provider-keys/
 deploy/secrets/
-# Clean source snapshot: retain rebuild schemas, never local generated evidence.
-!backend/schema.mysql.sql
-!backend/goodjob_crm.full.sql
-dist-desktop/
-**/dist-desktop/
-outputs/
-.pytest_cache/
-__pycache__/
-.venv/
-*.log
-*.jsonl
-*.sqlite
-*.sqlite3
-管理员登录账号说明.txt

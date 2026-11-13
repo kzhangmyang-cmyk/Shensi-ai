@@ -37,7 +37,7 @@ export function mountDecisionAnalysis(host:HTMLElement,retry:()=>void,retainOnDe
   q<HTMLButtonElement>('[data-analysis-open-results]').onclick=()=>{const role=snapshot?.agents.find(agent=>agent.observations.length)?.role;if(role){showRole(role);evidence.scrollIntoView?.({block:'nearest',behavior:'smooth'});}};
   const media=win?.matchMedia?.('(prefers-reduced-motion: reduce)');
   let reduced=false,active=false,disposed=false,state:Preparation['state']='awaiting_confirmation';
-  const syncMotion=()=>{root.dataset.motion=active&&!doc.hidden&&!reduced&&!media?.matches&&(state==='analyzing'||mode==='history'||mode==='empty')?'running':'paused';dust.setRunning(root.dataset.motion==='running');q('[data-reduce-motion]').setAttribute('aria-pressed',String(reduced||Boolean(media?.matches)));q('[data-reduce-motion]').textContent=media?.matches?'已遵循系统减少动态':reduced?'恢复动态效果':'减少动态效果';};
+  const syncMotion=()=>{root.dataset.motion=!disposed&&active&&!doc.hidden&&!reduced&&!media?.matches&&(state==='analyzing'||mode==='history'||mode==='empty')?'running':'paused';dust.setRunning(root.dataset.motion==='running');q('[data-reduce-motion]').setAttribute('aria-pressed',String(reduced||Boolean(media?.matches)));q('[data-reduce-motion]').textContent=media?.matches?'已遵循系统减少动态':reduced?'恢复动态效果':'减少动态效果';};
   q<HTMLButtonElement>('[data-reduce-motion]').onclick=()=>{reduced=!reduced;syncMotion();};
   q<HTMLButtonElement>('[data-analysis-retry]').onclick=()=>{if(state==='failed')retry();};
   doc.addEventListener('visibilitychange',syncMotion);media?.addEventListener('change',syncMotion);

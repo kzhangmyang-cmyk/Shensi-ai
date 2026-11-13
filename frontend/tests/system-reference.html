@@ -1,0 +1,12 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>默认参考库 · 合成聊天验收</title>
+<script src="/theme-init.js"></script>
+<link rel="stylesheet" href="/src/app-shell.css"><link rel="stylesheet" href="/src/replica-dashboard.css"><link rel="stylesheet" href="/src/demo/demo.css"><link rel="stylesheet" href="/src/growth/styles.css"><link rel="stylesheet" href="/src/growth/agents/chat-attachments.css"><link rel="stylesheet" href="/src/knowledge/knowledge.css"><link rel="stylesheet" href="/src/theme.css"><link rel="stylesheet" href="/src/system-reference/reference.css">
+</head><body class="is-authenticated" data-session-mode="real" data-session-workspace-id="synthetic" data-session-user-id="synthetic-user"><div class="replica-shell is-agents-route"><aside class="replica-sidebar"><button data-theme-toggle>切换主题</button></aside><main id="demoModuleMain" class="replica-demo-main"><div id="fixture-chat"></div></main></div>
+<script type="module">
+import {mountRetainedCfoConversation,clearRetainedCfoConversation} from '/src/growth/agents/cfo-session-view.ts';
+import {createGrowthHttpClient} from '/src/growth/http.ts';
+import {installProductTheme} from '/src/theme.ts';
+const disposeTheme=installProductTheme(document),host=document.getElementById('fixture-chat');
+const view=mountRetainedCfoConversation({host,http:createGrowthHttpClient({workspaceId:()=> 'synthetic'}),scope:()=> 'synthetic:synthetic-user',initialRole:'finance'});
+window.addEventListener('pagehide',()=>{view.dispose();clearRetainedCfoConversation(document);disposeTheme();},{once:true});
+</script></body></html>

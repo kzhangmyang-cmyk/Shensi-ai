@@ -5420,16 +5420,26 @@ body.is-authenticated:has(.replica-shell[data-acquisition-mode="real"]) {
     width: 100%;
   }
 }
-.cfo-session-layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; min-width: 0; }
+.cfo-session-layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; min-width: 0; min-height: 0; }
 .cfo-session-layout:has(.cfo-history[hidden]) { grid-template-columns: minmax(0, 1fr); }
-.cfo-history { min-width: 0; padding: 12px; border: 1px solid var(--appearance-border, #253a30); border-radius: 12px; background: var(--appearance-bg-surface, #0e1511); }
-.cfo-history header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.cfo-history [data-cfo-history-status] { font-size: 11px; color: var(--appearance-text-secondary, #96ab9c); }
-.cfo-history [data-cfo-history-list] { display: grid; gap: 6px; max-height: 380px; overflow-y: auto; }
+.cfo-history { min-width: 0; min-height: 0; padding: 12px; border: 1px solid var(--appearance-border, #253a30); border-radius: 12px; background: var(--appearance-bg-surface, #0e1511); display: flex; flex-direction: column; }
+.cfo-history header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: 0 0 auto; }
+.cfo-history [data-cfo-history-status] { font-size: 11px; color: var(--appearance-text-secondary, #96ab9c); flex: 0 0 auto; }
+.cfo-history [data-cfo-history-list] { display: grid; gap: 6px; max-height: 380px; overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
 .cfo-history button { min-width: 0; padding: 8px; text-align: left; color: var(--appearance-text-primary, #dfeae2); background: transparent; border: 1px solid var(--appearance-border, #263c30); border-radius: 7px; }
 .cfo-history [data-cfo-session] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cfo-history button[aria-pressed=true] { color: var(--appearance-accent-text, #8df0b5); background: var(--appearance-bg-raised, #163323); border-color: var(--appearance-accent-border, #43825a); }
-@media (max-width: 760px) { .cfo-session-layout { grid-template-columns: minmax(0, 1fr); } .cfo-history [data-cfo-history-list] { max-height: 100px; } }
+.cfo-composer-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 8px; }
+.cfo-composer-toolbar .cfo-search-control { margin: 0; }
+.cfo-composer-toolbar .cfo-search-control small.cfo-visually-hidden,
+.cfo-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.cfo-document-source { margin: 0 0 6px; font-size: 12px; color: var(--appearance-text-secondary, #8aa094); }
+@media (max-width: 900px) {
+  .cfo-session-layout { grid-template-columns: minmax(0, 1fr); }
+  .cfo-history { max-height: 140px; }
+  .cfo-history [data-cfo-history-list] { max-height: 96px; }
+}
+@media (max-width: 760px) { .cfo-history [data-cfo-history-list] { max-height: 88px; } }
 .replica-shell.is-growth-route .growth-panel.enterprise-analysis { min-height: auto; margin-bottom: 20px; padding: 20px; background: var(--appearance-bg-surface, #111714); border: 1px solid var(--appearance-border, #29392f); border-radius: 12px; }
 .enterprise-analysis h2 { margin: 0 0 10px; font-size: 20px; }
 .enterprise-analysis p { color: var(--appearance-text-secondary, #a5b4ab); font-size: 13px; }

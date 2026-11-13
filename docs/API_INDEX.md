@@ -1,5 +1,264 @@
 # API Index
 
+## Local reference knowledge contract
+
+The independent `system-reference.v1` contract covers default-book references,
+connection status and optional central publication/binding. Embedded mode returns
+`embedded_ready` from normal authenticated GET `/api/v1/reference-connection`;
+it needs no binding and rejects begin/complete/unbind with
+409 `reference_embedded_readonly`. The strict schema, generated types and
+frontend decoder include this state. Successful retrieval keeps
+`LibraryStatus.system:ready`; Growth question/history contracts do not change.
+
+All six normal text agents automatically use the local embedded pack through
+`knowledgeMode:auto` and `referenceProtocol:system-v1`. Public search is
+separate. No HTTP full-book/query/pagination endpoint is introduced.
+`/api/v1/knowledge` remains private. The existing citation endpoint below
+also serves embedded per-question grants, checking the current local
+actor/workspace/authVersion and the exact pack version.
+
+Optional central mode returns `session_ready`; client bindings return `ready`.
+Its fixed-topic reader, normal-login approval and owner/MFA publication APIs
+remain implemented but undeployed. See the
+[central design](design/system-default-reference-library.md); central deployment
+is not required for bundled delivery.
+
+D8 adds GET `/api/v1/reference-connection/grants/{id}/references/{referenceId}`
+for Renderer citation reads through the ordinary local Cookie/Bearer session and
+resolved workspace. Only Backend uses the encrypted reader credential via D3.
+Exact UUID paths, no query/body/Range, no-store, 60/IP/minute and a ten-second,
+256 KiB closed SystemReference response apply. Errors are fixed safe codes; there
+is no retry, whole-book endpoint or pagination. The independent system-reference
+OpenAPI/generated types include this path; immutable Growth releases are unchanged.
+Focused bridge tests, isolated runtime assembly and normal source restart pass;
+real central publication is not enabled.
+
+D8 frontend callers use the existing central approval and publication contracts,
+without new wire fields. The independent reference-approval.html entry reads the
+normal /api/auth/me session, rechecks identity before POSTing only displayCode and
+accepts only the 204 acknowledgement. Platform reference controls read an exact
+release ID, use its release revision in If-Match, and send only reason with an
+independent Idempotency-Key. Unknown results use GET commands/status with that
+same key, never a repeated POST. Page input does not supply reader credentials,
+owner authority or an invented expiry; authentication/MFA and transactions remain
+server-enforced. Fourteen isolated dual-theme browser checks pass; deployed runtime
+assembly is pending. The UI reports errors through a stable status region and
+marks an invalid candidate identifier without issuing a request.
+
+D4 installs a default-unconfigured early admin ingress under
+`/api/platform/v1/system-reference`, before generic parsers. Trusted D9 runtime
+assembly must supply its durable service; source edits do not enable it in the
+running instance. Normal Cookie/CSRF, real MFA and fresh central owner are checked
+before write bodies. POST `/releases` accepts at most 256 KiB; exact source-page
+PUT accepts 2 MiB/100 chunks; publish/revoke bodies accept 4 KiB. Neighbor paths,
+unknown query/body fields, compression and body overages are rejected. An independent
+600/IP/minute budget covers this early family; the later generic limiter is not its guard.
+
+Owner-only GET `/releases?corpusId&limit&cursor` lists at most 50 drafts (default20),
+in ascending release-ID order, with the current active pointer. GET `/releases/{id}`
+returns the immutable manifest, quality metadata and per-source chunk counts, never
+chunk text, original files or private paths. GET `/commands/status?corpusId&operation`
+uses the original `Idempotency-Key` header and current owner; it returns the request
+hash/current draft only when the command is observed committed. `not_observed` is
+not permission to retry an uncertain write. All reads require real MFA and no-store;
+there is no ordinary-reader route to these metadata APIs. Keys use the formal
+`[A-Za-z0-9_.:-]` alphabet, 1–191 characters. If-Match is a quoted positive revision.
+The independent formal management DTOs/types are generated. The platform OpenAPI
+entry references all three owner metadata paths, so changes also require
+`pnpm --dir contracts generate:platform-types` followed by `check:types`.
+Growth1.0.40 passes its immutable-release check without a new Growth release.
+The complete 18-step D4 gate passes; these routes remain default-unconfigured
+until trusted runtime assembly.
+
+D5 reader ingress is registered before generic parsing and remains default-unconfigured.
+Only trusted composition may enable POST `/api/v1/system-reference/query`, POST
+`/api/v1/system-reference/grants/:id/check` and GET
+`/api/v1/system-reference/grants/:id/references/:referenceId` with a normal opaque
+reader binding. Local Cookie/JWT is not a substitute. Query parameters, path aliases,
+Range headers, GET bodies and empty/nonempty-extra check bodies are rejected; check
+requires an actual `{}` JSON body. There is no whole-book, pagination or download API.
+The internal accounting checkpoint passes 19 gates, including twelve focused tests
+and isolated SQL9/9. The new server-only opaque reader proof is rechecked on the
+grant transaction's connection; binding60, actual SQL12/12 and its aggregate gate
+pass. It is not a wire credential. The internal query/check/citation service passes
+17 focused tests and its 20-gate aggregate, including actual SQL14/14 and root
+1055/1046/nine conditional skips. It emits the existing QueryResult/SystemReference and same-transaction
+GrantCheck metadata. No active publication yields unavailable; invalid/old grants
+are not-found, and storage/hash/capacity failures never become no_match.
+HTTP ingress projects fixed formal Error codes, including internal binding/grant
+errors, and enforces4KiB/256KiB/10s. It uses no-store for successful/error responses;
+origin denial for this reader family retains the same Error envelope. Parser failures
+are invalid input, while storage JSON failures remain unavailable. Seventeen focused
+HTTP tests and the full21-gate aggregate pass (isolated SQL14/14, root1072/1063/zero
+failures/nine conditional skips). Separate owned-database stop/start acceptance
+preserves exact references, revocation and disclosure quotas across fresh processes.
+D6's prepared-reference service and union answer codec pass47 focused checks and
+the23-gate aggregate (root1119/1110/zero failures/nine skips; actual SQL14/14),
+and D7 wires them into the four question/history paths with 73 focused synthetic
+checks and the full26-gate aggregate passing (root1195/1186/zero failures/nine
+conditional skips; actual isolated SQL14/14). The prior acquisition-router
+loopback fetch failure did not recur; its cause remains unknown, with no protocol
+or product workaround made for it. The service preserves
+independent libraryStatus values when one library is unavailable. Central query
+requests contain only vocabularyVersion/topicIds/role/requestId. For a query HTTP400,
+the bounded transport recognizes only a strict formal vocabulary-mismatch envelope
+and discards its message; malformed/unknown error bodies remain unavailable. No
+additional answer wire fields are introduced by these internal changes.
+
+`GET /api/v1/finance/cfo-sessions/{sessionId}` accepts optional header
+`X-Shensi-Reference-Protocol: system-v1` in Growth1.0.41, not query/body input.
+Missing negotiation on system-bearing history returns409
+`reference_client_upgrade_required`, no snapshots and retryable:false. An unknown
+header value returns422; cross-actor access remains404. Legacy session append to
+system-bearing history also fails before model invocation; new append negotiates
+through its existing body referenceProtocol. Old private history remains readable
+without the header. New histories preserve exact sources and server-derived
+libraryStatus without sending snapshots to later model history or public planning.
+
+Growth 1.0.40 adds optional `referenceProtocol:system-v1` and fixed
+`referenceTopicIds` (at most three unique IDs) to CFO Input/Session Ask and the
+reused operating-memory inputs. Topics without protocol are invalid; omitted
+protocol remains private-only and knowledge off/omitted closes both libraries.
+Answers/assistant history may carry server-derived top-level `libraryStatus`.
+`knowledge.sources` discriminates system references from legacy private citations;
+missing discriminator means private only. System access uses exact grant/reference
+IDs, never a private document link. Old 1.0.39 bytes remain unchanged. Existing
+UI consumers are wired and isolated browser checks pass. Source startup now
+explicitly configures the same early binding/admin/reader/connection ingress from
+the D9 durable module; their authentication chains and body limits stay separate.
+Central normal-session reuse is internal only, not a DTO-to-proof HTTP endpoint.
+D9 isolated cross-installation, full product regression plus focused remaining
+gates and normal source restart pass. The library is not enabled or deployed. Only the independent
+connection state enum distinguishes central sessions; Growth releases are unchanged.
+
+`contracts/openapi/knowledge.v1.yaml` defines `/api/v1/knowledge` metadata,
+version, binary original, preview, retry/cancel and availability operations.
+Authenticated HTTP mounting and private persistent storage are implemented;
+the local reader and internal retrieval/index publication pass targeted and
+aggregate verification. The scoped product knowledge page uses these generated
+DTOs, cursor pagination and a distinct raw-binary upload helper; its full
+frontend and desktop proxy gates pass. Chat integration, existing financial
+validators and dual-theme browser regression pass; 21 owner-scoped books have
+been imported and verified. CFO/profit and one post-alignment finance question
+have passed real reference-answer checks. Cost/cashflow/tax, a real answer using
+the new public-search toggle and native second-account UI acceptance remain
+unverified; import does not establish full delivery.
+No new anonymous search endpoint exists. Public DTOs exclude
+private ownership and storage fields; every operation uses authenticated
+workspace＋actor scope. See [knowledge module](modules/knowledge-base.md).
+Private pre-extracted artifacts are server-owned configuration, not public
+upload fields or an additional endpoint. They are bound to one authenticated
+workspace＋actor and source hash; normal binary uploads still drive the persisted
+worker. Invalid trusted reader selection reports
+`knowledge_reader_configuration_invalid` without disabling other business APIs.
+Growth 1.0.38 adds optional `knowledgeMode` text input and a bounded `knowledge`
+answer/history projection; omitted input and the existing short/voice protocol
+remain valid. Current text UI usesauto; short/voice callers omit the option.
+Knowledge sources use internalK IDs and exact version/hash/chunk locators,
+separate from public research's S IDs/HTTP URLs. Reference changes during a
+question return409 knowledge_reference_stale, without automatic model replay
+or history insertion. No-match/unavailable are explicit general-answer states.
+The existing model-call audit `error.validationReasons` string array retains
+its broad categories and appends at most 32 fixed structural location/kind codes.
+It exposes no new request/response fields, arbitrary issue metadata, model output
+or reference text, and does not authorize retries or change validation outcomes.
+The internal conversation output prompt enumerates the existing strict fields and
+separates root public citationIds from knowledge.citationIds. This is not a wire
+contract change: no new endpoint, DTO field or immutable release is introduced.
+
+Growth 1.0.39 adds optional `webSearchMode:on|off` to conversation Input and
+session Ask, including the reused operating-memory Input. Off skips public
+planning/retrieval; on requires a safe public query and successful retrieval,
+otherwise returns the existing explicit research error. Omitted input retains
+legacy automatic planning. This field has no schema default and is independent
+from `knowledgeMode`; current six-role text UI sends off until explicitly enabled.
+Only the question and a same-scope public topic enter the planner; attachments,
+knowledge excerpts, private history and preferences never enter search. Private
+or ambiguous on requests return409 `agent_research_public_topic_required`; no
+adapter returns503 `agent_research_plan_unavailable`. No automatic replay or
+new endpoint/provider is introduced. Voice behavior is unchanged.
+
+## ROI cohort runtime
+
+`POST /api/v1/acquisition/cohorts` uses the existing cohort contract and service.
+It requires `X-Workspace-Id`, `Idempotency-Key` and `roi.close`; repeated identical
+commands return the same cohort. `GET /api/v1/acquisition/cohorts/:id` requires
+workspace performance-read capability. MySQL mode persists cohorts across runtime
+recreation. MySQL mode mounts attestation creation and closure writes; reopen
+is not connected yet. Full positive closure and installed-app acceptance are
+still pending, so these routes do not establish end-to-end numerical ROI availability.
+
+Growth performance reads published immutable closure snapshots in MySQL mode.
+Workspace, currency, publication time and sealed sequence constrain selection;
+an explicit missing version never falls back to another version. Callers without
+`pricing.sensitive.read` receive redacted amount fields. Expected ROI uses the
+existing authoritative approved-quote reader with the original workspace context
+and sealed cutoff, including alias candidates belonging to cohort members.
+Estimated costs use active, valid budgets directly bound to the queried cohort
+and currency, resolved using the same sealed cutoff. A plan-specific query only
+includes budgets explicitly bound to that plan; shared budgets are not implicitly
+allocated. Matching direct budgets supply the estimated-cost denominator and
+estimate IDs, not evidence of actual financial closure. Missing estimated costs
+remain `cost_missing`, not a computed zero-cost
+result.
+
+`POST /api/v1/acquisition/cohorts/:id/attestations` requires `roi.close`,
+a matching workspace header and an idempotency key. Signing records a declaration;
+closure independently resolves its persisted evidence. `POST .../:id/close` also
+requires `If-Match: "roi-series:<cohortId>:<currency>:<revision>"` (initial revision
+1). Its successful response includes the next series ETag. Both routes reject
+future cutoffs before domain writes. The runtime reader requires six aspects,
+matched source reports, verified ledger references, active allocations and
+matched cash settlements; unsupported partial financial allocations fail rather
+than being counted in full.
+
+## Attribution allocation
+
+MySQL mode mounts `POST /api/v1/acquisition/attribution-allocation-sets`,
+`GET /api/v1/acquisition/attribution-allocation-sets/:id`, and
+`POST /api/v1/acquisition/attribution-allocation-sets/:id/activate`.
+All require the matching workspace header and `ledger.pending.create`;
+activation additionally requires `ledger.verify`. Writes require an idempotency
+key, and activation requires `If-Match: "attribution-set:<id>:<revision>"`.
+Source amounts are resolved server-side. Activation atomically persists
+computed item amounts, lifecycle events and command identity; stale revisions
+return 412 without publishing another activation.
+
+## Cash settlement allocation
+
+MySQL mode mounts `POST /api/v1/finance/settlement-allocation-sets`,
+`GET /api/v1/finance/settlement-allocation-sets/:id`, and
+`POST /api/v1/finance/settlement-allocation-sets/:id/activate`.
+Create/read require `ledger.pending.create`; activation requires `ledger.verify`.
+All require a matching workspace header. Writes require an idempotency key;
+activation requires `If-Match: "settlement-set:<id>:<revision>"`.
+The server resolves commercial binding from verified ledger facts. Output
+includes repository-issued item IDs for refund references. Refund activation
+checks cumulative capacity against the exact original payment item inside
+the transaction; over-allocation returns 422 and leaves the draft unpublished.
+
+## Financial fact list
+
+`POST /api/v1/finance/source-reports` and
+`GET /api/v1/finance/source-reports/:id` use the existing source-report contract.
+They require a matching workspace header and `ledger.pending.create`; creation
+also requires an idempotency key. MySQL mode stores reports in the existing
+`financial_source_reports` table and replays creation after runtime recreation.
+The source-report list route is not connected yet. Report storage alone does
+not validate attribution or authorize ROI closure.
+
+Quote version detail and list reads combine the frozen amount snapshot with
+the latest version-transition event for current status and lifecycle revision.
+Approval does not rewrite frozen amounts; historical as-of readers keep their
+own cutoff-based projections.
+
+`GET /api/v1/finance/facts` reads persisted facts in the resolved workspace,
+requires `ledger.pending.create`, and projects verification events into the
+current status and revision. Results sort by ID ascending; `cursor` is the last
+returned ID, `limit` defaults to 50 (maximum 100), and `nextAfter` is non-null
+only when `hasMore` is true. Imports become visible through this same ledger
+query; importing does not automatically verify pending facts.
+
 ## Independent Xiaohongshu messaging (not mounted in the application yet)
 
 `contracts/openapi/xiaohongshu-messaging.v1.yaml` defines
@@ -88,7 +347,7 @@ candidates and rejects adoption. See `DecisionMemory` and related generated type
 | Acquisition v1 | `contracts/openapi/ai-acquisition.v1.yaml` and `contracts/json-schema/` | `backend/src/acquisition-openapi.ts`, acquisition routers, drift and response-conformance tests | `frontend/src/generated/ai-acquisition.ts` |
 | Growth, quote, ROI, finance, council | `contracts/openapi/growth-advisor-quote-roi.v1.yaml` and `contracts/json-schema/` | `backend/src/growth-openapi.ts`, Growth module routers, drift and response-conformance tests | `frontend/src/generated/growth-advisor-quote-roi.ts` |
 | CFO saved sessions | `/api/v1/finance/cfo-sessions`, `/{sessionId}`, `/{sessionId}/turns`; `cfo-session.v1.schema.json` | `financial-council-agent-center-router.ts`, scoped encrypted `cfo_conversation_sessions`; revision CAS on completed turns | History list/new chat; optional NDJSON real stages with terminal result/error |
-| Immutable Growth release | `contracts/releases/growth-advisor-quote-roi/1.0.29/` | `manifest.json` declares `contractVersion: 1.0.29`; release gates verify hashes | `frontend/contracts/pinned/growth-advisor-quote-roi.openapi.json` and `.manifest.json` |
+| Immutable Growth release | `contracts/releases/growth-advisor-quote-roi/1.0.41/` | `manifest.json` declares `contractVersion: 1.0.41`; release gates verify hashes | `frontend/contracts/pinned/growth-advisor-quote-roi.openapi.json` and `.manifest.json` |
 
 Generated types are authoritative at the frontend/backend transport boundary.
 Do not add parallel handwritten DTOs.
@@ -129,7 +388,7 @@ The internal CFO skill additionally receives package/parser/source versions and
 prepares deterministic display facts and validates model fact references before returning plain text. Raw Minor values/reports are not included in the expression model context; client facts remain forbidden.
 Rate limit: 12 requests per minute per workspace/actor. No automatic frontend retry; the model gateway allows one bounded structured-output repair. No
 idempotency/ETag requirement, mutation command or audio transport. See
-`docs/modules/cfo-conversation.md` and the generated Growth 1.0.34 DTOs.
+`docs/modules/cfo-conversation.md` and the generated Growth 1.0.35 DTOs.
 
 Six-role text routes perform optional public research after document and role
 validation. Answers and saved assistant turns may include the closed `research`
@@ -143,7 +402,7 @@ return `agent_research_public_topic_required`; planner failures return
 `agent_research_plan_unavailable`/`agent_research_plan_invalid`, search failures
 `agent_web_search_unavailable`. These are not completed research responses.
 
-`GET /api/v1/finance/public-research` returns current owned active real search connections (id/provider/name only). The retained explicit `POST` accepts closed `{query, connectionId, role}`: 2–500 characters of public keywords and one of the six council roles. Requires `finance.council.run`, cookie CSRF and no query parameters; limited to 6 requests/minute/workspace/actor, with no automatic client retry. It returns answer/model/provider/searchProvider, validated citationIds, query/retrievedAt and up to five unique sources with id/title/url/snippet/fetchedAt. `evidenceKind` is `search_index_snippets`; no verified-page claim or business mutation. Both responses are no-store. Missing sources/connection return 409, malformed input 422, invalid model citations 502, unavailable search/model 503. Generated Growth 1.0.34 DTOs own this transport; private file/history fields are rejected.
+`GET /api/v1/finance/public-research` returns current owned active real search connections (id/provider/name only). The retained explicit `POST` accepts closed `{query, connectionId, role}`: 2–500 characters of public keywords and one of the six council roles. Requires `finance.council.run`, cookie CSRF and no query parameters; limited to 6 requests/minute/workspace/actor, with no automatic client retry. It returns answer/model/provider/searchProvider, validated citationIds, query/retrievedAt and up to five unique sources with id/title/url/snippet/fetchedAt. `evidenceKind` is `search_index_snippets`; no verified-page claim or business mutation. Both responses are no-store. Missing sources/connection return 409, malformed input 422, invalid model citations 502, unavailable search/model 503. Generated Growth 1.0.35 DTOs own this transport; private file/history fields are rejected.
 
 `POST /api/v1/finance/documents/inspect` accepts the bounded original CSV/XLSX/PDF/DOCX JSON
 envelope and `readWithModel`. False only inspects; true uses the configured model

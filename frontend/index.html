@@ -15,10 +15,12 @@
   <link rel="stylesheet" href="/src/replica-dashboard.css" />
   <link rel="stylesheet" href="/src/conversations/xiaohongshu.css" />
   <link rel="stylesheet" href="/src/growth/agents/chat-attachments.css" />
+  <link rel="stylesheet" href="/src/knowledge/knowledge.css" />
   <link rel="stylesheet" href="/src/demo/demo.css" />
   <link rel="stylesheet" href="/src/growth/styles.css" />
   <link rel="stylesheet" href="/src/desktop/startup-splash.css" />
   <link rel="stylesheet" href="/src/theme.css" />
+  <link rel="stylesheet" href="/src/system-reference/reference.css" />
 </head>
 <body>
   <section class="login-screen shensi-login" aria-label="Shensi 登录">
@@ -106,6 +108,9 @@
         </button>
         <button type="button" data-replica-view="agents" title="智能体中心">
           <i class="ph ph-robot" aria-hidden="true"></i><span>智能体中心</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i>
+        </button>
+        <button type="button" data-replica-view="knowledge" title="知识库">
+          <i class="ph ph-books" aria-hidden="true"></i><span>知识库</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i>
         </button>
         <button type="button" data-replica-view="decision-simulation" title="星盘决策模拟">
           <i class="ph ph-compass" aria-hidden="true"></i><span>星盘决策模拟</span><i class="ph ph-caret-right replica-nav-caret" aria-hidden="true"></i>
@@ -567,7 +572,9 @@
           <h2>搜索与 AI 连接中心</h2>
           <p>统一配置客户自己的官方 API Key。密钥只提交给当前系统，不会在页面回显。</p>
         </div>
-        <button type="button" id="replicaConnectionCenterClose" aria-label="关闭"><i class="ph ph-x" aria-hidden="true"></i></button>
+        <button type="button" id="replicaConnectionCenterClose" class="replica-connection-center-close" data-connection-action="close" aria-label="关闭连接中心">
+          <i class="ph ph-x" aria-hidden="true"></i><span>关闭</span>
+        </button>
       </div>
       <div class="replica-connection-center-body" id="replicaConnectionCenterBody" aria-live="polite">
         <section class="replica-connection-center-placeholder" role="status">
@@ -577,7 +584,10 @@
       </div>
       <div class="replica-modal-footer replica-connection-center-footer">
         <p><i class="ph ph-shield-check" aria-hidden="true"></i>连接需通过测试后才能用于真实获客任务。</p>
-        <button type="button" id="replicaConnectionCenterDone">完成</button>
+        <div class="replica-connection-center-footer-actions">
+          <button type="button" id="replicaConnectionCenterCancel" data-connection-action="close">取消</button>
+          <button type="button" id="replicaConnectionCenterDone" data-connection-action="close">完成并关闭</button>
+        </div>
       </div>
     </div>
   </dialog>

@@ -18,6 +18,21 @@ platform sessionVersion. Cookie writes retain CSRF validation. Persisted OTP
 counters prevent reuse; failed persistence does not consume a proof. Exiting
 revokes all platform sessions for that operator. Bootstrap is offline only;
 legacy `super_admin` identities cannot be used as platform operators.
+The isolated localhost:5681 preview temporarily permits only its privately
+named `adminkamiran` user to create that session after password login without
+TOTP; the Backend checks the exact isolated MySQL database, loopback bind,
+ports and origins. Production and all other preview operators still require
+the authenticator. The preview exception does not modify the persisted MFA seed.
+
+The optional `/api/platform/v1/system-reference` administration branch requires
+an active central owner and a current normal platform Cookie session carrying a
+signed `mfaVerified:true` claim from successful TOTP verification. The branch also
+checks current authVersion and platform sessionVersion and retains CSRF validation.
+Operator, customer admin, Bearer-only, old unmarked sessions and the password-only
+preview exception cannot enter it. Existing console behavior is unchanged; an old
+session needs a new real-MFA session to use this branch. The strict guard and
+injected child-router seam have synthetic coverage; publication routes and the
+live owner UI are not assembled yet. This does not grant any real user new rights.
 
 Commands use the existing serialized persistence queue, require the current
 aggregate revision and an operation reason, and commit users and platform state

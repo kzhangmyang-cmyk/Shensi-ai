@@ -2106,3 +2106,17 @@ test("rejection and approved pause/resume are revision-bound state transitions",
   assert.equal(resumed.value.state, "approved");
   assert.notEqual(resumed.value.etag, paused.value.etag);
 });
+
+test("independent DM draft can pause, resume without authorizing comments, and cancel", async () => {
+  const { value, batch } = await created();
+  const paused = await value.service.pause(scope, batch.id, batch.etag, "pause-independent-dm", {});
+  assert.equal(paused.value.state, "paused");
+  assert.equal(paused.value.approvalHash, null);
+  const resumed = await value.service.resume(scope, batch.id, paused.value.etag, "resume-independent-dm", {});
+  assert.equal(resumed.value.state, "awaiting_approval");
+  assert.equal(resumed.value.approvalHash, null);
+  const pausedAgain = await value.service.pause(scope, batch.id, resumed.value.etag, "pause-independent-again", {});
+  const cancelled = await value.service.reject(scope, batch.id, pausedAgain.value.etag, "cancel-independent-dm", {});
+  assert.equal(cancelled.value.state, "rejected");
+  assert.equal((await value.service.actions(scope, batch.id)).length, 0);
+});

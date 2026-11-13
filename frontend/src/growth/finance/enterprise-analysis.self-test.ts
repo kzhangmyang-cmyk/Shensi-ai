@@ -34,6 +34,29 @@ export async function runEnterpriseAnalysisTests() {
   await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(exports, 1);
   assert.match(host.textContent!, /PDF已保存/);
   assert.throws(() => enterpriseReportHtml({ ...source, modelStatus: 'not_requested' } as any, 'ROI'), /report_not_ready/);
+  const detailed = { ...source, observations: [], detailedReport: { version: 'finance-detailed.v1',
+    sections: ['overview','income','cost','profit','cashflow','comparison','actions'].map(id => ({id, coverage: 'partial',
+      evidence: [{text:'来源记载待核对的收款',sourceRefs:['cell:1:1:1']}],
+      interpretation: [{text:'回款时点影响现金安排',sourceRefs:['cell:1:1:1']}],
+      action: [{text:'请财务核对银行流水及客户收款记录',sourceRefs:['cell:1:1:1']}] })) } };
+  const reportDocument = parseHTML(enterpriseReportHtml(detailed as any, '财务经营')).document;
+  assert.equal(reportDocument.querySelectorAll('.report-chapter').length, 7);
+  assert.match(reportDocument.body.textContent!, /回款时点影响现金安排/);
+  assert.match(reportDocument.body.textContent!, /请财务核对银行流水/);
+  assert.ok(reportDocument.querySelector('table thead'), 'sources export as a paginated table, not vanished details');
+  assert.equal(reportDocument.querySelector('script'), null);
+  validateCouncilReportRequest({html:enterpriseReportHtml(detailed as any,'财务经营'),filename:'finance.pdf'});
+  const financeHost = document.createElement('section'); document.body.append(financeHost);
+  const financeView = mountEnterpriseAnalysis({host:financeHost,purpose:'finance',canAnalyze:true,http:{request:async (_path, options)=>({
+    body:(options?.body as any).readWithModel?detailed:{...source,observations:[],modelStatus:'not_requested'}
+  }) as any}});
+  financeView.setFiles([new File(['项目,金额\n收入,5000'],'finance.csv',{type:'text/csv'})]);
+  await new Promise(resolve=>setTimeout(resolve,0));
+  financeHost.querySelector<HTMLButtonElement>('[data-enterprise-analyze]')!.click();
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(financeHost.querySelector('.enterprise-report')!.textContent, reportDocument.querySelector('.enterprise-report')!.textContent,
+    'screen and HTML/PDF must include the identical complete report, not separate summaries');
+  financeView.dispose();
   view.dispose();
   const batchDoc = parseHTML('<html><body data-session-workspace-id="ws-enterprise" data-session-user-id="actor"><main></main></body></html>').document;
   const batchHost = batchDoc.querySelector('main')!; const requests: any[] = []; let fail = true;

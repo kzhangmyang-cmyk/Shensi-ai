@@ -19,13 +19,7 @@ import { showDemoToast } from "./demo-ui";
 import { renderDashboardView } from "./demo-dashboard-view";
 import { createPrivateDomainController } from "../private-domain/controller";
 import { createDealCreateController } from "../private-domain/deal-create-controller";
-import { startGrowthWhenRequested } from "../growth/entry";
-import { createAgentsController } from "../growth/agents/controller";
 import { parseGrowthHash } from "../growth/router";
-import { createGrowthHttpClient } from "../growth/http";
-import { createRealAgentCenterApi } from "../growth/agents/real-api";
-import { createRealAgentCenterController } from "../growth/agents/real-controller";
-import { mountRetainedCfoConversation, clearRetainedCfoConversation } from '../growth/agents/cfo-session-view';
 import {
   createRealConversationsController,
   shouldUseRealConversations
@@ -35,14 +29,14 @@ import {
   createRealDashboardController,
   shouldUseRealDashboard
 } from "../dashboard/real-controller";
-import { mountSettingsPage } from "../desktop/settings-page";
 import { normalizeAppHash } from "../app-route";
-import { mountEnterpriseQuery } from "../enterprise-query/view";
-import { mountDecisionSimulation } from '../decision-simulation/view';
-import {mountHome} from '../home/view';
-import {createAcquisitionApi} from '../acquisition/runtime-api';
 
-let agentsDemoController: ReturnType<typeof createAgentsController> | null = null;
+/** Lazy-mounted agent controller surface (keeps Growth/agents out of the initial chunk). */
+type AgentsDemoController = { render(): void; dispose(): void };
+/** Lazy-mounted knowledge library surface. */
+type KnowledgeLibraryHandle = { dispose(): void; openUpload(): void };
+
+let agentsDemoController: AgentsDemoController | null = null;
 let agentsAuthority: "demo" | "real" | null = null;
 
 function renderAgentConversationInspector(
@@ -81,14 +75,24 @@ export function readConversationCaptureFixture(locationLike: Pick<Location, "hos
 
 export { renderDashboardView } from "./demo-dashboard-view";
 
-function renderModule(module: DemoModule, state: DemoState, host: HTMLElement, inspector: HTMLElement): void {
+async function renderModule(module: DemoModule, state: DemoState, host: HTMLElement, inspector: HTMLElement): Promise<void> {
   if(module==='home'){
     inspector.replaceChildren();const scope=JSON.stringify(currentDemoStorageScope());
+    const [{ mountHome }, { createAcquisitionApi }] = await Promise.all([
+      import("../home/view"),
+      import("../acquisition/runtime-api")
+    ]);
     mountHome(host,document.body.dataset.sessionMode==='real'?createAcquisitionApi():undefined,()=>JSON.stringify(currentDemoStorageScope())===scope);return;
   }
-  if(module==='decision-simulation') {inspector.replaceChildren();mountDecisionSimulation(host);return;}
+  if(module==='decision-simulation') {
+    inspector.replaceChildren();
+    const { mountDecisionSimulation } = await import("../decision-simulation/view");
+    mountDecisionSimulation(host);
+    return;
+  }
   if (module === "enterprise-query") {
     inspector.replaceChildren();
+    const { mountEnterpriseQuery } = await import("../enterprise-query/view");
     mountEnterpriseQuery(host);
     return;
   }
@@ -106,18 +110,33 @@ function renderModule(module: DemoModule, state: DemoState, host: HTMLElement, i
     }
     agentsAuthority = authority;
     renderAgentConversationInspector(inspector);
-    agentsDemoController ??= authority === "real"
-      ? createAgentsController({
-          host,
-          supportHost: inspector,
-          conversation: chatHost => mountRetainedCfoConversation({ host: chatHost,
-            scope: () => { const scope = currentDemoStorageScope(); return scope ? JSON.stringify(scope) : null; },
-            http: createGrowthHttpClient({ workspaceId: () => document.body.dataset.sessionWorkspaceId ?? null }) }),
-          real: createRealAgentCenterController({
-            api: createRealAgentCenterApi(createGrowthHttpClient())
+    if (!agentsDemoController) {
+      const [
+        { createAgentsController },
+        { createGrowthHttpClient },
+        { createRealAgentCenterApi },
+        { createRealAgentCenterController },
+        { mountRetainedCfoConversation }
+      ] = await Promise.all([
+        import("../growth/agents/controller"),
+        import("../growth/http"),
+        import("../growth/agents/real-api"),
+        import("../growth/agents/real-controller"),
+        import("../growth/agents/cfo-session-view")
+      ]);
+      agentsDemoController = authority === "real"
+        ? createAgentsController({
+            host,
+            supportHost: inspector,
+            conversation: chatHost => mountRetainedCfoConversation({ host: chatHost,
+              scope: () => { const scope = currentDemoStorageScope(); return scope ? JSON.stringify(scope) : null; },
+              http: createGrowthHttpClient({ workspaceId: () => document.body.dataset.sessionWorkspaceId ?? null }) }),
+            real: createRealAgentCenterController({
+              api: createRealAgentCenterApi(createGrowthHttpClient())
+            })
           })
-        })
-      : createAgentsController({ host, demo: true });
+        : createAgentsController({ host, demo: true });
+    }
     agentsDemoController.render();
     return;
   }
@@ -162,7 +181,7 @@ export function startDemoApp(): void {
 
   const store = createDemoStore({ scope: currentDemoStorageScope() });
   const router = createDemoRouter();
-  startGrowthWhenRequested();
+  void import("../growth/entry").then(({ startGrowthWhenRequested }) => startGrowthWhenRequested());
   const conversationCaptureFixture = readConversationCaptureFixture(window.location);
   if (conversationCaptureFixture) {
     document.body.dataset.captureFixture = "conversations";
@@ -188,6 +207,8 @@ export function startDemoApp(): void {
   let realDashboardActive = false;
   let requestedRealCustomerId = "";
   let greetingSettings: { dispose(): void } | null = null;
+  let knowledgeLibrary: KnowledgeLibraryHandle | null = null;
+  let knowledgeScope: string | null = null;
   let pendingAgentEntry: { kind: "voice" | "question"; scope: string } | null = null;
   let pendingTodos = 0;
   const currentScope = () => JSON.stringify(currentDemoStorageScope());
@@ -225,7 +246,14 @@ export function startDemoApp(): void {
     if (role && detail?.roleName) role.textContent = detail.roleName;
   };
   document.addEventListener("goodjob:cfo-role-changed", updateAgentInspector);
+  let renderGeneration = 0;
   const render = () => {
+    const generation = ++renderGeneration;
+    if (router.current() !== 'knowledge' || parseGrowthHash(window.location.hash) || knowledgeScope !== currentScope()) {
+      knowledgeLibrary?.dispose();
+      knowledgeLibrary = null;
+      knowledgeScope = null;
+    }
     if (router.current() !== 'conversations' || document.body.dataset.sessionMode !== 'real' || parseGrowthHash(window.location.hash)) { xhsSelected = false; xhsController.deactivate(); }
     if (currentRoute() !== "#agents") pendingAgentEntry = null;
     greetingSettings?.dispose();
@@ -316,15 +344,31 @@ export function startDemoApp(): void {
       agentsDemoController = null;
       agentsAuthority = null;
     }
-    renderModule(router.current(), store.getState(), host, inspector);
-    completeAgentEntry();
-    if (router.current() === 'settings') {
-      greetingSettings = mountSettingsPage(host, {
-        voiceBridge: window.shensiCfoVoice,
-        realtimeBridge: window.shensiCfoRealtime,
-        workspaceId: document.body.dataset.sessionWorkspaceId
+    if (router.current() === 'knowledge') {
+      inspector.replaceChildren();
+      inspector.hidden = true;
+      host.hidden = false;
+      knowledgeScope = currentScope();
+      void import("../knowledge/view").then(({ mountKnowledgeLibrary }) => {
+        if (generation !== renderGeneration || router.current() !== "knowledge") return;
+        knowledgeLibrary ??= mountKnowledgeLibrary(host);
       });
+      return;
     }
+    const moduleName = router.current();
+    void renderModule(moduleName, store.getState(), host, inspector).then(async () => {
+      if (generation !== renderGeneration) return;
+      completeAgentEntry();
+      if (router.current() === "settings") {
+        const { mountSettingsPage } = await import("../desktop/settings-page");
+        if (generation !== renderGeneration || router.current() !== "settings") return;
+        greetingSettings = mountSettingsPage(host, {
+          voiceBridge: window.shensiCfoVoice,
+          realtimeBridge: window.shensiCfoRealtime,
+          workspaceId: document.body.dataset.sessionWorkspaceId
+        });
+      }
+    });
   };
   let draggedOpportunityId = "";
   let resetInProgress = false;
@@ -359,6 +403,8 @@ export function startDemoApp(): void {
         shell.querySelector<HTMLInputElement>('.decision-simulation input[name="title"]')?.focus();
       } else if (route === "#enterprise-query") {
         shell.querySelector<HTMLInputElement>('.enterprise-query input[name="keyword"]')?.focus();
+      } else if (route.split('?',1)[0] === '#knowledge') {
+        knowledgeLibrary?.openUpload();
       } else if (route === "#private-domain") {
         document.dispatchEvent(new CustomEvent("goodjob:customer-create-requested"));
       } else if (route === "#agents") {
@@ -778,7 +824,10 @@ export function startDemoApp(): void {
     router.navigate(router.current());
   });
   document.addEventListener("goodjob:auth-state-changed", (event) => {
-    clearRetainedCfoConversation(document);
+    knowledgeLibrary?.dispose();
+    knowledgeLibrary = null;
+    knowledgeScope = null;
+    void import("../growth/agents/cfo-session-view").then(({ clearRetainedCfoConversation }) => clearRetainedCfoConversation(document));
     pendingAgentEntry = null;
     pendingTodos += 1;
     if (realDashboardActive) realDashboardController.deactivate();

@@ -609,13 +609,14 @@ export class AcquisitionOutreachBatchService {
     const result = await this.options.repository.transition({ workspaceId: scope.workspaceId,
       batchId, ifMatch, operation, idempotencyKey, requestHash, build: (current) => {
         const allowed = operation === "reject" ? current.state === "awaiting_approval"
-          : operation === "pause" ? current.state === "approved" : current.state === "paused";
+          || (current.state === "paused" && !current.approvalHash)
+          : operation === "pause" ? ["approved", "awaiting_approval"].includes(current.state) : current.state === "paused";
         if (!allowed) throw new AcquisitionOutreachBatchError("outreach_batch_stale");
         const at = this.options.now();
         return Object.freeze({ ...current,
-          state: operation === "reject" ? "rejected" : operation === "pause" ? "paused" : "approved",
+          state: operation === "reject" ? "rejected" : operation === "pause" ? "paused" : current.approvalHash ? "approved" : "awaiting_approval",
           etag: outreachBatchLifecycleEtag(batchId, current.revision, current.etag,
-            operation === "reject" ? "rejected" : operation === "pause" ? "paused" : "approved",
+            operation === "reject" ? "rejected" : operation === "pause" ? "paused" : current.approvalHash ? "approved" : "awaiting_approval",
             at, scope.actorId),
           rejectedBy: operation === "reject" ? scope.actorId : current.rejectedBy,
           rejectedAt: operation === "reject" ? at : current.rejectedAt,

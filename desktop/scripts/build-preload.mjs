@@ -20,3 +20,8 @@ await build({
   sourcemap: true,
   logLevel: "info",
 });
+await build({
+  entryPoints: [path.join(desktopRoot, 'src/preload/local-setup.ts')],
+  outfile: path.join(outputDirectory, 'local-setup.cjs'), bundle: true,
+  platform: 'node', target: 'node22', format: 'cjs', external: ['electron'], logLevel: 'info',
+});

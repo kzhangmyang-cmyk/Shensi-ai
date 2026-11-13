@@ -5,7 +5,10 @@ contract under `/api/platform/v1`. `pnpm generate:platform-types` generates
 `frontend/src/generated/platform-admin.ts`; `check:types` includes drift checks.
 This API uses aggregate revision/reason commands, customer authentication plus
 an independent MFA cookie, and existing cookie CSRF. It does not use Growth's
-Idempotency-Key response replay protocol. It includes member creation and reset
+Idempotency-Key response replay protocol. The separate contract-first system-library
+release commands use their own transactional Idempotency-Key/If-Match semantics
+and owner/MFA boundary; they are not implemented account-admin operations.
+The existing account API includes member creation and reset
 issuance; the same contract also defines anonymous, rate-limited
 `/api/auth/reset-password` consumption using a single-use token.
 See `../docs/modules/platform-administration.md`.
@@ -14,7 +17,49 @@ This workspace is the normative, executable boundary for the AI acquisition
 agent. JSON Schemas use Draft 2020-12 and OpenAPI describes authenticated
 `/api/v1` operations.
 
-## Growth CRM Quote and Financial Council 1.0.34
+## Growth CRM Quote and Financial Council 1.0.41
+
+The system-default reference contract lives in `openapi/system-reference.v1.yaml`
+and `json-schema/system-reference.v1.schema.json`. Generate its frontend DTOs with
+`pnpm generate:system-reference-types`. Owner paths are also referenced by
+`platform-admin.v1.yaml`, so regenerate `pnpm generate:platform-types` when their
+operations or reachable schemas change. `check:types` checks both generated outputs.
+The independent specification also owns the local normal-session citation bridge,
+`GET /api/v1/reference-connection/grants/{id}/references/{referenceId}`. It returns
+SystemReference through trusted Backend binding, without exposing reader credentials
+to Renderer or adding whole-book access. Regenerate the independent types for this
+path; it does not rewrite any immutable Growth release.
+ConnectionStatus distinguishes client `ready` from central `session_ready`.
+The latter reuses normal central authentication, exposes only status refresh in
+the connection UI, and creates no client binding. Old strict clients reject this
+new enum safely as unavailable; this is not transparent backwards compatibility.
+LibraryStatus and immutable Growth releases are unchanged by this distinction.
+Source routes and runtime assembly exist; the library is not deployed or
+published. The new immutable Growth release is pinned normally; all older
+releases, including 1.0.39, keep their exact bytes.
+
+Text Input/Session Ask may opt into `referenceProtocol:system-v1`, with at most
+three unique fixed `referenceTopicIds`. No new field has a default. Topics require
+the protocol declaration; absent protocol stays private-only and knowledge mode
+off or omitted closes both libraries. Decision operating-memory questions reuse
+the same input. `libraryStatus` is a separate optional server-derived property on
+answers and assistant history, never a requested model field.
+
+Private `Citation` retains its existing fields with optional `sourceType:private`.
+`Answer.sources` is the private/system union. System references require
+`sourceType:system`, grant/release/reference IDs, namespaced referenceKey and exact
+source/chunk hashes and UTF-16 range. They have no private document/version/chunk
+IDs. Central requests accept only finance-topics.v1 IDs, role and request UUID;
+raw questions, company data, documents and history are not legal fields. Runtime
+enforces cross-field equality and shared 6-source/12000-character budgets.
+
+The Growth OpenAPI 3.0 projection lowers field dependencies without discarding
+validation. Type generation expands reused flat coordinate schemas in a loaded
+copy, avoiding optional/union schema-pointer indexing; wire artifacts are unchanged.
+
+Cash settlement response items include the server-issued `id` and owning
+`allocationSetId`. Refund requests use that `id` as
+`originalPaymentAllocationItemId`; item creation inputs do not accept an ID.
 
 Text answers and saved assistant turns may contain `research`: completed public
 query, provider, bounded sources, validated citation IDs and retrieval time.
@@ -26,7 +71,7 @@ Chat attachments use `attachmentScope` with a conversation UUID and role and req
 ID on text questions. The authenticated attachment-clear endpoint removes exactly
 that actor/workspace/conversation/role source; finance selections remain separate.
 
-Growth `1.0.34` includes closed original CSV/XLSX/PDF/DOCX inspection and explicit short-lived read-only material selection for six-role questions. PDF sources use page/item references; DOCX uses paragraph/table-cell references without fabricated spreadsheet coordinates. `documentId` binds the exact actor/workspace source; missing or expired selections do not silently read a verified package. Null or omitted IDs retain the verified-package question path. Inspection returns bounded raw text/source references, not a verified BusinessReport. It preserves read-only council history and collaboration/report projections, independently persisted six-role states, cursor-based events, verified Douyin crawler attribution, human CRM quotation assessment and the Finance import JSON envelope. The closed council onboarding boundary includes routing
+Growth `1.0.35` includes closed original CSV/XLSX/PDF/DOCX inspection and explicit short-lived read-only material selection for six-role questions. PDF sources use page/item references; DOCX uses paragraph/table-cell references without fabricated spreadsheet coordinates. `documentId` binds the exact actor/workspace source; missing or expired selections do not silently read a verified package. Null or omitted IDs retain the verified-package question path. Inspection returns bounded raw text/source references, not a verified BusinessReport. It preserves read-only council history and collaboration/report projections, independently persisted six-role states, cursor-based events, verified Douyin crawler attribution, human CRM quotation assessment and the Finance import JSON envelope. The closed council onboarding boundary includes routing
 policy GET/PUT/POST-preview, statement package POST-preview/commit,
 run-from-statement-package, agent-center, and per-run agent reads. Reads and
 routing preview require `finance.council.run`; routing PUT requires
@@ -84,9 +129,21 @@ These read/selection operations require cookie CSRF but no ledger idempotency/ET
 
 `GET /api/v1/finance/public-research` lists owned real search connections; POST accepts only query/connectionId/role and returns a source-backed model answer with up to five source snippets, URLs, timestamps and validated citation IDs. Both require council-run permission and no query parameters. POST applies cookie CSRF and a six-per-minute actor/workspace limit; it accepts no private chat or file context. The response identifies evidence as search_index_snippets, not verified full-page content.
 
-The current immutable Growth release is `releases/growth-advisor-quote-roi/1.0.34`.
+The current immutable Growth release is `releases/growth-advisor-quote-roi/1.0.41`.
+Text requests may explicitly set `webSearchMode:on|off`; omission retains the
+legacy automatic behavior independently of `knowledgeMode`. The approved central
+default-reference protocol is defined by 1.0.41 and the independent system-reference
+contract; this does not imply live service availability or publication of books.
+Owner-only bounded version/detail/command-status DTOs belong to that independent
+management contract and do not change the Growth reference-schema closure.
+Session GET negotiates reference-aware readers through the optional
+`X-Shensi-Reference-Protocol: system-v1` header. It accepts no query/body input.
+System-bearing history requires this capability (409
+`reference_client_upgrade_required` otherwise); unknown header values return422.
+The header grants no authorization and does not change private workspace/actor
+isolation. New session appends use the existing body referenceProtocol.
 After contract checks, publish with `pnpm build:growth-contract-release`, import
-it with `pnpm --filter ./frontend contract:import --release ../contracts/releases/growth-advisor-quote-roi/1.0.34`,
+it with `pnpm --filter ./frontend contract:import --release ../contracts/releases/growth-advisor-quote-roi/1.0.41`,
 then regenerate Growth types with `pnpm --filter ./frontend contract:generate`.
 Never overwrite an existing release directory with different bytes.
 
@@ -112,6 +169,15 @@ output without modifying repository files. Both commands include
 same generator and schema, not a separate protocol definition. The dedicated
 `pnpm --filter ./contracts generate:desktop-types` and `check:desktop-types`
 commands operate on the desktop output alone.
+
+Knowledge uses the separate `openapi/knowledge.v1.yaml` contract and shared
+`json-schema/knowledge.v1.schema.json`. CFO reference mode is optional; omitting
+it retains legacy text/voice behavior. Type generators normalize only their
+loaded copy so the optional `knowledgeMode` server default does not become a
+required caller field. Wire schemas, immutable releases, explicitly required
+fields and unrelated defaults are not changed by that normalization. Changes
+to CFO's referenced schemas also require `pnpm --filter ./contracts
+generate:decision-types`; `check:types` checks that transitive output.
 
 ## Acquisition plan execution modes
 

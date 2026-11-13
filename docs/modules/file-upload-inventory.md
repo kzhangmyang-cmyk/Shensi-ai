@@ -8,10 +8,16 @@
 | 财务结构化入账 | `frontend/src/growth/finance/view.ts`、`growth/runtime.ts` | 各文件独立映射、预览及明确提交，不跨用途合并事务 |
 | 智能体正式三表准备 | `frontend/src/growth/agents/view.ts`、`controller.ts`、`real-controller.ts` | 每个正式package只能有对应表种各一份；多文件先暂存候选，用户明确选择对应表种，不自动覆盖同种报表 |
 | 智能体聊天附件 | `frontend/src/growth/agents/chat-attachments.ts`、`cfo-conversation.ts` | 选择/拖入最多10份5MB，按当前角色与会话保存只读集合；上传零模型调用，发送文字问题才使用，移除/清除解除旧引用 |
+| 持久参考知识库 | `frontend/src/knowledge/`、`backend/src/knowledge/` | 独立`#knowledge`页，最多同时选10份、每份50MiB；正常账号原始字节上传、加密原件、持久版本/解析/索引，按本人workspace＋actor和角色检索 |
 | 历史双报表演示界面 | 同上view/controller的legacy分支 | 当前真实智能体不用该入口；演示分支明确不执行真实上传，不将它当成产品验收成功 |
 
 检索覆盖 input[type=file]、动态input.type、FileList、drag/drop、showOpenDialog、showOpenFilePicker、上传API和真实调用方。
-当前未发现独立知识库附件、头像、产品图片或桌面原生文件上传接口；PDF保存为导出，不是上传。
+知识库具有独立元数据和二进制上传接口，不复用临时附件预算。当前未发现头像、产品图片或新的桌面原生上传接口；PDF保存为导出，不是上传。
+
+知识库资料不因解析完成而成为公司已核实事实；只有启用且可检索的有效版本参与文字问答。
+书籍、文件和内部资料保持来源/物理页或表格坐标及待核对标记，向当前模型仅发送相关片段。
+私有既有提取导入也走正常登录、HTTP和持久worker，不直接写业务表；实际21份导入和完整
+应用/数据库重启尚待验收，见[知识库](knowledge-base.md)。
 
 ## 实施与验证
 

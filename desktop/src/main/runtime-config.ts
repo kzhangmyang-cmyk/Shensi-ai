@@ -7,14 +7,25 @@ export interface RemoteOriginOptions {
   environment: Record<string, string | undefined>;
 }
 
-export interface DesktopRuntime {
+export interface RemoteDesktopRuntime {
+  mode?: 'remote';
   remoteOrigin: string;
   dataEnvironment: "production" | "development" | "test";
   testId?: string;
 }
+export type DesktopRuntime = RemoteDesktopRuntime | { mode: 'standalone'; dataEnvironment: 'production' | 'development' };
 
 /** Local installation acceptance must never reuse a customer's profile or device identity. */
 export async function resolveDesktopRuntime(options: RemoteOriginOptions): Promise<DesktopRuntime> {
+  if (!options.production && options.environment.SHENSI_DESKTOP_MODE === 'standalone')
+    return { mode: 'standalone', dataEnvironment: 'development' };
+  if (options.production) {
+    const config = JSON.parse(await readFile(path.join(options.resourcesPath, 'desktop-config.json'), 'utf8'));
+    if (config?.mode === 'standalone') {
+      if (Object.keys(config).length !== 1) throw new Error('desktop config has unexpected fields');
+      return { mode: 'standalone', dataEnvironment: 'production' };
+    }
+  }
   const remoteOrigin = await resolveRemoteOrigin(options);
   if (options.production && remoteOrigin.startsWith("http://127.0.0.1:")) {
     return { remoteOrigin, dataEnvironment: "test", testId: "packaged-local" };

@@ -627,6 +627,7 @@ export interface paths {
             };
             cookie?: never;
         };
+        /** @description Read saved turns without regenerating answers. Clients supporting system references send X-Shensi-Reference-Protocol system-v1. If system reference snapshots exist and this header is omitted, return 409 reference_client_upgrade_required without returning or dropping those snapshots. This header is a compatibility signal, not authorization; private legacy history remains readable without it. */
         get: operations["getCfoSession"];
         put?: never;
         post?: never;
@@ -2217,6 +2218,7 @@ export interface components {
                     commercialBindingSnapshot: components["schemas"]["QuoteCase_CommercialBindingSnapshot"];
                     currency: components["schemas"]["AttributionAllocationSet_currency"];
                     dealId: components["schemas"]["AttributionAllocationSet_nonempty"];
+                    id: components["schemas"]["AttributionAllocationSet_nonempty"];
                     originalPaymentAllocationItemId: components["schemas"]["AttributionAllocationSet_nullableId"];
                     originalPaymentAllocationSetId: components["schemas"]["AttributionAllocationSet_nullableId"];
                     originalPaymentFactId: components["schemas"]["AttributionAllocationSet_nullableId"];
@@ -2317,6 +2319,85 @@ export interface components {
             answer: string;
             /** Format: date-time */
             answeredAt: string;
+            knowledge?: {
+                detailedText: string;
+                sources: ({
+                    /** Format: uuid */
+                    chunkId: string;
+                    /** Format: uuid */
+                    documentId: string;
+                    excerpt: string;
+                    locator: {
+                        chapter?: string;
+                        column?: number;
+                        endLine?: number;
+                        endOffset?: number;
+                        page?: number;
+                        paragraph?: number;
+                        row?: number;
+                        sheet?: string;
+                        startLine?: number;
+                        startOffset?: number;
+                        table?: number;
+                    };
+                    sourceHash: string;
+                    sourceId: string;
+                    sourceLabel: string;
+                    /**
+                     * @description Omitted is legacy private; never infer system ownership from UUID or K alias.
+                     * @constant
+                     */
+                    sourceType?: "private";
+                    /** Format: uuid */
+                    versionId: string;
+                    warnings: string[];
+                } | {
+                    chunkHash: string;
+                    /** Format: uuid */
+                    corpusId: string;
+                    excerpt: string;
+                    /** @description Server-selected UTF-16 half-open offsets in the immutable chunk. Runtime also checks exact length/source equality and intact surrogate pairs. */
+                    excerptRange: {
+                        end: number;
+                        start: number;
+                    };
+                    locator: {
+                        chapter?: string;
+                        column?: number;
+                        endLine?: number;
+                        endOffset?: number;
+                        page?: number;
+                        paragraph?: number;
+                        row?: number;
+                        sheet?: string;
+                        startLine?: number;
+                        startOffset?: number;
+                        table?: number;
+                    };
+                    /** Format: uuid */
+                    queryGrantId: string;
+                    /** Format: uuid */
+                    referenceId: string;
+                    referenceKey: string;
+                    /** Format: uuid */
+                    releaseId: string;
+                    sourceHash: string;
+                    sourceId: string;
+                    sourceLabel: string;
+                    /** @constant */
+                    sourceType: "system";
+                    warnings: string[];
+                })[];
+                /** @enum {unknown} */
+                status: "used" | "no_match" | "unavailable";
+                warnings: string[];
+            };
+            libraryStatus?: {
+                /** @enum {unknown} */
+                private: "off" | "used" | "no_match" | "unavailable";
+                /** @enum {unknown} */
+                system: "off" | "unconfigured" | "unbound" | "ready" | "no_match" | "unavailable" | "auth_required" | "forbidden" | "rate_limited" | "vocabulary_mismatch";
+            };
             material: null | components["schemas"]["CfoConversationAnswer_MaterialSource"] | components["schemas"]["FinanceDocumentInspection_MaterialSource"];
             model: string;
             provider: string;
@@ -2331,13 +2412,29 @@ export interface components {
                     /** @description Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics. */
                     documentId?: string | null;
                     history: components["schemas"]["CfoConversationAnswer_Turn"][];
+                    /**
+                     * @description Bounded private reference retrieval for text; omitted preserves legacy and voice behavior.
+                     * @enum {unknown}
+                     */
+                    knowledgeMode?: "auto" | "off";
                     question: string;
+                    /**
+                     * @description Explicit negotiated text protocol. Omitted is private-only; knowledgeMode off or omitted closes both libraries.
+                     * @constant
+                     */
+                    referenceProtocol?: "system-v1";
+                    referenceTopicIds?: components["schemas"]["CfoSessionAsk"]["referenceTopicIds"];
                     /**
                      * @description Selected specialist; omitted means CFO. One role/model per question.
                      * @default cfo
                      * @enum {unknown}
                      */
                     role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+                    /**
+                     * @description Explicit text search preference: off skips planning and public search; on requires safe public retrieval or an explicit error. Omitted preserves legacy automatic planning. Independent from knowledgeMode.
+                     * @enum {unknown}
+                     */
+                    webSearchMode?: "on" | "off";
                 };
                 MaterialSource: {
                     companyName: string;
@@ -2383,6 +2480,8 @@ export interface components {
             sessionId: string;
             title: string;
             turns: {
+                knowledge?: components["schemas"]["CfoConversationAnswer"]["knowledge"];
+                libraryStatus?: components["schemas"]["CfoConversationAnswer"]["libraryStatus"];
                 model?: string;
                 research?: components["schemas"]["CfoConversationAnswer_Research"];
                 /** @enum {unknown} */
@@ -2396,8 +2495,21 @@ export interface components {
                 Ask: {
                     documentId: string | null;
                     history?: components["schemas"]["CfoConversationAnswer_Turn"][];
+                    /** @enum {unknown} */
+                    knowledgeMode?: "auto" | "off";
                     question: string;
+                    /**
+                     * @description Explicit negotiated protocol; knowledgeMode off or omitted closes both libraries.
+                     * @constant
+                     */
+                    referenceProtocol?: "system-v1";
+                    referenceTopicIds?: ("budget_variance" | "budget_planning" | "cost_driver" | "cost_structure" | "cashflow_forecast" | "working_capital" | "profitability_analysis" | "break_even" | "statement_analysis" | "ratio_analysis" | "tax_document_review" | "tax_risk_review")[];
                     revision: number;
+                    /**
+                     * @description Explicit public search preference for this turn; omitted retains legacy automatic planning.
+                     * @enum {unknown}
+                     */
+                    webSearchMode?: "on" | "off";
                 };
                 Create: {
                     documentId: string | null;
@@ -2607,6 +2719,7 @@ export interface components {
         FinanceDocumentInspection: {
             cells: components["schemas"]["FinanceDocumentInspection_Cell"][];
             classification: components["schemas"]["FinanceDocumentInspection_Classification"];
+            detailedReport?: components["schemas"]["FinanceDocumentInspection_DetailedReport"];
             documentId: string;
             /** Format: date-time */
             expiresAt: string;
@@ -2642,6 +2755,22 @@ export interface components {
                 Cell: components["schemas"]["FinanceDocumentInspection_SpreadsheetCell"] | components["schemas"]["FinanceDocumentInspection_PdfText"] | components["schemas"]["FinanceDocumentInspection_WordParagraph"] | components["schemas"]["FinanceDocumentInspection_WordTableCell"];
                 /** @enum {unknown} */
                 Classification: "financial_statements" | "ledger" | "unknown";
+                DetailedReport: {
+                    /** @enum {unknown} */
+                    publicResearchStatus?: "completed" | "unavailable" | "not_requested";
+                    research?: components["schemas"]["CfoConversationAnswer_Research"];
+                    sections: {
+                        action: components["schemas"]["FinanceDocumentInspection_ReportBlock"];
+                        /** @enum {unknown} */
+                        coverage: "supported" | "partial" | "insufficient";
+                        evidence: components["schemas"]["FinanceDocumentInspection_ReportBlock"];
+                        /** @enum {unknown} */
+                        id: "overview" | "income" | "cost" | "profit" | "cashflow" | "comparison" | "actions";
+                        interpretation: components["schemas"]["FinanceDocumentInspection_ReportBlock"];
+                    }[];
+                    /** @constant */
+                    version: "finance-detailed.v1";
+                };
                 FileHash: string;
                 Input: {
                     /** @description Other selected successful files; decoded batch at most 5 MiB. Original references receive unique file prefixes. */
@@ -2663,6 +2792,11 @@ export interface components {
                     fileName: string;
                     /** @enum {unknown} */
                     mediaType: "text/csv" | "application/vnd.ms-excel" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" | "application/pdf" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                    /**
+                     * @description Controlled public industry label for report context search; no file text is sent to search.
+                     * @enum {unknown}
+                     */
+                    publicIndustry?: "general" | "manufacturing" | "retail" | "services" | "technology";
                     /** @description True is the informed read action: use the configured model and select this read-only source for the current workspace/actor conversation. False only inspects locally. */
                     readWithModel: boolean;
                 };
@@ -2702,6 +2836,7 @@ export interface components {
                     startRow: number;
                     uncertain: components["schemas"]["FinanceDocumentInspection_Uncertain"];
                 };
+                ReportBlock: components["schemas"]["FinanceDocumentInspection_Observation"][];
                 /** @description Long PDF/Word text is preserved as segments. Offsets are zero-based UTF-16 indexes into the complete original text; endOffset is exclusive. */
                 SegmentMetadata: {
                     endOffset?: unknown;
@@ -3670,7 +3805,7 @@ export interface components {
         GrowthBootstrapResponse: {
             $defs: {
                 /** @enum {unknown} */
-                capability: "catalog.read" | "catalog.manage" | "pricing.sensitive.read" | "quote.draft.create" | "quote.confirm" | "quote.exception.discount.approve" | "quote.exception.margin.approve" | "quote.exception.payment_terms.approve" | "quote.exception.gift.approve" | "quote.exception.credit.approve" | "quote.exception.manual.approve" | "ledger.pending.create" | "ledger.verify" | "finance.council.run" | "finance.council.approve" | "finance.council.policy.manage" | "roi.close" | "growth.performance.team.read" | "growth.performance.workspace.read";
+                capability: "catalog.read" | "catalog.manage" | "pricing.sensitive.read" | "quote.draft.create" | "quote.confirm" | "quote.exception.discount.approve" | "quote.exception.margin.approve" | "quote.exception.payment_terms.approve" | "quote.exception.gift.approve" | "quote.exception.credit.approve" | "quote.exception.manual.approve" | "ledger.pending.create" | "ledger.verify" | "finance.council.run" | "finance.council.approve" | "finance.council.policy.manage" | "roi.close" | "growth.performance.team.read" | "growth.performance.workspace.read" | "knowledge.read" | "knowledge.upload" | "knowledge.manage_own" | "acquisition.outreach.approve";
                 contractFields: {
                     capabilities: components["schemas"]["GrowthBootstrapResponse_capability"][];
                     capabilityRegistryVersion: string;
@@ -5081,6 +5216,7 @@ export interface components {
             commercialBindingSnapshot: components["schemas"]["QuoteCase_CommercialBindingSnapshot"];
             currency: components["schemas"]["AttributionAllocationSet_currency"];
             dealId: components["schemas"]["AttributionAllocationSet_nonempty"];
+            id: components["schemas"]["AttributionAllocationSet_nonempty"];
             originalPaymentAllocationItemId: components["schemas"]["AttributionAllocationSet_nullableId"];
             originalPaymentAllocationSetId: components["schemas"]["AttributionAllocationSet_nullableId"];
             originalPaymentFactId: components["schemas"]["AttributionAllocationSet_nullableId"];
@@ -5145,13 +5281,29 @@ export interface components {
             /** @description Exact actor/workspace-scoped read-only document selected by this conversation. Missing/expired IDs never fall back to a verified package. Null or omitted retains verified-package semantics. */
             documentId?: string | null;
             history: components["schemas"]["CfoConversationAnswer_Turn"][];
+            /**
+             * @description Bounded private reference retrieval for text; omitted preserves legacy and voice behavior.
+             * @enum {unknown}
+             */
+            knowledgeMode?: "auto" | "off";
             question: string;
+            /**
+             * @description Explicit negotiated text protocol. Omitted is private-only; knowledgeMode off or omitted closes both libraries.
+             * @constant
+             */
+            referenceProtocol?: "system-v1";
+            referenceTopicIds?: components["schemas"]["CfoSessionAsk"]["referenceTopicIds"];
             /**
              * @description Selected specialist; omitted means CFO. One role/model per question.
              * @default cfo
              * @enum {unknown}
              */
             role: "cfo" | "finance" | "profit" | "cost" | "cashflow" | "tax";
+            /**
+             * @description Explicit text search preference: off skips planning and public search; on requires safe public retrieval or an explicit error. Omitted preserves legacy automatic planning. Independent from knowledgeMode.
+             * @enum {unknown}
+             */
+            webSearchMode?: "on" | "off";
         };
         CfoConversationAnswer_MaterialSource: {
             companyName: string;
@@ -5187,8 +5339,21 @@ export interface components {
         CfoSession_Ask: {
             documentId: string | null;
             history?: components["schemas"]["CfoConversationAnswer_Turn"][];
+            /** @enum {unknown} */
+            knowledgeMode?: "auto" | "off";
             question: string;
+            /**
+             * @description Explicit negotiated protocol; knowledgeMode off or omitted closes both libraries.
+             * @constant
+             */
+            referenceProtocol?: "system-v1";
+            referenceTopicIds?: ("budget_variance" | "budget_planning" | "cost_driver" | "cost_structure" | "cashflow_forecast" | "working_capital" | "profitability_analysis" | "break_even" | "statement_analysis" | "ratio_analysis" | "tax_document_review" | "tax_risk_review")[];
             revision: number;
+            /**
+             * @description Explicit public search preference for this turn; omitted retains legacy automatic planning.
+             * @enum {unknown}
+             */
+            webSearchMode?: "on" | "off";
         };
         CfoSession_Create: {
             documentId: string | null;
@@ -5288,6 +5453,22 @@ export interface components {
         FinanceDocumentInspection_Cell: components["schemas"]["FinanceDocumentInspection_SpreadsheetCell"] | components["schemas"]["FinanceDocumentInspection_PdfText"] | components["schemas"]["FinanceDocumentInspection_WordParagraph"] | components["schemas"]["FinanceDocumentInspection_WordTableCell"];
         /** @enum {unknown} */
         FinanceDocumentInspection_Classification: "financial_statements" | "ledger" | "unknown";
+        FinanceDocumentInspection_DetailedReport: {
+            /** @enum {unknown} */
+            publicResearchStatus?: "completed" | "unavailable" | "not_requested";
+            research?: components["schemas"]["CfoConversationAnswer_Research"];
+            sections: {
+                action: components["schemas"]["FinanceDocumentInspection_ReportBlock"];
+                /** @enum {unknown} */
+                coverage: "supported" | "partial" | "insufficient";
+                evidence: components["schemas"]["FinanceDocumentInspection_ReportBlock"];
+                /** @enum {unknown} */
+                id: "overview" | "income" | "cost" | "profit" | "cashflow" | "comparison" | "actions";
+                interpretation: components["schemas"]["FinanceDocumentInspection_ReportBlock"];
+            }[];
+            /** @constant */
+            version: "finance-detailed.v1";
+        };
         FinanceDocumentInspection_FileHash: string;
         FinanceDocumentInspection_Input: {
             /** @description Other selected successful files; decoded batch at most 5 MiB. Original references receive unique file prefixes. */
@@ -5309,6 +5490,11 @@ export interface components {
             fileName: string;
             /** @enum {unknown} */
             mediaType: "text/csv" | "application/vnd.ms-excel" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" | "application/pdf" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            /**
+             * @description Controlled public industry label for report context search; no file text is sent to search.
+             * @enum {unknown}
+             */
+            publicIndustry?: "general" | "manufacturing" | "retail" | "services" | "technology";
             /** @description True is the informed read action: use the configured model and select this read-only source for the current workspace/actor conversation. False only inspects locally. */
             readWithModel: boolean;
         };
@@ -5348,6 +5534,7 @@ export interface components {
             startRow: number;
             uncertain: components["schemas"]["FinanceDocumentInspection_Uncertain"];
         };
+        FinanceDocumentInspection_ReportBlock: components["schemas"]["FinanceDocumentInspection_Observation"][];
         /** @description Long PDF/Word text is preserved as segments. Offsets are zero-based UTF-16 indexes into the complete original text; endOffset is exclusive. */
         FinanceDocumentInspection_SegmentMetadata: {
             endOffset?: unknown;
@@ -6189,7 +6376,7 @@ export interface components {
         FinancialFact_positiveMoney: number;
         FinancialFact_workspace: string;
         /** @enum {unknown} */
-        GrowthBootstrapResponse_capability: "catalog.read" | "catalog.manage" | "pricing.sensitive.read" | "quote.draft.create" | "quote.confirm" | "quote.exception.discount.approve" | "quote.exception.margin.approve" | "quote.exception.payment_terms.approve" | "quote.exception.gift.approve" | "quote.exception.credit.approve" | "quote.exception.manual.approve" | "ledger.pending.create" | "ledger.verify" | "finance.council.run" | "finance.council.approve" | "finance.council.policy.manage" | "roi.close" | "growth.performance.team.read" | "growth.performance.workspace.read";
+        GrowthBootstrapResponse_capability: "catalog.read" | "catalog.manage" | "pricing.sensitive.read" | "quote.draft.create" | "quote.confirm" | "quote.exception.discount.approve" | "quote.exception.margin.approve" | "quote.exception.payment_terms.approve" | "quote.exception.gift.approve" | "quote.exception.credit.approve" | "quote.exception.manual.approve" | "ledger.pending.create" | "ledger.verify" | "finance.council.run" | "finance.council.approve" | "finance.council.policy.manage" | "roi.close" | "growth.performance.team.read" | "growth.performance.workspace.read" | "knowledge.read" | "knowledge.upload" | "knowledge.manage_own" | "acquisition.outreach.approve";
         GrowthBootstrapResponse_contractFields: {
             capabilities: components["schemas"]["GrowthBootstrapResponse_capability"][];
             capabilityRegistryVersion: string;
@@ -10596,6 +10783,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-Workspace-Id"?: components["parameters"]["optionalWorkspaceHeader"];
+                "X-Shensi-Reference-Protocol"?: "system-v1";
             };
             path: {
                 sessionId: string;
@@ -10633,6 +10821,24 @@ export interface operations {
             };
             /** @description API error */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description API error */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

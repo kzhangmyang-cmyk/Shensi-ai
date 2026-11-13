@@ -29,7 +29,9 @@ test("galaxy artwork and five roles remain legible in both themes and widths", a
           headline: style(".decision-galaxy > header h3").color,
           role: style(".decision-galaxy-node strong").color,
           detail: style(".decision-galaxy-node small").color,
-          sidebar: style(".decision-analysis").backgroundColor,
+          sidebar: style(".decision-analysis-sidebar").backgroundColor,
+          sidebarText: style(".decision-analysis-sidebar").color,
+          sidebarDetail: style(".decision-analysis-sidebar small").color,
           imageLoaded: image.complete && image.naturalWidth > 0,
           overflow: document.documentElement.scrollWidth > innerWidth,
         };
@@ -39,7 +41,17 @@ test("galaxy artwork and five roles remain legible in both themes and widths", a
       expect(contrast(appearance.headline, appearance.background)).toBeGreaterThanOrEqual(4.5);
       expect(contrast(appearance.role, appearance.background)).toBeGreaterThanOrEqual(4.5);
       expect(contrast(appearance.detail, appearance.background)).toBeGreaterThanOrEqual(4.5);
-      if (theme === "light") expect(appearance.sidebar).toBe("rgb(255, 255, 255)");
+      // The analysis container is transparent; the actual sidebar owns a
+      // translucent theme surface. Check both extreme underlying colors.
+      const rgba = appearance.sidebar.match(/[\d.]+/gu)!.map(Number);
+      const alpha = rgba[3] ?? 1;
+      expect(alpha).toBeGreaterThanOrEqual(0.9);
+      for (const underlay of [0, 255]) {
+        const surface = `rgb(${rgba.slice(0, 3).map(channel => Math.round(channel * alpha + underlay * (1 - alpha))).join(", ")})`;
+        expect(contrast(appearance.sidebarText, surface)).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(appearance.sidebarDetail, surface)).toBeGreaterThanOrEqual(4.5);
+      }
+      if (theme === "light") expect(rgba.slice(0, 3)).toEqual([243, 248, 255]);
     }
   }
 });

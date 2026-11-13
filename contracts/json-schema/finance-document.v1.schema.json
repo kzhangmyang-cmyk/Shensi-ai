@@ -5,6 +5,7 @@
   "type": "object", "additionalProperties": false,
   "required": ["documentId", "fileName", "expiresAt", "selectedForConversation", "fileHash", "classification", "regions", "cells", "missingStatements", "uncertain", "observations", "modelStatus"],
   "properties": {
+    "detailedReport": { "$ref": "#/$defs/DetailedReport" },
     "files": { "type": "array", "maxItems": 10, "items": { "type": "object", "additionalProperties": false, "required": ["fileName", "fileHash", "prefix"], "properties": { "fileName": { "type": "string", "maxLength": 255 }, "fileHash": { "$ref": "#/$defs/FileHash" }, "prefix": { "type": "string", "pattern": "^file:[1-9][0-9]*:$" } } } },
     "documentId": { "type": "string", "minLength": 1, "maxLength": 255 },
     "fileName": { "type": "string", "minLength": 1, "maxLength": 255 },
@@ -20,6 +21,25 @@
     "modelStatus": { "enum": ["not_requested", "consent_required", "completed", "unavailable", "invalid_output"] }
   },
   "$defs": {
+    "DetailedReport": {
+      "type": "object", "additionalProperties": false, "required": ["version", "sections"],
+      "properties": {
+        "version": { "const": "finance-detailed.v1" },
+        "publicResearchStatus": { "enum": ["completed", "unavailable", "not_requested"] },
+        "research": { "$ref": "cfo-conversation.v1.schema.json#/$defs/Research" },
+        "sections": { "type": "array", "minItems": 7, "maxItems": 7, "items": {
+          "type": "object", "additionalProperties": false, "required": ["id", "coverage", "evidence", "interpretation", "action"],
+          "properties": {
+            "id": { "enum": ["overview", "income", "cost", "profit", "cashflow", "comparison", "actions"] },
+            "coverage": { "enum": ["supported", "partial", "insufficient"] },
+            "evidence": { "$ref": "#/$defs/ReportBlock" },
+            "interpretation": { "$ref": "#/$defs/ReportBlock" },
+            "action": { "$ref": "#/$defs/ReportBlock" }
+          }
+        } }
+      }
+    },
+    "ReportBlock": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/Observation" } },
     "AttachmentClear": {
       "type": "object", "additionalProperties": false,
       "required": ["documentId", "conversationKey", "role"],
@@ -43,6 +63,7 @@
         "contentBase64": { "type": "string", "minLength": 4, "maxLength": 6990508, "description": "Canonical Base64-encoded original file; decoded content is bounded to 5 MiB by the server." },
         "readWithModel": { "type": "boolean", "description": "True is the informed read action: use the configured model and select this read-only source for the current workspace/actor conversation. False only inspects locally." },
         "analysisPurpose": { "enum": ["finance", "roi", "management"], "description": "Optional read-only question purpose. None requires three statements or creates ledger facts. Missing ROI inputs cannot be invented." }
+        ,"publicIndustry": { "enum": ["general", "manufacturing", "retail", "services", "technology"], "description": "Controlled public industry label for report context search; no file text is sent to search." }
       }
     },
     "FileHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },

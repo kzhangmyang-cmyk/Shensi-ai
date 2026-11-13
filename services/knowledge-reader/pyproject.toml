@@ -1,0 +1,14 @@
+[project]
+name = "shensi-knowledge-reader"
+version = "0.1.0"
+description = "Private, bounded local reference extraction, without model or database access"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pypdfium2==5.14.0",
+  "Pillow==12.3.0",
+  "openpyxl==3.1.5",
+  "ocrmac==1.0.1; sys_platform == 'darwin'",
+]
+
+[tool.uv]
+package = false
