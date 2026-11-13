@@ -13,6 +13,7 @@ const section16 = {
   "/api/v1/ai/connections/{id}/models": ["get"],
   "/api/v1/ai/connections/{id}/test": ["post"],
   "/api/v1/ai/connections/{id}/activate": ["post"],
+  "/api/v1/ai/connections/{id}/deactivate": ["post"],
   "/api/v1/ai/calls": ["get"],
   "/api/v1/ai/calls/{id}": ["get"],
   "/api/v1/acquisition/providers": ["get"],
@@ -754,7 +755,8 @@ test("OpenAPI exactly covers Section 16 with typed, authenticated responses", as
   const connectionWrites = [
     document.paths["/api/v1/ai/connections"].post,
     document.paths["/api/v1/ai/connections/{id}"].patch,
-    document.paths["/api/v1/ai/connections/{id}/activate"].post
+    document.paths["/api/v1/ai/connections/{id}/activate"].post,
+    document.paths["/api/v1/ai/connections/{id}/deactivate"].post
   ];
   for (const operation of connectionWrites) {
     assert.equal(operation.responses["200"].content["application/json"].schema.$ref, "#/components/schemas/ModelConnection");

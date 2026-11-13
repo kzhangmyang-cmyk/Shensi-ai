@@ -351,7 +351,6 @@ export function createConnectionCenterController(
     },
 
     close() {
-      if (state.mutation !== "idle") return;
       hideRoot();
     },
 

@@ -249,3 +249,66 @@ modelFailureController.switchMode("search");
 assert.equal(modelFailureController.getState().status, "ready");
 assert.equal(modelFailureController.getState().error, "");
 modelFailureController.destroy();
+
+function dialogHarness() {
+  const listeners = new Map<string, Array<(event: Event) => void>>();
+  const root = {
+    hidden: false,
+    open: false,
+    className: "",
+    attributes: new Map<string, string>(),
+    classList: {
+      add(name: string) { root.className = `${root.className} ${name}`.trim(); },
+      remove(name: string) {
+        root.className = root.className.split(/\s+/u).filter((item) => item !== name).join(" ");
+      }
+    },
+    setAttribute(name: string, value: string) { root.attributes.set(name, value); },
+    getAttribute(name: string) { return root.attributes.get(name) ?? null; },
+    contains() { return true; },
+    addEventListener(type: string, listener: (event: Event) => void) {
+      listeners.set(type, [...(listeners.get(type) ?? []), listener]);
+    },
+    removeEventListener() {},
+    querySelector() { return null; },
+    showModal() { root.open = true; root.hidden = false; },
+    close() { root.open = false; },
+    dispatch(type: string, event: Event) {
+      for (const listener of listeners.get(type) ?? []) listener(event);
+    }
+  };
+  return root;
+}
+
+let releaseModelTest!: (value: { ok: boolean; message: string }) => void;
+const modelTestDialog = dialogHarness();
+const modelTestBody = { innerHTML: "" };
+const modelTestController = createConnectionCenterController({
+  api: {
+    ...api,
+    async testModelConnection() {
+      return new Promise((resolve) => { releaseModelTest = resolve; });
+    }
+  },
+  eventTarget: new EventTarget(),
+  root: modelTestDialog as never,
+  body: modelTestBody as never,
+  confirm: () => true
+});
+await modelTestController.open("model");
+assert.equal(modelTestDialog.open, true);
+const modelTest = modelTestController.testModel("model-1");
+assert.equal(modelTestController.getState().mutation, "testing");
+modelTestDialog.dispatch("cancel", new Event("cancel", { cancelable: true }));
+assert.equal(modelTestDialog.open, false);
+assert.equal(modelTestDialog.hidden, true);
+assert.equal(modelTestController.getState().mutation, "testing",
+  "closing during a connection test must leave the request running");
+modelTestController.close();
+assert.equal(modelTestDialog.hidden, true);
+releaseModelTest({ ok: true, message: "模型连接测试通过" });
+await modelTest;
+assert.equal(modelTestDialog.hidden, true,
+  "a finished test or enablement must not reopen a dialog the user closed");
+assert.equal(modelTestDialog.open, false);
+modelTestController.destroy();

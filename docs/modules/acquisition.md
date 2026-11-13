@@ -210,10 +210,15 @@ Local platform authentication and Backend connection are separate milestones.
 If an authenticated local session cannot complete because the Backend rejects
 the client build or keeps desktop migration locked, the dialog retains the local
 authenticated observation without marking the product account connected. It
-shows the exact service recovery instruction and stops automatic login polls;
-explicit recheck reuses the same session after service repair. Device enrollment
-uses the same specific admission copy instead of claiming the device is simply
-unregistered. Daily login diagnosis uses the paired desktop-local `start-ui`
+shows the exact service recovery instruction inside the external login dialog
+and stops automatic login polls; explicit recheck reuses the same session after
+service repair. A string `error` of `desktop_client_build_not_admitted` (HTTP
+409) or `desktop_client_migration_locked` (HTTP 503) is that instruction, not a
+generic HTTP or Douyin outage. Device enrollment uses the same specific
+admission copy instead of claiming the device is simply unregistered. After the
+server is unlocked, another enrollment for the same workspace clears a stale
+“后台暂未开放” banner and can finish account binding; that retry does not require
+an app restart or a workspace change. Daily login diagnosis uses the paired desktop-local `start-ui`
 launcher described in `docs/DEPLOYMENT.md`, preserving old outreach tasks.
 The `start-ui` runtime deliberately disables approvals and desktop sending;
 social conversations report desktop sending as disabled rather than asking for

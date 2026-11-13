@@ -6,6 +6,7 @@ import {
   type DouyinPolicyInput, type DouyinRunCandidate, type DouyinRunIntent
 } from "./douyin-automation-api";
 import { createAcquisitionBrowserRuntimes, DesktopLoginSyncError, isDesktopLoginSessionUnavailable } from "./acquisition-browser-runtime";
+import { desktopAdmissionMessage } from "../desktop/desktop-admission-error";
 import { getInstalledDesktopRuntime } from "../desktop/desktop-runtime";
 import type { ConnectorStatus, DouyinCollectionStatus } from "../desktop/desktop-bridge";
 
@@ -68,10 +69,15 @@ function key(prefix: string): string {
 }
 function message(error: unknown): string { return error instanceof Error ? error.message.slice(0, 300) : "未知错误"; }
 function loginMessage(error: unknown): string {
+  const admission = desktopAdmissionMessage(error);
+  if (admission) return admission;
   return error instanceof AcquisitionHttpError
     && (error.status >= 500 || ["internal_error", "http_500"].includes(error.code))
     ? "抖音登录服务暂时不可用，请稍后重新打开登录页。"
     : message(error);
+}
+function admissionFailure(error: unknown): string | null {
+  return error instanceof DesktopLoginSyncError ? error.message : desktopAdmissionMessage(error);
 }
 function expiredLoginSession(session: DouyinLoginSession): DouyinLoginSession {
   return {
@@ -260,9 +266,11 @@ export function createDouyinAutomationController(options: {
     } catch (error) {
       if (!currentLogin(ownGeneration)
         || error instanceof DOMException && error.name === "AbortError") return;
-      if (error instanceof DesktopLoginSyncError) {
-        emit({ phase: "ready", loginSession: error.session, error: error.message,
-          errorRetry: null, connectionPending: false, interactionPending: false });
+      const admission = admissionFailure(error);
+      if (admission) {
+        emit({ phase: "ready",
+          loginSession: error instanceof DesktopLoginSyncError ? error.session : state.loginSession,
+          error: admission, errorRetry: null, connectionPending: false, interactionPending: false });
         return;
       }
       const activeSession = state.loginSession;
@@ -608,9 +616,11 @@ export function createDouyinAutomationController(options: {
       } catch (error) {
         if (!currentLogin(own) || state.loginSession?.id !== sessionId
           || error instanceof DOMException && error.name === "AbortError") return;
-        if (error instanceof DesktopLoginSyncError) {
-          emit({ phase: "ready", loginSession: error.session, error: error.message,
-            errorRetry: null, connectionPending: false });
+        const admission = admissionFailure(error);
+        if (admission) {
+          emit({ phase: "ready",
+            loginSession: error instanceof DesktopLoginSyncError ? error.session : state.loginSession,
+            error: admission, errorRetry: null, connectionPending: false });
         } else if (isExpiredLoginError(error) || isDesktopLoginSessionUnavailable(error)) {
           emit({
             phase: "ready",

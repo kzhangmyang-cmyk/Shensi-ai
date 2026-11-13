@@ -18,7 +18,9 @@ council.
   and `backend/src/model-providers/adapters/`.
 - Runtime gateway: `backend/src/model-providers/gateway.ts` and `runtime.ts`.
 - Frontend settings: `frontend/src/connections/` and the `#settings` shell
-  route.
+  route. Escape, 取消, and 完成并关闭 dismiss the connection dialog while a
+  test or enable/disable request is still running. The request continues in
+  the background and does not reopen the dialog when it finishes.
 
 ## Dependencies
 

@@ -42,6 +42,7 @@ export function createDesktopRuntimeState(
   let unsubscribeOutreach: (() => void) | null = null;
   let workspace: string | null | undefined;
   let workspaceGeneration = 0;
+  let enrollmentEpoch = 0;
   let workspaceFlight: Promise<void> | null = null;
   let enrollmentError: string | null = null;
   let binding: DesktopBindingStatus | null = null;
@@ -164,17 +165,21 @@ export function createDesktopRuntimeState(
     },
     synchronizeWorkspace(workspaceId: string | null): Promise<void> {
       if (!bridge || disposed) return Promise.resolve();
-      if (workspace === workspaceId && !enrollmentError) return workspaceFlight ?? Promise.resolve();
+      if (workspace === workspaceId && !enrollmentError && workspaceFlight) return workspaceFlight;
+      const switching = workspace !== workspaceId;
       workspace = workspaceId;
-      localAccount = null;
-      bindingFlight = null;
-      binding = null;
-      bindingError = null;
+      if (switching) {
+        localAccount = null;
+        bindingFlight = null;
+        binding = null;
+        bindingError = null;
+        outreach = null;
+        workspaceGeneration += 1;
+      }
       enrollmentError = null;
-      outreach = null;
-      const own = ++workspaceGeneration;
-      notifyOutreach();
-      const current = () => !disposed && own === workspaceGeneration;
+      const ownWorkspace = workspaceGeneration;
+      const ownEnrollment = ++enrollmentEpoch;
+      const current = () => !disposed && ownWorkspace === workspaceGeneration && ownEnrollment === enrollmentEpoch;
       const flight = (async () => {
         await bridge.setDesktopWorkspace({ workspaceId });
         if (!workspaceId || !current()) return;
@@ -197,11 +202,13 @@ export function createDesktopRuntimeState(
             throw new Error("desktop_registration_workspace_mismatch");
           }
         }
+        if (current()) { enrollmentError = null; notifyOutreach(); }
       })().catch((error: unknown) => {
         if (current()) { enrollmentError = desktopAdmissionMessage(error) ?? "未注册此设备，请重试注册"; notifyOutreach(); }
         throw error;
       });
       workspaceFlight = flight;
+      notifyOutreach();
       return flight;
     },
     subscribe(listener: (value: ConnectorStatus) => void) {

@@ -106,6 +106,32 @@ for (const state of ["awaiting_scan", "active"] as const) {
       "completed login must neither look pending nor claim separate device binding succeeded");
   }
 }
+for (const [runtimeState, authState, detail] of [
+  ["starting", "waiting_for_user", "后台暂未开放桌面连接，请联系管理员完成服务启用后重试。"],
+  ["running", "authenticated", "应用版本与后台允许的版本不一致，请同步更新并重新启动应用和后台；重复扫码无法解决。"]
+] as const) {
+  renderDouyinAutomationView(host, {
+    ...interactiveLoginState,
+    error: detail,
+    loginSession: {
+      ...interactiveLoginState.loginSession!,
+      interactionSurface: "external_window",
+      runtimeState,
+      authState,
+      taskState: "idle",
+      qrImageDataUrl: null,
+      qrStatus: null,
+      loginPage: null
+    }
+  });
+  const externalDialog = host.querySelector(".douyin-login-dialog");
+  const externalAlert = externalDialog?.querySelector("[role=alert]");
+  assert.equal(externalAlert?.textContent, detail,
+    "admission and bind failures must be readable inside the external login dialog");
+  assert.doesNotMatch(externalDialog?.querySelector(".douyin-login-status")?.textContent ?? "",
+    /正在打开外部浏览器/u,
+    "an admission failure must not leave the dialog saying the browser is still opening");
+}
 renderDouyinAutomationView(host, {
   ...interactiveLoginState,
   connectionPending: false,
