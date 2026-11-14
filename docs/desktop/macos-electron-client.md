@@ -290,6 +290,8 @@ pnpm desktop:package:mac:release
 pnpm desktop:verify:mac:release
 ```
 
+应用内更新见 [应用内更新](app-updates.md)。当前 ad-hoc 包只能下载并校验 DMG，然后由用户手动拖入“应用程序”；没有 Developer ID 和公证时不能自动替换正在运行的应用。
+
 日常使用 `desktop:local`：独立 MySQL 数据库 `shensi_desktop` 保存在持久卷中，端口 `3313`；本机 Backend 端口 `5638`。首次初始化生成独立凭据，不复制旧账号、业务数据或 API Key。进入应用后注册普通账号创建新工作区。Cmd+Q 退出开发应用或 Ctrl+C 会停止它启动的 Backend，保留 MySQL 和数据；下次启动继续使用同一数据库。旧试用和已安装应用保持不变。
 
 运行时保留数据库所属Docker Engine身份。自动发现的Engine不匹配时，使用`SHENSI_DOCKER_HOST`显式选择原Engine的Unix socket；不要重绑配置或新建空卷替代原数据库。若当前pnpm配置会在运行脚本前自动安装依赖，可用`pnpm_config_verify_deps_before_run=false pnpm desktop:local`明确禁止本次自动安装；该精确设置传递到子构建，不继承其他npm配置或外部凭据。启动前正常退出同一开发应用的旧窗口，避免单实例锁只聚焦旧版。源身份忽略Finder `.DS_Store`元数据，但仍拒绝未分类源码、secret和符号链接。

@@ -25,6 +25,9 @@ import type { LocalApplicationRuntime } from './local-application-runtime.ts';
 import { requestLocalInitialAccount } from './local-setup-window.ts';
 import { launchSingleInstanceApplication, keepApplicationAliveBetweenWindows } from "./main-bootstrap.ts";
 import { readDesktopBuildIdentity, readDevelopmentDesktopBuildIdentity } from "./desktop-build-identity.ts";
+import { createAppUpdateService, installedRelease } from "./app-update-service.ts";
+import { registerAppUpdateIpc } from "./app-update-ipc.ts";
+import { UPDATE_CHANNELS } from "../shared/app-update.ts";
 import { DesktopCentralApiClient } from "./desktop-central-api-client.ts";
 import { createDeviceInstallationStore } from "./device-installation.ts";
 import { createDeviceCredentialStore } from "./device-credential-store.ts";
@@ -167,6 +170,28 @@ async function main(runtime: RemoteDesktopRuntime, paths: AppPaths,
     diagnostic: value => logger.info('cfo.startup_greeting', value) }));
   const voiceIpc = registerCfoVoiceIpc({ localOrigin: renderer.origin, ipcMain, voice,
     authorizedSender: () => window?.webContents, authorize: voiceAuthority.authorize });
+  const updates = createAppUpdateService({
+    installed: installedRelease({
+      platform: process.platform,
+      arch: process.arch === "arm64" ? "arm64" : "x64",
+      buildManifestSha256
+    }),
+    directory: path.join(paths.userData, "updates"),
+    reveal: async (filePath) => { await shell.showItemInFolder(filePath); },
+    onState: (state) => {
+      const sender = window?.webContents;
+      if (!sender || sender.isDestroyed()) return;
+      try { if (new URL(sender.getURL()).origin !== new URL(renderer.origin).origin) return; }
+      catch { return; }
+      sender.send(UPDATE_CHANNELS.changed, state);
+    }
+  });
+  const updateIpc = registerAppUpdateIpc({
+    localOrigin: renderer.origin,
+    ipcMain,
+    authorizedSender: () => window?.webContents,
+    service: updates
+  });
   const ipc = registerDesktopIpc({
     onCollectionDiagnostic: value => logger.info("desktop.collection_start", value),
     localOrigin: renderer.origin,
@@ -248,6 +273,7 @@ async function main(runtime: RemoteDesktopRuntime, paths: AppPaths,
       disposeSignals();
       unsubscribeStatus();
       ipc.dispose();
+      updateIpc.dispose();
       allowQuit = true;
       app.quit();
     });

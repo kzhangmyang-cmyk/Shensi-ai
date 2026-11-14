@@ -38,6 +38,7 @@ import { parseHTML } from "linkedom";
 import "./app-route.self-test";
 import "./app-session.self-test";
 import "./desktop/desktop-bridge.self-test";
+import "./desktop/app-update.self-test";
 import "./desktop/startup-splash.self-test";
 import "./demo/demo-store.self-test";
 import "./demo/demo-dashboard-view.self-test";

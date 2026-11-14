@@ -249,6 +249,70 @@ body.is-authenticated .replica-shell {
   gap: 13px;
 }
 
+.replica-app-update-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: start;
+  min-height: 36px;
+  padding: 0 12px;
+  color: var(--appearance-text-primary, #f1f3f0);
+  background: var(--appearance-bg-subtle, transparent);
+  border: 1px solid var(--replica-line);
+  border-radius: 999px;
+}
+
+.replica-app-update-entry[data-update-available="true"] {
+  border-color: var(--replica-accent);
+}
+
+.replica-app-update-entry:focus-visible {
+  outline: 2px solid var(--replica-accent);
+  outline-offset: 2px;
+}
+
+.replica-app-update-dialog {
+  width: min(440px, calc(100vw - 32px));
+  padding: 0;
+  color: var(--appearance-text-primary, #f1f3f0);
+  background: var(--appearance-bg-surface, #121413);
+  border: 1px solid var(--replica-line);
+  border-radius: 16px;
+}
+
+.replica-app-update-dialog::backdrop {
+  background: var(--appearance-bg-surface, rgba(0, 0, 0, .72));
+}
+
+.replica-app-update-dialog > div { padding: 20px; }
+.replica-app-update-dialog p,
+.replica-app-update-limit { color: var(--appearance-text-secondary, #747b77); }
+.replica-app-update-progress {
+  height: 8px;
+  overflow: hidden;
+  background: var(--appearance-bg-subtle, rgba(255, 255, 255, .08));
+  border-radius: 999px;
+}
+.replica-app-update-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--replica-accent);
+}
+.replica-app-update-actions { display: flex; gap: 8px; margin-top: 16px; }
+.replica-app-update-actions button {
+  min-height: 36px;
+  padding: 0 12px;
+  color: var(--appearance-text-primary, #f1f3f0);
+  background: var(--appearance-bg-subtle, transparent);
+  border: 1px solid var(--replica-line);
+  border-radius: 10px;
+}
+
+@media (max-width: 720px) {
+  .replica-app-update-dialog { width: min(440px, calc(100vw - 24px)); }
+  .replica-app-update-actions { flex-wrap: wrap; }
+}
+
 .replica-workspace {
   min-height: 164px;
   display: grid;
@@ -8058,6 +8122,7 @@ html[data-theme="light"] .replica-connection-center-close {
     gap: 8px;
   }
   .replica-shell.is-acquisition-route .replica-user { grid-column: 1; grid-row: 1; }
+  .replica-shell.is-acquisition-route .replica-app-update-entry { grid-column: 1 / -1; grid-row: 2; }
   .replica-shell.is-acquisition-route .cfo-greeting-tools {
     grid-column: 2;
     grid-row: 1;
