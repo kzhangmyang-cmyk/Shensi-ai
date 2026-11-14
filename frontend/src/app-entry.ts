@@ -2,6 +2,7 @@ import { createAppSessionController } from "./app-session";
 import { douyinLiveLoginSessionId } from "./app-route";
 import { installDesktopRuntime } from "./desktop/desktop-runtime";
 import { installCfoGreeting } from './desktop/cfo-greeting';
+import { installAppUpdate, type AppUpdateBridge } from './desktop/app-update-view';
 import { installStartupSplash } from './desktop/startup-splash';
 import { installProductTheme } from './theme';
 
@@ -11,7 +12,7 @@ const desktopOnlyBuild = typeof __SHENSI_DESKTOP_BUILD__ !== "undefined"
   && __SHENSI_DESKTOP_BUILD__;
 
 export interface AppEntryOptions {
-  windowLike: { location: { hash: string }; readonly shensiDesktop?: Window["shensiDesktop"]; readonly shensiCfoVoice?: Window['shensiCfoVoice'] };
+  windowLike: { location: { hash: string }; readonly shensiDesktop?: Window["shensiDesktop"]; readonly shensiCfoVoice?: Window['shensiCfoVoice']; readonly shensiAppUpdate?: AppUpdateBridge };
   documentLike: Document;
   createSession?: () => Pick<ReturnType<typeof createAppSessionController>, "start"> & Partial<Pick<ReturnType<typeof createAppSessionController>, "destroy">>;
   loadLiveLogin?: () => Promise<Pick<typeof import("./acquisition/douyin-live-login-entry"), "startDouyinLiveLoginPage">>;
@@ -53,6 +54,7 @@ export async function startAppEntry(options: AppEntryOptions): Promise<void> {
   });
   const desktopRuntime = installDesktopRuntime(options.windowLike, options.documentLike);
   const greeting = installCfoGreeting(options.documentLike, options.windowLike.shensiCfoVoice, startup?.finished);
+  if (options.windowLike.shensiAppUpdate) installAppUpdate(options.documentLike, options.windowLike.shensiAppUpdate);
   const createSession = options.createSession ?? createAppSessionController;
   let appSession = createSession();
   let bootstrapGeneration = 0;
